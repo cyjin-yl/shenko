@@ -311,8 +311,24 @@ fn recorded_result(
 fn recorded_result_with_wait(
     store: &Arc<Store>,
     head: &shenko_types::subject::SubjectBranchHead,
+    step: shenko_types::subject::SubjectStep,
+    semantic_wait: Option<shenko_types::subject::SemanticWait>,
+) -> shenko_types::subject::SubjectStep {
+    recorded_result_with_docket(store, head, step, semantic_wait, &[])
+}
+
+/// The frozen S0 input of one step, including the reconciliation docket the
+/// model was actually shown.
+///
+/// A docket makes the plan schema 13; without one the plan stays schema 12,
+/// so existing fixtures keep their exact sealed bytes. S1 only accepts an
+/// acknowledgement for a case carried in THIS docket.
+fn recorded_result_with_docket(
+    store: &Arc<Store>,
+    head: &shenko_types::subject::SubjectBranchHead,
     mut step: shenko_types::subject::SubjectStep,
     semantic_wait: Option<shenko_types::subject::SemanticWait>,
+    reconciliation_docket: &[serde_json::Value],
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
@@ -322,8 +338,10 @@ fn recorded_result_with_wait(
     ledger.rebind_model(1, &profile.0).unwrap();
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
+    let plan_schema = if reconciliation_docket.is_empty() { 12 } else { 13 };
     let plan = serde_json::json!({
-        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "events":[], "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
+        "schema_version":plan_schema, "reconciliation_docket":reconciliation_docket,
+        "step_id":step.step_id, "step_no":step.step_no, "events":[], "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
@@ -348,7 +366,7 @@ fn recorded_result_with_wait(
     step.record_revision = RecordRevision(1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 12).unwrap().object);
+        "subject_step_input", plan_schema).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);
@@ -390,8 +408,19 @@ fn recorded_result_with_wait(
 
 fn committed_candidate(
     store: &Store,
+    step: shenko_types::subject::SubjectStep,
+    next: shenko_types::ids::EntityId,
+) -> shenko_types::subject::SubjectStep {
+    committed_candidate_with(store, step, next, vec![])
+}
+
+/// A committed S1 candidate that also authored the given outbox intents, the
+/// way a real subject step does.
+fn committed_candidate_with(
+    store: &Store,
     mut step: shenko_types::subject::SubjectStep,
     next: shenko_types::ids::EntityId,
+    publications: Vec<shenko_types::subject::PublicationIntent>,
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
@@ -419,7 +448,7 @@ fn committed_candidate(
         child_dialogue_intents: vec![],
         memory_intents: vec![],
         policy_intents: vec![],
-        publication_intents: vec![],
+        publication_intents: publications,
         pending_obligations: vec![],
         attention_policy: None,
         evidence_refs: vec![],
@@ -1329,3 +1358,480 @@ fn native_recovery_rolls_back_all_pages_when_later_identity_is_corrupt() {
     assert_eq!(first.record_revision, RecordRevision(5));
     assert!(!first.memos.contains_key("native_recovery"));
 }
+
+// ---------------------------------------------------------------------------
+// Subject outbox: one atomic T1, and a dispatch loop that committed facts can
+// never poison. SPEC §41.4 X07/X11, §41.6.
+// ---------------------------------------------------------------------------
+
+/// The outbox intent one committed subject step authors.
+fn publication_intent() -> shenko_types::subject::PublicationIntent {
+    shenko_types::subject::PublicationIntent {
+        intent_id: shenko_types::ids::EntityId::new(),
+        target: shenko_types::output::PublicationTarget::new(
+            "qq",
+            "group",
+            "123456789",
+            "qq:10001",
+        ),
+        content: "已经提交的回复正文".into(),
+        reply_grant_id: None,
+    }
+}
+
+/// What an installed channel plugin describes for that target. The store owns
+/// the ledger; the plugin owns the platform action.
+fn publication_dispatch() -> shenko_types::channel::ChannelDispatch {
+    shenko_types::channel::ChannelDispatch {
+        channel: "qq".into(),
+        action: shenko_types::channel::ChannelAction::Send,
+        platform_action: "send_group_msg".into(),
+        params: serde_json::json!({"group_id":"123456789","message":"已经提交的回复正文"}),
+        account: "qq:10001".into(),
+        tenant: None,
+        conversation: Some("group:123456789".into()),
+        attachments: vec![],
+        contract_digest: shenko_types::object::Digest::blake3(b"shenko.channel/qq/test/1"),
+        acceptance_predicate: "onebot_retcode_zero".into(),
+        echo: None,
+    }
+}
+
+/// Commit one real subject step whose S1 authored `intent`.
+fn commit_publication_step(
+    store: &Arc<Store>,
+    agent: shenko_types::ids::EntityId,
+    intent: &shenko_types::subject::PublicationIntent,
+) -> shenko_types::subject::SubjectStep {
+    let (head, first) = store.load_subject(agent).unwrap();
+    let next = shenko_types::ids::EntityId::new();
+    let result = recorded_result(store, &head, first);
+    let step = committed_candidate_with(store, result, next, vec![intent.clone()]);
+    store
+        .commit_step_and_advance_head(&step, &head, next)
+        .unwrap();
+    step
+}
+
+fn publication_state(store: &Store, intent_id: shenko_types::ids::EntityId) -> String {
+    store
+        .committed_intents(Some("publication"), None, 16)
+        .unwrap()
+        .into_iter()
+        .find(|intent| intent.intent_id == intent_id)
+        .expect("the admitted publication intent is readable")
+        .state
+}
+
+#[test]
+fn publication_t1_claims_and_arms_in_one_commit() {
+    use shenko_types::ids::*;
+    use shenko_types::operation::{AttemptDispatchStage, OperationState};
+    use shenko_types::task::TaskState;
+
+    let (_dir, store, agent) = initialized_subject();
+    store.start_subject_dispatcher().unwrap();
+    let intent = publication_intent();
+    let intent_id = intent.intent_id;
+    let step = commit_publication_step(&store, agent, &intent);
+
+    // S1 already exposed the intent and its task together: never a half outbox.
+    assert_eq!(store.ready_publications(8).unwrap().len(), 1);
+    assert!(matches!(
+        store.external_task(intent_id).unwrap().state,
+        TaskState::Pending { .. }
+    ));
+
+    let before = store.current_commit_seq().unwrap();
+    let armed = store
+        .arm_publication(intent_id, &publication_dispatch())
+        .unwrap()
+        .expect("a ready publication arms");
+    let after = store.current_commit_seq().unwrap();
+    assert_eq!(after, before + 1, "T1 must advance the ledger exactly once");
+    assert_eq!(armed.operation_id, intent_id);
+    assert_eq!(armed.task_id, intent_id);
+    assert_eq!(armed.account, "qq:10001");
+    assert_eq!(
+        armed.armed_commit,
+        shenko_types::commit::CommitRef::new(store.ledger.ledger_id(), LedgerSeq(after))
+    );
+
+    // The same commit carries the claim, the operation and the armed attempt.
+    assert_eq!(publication_state(&store, intent_id), "claimed");
+    let operation = store.external_operation(intent_id).unwrap();
+    assert_eq!(operation.state, OperationState::InFlight);
+    assert_eq!(operation.prepared_commit, armed.armed_commit);
+    assert_eq!(operation.authority_ref.decision_ref, step.step_id);
+    let attempts = store.external_operation_attempts(intent_id).unwrap();
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].dispatch_stage, AttemptDispatchStage::Armed);
+    assert_eq!(attempts[0].attempt_id, armed.attempt_id);
+    assert_eq!(attempts[0].armed_commit, armed.armed_commit);
+    match store.external_task(intent_id).unwrap().state {
+        TaskState::Running {
+            invocation_id,
+            epoch,
+            ..
+        } => {
+            assert_eq!(invocation_id, attempts[0].invocation_id);
+            assert_eq!(epoch, attempts[0].epoch);
+        }
+        other => panic!("the publication task must be running at T1, got {other:?}"),
+    }
+
+    // A second claim never authorizes a second send.
+    assert!(
+        store
+            .arm_publication(intent_id, &publication_dispatch())
+            .unwrap()
+            .is_none(),
+        "an already claimed publication must not arm again"
+    );
+    assert!(store.ready_publications(8).unwrap().is_empty());
+    assert_eq!(store.external_operation_attempts(intent_id).unwrap().len(), 1);
+    assert_eq!(store.current_commit_seq().unwrap(), after);
+}
+
+#[test]
+fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch() {
+    use shenko_types::ids::*;
+    use shenko_types::task::{AbortScope, TaskState};
+
+    let (dir, store, agent) = initialized_subject();
+    store.start_subject_dispatcher().unwrap();
+    let intent = publication_intent();
+    let intent_id = intent.intent_id;
+    commit_publication_step(&store, agent, &intent);
+
+    // The owner withdraws the reply before any T1: a real, committed fact.
+    let cancellation = store
+        .request_native_cancellation(
+            intent_id,
+            EntityId::new(),
+            EntityId::new(),
+            "the subject withdrew this reply",
+            AbortScope::Task,
+        )
+        .unwrap();
+    assert!(cancellation.cancelled.contains(&intent_id));
+
+    // Before this contract the call answered `Err(publication_cancelled)`,
+    // which the publication consumer propagated as a fatal pass: one cancelled
+    // reply took the whole runtime down on every restart, forever.
+    let armed = store
+        .arm_publication(intent_id, &publication_dispatch())
+        .unwrap();
+    assert!(armed.is_none(), "a cancelled reply is never armed");
+    assert!(
+        store.external_operation(intent_id).is_err(),
+        "nothing was ever armed, so no external effect is possible"
+    );
+    assert!(store.ready_publications(8).unwrap().is_empty());
+    let settled = store
+        .committed_intent(intent_id)
+        .unwrap()
+        .expect("the settled intent is readable by identity");
+    assert_eq!(settled.state, "blocked");
+    assert!(
+        settled.result_ref.is_some(),
+        "the never-dispatched intent names its sealed outcome"
+    );
+    assert!(
+        store.committed_intent(EntityId::new()).unwrap().is_none(),
+        "an unknown identity is absent, not an error"
+    );
+
+    let outcome_ref = match store.external_task(intent_id).unwrap().state {
+        TaskState::Terminal { outcome_ref } => outcome_ref,
+        other => panic!("the never-dispatched reply must retire its task, got {other:?}"),
+    };
+    let detail: serde_json::Value =
+        serde_json::from_slice(&store.cas.read_object(&outcome_ref.digest).unwrap()).unwrap();
+    assert_eq!(detail["kind"], "publication_never_dispatched");
+    assert_eq!(detail["reason_kind"], "cancelled");
+    assert_eq!(detail["dispatched"], false);
+    assert_eq!(detail["effect_status"], "none");
+
+    // Durable: a reopen reads the same settlement and still refuses to send.
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    assert_eq!(publication_state(&reopened, intent_id), "blocked");
+    assert!(
+        reopened
+            .arm_publication(intent_id, &publication_dispatch())
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn superseded_authority_is_settled_never_dispatched_instead_of_failing() {
+    use shenko_types::ids::*;
+    use shenko_types::task::TaskState;
+
+    let (dir, store, agent) = initialized_subject();
+    store.start_subject_dispatcher().unwrap();
+    let intent = publication_intent();
+    let intent_id = intent.intent_id;
+    commit_publication_step(&store, agent, &intent);
+
+    // A real controller handoff advances the branch epoch; a reply authored by
+    // the previous epoch can never be sent by the new controller.
+    let (mut head, _) = store.load_subject(agent).unwrap();
+    head.controller_epoch = ControllerEpoch(head.controller_epoch.0 + 1);
+    head.record_revision = head.record_revision.next();
+    rusqlite::Connection::open(dir.join("head.db"))
+        .unwrap()
+        .execute(
+            "UPDATE subject_branch_heads SET record_revision=?2,data=?3 WHERE agent_id=?1",
+            rusqlite::params![
+                agent.to_string(),
+                head.record_revision.0 as i64,
+                serde_json::to_string(&head).unwrap()
+            ],
+        )
+        .unwrap();
+
+    let armed = store
+        .arm_publication(intent_id, &publication_dispatch())
+        .unwrap();
+    assert!(armed.is_none());
+    assert!(store.external_operation(intent_id).is_err());
+    assert_eq!(publication_state(&store, intent_id), "blocked");
+    let outcome_ref = match store.external_task(intent_id).unwrap().state {
+        TaskState::Terminal { outcome_ref } => outcome_ref,
+        other => panic!("the superseded reply must retire its task, got {other:?}"),
+    };
+    let detail: serde_json::Value =
+        serde_json::from_slice(&store.cas.read_object(&outcome_ref.digest).unwrap()).unwrap();
+    assert_eq!(detail["reason_kind"], "authority_superseded");
+    assert_eq!(detail["effect_status"], "none");
+}
+
+/// Real process boundary: one process arms the send and dies; the next open
+/// must see the same single attempt, record the loss of control as UNKNOWN,
+/// never arm a second send, and accept the platform's late answer for that
+/// original attempt.
+#[test]
+fn armed_publication_survives_a_real_process_death_without_a_second_send() {
+    use shenko_types::ids::*;
+    use shenko_types::operation::{AttemptDispatchStage, EffectStatus, OperationState};
+    use shenko_types::task::TaskState;
+
+    if let Some(dir) = std::env::var_os("SHENKO_C01_PUBLICATION_ARM_CHILD") {
+        let dir = PathBuf::from(dir);
+        let store = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+        store.start_subject_dispatcher().unwrap();
+        let intent_id: EntityId = std::fs::read_to_string(dir.join("intent"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let armed = store
+            .arm_publication(intent_id, &publication_dispatch())
+            .unwrap()
+            .expect("the child process arms the send");
+        let invocation_id = store
+            .external_operation_attempts(intent_id)
+            .unwrap()
+            .first()
+            .map(|attempt| attempt.invocation_id);
+        std::fs::write(
+            dir.join("armed.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "operation_id": armed.operation_id,
+                "attempt_id": armed.attempt_id,
+                "armed_commit": armed.armed_commit,
+                "invocation_id": invocation_id,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        // Actual process death immediately after T1 committed: no send was
+        // observed by anyone and no destructor ever runs.
+        #[cfg(unix)]
+        {
+            std::process::Command::new("kill")
+                .args(["-KILL", &std::process::id().to_string()])
+                .status()
+                .unwrap();
+            unreachable!("SIGKILL must end the process");
+        }
+        #[cfg(not(unix))]
+        std::process::exit(73);
+    }
+
+    let (dir, store, agent) = initialized_subject();
+    store.start_subject_dispatcher().unwrap();
+    let intent = publication_intent();
+    let intent_id = intent.intent_id;
+    commit_publication_step(&store, agent, &intent);
+    std::fs::write(dir.join("intent"), intent_id.to_string()).unwrap();
+    drop(store);
+
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "armed_publication_survives_a_real_process_death_without_a_second_send",
+            "--nocapture",
+        ])
+        .env("SHENKO_C01_PUBLICATION_ARM_CHILD", &dir)
+        .status()
+        .unwrap();
+    assert!(!status.success(), "the child must die, not return");
+    #[cfg(unix)]
+    assert_eq!(
+        std::os::unix::process::ExitStatusExt::signal(&status),
+        Some(9)
+    );
+    let child: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("armed.json")).unwrap()).unwrap();
+    let attempt_id: EntityId = child["attempt_id"].as_str().unwrap().parse().unwrap();
+    let armed_commit: shenko_types::commit::CommitRef =
+        serde_json::from_value(child["armed_commit"].clone()).unwrap();
+
+    // A new incarnation takes the dispatch owner. The armed send lost its
+    // process: that is local loss of control, never proof the platform did not
+    // receive it.
+    let store = Arc::new(Store::open(dir.join("head.db"), dir.join("cas")).unwrap());
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(publication_state(&store, intent_id), "unknown");
+    assert!(
+        store
+            .arm_publication(intent_id, &publication_dispatch())
+            .unwrap()
+            .is_none(),
+        "the dead process's armed attempt must never be re-armed"
+    );
+    assert_eq!(store.external_operation_attempts(intent_id).unwrap().len(), 1);
+    let operation = store.external_operation(intent_id).unwrap();
+    assert_eq!(operation.state, OperationState::InFlight);
+    assert_eq!(operation.prepared_commit, armed_commit);
+
+    // Reconciliation records the restart as UNKNOWN evidence and stops there.
+    store.reconcile_subject_publications().unwrap();
+    let operation = store.external_operation(intent_id).unwrap();
+    assert_eq!(operation.state, OperationState::Reconciling);
+    assert_eq!(operation.effect_status, EffectStatus::Unknown);
+    assert_eq!(operation.outcome, None);
+    assert_eq!(publication_state(&store, intent_id), "unknown");
+    let attempt = store
+        .external_operation_attempts(intent_id)
+        .unwrap()
+        .remove(0);
+    assert_eq!(attempt.attempt_id, attempt_id);
+    assert_eq!(attempt.dispatch_stage, AttemptDispatchStage::Unknown);
+
+    // The platform's own answer for that same attempt is the late E1 the
+    // recovery contract admits; it resolves the operation without a resend.
+    store
+        .record_publication_receipt(
+            &shenko_store::channel::ArmedPublication {
+                operation_id: intent_id,
+                attempt_id,
+                task_id: intent_id,
+                account: "qq:10001".into(),
+                armed_commit,
+            },
+            &shenko_types::channel::ChannelReceipt {
+                status: "ok".into(),
+                retcode: 0,
+                accepted: true,
+                provider_message_id: Some("message-1".into()),
+                raw: serde_json::json!({"status":"ok","retcode":0,"message_id":"message-1"}),
+                observed_at: chrono::Utc::now(),
+            },
+        )
+        .unwrap();
+    store.reconcile_subject_publications().unwrap();
+    let operation = store.external_operation(intent_id).unwrap();
+    assert_eq!(operation.state, OperationState::Resolved);
+    assert_eq!(operation.effect_status, EffectStatus::Complete);
+    assert_eq!(publication_state(&store, intent_id), "settled");
+    assert_eq!(
+        store
+            .committed_intent(intent_id)
+            .unwrap()
+            .expect("the settled publication is readable by identity")
+            .state,
+        "settled"
+    );
+    match store.external_task(intent_id).unwrap().state {
+        TaskState::Terminal { .. } => {}
+        other => panic!("the settled publication must retire its task, got {other:?}"),
+    }
+    // Both originals are preserved; there is still exactly one attempt.
+    assert_eq!(
+        store.external_operation_evidence(intent_id).unwrap().len(),
+        2
+    );
+    assert_eq!(store.external_operation_attempts(intent_id).unwrap().len(), 1);
+}
+
+/// The durable ready lane keeps row identity next to the original bytes, so a
+/// consumer can name a result it cannot read instead of failing the whole
+/// dispatch pass — while the strict reader still refuses that corruption.
+#[test]
+fn unreadable_ready_native_result_keeps_its_identity_and_the_row() {
+    use shenko_types::ids::*;
+    use shenko_types::task::{TaskOutcome, TaskResult};
+
+    let (dir, store, agent) = initialized_subject();
+    let evidence_ref = store
+        .cas
+        .seal_object(b"evidence", "application/json", "test", "raw", 1)
+        .unwrap()
+        .object;
+    let result_id = EntityId::new();
+    let healthy = TaskResult {
+        schema_version: 1,
+        result_id,
+        task_id: EntityId::new(),
+        task_revision: TaskRevision(0),
+        task_record_revision: RecordRevision(0),
+        invocation_id: EntityId::new(),
+        operation_id: EntityId::new(),
+        receipt_id: EntityId::new(),
+        outcome: TaskOutcome::Succeeded,
+        result: Some(serde_json::json!({"stdout_utf8":"ok"})),
+        evidence_ref,
+        commit_ref: shenko_types::commit::CommitRef::new(store.ledger.ledger_id(), LedgerSeq(1)),
+    };
+    // The exact durable shape `finalize_task` writes (kind/source/consumed),
+    // with one row from a build whose result shape this one cannot read.
+    let unreadable_id = EntityId::new();
+    let conn = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    for (event_id, data) in [
+        (
+            unreadable_id,
+            r#"{"schema_version":99,"future_shape":true}"#.to_string(),
+        ),
+        (result_id, serde_json::to_string(&healthy).unwrap()),
+    ] {
+        conn.execute(
+            "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data)
+             VALUES(?1,?2,'task_result','native-child',0,?3)",
+            rusqlite::params![event_id.to_string(), agent.to_string(), data],
+        )
+        .unwrap();
+    }
+    drop(conn);
+
+    // The row lane preserves identity and bytes for both rows: a consumer can
+    // journal the one it cannot read and still deliver the other.
+    let rows = store.ready_native_result_rows(agent, 8).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, unreadable_id);
+    assert_eq!(rows[0].1, r#"{"schema_version":99,"future_shape":true}"#);
+    assert_eq!(rows[1].0, result_id);
+
+    // The strict reader still refuses to invent a result from bad bytes.
+    assert!(store.ready_native_results(agent, 8).is_err());
+
+    // Nothing was deleted or consumed by the refusal.
+    let pending = store.ready_native_result_rows(agent, 8).unwrap();
+    assert_eq!(pending.len(), 2);
+    assert!(pending.iter().any(|(event_id, _)| *event_id == unreadable_id));
+}
+

@@ -11,8 +11,11 @@
 //!   the real OS mechanism with its own live grant check.
 //! - Transport: one handshake frame + one request line + one response line
 //!   per connection; bounds: request ≤ 64 KiB, response ≤ 16 MiB (screen PNG),
-//!   enforced both sides. The node connects per round-trip; no long-lived
-//!   socket, so app-process death surfaces as an immediate connect failure.
+//!   handshake ≤ 4 KiB, enforced both sides *while reading*, so a peer that
+//!   never sends LF cannot make the node buffer past the bound. The node
+//!   connects per round-trip; no long-lived socket, so app-process death
+//!   surfaces as an immediate connect failure, and a wedged app process
+//!   surfaces as a bounded connect timeout instead of a pinned worker.
 //! - Replaceability: `DeviceBridge` is the seam; `SocketBridge` is the real
 //!   on-device client, `UnavailableBridge` the honest off-device answer. A
 //!   future in-process bridge (single-process hosting) implements the same
@@ -30,6 +33,9 @@ use serde::{Deserialize, Serialize};
 pub const BRIDGE_PROTOCOL_VERSION: u32 = 1;
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// The handshake reply is a fixed small envelope; the device side bounds it
+/// at the same 4 KiB, so a larger reply is not a handshake.
+const MAX_HANDSHAKE_BYTES: usize = 4 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Which real mechanism a bridge operation asks for.
@@ -88,6 +94,24 @@ pub enum BridgeOp {
     ScreenCapture {
         display_id: i32,
         region: Option<[i32; 4]>,
+    },
+    /// Fingerprint the semantic node hierarchy the enabled accessibility
+    /// service can actually see on this display, inside `region`.
+    ///
+    /// The device traverses the real nodes, hashes a canonical projection of
+    /// them (no node text ever comes back) and answers with the digest, the
+    /// bounds it applied, the windows/packages it covered and whether the
+    /// traversal stopped at one of those bounds. Absence is an error frame:
+    /// there is no digest to compare when the hierarchy is unreachable.
+    NodeTreeFingerprint {
+        display_id: i32,
+        /// Display-absolute rectangle; the node set is filtered by it.
+        region: [i32; 4],
+        /// Traversal bounds the device must apply and echo back. A device that
+        /// answers different bounds has not described the same scope.
+        max_nodes: u32,
+        max_depth: u32,
+        max_windows: u32,
     },
     /// Apply one input batch. Lease/epoch checks happen node-side before the
     /// op is ever sent; the device side replays its own grant checks.
@@ -219,6 +243,10 @@ impl SocketBridge {
             BridgeOp::ShellExec { timeout_secs, .. } => {
                 Duration::from_secs(u64::from(*timeout_secs).saturating_add(15).min(90))
             }
+            // The device aborts its own traversal with a typed timeout error
+            // before this deadline; the deadline itself is the bound for a
+            // wedged accessibility IPC, not for the traversal.
+            BridgeOp::NodeTreeFingerprint { .. } => Duration::from_secs(20),
             BridgeOp::InputBatch { actions } => {
                 let waits: u64 = actions
                     .iter()
@@ -240,6 +268,80 @@ impl SocketBridge {
             message,
             retryable: true,
         }
+    }
+}
+
+/// One bounded wire frame read from the device side.
+///
+/// The bound counts UTF-8 bytes and is enforced *while* reading, so a peer
+/// that never sends LF, or sends an oversized frame, cannot make the node
+/// buffer without limit. A frame is decoded only once complete, so a
+/// multibyte code point split across reads cannot alter text or argv.
+enum FrameError {
+    /// The peer closed the connection before the frame's LF.
+    Closed,
+    /// More than `cap` bytes arrived before LF.
+    Oversized { cap: usize },
+    /// The complete frame is not valid UTF-8.
+    Malformed,
+    Io(std::io::Error),
+}
+
+fn read_frame<R: BufRead>(reader: &mut R, cap: usize) -> Result<String, FrameError> {
+    let mut frame: Vec<u8> = Vec::with_capacity(cap.min(1024));
+    loop {
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(FrameError::Io(error)),
+        };
+        if available.is_empty() {
+            return Err(FrameError::Closed);
+        }
+        match available.iter().position(|byte| *byte == b'\n') {
+            Some(index) => {
+                if frame.len() + index > cap {
+                    return Err(FrameError::Oversized { cap });
+                }
+                frame.extend_from_slice(&available[..index]);
+                reader.consume(index + 1);
+                return std::str::from_utf8(&frame)
+                    .map(str::to_string)
+                    .map_err(|_| FrameError::Malformed);
+            }
+            None => {
+                let length = available.len();
+                // Even if the next byte were LF, this frame would already be
+                // longer than the bound.
+                if frame.len() + length > cap {
+                    return Err(FrameError::Oversized { cap });
+                }
+                frame.extend_from_slice(available);
+                reader.consume(length);
+            }
+        }
+    }
+}
+
+/// `UnixStream::connect` blocks when the listener's backlog is full, which
+/// would pin this blocking worker for as long as the app process stays
+/// wedged. Bounded here instead; the pending connect thread exits on its own
+/// when the kernel finally answers it and drops the socket.
+fn connect_bounded(path: &Path, timeout: Duration) -> std::io::Result<UnixStream> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let target = path.to_path_buf();
+    std::thread::Builder::new()
+        .name("shenko-mobile-bridge-connect".into())
+        .spawn(move || {
+            let _ = sender.send(UnixStream::connect(&target));
+        })
+        .map_err(|error| std::io::Error::other(format!("connect thread: {error}")))?;
+    match receiver.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("no connection accepted within {timeout:?}"),
+        )),
     }
 }
 
@@ -277,15 +379,30 @@ impl DeviceBridge for SocketBridge {
             ));
         }
 
-        let stream = UnixStream::connect(&self.socket_path).map_err(|e| {
-            Self::io_unavailable(format!(
-                "device bridge at {} unreachable: {e}; mobile plugins execute on-device \
-                 through the app-owned bridge service and cannot borrow another machine's OS grants",
-                self.socket_path.display()
-            ))
-        })?;
+        let stream = match connect_bounded(&self.socket_path, CONNECT_TIMEOUT) {
+            Ok(stream) => stream,
+            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(BridgeError {
+                    kind: BridgeErrorKind::Timeout,
+                    message: format!(
+                        "device bridge at {} accepted no connection within {CONNECT_TIMEOUT:?}; \
+                         the app process may be wedged (no request was sent)",
+                        self.socket_path.display()
+                    ),
+                    retryable: true,
+                })
+            }
+            Err(error) => {
+                return Err(Self::io_unavailable(format!(
+                    "device bridge at {} unreachable: {error}; mobile plugins execute on-device \
+                     through the app-owned bridge service and cannot borrow another machine's OS grants",
+                    self.socket_path.display()
+                )))
+            }
+        };
+        let deadline = Self::op_timeout(&op);
         stream
-            .set_read_timeout(Some(Self::op_timeout(&op)))
+            .set_read_timeout(Some(deadline))
             .map_err(|e| BridgeError::io(format!("set_read_timeout: {e}")))?;
         stream
             .set_write_timeout(Some(Duration::from_secs(10)))
@@ -308,19 +425,40 @@ impl DeviceBridge for SocketBridge {
             .write_all(&handshake)
             .map_err(|e| BridgeError::io(format!("handshake write: {e}")))?;
 
-        let mut reader = BufReader::with_capacity(64 * 1024, stream.try_clone().map_err(|e| BridgeError::io(format!("stream clone: {e}")))?);
-        let mut line = String::new();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|e| BridgeError::io(format!("handshake read: {e}")))?;
-        if read == 0 {
-            return Err(BridgeError::io("bridge closed during handshake"));
-        }
-        if line.len() > MAX_RESPONSE_BYTES {
-            return Err(BridgeError::io("bridge handshake exceeds bound"));
-        }
-        let ack: serde_json::Value =
-            serde_json::from_str(line.trim()).map_err(|e| BridgeError::io(format!("handshake parse: {e}")))?;
+        let mut reader = BufReader::with_capacity(
+            64 * 1024,
+            stream
+                .try_clone()
+                .map_err(|error| BridgeError::io(format!("stream clone: {error}")))?,
+        );
+        let line = match read_frame(&mut reader, MAX_HANDSHAKE_BYTES) {
+            Ok(line) => line,
+            Err(FrameError::Closed) => {
+                return Err(BridgeError::io("bridge closed during handshake"))
+            }
+            Err(FrameError::Oversized { cap }) => {
+                return Err(BridgeError {
+                    kind: BridgeErrorKind::Unsupported,
+                    message: format!("bridge handshake exceeds {cap} bytes"),
+                    retryable: false,
+                })
+            }
+            Err(FrameError::Malformed) => {
+                return Err(BridgeError {
+                    kind: BridgeErrorKind::Denied,
+                    message: "bridge handshake is not UTF-8".to_string(),
+                    retryable: false,
+                })
+            }
+            Err(FrameError::Io(error)) => {
+                return Err(BridgeError::io(format!("handshake read: {error}")))
+            }
+        };
+        let ack: serde_json::Value = serde_json::from_str(&line).map_err(|error| BridgeError {
+            kind: BridgeErrorKind::Internal,
+            message: format!("handshake parse: {error}"),
+            retryable: false,
+        })?;
         if ack.get("ok").and_then(|v| v.as_bool()) != Some(true) {
             return Err(BridgeError {
                 kind: BridgeErrorKind::Denied,
@@ -335,18 +473,50 @@ impl DeviceBridge for SocketBridge {
             .write_all(&request_bytes)
             .map_err(|e| BridgeError::io(format!("request write: {e}")))?;
 
-        let mut response_line = String::new();
-        let read = reader
-            .read_line(&mut response_line)
-            .map_err(|e| BridgeError::io(format!("response read: {e}")))?;
-        if read == 0 {
-            return Err(BridgeError::io("bridge closed without a response"));
-        }
-        if response_line.len() > MAX_RESPONSE_BYTES {
-            return Err(BridgeError::io("bridge response exceeds bound"));
-        }
-        let response: serde_json::Value = serde_json::from_str(response_line.trim())
-            .map_err(|e| BridgeError::io(format!("response parse: {e}")))?;
+        let response_line = match read_frame(&mut reader, MAX_RESPONSE_BYTES) {
+            Ok(line) => line,
+            Err(FrameError::Closed) => {
+                return Err(BridgeError::io("bridge closed without a response"))
+            }
+            Err(FrameError::Oversized { cap }) => {
+                return Err(BridgeError {
+                    kind: BridgeErrorKind::Unsupported,
+                    message: format!("bridge response exceeds {cap} bytes"),
+                    retryable: false,
+                })
+            }
+            Err(FrameError::Malformed) => {
+                return Err(BridgeError {
+                    kind: BridgeErrorKind::Internal,
+                    message: "bridge response is not UTF-8".to_string(),
+                    retryable: false,
+                })
+            }
+            Err(FrameError::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(BridgeError {
+                    kind: BridgeErrorKind::Timeout,
+                    message: format!(
+                        "no bridge response within {deadline:?}; the request was sent, so the \
+                         device-side effect stays unknown until observed"
+                    ),
+                    retryable: true,
+                })
+            }
+            Err(FrameError::Io(error)) => {
+                return Err(BridgeError::io(format!("response read: {error}")))
+            }
+        };
+        let response: serde_json::Value =
+            serde_json::from_str(&response_line).map_err(|error| BridgeError {
+                kind: BridgeErrorKind::Internal,
+                message: format!("response parse: {error}"),
+                retryable: false,
+            })?;
         if response.get("ok").and_then(|v| v.as_bool()) != Some(true) {
             let kind = response
                 .pointer("/error/kind")
@@ -499,6 +669,130 @@ mod tests {
         assert_eq!(error.kind, BridgeErrorKind::TypedUnavailable);
         assert_eq!(error.message, "shizuku not granted");
         assert!(!error.retryable);
+    }
+
+    /// The fingerprint request must reach the device with the exact scope this
+    /// node declared — one flat `op` discriminator plus its sibling arguments —
+    /// and the device's flat answer is preserved verbatim.
+    #[test]
+    fn socket_node_tree_fingerprint_carries_the_declared_scope() {
+        let response = serde_json::json!({
+            "ok": true,
+            "fingerprint": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "algorithm": crate::fingerprint::FINGERPRINT_ALGORITHM,
+            "display_id": 2,
+            "region": [0, 0, 64, 48],
+            "node_filter": "bounds_intersect_region",
+            "max_nodes": 4000,
+            "max_depth": 64,
+            "max_windows": 8,
+            "windows_considered": 1,
+            "window_packages": ["com.example.app"],
+            "visited_nodes": 3,
+            "node_count": 3,
+            "truncated": false,
+            "sampled_at_ms": 1700000000000i64,
+            "elapsed_ms": 2,
+            "notes": [],
+        });
+        let (result, request) = exchange(
+            BridgeOp::NodeTreeFingerprint {
+                display_id: 2,
+                region: [0, 0, 64, 48],
+                max_nodes: 4000,
+                max_depth: 64,
+                max_windows: 8,
+            },
+            response.clone(),
+        );
+        assert_eq!(request["op"], "node_tree_fingerprint");
+        assert_eq!(request["display_id"], 2);
+        assert_eq!(request["region"], serde_json::json!([0, 0, 64, 48]));
+        assert_eq!(request["max_nodes"], 4000);
+        assert_eq!(request["max_depth"], 64);
+        assert_eq!(request["max_windows"], 8);
+        assert_eq!(result.unwrap(), response);
+    }
+
+    /// A device answer whose frames never carry LF, or carry more than the
+    /// agreed bound, must not make the node buffer without limit: the bound
+    /// is enforced while reading, not after the frame is already in memory.
+    #[test]
+    fn frame_reader_enforces_the_byte_bound_while_reading() {
+        let mut exact_bytes = vec![b'a'; 16];
+        exact_bytes.push(b'\n');
+        assert_eq!(
+            read_frame(&mut std::io::Cursor::new(exact_bytes), 16).unwrap(),
+            "a".repeat(16)
+        );
+
+        let mut oversized_bytes = vec![b'a'; 17];
+        oversized_bytes.push(b'\n');
+        assert!(matches!(
+            read_frame(&mut std::io::Cursor::new(oversized_bytes), 16),
+            Err(FrameError::Oversized { cap: 16 })
+        ));
+
+        // No LF at all: rejected as soon as the bound is crossed.
+        assert!(matches!(
+            read_frame(&mut std::io::Cursor::new(vec![b'a'; 4096]), 64),
+            Err(FrameError::Oversized { cap: 64 })
+        ));
+    }
+
+    #[test]
+    fn frame_reader_rejects_malformed_utf8_and_partial_frames() {
+        assert!(matches!(
+            read_frame(&mut std::io::Cursor::new(vec![0xff, 0xfe, b'\n']), 16),
+            Err(FrameError::Malformed)
+        ));
+        assert!(matches!(
+            read_frame(&mut std::io::Cursor::new(b"{\"ok\":true}".to_vec()), 16),
+            Err(FrameError::Closed)
+        ));
+    }
+
+    /// One `fill_buf` byte at a time: a code point split across reads must not
+    /// change the decoded text.
+    #[test]
+    fn frame_reader_decodes_only_complete_multibyte_frames() {
+        struct ByteAtATime {
+            bytes: Vec<u8>,
+            position: usize,
+        }
+
+        impl std::io::Read for ByteAtATime {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let available = self.fill_buf()?;
+                let length = available.len().min(buffer.len());
+                buffer[..length].copy_from_slice(&available[..length]);
+                self.consume(length);
+                Ok(length)
+            }
+        }
+
+        impl BufRead for ByteAtATime {
+            fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+                if self.position >= self.bytes.len() {
+                    Ok(&[])
+                } else {
+                    Ok(&self.bytes[self.position..self.position + 1])
+                }
+            }
+
+            fn consume(&mut self, amount: usize) {
+                self.position += amount;
+            }
+        }
+
+        let payload = "中文 café";
+        let mut bytes = payload.as_bytes().to_vec();
+        bytes.push(b'\n');
+        let mut reader = ByteAtATime {
+            bytes,
+            position: 0,
+        };
+        assert_eq!(read_frame(&mut reader, 64).unwrap(), payload);
     }
 }
 

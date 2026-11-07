@@ -13,6 +13,7 @@ use anyhow::{Result, anyhow};
 
 use crate::capability::{BackendCapabilitySnapshot, CapacityEntry, CapacityUnit, classify_operations};
 use crate::profile::{AuthMethod, BackendFamily, ProviderProfile};
+use crate::provider::merge_native_options;
 use crate::request::{
     InferencePayload, InferenceRequest, InferenceResponse, ProviderBinding, ProviderRejection,
     TokenUsage,
@@ -71,7 +72,10 @@ impl NativeBackendProvider {
 
     /// The body of one chat request. Native options are preserved verbatim:
     /// an unknown native field is passed on, and whether the backend honoured
-    /// it is a fact the capability snapshot records separately.
+    /// it is a fact the capability snapshot records separately. The envelope
+    /// fields are not native options, so a sealed option cannot rewrite the
+    /// model, the messages, the output reservation or the transport: it is an
+    /// explicit error instead of a silent re-interpretation of the seal.
     fn body(
         &self,
         payload: &InferencePayload,
@@ -99,9 +103,7 @@ impl NativeBackendProvider {
         if !payload.tools.is_empty() {
             body["tools"] = serde_json::Value::Array(payload.tools.clone());
         }
-        for (key, value) in &payload.native_options {
-            body[key] = value.clone();
-        }
+        merge_native_options(&mut body, &payload.native_options, false)?;
         if stream {
             body["stream"] = serde_json::Value::Bool(true);
             body["stream_options"] = serde_json::json!({ "include_usage": true });
@@ -321,7 +323,23 @@ impl crate::registry::ProviderRuntime for NativeBackendProvider {
                 }
             }
         }
-        let operations = classify_operations(&self.profile.backend_family, &evidence, false);
+        // The engine's own metrics surface is where a real KV pool figure lives.
+        // It is one idempotent read, never a generation and never retried; a
+        // backend that does not expose it keeps the pool unknown. Strata speaks
+        // its own engine protocol, so no metrics endpoint is assumed for it.
+        if !matches!(
+            self.profile.backend_family,
+            BackendFamily::Strata | BackendFamily::Anthropic
+        ) {
+            evidence.push(
+                crate::capability::metrics_evidence(&client, &self.base_url(), |builder| {
+                    self.apply_auth(builder)
+                })
+                .await,
+            );
+        }
+        let operations = classify_operations(&self.profile.backend_family, &evidence);
+        let kv = crate::capability::discover_kv_capacity(&self.profile.backend_family, &evidence);
         let snapshot = BackendCapabilitySnapshot {
             capability_id: format!("{}/{}", self.profile.profile_id, self.profile.revision),
             provider_implementation_digest: self.profile.profile_id.clone(),
@@ -345,8 +363,11 @@ impl crate::registry::ProviderRuntime for NativeBackendProvider {
                 CapacityEntry {
                     pool: crate::admission::CapacityPool::ContextKv,
                     unit: CapacityUnit::Tokens,
-                    value: None,
-                    provenance: crate::admission::CapacityProvenance::Unknown,
+                    value: kv.as_ref().map(|observed| observed.tokens),
+                    provenance: kv
+                        .as_ref()
+                        .map(|observed| observed.provenance)
+                        .unwrap_or(crate::admission::CapacityProvenance::Unknown),
                 },
             ],
             raw_evidence: evidence,
@@ -361,3 +382,92 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::request::{InferenceMessage, ProviderWireError};
+    use std::collections::BTreeMap;
+
+    fn provider() -> NativeBackendProvider {
+        NativeBackendProvider::new(
+            crate::profile::native_backends::vllm(
+                "http://127.0.0.1:8000",
+                "fixture-model",
+                "fixture-domain",
+            ),
+            None,
+        )
+        .expect("a native vLLM profile is constructible")
+    }
+
+    fn payload(native_options: BTreeMap<String, serde_json::Value>) -> InferencePayload {
+        InferencePayload {
+            system_prompt: "system".into(),
+            messages: vec![InferenceMessage::text("user", "hello")],
+            max_tokens: Some(64),
+            tools: Vec::new(),
+            native_options,
+        }
+    }
+
+    fn one(key: &str, value: serde_json::Value) -> BTreeMap<String, serde_json::Value> {
+        BTreeMap::from([(key.to_string(), value)])
+    }
+
+    /// The sealed envelope is not a native-option namespace. A payload that
+    /// named `model` would otherwise rewrite the wire model while the seal and
+    /// the effective inference still reported the frozen one.
+    #[test]
+    fn a_sealed_native_option_cannot_rewrite_the_envelope() {
+        let provider = provider();
+        for reserved in ["model", "messages", "max_tokens", "stream"] {
+            let payload = payload(one(reserved, serde_json::json!("rewritten")));
+            let error = provider
+                .body(&payload, "fixture-model", false)
+                .expect_err("an envelope field is not a native option");
+            let wire = error
+                .downcast_ref::<ProviderWireError>()
+                .expect("the rejection is a typed wire error");
+            assert!(
+                matches!(wire, ProviderWireError::ReservedOption(key) if key.as_str() == reserved),
+                "{reserved} must be rejected as an envelope field"
+            );
+        }
+    }
+
+    /// A residency option the sealer named travels verbatim on both the
+    /// blocking and the streaming wire; the runtime never rewrites it, so the
+    /// affinity that was sealed is the affinity the backend receives.
+    #[test]
+    fn a_sealed_residency_option_reaches_the_wire_verbatim() {
+        let provider = provider();
+        let payload = payload(BTreeMap::from([
+            ("cache_salt".to_string(), serde_json::json!("context-7")),
+            (
+                "kv_transfer_params".to_string(),
+                serde_json::json!({ "do_remote_decode": false }),
+            ),
+        ]));
+        let blocking = provider
+            .body(&payload, "fixture-model", false)
+            .expect("a residency option is passed through");
+        assert_eq!(blocking["cache_salt"], serde_json::json!("context-7"));
+        assert_eq!(
+            blocking["kv_transfer_params"],
+            serde_json::json!({ "do_remote_decode": false })
+        );
+        assert_eq!(blocking["model"], serde_json::json!("fixture-model"));
+        assert_eq!(blocking["max_tokens"], serde_json::json!(64));
+        assert!(blocking.get("stream").is_none());
+
+        let streaming = provider
+            .body(&payload, "fixture-model", true)
+            .expect("a residency option is passed through on the stream surface");
+        assert_eq!(streaming["cache_salt"], serde_json::json!("context-7"));
+        assert_eq!(streaming["stream"], serde_json::json!(true));
+        assert_eq!(
+            streaming["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+    }
+}

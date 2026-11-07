@@ -195,7 +195,9 @@ impl Plugin for PmaEvaluatePlugin {
         let policy = ctx.try_service::<MemoryInterventionRegistry>().map_err(std::io::Error::other)?;
         let publisher = ctx.try_service::<PmaContributionRuntime>().map_err(std::io::Error::other)?;
         let handler: Arc<dyn NativeTaskHandler> = Arc::new(
-            PmaEvaluateHandler::new(store.clone(), broker.clone(), policy).with_publisher(publisher),
+            PmaEvaluateHandler::new(store.clone(), broker.clone(), policy)
+                .with_publisher(publisher)
+                .with_quota_strategies(crate::quota_strategies::installed(&ctx)),
         );
         crate::NativeTaskHandlerPlugin.apply(ctx, &handler).await
     }
@@ -207,6 +209,10 @@ pub struct PmaEvaluateHandler {
     broker: BrokerHandle,
     policy: Arc<MemoryInterventionRegistry>,
     publisher: Option<Arc<dyn ReminderPublisher>>,
+    /// Installed quota strategies (SPEC §42.1): the intervention's own model
+    /// request is admitted under the same set as the subject, never a second
+    /// policy source. An absent publication is the §42.5 baseline.
+    quota_strategies: shenko_quota::QuotaStrategies,
 }
 
 impl PmaEvaluateHandler {
@@ -215,7 +221,13 @@ impl PmaEvaluateHandler {
         broker: BrokerHandle,
         policy: Arc<MemoryInterventionRegistry>,
     ) -> Self {
-        Self { store, broker, policy, publisher: None }
+        Self {
+            store,
+            broker,
+            policy,
+            publisher: None,
+            quota_strategies: shenko_quota::QuotaStrategies::baseline(),
+        }
     }
 
     /// Install the seam that publishes a prepared reminder into the request
@@ -223,6 +235,16 @@ impl PmaEvaluateHandler {
     /// projected into a later request.
     pub fn with_publisher(mut self, publisher: Arc<dyn ReminderPublisher>) -> Self {
         self.publisher = Some(publisher);
+        self
+    }
+
+    /// Use the runtime's installed quota strategy set for this handler's own
+    /// admission; without it the §42.5 baseline applies.
+    pub fn with_quota_strategies(
+        mut self,
+        strategies: shenko_quota::QuotaStrategies,
+    ) -> Self {
+        self.quota_strategies = strategies;
         self
     }
 
@@ -960,7 +982,11 @@ impl PmaEvaluateHandler {
             &binding,
             request_id,
             &tokio_util::sync::CancellationToken::new(),
+            &self.quota_strategies,
             Some(&invocation.task_invocation),
+            // This worker's rounds are not subject branch rounds, so the
+            // subject's measured useful work is not its unit: unknown.
+            None,
         )
         .await?
         {

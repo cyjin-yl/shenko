@@ -37,16 +37,15 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// rather than omit this closure, and this reader admits only schemas it
 /// can interpret completely — an archive naming a fact class this reader
 /// does not know is refused whole at manifest validation.
-/// Schemas 2/3/4/5 remain readable after current closure admission.
-/// Schema 6 requires the exact S1 terminal obligation settlement and its
-/// original creation, parsed control, policy, S0 and projection binding.
-/// Readers through schema 5 cannot acknowledge these required semantics.
-/// Schema 6 also carries the authored note journal (`context_notes`) as a
-/// declared fact class; a reader that knows the schema but not the class
-/// refuses the archive whole at manifest validation, so an older binary can
-/// never acknowledge a snapshot whose authored notes it would drop. The
-/// scope's local rollover control facts are declared only by the declared
-/// same-installation handover, never by a peer snapshot.
+///
+/// Schema 6 adds the cognitive atoms (SPEC §51.1): the canonical content
+/// registry, the append-only attitude ledger and the insert-only legacy
+/// content mapping. These are REQUIRED facts, not optional extras: an archive
+/// that carries them and no longer declares the classes they belong to would
+/// be a silent loss of the subject's attitudes, so the schema is bumped
+/// instead of smuggling them in as optional rows. A schema-5 receiver rejects
+/// this archive at the version gate, and a current reader still admits
+/// schemas 2..=6 after the full closure/membership admission below.
 pub const ARCHIVE_SCHEMA: u32 = 6;
 
 /// One replicated table row.

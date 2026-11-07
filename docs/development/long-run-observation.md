@@ -16,7 +16,17 @@ C19/#24 与 [COMPLETION](../governance/COMPLETION.md) §2「长期性」要求 S
 
 初始化在写 manifest 前从实际 run 目录向上逐层 fsync 到根，持久化每一层新建目录在父目录中的入口；已有目录也同步，以覆盖先前失败初始化留下但未确认持久的入口。此协议检查仍不等于物理断电证明。
 
-修复后的格式是 **schema 2**，增加同 kernel boot 的 uptime 佐证与边界的 `sample_seq`。schema 1 的记录缺少这些证据，明确拒绝，不进行推断式升级；原字节保留。不同候选/闭包、recorder 变更或已损坏证据均使用新目录和新 `run_id`。
+记录格式是 **schema 3**：同 kernel boot 的 uptime 佐证、段边界的 `sample_seq`、实测环境、逐样本二进制漂移与 outage 记录。schema 1/2 的记录缺少这些证据，明确拒绝，不进行推断式升级；原字节保留。不同候选/闭包、recorder 变更或已损坏证据均使用新目录和新 `run_id`。
+
+报告文档是 **schema 5**：保留 `lifecycle`（是否封存、`stop_reason`、停止样本与 checkpoint 列表），并要求每个存活样本的实际执行文件 SHA-256。采样器打开 `/proc/<pid>/exe`，从同一文件描述符读取字节与元数据；不重新打开 readlink 给出的可变路径，也不以相同长度和秒级修改时间认定产物相同。无法测量的身份保持未知并使窗口不合格。只有 `run_end` 且 `stop_reason=completed` 的报告能成为时长证据；未封存或提前停止的报告保留字节与其跨度，但不构成已完成的窗口。
+
+运行有生命周期：
+
+- `checkpoint --id <name>` 把 durable 复查点绑定到**已经写入**的最后一个样本，不能指向尚未采到的样本；重复 id 或 `sample_seq` 与最后样本不符会成为完整性缺口。
+- `stop --reason completed|aborted|superseded|candidate_replaced|failed` 只封存一次，并绑定已写入的样本；`run_end` 的 `sample_seq`/`samples` 必须与该 run 实际写入的样本一致，否则同样是完整性缺口而不是封存。
+- 封存或字节已损坏的 run 拒绝 `sample`/`checkpoint`/`stop` 追加：已准入的窗口不会在事后被同一 run 的新记录改写或作废。
+
+消费侧 `shenko-evidence --long-run PATH=SHA256` 只准入这种 schema 5 报告：调用方摘要、40 位候选提交、实测二进制摘要、profile、`integrity.intact`、执行文件验证样本列表、封存状态、停止样本绑定与逐窗口合格秒数都要成立。缺失执行文件摘要、只有相同长度/mtime 或旧 schema 4 的报告不能借用新合同；旧字节保留且拒绝原因明确。被拒绝的报告仍把声明窗口留在分母里（`unobserved`），拒绝原因进 `rejections`；多个已准入报告只有二进制与 profile 完全一致时才合并窗口，否则 `identity_conflicts` 显式列出、`duration_status` 保持 `unobserved`。只有名为 `7d`（≥604800 秒）与 `30d`（≥2592000 秒）的窗口都合格时 `duration_status` 才是 `observed`；把一分钟写成 `7d` 会被拒绝，只声明其他窗口（如 `demo`）的报告只能证明那个窗口。
 
 ## 用法
 
@@ -25,7 +35,9 @@ C19/#24 与 [COMPLETION](../governance/COMPLETION.md) §2「长期性」要求 S
 python3 -I scripts/observe_longrun.py init \
   --dir /path/run-dir --run-id s5-candidate-YYYYMMDD \
   --workload "shenko start C=1 + NapCat" \
-  --candidate-commit <git sha> --binary-sha256 <sha> \
+  --candidate-commit <git sha> --binary-path <实际运行的二进制> \
+  --binary-sha256 <sha> --profile <runtime/build profile> \
+  --evidence-class real_observation \
   --host <host> --os <kernel> \
   --window 7d=604800 --window 30d=2592000 \
   --interval 300 --pid-file /path/subject.pid
@@ -37,11 +49,23 @@ python3 -I scripts/observe_longrun.py sample --dir /path/run-dir
 python3 -I scripts/observe_longrun.py run --dir /path/run-dir \
   --deadline-seconds 604800
 
+# 2c. 复查点与封存（每步一条，封存后不再接受记录）：
+python3 -I scripts/observe_longrun.py checkpoint --dir /path/run-dir \
+  --id review-1 --note "第一次长期复查"
+python3 -I scripts/observe_longrun.py stop --dir /path/run-dir \
+  --reason completed --note "7d 窗口达到"
+
 # 3. 汇总：窗口没跑够就是 unobserved；CI 可用退出码门禁
 python3 -I scripts/observe_longrun.py report --dir /path/run-dir \
   --require-observed --write
+
+# 4. 义务报告消费报告（只读；绑定调用方期望的摘要）
+shenko-evidence --spec SPEC.md --evidence-dir docs/evidence \
+  --candidate-commit <sha> --long-run /path/run-dir/reports/report-<stamp>.json=<sha256> \
+  --json build/spec-obligation-report.json
 ```
 
+`checkpoint`/`stop` 在字节损坏或 run 已封存时退出 2 并保留原字节。`report` 对未封存的 run 仍给出跨度与 `unobserved` 结论，不推断完成。
 systemd timer 例：`*-*-* *:0/5` 调 `sample`。采样器可以死在任意时刻；`report` 通过样本间隔与 seq 连续性如实报告缺口。`report --write` 把报告落到 `DIR/reports/` 供证据归档。
 
 ## 诚实性边界（重要）
@@ -59,11 +83,11 @@ systemd timer 例：`*-*-* *:0/5` 调 `sample`。采样器可以死在任意时�
 
 | 义务 | 状态 |
 | --- | --- |
-| 任何 7/30 天实际窗口 | 没有任何候选长跑结果；schema 2 已通过短时 procfs/合成故障 smoke，长跑 run 仍需绑定实际交付候选与环境并经过真实墙钟窗口。 |
+| 任何 7/30 天实际窗口 | 没有任何候选长跑结果；当前为 schema 3 记录/schema 5 报告，长跑 run 仍需绑定实际交付候选与 profile、实际执行文件摘要并经过真实墙钟窗口。短时工具核验不替代这些窗口。 |
 | kernel/rescue 常驻 RSS ≤16 MiB、静止 ≤64 MiB（§22 拟定目标） | 未测量；采样拿到实际值后再定值/裁剪。 |
 | 路由器 64 位/512 MB profile、Android profile、多节点长跑 | 未开始；需要真实设备与部署。 |
 | 主体行为正确性（持续思考、消息不丢） | 本工具只看进程资源与存活，不看语义；行为验收仍须产品侧协议证据。 |
 
 ## 自检
 
-`python3 -I scripts/observe_longrun_test.py`：**9 个独立永久场景**，分别为完整窗口精确边界、30 天端点之间的已知采样缺口、缺失 header、撕裂追加尾部、kernel boot-id 路径、换 PID 后样本写入失败再重试、创建日志时目录 fsync、zombie 主体、样本序号跳变。重试场景只包含一次 PID 转换，不另藏同 PID/reappeared 等独立转换；移除了原来分组中重复的其他行为场景，而不是改名隐藏数量。父级已在 source `17ccbd92` 通过九场景和真实 procfs 短时 smoke；完整回执见 `build/c19-observation-native-20261029/native-17ccbd92-67b907cd/summary.json`。合成副本故障明确标注且原真实 run 保持不变；它们不是 Shenko 产品长跑结果或物理断电证明。
+`python3 -I scripts/observe_longrun_test.py` 包含 **15 个独立永久场景**：完整窗口精确边界、30 天端点之间的已知采样缺口、缺失 header、撕裂追加尾部、kernel boot-id 路径、换 PID 后样本写入失败再重试、创建日志时目录 fsync、zombie 主体、样本序号跳变、封存生命周期、checkpoint 绑定、封存样本绑定、等长同时间但字节不同的产物、reported pathname 与实际打开执行文件的区别、以及身份未知的真实观测形状不能合格。合成时钟与进程形状只核验工具合同，不是产品长跑。历史 source `17ccbd92` 的九场景与 procfs 短时 smoke 仍只证明原版本，回执为 `build/c19-observation-native-20261029/native-17ccbd92-67b907cd/summary.json`；当前 schema 5 的核验以父级新回执为准，不能沿用旧报告升级结论。真实 7/30 天和物理断电均未获证明。

@@ -1,12 +1,13 @@
 //! The explicit-rollover lifecycle at the registry boundary: a request is an
-//! armed fact that never cuts history by itself, the reminder is issued once
-//! per committed window, and a strategy retired between publication and
-//! adoption cannot commit its prepared window.
+//! armed fact that never cuts history by itself, the reminder is read without
+//! being spent and answered exactly once per committed window, and a strategy
+//! retired between publication and adoption cannot commit its prepared window.
 use std::sync::Arc;
 
 use shenko_context_policy::{
     Availability, ContextInput, ContextPolicy, CostReport, ModelCaps, PolicyError, PolicyManifest,
     PolicyRegistry, PreparedWindow, TriggerInput, WindowEntry, WindowLedger, estimate_tokens,
+    HistorySource,
 };
 use shenko_types::ids::EntityId;
 
@@ -82,16 +83,34 @@ fn a_request_is_armed_once_and_never_cuts_a_window_by_itself() {
 }
 
 #[test]
-fn the_reminder_is_issued_once_per_committed_window() {
+fn the_reminder_is_read_without_being_spent_and_answered_once() {
     let registry = registry();
     registry.set_reminder_threshold(1, 0.7);
     registry.observe_pressure(&CAPS, 500).unwrap();
-    assert!(registry.take_rollover_reminder().is_none(), "below the threshold is silent");
+    assert!(registry.pending_rollover_reminder().is_none(), "below the threshold is silent");
     registry.observe_pressure(&CAPS, 800).unwrap();
-    let reminder = registry.take_rollover_reminder().expect("one reminder above the threshold");
+    let reminder = registry
+        .pending_rollover_reminder()
+        .expect("one reminder above the threshold");
     assert_eq!(reminder.used_tokens, 800);
     assert_eq!(reminder.window, registry.ledger().current().unwrap().id);
-    assert!(registry.take_rollover_reminder().is_none(), "one reminder per window");
+    assert_eq!(reminder.policy_epoch, 1, "the answer is fenced on the issuing installation");
+    // Reading is not answering: an assembly that was refused or aborted after
+    // this point leaves the reminder available for the retry.
+    assert_eq!(
+        registry.pending_rollover_reminder(),
+        Some(reminder),
+        "prompt assembly must not spend the window's only reminder"
+    );
+    assert!(registry.acknowledge_rollover_reminder(&reminder).unwrap());
+    assert!(
+        registry.pending_rollover_reminder().is_none(),
+        "one reminder per committed window"
+    );
+    assert!(
+        !registry.acknowledge_rollover_reminder(&reminder).unwrap(),
+        "a repeated acknowledgement keeps the first record"
+    );
     // A committed window is a new reminder opportunity; the reminder itself
     // never prepared or committed anything.
     let window = registry.ledger().current().unwrap();
@@ -104,13 +123,35 @@ fn a_reminder_threshold_belongs_to_the_installation_that_registered_it() {
     registry.set_reminder_threshold(2, 0.6);
     registry.observe_pressure(&CAPS, 900).unwrap();
     registry.clear_reminder_threshold(1);
-    assert!(registry.take_rollover_reminder().is_some(), "an older epoch cannot clear it");
+    assert!(registry.pending_rollover_reminder().is_some(), "an older epoch cannot clear it");
     registry.set_reminder_threshold(3, 0.6);
     registry.clear_reminder_threshold(2);
     assert!(
-        registry.take_rollover_reminder().is_none(),
+        registry.pending_rollover_reminder().is_none(),
         "a late cleanup of a replaced generation cannot remove its successor's threshold"
     );
+}
+
+#[test]
+fn a_retired_generation_cannot_answer_its_reminder_for_its_successor() {
+    let registry = registry();
+    registry.set_reminder_threshold(2, 0.6);
+    registry.observe_pressure(&CAPS, 900).unwrap();
+    let retired = registry.pending_rollover_reminder().expect("the generation is due a reminder");
+    assert_eq!(retired.policy_epoch, 2);
+    // The installation is replaced between projection and commit.
+    registry.set_reminder_threshold(3, 0.6);
+    assert!(
+        !registry.acknowledge_rollover_reminder(&retired).unwrap(),
+        "a retired generation cannot record an answer with its successor's threshold"
+    );
+    let successor = registry
+        .pending_rollover_reminder()
+        .expect("the successor issues its own once for the same window");
+    assert_eq!(successor.policy_epoch, 3);
+    assert_eq!(successor.window, retired.window);
+    assert!(registry.acknowledge_rollover_reminder(&successor).unwrap());
+    assert!(registry.pending_rollover_reminder().is_none());
 }
 
 #[test]

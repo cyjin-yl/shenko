@@ -23,12 +23,14 @@ use shenko_store::{
     ContextWindowAppend, Store, StoredContextWindow, StoredDerivative, StoredSessionEvent,
 };
 use shenko_types::ids::EntityId;
+use shenko_types::object::ObjectRef;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
 use crate::notes::{
-    MAX_NOTE_BYTES, NoteRevision, NoteSource, NotesError, NotesJournal, RolloverJournal,
-    RolloverRequest,
+    MAX_NOTE_BYTES, NoteRevision, NoteSource, NotesError, NotesJournal, ReminderJournal,
+    RolloverJournal,
 };
+use crate::RolloverRequest;
 use crate::policy::{Derivative, WINDOW_BODY_VERSION, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
@@ -263,6 +265,7 @@ impl StoreWindowLog {
                 stored.window_id, window.body_version, WINDOW_BODY_VERSION
             )));
         }
+        crate::window::validate_entries(&window.entries)?;
         window.derivatives = stored
             .derivatives
             .into_iter()
@@ -295,6 +298,17 @@ impl StoreWindowLog {
                     stored.window_id, window.id
                 )));
             }
+            // The metadata page decodes the same committed bodies, so it
+            // applies the same admission: a newer format is refused instead
+            // of being reported as a window this reader cannot represent,
+            // and a mixed notebook never reaches a reader.
+            if window.body_version > WINDOW_BODY_VERSION {
+                return Err(storage(format!(
+                    "window row {} holds body version {}, this reader understands up to {}",
+                    stored.window_id, window.body_version, WINDOW_BODY_VERSION
+                )));
+            }
+            crate::window::validate_entries(&window.entries)?;
             windows.push(CommittedWindowMeta {
                 window,
                 derivatives: stored
@@ -550,6 +564,32 @@ impl NotesJournal for StoreNotesJournal {
             .collect()
     }
 
+    /// Seal one retained revision's bytes into the content store and return
+    /// the reference (SPEC §51.1: content is immutable and addressed by
+    /// digest).
+    ///
+    /// The journal row is never rewritten: sealing is idempotent (the same
+    /// bytes address the same object), the retained `body` stays the row's
+    /// own immutable payload, and a reader that only needs digest-addressed
+    /// access gets the reference without a memo column or a backfill UPDATE.
+    fn content(&self, revision: u64) -> Result<Option<ObjectRef>, NotesError> {
+        let Some(note) = self.revision(revision)? else {
+            return Ok(None);
+        };
+        let sealed = self
+            .store
+            .cas
+            .seal_object(
+                note.text.as_bytes(),
+                crate::notes::NOTE_MEDIA_TYPE,
+                "context-notes",
+                "text",
+                1,
+            )
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))?;
+        Ok(Some(sealed.object))
+    }
+
     fn replace(
         &self,
         expected_revision: u64,
@@ -631,6 +671,48 @@ impl RolloverJournal for StoreRolloverJournal {
     fn consume(&self, window: EntityId) -> Result<bool, NotesError> {
         self.store
             .consume_context_rollover(self.scope_id, window)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))
+    }
+}
+
+/// Durable once-per-window reminder answer over the store's
+/// `context_rollover_reminders` rows.
+///
+/// The row is the authority across a restart: a window that already received
+/// its one reminder keeps it answered, so a new process inside the same window
+/// is silent instead of repeating prompt material the model already saw. The
+/// row is not a window and never cuts history, and it is a different fact from
+/// an explicit rollover request — nothing here answers that request.
+pub struct StoreReminderJournal {
+    store: Arc<Store>,
+    scope_id: EntityId,
+}
+
+impl StoreReminderJournal {
+    pub fn new(store: Arc<Store>, scope_id: EntityId) -> Self {
+        Self { store, scope_id }
+    }
+}
+
+impl ReminderJournal for StoreReminderJournal {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
+    fn issued(&self, window: EntityId) -> Result<bool, NotesError> {
+        self.store
+            .context_reminder_issued(self.scope_id, window)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))
+    }
+
+    fn mark_issued(&self, window: EntityId, policy_epoch: u64) -> Result<bool, NotesError> {
+        let epoch = i64::try_from(policy_epoch).map_err(|_| {
+            NotesError::Storage(StorageError(format!(
+                "policy epoch {policy_epoch} does not fit the durable reminder record"
+            )))
+        })?;
+        self.store
+            .record_context_reminder(self.scope_id, window, epoch, crate::notes::now_ms())
             .map_err(|error| NotesError::Storage(StorageError(error.to_string())))
     }
 }
@@ -761,6 +843,34 @@ mod notes_journal_tests {
         let later = journal.request(1_760_000_001_000).unwrap();
         assert_ne!(later.request_id, armed.request_id);
         assert_eq!(journal.pending().unwrap().unwrap().request_id, later.request_id);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn durable_reminder_answer_is_recorded_once_and_survives_reopen() {
+        let dir = std::env::temp_dir().join(format!("shenko-reminder-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scope = EntityId::new();
+        let window = EntityId::new();
+        let store = open(&dir);
+        let journal = StoreReminderJournal::new(Arc::clone(&store), scope);
+        assert!(!journal.issued(window).unwrap(), "no row means this window was not reminded");
+        assert!(journal.mark_issued(window, 7).unwrap());
+        // A repeated acknowledgement is idempotent: the first record stands.
+        assert!(!journal.mark_issued(window, 9).unwrap());
+        assert!(journal.issued(window).unwrap());
+        // An epoch that cannot be stored is refused instead of truncated.
+        assert!(journal.mark_issued(EntityId::new(), u64::MAX).is_err());
+
+        drop(journal);
+        drop(store);
+        let store = open(&dir);
+        let journal = StoreReminderJournal::new(Arc::clone(&store), scope);
+        assert!(journal.issued(window).unwrap(), "a restart inside the same window stays silent");
+        assert!(!journal.issued(EntityId::new()).unwrap(), "a new window is a new opportunity");
+        // The same window id under another branch is another branch's fact.
+        let other = StoreReminderJournal::new(Arc::clone(&store), EntityId::new());
+        assert!(!other.issued(window).unwrap());
         let _ = std::fs::remove_dir_all(dir);
     }
 

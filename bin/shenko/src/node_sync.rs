@@ -4,9 +4,9 @@ use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_node::{
-    AdoptRequest, FencingToken, MemberChangeRequest, MemberChangeRound, Node,
-    NodeCapabilityProfile, NodeRole, PeerExperience, SyncConfirmation, SyncPeer, UnitExport,
-    UnitRequest, VoteOutcome, VoteResponse,
+    AdoptRequest, CognitionObservation, CognitionOrigin, CognitionScope, CognitionSnapshotReport,
+    FencingToken, MemberChangeRequest, MemberChangeRound, Node, NodeCapabilityProfile, NodeRole,
+    PeerExperience, SyncConfirmation, SyncPeer, UnitExport, UnitRequest, VoteOutcome, VoteResponse,
 };
 use shenko_store::{
     cognition::{
@@ -89,6 +89,18 @@ pub enum SyncCommand {
     Reconcile {
         #[arg(long)]
         peer: EntityId,
+    },
+    /// Rejoin the domain after a partition: merge the peer's experience,
+    /// archive the partition branch with the merge fact, and report the
+    /// domain's committed authority.
+    Rejoin {
+        #[arg(long)]
+        peer: EntityId,
+        #[arg(
+            long,
+            default_value = "rejoined the verified peer and merged the partition branch"
+        )]
+        note: String,
     },
     /// List captured raw recovery sources; no provider is activated.
     Sources,
@@ -240,6 +252,92 @@ fn options(data_dir: &Path, workspace_roots: Vec<PathBuf>) -> CognitionSnapshotO
         // Peer exports do not carry the complete local boundary database.
         local_boundary_preserved: false,
     }
+}
+
+/// The scope one Store observation actually covered.
+///
+/// It is derived from the options that computed the fingerprint, never written
+/// by hand, so a report can never claim a coverage its digest does not describe.
+fn observation_scope(options: &CognitionSnapshotOptions) -> CognitionScope {
+    CognitionScope {
+        memory_root: options.memory_root.clone(),
+        workspace_roots: options.workspace_roots.clone(),
+        include_git_history: options.include_git_history,
+        local_boundary_preserved: options.local_boundary_preserved,
+    }
+}
+
+/// The node-level cognition report scope: this installation's own recovery
+/// closure (the managed memory origin and the replicated facts/object
+/// closure).
+///
+/// Workspace roots are per-peer opt-ins: a single node-level report must not
+/// depend on whichever peer was pushed last, so a workspace export is reported
+/// by that transfer's own receipt instead. `local_boundary_preserved` stays
+/// false exactly as peer replication requires.
+///
+/// Public so an independent reader can recompute the same fingerprint with the
+/// installation's own snapshot authority instead of trusting a stored digest.
+pub fn cognition_report_options(data_dir: &Path) -> CognitionSnapshotOptions {
+    options(data_dir, Vec::new())
+}
+
+/// Publish this installation's own Store observation into its Node.
+///
+/// The fingerprint is computed here, from this installation's Store, using the
+/// same cognition snapshot authority the replication ledger uses. The Node
+/// cannot compute it — it never opens the Store — so this is the only producer
+/// of the peer-visible cognition report. It states a snapshot and the ledger
+/// watermark it covered; it is not a liveness, capacity or recoverability
+/// claim, and no peer reads it as one. It is a mechanism observation, not
+/// cognitive content, an attitude or a confidence (SPEC §51.1).
+///
+/// Unchanged content publishes nothing new: the Node keeps one revision per
+/// observed content digest, so a tick that observes the same bytes returns the
+/// same report.
+pub fn publish_cognition_report(
+    store: &Store,
+    node: &mut Node,
+    data_dir: &Path,
+) -> Result<CognitionSnapshotReport> {
+    let options = cognition_report_options(data_dir);
+    let (fingerprint, high_water) = store.cognition_fingerprint(&options)?;
+    node.publish_cognition_report(&CognitionObservation {
+        fingerprint,
+        high_water: high_water.0,
+        scope: observation_scope(&options),
+        observed_at: chrono::Utc::now(),
+        provenance:
+            "this installation's own Store cognition snapshot over its node-level recovery scope"
+                .into(),
+    })
+}
+
+/// The cognition report a peer's node route reported, bound to the authenticated
+/// peer it arrived from.
+///
+/// `Ok(None)` means the peer's installation never published an observation:
+/// that is unknown, and it stays unknown. A report naming a different node than
+/// the authenticated route is refused rather than recorded as this peer's.
+///
+/// Public because it is the whole read side of the boundary: any consumer of a
+/// peer's reported status must bind the report to the peer it arrived from, not
+/// merely parse it.
+pub fn peer_cognition_report(
+    peer_id: EntityId,
+    status: &Value,
+) -> Result<Option<CognitionSnapshotReport>> {
+    let Some(reported) = status.get("cognition").filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let report: CognitionSnapshotReport =
+        serde_json::from_value(reported.clone()).context("peer cognition report")?;
+    ensure!(
+        report.node_id == peer_id,
+        "the peer route reported a cognition report of node {} but the authenticated route is node {peer_id}",
+        report.node_id
+    );
+    Ok(Some(report))
 }
 
 fn stage_declared_recovery_sources(data_dir: &Path, store: &Store, node: &Node) -> Result<()> {
@@ -626,6 +724,71 @@ fn solicit_member_votes(
     Ok(outcomes)
 }
 
+/// Replicate the committed primary entry to every member with a route.
+///
+/// A follower that never learns the new claim keeps the previous primary as its
+/// committed fact, so a later failover or rejoin would act on stale authority.
+/// A refusal or an unreachable member is recorded as replication debt; it is
+/// never retried into existence.
+fn replicate_committed_claim(node: &mut Node, cancel: &CancellationToken) -> Result<Vec<Value>> {
+    let log = node.control_log()?;
+    let Some(last) = log.last().cloned() else {
+        return Ok(Vec::new());
+    };
+    if !matches!(last.kind, shenko_node::ControlKind::Primary) {
+        return Ok(Vec::new());
+    }
+    let own = node.local_node_id()?.context("node not initialized")?;
+    let previous = log.iter().rev().nth(1);
+    let request = shenko_node::AppendRequest {
+        schema: shenko_node::ELECTION_WIRE_SCHEMA,
+        leader_id: own,
+        prev_index: previous.map(|entry| entry.index).unwrap_or(0),
+        prev_term: previous.map(|entry| entry.term).unwrap_or(0),
+        entries: vec![last],
+        proposal: None,
+    };
+    let Some(config) = node.member_configuration()? else {
+        return Ok(Vec::new());
+    };
+    let mut outcomes = Vec::new();
+    for member in config.voters() {
+        if member == own {
+            continue;
+        }
+        let Some(peer) = peer_route(node, member)? else {
+            outcomes.push(json!({
+                "member": member,
+                "outcome": "no_route",
+                "reason": "no registered sync route for this member",
+            }));
+            continue;
+        };
+        let result: Result<Value> = (|| {
+            let appended = rpc(
+                &peer,
+                &shenko_node::Request::Append {
+                    request: request.clone(),
+                },
+                cancel,
+            )?;
+            Ok(json!({"member": member, "outcome": "replicated", "append": appended}))
+        })();
+        match result {
+            Ok(value) => outcomes.push(value),
+            Err(error) => {
+                node.fail_sync_peer(&peer, format!("{error:#}"))?;
+                outcomes.push(json!({
+                    "member": member,
+                    "outcome": "unreachable",
+                    "reason": format!("{error:#}"),
+                }));
+            }
+        }
+    }
+    Ok(outcomes)
+}
+
 /// Ensure a committed member configuration, campaign for primary, solicit
 /// votes over each configured member's authenticated route, and commit the
 /// primary claim when the committed configuration's quorum is satisfied.
@@ -641,7 +804,10 @@ pub fn establish_primary(
     let mut node = open_node(data_dir, store)?;
     node.ensure_member_configuration()?;
     if node.is_primary()? && node.fencing_token()?.is_some() {
-        // A committed claim for this node already fences its authority.
+        // A committed claim for this node already fences its authority. The
+        // claim is still replicated: a follower that missed it holds stale
+        // authority, and repeating an entry a follower already has is a no-op.
+        replicate_committed_claim(&mut node, cancel)?;
         return Ok(node.fencing_token()?);
     }
     let campaign = node.campaign()?;
@@ -690,15 +856,76 @@ pub fn establish_primary(
     }
     let outcome = node.tally(term)?;
     if outcome.elected {
+        replicate_committed_claim(&mut node, cancel)?;
         return Ok(node.fencing_token()?);
     }
     tracing::warn!(term = term, ?outcomes, "election found no reachable quorum; opening availability branch");
+    // One partition episode is one branch: a repeated failed election on the
+    // same open partition extends the branch instead of fragmenting the
+    // episode into a new identity per start. Rejoining then merges exactly the
+    // branch that still holds this episode's experience.
+    let open_partition = node
+        .branches()?
+        .into_iter()
+        .find(|branch| {
+            branch.kind == shenko_node::BranchKind::Availability && branch.merged.is_none()
+        })
+        .map(|branch| branch.branch_id);
     node.open_availability_branch(
-        EntityId::new(),
+        open_partition.unwrap_or_else(EntityId::new),
         store.get_existing_agent_id()?,
         &format!("election term {term} found no reachable quorum of the committed configuration"),
     )?;
     Ok(None)
+}
+
+/// Give a node added to the domain the configuration it must know before it
+/// may vote: a voter never trusts a base configuration it has not seen, and it
+/// refuses a proposal whose base it does not hold. Without this catch-up the
+/// new member can never grant the vote that the joint quorum requires.
+fn catch_up_added_members(
+    node: &mut Node,
+    added: &[EntityId],
+    cancel: &CancellationToken,
+) -> Result<Vec<Value>> {
+    let Some(config) = node.member_configuration()? else {
+        return Ok(Vec::new());
+    };
+    let entries = node.control_log()?;
+    let mut outcomes = Vec::with_capacity(added.len());
+    for member in added {
+        let Some(peer) = peer_route(node, *member)? else {
+            outcomes.push(json!({
+                "member": member,
+                "outcome": "no_route",
+                "reason": "no registered sync route for this member",
+            }));
+            continue;
+        };
+        let result: Result<Value> = (|| {
+            let adopted = rpc(
+                &peer,
+                &shenko_node::Request::PushConfig {
+                    config: config.clone(),
+                    entries: entries.clone(),
+                },
+                cancel,
+            )?;
+            Ok(json!({"member": member, "outcome": "pushed", "adopted": adopted}))
+        })();
+        match result {
+            Ok(value) => outcomes.push(value),
+            Err(error) => {
+                node.fail_sync_peer(&peer, format!("{error:#}"))?;
+                outcomes.push(json!({
+                    "member": member,
+                    "outcome": "unreachable",
+                    "reason": format!("{error:#}"),
+                }));
+            }
+        }
+    }
+    Ok(outcomes)
 }
 
 fn member_change(
@@ -721,10 +948,11 @@ fn member_change(
     let joint = node.propose_member_change(MemberChangeRequest {
         operation_id: EntityId::new(),
         expected_revision: revision,
-        add,
+        add: add.clone(),
         remove,
         reason: "operator membership change over authenticated control path".into(),
     })?;
+    let catch_up = catch_up_added_members(&mut node, &add, cancel)?;
     let joint_votes = solicit_member_votes(&mut node, &joint, cancel)?;
     let joint_outcome = node.tally_member_change(&joint.proposal)?;
     if !joint_outcome.quorum_met {
@@ -733,6 +961,9 @@ fn member_change(
             joint_outcome.reason
         );
     }
+    // The final phase is approved against the committed joint configuration,
+    // so an added member must hold that exact revision before it may vote.
+    let joint_catch_up = catch_up_added_members(&mut node, &add, cancel)?;
     let fin = node.propose_final_member_change(&joint.proposal)?;
     let final_votes = solicit_member_votes(&mut node, &fin, cancel)?;
     let final_outcome = node.tally_member_change(&fin.proposal)?;
@@ -742,7 +973,13 @@ fn member_change(
             final_outcome.reason
         );
     }
+    // The added members must hold the committed configuration before they can
+    // vote in the next election; their own revision is otherwise still joint.
+    let final_catch_up = catch_up_added_members(&mut node, &add, cancel)?;
     Ok(json!({
+        "catch_up": catch_up,
+        "joint_catch_up": joint_catch_up,
+        "final_catch_up": final_catch_up,
         "joint": {"votes": joint_votes, "outcome": joint_outcome},
         "final": {"votes": final_votes, "outcome": final_outcome},
         "member_configuration": node.member_configuration()?,
@@ -773,20 +1010,23 @@ fn push_member_configuration(
     Ok(json!({"peer": peer_id, "adopted": adopted}))
 }
 
-fn reconcile_with_peer(
-    data_dir: &Path,
-    store: &Store,
-    cancel: &CancellationToken,
+/// Pull a peer's verified experience over its authenticated route, paging both
+/// durable journals.
+///
+/// The peer's event watermark and the manifest its process actually ran with
+/// travel with the experience: a rejoin records what it merged through and
+/// whether the peer is a different artifact/OS/arch generation, without
+/// adopting the peer's capability facts as this node's own.
+fn pull_peer_experience(
+    node: &Node,
     peer_id: EntityId,
-) -> Result<Value> {
-    let mut node = open_node(data_dir, store)?;
-    let peer = peer_route(&node, peer_id)?
+    cancel: &CancellationToken,
+) -> Result<PeerExperience> {
+    let peer = peer_route(node, peer_id)?
         .with_context(|| format!("no registered sync route for peer {peer_id}"))?;
-    // Pull the peer's verified experience over its authenticated route,
-    // paging both durable journals. Nothing is merged by last-write-wins:
-    // the node retains conflicts side by side for the subject to judge.
     let mut events = Vec::new();
     let mut cursor = "0".to_string();
+    let mut events_high_water = "0".to_string();
     loop {
         let value = rpc(
             &peer,
@@ -807,6 +1047,7 @@ fn reconcile_with_peer(
             .and_then(Value::as_str)
             .context("peer export omitted cursor")?
             .to_string();
+        events_high_water = through.clone();
         let last = page.last().cloned();
         events.extend(page);
         if through == cursor || last.is_none() {
@@ -866,17 +1107,120 @@ fn reconcile_with_peer(
         .map(serde_json::from_value)
         .transpose()
         .context("peer branch id")?;
-    let experience = PeerExperience {
+    let peer_manifest: Option<shenko_node::Manifest> = peer_identity
+        .get("running_manifest")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .context("peer running manifest")?;
+    // The peer's own Store observation travels with the experience. It is read
+    // from the authenticated route and bound to the peer identity it arrived
+    // from; when the peer published none, the merge records that it is unknown
+    // instead of inventing a fingerprint or a watermark.
+    let peer_cognition = peer_cognition_report(peer_id, &peer_identity)?;
+    let cognition_fingerprint = peer_cognition
+        .as_ref()
+        .map(|fact| fact.fingerprint.clone());
+    let cognition_high_water = peer_cognition.as_ref().map(|fact| fact.high_water);
+    let cognition_origin = peer_cognition
+        .as_ref()
+        .map(CognitionSnapshotReport::origin);
+    let note = if cognition_origin.is_some() {
+        "experience pulled over authenticated node route; the peer's own Store cognition report travelled with it; conflicts retained as parallel facts"
+    } else {
+        "experience pulled over authenticated node route; the peer published no cognition observation, so its snapshot generation is unknown; conflicts retained as parallel facts"
+    };
+    Ok(PeerExperience {
         peer_node_id: peer_id,
         peer_branch_id: peer_branch,
         events,
         receipts,
-        cognition_fingerprint: None,
-        cognition_high_water: None,
-        note: "experience pulled over authenticated node route; conflicts retained as parallel facts".into(),
-    };
+        cognition_fingerprint,
+        cognition_high_water,
+        cognition_origin,
+        peer_high_water: Some(events_high_water),
+        peer_manifest,
+        note: note.into(),
+    })
+}
+
+fn reconcile_with_peer(
+    data_dir: &Path,
+    store: &Store,
+    cancel: &CancellationToken,
+    peer_id: EntityId,
+) -> Result<Value> {
+    let mut node = open_node(data_dir, store)?;
+    // The comparison in the record is between two Store-origin observations, so
+    // this installation's own observation is published first. Without it a
+    // merge would report `unobserved` for a snapshot this installation can
+    // actually read from its Store.
+    let cognition = publish_cognition_report(store, &mut node, data_dir);
+    if let Err(error) = &cognition {
+        tracing::warn!(error=%error, "cognition report not published; the merge records an unknown local snapshot");
+    }
+    // Nothing is merged by last-write-wins: the node retains conflicts side by
+    // side for the subject to judge.
+    let experience = pull_peer_experience(&node, peer_id, cancel)?;
     let record = node.reconcile_peer_experience(&experience)?;
-    Ok(json!({"peer": peer_id, "record": record}))
+    let mut value = json!({"peer": peer_id, "record": record});
+    report_cognition_publication(&mut value, &cognition);
+    Ok(value)
+}
+
+/// Rejoin the domain after a partition.
+///
+/// The peer's experience is merged first, and only a reconciliation this node
+/// really recorded closes the partition branch. The branch is archived with
+/// its merge fact instead of being reset, and the reported authority is the
+/// committed claim: a rejoin with no committed claim states that it holds no
+/// domain-primary authority rather than inventing one.
+fn rejoin_with_peer(
+    data_dir: &Path,
+    store: &Store,
+    cancel: &CancellationToken,
+    peer_id: EntityId,
+    note: &str,
+) -> Result<Value> {
+    let mut node = open_node(data_dir, store)?;
+    // Same producer as reconcile: a rejoin states what this installation holds
+    // now, not what a previous tick happened to publish.
+    let cognition = publish_cognition_report(store, &mut node, data_dir);
+    if let Err(error) = &cognition {
+        tracing::warn!(error=%error, "cognition report not published; the merge records an unknown local snapshot");
+    }
+    let experience = pull_peer_experience(&node, peer_id, cancel)?;
+    let record = node.reconcile_peer_experience(&experience)?;
+    let mut merged = Vec::new();
+    for branch in node.branches()? {
+        let unmerged_partition = branch.kind == shenko_node::BranchKind::Availability
+            && branch.merged.is_none();
+        if !unmerged_partition {
+            continue;
+        }
+        let fact = node.merge_availability_branch(
+            branch.branch_id,
+            record.reconciliation_id,
+            note,
+        )?;
+        merged.push(json!({
+            "branch_id": fact.branch_id,
+            "merged": fact.merged,
+            "retained_experience": fact.retained_experience,
+        }));
+    }
+    let claim = node.committed_primary_claim()?;
+    let mut value = json!({
+        "peer": peer_id,
+        "record": record,
+        "merged_branches": merged,
+        "committed_primary_claim": claim,
+        "this_node_is_primary": node.is_primary()?,
+        "globally_claiming_quorum": claim.is_some(),
+        "note": "merged facts are parallel facts; the domain primary is only the committed claim",
+    });
+    report_cognition_publication(&mut value, &cognition);
+    Ok(value)
 }
 
 fn confirm(
@@ -923,11 +1267,22 @@ fn confirm(
 
 fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Result<Value> {
     let mut node = open_node(data_dir, store)?;
+    // The runtime producer: this loop is what `shenko start` runs every tick
+    // and what `shenko sync push` runs on demand, so the report a peer reads is
+    // always one this installation actually computed from its Store.
+    // A publication failure is reported, never silently replaced by an older
+    // report: a peer then keeps reading the last real observation it has. An
+    // unchanged snapshot publishes nothing new (§51.1 dedup), so a steady tick
+    // is a read, not a new revision.
+    let cognition = publish_cognition_report(store, &mut node, data_dir);
+    if let Err(error) = &cognition {
+        tracing::warn!(error=%error, "cognition report not published; peers keep the last real report");
+    }
     let peers = node.sync_peers()?;
     if peers.is_empty() {
-        return Ok(
-            json!({"no_peers_unprotected":true,"peers":[],"global_strong_consistency":false,"zero_loss":false}),
-        );
+        let mut status = json!({"no_peers_unprotected":true,"peers":[],"global_strong_consistency":false,"zero_loss":false});
+        report_cognition_publication(&mut status, &cognition);
+        return Ok(status);
     }
     stage_declared_recovery_sources(data_dir, store, &node)?;
     let (header, units) = header(&mut node)?;
@@ -965,9 +1320,22 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
             }
         }
     }
-    Ok(
-        json!({"no_peers_unprotected":results.is_empty(),"peers":results,"global_strong_consistency":false,"zero_loss":false}),
-    )
+    let mut status = json!({"no_peers_unprotected":results.is_empty(),"peers":results,"global_strong_consistency":false,"zero_loss":false});
+    report_cognition_publication(&mut status, &cognition);
+    Ok(status)
+}
+
+/// Report what actually happened to this tick's cognition observation: the
+/// published report, or the reason none was published. Never a substitute, and
+/// never an older report in place of a failed one.
+fn report_cognition_publication(
+    status: &mut Value,
+    outcome: &Result<CognitionSnapshotReport>,
+) {
+    match outcome {
+        Ok(report) => status["cognition_report"] = json!(report),
+        Err(error) => status["cognition_report_error"] = json!(format!("{error:#}")),
+    }
 }
 
 pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
@@ -987,6 +1355,15 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             json!({"node_id":node.local_node_id()?,"subject_identity":node.local_identity()?,"roles":node.role_status()?,"capabilities":node.capability_profile()?,"coordination":node.coordination_candidates()?})
         ),
         SyncCommand::Status => {
+            // This installation's own status read is also an observation point:
+            // the report a peer reads from the node route is whatever this
+            // installation last published, so it is produced from the Store
+            // here instead of only by the background replication tick. An
+            // unchanged Store keeps the published revision (§51.1 dedup).
+            let published = publish_cognition_report(&store, &mut node, &data_dir);
+            if let Err(error) = &published {
+                tracing::warn!(error=%error, "cognition report not published; the route keeps the last real report");
+            }
             let states = node.sync_peers()?;
             if !states.is_empty() {
                 stage_declared_recovery_sources(&data_dir, &store, &node)?;
@@ -1004,10 +1381,13 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
                     .is_some_and(|c| c.units_fingerprint == units);
                 peers.push(json!({"route":state,"cognition":cognition,"installation_packages_confirmed":units_confirmed,"capability_fact":node.capability_facts()?.into_iter().find(|f| f.node_id == state.peer.node_id),"current_peer_liveness":"not_proven_by_historical_ack"}));
             }
-            println!(
-                "{}",
-                json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"capabilities":node.capability_profile()?,"coordination":node.coordination_candidates()?,"workspace_default":"not_replicated","local_credential_stores_and_grants":"not_discovered_or_copied","global_strong_consistency":false,"zero_loss":false})
-            );
+            // The report peers read from this node's route, exactly as it is
+            // stored. `null` means this installation published none — a
+            // publication failure is reported next to it, never replaced by an
+            // older value or a default.
+            let mut status = json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"cognition_report":node.cognition_report()?,"capabilities":node.capability_profile()?,"coordination":node.coordination_candidates()?,"workspace_default":"not_replicated","local_credential_stores_and_grants":"not_discovered_or_copied","global_strong_consistency":false,"zero_loss":false});
+            report_cognition_publication(&mut status, &published);
+            println!("{status}");
         }
         SyncCommand::Enroll {
             host,
@@ -1224,6 +1604,14 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             drop(node);
             let value = tokio::task::spawn_blocking(move || {
                 reconcile_with_peer(&data_dir, &store, &CancellationToken::new(), peer)
+            })
+            .await??;
+            println!("{value}");
+        }
+        SyncCommand::Rejoin { peer, note } => {
+            drop(node);
+            let value = tokio::task::spawn_blocking(move || {
+                rejoin_with_peer(&data_dir, &store, &CancellationToken::new(), peer, &note)
             })
             .await??;
             println!("{value}");

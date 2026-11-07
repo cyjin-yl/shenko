@@ -10,7 +10,9 @@ provenance and dependencies have exactly one owner.
 
 Pure text units install no daemon, register no Cordis service and add no
 kernel hook. A unit that ships an executable helper keeps using the existing
-plugin contracts; the awareness path itself stays text.
+plugin contracts. The awareness bytes in this store are still text. That is
+the current harness, not the capability (SPEC §51). The text grants no
+authority and dispatches nothing.
 
 Awareness bodies express observations and principles; they do not contain
 prescribed passing replies or the judge's expected actions. Positive `cues`
@@ -30,6 +32,13 @@ index ≤ 4 KiB, one read body ≤ 16 KiB, one discovery page ≤ 32 cards.
 
 Kinds: `awareness`, `perception`, `skill`, `code` — one storage and install
 path, distinguished only by the kind field.
+
+2026-11-05 conceptual contract ([SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由)):
+awareness is a capability, not a document the model can be assumed to follow.
+Text units and an external watcher are the present harness. fact and conclusion
+are not extra kinds; they are one content type whose justification stops at an
+observation or at other content. This file still describes the installed-unit
+mechanism. It does not implement attitudes, justification pointers, or metapackages.
 
 ## Disclosure: bounded cards, paged discovery, bodies read on demand
 
@@ -197,6 +206,27 @@ a local task does not cancel or erase an already admitted provider request.
 Failure to seal a sample receipt is reported as a failed attempt without a
 receipt digest.
 
+`PreparedSandbox` and `run_prepared_sandbox` expose that same subject,
+dispatcher, observation and cleanup lifecycle to caller-owned runtimes. The
+caller supplies its fresh Node, baseline and native plugins through
+`SandboxRuntime`; installation finishes before the subject's capability
+snapshot. A runtime may accept a particular failed result or original
+unresolved observation only after authenticating it. The default cognition
+runtime retains its strict successful-read and effect-free contract.
+
+The selected continuation is the first eligible committed S1. The runtime
+captures its independent facts before cleanup, rather than selecting a later
+favourable result or reconstructing facts after shutdown. A typed
+`SandboxCleanupFailure` also tells a caller that later mutable bindings cannot
+be reused. The caller keeps ownership of its broker and original receipt
+writers and must drain them after the comparison.
+
+A subject that returns an error and is normally joined still fails the
+sample, with its original execution error and provider request retained. That
+execution failure alone does not mark later mutable bindings unsafe. Failure
+to join an owned task, an owned-task panic or failed service shutdown remains
+a `SandboxCleanupFailure`.
+
 The caller supplies the scenarios: a name, the message the subject receives,
 and the rubric clause that says what "the unit helped" means. The rubric is
 given to the judge only; the subject never sees it. The judge is a model call
@@ -204,6 +234,13 @@ against the same broker, and it sees the user message, the output and the
 rubric — **never the installed unit and never which condition produced the
 output**. There is no keyword scoring, no expected-output script and no
 caller-supplied verdict.
+
+`judge_sandbox_output` additionally accepts an authenticated CAS object of
+independently collected facts, up to 128 KiB. Its caller owns their connection
+to actual effects and supplies a blinded projection without candidate bodies,
+condition labels or installation paths. The facts reference and full original
+judge exchange are retained. This does not change the native cognition
+judge's prompt or grant an execution capability.
 
 The judge's full original request is retained before dispatch, including the
 payload, identities, binding, priority and epoch; only the oneshot response

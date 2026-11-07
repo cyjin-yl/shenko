@@ -61,12 +61,18 @@ struct RegistryState {
     /// The once-per-window reminder threshold an installed strategy
     /// advertised, bound to its installation epoch.
     reminder: Option<ReminderThreshold>,
-    /// The window a reminder was already issued in, so one window gets at
-    /// most one reminder however many steps it spans.
-    reminder_issued: Option<EntityId>,
+    /// Committed windows whose reminder this process already acknowledged, so
+    /// one window gets at most one reminder however many steps it spans. The
+    /// durable journal, when attached, is the authority across restarts; this
+    /// set is the in-process copy that spares a reader per step.
+    reminder_issued: std::collections::BTreeSet<EntityId>,
     /// Durable arm/answer of explicit rollover requests, when this process
     /// has a store-backed journal.
     rollover_journal: Option<Arc<dyn crate::notes::RolloverJournal>>,
+    /// Durable once-per-window answer of the reminder, when this process has
+    /// a store-backed journal. Without it the answer is process-local, which
+    /// is the honest scope of a registry that has no store.
+    reminder_journal: Option<Arc<dyn crate::notes::ReminderJournal>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,6 +93,11 @@ pub struct RolloverReminder {
     pub window: EntityId,
     pub used_tokens: u32,
     pub max_context: u32,
+    /// The installation epoch that advertised the threshold. The
+    /// acknowledgement is fenced on it, so a strategy retired or replaced
+    /// between preparation and acknowledgement can neither answer the
+    /// reminder itself nor have its successor's threshold spent.
+    pub policy_epoch: u64,
 }
 
 /// A pending request to start a new window at the next safe tool-loop
@@ -479,36 +490,105 @@ impl PolicyRegistry {
         }
     }
 
-    /// Take this window's reminder, if the pressure crosses the advertised
-    /// threshold and this committed window was not reminded yet.
+    /// Attach the durable once-per-window reminder journal of this branch.
+    ///
+    /// The journal makes "this committed window already received its one
+    /// reminder" a fact that outlives the process that issued it, so a restart
+    /// inside the same window is silent instead of repeating prompt material
+    /// the model already saw. It must belong to the same branch as the window
+    /// chain; a mismatched journal is refused.
+    pub fn attach_reminder_journal(
+        &self,
+        journal: Arc<dyn crate::notes::ReminderJournal>,
+    ) -> Result<(), StorageError> {
+        let scope = self.ledger.scope_id();
+        if journal.scope_id() != scope {
+            return Err(StorageError(format!(
+                "reminder journal belongs to scope {}, this context chain is {scope}",
+                journal.scope_id()
+            )));
+        }
+        self.state.lock().reminder_journal = Some(journal);
+        Ok(())
+    }
+
+    /// The reminder this committed window still needs, if any.
+    ///
+    /// Preparation is non-consuming on purpose: prompt assembly can be
+    /// refused, aborted or restarted after the reminder was read, and a
+    /// consuming read would lose the only reminder this window gets. The
+    /// answer belongs to the successful commit, so
+    /// [`Self::acknowledge_rollover_reminder`] is what spends it.
     ///
     /// The reminder is a prompt-suffix fact, not a window: it never prepares,
     /// publishes or commits anything. A registry with no observed pressure or
     /// no advertised threshold reports nothing.
-    pub fn take_rollover_reminder(&self) -> Option<RolloverReminder> {
-        let (ratio, pressure) = {
+    pub fn pending_rollover_reminder(&self) -> Option<RolloverReminder> {
+        let (threshold, pressure) = {
             let state = self.state.lock();
-            (state.reminder?.ratio, state.pressure.clone()?)
+            (state.reminder?, state.pressure.clone()?)
         };
         if pressure.max_context == 0 {
             return None;
         }
-        if (pressure.used_tokens as f32) < (pressure.max_context as f32 * ratio) {
+        if (pressure.used_tokens as f32) < (pressure.max_context as f32 * threshold.ratio) {
             return None;
         }
         // A ledger read failure must not block the prompt: no reminder is
         // honest, an error is not.
         let window = self.ledger.current().ok()?.id;
-        let mut state = self.state.lock();
-        if state.reminder_issued == Some(window) {
+        let journal = { self.state.lock().reminder_journal.clone() };
+        if let Some(journal) = &journal {
+            // The durable row is the authority across restarts. An unreadable
+            // answer is not turned into a repeat: a reminder whose own answer
+            // cannot be read is not issued again.
+            match journal.issued(window) {
+                Ok(true) => return None,
+                Ok(false) => {}
+                Err(_) => return None,
+            }
+        }
+        if self.state.lock().reminder_issued.contains(&window) {
             return None;
         }
-        state.reminder_issued = Some(window);
         Some(RolloverReminder {
             window,
             used_tokens: pressure.used_tokens,
             max_context: pressure.max_context,
+            policy_epoch: threshold.epoch,
         })
+    }
+
+    /// Record that the request assembled with `reminder` committed.
+    ///
+    /// This is the only place the answer is spent, and it runs on the
+    /// committed-context lifecycle: a refused, aborted or restarted assembly
+    /// never reaches it, so the reminder stays available and a successful
+    /// retry still carries it. The answer is fenced on the installation epoch
+    /// that advertised the threshold — a strategy retired or replaced between
+    /// projection and commit can neither answer its own reminder after the
+    /// fact nor spend its successor's threshold, so the successor issues its
+    /// own once. Returns whether this call created the durable record; `false`
+    /// means the window was already answered or the issuing installation is
+    /// gone.
+    pub fn acknowledge_rollover_reminder(
+        &self,
+        reminder: &RolloverReminder,
+    ) -> Result<bool, StorageError> {
+        let journal = {
+            let state = self.state.lock();
+            if !state.reminder.is_some_and(|threshold| threshold.epoch == reminder.policy_epoch) {
+                return Ok(false);
+            }
+            state.reminder_journal.clone()
+        };
+        let first_in_process = self.state.lock().reminder_issued.insert(reminder.window);
+        match journal {
+            Some(journal) => journal
+                .mark_issued(reminder.window, reminder.policy_epoch)
+                .map_err(|error| StorageError(error.to_string())),
+            None => Ok(first_in_process),
+        }
     }
 
     fn candidates(&self) -> Vec<(Arc<dyn ContextPolicy>, PolicyManifest, u64)> {

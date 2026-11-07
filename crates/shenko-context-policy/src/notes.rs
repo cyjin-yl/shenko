@@ -15,11 +15,17 @@
 //!   refused instead of overwriting another writer's note.
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
+use shenko_types::object::ObjectRef;
 
 use crate::history::StorageError;
+use crate::registry::RolloverRequest;
 
 /// Longest note a journal entry may carry, in UTF-8 bytes (not characters).
 pub const MAX_NOTE_BYTES: usize = 16_384;
+
+/// Media type of a registered notebook revision's content. Note text is UTF-8
+/// by construction (the byte bound is checked on the encoded string).
+pub const NOTE_MEDIA_TYPE: &str = "text/plain; charset=utf-8";
 
 /// Who wrote a note revision. The label is provenance, not authority: a fork
 /// copy is not a model note, and a reset is not a replacement.
@@ -95,12 +101,6 @@ pub enum NotesError {
     AlreadyJournaled { revision: u64 },
 }
 
-impl From<StorageError> for NotesError {
-    fn from(error: StorageError) -> Self {
-        Self::Storage(error)
-    }
-}
-
 /// Read and append access to one branch's note journal.
 ///
 /// `revision` 0 means "this scope has no note yet". Both writers take the
@@ -121,6 +121,32 @@ pub trait NotesJournal: Send + Sync {
 
     /// Bounded page of revisions, newest first.
     fn revisions(&self, limit: u64) -> Result<Vec<NoteRevision>, NotesError>;
+
+    /// One retained revision, or `None` when the journal never recorded it.
+    ///
+    /// This is the explicit-version read: the retained originals stay
+    /// readable, and nothing replaces them with a summary.
+    fn revision(&self, revision: u64) -> Result<Option<NoteRevision>, NotesError> {
+        if revision == 0 {
+            return Ok(None);
+        }
+        Ok(self
+            .revisions(revision.saturating_add(1))?
+            .into_iter()
+            .find(|note| note.revision == revision))
+    }
+
+    /// The content reference of one retained revision (SPEC §51.1: content is
+    /// immutable and addressed by digest).
+    ///
+    /// A store-backed journal seals the retained bytes into the content store
+    /// and returns the `ObjectRef`; sealing is idempotent and never rewrites
+    /// the journal row. A journal without a content store returns `None`
+    /// instead of fabricating a reference.
+    fn content(&self, revision: u64) -> Result<Option<ObjectRef>, NotesError> {
+        let _ = revision;
+        Ok(None)
+    }
 
     /// Replace the notebook. The text must be non-empty and within the size
     /// bound; the check runs before the journal is touched.
@@ -363,5 +389,55 @@ impl RolloverJournal for MemoryRolloverJournal {
             }
             _ => Ok(false),
         }
+    }
+}
+
+/// Durable once-per-window answer of the notes strategy's reminder.
+///
+/// The reminder is prompt material, not a window: this journal records only
+/// that the committed window the model is looking at already received its one
+/// reminder, so a process that restarts inside the same window cannot show it
+/// twice. It never answers an explicit rollover request — that fact has its
+/// own journal — and it never cuts history.
+///
+/// The key is the committed window, not a step or a request: a window gets at
+/// most one reminder however many steps it spans, and a new committed window
+/// is a new opportunity.
+pub trait ReminderJournal: Send + Sync {
+    /// The branch scope this journal belongs to.
+    fn scope_id(&self) -> EntityId;
+
+    /// Whether this committed window already received its reminder.
+    fn issued(&self, window: EntityId) -> Result<bool, NotesError>;
+
+    /// Record the window as reminded under the installation `policy_epoch`.
+    /// Returns whether this call created the record; `false` means the
+    /// window was already recorded and the original record is unchanged.
+    fn mark_issued(&self, window: EntityId, policy_epoch: u64) -> Result<bool, NotesError>;
+}
+
+/// In-process reminder journal for strategies and tests without a store.
+pub struct MemoryReminderJournal {
+    scope_id: EntityId,
+    issued: parking_lot::Mutex<std::collections::BTreeMap<EntityId, u64>>,
+}
+
+impl MemoryReminderJournal {
+    pub fn new(scope_id: EntityId) -> Self {
+        Self { scope_id, issued: parking_lot::Mutex::new(std::collections::BTreeMap::new()) }
+    }
+}
+
+impl ReminderJournal for MemoryReminderJournal {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
+    fn issued(&self, window: EntityId) -> Result<bool, NotesError> {
+        Ok(self.issued.lock().contains_key(&window))
+    }
+
+    fn mark_issued(&self, window: EntityId, policy_epoch: u64) -> Result<bool, NotesError> {
+        Ok(self.issued.lock().insert(window, policy_epoch).is_none())
     }
 }

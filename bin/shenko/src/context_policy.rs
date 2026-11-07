@@ -350,15 +350,22 @@ pub fn window_report(store: &std::sync::Arc<shenko_store::Store>, limit: u64) ->
         .iter()
         .map(|meta| {
             let mut kinds = serde_json::Map::new();
+            // The notebook entry is working state, so the report names the
+            // revision and provenance the window carries, never the text.
+            let mut notes = Vec::new();
             for entry in &meta.window.entries {
                 let kind = match entry {
                     shenko_context_policy::WindowEntry::Verbatim { .. } => "verbatim",
                     shenko_context_policy::WindowEntry::Pointer { .. } => "pointer",
                     shenko_context_policy::WindowEntry::Text { .. } => "text",
                     shenko_context_policy::WindowEntry::Image { .. } => "image",
+                    shenko_context_policy::WindowEntry::Note { .. } => "note",
                 };
                 let count = kinds.entry(kind.to_string()).or_insert(json!(0));
                 *count = json!(count.as_u64().unwrap_or(0) + 1);
+                if let shenko_context_policy::WindowEntry::Note { revision, source, .. } = entry {
+                    notes.push(json!({"revision": revision, "source": source}));
+                }
             }
             json!({
                 "id": meta.window.id.to_string(),
@@ -368,6 +375,7 @@ pub fn window_report(store: &std::sync::Arc<shenko_store::Store>, limit: u64) ->
                 "model_generation": meta.window.model_generation,
                 "covers_through": meta.window.covers_through,
                 "entry_kinds": Value::Object(kinds),
+                "notes": notes,
                 "cost": meta.window.cost.clone(),
                 "derivatives": meta.derivatives.iter().map(|derivative| json!({
                     "media_type": derivative.media_type.clone(),

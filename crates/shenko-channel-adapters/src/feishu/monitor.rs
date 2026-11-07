@@ -12,16 +12,15 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use crate::common::{HealthState, ReplyContextCache};
-use crate::InboundEvent;
+use crate::ingress::SharedAdapterIngress;
 
 use super::auth::TenantAuth;
 use super::config::FeishuConfig;
-use super::events::{FEISHU_CHANNEL_ID, classify};
+use super::events::{FEISHU_SOURCE, classify};
 
 /// The keepalive interval of the long connection.
 const HEARTBEAT: Duration = Duration::from_secs(30);
@@ -38,6 +37,9 @@ pub enum MonitorError {
     /// The dispatcher closed the connection.
     #[error("feishu monitor connection closed: {0}")]
     Closed(String),
+    /// The event could not be made durable.
+    #[error("feishu ingress refused the event: {0}")]
+    Ingress(String),
 }
 
 /// The Feishu event-dispatcher monitor.
@@ -46,6 +48,7 @@ pub struct FeishuMonitor {
     auth: Arc<TenantAuth>,
     health: HealthState,
     replies: ReplyContextCache,
+    ledger: SharedAdapterIngress,
 }
 
 impl FeishuMonitor {
@@ -55,21 +58,19 @@ impl FeishuMonitor {
         auth: Arc<TenantAuth>,
         health: HealthState,
         replies: ReplyContextCache,
+        ledger: SharedAdapterIngress,
     ) -> Self {
         Self {
             config,
             auth,
             health,
             replies,
+            ledger,
         }
     }
 
     /// Run the monitor until the runtime asks it to stop.
-    pub async fn run(
-        &self,
-        sender: mpsc::Sender<InboundEvent>,
-        cancel: CancellationToken,
-    ) -> Result<(), MonitorError> {
+    pub async fn run(&self, cancel: CancellationToken) -> Result<(), MonitorError> {
         let mut backoff = Duration::from_secs(1);
         loop {
             if cancel.is_cancelled() {
@@ -79,7 +80,7 @@ impl FeishuMonitor {
             self.health
                 .transition("connecting", Some("opening the dispatcher connection".into()))
                 .await;
-            match self.run_once(&sender, &cancel).await {
+            match self.run_once(&cancel).await {
                 Ok(()) => {
                     self.health
                         .transition("degraded", Some("dispatcher connection ended".into()))
@@ -102,11 +103,7 @@ impl FeishuMonitor {
     }
 
     /// One dispatcher connection.
-    async fn run_once(
-        &self,
-        sender: &mpsc::Sender<InboundEvent>,
-        cancel: &CancellationToken,
-    ) -> Result<(), MonitorError> {
+    async fn run_once(&self, cancel: &CancellationToken) -> Result<(), MonitorError> {
         let token = self
             .auth
             .app_token()
@@ -152,7 +149,12 @@ impl FeishuMonitor {
                     match message {
                         Message::Text(text) => {
                             let frame: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-                            self.handle(&frame, sender).await;
+                            // Durable first: an event the ledger cannot take
+                            // ends this connection, and the platform replays
+                            // the window on the next one.
+                            self.handle(&frame)
+                                .await
+                                .map_err(MonitorError::Ingress)?;
                         }
                         Message::Ping(payload) => {
                             if socket.send(Message::Pong(payload)).await.is_err() {
@@ -169,19 +171,14 @@ impl FeishuMonitor {
         }
     }
 
-    /// Classify and forward one event frame.
-    async fn handle(&self, frame: &Value, sender: &mpsc::Sender<InboundEvent>) {
+    /// Classify one event frame and make it durable before the connection is
+    /// allowed to move on.
+    async fn handle(&self, frame: &Value) -> Result<(), String> {
         let Some(envelope) = classify(&self.config, frame) else {
-            return;
+            return Ok(());
         };
         self.health.observe_event().await;
-        let event = InboundEvent {
-            envelope,
-            raw: frame.clone(),
-            source: FEISHU_CHANNEL_ID.to_string(),
-        };
-        if sender.send(event).await.is_err() {
-            tracing::warn!("feishu ingress closed; the event stays pending");
-        }
+        self.ledger.record(FEISHU_SOURCE, &envelope, frame)?;
+        Ok(())
     }
 }

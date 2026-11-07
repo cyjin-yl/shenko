@@ -17,6 +17,9 @@ mod model_child_tests;
 #[path = "obligation_tests.rs"]
 mod obligation_tests;
 
+#[path = "obligation_partition_tests.rs"]
+mod obligation_partition_tests;
+
 #[path = "request_recovery_tests.rs"]
 mod request_recovery_tests;
 
@@ -2344,6 +2347,58 @@ async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn unselected_obligation_origin_preserves_evidence_and_reopens_correction() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let cancelled = tokio_util::sync::CancellationToken::new();
+    cancelled.cancel();
+    execute_step(1, &[], &mut subject, &cancelled).await.unwrap();
+    let raw = format!("[remember] this rejected decision must not save memory\n[obligation] {}",
+        serde_json::json!({"description":"Wait for the original task result",
+            "origin_event_id":EntityId::new()}));
+    let rejected_id = record_result(&store, &mut subject, &raw);
+    let rejected = subject.step.clone();
+    let original_head = subject.head.clone();
+    let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+    subject = subject.with_outbox(tx);
+    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().is_none());
+    assert_eq!(subject.head.committed_at, original_head.committed_at);
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert!(store.committed_intents(None, None, 8).unwrap().is_empty());
+    assert!(store.open_subject_obligations(agent).unwrap().is_empty());
+    assert!(rx.try_recv().is_err());
+    let retired = store.get_step(&original_head.branch_id, rejected_id).unwrap().unwrap();
+    assert_eq!(retired.state, SubjectStepState::Retired);
+    assert_eq!(retired.model_result_ref, rejected.model_result_ref);
+    assert_eq!(retired.model_outcome_ref, rejected.model_outcome_ref);
+    assert_eq!(retired.input_plan_ref, rejected.input_plan_ref);
+    assert_eq!(super::read_sealed(&store, retired.model_result_ref.as_ref().unwrap()).unwrap(), raw.as_bytes());
+    let rejection: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&store, retired.retry_reason_ref.as_ref().unwrap()).unwrap()
+    ).unwrap();
+    assert_eq!(rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(rejection.request_id, rejected.active_request_id.unwrap());
+    assert_eq!(rejection.replacement_step_id, subject.step.step_id);
+    drop(subject);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.step_id, rejection.replacement_step_id);
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    let correction = super::frozen_input(&reopened, &subject.step).unwrap();
+    assert!(correction.events.is_empty());
+    assert!(correction.obligations.is_empty());
+    record_result(&reopened, &mut subject, "Continue from the original durable receipts.");
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().expect("corrected S1 commits without replaying the rejected request");
+    assert_eq!(subject.head.committed_step_no, 1);
+    assert!(reopened.open_subject_obligations(agent).unwrap().is_empty());
+    assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
+}
+
 /// R143/§41.5: a wait is a durable subject decision, not an in-memory flag.
 /// Polling never renews its deadline, an unrelated message does not end it and
 /// a late continue cannot resurrect a wait that already ended.
@@ -3660,6 +3715,82 @@ async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
     assert_eq!(data["step_no"], 1);
     assert!(data["message"].as_str().unwrap().contains("subject loop stopped on error"));
     assert_eq!(data["journal_dropped_total"], 0);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// One admitted input this build cannot decode is a durable FACT, not a
+/// licence to stop the subject (SPEC §41.4 X11): the row stays pending with
+/// its identity, the skip is journaled once, and the readable input beside it
+/// still reaches a sealed S0.
+#[tokio::test]
+async fn undecodable_admitted_input_does_not_block_unrelated_subject_work() {
+    use shenko_store::InboxAdmission;
+
+    let (dir, store, agent) = fixture();
+    // A newer producer version admitted an event kind this build does not
+    // know. Admission is the durable fact; decoding is a later reader's work.
+    let future_id = EntityId::new();
+    let future = serde_json::json!({
+        "event_id": future_id,
+        "kind": "future_kind",
+        "source": "web_ui",
+        "payload": {"content": "from a newer producer"},
+        "created_at": chrono::Utc::now(),
+    });
+    assert_eq!(
+        store
+            .admit_inbox_event(future_id, agent, "future_kind", "web_ui", &future)
+            .unwrap(),
+        InboxAdmission::Inserted
+    );
+    let readable = message("当前版本能读的输入");
+    admit_web_event(&store, agent, "readable-after-undecodable", &readable);
+
+    let subject = state(store.clone(), agent).unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()),
+    )
+    .await
+    .expect("an undecodable admitted row must not wedge the loop");
+    // There is no broker in this fixture: the one real S0 seals and stops at
+    // that prerequisite, which is the same boundary the readable-backlog
+    // fixture asserts.
+    assert!(result.is_err());
+
+    // Unrelated work continued: the readable input reached the sealed S0.
+    let (head, step) = store.load_subject(agent).unwrap();
+    let sealed = super::frozen_input(&store, &step).unwrap();
+    assert_eq!(sealed.events.len(), 1);
+    assert_eq!(sealed.events[0].event_id, readable.event_id);
+
+    // The undecodable row is preserved, unconsumed, with its identity intact.
+    let pending = store.pending_inbox_events(agent, 64).unwrap();
+    assert!(
+        pending.iter().any(|(event_id, _)| *event_id == future_id),
+        "an undecodable admitted input must stay durable: {pending:?}"
+    );
+
+    // The skip is a durable runtime fact naming the row it left untouched.
+    let session = EntityId(head.branch_id.0);
+    let journaled: Vec<serde_json::Value> = store
+        .session_events_range(session, 1, i64::MAX)
+        .unwrap()
+        .iter()
+        .map(|event| serde_json::from_str(&event.data).unwrap())
+        .filter(|event: &serde_json::Value| event["kind"] == "undecodable_inbox_input")
+        .collect();
+    assert_eq!(journaled.len(), 1, "the skip is journaled once, not per poll");
+    assert!(
+        journaled[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains(&future_id.to_string()),
+        "the skip names the row it left untouched: {}",
+        journaled[0]["message"]
+    );
+
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
 }

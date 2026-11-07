@@ -8,11 +8,12 @@
 //! * a rollover starts a new window at a safe boundary and retains the latest
 //!   visible notebook plus complete recent tool-call/result units — no
 //!   summarization model is called;
-//! * the notebook is carried inside the stand-in entry of the dropped run it
-//!   replaces, so every entry's `from..=to` is exactly the raw range it stands
-//!   for. A notebook never gets a range of its own: an invented range would
-//!   claim raw events another entry already shows, double-count them, and be
-//!   discarded by the first raw restoration of that range;
+//! * the notebook travels as its own typed entry (`WindowEntry::Note`) and
+//!   every stand-in keeps exactly the raw range of the dropped run it stands
+//!   for. A notebook never gets a range: an invented one would claim raw
+//!   events another entry already shows, double-count them, be discarded by
+//!   the first raw restoration of that range, and hide the working state from
+//!   a window that drops nothing;
 //! * an explicit request for a new window at the next safe boundary is a
 //!   boundary the model asked for, so it cuts a window even when a small
 //!   history drops nothing. Such a window carries the complete recent units
@@ -157,26 +158,25 @@ fn pointer_note(from: u64, to: u64) -> String {
 /// One entry per run keeps coverage exact: `from..=to` is the raw range this
 /// entry stands for, so no entry claims events another entry already shows and
 /// a later rehydration of a changed call can restore exactly this run.
-///
-/// The notebook is working state about the whole branch, not a derivative of
-/// this range. It travels with the first stand-in because a window has no
-/// other place a note without raw coverage can honestly occupy: giving it its
-/// own invented range would double-count raw events and would be discarded by
-/// the first raw restoration of that range.
-fn stand_in(from: u64, to: u64, notebook: Option<&NoteRevision>) -> WindowEntry {
+fn stand_in(from: u64, to: u64) -> WindowEntry {
     let pointer = pointer_note(from, to);
-    let Some(note) = notebook else {
-        let tokens = estimate_tokens(&pointer);
-        return WindowEntry::Pointer { from, to, note: pointer, tokens };
-    };
-    let text = format!(
-        "{pointer}\n\n[working notebook r{} ({}), latest visible revision of this branch; bounded working state, not a transcript — the raw events stay readable through history.query by seq or event id]\n{}",
-        note.revision,
-        note.source.label(),
-        note.text
-    );
-    let tokens = estimate_tokens(&text);
-    WindowEntry::Text { from, to, text, tokens }
+    let tokens = estimate_tokens(&pointer);
+    WindowEntry::Pointer { from, to, note: pointer, tokens }
+}
+
+/// The notebook entry: branch working state with no raw range of its own.
+///
+/// The revision is the journal revision the text was read from, so a committed
+/// window names exactly one revision instead of a merge of two, and the entry
+/// neither counts as covered raw events nor disappears when a dropped range is
+/// rehydrated back into raw events.
+fn notebook_entry(note: &NoteRevision) -> WindowEntry {
+    WindowEntry::Note {
+        revision: note.revision,
+        source: note.source,
+        text: note.text.clone(),
+        tokens: estimate_tokens(&note.text),
+    }
 }
 
 impl ContextPolicy for NotesRollover {
@@ -212,7 +212,7 @@ impl ContextPolicy for NotesRollover {
         // newest revision only, and nothing when the newest revision is a
         // clear. Reading the journal again after the entries were built could
         // attach a revision a concurrent replacement already retired.
-        let mut notebook = self
+        let notebook = self
             .notes
             .head()
             .map_err(|error| PolicyError::Other(format!("notebook is unreadable: {error}")))?
@@ -223,12 +223,9 @@ impl ContextPolicy for NotesRollover {
                 items[range].iter().map(|item| WindowEntry::Verbatim { at: item.at, tokens: item.tokens }),
             );
         };
-        // The notebook is taken by the first stand-in entry, so one window
-        // never repeats it and no entry claims a range it does not stand for.
-        let mut flush = |entries: &mut Vec<WindowEntry>, run: Option<(u64, u64)>| {
+        let flush = |entries: &mut Vec<WindowEntry>, run: Option<(u64, u64)>| {
             if let Some((from, to)) = run {
-                entries.push(stand_in(from, to, notebook.as_ref()));
-                notebook = None;
+                entries.push(stand_in(from, to));
             }
         };
         let mut entries = Vec::new();
@@ -253,11 +250,21 @@ impl ContextPolicy for NotesRollover {
         // for, so it still cuts a window that keeps every complete recent unit
         // and every unresolved call, even when there is nothing to drop. An
         // empty history is not a boundary in either case.
+        //
+        // The notebook is not a reason to cut a window: it is working state
+        // carried by whichever window is cut, so it never satisfies the
+        // dropped-range test below.
         let replaced = entries
             .iter()
-            .any(|entry| !matches!(entry, WindowEntry::Verbatim { .. }));
+            .any(|entry| !matches!(entry, WindowEntry::Verbatim { .. } | WindowEntry::Note { .. }));
         if items.is_empty() || (!replaced && !input.rollover) {
             return Err(PolicyError::NoReduction);
+        }
+        // One journal read, one entry: the window carries the latest visible
+        // revision whole, ahead of the retained units, whether or not this cut
+        // dropped anything. A cleared or empty notebook contributes no entry.
+        if let Some(note) = &notebook {
+            entries.insert(0, notebook_entry(note));
         }
 
         let mut carried_calls: Vec<String> = unresolved.into_iter().collect();

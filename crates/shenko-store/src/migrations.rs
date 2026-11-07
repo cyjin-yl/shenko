@@ -86,6 +86,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
     // a replicated fact, so it never enters a snapshot fingerprint.
     conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;
+    // Cognitive atoms (SPEC §51.1): one canonical content registry and one
+    // append-only attitude ledger, plus the insert-only mapping that points
+    // at a legacy row's original bytes. Additive: no existing table gains a
+    // column and no historical row is rewritten or backfilled here.
+    conn.execute_batch(crate::atoms::COGNITION_ATOMS_SCHEMA)?;
     // Continuous-media transcript ingress (SPEC §15.2, §20): additive raw
     // revision facts plus effective-observation links; rows are never
     // rewritten or backfilled by this step.
@@ -110,9 +115,23 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Durable reconciliation cases for unknown external effects (SPEC §41.4
+    // X11). Additive, own table only: it records which immutable receipts a
+    // reconciling operation already has and which explicit S1 decision (if
+    // any) accepted the remaining uncertainty. No operation, attempt or
+    // receipt row is rewritten by it.
+    conn.execute_batch(crate::reconcile::SCHEMA)?;
+    // Cognitive atoms: immutable content + append-only attitudes (SPEC §51.1).
+    conn.execute_batch(crate::atoms::COGNITION_ATOMS_SCHEMA)?;
     // Durable ordered public-text output parts (SPEC §21.11). Append-only;
     // no row is ever updated or deleted by a migration.
     conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
+    // Refused receipt facts and the source-event scope lookup (SPEC X04,
+    // §41.7.3). Additive, own table only: the index over the existing
+    // receipts is not unique, because a store written before the admission
+    // rule can already hold several receipts for one scope and no migration
+    // may re-key or delete a durable receipt.
+    conn.execute_batch(crate::receipt_admission::SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
@@ -133,6 +152,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // regardless of which module first asked for them.
     conn.execute_batch(AGGREGATE_DOMAIN_SCHEMA)?;
     conn.execute_batch(crate::activation::SCHEMA)?;
+    conn.execute_batch(crate::cognitive_root::COGNITIVE_ROOT_SCHEMA)?;
     // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
     //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
     //     forbids a second decision for the same question even when the

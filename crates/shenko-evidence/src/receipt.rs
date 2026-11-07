@@ -39,6 +39,13 @@ pub(crate) fn read_json(path: &Path) -> Result<Value, String> {
         .map_err(|error| format!("invalid JSON at {}: {error}", path.display()))
 }
 
+/// SHA-256 of a retained record's bytes, using the same size bound as every
+/// other JSON input here.
+pub(crate) fn file_sha256(path: &Path) -> Result<String, String> {
+    let bytes = read_json_bytes(path)?;
+    Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
 fn read_json_bytes(path: &Path) -> Result<Vec<u8>, String> {
     let file =
         File::open(path).map_err(|error| format!("cannot open {}: {error}", path.display()))?;

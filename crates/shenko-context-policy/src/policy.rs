@@ -3,14 +3,28 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
 use crate::history::{HistoryItem, ItemRef};
+use crate::notes::NoteSource;
 
 /// Bumped on any incompatible change to the types in this crate.
-pub const CONTRACT_VERSION: u32 = 4;
+///
+/// Version 5 adds [`WindowEntry::Note`] (range-free authored working state)
+/// and [`Projected::WorkingNote`](crate::Projected::WorkingNote). A strategy
+/// compiled against version 4 matches window entries exhaustively and would
+/// silently drop the new form, so the contract had to move.
+pub const CONTRACT_VERSION: u32 = 5;
 
 /// Body format version of a committed window (the store keeps the body
 /// opaquely). A body written by an older version still decodes; a body
 /// written by a newer version is refused rather than guessed at.
-pub const WINDOW_BODY_VERSION: u32 = 2;
+///
+/// Version 4 bodies may carry [`WindowEntry::Note`], the range-free authored
+/// working state. A version 3 reader cannot represent that variant, so such a
+/// body fails its decode with a typed storage error instead of being read as a
+/// window without a notebook; a version 4 reader still reads every version 3
+/// body, whose entries and raw ranges are unchanged. Committed bodies are
+/// immutable, so nothing is rewritten to the new version: existing windows
+/// keep their bytes and keep decoding.
+pub const WINDOW_BODY_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyManifest {
@@ -122,6 +136,19 @@ pub enum WindowEntry {
     Text { from: u64, to: u64, text: String, tokens: u32 },
     /// Rendered frame (index into `derivatives`); a lossy derivative.
     Image { from: u64, to: u64, derivative: usize, tokens: u32 },
+    /// Authored working state of this branch (the notebook), carried with no
+    /// raw range of its own.
+    ///
+    /// The notebook is about the whole branch, not a derivative of one range:
+    /// a `from..=to` here would have to be invented, would claim raw events
+    /// another entry already stands for, and would be restored away by the
+    /// first rehydration of that range. A window therefore carries the note
+    /// as its own entry and never counts it as covered raw events.
+    ///
+    /// `revision` is the journal revision the text was read from, so a
+    /// committed window can be checked for carrying exactly one revision
+    /// instead of a merge of two.
+    Note { revision: u64, source: NoteSource, text: String, tokens: u32 },
 }
 
 impl WindowEntry {
@@ -130,7 +157,8 @@ impl WindowEntry {
             Self::Verbatim { tokens, .. }
             | Self::Pointer { tokens, .. }
             | Self::Text { tokens, .. }
-            | Self::Image { tokens, .. } => *tokens,
+            | Self::Image { tokens, .. }
+            | Self::Note { tokens, .. } => *tokens,
         }
     }
 }

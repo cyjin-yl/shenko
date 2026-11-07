@@ -49,6 +49,7 @@ shenko-seed = { path = "../../crates/shenko-seed" }
 shenko-update = { path = "../../crates/shenko-update" }
 shenko-wasm = { path = "../../crates/shenko-wasm" }
 shenko-channel-napcat = { path = "../../crates/shenko-channel-napcat" }
+shenko-channel-adapters = { path = "../../crates/shenko-channel-adapters" }
 shenko-media = { path = "../../crates/shenko-media" }
 base64 = { workspace = true }
 tokio = { workspace = true }

@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS context_rollover_requests (
     requested_at_ms INTEGER NOT NULL,
     consumed_window TEXT
 );
+CREATE TABLE IF NOT EXISTS context_rollover_reminders (
+    scope_id TEXT NOT NULL,
+    window_id TEXT NOT NULL,
+    policy_epoch INTEGER NOT NULL,
+    issued_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, window_id)
+);
 ";
 
 /// One stored note revision. `visible` distinguishes a replacement note from
@@ -335,6 +342,86 @@ impl Store {
                     params![scope_id.to_string(), window_id.to_string()],
                 )
                 .map_err(storage)?;
+                let seq = self.ledger.allocate_seq(&tx)?;
+                tx.execute(
+                    "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)
+                     VALUES (?1, ?2, ?3, 1)",
+                    params![
+                        self.ledger.ledger_id().to_string(),
+                        seq.0 as i64,
+                        self.capabilities.incarnation.to_string()
+                    ],
+                )
+                .map_err(storage)?;
+                tx.commit().map_err(storage)?;
+                Ok(true)
+            },
+            |_| true,
+        )
+    }
+}
+
+impl Store {
+    /// Whether this committed window already received its once-per-window
+    /// notebook reminder.
+    ///
+    /// The row is keyed by (scope, window): a reminder belongs to the window
+    /// the model is looking at, so a process that restarts inside the same
+    /// window finds the reminder answered. A missing row means "not reminded
+    /// yet", never an error.
+    pub fn context_reminder_issued(
+        &self,
+        scope_id: EntityId,
+        window_id: EntityId,
+    ) -> Result<bool, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM context_rollover_reminders
+                 WHERE scope_id = ?1 AND window_id = ?2",
+                params![scope_id.to_string(), window_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage)?;
+        Ok(exists.is_some())
+    }
+
+    /// Record the committed window as reminded under `policy_epoch`.
+    ///
+    /// The insert is idempotent: a repeated acknowledgement keeps the first
+    /// record, so a late writer cannot rewrite when a window was reminded. It
+    /// shares the store's immediate mutation line with every other durable
+    /// write. Returns whether this call created the row.
+    pub fn record_context_reminder(
+        &self,
+        scope_id: EntityId,
+        window_id: EntityId,
+        policy_epoch: i64,
+        issued_at_ms: i64,
+    ) -> Result<bool, ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(storage)?;
+                let changed = tx
+                    .execute(
+                        "INSERT OR IGNORE INTO context_rollover_reminders
+                         (scope_id, window_id, policy_epoch, issued_at_ms)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![
+                            scope_id.to_string(),
+                            window_id.to_string(),
+                            policy_epoch,
+                            issued_at_ms
+                        ],
+                    )
+                    .map_err(storage)?;
+                if changed == 0 {
+                    return Ok(false);
+                }
                 let seq = self.ledger.allocate_seq(&tx)?;
                 tx.execute(
                     "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)

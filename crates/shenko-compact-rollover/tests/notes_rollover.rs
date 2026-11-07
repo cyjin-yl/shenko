@@ -84,7 +84,7 @@ fn replaced_ranges(entries: &[WindowEntry]) -> Vec<(u64, u64)> {
     entries
         .iter()
         .filter_map(|entry| match entry {
-            WindowEntry::Verbatim { .. } => None,
+            WindowEntry::Verbatim { .. } | WindowEntry::Note { .. } => None,
             WindowEntry::Pointer { from, to, .. }
             | WindowEntry::Text { from, to, .. }
             | WindowEntry::Image { from, to, .. } => Some((*from, *to)),
@@ -102,11 +102,16 @@ fn kept_seqs(entries: &[WindowEntry]) -> Vec<u64> {
         .collect()
 }
 
-fn notebook_text(entries: &[WindowEntry]) -> Option<&str> {
-    entries.iter().find_map(|entry| match entry {
-        WindowEntry::Text { text, .. } => Some(text.as_str()),
-        _ => None,
-    })
+/// The one notebook entry of a window, if it carries one.
+fn notebook(entries: &[WindowEntry]) -> Option<&WindowEntry> {
+    let mut found = None;
+    for entry in entries {
+        if matches!(entry, WindowEntry::Note { .. }) {
+            assert!(found.is_none(), "a window must not carry two notebook entries");
+            found = Some(entry);
+        }
+    }
+    found
 }
 
 /// Journal wrapper that counts reads, so "the head is read once, and
@@ -160,7 +165,7 @@ impl NotesJournal for CountingNotes {
 }
 
 #[test]
-fn notebook_travels_inside_the_dropped_range_and_coverage_is_exact() {
+fn the_notebook_is_its_own_range_free_entry_and_coverage_is_exact() {
     let history = history(8, None);
     let notes = Arc::new(MemoryNotesJournal::new(EntityId::new()));
     notes
@@ -169,13 +174,25 @@ fn notebook_travels_inside_the_dropped_range_and_coverage_is_exact() {
     let notes: Arc<dyn NotesJournal> = notes;
     let prepared = prepare(&strategy(notes, 2), &history, false).unwrap();
 
-    // The notebook is carried once, with its revision and provenance.
-    let carried = prepared
+    // The notebook is carried once, as its own typed entry with the revision
+    // and provenance it was read from, and it names no raw range: it is not a
+    // derivative of the dropped run and never stands in for one.
+    let WindowEntry::Note { revision, source, text, .. } =
+        notebook(&prepared.entries).expect("the notebook enters the window once")
+    else {
+        unreachable!("notebook() returns the Note entry")
+    };
+    assert_eq!(*revision, 1);
+    assert_eq!(*source, NoteSource::Tool);
+    assert_eq!(text, "the failing test is store_commit_rejects_stale_head");
+    // The dropped-run stand-in is a pointer over exactly its own range, so no
+    // second entry repeats the notebook text.
+    let repeated = prepared
         .entries
         .iter()
-        .filter(|entry| matches!(entry, WindowEntry::Text { text, .. } if text.contains("working notebook r1 (tool)")))
+        .filter(|entry| matches!(entry, WindowEntry::Text { text, .. } if text.contains("working notebook")))
         .count();
-    assert_eq!(carried, 1, "the notebook must enter the window once");
+    assert_eq!(repeated, 0, "the notebook must not be embedded in a stand-in as well");
 
     // No entry claims a raw seq another entry already shows. The replaced
     // window covered 0..=max with the notebook, overlapping every retained
@@ -205,30 +222,35 @@ fn notebook_travels_inside_the_dropped_range_and_coverage_is_exact() {
     assert!(prepared.cost.window_tokens < prepared.cost.source_tokens);
 
     // The committed window stands for exactly the raw events its entries name,
-    // and the notebook is projected once.
+    // the notebook adds no coverage, and it is projected once.
     let window = WindowLedger::default().commit(prepared, &history).unwrap();
     let expected: u64 = window
         .entries
         .iter()
         .map(|entry| match entry {
             WindowEntry::Verbatim { .. } => 1u64,
+            WindowEntry::Note { .. } => 0,
             WindowEntry::Pointer { from, to, .. }
             | WindowEntry::Text { from, to, .. }
             | WindowEntry::Image { from, to, .. } => to - from + 1,
         })
         .sum();
     assert_eq!(window.cost.raw_events_covered, expected);
-    let noted: Vec<String> = window
-        .project(&history)
-        .unwrap()
-        .into_iter()
+    let projected = window.project(&history).unwrap();
+    let working: Vec<(u64, NoteSource, String)> = projected
+        .iter()
         .filter_map(|projected| match projected {
-            Projected::Note { text, .. } => Some(text),
+            Projected::WorkingNote { revision, source, text } =>
+                Some((*revision, *source, text.clone())),
             _ => None,
         })
         .collect();
-    assert_eq!(noted.len(), 1);
-    assert!(noted[0].contains("working notebook r1 (tool)"));
+    assert_eq!(
+        working,
+        vec![(1, NoteSource::Tool, "the failing test is store_commit_rejects_stale_head".to_string())],
+        "the window projects exactly one notebook revision and it has no raw range"
+    );
+    assert!(projected.iter().any(|projected| matches!(projected, Projected::Note { .. })));
 }
 
 #[test]
@@ -239,10 +261,14 @@ fn only_the_latest_revision_is_read_and_only_once() {
     let notes: Arc<dyn NotesJournal> = counting.clone();
     let history = history(8, None);
     let prepared = prepare(&strategy(notes, 2), &history, false).unwrap();
-    let text = notebook_text(&prepared.entries).expect("the notebook enters the window");
-    assert!(text.contains("working notebook r2 (tool)"), "{text}");
-    assert!(text.contains("revision two"));
-    assert!(!text.contains("revision one"), "a retired revision resurfaced");
+    let WindowEntry::Note { revision, source, text, .. } =
+        notebook(&prepared.entries).expect("the notebook enters the window")
+    else {
+        unreachable!("notebook() returns the Note entry")
+    };
+    assert_eq!(*revision, 2);
+    assert_eq!(*source, NoteSource::Tool);
+    assert_eq!(text, "revision two", "a retired revision resurfaced");
     assert_eq!(counting.heads.load(Ordering::SeqCst), 1, "the head must be read once");
     assert_eq!(
         counting.visibles.load(Ordering::SeqCst),
@@ -259,21 +285,39 @@ fn a_cleared_notebook_is_not_carried_and_an_older_revision_never_resurfaces() {
     let notes: Arc<dyn NotesJournal> = notes;
     let history = history(8, None);
     let prepared = prepare(&strategy(notes, 2), &history, false).unwrap();
-    assert_eq!(notebook_text(&prepared.entries), None);
+    assert!(notebook(&prepared.entries).is_none());
 }
 
 #[test]
 fn explicit_rollover_cuts_a_boundary_window_that_drops_nothing() {
     let history = history(2, None);
-    let notes: Arc<dyn NotesJournal> = Arc::new(MemoryNotesJournal::new(EntityId::new()));
+    let notes = Arc::new(MemoryNotesJournal::new(EntityId::new()));
+    notes.replace(0, "state worth carrying into the next window", NoteSource::Tool).unwrap();
+    let notes: Arc<dyn NotesJournal> = notes;
     let policy = strategy(notes, 4);
+    // The notebook alone is not a reason to cut a window: a size-triggered
+    // preparation that drops nothing stays a refusal.
     assert_eq!(prepare(&policy, &history, false), Err(PolicyError::NoReduction));
     let prepared = prepare(&policy, &history, true).unwrap();
-    assert!(prepared.entries.iter().all(|entry| matches!(entry, WindowEntry::Verbatim { .. })));
+    assert!(prepared.entries.iter().all(|entry| matches!(
+        entry,
+        WindowEntry::Verbatim { .. } | WindowEntry::Note { .. }
+    )));
     assert!(replaced_ranges(&prepared.entries).is_empty(), "a boundary window invents no raw range");
+    // A boundary that drops nothing still carries the working state the model
+    // wrote; a later tool read is not equivalent to carrying it.
+    let WindowEntry::Note { revision, text, .. } =
+        notebook(&prepared.entries).expect("the boundary window carries the notebook")
+    else {
+        unreachable!("notebook() returns the Note entry")
+    };
+    assert_eq!(*revision, 1);
+    assert_eq!(text, "state worth carrying into the next window");
     assert_eq!(prepared.cost.model_calls, 0);
     // Every complete unit is present: a boundary is not a summary.
-    assert_eq!(prepared.entries.len(), history.snapshot().len());
+    assert_eq!(prepared.entries.len(), history.snapshot().len() + 1);
+    let window = WindowLedger::default().commit(prepared, &history).unwrap();
+    assert_eq!(window.cost.raw_events_covered, history.snapshot().len() as u64);
 }
 
 #[test]

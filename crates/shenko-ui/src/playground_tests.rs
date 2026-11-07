@@ -4,7 +4,7 @@
 //! (5) lost-response/reopen replay, (6) conflicting identity, (7) stale page,
 //! (8) unknown original-attempt recovery, (9) unavailable runtime admission.
 use super::*;
-use crate::playground_backend::{BackendActionRequest, PlaygroundBackendHandler};
+use crate::playground_backend::{ArtifactActor, BackendActionRequest, PlaygroundBackendHandler};
 use axum::{body::to_bytes, http::Request};
 use shenko_kernel::{FiberHandle, Supervisor};
 use shenko_subject::{NativeChildPlugin, NativeTaskHandler, NativeTaskHandlerPlugin};
@@ -169,7 +169,8 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     store.start_subject_dispatcher().unwrap();
     let host = runtime(store.clone(), pg_root.clone()).await;
     let pg = PlaygroundState::open(pg_root, store.clone()).unwrap().with_native(host.native.clone());
-    let replay = pg.invoke_action(id, action.clone()).unwrap();
+    let actor = ArtifactActor::Participant;
+    let replay = pg.invoke_action(id, action.clone(), &actor).unwrap();
     assert!(replay.replayed);
     assert_eq!(replay.operation.unwrap().operation_id, operation_id);
     host.native.run_once().await.unwrap();
@@ -177,11 +178,11 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     assert_eq!(fs::read(pg.artifact_dir(id).join("state/counter.bin")).unwrap(), vec![1]);
     let mut conflict = action.clone();
     conflict.input = json!({"amount":2});
-    assert!(matches!(pg.invoke_action(id, conflict), Err(ActionError::Conflict)));
+    assert!(matches!(pg.invoke_action(id, conflict, &actor), Err(ActionError::Conflict)));
     pg.bind_backend(id, b"(module (func (export \"_start\")))").unwrap();
     let mut old_page = action;
     old_page.request_id = "new-click-from-old-page".into();
-    assert!(matches!(pg.invoke_action(id, old_page), Err(ActionError::Stale)));
+    assert!(matches!(pg.invoke_action(id, old_page, &actor), Err(ActionError::Stale)));
     host.supervisor.stop().await.unwrap();
     drop(pg); drop(host); drop(store);
     fs::remove_dir_all(root).unwrap();
@@ -201,7 +202,8 @@ async fn unknown_guest_attempt_survives_reopen_without_rearm() {
         "(then (call $exit (i32.const 45)))) unreachable))");
     let binding = pg.bind_backend(id, trapped.as_bytes()).unwrap();
     let action = request(&binding, "unknown-original");
-    pg.invoke_action(id, action.clone()).unwrap();
+    let actor = ArtifactActor::Participant;
+    pg.invoke_action(id, action.clone(), &actor).unwrap();
     drive_until(&host.native, || {
         matches!(pg.action_status(id, "unknown-original"), Ok(receipt) if receipt.state == "unknown")
     })
@@ -218,7 +220,7 @@ async fn unknown_guest_attempt_survives_reopen_without_rearm() {
     store.start_subject_dispatcher().unwrap();
     let host = runtime(store.clone(), pg_root.clone()).await;
     let pg = PlaygroundState::open(pg_root, store.clone()).unwrap().with_native(host.native.clone());
-    pg.invoke_action(id, action).unwrap();
+    pg.invoke_action(id, action, &actor).unwrap();
     host.native.run_once().await.unwrap();
     let receipt = pg.action_status(id, "unknown-original").unwrap();
     assert_eq!(receipt.attempt.unwrap().attempt_id, attempt.attempt_id);
@@ -236,7 +238,8 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
     let id = EntityId::new();
     pg.put(id, "application".into(), "text/plain".into(), b"original").unwrap();
     let binding = pg.bind_backend(id, COUNTER).unwrap();
-    assert!(matches!(pg.invoke_action(id, request(&binding, "no-runtime")), Err(ActionError::Unavailable(_))));
+    let actor = ArtifactActor::Participant;
+    assert!(matches!(pg.invoke_action(id, request(&binding, "no-runtime"), &actor), Err(ActionError::Unavailable(_))));
     assert!(store.native_task_candidates_after(None, 10).unwrap().is_empty());
     assert!(!pg.artifact_dir(id).join("state/counter.bin").exists());
     drop(pg); drop(store);
