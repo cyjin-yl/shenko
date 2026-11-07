@@ -244,6 +244,98 @@ impl ContentStore {
     pub fn object_size(&self, digest: &Digest) -> Option<u64> {
         fs::metadata(self.object_path(digest).ok()?).ok().map(|m| m.len())
     }
+
+    /// The admitted object directory. Callers that reason about the whole
+    /// store (root-aware reclamation) need the root and the names of the
+    /// in-progress staging entries, not only single-digest lookups.
+    pub fn base(&self) -> &Path {
+        &self.base
+    }
+
+    /// Every published object digest, ascending. Staging files (`.object-*`,
+    /// `.stream-*`) are in-progress writers and are NOT objects, so they are
+    /// never returned: a caller that must refuse while a publication is in
+    /// flight has to inspect them explicitly.
+    pub fn object_digests(&self) -> Result<Vec<Digest>, ShenkoError> {
+        let entries = fs::read_dir(&self.base)
+            .map_err(|error| ShenkoError::storage(format!("CAS enumeration: {error}")))?;
+        let mut digests = Vec::new();
+        for shard in entries {
+            let shard = shard.map_err(|error| ShenkoError::storage(format!("CAS enumeration: {error}")))?;
+            let prefix = shard.file_name();
+            let prefix = prefix.to_str().unwrap_or_default();
+            if prefix.len() != 2 || !prefix.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()) {
+                continue;
+            }
+            let object_entries = match fs::read_dir(shard.path()) {
+                Ok(object_entries) => object_entries,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(ShenkoError::storage(format!("CAS enumeration: {error}"))),
+            };
+            for object_entry in object_entries {
+                let object_entry = object_entry
+                    .map_err(|error| ShenkoError::storage(format!("CAS enumeration: {error}")))?;
+                let second = object_entry.file_name();
+                let second = second.to_str().unwrap_or_default();
+                if second.len() != 2 || !second.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()) {
+                    continue;
+                }
+                let objects = match fs::read_dir(object_entry.path()) {
+                    Ok(objects) => objects,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(ShenkoError::storage(format!("CAS enumeration: {error}"))),
+                };
+                for object in objects {
+                    let object = object
+                        .map_err(|error| ShenkoError::storage(format!("CAS enumeration: {error}")))?;
+                    let name = object.file_name();
+                    let Some(name) = name.to_str() else { continue };
+                    if name.len() != 64
+                        || !name.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                    {
+                        continue;
+                    }
+                    if !name.starts_with(prefix) || &name[2..4] != second {
+                        // A name that is not the shard path of its own digest is
+                        // not a published object this store can address; report
+                        // nothing for it instead of guessing an identity.
+                        continue;
+                    }
+                    let metadata = object
+                        .metadata()
+                        .map_err(|error| ShenkoError::storage(format!("CAS enumeration: {error}")))?;
+                    if !metadata.is_file() {
+                        continue;
+                    }
+                    digests.push(Digest(format!("blake3:{name}")));
+                }
+            }
+        }
+        digests.sort();
+        digests.dedup();
+        Ok(digests)
+    }
+
+    /// Remove one published object and make the removal durable. Returns
+    /// whether the object was present. Only a caller that has proven the
+    /// object unreachable may call this; the store itself has no root graph.
+    pub fn remove_object(&self, digest: &Digest) -> Result<bool, ShenkoError> {
+        let path = self.object_path(digest)?;
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(ShenkoError::storage(format!("CAS object removal: {error}")));
+            }
+        }
+        let shard = path.parent().expect("CAS object has a parent");
+        for directory in [shard, shard.parent().expect("CAS shard has a parent")] {
+            sync_directory(directory).map_err(|error| {
+                ShenkoError::storage(format!("CAS object removal sync: {error}"))
+            })?;
+        }
+        Ok(true)
+    }
 }
 
 /// Make a directory entry change durable. Filesystem journaling alone is not

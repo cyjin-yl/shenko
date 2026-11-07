@@ -13,7 +13,8 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -57,6 +58,45 @@ pub struct MountSpec {
 /// Default COW binding names.
 pub const DEFAULT_WORKSPACE: &str = "main";
 pub const DEFAULT_BRANCH: &str = "main";
+
+/// Read-only classification of a declared mount source (SPEC §8.3).
+///
+/// A missing directory, a directory this process may not enter, a symbolic
+/// link and a non-directory entry need different actions and produce
+/// different guest outcomes, so they are never collapsed into one "not an
+/// accessible directory" message. Classification never follows a final
+/// symbolic link: a source that only resolves through a link is reported as
+/// such instead of being admitted through the link target.
+#[derive(Debug)]
+pub enum MountSourceState {
+    /// A real directory entry; admission still opens and pins its own handle.
+    Ready,
+    /// Nothing exists at the path, or at one of its ancestors.
+    Missing,
+    /// The final component is a symbolic link. `resolves_to` is the canonical
+    /// target when the link itself resolves.
+    SymbolicLink { resolves_to: Option<PathBuf> },
+    /// The path exists but is not a directory (regular file, socket, ...).
+    NotADirectory,
+    /// The path or one of its ancestors could not be inspected.
+    Inaccessible(io::Error),
+}
+
+impl MountSourceState {
+    /// The reason as an operator-facing phrase; `None` for `Ready`.
+    fn reason(&self) -> Option<String> {
+        match self {
+            Self::Ready => None,
+            Self::Missing => Some("does not exist".into()),
+            Self::NotADirectory => Some("is not a directory".into()),
+            Self::SymbolicLink { resolves_to } => Some(match resolves_to {
+                Some(target) => format!("is a symbolic link to {}", target.display()),
+                None => "is a dangling symbolic link".into(),
+            }),
+            Self::Inaccessible(error) => Some(format!("is inaccessible: {error}")),
+        }
+    }
+}
 
 fn default_writable() -> bool {
     true
@@ -119,6 +159,26 @@ impl MountSpec {
         self.writable = false;
     }
 
+    /// Classify this mount's declared source without creating or mutating it.
+    /// This inspects the entry; admission proves access with its own handle.
+    /// A missing source is never created or substituted by another directory.
+    pub fn source_state(&self) -> MountSourceState {
+        let from_error = |error: io::Error| match error.kind() {
+            io::ErrorKind::NotFound => MountSourceState::Missing,
+            io::ErrorKind::NotADirectory => MountSourceState::NotADirectory,
+            _ => MountSourceState::Inaccessible(error),
+        };
+        match std::fs::symlink_metadata(&self.source) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let resolves_to = std::fs::canonicalize(&self.source).ok();
+                MountSourceState::SymbolicLink { resolves_to }
+            }
+            Ok(metadata) if metadata.file_type().is_dir() => MountSourceState::Ready,
+            Ok(_) => MountSourceState::NotADirectory,
+            Err(error) => from_error(error),
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         if !self.source.is_absolute() {
             bail!(
@@ -127,9 +187,12 @@ impl MountSpec {
             );
         }
         validate_guest_path(&self.guest_path)?;
-        if !self.source.is_dir() {
+        let state = self.source_state();
+        if let Some(reason) = state.reason() {
             bail!(
-                "WASM_PROFILE_UNAVAILABLE: mount source is not an accessible directory: {}",
+                "WASM_PROFILE_UNAVAILABLE: declared mount {} source {} {reason}; \
+                 a declared mount is never created or silently substituted",
+                self.guest_path,
                 self.source.display()
             );
         }
@@ -293,13 +356,12 @@ impl OwnedDir {
                     // swap between admission and use cannot redirect the
                     // mount.
                     let file = fsx::open_component(&dir, std::path::Path::new(name))
-                        .map_err(|e| {
-                            anyhow!("admit component {:?}: {e}", name)
-                        })?
+                        .map_err(|error| admission_failure(path, name, error))?
                         .ok_or_else(|| {
                             anyhow!(
-                                "WASM_PROFILE_UNAVAILABLE: admission component {:?} does not exist: {path:?}",
-                                name
+                                "WASM_PROFILE_UNAVAILABLE: admission component {:?} does not exist while admitting {}",
+                                name,
+                                path.display()
                             )
                         })?;
                     dir = cap_std::fs::Dir::from_std_file(file);
@@ -338,6 +400,38 @@ impl OwnedDir {
     }
 }
 
+/// One host-side admission failure, classified by cause (SPEC §8.3).
+///
+/// A component that does not exist, a component this process may not enter,
+/// a symbolic link and an entry swapped between inspection and open need
+/// different operator actions, so the classification is preserved together
+/// with the original `io::Error` instead of being replaced by a generic
+/// string. Everything still carries the stable `WASM_PROFILE_UNAVAILABLE`
+/// prefix: mount admission is never a silent success.
+fn admission_failure(path: &Path, component: &std::ffi::OsStr, error: io::Error) -> anyhow::Error {
+    let message = error.to_string();
+    let detail = if message == fsx::ELOOP {
+        "is a symbolic link and admission never follows a link".to_string()
+    } else if message == fsx::EAGAIN {
+        "changed between inspection and open".to_string()
+    } else if message == "ENOTDIR" || error.kind() == io::ErrorKind::NotADirectory {
+        "is not a directory".to_string()
+    } else {
+        match error.kind() {
+            io::ErrorKind::NotFound => "does not exist".to_string(),
+            io::ErrorKind::PermissionDenied => {
+                format!("is inaccessible to this process: {error}")
+            }
+            _ => format!("could not be admitted: {error}"),
+        }
+    };
+    anyhow!(
+        "WASM_PROFILE_UNAVAILABLE: admission component {:?} of {}: {detail}",
+        component,
+        path.display()
+    )
+}
+
 /// Backing capability for one admitted mount.
 pub enum MountBacking {
     /// Read-only or read-write direct mount over an admitted handle.
@@ -371,6 +465,12 @@ pub struct MountBinding {
     /// Branch store for COW mounts (`store.open_overlay(...)` materializes
     /// the per-mount overlay); `None` for direct mounts.
     pub branch: Option<Arc<BranchStore>>,
+    /// Exclusive writer claim held for the whole run for COW mounts. While it
+    /// is alive no other process (and no commit or discard in this one) may
+    /// publish or reset this branch. `None` for direct mounts, and for a
+    /// second mount that binds the same branch as an earlier one — the claim
+    /// is per branch, not per mount.
+    pub writer: Option<cow::BranchWriter>,
 }
 
 /// Per-run mount admission (A08). Opens one owned handle per mount — for COW
@@ -382,52 +482,88 @@ pub fn admit_mounts(mounts: &[MountSpec], home_dir: &Path) -> Result<Vec<MountBi
     let home = OwnedDir::admit_absolute(home_dir)
         .with_context(|| format!("admit home {}", home_dir.display()))?;
     let mut out = Vec::with_capacity(mounts.len());
+    // One claim per branch, shared by every mount bound to it: a second
+    // exclusive lock on the same directory would conflict with the first, and
+    // one run owning the branch twice is still one writer.
+    let mut claims: BTreeMap<(String, String), cow::BranchWriter> = BTreeMap::new();
     for spec in mounts {
-        let branch = match spec.mode {
-            MountMode::CopyOnWrite => Some(Arc::new(
-                cow::BranchStore::open(&home, spec.workspace(), spec.branch())
-                    .with_context(|| {
-                        format!(
-                            "open COW workspace {}/{} for {}",
-                            spec.workspace(),
-                            spec.branch(),
-                            spec.guest_path
-                        )
-                    })?,
-            )),
-            _ => None,
-        };
-        let backing = match spec.mode {
-            MountMode::ReadOnly => MountBacking::Direct {
-                root: OwnedDir::admit_absolute(&spec.source)
-                    .with_context(|| format!("admit ro mount {}", spec.source.display()))?,
-                writable: false,
-            },
-            MountMode::ReadWrite => MountBacking::Direct {
-                root: OwnedDir::admit_absolute(&spec.source)
-                    .with_context(|| format!("admit rw mount {}", spec.source.display()))?,
-                writable: spec.writable,
-            },
+        // The declared source is admitted before any managed workspace state
+        // exists: a mount that cannot be entered must not leave a branch
+        // overlay, tombstone set or workspace directory behind in the home.
+        let root = OwnedDir::admit_absolute(&spec.source).with_context(|| {
+            format!(
+                "admit declared mount {} ({})",
+                spec.guest_path,
+                spec.source.display()
+            )
+        })?;
+        let (backing, branch, writer) = match spec.mode {
+            MountMode::ReadOnly => (
+                MountBacking::Direct {
+                    root,
+                    writable: false,
+                },
+                None,
+                None,
+            ),
+            MountMode::ReadWrite => (
+                MountBacking::Direct {
+                    root,
+                    writable: spec.writable,
+                },
+                None,
+                None,
+            ),
             MountMode::CopyOnWrite => {
+                let branch = Arc::new(
+                    cow::BranchStore::open(&home, spec.workspace(), spec.branch())
+                        .with_context(|| {
+                            format!(
+                                "open COW workspace {}/{} for {}",
+                                spec.workspace(),
+                                spec.branch(),
+                                spec.guest_path
+                            )
+                        })?,
+                );
+                // The run owns the branch while it executes: a live writer is
+                // exactly what a concurrent commit or discard must refuse.
+                let key = (spec.workspace().to_string(), spec.branch().to_string());
+                let writer = match claims.get(&key) {
+                    Some(writer) => writer.clone(),
+                    None => {
+                        let writer = branch
+                            .acquire_writer(home_dir)
+                            .with_context(|| {
+                                format!(
+                                    "own COW branch {}/{} for this run",
+                                    spec.workspace(),
+                                    spec.branch()
+                                )
+                            })?;
+                        claims.insert(key, writer.clone());
+                        writer
+                    }
+                };
                 // The branch overlay is materialized through the admitted
                 // home handle: workspace state cannot escape the home.
-                let store = branch
-                    .as_ref()
-                    .expect("branch store opened above for COW")
-                    .mount(&home, &mount_key(&spec.guest_path))?;
-                let base = OwnedDir::admit_absolute(&spec.source)
-                    .with_context(|| format!("admit COW base {}", spec.source.display()))?;
-                MountBacking::CopyOnWrite {
-                    base,
-                    store,
-                    writable: spec.writable,
-                }
+                let store = branch.mount(&home, &mount_key(&spec.guest_path))?;
+                (
+                    MountBacking::CopyOnWrite {
+                        base: root,
+                        store,
+                        writable: spec.writable,
+                    },
+                    Some(branch),
+                    Some(writer),
+                )
             }
         };
         out.push(MountBinding {
             spec: spec.clone(),
             backing,
             branch,
+            writer,
         });
     }
     Ok(out)

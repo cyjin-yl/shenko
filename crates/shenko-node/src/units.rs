@@ -806,6 +806,10 @@ pub enum UnitRequest {
         /// in this node's own object store and be bound to this version.
         /// An observation is never empirical acceptance.
         evidence: Vec<AdoptionEvidence>,
+        /// How confident the subject is in this judgement, when it states
+        /// one. Absent means the subject has not judged yet: the attitude
+        /// records that as unknown and never fills a default number.
+        confidence: Option<f64>,
         notes: Option<String>,
         /// Enable the unit in the same transaction. A rejected or retired
         /// decision never enables it. Enabling is an installation fact and
@@ -1066,6 +1070,59 @@ pub enum AdoptionEvidence {
     StoredObservation { digest: Digest },
 }
 
+/// Why the installation authority refused one evidence item of a judgement.
+///
+/// A refusal travels as a typed payload inside the error, so a caller can
+/// report the reason as a stable code instead of parsing this node's prose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdoptionEvidenceRejection {
+    /// The attempt id names no trial attempt this node ever opened.
+    AttemptNotOpened,
+    /// The attempt is bound to a different unit, revision or artifact.
+    AttemptOfOtherVersion,
+    /// The attempt was opened and never reached a terminal trial fact, so
+    /// nothing about a measurement is recorded under it.
+    AttemptNeverExecuted,
+    /// The observation is not held for this exact unit version.
+    ObservationNotHeld,
+}
+
+impl AdoptionEvidenceRejection {
+    /// The stable result code a judgement child reports for this refusal.
+    pub fn code(&self) -> &'static str {
+        match self {
+            AdoptionEvidenceRejection::AttemptNeverExecuted => "evidence_unexecuted",
+            AdoptionEvidenceRejection::AttemptNotOpened
+            | AdoptionEvidenceRejection::AttemptOfOtherVersion
+            | AdoptionEvidenceRejection::ObservationNotHeld => "evidence_not_admissible",
+        }
+    }
+}
+
+/// One refused evidence item, with this node's own explanation.
+#[derive(Debug, Clone)]
+pub struct AdoptionEvidenceRejected {
+    pub reason: AdoptionEvidenceRejection,
+    pub detail: String,
+}
+
+impl AdoptionEvidenceRejected {
+    fn refusal(reason: AdoptionEvidenceRejection, detail: impl Into<String>) -> anyhow::Error {
+        anyhow::Error::new(AdoptionEvidenceRejected {
+            reason,
+            detail: detail.into(),
+        })
+    }
+}
+
+impl std::fmt::Display for AdoptionEvidenceRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for AdoptionEvidenceRejected {}
+
 /// An artifact whose bytes live outside the node's inline object store.
 ///
 /// `store` names the object store that holds the bytes (`cas` for the
@@ -1183,6 +1240,47 @@ pub struct MaterializationFact {
     pub detail: String,
 }
 
+/// What one trial attempt can carry as evidence of a measurement.
+///
+/// The node derives this from the attempt's own durable facts — the plan it
+/// was opened with, the receipts its run produced, and the execution fact of
+/// a command trial — never from an outcome word. A failed, signalled or
+/// timed-out run is a measurement; an attempt that was opened and never
+/// closed is not.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AttemptMeasurement {
+    /// Every sample slot of the attempt's own plan produced a judge-scored
+    /// receipt, or a command trial recorded that its command ran.
+    Measured,
+    /// Some planned slots produced judge-scored receipts; others did not.
+    Partial,
+    /// The attempt closed without a single authenticated measurement fact.
+    Inconclusive,
+    /// The attempt was opened and never closed: no terminal trial fact exists.
+    Unexecuted,
+}
+
+impl AttemptMeasurement {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AttemptMeasurement::Measured => "measured",
+            AttemptMeasurement::Partial => "partial",
+            AttemptMeasurement::Inconclusive => "inconclusive",
+            AttemptMeasurement::Unexecuted => "unexecuted",
+        }
+    }
+
+    /// Whether the attempt carries an authenticated measurement, including a
+    /// negative one. Only such evidence can make a judgement empirical.
+    pub fn carries_measurement(&self) -> bool {
+        matches!(
+            self,
+            AttemptMeasurement::Measured | AttemptMeasurement::Partial
+        )
+    }
+}
+
 /// The durable facts of one trial attempt.
 ///
 /// An attempt is opened before the trial runs and closed with the receipts
@@ -1201,6 +1299,21 @@ pub struct TrialAttemptFacts {
     pub started_at: String,
     pub kind: Option<String>,
     pub plan_digest: Option<String>,
+    /// The terminal outcome of the append-only trial row, when one exists.
+    /// `None` means the attempt was never closed.
+    pub outcome: Option<String>,
+    /// The environment the closed run was bound to. A command trial has no
+    /// plan; this is the probe the node made around its run.
+    pub environment_digest: Option<String>,
+    /// The receipts the closed run wrote, counted before they are judged.
+    pub receipts: u64,
+    /// The receipts that are judge-scored facts of a slot the attempt's own
+    /// plan named.
+    pub scored: u64,
+    /// The sample slots the attempt's own plan named, when it names them.
+    pub planned_slots: Option<u64>,
+    /// What this attempt's facts can carry.
+    pub measurement: AttemptMeasurement,
 }
 
 /// The exact content of one installed unit version.
@@ -2743,6 +2856,7 @@ impl Node {
                 decision,
                 method,
                 evidence,
+                confidence,
                 notes,
                 enable,
             } => self.unit_record_adoption(
@@ -2752,6 +2866,7 @@ impl Node {
                 decision,
                 method,
                 &evidence,
+                confidence,
                 notes.as_deref(),
                 enable,
             )?,
@@ -5376,6 +5491,9 @@ impl Node {
             rows
         {
             cursor = seq as u64;
+            // The classification is the node's own reading of the attempt,
+            // so a reader never has to re-derive it from the raw evidence.
+            let classified = Self::trial_attempt_facts(&self.conn, &attempt)?;
             entries.push(json!({
                 "seq": seq.to_string(),
                 "attempt_id": attempt,
@@ -5386,6 +5504,9 @@ impl Node {
                 "started_at": started,
                 "finished_at": finished,
                 "outcome": outcome,
+                "measurement": classified.as_ref().map(|facts| facts.measurement.as_str()),
+                "scored": classified.as_ref().map(|facts| facts.scored),
+                "planned_slots": classified.as_ref().and_then(|facts| facts.planned_slots),
                 "evidence": serde_json::from_str::<Value>(&data)?,
             }));
         }
@@ -5620,6 +5741,12 @@ impl Node {
     /// The decision is stored under the unit's own configuration as a
     /// recorded fact. The node never derives a decision from the unit's
     /// text and never requires one: an unjudged unit stays unjudged.
+    ///
+    /// The record is an attitude about one immutable content revision: it
+    /// names the artifact digest, the reason pointers the caller cited and
+    /// how far that reason reaches. Its confidence is what the subject
+    /// stated; absent means unknown, and this node never supplies a default
+    /// number.
     fn unit_record_adoption(
         &mut self,
         unit_id: &str,
@@ -5628,6 +5755,7 @@ impl Node {
         decision: AdoptionDecision,
         method: AdoptionMethod,
         evidence: &[AdoptionEvidence],
+        confidence: Option<f64>,
         notes: Option<&str>,
         enable: Option<bool>,
     ) -> Result<Value> {
@@ -5635,6 +5763,15 @@ impl Node {
             evidence.len() <= MAX_EDGES,
             "adoption evidence count out of bounds"
         );
+        if let Some(confidence) = confidence {
+            // This node records the number the subject stated. It supplies no
+            // scale and no range of its own: a bound here would be a reading
+            // of the subject's confidence that the subject never made.
+            ensure!(
+                confidence.is_finite(),
+                "the stated confidence must be a finite number; an unjudged subject states nothing and is recorded as unknown"
+            );
+        }
         if let Some(notes) = notes {
             ensure!(notes.len() <= MAX_TEXT_BYTES, "adoption notes exceed the text bound");
         }
@@ -5666,7 +5803,10 @@ impl Node {
         // measurement produced them, so it can never carry empirical
         // acceptance.
         let mut resolved: Vec<Value> = Vec::new();
-        let mut trial_backed = false;
+        // What the cited trials can carry, strongest first. A citation that
+        // resolved to a recorded run is not the same fact as one that
+        // resolved to a measurement, and the record says which it was.
+        let mut measurement: Option<AttemptMeasurement> = None;
         for item in evidence {
             match item {
                 AdoptionEvidence::TrialAttempt { attempt_id } => {
@@ -5677,38 +5817,69 @@ impl Node {
                     );
                     let facts = Self::trial_attempt_facts(&tx, attempt_id)?;
                     let Some(facts) = facts else {
-                        bail!("adoption evidence names a trial attempt this node never opened");
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::AttemptNotOpened,
+                            "adoption evidence names a trial attempt this node never opened",
+                        ));
                     };
-                    ensure!(
-                        facts.unit_id == unit_id
-                            && facts.revision == revision
-                            && facts.artifact_digest == *artifact_digest,
-                        "adoption evidence names a trial attempt of a different unit version"
-                    );
-                    ensure!(
-                        facts.state == "finished",
-                        "adoption evidence names a trial attempt that never reached a terminal state"
-                    );
-                    let plan_digest = match facts.plan_digest {
-                        Some(digest) => digest,
-                        None => bail!("the trial attempt carries no bound plan"),
-                    };
-                    trial_backed = true;
+                    if facts.unit_id != unit_id
+                        || facts.revision != revision
+                        || facts.artifact_digest != *artifact_digest
+                    {
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::AttemptOfOtherVersion,
+                            "adoption evidence names a trial attempt of a different unit version",
+                        ));
+                    }
+                    // An attempt that was opened and never closed records no
+                    // terminal fact, so citing it claims a measurement that
+                    // does not exist. A closed attempt with no authenticated
+                    // measurement is citable — the subject may judge on what
+                    // it did not learn — but it never carries acceptance.
+                    if facts.measurement == AttemptMeasurement::Unexecuted {
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::AttemptNeverExecuted,
+                            "adoption evidence names a trial attempt that never executed: this node opened it but recorded no terminal trial fact, so it is not a measurement",
+                        ));
+                    }
+                    // A comparison attempt is bound by the plan digest it was
+                    // opened with. A command trial has no plan: what the node
+                    // probed around its run is the environment digest. An
+                    // attempt with neither carries no binding at all.
+                    if facts.plan_digest.is_none() && facts.environment_digest.is_none() {
+                        bail!("the trial attempt carries no bound plan or environment");
+                    }
+                    if facts.measurement.carries_measurement() {
+                        measurement = Some(match measurement {
+                            Some(AttemptMeasurement::Measured) => AttemptMeasurement::Measured,
+                            _ => facts.measurement,
+                        });
+                    } else {
+                        measurement.get_or_insert(facts.measurement);
+                    }
                     resolved.push(json!({
                         "kind": "trial_attempt",
                         "attempt_id": attempt_id,
                         "verified": true,
-                        "plan_digest": plan_digest,
+                        "plan_digest": facts.plan_digest,
+                        "environment_digest": facts.environment_digest,
+                        "outcome": facts.outcome,
+                        "measurement": facts.measurement.as_str(),
+                        "receipts": facts.receipts,
+                        "scored": facts.scored,
+                        "planned_slots": facts.planned_slots,
                         "bound_unit_id": facts.unit_id,
                         "bound_revision": facts.revision,
                         "bound_artifact_digest": facts.artifact_digest,
                     }));
                 }
                 AdoptionEvidence::StoredObservation { digest } => {
-                    ensure!(
-                        Self::observation_bound(&tx, &stored.unit, digest)?,
-                        "adoption evidence names an observation this node does not hold for this unit version"
-                    );
+                    if !Self::observation_bound(&tx, &stored.unit, digest)? {
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::ObservationNotHeld,
+                            "adoption evidence names an observation this node does not hold for this unit version",
+                        ));
+                    }
                     resolved.push(json!({
                         "kind": "stored_observation",
                         "digest": digest.0,
@@ -5719,9 +5890,11 @@ impl Node {
             }
         }
         // The empirical flag says what the evidence can carry. An operator
-        // statement, or an observation without a trial attempt, records what
-        // was said; it never claims a measurement happened.
-        let empirical = trial_backed && method.is_empirical();
+        // statement, an observation, or a trial that recorded no measurement
+        // records what was said or attempted; none of them claims that a
+        // measurement happened.
+        let carried = measurement.is_some_and(|measurement| measurement.carries_measurement());
+        let empirical = carried && method.is_empirical();
         let adoption = json!({
             "decision": decision.as_str(),
             "method": method.as_str(),
@@ -5730,6 +5903,10 @@ impl Node {
                 .iter()
                 .all(|item| item.get("verified").and_then(Value::as_bool) == Some(true)),
             "empirical": empirical,
+            "measurement": measurement.map(|measurement| measurement.as_str()),
+            // The subject's own confidence, stated or unknown. It is never a
+            // number this node invented and never a reading of the evidence.
+            "confidence": confidence,
             "notes": notes,
             "recorded_at": recorded_at,
         });
@@ -5792,6 +5969,69 @@ impl Node {
             return Ok(None);
         };
         let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
+        let plan = stored.get("plan").filter(|plan| plan.is_object());
+        // The append-only trial row is the attempt's terminal fact. Its
+        // absence means the attempt was opened and never closed, so nothing
+        // about a run is recorded under it.
+        let trial: Option<(String, String, String)> = conn
+            .prepare(
+                "SELECT outcome,environment_digest,data FROM unit_trials WHERE attempt_id=?1 ORDER BY seq DESC LIMIT 1",
+            )?
+            .query_row(params![attempt_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .optional()?;
+        let (outcome, environment_digest, receipts, scored, planned_slots, measurement) = match trial
+        {
+            None => (None, None, 0, 0, plan_slots(plan), AttemptMeasurement::Unexecuted),
+            Some((outcome, environment_digest, trial_data)) => {
+                let trial_data: Value =
+                    serde_json::from_str(&trial_data).unwrap_or_else(|_| json!({}));
+                let receipts = trial_data
+                    .get("receipts")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
+                match plan {
+                    // A comparison attempt is measured by the receipts its
+                    // own run wrote for the slots its own plan named. The
+                    // outcome word is not what makes it a measurement.
+                    Some(plan) => {
+                        let planned_slots = plan_slots(Some(plan));
+                        let scored = scored_receipts(plan, &trial_data);
+                        let measurement = if scored == 0 {
+                            AttemptMeasurement::Inconclusive
+                        } else if planned_slots.is_none_or(|planned| scored as u64 >= planned) {
+                            AttemptMeasurement::Measured
+                        } else {
+                            AttemptMeasurement::Partial
+                        };
+                        (
+                            Some(outcome),
+                            Some(environment_digest),
+                            receipts as u64,
+                            scored as u64,
+                            planned_slots,
+                            measurement,
+                        )
+                    }
+                    // A command trial has no plan slots: its measurement is
+                    // the execution fact the run recorded.
+                    None => {
+                        let measurement = if command_ran(&trial_data) {
+                            AttemptMeasurement::Measured
+                        } else {
+                            AttemptMeasurement::Inconclusive
+                        };
+                        (
+                            Some(outcome),
+                            Some(environment_digest),
+                            0,
+                            0,
+                            None,
+                            measurement,
+                        )
+                    }
+                }
+            }
+        };
         Ok(Some(TrialAttemptFacts {
             unit_id,
             revision,
@@ -5803,7 +6043,29 @@ impl Node {
                 .get("plan_digest")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            outcome,
+            environment_digest,
+            receipts,
+            scored,
+            planned_slots,
+            measurement,
         }))
+    }
+
+    /// The plan one attempt was opened with, when it carries one.
+    fn attempt_plan(conn: &Connection, attempt_id: &str) -> Result<Option<Value>> {
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM unit_attempts WHERE attempt_id=?1",
+                params![attempt_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else {
+            return Ok(None);
+        };
+        let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
+        Ok(stored.get("plan").filter(|plan| plan.is_object()).cloned())
     }
 
     /// Whether this node holds the observation bytes and binds them to this
@@ -5928,6 +6190,20 @@ impl Node {
                 receipt.get("digest").and_then(Value::as_str).is_some(),
                 "a trial receipt must name the digest of the fact it carries"
             );
+        }
+        // A comparison attempt's receipts are facts about the sample slots
+        // its own plan named. When the plan names slots, a receipt outside
+        // them was never produced by this attempt's run, so accepting it
+        // would let a caller hand the node a measurement it did not make.
+        if let Some(plan) = Self::attempt_plan(&self.conn, attempt_id)? {
+            if plan_slots(Some(&plan)).is_some() {
+                for receipt in receipts {
+                    ensure!(
+                        receipt_in_plan(&plan, receipt),
+                        "a trial receipt does not belong to a sample slot this attempt's plan named"
+                    );
+                }
+            }
         }
         let facts = Self::trial_attempt_facts(&self.conn, attempt_id)?
             .context("this node never opened that trial attempt")?;
@@ -7054,6 +7330,90 @@ impl Node {
 }
 
 // ------------------------------------------------------------- helpers -----
+
+/// The sample slots a comparison plan named: one candidate and one control
+/// run per scenario and repetition.
+///
+/// A plan that names no scenarios or no repetition count does not describe
+/// slots, so nothing in it can be called a complete measurement.
+fn plan_slots(plan: Option<&Value>) -> Option<u64> {
+    let plan = plan?;
+    let scenarios = plan.get("scenarios")?.as_array()?;
+    let trials = plan.get("trials_per_condition")?.as_u64()?;
+    (scenarios.len() as u64).checked_mul(trials)?.checked_mul(2)
+}
+
+/// Whether one receipt names a sample slot the plan named.
+fn receipt_in_plan(plan: &Value, receipt: &Value) -> bool {
+    let Some(scenarios) = plan.get("scenarios").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(trials) = plan.get("trials_per_condition").and_then(Value::as_u64) else {
+        return false;
+    };
+    let Some(name) = receipt.get("scenario").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(condition) = receipt.get("condition").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(trial) = receipt.get("trial").and_then(Value::as_u64) else {
+        return false;
+    };
+    matches!(condition, "candidate" | "control")
+        && trial < trials
+        && scenarios
+            .iter()
+            .any(|scenario| scenario.get("name").and_then(Value::as_str) == Some(name))
+}
+
+/// Receipts that are judge-scored facts of a slot the attempt's own plan
+/// named.
+///
+/// A receipt naming a sample the plan never asked for was not produced by
+/// this attempt's run, so it never counts as a scored sample.
+fn scored_receipts(plan: &Value, trial_data: &Value) -> usize {
+    trial_data
+        .get("receipts")
+        .and_then(Value::as_array)
+        .map(|receipts| {
+            receipts
+                .iter()
+                .filter(|receipt| {
+                    matches!(
+                        receipt.get("verdict").and_then(Value::as_str),
+                        Some("effective") | Some("ineffective")
+                    ) && receipt_in_plan(plan, receipt)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Whether a command trial's evidence records that its command really ran.
+///
+/// A command that could not be started still writes a trial fact, and an
+/// attempt retired without its owner leaves one with no output at all;
+/// neither records an execution. A real run leaves an exit status, a signal,
+/// or a deadline that produced output or signalled the process group.
+fn command_ran(evidence: &Value) -> bool {
+    let status = ["exit_code", "signal"]
+        .iter()
+        .any(|key| evidence.get(*key).is_some_and(|value| !value.is_null()));
+    if status {
+        return true;
+    }
+    let captured = |key: &str| {
+        evidence
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|text| !text.is_empty())
+    };
+    evidence.get("interrupted").and_then(Value::as_bool) == Some(true)
+        && (evidence.get("group_signalled").and_then(Value::as_bool) == Some(true)
+            || captured("stdout")
+            || captured("stderr"))
+}
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -9225,5 +9585,238 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&packages);
+    }
+    /// Counterexample and admission proof for a trial that never ran.
+    ///
+    /// Nothing in this test dispatches a child. The attempts are opened
+    /// against a real installation and closed — or deliberately left open —
+    /// by the node itself, which is exactly the state a crash or a
+    /// never-started trial leaves behind. A judgement citing an attempt that
+    /// recorded no measurement must not become empirically adopted, and an
+    /// attempt that was opened and never reached a terminal trial fact is not
+    /// admissible evidence at all.
+    #[test]
+    fn orphaned_trial_cannot_certify_adoption_until_a_measurement_is_recorded() {
+        let dir = scratch("adoption-evidence-node");
+        let root = scratch("adoption-evidence-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let material = package(
+            "awareness.adoption-evidence",
+            "1.0.0",
+            b"a self-authored candidate nobody has measured\n",
+            vec![],
+        );
+        let identity = material.unit.clone();
+        import(&mut node, &root, vec![material]);
+
+        let plan = json!({
+            "unit_id": identity.unit_id,
+            "revision": identity.revision,
+            "artifact_digest": identity.artifact_digest,
+            "candidate": {"enabled": true},
+            "control": {"excluded_unit_id": identity.unit_id, "exclude_all_versions": true},
+            "scenarios": [{"name": "self-test", "message_digest": "fixture", "rubric_digest": "fixture"}],
+            "trials_per_condition": 1,
+            "scope": "admission mechanics; no model or efficacy claim",
+        });
+        let begin = |node: &mut Node| -> String {
+            node.handle_unit_request(UnitRequest::BeginTrial {
+                unit_id: identity.unit_id.clone(),
+                revision: identity.revision.clone(),
+                artifact_digest: identity.artifact_digest.clone(),
+                kind: "sandbox_comparison".into(),
+                plan: plan.clone(),
+            })
+            .unwrap()["attempt_id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let finish = |node: &mut Node, attempt: &str, outcome: TrialOutcome, receipts: Vec<Value>| {
+            node.handle_unit_request(UnitRequest::FinishTrial {
+                attempt_id: attempt.to_string(),
+                outcome,
+                receipts,
+            })
+        };
+        let judge_with_confidence = |node: &mut Node, attempt: &str, confidence: Option<f64>| {
+            node.handle_unit_request(UnitRequest::RecordAdoption {
+                unit_id: identity.unit_id.clone(),
+                revision: identity.revision.clone(),
+                artifact_digest: identity.artifact_digest.clone(),
+                decision: AdoptionDecision::Adopted,
+                method: AdoptionMethod::SandboxComparison,
+                evidence: vec![AdoptionEvidence::TrialAttempt {
+                    attempt_id: attempt.to_string(),
+                }],
+                confidence,
+                notes: None,
+                enable: Some(true),
+            })
+        };
+        let judge = |node: &mut Node, attempt: &str| {
+            judge_with_confidence(node, attempt, None)
+        };
+        let sample = |condition: &str, trial: u64, verdict: &str, scenario: &str| {
+            json!({
+                "kind": "sample",
+                "scenario": scenario,
+                "condition": condition,
+                "trial": trial,
+                "verdict": verdict,
+                "digest": identity.artifact_digest,
+            })
+        };
+
+        // (1) Opened and never closed: no terminal trial fact exists, so the
+        // citation is refused instead of being recorded as evidence.
+        let orphan = begin(&mut node);
+        let refused = judge(&mut node, &orphan).unwrap_err();
+        assert_eq!(
+            refused
+                .downcast_ref::<AdoptionEvidenceRejected>()
+                .map(|rejected| rejected.reason),
+            Some(AdoptionEvidenceRejection::AttemptNeverExecuted),
+            "an attempt that recorded no terminal fact was admitted as evidence: {refused:#}"
+        );
+        assert_eq!(
+            AdoptionEvidenceRejection::AttemptNeverExecuted.code(),
+            "evidence_unexecuted"
+        );
+
+        // (2) Opening another attempt retires the orphan as unknown — the
+        // reopen path. The retired attempt is now a real record, so the
+        // judgement is recorded, but nothing in it measured anything.
+        let _live = begin(&mut node);
+        let recorded = judge(&mut node, &orphan).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(false));
+        assert_eq!(recorded["adoption"]["measurement"], json!("inconclusive"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["measurement"], json!("inconclusive"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["outcome"], json!("unknown"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["scored"], json!(0));
+
+        // (3) A comparison closed before it measured: the real trial child
+        // takes this path when the run failed before any sample was judged.
+        let unmeasured = begin(&mut node);
+        finish(&mut node, &unmeasured, TrialOutcome::Unknown, vec![]).unwrap();
+        let recorded = judge(&mut node, &unmeasured).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(false));
+        assert_eq!(recorded["adoption"]["measurement"], json!("inconclusive"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["receipts"], json!(0));
+
+        // (4) A receipt that names a sample the plan never asked for was not
+        // produced by this attempt's run, so closing with it is refused.
+        let stray = begin(&mut node);
+        let stray_finish = finish(
+            &mut node,
+            &stray,
+            TrialOutcome::Succeeded,
+            vec![sample("candidate", 0, "effective", "never-planned")],
+        );
+        assert!(
+            stray_finish.is_err(),
+            "a receipt outside the attempt's plan was accepted: {stray_finish:?}"
+        );
+
+        // (5) One of the two planned slots measured: a partial measurement is
+        // still a measurement, and the record says it was partial.
+        let partial = begin(&mut node);
+        finish(
+            &mut node,
+            &partial,
+            TrialOutcome::Unknown,
+            vec![sample("candidate", 0, "effective", "self-test")],
+        )
+        .unwrap();
+        let recorded = judge(&mut node, &partial).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(true));
+        assert_eq!(recorded["adoption"]["measurement"], json!("partial"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["scored"], json!(1));
+        assert_eq!(recorded["adoption"]["evidence"][0]["planned_slots"], json!(2));
+
+        // (6) Every planned slot measured: the comparison is complete and the
+        // judgement is empirical on a measured record.
+        let measured = begin(&mut node);
+        finish(
+            &mut node,
+            &measured,
+            TrialOutcome::Failed,
+            vec![
+                sample("candidate", 0, "effective", "self-test"),
+                sample("control", 0, "ineffective", "self-test"),
+            ],
+        )
+        .unwrap();
+        let recorded = judge_with_confidence(&mut node, &measured, Some(0.8)).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(true));
+        assert_eq!(recorded["adoption"]["measurement"], json!("measured"));
+        // The subject's own number is recorded as stated; a judgement that
+        // states none records that explicitly instead of a filled-in number.
+        assert_eq!(recorded["adoption"]["confidence"], json!(0.8));
+        let unstated = judge(&mut node, &measured).unwrap();
+        assert_eq!(unstated["adoption"]["confidence"], Value::Null);
+        // A value that is not a number is refused; the node supplies no scale.
+        let refused_confidence =
+            judge_with_confidence(&mut node, &measured, Some(f64::NAN)).unwrap_err();
+        assert!(
+            format!("{refused_confidence:#}").contains("finite number"),
+            "a non-number confidence was accepted: {refused_confidence:#}"
+        );
+        assert_eq!(recorded["adoption"]["evidence"][0]["outcome"], json!("failed"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["scored"], json!(2));
+
+        // (7) A command trial that really ran is a measurement even when it
+        // failed, while a command that never started is not one.
+        let failed_run = node
+            .handle_unit_request(UnitRequest::Trial {
+                unit_id: identity.unit_id.clone(),
+                argv: vec!["/bin/sh".into(), "-c".into(), "exit 3".into()],
+                cwd: None,
+                timeout_ms: Some(10_000),
+                risk: "runs a trivial shell command".into(),
+                benefit: "records a real negative execution fact".into(),
+                consequence: "a failed command leaves the unit unverified here".into(),
+            })
+            .unwrap();
+        assert_eq!(failed_run["outcome"], json!("failed"));
+        let failed_attempt = failed_run["attempt_id"].as_str().unwrap().to_string();
+        let recorded = judge(&mut node, &failed_attempt).unwrap();
+        assert_eq!(
+            recorded["adoption"]["measurement"],
+            json!("measured"),
+            "a real negative run was not counted as a measurement: {recorded}"
+        );
+        assert_eq!(recorded["adoption"]["empirical"], json!(true));
+
+        let never_started = node
+            .handle_unit_request(UnitRequest::Trial {
+                unit_id: identity.unit_id.clone(),
+                argv: vec!["/nonexistent/shenko-trial-program".into()],
+                cwd: None,
+                timeout_ms: Some(10_000),
+                risk: "runs a program that is not installed".into(),
+                benefit: "records that no execution happened".into(),
+                consequence: "the unit stays unverified here".into(),
+            })
+            .unwrap();
+        assert_eq!(never_started["outcome"], json!("failed"));
+        let never_started_attempt = never_started["attempt_id"].as_str().unwrap().to_string();
+        let recorded = judge(&mut node, &never_started_attempt).unwrap();
+        assert_eq!(
+            recorded["adoption"]["measurement"],
+            json!("inconclusive"),
+            "a command that never started was counted as a measurement: {recorded}"
+        );
+        assert_eq!(recorded["adoption"]["empirical"], json!(false));
+
+        // The earlier judgements stay in the version's own history; each call
+        // recorded one fact and never rewrote the version.
+        assert_eq!(
+            node.handle_unit_request(UnitRequest::Lineage { unit_id: identity.unit_id.clone() })
+                .unwrap()["versions"][0]["revision"],
+            json!(identity.revision)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

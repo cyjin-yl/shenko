@@ -9,9 +9,10 @@
 //! The module owns: the build provider (`build`), candidate slot layout
 //! (`slots`), diff-based migration (`migration`), the smoke launch
 //! (`smoke`), the orchestration of quiesce → catch-up → CAS → fence →
-//! route → resume (`handoff`), the `update.control` native handler
-//! (`native`), the §51.4 append-node cognitive-root rollback (`rollback`) and
-//! the deterministic CLI (`cli`). The concrete participants
+//! route → resume (`handoff`), the cold-start reconciliation of a hand-over
+//! that died before its selector CAS (`handoff`), the `update.control` native
+//! handler (`native`), the §51.4 append-node cognitive-root rollback
+//! (`rollback`) and the deterministic CLI (`cli`). The concrete participants
 //! (playground, wasm home, node) register through the
 //! [`handoff::HandoffParticipantRegistry`] seam.
 //!

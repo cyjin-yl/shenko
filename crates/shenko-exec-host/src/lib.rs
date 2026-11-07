@@ -33,6 +33,9 @@ pub use self_knowledge_task::*;
 pub mod cognition_task;
 pub use cognition_task::*;
 
+pub mod cognition_judge;
+pub use cognition_judge::*;
+
 pub mod cognition_query;
 pub use cognition_query::*;
 

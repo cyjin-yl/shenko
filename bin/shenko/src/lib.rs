@@ -304,7 +304,9 @@ pub enum UpdateCli {
         #[arg(long)]
         expected_selector_revision: u64,
     },
-    /// Deterministic recovery read. No model is required.
+    /// Deterministic recovery. No model is required: it completes a committed
+    /// publication, takes back an interrupted hand-over boundary when this
+    /// process owns the installation, and reports what it found.
     Recover,
     /// §51.4 append-node rollback: restore the subject's state root to a
     /// historical node. This appends a new node, never rewinding or
@@ -1593,9 +1595,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     shenko_seed::BootstrapSubjectState::PendingGenesis,
                 ),
             };
-            let prepared = bootstrap.prepare(installation_id)?;
+            let prepared = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
             println!("Home manifest: {}", prepared.manifest_path.display());
             println!("Home: {}", serde_json::to_string_pretty(&prepared.manifest)?);
+            for recovery in &prepared.recovered {
+                println!("Recovered: {recovery}");
+            }
             let owner_grant = store.get_bootstrap_owner_grant(installation_id)?;
             let view = bootstrap.view(
                 installation_id,
@@ -1733,8 +1738,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 installation_id,
                 data_dir: data_dir.clone(),
             };
-            let prepared_home = bootstrap.prepare(installation_id)?;
+            let prepared_home = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
             info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
+            for recovery in &prepared_home.recovered {
+                tracing::warn!(%recovery, "completed home recovery");
+            }
 
             // 2. Bootstrap genesis if first run — SPEC §44.6. The genesis
             // closure references the actual home manifest and guest artifact.
@@ -1967,6 +1975,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .spawn(
                     shenko_subject::NativeTaskHandlerPlugin,
                     cognition_write_handler,
+                )
+                .await?;
+            // A version that is already installed is judged here instead of
+            // being written again: after a sandbox self-test the subject cites
+            // the trial attempt of the exact artifacts it measured, and no
+            // second artifact is installed under the same revision.
+            let cognition_judge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionJudgeHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                    Some(Arc::clone(&self_knowledge)),
+                ));
+            let _native_cognition_judge_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_judge_handler,
                 )
                 .await?;
             // The discovery index and the registered evidence of one unit are

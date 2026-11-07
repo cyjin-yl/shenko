@@ -518,7 +518,9 @@ fn cow_unreadable_contents_refuse_diff_and_commit() -> Result<()> {
     assert!(diff.added.is_empty());
     assert!(diff.removed.is_empty());
     let bases = BTreeMap::from([(key.clone(), base.clone())]);
-    let record = branch.commit_abs(&home, &bases)?;
+    let cas = shenko_store::cas::ContentStore::new(temp_dir("cow-content-cas"))?;
+    let outcome = branch.commit_abs(&home, &cas, &bases)?;
+    assert!(outcome.published);
     let commits_path = home.join(branch.rel_commits_file());
     let commits_before = fs::read(&commits_path)?;
 
@@ -530,8 +532,8 @@ fn cow_unreadable_contents_refuse_diff_and_commit() -> Result<()> {
     symlink("same.bin", base.join("same.bin"))?;
     symlink("same.bin", overlay.join("same.bin"))?;
     assert!(branch.diff_abs(&home, &key, &base).is_err());
-    assert!(branch.commit_abs(&home, &bases).is_err());
-    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    assert!(branch.commit_abs(&home, &cas, &bases).is_err());
+    assert_eq!(branch.head_abs(&home)?, Some(outcome.id.clone()));
     assert_eq!(fs::read(&commits_path)?, commits_before);
     assert_eq!(fs::read(&saved_base)?, original);
     assert_eq!(fs::read(&saved_overlay)?, changed);
@@ -632,15 +634,17 @@ fn cow_missing_roots_refuse_commit_without_advancing_head() -> Result<()> {
     let branch = BranchStore::open(&owned_home, "main", "main")?;
     let key = mount_key("/work");
     let bases = BTreeMap::from([(key.clone(), base.clone())]);
-    let record = branch.commit_abs(&home, &bases)?;
-    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    let cas = shenko_store::cas::ContentStore::new(temp_dir("cow-root-cas"))?;
+    let outcome = branch.commit_abs(&home, &cas, &bases)?;
+    assert!(outcome.published);
+    assert_eq!(branch.head_abs(&home)?, Some(outcome.id.clone()));
     let commits_path = home.join(branch.rel_commits_file());
     let commits_before = fs::read(&commits_path)?;
 
     let saved_base = base.with_extension("saved");
     fs::rename(&base, &saved_base)?;
-    assert!(branch.commit_abs(&home, &bases).is_err());
-    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    assert!(branch.commit_abs(&home, &cas, &bases).is_err());
+    assert_eq!(branch.head_abs(&home)?, Some(outcome.id.clone()));
     assert_eq!(fs::read(&commits_path)?, commits_before);
     assert_eq!(fs::read(saved_base.join("keep.txt"))?, b"base-keep\n");
     fs::rename(&saved_base, &base)?;
@@ -648,8 +652,8 @@ fn cow_missing_roots_refuse_commit_without_advancing_head() -> Result<()> {
     let overlay = home.join(branch.rel_overlay(&key));
     let saved_overlay = overlay.with_extension("saved");
     fs::rename(&overlay, &saved_overlay)?;
-    assert!(branch.commit_abs(&home, &bases).is_err());
-    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    assert!(branch.commit_abs(&home, &cas, &bases).is_err());
+    assert_eq!(branch.head_abs(&home)?, Some(outcome.id.clone()));
     assert_eq!(fs::read(&commits_path)?, commits_before);
     assert_eq!(fs::read(saved_overlay.join("keep.txt"))?, b"changed\n");
     assert_eq!(fs::read(base.join("gone.txt"))?, b"base-gone\n");

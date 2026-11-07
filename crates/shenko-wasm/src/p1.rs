@@ -17,6 +17,7 @@
 
 use crate::fsx;
 use crate::mount::{MountBacking, MountBinding};
+use crate::revoke::{RevocationState, WriteInFlight, permits_write};
 use crate::net::{AdmittedSocket, NetIoError, NetworkAdmission, NetworkStart};
 use crate::runtime::{RunStop, WasiRunOutcome};
 use anyhow::{Context, Result};
@@ -25,6 +26,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use wiggle::{GuestError, GuestMemory, GuestPtr, GuestType};
 
@@ -287,6 +289,10 @@ impl SocketHandle {
 /// The complete preview1 host state for one run.
 pub struct P1Host {
     replay_io: Option<crate::replay_io::ReplayIo>,
+    /// Shared live write-withdrawal request. `None` when the caller did not
+    /// ask for one; otherwise the guest's already-open writable descriptors
+    /// are gated at every mutation boundary.
+    revocation: Option<Arc<RevocationState>>,
     args: Vec<Vec<u8>>,
     env: Vec<(Vec<u8>, Vec<u8>)>,
     fds: Vec<Option<FdEntry>>,
@@ -349,6 +355,7 @@ impl P1Host {
         }
         Ok(Self {
             replay_io: None,
+            revocation: None,
             args: args.into_iter().map(String::into_bytes).collect(),
             env: env
                 .into_iter()
@@ -370,6 +377,27 @@ impl P1Host {
 
     pub fn set_replay_io(&mut self, io: Option<crate::replay_io::ReplayIo>) {
         self.replay_io = io;
+    }
+
+    /// Bind the run's shared write-withdrawal request. The handle is not a
+    /// copy: another thread requests withdrawal on it while this host is
+    /// executing, and every mutation boundary below observes that state.
+    pub fn set_revocation(&mut self, state: Option<Arc<RevocationState>>) {
+        self.revocation = state;
+    }
+
+    /// Withdrawal-aware write gate for a mounted filesystem. A withdrawal
+    /// removes the write capability only: the mount keeps its declared mode
+    /// and its merged COW view, so reads still see the branch overlay over
+    /// the base.
+    fn write_allowed(&self, mount: usize) -> bool {
+        if !self.mounts.get(mount).is_some_and(|binding| binding.backing.writable()) {
+            return false;
+        }
+        match &self.revocation {
+            Some(state) => permits_write(state, mount),
+            None => true,
+        }
     }
 
     /// Open the run's admitted sockets and install them as guest descriptors.
@@ -449,7 +477,6 @@ impl P1Host {
             .filter(|slot| matches!(slot, Some(FdEntry::Socket(_))))
             .count()
     }
-
     fn replay_guard(&self, operation: &str) -> Result<(), types::Error> {
         if let Some(io) = &self.replay_io {
             io.reject_unrecorded(operation).map_err(|error|
@@ -529,7 +556,8 @@ impl P1Host {
     }
 
     fn mount_writable(&self, mount: usize) -> Result<bool, types::Error> {
-        Ok(self.binding(mount)?.backing.writable())
+        let _ = self.binding(mount)?;
+        Ok(self.write_allowed(mount))
     }
 
     /// Whether the mount at `mount` is a managed copy-on-write mount.
@@ -1656,10 +1684,18 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         offset: types::Filesize,
         len: types::Filesize,
     ) -> Result<(), types::Error> {
+        let revocation = self.revocation.clone();
         let handle = self.file_handle_mut(fd)?;
         if !handle.writable {
             return Err(types::Errno::Perm.into());
         }
+        let guard = match &revocation {
+            Some(state) => match WriteInFlight::begin(state, handle.mount) {
+                Some(guard) => Some(guard),
+                None => return Err(types::Errno::Perm.into()),
+            },
+            None => None,
+        };
         let current = handle
             .file
             .metadata()
@@ -1670,6 +1706,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             handle.file.set_len(want).map_err(|e| {
                 types::Error::trap(anyhow!("fd_allocate set_len: {e}"))
             })?;
+        }
+        if let Some(guard) = guard {
+            guard.commit();
         }
         Ok(())
     }
@@ -1809,13 +1848,24 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         fd: types::Fd,
         size: types::Filesize,
     ) -> Result<(), types::Error> {
+        let revocation = self.revocation.clone();
         let handle = self.file_handle_mut(fd)?;
         if !handle.writable {
             return Err(types::Errno::Perm.into());
         }
+        let guard = match &revocation {
+            Some(state) => match WriteInFlight::begin(state, handle.mount) {
+                Some(guard) => Some(guard),
+                None => return Err(types::Errno::Perm.into()),
+            },
+            None => None,
+        };
         handle.file.set_len(size).map_err(|e| {
             types::Error::trap(anyhow!("fd_filestat_set_size: {e}"))
         })?;
+        if let Some(guard) = guard {
+            guard.commit();
+        }
         Ok(())
     }
 
@@ -1979,6 +2029,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                 return Ok(n as types::Size);
             }
         }
+        let revocation = self.revocation.clone();
         let n = match self.fd_mut(fd)? {
             FdEntry::Stdout(writer) | FdEntry::Stderr(writer) => {
                 writer.write(&data).map_err(errno_from_io)?
@@ -1987,8 +2038,21 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                 if !handle.writable {
                     return Err(types::Errno::Perm.into());
                 }
+                // A write that was already in flight when withdrawal was
+                // requested completes here; its bytes stay in the mount and
+                // are counted, never rolled back.
+                let guard = match &revocation {
+                    Some(state) => match WriteInFlight::begin(state, handle.mount) {
+                        Some(guard) => Some(guard),
+                        None => return Err(types::Errno::Perm.into()),
+                    },
+                    None => None,
+                };
                 let n = Self::write_file_at(&mut handle.file, handle.cursor, handle.append, &data)
                     .map_err(errno_from_io)?;
+                if let Some(guard) = guard {
+                    guard.commit();
+                }
                 if !handle.append {
                     handle.cursor = handle.cursor.saturating_add(n as u64);
                 }
@@ -2010,12 +2074,25 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             return Err(types::Errno::Spipe.into());
         }
         let data = Self::write_ciovs(memory, ciovs)?;
+        let revocation = self.revocation.clone();
         let n = match self.fd_mut(fd)? {
             FdEntry::File(handle) => {
                 if !handle.writable {
                     return Err(types::Errno::Perm.into());
                 }
-                Self::write_file_at(&mut handle.file, offset, false, &data).map_err(errno_from_io)?
+                let guard = match &revocation {
+                    Some(state) => match WriteInFlight::begin(state, handle.mount) {
+                        Some(guard) => Some(guard),
+                        None => return Err(types::Errno::Perm.into()),
+                    },
+                    None => None,
+                };
+                let n = Self::write_file_at(&mut handle.file, offset, false, &data)
+                    .map_err(errno_from_io)?;
+                if let Some(guard) = guard {
+                    guard.commit();
+                }
+                n
             }
             _ => return Err(types::Errno::Spipe.into()),
         };

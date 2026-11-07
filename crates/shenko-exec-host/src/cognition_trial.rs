@@ -311,7 +311,7 @@ fn verdict_token(text: &str) -> Option<bool> {
                     .take_while(|&(_, c)| c.is_ascii_alphanumeric())
                     .last()
                     .map(|(start, _)| &text[start..gap_end]);
-                Some(preceding.is_some_and(|word| word.eq_ignore_ascii_case("not")))
+                return Some(preceding.is_some_and(|word| word.eq_ignore_ascii_case("not")));
             }
             _ => {} // prose; keep scanning
         };
@@ -1635,7 +1635,7 @@ impl NativeTaskHandler for CognitionTrialHandler {
             role_revision: "native-cognition-trial/1".into(),
             authority_refs: vec!["cognition_unit.trial/v1".into()],
             prompt_section: Some(
-                "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":1,\"deadline_ms\":180000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。失败、超时、评审出错都会被如实计入分母，样本不足时结论是 inconclusive 而不是通过。结论只是本机这一次的测量，不是这个单元永远有效的证明。"
+                "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":1,\"deadline_ms\":180000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。失败、超时、评审出错都会被如实计入分母，样本不足时结论是 inconclusive 而不是通过。结论只是本机这一次的测量，不是这个单元永远有效的证明。测完用 cognition.unit.judge:1 引用本次返回的 attempt_id 登记你的判断：认为有帮助就 adopt（需要的话同时 enable），认为没帮助就 reject；不登记时单元保持原状，写过的候选也仍然只是候选。"
                     .into(),
             ),
         }

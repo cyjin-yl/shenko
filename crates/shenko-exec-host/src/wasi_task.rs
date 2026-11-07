@@ -460,6 +460,9 @@ impl WasiExecHandler {
             command.control = WasiRunControl {
                 deadline: Some(Duration::from_secs(frozen.timeout_secs)),
                 cancel: Some(cancel),
+                // This path does not request live write withdrawal; the run
+                // keeps its declared mount permissions for its whole life.
+                revocation: None,
             };
             let mut runtime = WasmRuntime::with_mounts(frozen.mounts)?;
             runtime.run_wasi_module(&bytes, command)
