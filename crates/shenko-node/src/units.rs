@@ -8696,6 +8696,7 @@ mod tests {
                 unit_id: target.into(),
                 revision_requirement: Some("1.0.0".into()),
                 artifact_digest: digest,
+                contract_requirement: None,
             },
             purpose: None,
         }
@@ -9087,6 +9088,7 @@ mod tests {
                     unit_id: "demo.skill.base".into(),
                     revision_requirement: Some(">=1.0.0 <2.0.0".into()),
                     artifact_digest: None,
+                    contract_requirement: None,
                 },
                 purpose: None,
             }],
@@ -9392,6 +9394,7 @@ mod tests {
             decision: AdoptionDecision::Adopted,
             method: AdoptionMethod::OperatorStatement,
             evidence: vec![],
+            confidence: None,
             notes: Some("kept by the owner".into()),
             enable: None,
         })
