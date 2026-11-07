@@ -881,6 +881,45 @@ pub enum UnitRequest {
         /// transaction. Never chosen implicitly.
         activate: Option<UnitActivation>,
     },
+    /// Resolve the transitive required closure of these roots against the
+    /// versions retained here and record it as a locked generation.
+    ///
+    /// Nothing becomes current: preparation is a candidate. A closure that
+    /// cannot be satisfied from retained, resolved edges is refused with every
+    /// problem listed, so an operator never receives a half-resolved
+    /// environment.
+    PrepareEnvironment { roots: Vec<EnvironmentRoot> },
+    /// Atomically select a prepared generation as this installation's current
+    /// environment. `expected_revision` is the selector revision the caller
+    /// read; the write is a compare-and-swap, so a concurrent activation
+    /// fails loudly instead of being overwritten.
+    ActivateEnvironment { generation: u64, expected_revision: u64 },
+    /// Select the previous generation of the current environment. The same
+    /// compare-and-swap as activation: the caller names the revision it read.
+    RollbackEnvironment { expected_revision: u64 },
+    /// The current environment selector, the recorded generations and the
+    /// append-only activation log. Pure query: an installation that never
+    /// activated a generation reports `pinned: false`.
+    Environment { limit: u32 },
+    /// Walk a metapackage's member list, resolve every member against
+    /// installed/retained units, check adoption via the content/attitude
+    /// ledger, and return the membership standing of each. Pure read.
+    ///
+    /// The metapackage must be installed on this node; membership never
+    /// crosses nodes. A content member that lacks an authenticated adoption
+    /// attitude is reported as unadopted, not omitted.
+    QueryMetapackage { unit_id: String },
+    /// Walk a distribution's preinstalled macros, target-access expectations,
+    /// and capability-provider defaults. Pure read: declarations are facts
+    /// about the distribution version, not grants of local readiness.
+    QueryDistribution { unit_id: String },
+    /// Resolve one named capability-contract slot across the installed
+    /// providers on this node. Returns every admitted provider, the
+    /// coexistence decision and the selected index (if any). Pure read.
+    QuerySlot {
+        macro_id: String,
+        contract: String,
+    },
 }
 
 /// One retained version to make current while another is withdrawn.
@@ -931,46 +970,8 @@ pub struct RemovedVersionFact {
     /// see that an earlier judgement existed after the version left the live
     /// tables.
     pub adoption: Option<Value>,
-    /// Resolve the transitive required closure of these roots against the
-    /// versions retained here and record it as a locked generation.
-    ///
-    /// Nothing becomes current: preparation is a candidate. A closure that
-    /// cannot be satisfied from retained, resolved edges is refused with every
-    /// problem listed, so an operator never receives a half-resolved
-    /// environment.
-    PrepareEnvironment { roots: Vec<EnvironmentRoot> },
-    /// Atomically select a prepared generation as this installation's current
-    /// environment. `expected_revision` is the selector revision the caller
-    /// read; the write is a compare-and-swap, so a concurrent activation
-    /// fails loudly instead of being overwritten.
-    ActivateEnvironment { generation: u64, expected_revision: u64 },
-    /// Select the previous generation of the current environment. The same
-    /// compare-and-swap as activation: the caller names the revision it read.
-    RollbackEnvironment { expected_revision: u64 },
-    /// The current environment selector, the recorded generations and the
-    /// append-only activation log. Pure query: an installation that never
-    /// activated a generation reports `pinned: false`.
-    Environment { limit: u32 },
-    /// Walk a metapackage's member list, resolve every member against
-    /// installed/retained units, check adoption via the content/attitude
-    /// ledger, and return the membership standing of each. Pure read.
-    ///
-    /// The metapackage must be installed on this node; membership never
-    /// crosses nodes. A content member that lacks an authenticated adoption
-    /// attitude is reported as unadopted, not omitted.
-    QueryMetapackage { unit_id: String },
-    /// Walk a distribution's preinstalled macros, target-access expectations,
-    /// and capability-provider defaults. Pure read: declarations are facts
-    /// about the distribution version, not grants of local readiness.
-    QueryDistribution { unit_id: String },
-    /// Resolve one named capability-contract slot across the installed
-    /// providers on this node. Returns every admitted provider, the
-    /// coexistence decision and the selected index (if any). Pure read.
-    QuerySlot {
-        macro_id: String,
-        contract: String,
-    },
 }
+
 
 /// How one unit version was judged on this installation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
