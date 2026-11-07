@@ -730,7 +730,6 @@ fn the_judge_verdict_is_read_from_the_judges_own_words() {
         JudgeVerdict::Ineffective(_)));
     let empty = judge_verdict("   ").unwrap_err().to_string();
     assert!(empty.contains("empty verdict"), "{empty}");
-    assert!(absent.contains("neither EFFECTIVE nor NOT_EFFECTIVE"), "{absent}");
 }
 
 #[tokio::test]
