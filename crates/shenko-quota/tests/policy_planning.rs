@@ -327,8 +327,8 @@ fn legacy_rows_round_trip_byte_identically() {
     // Policy: a default-objective policy serializes without any new key, and
     // the struct → bytes → struct → bytes cycle is byte-identical, so the
     // content digest a recorded decision is bound to cannot move.
-    let policy = policy();
-    let policy_json = serde_json::to_string(&policy).unwrap();
+    let base_policy = policy();
+    let policy_json = serde_json::to_string(&base_policy).unwrap();
     for absent in [
         "objective",
         "target_utilization_range",
@@ -341,7 +341,7 @@ fn legacy_rows_round_trip_byte_identically() {
     }
     let reparsed: QuotaPolicy = serde_json::from_str(&policy_json).unwrap();
     assert_eq!(serde_json::to_string(&reparsed).unwrap(), policy_json);
-    assert_eq!(policy_digest(&reparsed).unwrap(), policy_digest(&policy).unwrap());
+    assert_eq!(policy_digest(&reparsed).unwrap(), policy_digest(&base_policy).unwrap());
 
     // A non-default field appears and its value survives the same cycle.
     let mut targeted = policy();
