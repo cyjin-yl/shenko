@@ -23,6 +23,10 @@ pub mod native_transport;
 
 mod native_installation;
 pub use native_installation::*;
+
+mod identity;
+pub use identity::*;
+
 /// Terminal screen state machine for seat observation (SPEC §17.5).
 pub mod terminal;
 pub use terminal::*;
