@@ -663,7 +663,7 @@ async fn drive_until(service: &Arc<NativeChildService>, store: &Arc<Store>, task
         }
         let mut pass = Box::pin(service.run_once());
         match tokio::time::timeout(Duration::from_secs(30), &mut pass).await {
-            Ok(Ok(())) => {}
+            Ok(Ok(_)) => {}
             Ok(Err(error)) => return Err(error),
             Err(_) => bail!("one dispatch pass exceeded 30s"),
         }
