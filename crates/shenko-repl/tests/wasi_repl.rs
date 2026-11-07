@@ -321,5 +321,92 @@ fn interrupted_replay_orphan_does_not_block_next_attempt() -> Result<()> {
     Ok(())
 }
 
+/// A live driver that ends without ever writing a report is a *process exit*,
+/// not a caller cancel: the real status is retained in the recorded cell, the
+/// session reports recovery-required, and further cells are refused until an
+/// explicit restore. The synthetic guest stands in for a real interpreter that
+/// dies at startup (missing module, unsupported REPL API); this proves the
+/// classification and the recorded status, not interpreter delivery.
+#[test]
+fn live_driver_exit_without_report_retains_the_real_status() -> Result<()> {
+    // Exits 7 before reading the cell protocol at all.
+    const EXITING_GUEST: &str = r#"
+(module
+  (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+  (func (export "_start") (call $exit (i32.const 7))))
+"#;
+    let root = temp_root("driver-exit");
+    let module = write_module(&root, "kernel.wat", EXITING_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut request = create_request(module);
+    request.kernel.driver = KernelDriver::PythonCellV1;
+    let mut session = provider.create(request)?;
+
+    let result = session.execute(cell("never delivered", CellKind::Pure))?;
+    match &result.record.outcome {
+        CellOutcome::Failed { error } => {
+            assert!(error.contains("REPL_DRIVER_EXITED"), "{error}");
+            assert!(error.contains("status 7"), "the real exit status is retained: {error}");
+        }
+        other => panic!("a driver that ended on its own must not be a cancel: {other:?}"),
+    }
+    // Streams are durable even though the cell never completed.
+    assert!(session.session_dir().join(&result.record.stdout_path).is_file());
+    assert_eq!(session.inspect()?.state, SessionState::RecoveryRequired);
+    let refused = session.execute(cell("again", CellKind::Pure)).err()
+        .map(|error| format!("{error:#}"))
+        .unwrap_or_default();
+    assert!(refused.contains("REPL_RECOVERY_REQUIRED"), "{refused}");
+
+    fs::remove_dir_all(&root).ok();
+    Ok(())
+}
+
+/// A native kernel exec's its artifact, so a file without an execute bit is
+/// refused at creation instead of failing at the first cell; an executable
+/// artifact is admitted and no process is started before a cell is requested.
+#[cfg(unix)]
+#[test]
+fn native_kernel_requires_an_executable_artifact() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let root = temp_root("native-mode");
+    let module = write_module(&root, "kernel", "not an interpreter");
+    let provider = WasiReplProvider::new(root.join("sessions"));
+
+    fs::set_permissions(&module, fs::Permissions::from_mode(0o644))?;
+    let mut request = create_request(module.clone());
+    request.kernel.backend = BackendKind::NativeHost;
+    request.kernel.runtime = ReplRuntime::NodeWasm;
+    request.kernel.driver = KernelDriver::JsCellV1;
+    let refused = provider.create(request).err()
+        .map(|error| format!("{error:#}"))
+        .unwrap_or_default();
+    assert!(refused.contains("REPL_KERNEL_UNAVAILABLE"), "{refused}");
+    assert!(refused.contains("executable"), "{refused}");
+    // The refusal happens before any session artifact exists; the sessions
+    // root may not even have been created yet.
+    let sessions_root = root.join("sessions");
+    let created = match fs::read_dir(&sessions_root) {
+        Ok(entries) => entries.count(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error.into()),
+    };
+    assert_eq!(created, 0, "a refused native kernel creates no session directory");
+
+    fs::set_permissions(&module, fs::Permissions::from_mode(0o755))?;
+    let mut request = create_request(module);
+    request.kernel.backend = BackendKind::NativeHost;
+    request.kernel.runtime = ReplRuntime::NodeWasm;
+    request.kernel.driver = KernelDriver::JsCellV1;
+    let session = provider.create(request)?;
+    let info = session.inspect()?;
+    assert_eq!(info.backend, BackendKind::NativeHost);
+    assert!(!info.live_process_running, "creation starts no interpreter process");
+    assert_eq!(info.state, SessionState::Ready);
+
+    fs::remove_dir_all(&root).ok();
+    Ok(())
+}
+
 
 
