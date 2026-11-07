@@ -67,7 +67,7 @@ pub fn metadata(entry: &[u8]) -> Result<SkillMetadata> {
 fn exact_dependency(edge: &str, unit: &UnitDescriptor, purpose: &str) -> DependencySpec {
     DependencySpec { edge_id: edge.into(), strength: DependencyStrength::Required,
         selector: DependencySelector::Exact { unit_id: unit.unit_id.clone(), revision_requirement: Some(unit.revision.clone()),
-            artifact_digest: Some(unit.artifact_digest.clone()) }, purpose: Some(purpose.into()) }
+            artifact_digest: Some(unit.artifact_digest.clone()), contract_requirement: None }, purpose: Some(purpose.into()) }
 }
 
 impl SkillSource {

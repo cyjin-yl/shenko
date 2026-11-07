@@ -12,7 +12,7 @@
 
 `memory_entries`：`entry_id, agent_id, kind(开放知识种类), content, source, source_ref, applicability, confidence, scope, record_revision, created_at_ms, updated_commit_seq, deleted(bool tombstone), superseded_by, supersedes, git_commit, git_path`。
 
-- `kind` 是开放知识种类（"note"、"commitment"、"insight"、"reflection"…），**不是**操作。操作种类（save/correct/forget/recall/reflect）只存在于 intent 行（`memory_intents.kind`，常量 `MEMORY_OP_*`）。
+- `kind` 是开放知识种类（"note"、"commitment"、"insight"、"reflection"…），**不是**操作。操作种类（save/correct/forget/recall/reflect）只存在于 intent 行（`memory_intents.kind`，常量 `MEMORY_OP_*`）。2026-11-06 起，这个开放字符串保留为可学习的自由标签，只作提示。fact 与 conclusion 不是两种 kind；差别是理由停在何处（[SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由)）。默认检索仍直接隐藏旧行，还没有「旧版本数量 + 最新修改时间」的投影，这是实现缺口，不是现行展示规则。
 - tombstone 单调：`deleted` 只增不改回为假（语义遗忘是叠加标记，不是删除行）。被取代条目保留原文。
 - `record_revision` 在每次写入 +1；`base_revision` 不匹配当前 revision 时是持久冲突，不是静默覆盖。
 

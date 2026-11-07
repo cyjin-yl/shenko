@@ -38,6 +38,7 @@
 mod backend;
 mod bridge;
 mod facts;
+mod fingerprint;
 mod handlers;
 
 pub use backend::AndroidBackend;
@@ -45,7 +46,14 @@ pub use bridge::{
     BridgeAuthority, BridgeError, BridgeErrorKind, BridgeOp, DeviceBridge, SocketBridge,
     UnavailableBridge, BRIDGE_PROTOCOL_VERSION,
 };
-pub use facts::{CapabilityState, DbFacts, Fact, KeyMaterialState, MobileAuthorityKind};
+pub use facts::{
+    CapabilityState, DbSnapshot, KeyMaterialState, MobileAuthorityKind, SnapshotDimension,
+};
+pub use fingerprint::{
+    FingerprintAbsence, FingerprintEvidence, FingerprintRequest, FingerprintScope,
+    SemanticFingerprint, FINGERPRINT_ALGORITHM, KIND_NODE_TREE, KIND_NODE_TREE_PREFIX,
+    KIND_PIXELS_ONLY, MAX_FINGERPRINT_DEPTH, MAX_FINGERPRINT_NODES, MAX_FINGERPRINT_WINDOWS,
+};
 pub use handlers::{
     AndroidAppDbSnapshotHandler, AndroidControlInputHandler,
     AndroidControlLeaseHandler, AndroidDeviceProbeHandler, AndroidScreenObserveHandler,

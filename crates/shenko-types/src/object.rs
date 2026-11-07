@@ -7,7 +7,7 @@ use crate::ids::RecordRevision;
 
 /// 内容摘要，含算法名。
 /// 格式: "algo:hexdigest"
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Digest(pub String);
 
 impl Digest {

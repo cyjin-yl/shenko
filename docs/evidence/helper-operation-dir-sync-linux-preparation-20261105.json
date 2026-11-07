@@ -1,0 +1,304 @@
+{
+  "schema": "shenko.ssh.linux-test-preparation.v1",
+  "recorded_at": "2026-11-05T10:42:48.607992+00:00",
+  "candidate_commit": "c388ed9c77bf84bca9625734240613df51c38656",
+  "candidate_tree": "e02f2e6babb9bb08c3945bf2f24298cfc48cccc3",
+  "issue": 12,
+  "pull_request": 168,
+  "goal": "Resolve the fixed historical-helper query test dependency preparation without compiling or running unapproved source.",
+  "status": "DEPENDENCY_PREPARATION_VERIFIED_TEST_UNRUN",
+  "lock_sha256": "5be50f8b5446a2cd3d9afb22d43575d9644458095eabc7e3ad275f171725a46e",
+  "test": "task_runner::native_query_tests::previous_helper_contract_remains_queryable_after_store_reopen",
+  "observations": [
+    {
+      "name": "original_offline_metadata",
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--offline",
+        "--format-version",
+        "1",
+        "--filter-platform",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "started_at": "2026-11-05T10:37:18.482839+00:00",
+      "finished_at": "2026-11-05T10:37:18.789946+00:00",
+      "exit_code": 101,
+      "source_unchanged": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "268aa0eb5b7aa93734e05438585778e4c38f8f427583d26d77955f83bf6c66ce",
+      "stderr": "error: no matching package named `jni` found\nlocation searched: crates.io index\nrequired by package `shenko-android-shell v0.1.0 (/source/mobile/rust-shell)`\nnote: offline mode (via `--offline`) can sometimes cause surprising resolution failures\nhelp: if this error is too confusing you may wish to retry without `--offline`\n"
+    },
+    {
+      "name": "repaired_linux_metadata",
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--offline",
+        "--format-version",
+        "1",
+        "--filter-platform",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "started_at": "2026-11-05T10:39:04.731609+00:00",
+      "finished_at": "2026-11-05T10:39:06.272307+00:00",
+      "exit_code": 0,
+      "source_unchanged": true,
+      "stdout_sha256": "bcb8cb6d54706232140d9c80775de41f2099ed81dab0f8964ec1c397b773531f",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr": "",
+      "resolved_workspace_packages": 455
+    },
+    {
+      "name": "selected_ssh_tree",
+      "command": [
+        "cargo",
+        "tree",
+        "--locked",
+        "--offline",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "-p",
+        "shenko-exec-ssh",
+        "--edges",
+        "normal,build,dev",
+        "--format",
+        "{p}|{f}",
+        "--prefix",
+        "none"
+      ],
+      "started_at": "2026-11-05T10:39:50.648448+00:00",
+      "finished_at": "2026-11-05T10:39:51.971183+00:00",
+      "exit_code": 0,
+      "source_unchanged": true,
+      "stdout_sha256": "74002f282dd49e7c1461622ee83ae0e5f7cbb2f134797797dd167551602aa988",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr": "",
+      "selected_packages": 258
+    }
+  ],
+  "repair": {
+    "cause": "Offline Cargo resolves all workspace manifests before target filtering; the Android member needs jni index data even for Linux metadata.",
+    "action": "Copy the existing registry index to a private cache; add unmodified official rust-lang/crates.io-index records for 15 package names; verify 26 locked-version checksums. Keep source, lock, workspace members and shared cache unchanged.",
+    "metadata_source": "https://github.com/rust-lang/crates.io-index",
+    "records": [
+      {
+        "name": "cesu8",
+        "version": "1.1.0",
+        "lock_checksum": "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c",
+        "index_sha256": "5a956dbf5f04d470a607caaff46db679215ec75cb7e99abb797fa63e48040267"
+      },
+      {
+        "name": "combine",
+        "version": "4.6.9",
+        "lock_checksum": "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92",
+        "index_sha256": "ba958faba25d5c862629c9d12094aed507474ed8a1c87648d5d02049cbf9a6a8"
+      },
+      {
+        "name": "jni-sys-macros",
+        "version": "0.4.1",
+        "lock_checksum": "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264",
+        "index_sha256": "e6414c964e5a8b0e4a1bae9123cb9694571ac3abc28a14bedf7ce16401b46485"
+      },
+      {
+        "name": "jni-sys",
+        "version": "0.3.1",
+        "lock_checksum": "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258",
+        "index_sha256": "7647a4c98a4417108e54d2c27086c42d7b028012e3059244925ef3594f4bb5d9"
+      },
+      {
+        "name": "jni-sys",
+        "version": "0.4.1",
+        "lock_checksum": "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2",
+        "index_sha256": "7647a4c98a4417108e54d2c27086c42d7b028012e3059244925ef3594f4bb5d9"
+      },
+      {
+        "name": "jni",
+        "version": "0.21.1",
+        "lock_checksum": "1a87aa2bb7d2af34197c04845522473242e1aa17c12f4935d5856491a7fb8c97",
+        "index_sha256": "9556128ecf47567770e28130bd4c2163c3caec27c2ea272b4ec4a23c4ea4cd43"
+      },
+      {
+        "name": "wasm-streams",
+        "version": "0.4.2",
+        "lock_checksum": "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65",
+        "index_sha256": "933768e219665706ae13797152ec77b6ba5d5f63b1c03b1193d489960eeb3a3d"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.45.0",
+        "lock_checksum": "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0",
+        "index_sha256": "2faa637e651ef2166c886b88a623f14a58013a749c0368303dbd2a6a7da62a87"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.52.0",
+        "lock_checksum": "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d",
+        "index_sha256": "2faa637e651ef2166c886b88a623f14a58013a749c0368303dbd2a6a7da62a87"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.61.2",
+        "lock_checksum": "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc",
+        "index_sha256": "2faa637e651ef2166c886b88a623f14a58013a749c0368303dbd2a6a7da62a87"
+      },
+      {
+        "name": "windows-targets",
+        "version": "0.42.2",
+        "lock_checksum": "8e5180c00cd44c9b1c88adb3693291f1cd93605ded80c250a75d472756b4d071",
+        "index_sha256": "3452f88b45a81f84b4efc353fb54d389900835d13c994786444a4556578a1887"
+      },
+      {
+        "name": "windows-targets",
+        "version": "0.52.6",
+        "lock_checksum": "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973",
+        "index_sha256": "3452f88b45a81f84b4efc353fb54d389900835d13c994786444a4556578a1887"
+      },
+      {
+        "name": "windows_aarch64_gnullvm",
+        "version": "0.42.2",
+        "lock_checksum": "597a5118570b68bc08d8d59125332c54f1ba9d9adeedeef5b99b02ba2b0698f8",
+        "index_sha256": "bed91703cf6b0c84ef5f3c34145ac4e5b5b301cedb71d96e0ab380e67903a2a5"
+      },
+      {
+        "name": "windows_aarch64_gnullvm",
+        "version": "0.52.6",
+        "lock_checksum": "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3",
+        "index_sha256": "bed91703cf6b0c84ef5f3c34145ac4e5b5b301cedb71d96e0ab380e67903a2a5"
+      },
+      {
+        "name": "windows_aarch64_msvc",
+        "version": "0.42.2",
+        "lock_checksum": "e08e8864a60f06ef0d0ff4ba04124db8b0fb3be5776a5cd47641e942e58c4d43",
+        "index_sha256": "9be6a4634a5404574dfd059e04c3d37250d8c5cbbbbdb3f0149f52e402a196f9"
+      },
+      {
+        "name": "windows_aarch64_msvc",
+        "version": "0.52.6",
+        "lock_checksum": "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469",
+        "index_sha256": "9be6a4634a5404574dfd059e04c3d37250d8c5cbbbbdb3f0149f52e402a196f9"
+      },
+      {
+        "name": "windows_i686_gnu",
+        "version": "0.42.2",
+        "lock_checksum": "c61d927d8da41da96a81f029489353e68739737d3beca43145c8afec9a31a84f",
+        "index_sha256": "3e11f0dd2bba89aeec7f4eeb60376fc44d4ed02ba643ee4bef85e13e3e309c29"
+      },
+      {
+        "name": "windows_i686_gnu",
+        "version": "0.52.6",
+        "lock_checksum": "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b",
+        "index_sha256": "3e11f0dd2bba89aeec7f4eeb60376fc44d4ed02ba643ee4bef85e13e3e309c29"
+      },
+      {
+        "name": "windows_i686_msvc",
+        "version": "0.42.2",
+        "lock_checksum": "44d840b6ec649f480a41c8d80f9c65108b92d89345dd94027bfe06ac444d1060",
+        "index_sha256": "ff10deca2efe3840a0b5ca398e8a6735d6d29b3964f5382c44516198dadf8172"
+      },
+      {
+        "name": "windows_i686_msvc",
+        "version": "0.52.6",
+        "lock_checksum": "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66",
+        "index_sha256": "ff10deca2efe3840a0b5ca398e8a6735d6d29b3964f5382c44516198dadf8172"
+      },
+      {
+        "name": "windows_x86_64_gnu",
+        "version": "0.42.2",
+        "lock_checksum": "8de912b8b8feb55c064867cf047dda097f92d51efad5b491dfb98f6bbb70cb36",
+        "index_sha256": "14e58eb975cd09b665d5e4e8296e3e8fbe649c8c5530d51c6ce6e211cfa613bd"
+      },
+      {
+        "name": "windows_x86_64_gnu",
+        "version": "0.52.6",
+        "lock_checksum": "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78",
+        "index_sha256": "14e58eb975cd09b665d5e4e8296e3e8fbe649c8c5530d51c6ce6e211cfa613bd"
+      },
+      {
+        "name": "windows_x86_64_gnullvm",
+        "version": "0.42.2",
+        "lock_checksum": "26d41b46a36d453748aedef1486d5c7a85db22e56aff34643984ea85514e94a3",
+        "index_sha256": "cb3ac6b86bc8e73c220ae3754a563f0b398e85e0410f6c1adb9d1fd8a3042822"
+      },
+      {
+        "name": "windows_x86_64_gnullvm",
+        "version": "0.52.6",
+        "lock_checksum": "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d",
+        "index_sha256": "cb3ac6b86bc8e73c220ae3754a563f0b398e85e0410f6c1adb9d1fd8a3042822"
+      },
+      {
+        "name": "windows_x86_64_msvc",
+        "version": "0.42.2",
+        "lock_checksum": "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0",
+        "index_sha256": "4ece67c0169b40a384e90ee21c630603f7a27d04aa840dc0f1a708eeb647a7ef"
+      },
+      {
+        "name": "windows_x86_64_msvc",
+        "version": "0.52.6",
+        "lock_checksum": "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec",
+        "index_sha256": "4ece67c0169b40a384e90ee21c630603f7a27d04aa840dc0f1a708eeb647a7ef"
+      }
+    ],
+    "archives_downloaded": 0,
+    "source_compiled_or_executed": false
+  },
+  "inventory": {
+    "candidate": "c388ed9c77bf84bca9625734240613df51c38656",
+    "target": "x86_64-unknown-linux-gnu",
+    "package": "shenko-exec-ssh",
+    "dependency_edges": [
+      "normal",
+      "build",
+      "dev"
+    ],
+    "package_count": 258,
+    "registry_package_count": 244,
+    "extracted_archive_files_verified": 11187,
+    "method": "Cargo tree selected features; SHA-256 of cached archives equals Cargo.lock; every regular archive member byte-matches extracted source. No archive extraction or source execution.",
+    "limits": [
+      "Not compiler/build-plan output; no compilation or test execution.",
+      "Dev edges are included by Cargo tree; this is a conservative package graph, not proof of execution of each package."
+    ],
+    "fixed_source_files_verified": 513,
+    "cordis_files_verified": 542,
+    "exact_registry_inventory": true
+  },
+  "current_main": {
+    "sha": "d6eb9fb6e13539a6e2e99b767202129e35ebd928",
+    "commits_since_pr_base": 23,
+    "affected_integration_areas": [
+      "Cargo.toml / Cargo.lock",
+      "Store CAS / external receipt queries / migrations",
+      "subject child lifecycle"
+    ],
+    "note": "No path overlap with the six PR changes; GitHub mergeable=true / clean. This is not combined compile or behavior verification."
+  },
+  "ci": {
+    "head": "c388ed9c77bf84bca9625734240613df51c38656",
+    "check_runs": 0,
+    "statuses": 0,
+    "note": "No checks is not a pass."
+  },
+  "resource_snapshot": {
+    "free_disk_bytes": 1006776320,
+    "free_inodes": 227679,
+    "memory_available_bytes": 2515341312
+  },
+  "unchanged_launch_thresholds": {
+    "disk_bytes": 3489660928,
+    "memory_bytes": 3221225472
+  },
+  "remaining": [
+    "Exact fixed-source Rust execution approval is not established by this evidence.",
+    "Resource reserve is below the unchanged disk and memory thresholds. No compilation was started.",
+    "The one historical Store reopen/query test remains uncompiled and unrun.",
+    "Current-main combined behavior, real SSH/helper recovery and power-loss durability remain unverified.",
+    "Keep Draft and C07/R017 open."
+  ],
+  "artifacts": {
+    "selected_dependency_inventory": "helper-operation-dir-sync-linux-inventory-20261105.json",
+    "cargo_tree": "helper-operation-dir-sync-linux-tree-20261105.txt"
+  }
+}

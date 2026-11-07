@@ -582,7 +582,7 @@ async fn a_timed_out_judge_retains_its_original_late_result_after_drain() -> Res
         "scope": "synthetic parsed output for broker-lifetime proof; no subject trial",
         "output": output,
     }), "cognition-late-judge-probe")?;
-    let context = JudgeContext { configuration_ref: &prepared.configuration_ref,
+    let context = SandboxJudgeContext { configuration_ref: &prepared.configuration_ref,
         installation_ref: &installation_ref, sample_digest: &sample_ref.digest.0,
         scenario: "late-judge", condition: Condition::Candidate, trial: 0 };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -667,5 +667,89 @@ async fn a_timed_out_judge_retains_its_original_late_result_after_drain() -> Res
         "terminal": recorded, "broker_shutdown": shutdown,
     }))?)?;
     eprintln!("late judge fixture: {}", root.display());
+    Ok(())
+}
+
+/// A planned attempt slot for the bookkeeping regressions. It never touches a
+/// broker: the point is exactly that the totals and the verdict are facts
+/// about the plan and its slots, not about what an attempt happened to say.
+fn booked_sample(condition: Condition, started: bool, verdict: &str) -> TrialSample {
+    TrialSample {
+        scenario: "bookkeeping".into(), condition, trial: 0, started, deadline_ms: 45_000,
+        verdict: verdict.into(), judge_text: String::new(), failure: None,
+        receipt_digest: None, installation_ref: None, judge_receipt: None, output_excerpt: None,
+    }
+}
+
+#[test]
+fn unstarted_slots_are_not_started_failures() {
+    let samples = vec![
+        booked_sample(Condition::Candidate, true, "effective"),
+        booked_sample(Condition::Control, false, "failed"),
+    ];
+    let candidate = totals_of(&samples, Condition::Candidate);
+    assert_eq!(
+        (candidate.attempted, candidate.unstarted, candidate.scored, candidate.failed, candidate.effective),
+        (1, 0, 1, 0, 1));
+    let control = totals_of(&samples, Condition::Control);
+    assert_eq!((control.attempted, control.unstarted, control.scored, control.failed), (1, 1, 0, 0));
+    assert_eq!(control.rate_over_scored, 0.0);
+    let (verdict, reason) = verdict_of(&candidate, &control);
+    assert_eq!(verdict, "inconclusive");
+    assert!(reason.contains("started failures: candidate 0, control 0"), "{reason}");
+    assert!(reason.contains("unstarted slots: candidate 0, control 1"), "{reason}");
+    // A started failure is still a failure, not an unstarted slot.
+    let failed = totals_of(&[booked_sample(Condition::Control, true, "failed")], Condition::Control);
+    assert_eq!((failed.attempted, failed.unstarted, failed.scored, failed.failed), (1, 0, 0, 1));
+}
+
+#[test]
+fn every_planned_slot_of_a_pair_gets_the_same_window() {
+    assert_eq!(sample_window(900_000, 2), Duration::from_millis(450_000));
+    assert_eq!(sample_window(90_000, 4), Duration::from_millis(22_500));
+    assert_eq!(sample_window(1_000, 2), Duration::from_millis(MIN_SAMPLE_WINDOW_MS));
+}
+
+#[test]
+fn the_judge_verdict_is_read_from_the_judges_own_words() {
+    for text in ["EFFECTIVE 理由是它先做了观察", "判定：EFFECTIVE，因为它先核实了", "EFFECTIVE"] {
+        assert!(matches!(judge_verdict(text).unwrap(), JudgeVerdict::Effective(_)), "{text}");
+    }
+    for text in ["NOT_EFFECTIVE 理由是直接下结论", "**not_effective** 没有核实",
+        "Not Effective: it asserted", "INEFFECTIVE 直接下结论没有核实",
+        "判定：INEFFECTIVE，因为它直接断言"] {
+        assert!(matches!(judge_verdict(text).unwrap(), JudgeVerdict::Ineffective(_)), "{text}");
+    }
+    // The first verdict token wins, so a prefix cannot flip a stated negative.
+    assert!(matches!(judge_verdict("NOT_EFFECTIVE；它不是 EFFECTIVE 的核实").unwrap(),
+        JudgeVerdict::Ineffective(_)));
+    // `EFFECTIVE` inside a longer word is prose, not the verdict token.
+    let prose = judge_verdict("这回答的 effectiveness 很高，它确实核实了").unwrap_err().to_string();
+    assert!(prose.contains("neither EFFECTIVE nor NOT_EFFECTIVE"), "{prose}");
+    assert!(matches!(judge_verdict("not_effective：直接下结论").unwrap(),
+        JudgeVerdict::Ineffective(_)));
+    let empty = judge_verdict("   ").unwrap_err().to_string();
+    assert!(empty.contains("empty verdict"), "{empty}");
+    assert!(absent.contains("neither EFFECTIVE nor NOT_EFFECTIVE"), "{absent}");
+}
+
+#[tokio::test]
+async fn a_prepared_pair_starts_both_conditions_under_one_window() -> Result<()> {
+    let fixture = prepared_fixture(false, false, FixtureEntry::PublicRunner).await?;
+    assert_eq!(fixture.report.samples.len(), 2, "{:?}", fixture.report.samples);
+    assert!(fixture.report.samples.iter().all(|sample| sample.started), "{:?}", fixture.report.samples);
+    let windows: Vec<u64> = fixture.report.samples.iter().map(|sample| sample.deadline_ms).collect();
+    assert!(windows.windows(2).all(|pair| pair[0] == pair[1]), "{windows:?}");
+    assert_eq!(fixture.report.deadline_ms, 90_000);
+    assert_eq!(fixture.report.sample_deadline_ms, 45_000);
+    assert_eq!(windows, vec![45_000, 45_000]);
+    for totals in fixture.report.scenarios.iter().flat_map(|scenario| [&scenario.candidate, &scenario.control]) {
+        assert_eq!(totals.unstarted, 0);
+        assert_eq!(totals.scored + totals.failed + totals.unstarted, totals.attempted);
+    }
+    let report = std::fs::read(fixture.root.join("report.json"))?;
+    let report: serde_json::Value = serde_json::from_slice(&report)?;
+    assert_eq!(report["sample_deadline_ms"], serde_json::json!(45_000));
+    assert_eq!(report["samples"][0]["started"], serde_json::json!(true));
     Ok(())
 }

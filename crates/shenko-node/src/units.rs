@@ -27,6 +27,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::{ids::EntityId, object::Digest};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::fmt;
 use std::io::Read;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -50,8 +52,12 @@ const UNIT_EDGE_TABLE: &str = "CREATE TABLE unit_edges(unit_id TEXT NOT NULL,rev
 const UNIT_VERSION_HISTORY_TABLE: &str = "CREATE TABLE unit_version_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL);";
 const UNIT_EDGE_HISTORY_TABLE: &str = "CREATE TABLE unit_edge_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL);";
 
-/// Current node-storage fingerprint. The legacy table retains every old row;
-/// it is evidence, not an authority for ambiguous version ownership.
+/// Schema-6 node-storage fingerprint. Storage schema 7 adds
+/// `UNIT_REMOVALS_TABLE` on top of exactly these tables, so admission of an
+/// older installation keeps comparing it against what that version really
+/// created instead of accepting a different table set under the same number.
+/// The legacy edge table retains every old row; it is evidence, not an
+/// authority for ambiguous version ownership.
 pub const UNIT_TABLES: &str = "
 CREATE TABLE unit_versions(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
 CREATE TABLE unit_version_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL);
@@ -62,6 +68,12 @@ CREATE TABLE unit_edge_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEX
 CREATE TABLE unit_materializations(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,root TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,detail TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
 CREATE TABLE unit_attempts(attempt_id TEXT PRIMARY KEY,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);
 CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT NOT NULL,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,outcome TEXT NOT NULL,artifact_bound INTEGER NOT NULL,artifact_verified INTEGER NOT NULL,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);";
+
+/// Append-only record of one withdrawn version. A removed version leaves the
+/// live tables; this row is what explains the gap later, and its evidence
+/// (trials, observations, adoption) stays readable.
+pub(crate) const UNIT_REMOVALS_TABLE: &str = "
+CREATE TABLE unit_removals(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,removed_at TEXT NOT NULL,reason TEXT NOT NULL,data TEXT NOT NULL);";
 
 /// Bounded limits. Every one of them bounds memory or time; none of them is
 /// a product permission decision.
@@ -148,6 +160,8 @@ pub enum UnitKind {
     Awareness,
     Skill,
     Code,
+    Metapackage,
+    Distribution,
 }
 
 impl UnitKind {
@@ -157,7 +171,26 @@ impl UnitKind {
             UnitKind::Awareness => "awareness",
             UnitKind::Skill => "skill",
             UnitKind::Code => "code",
+            UnitKind::Metapackage => "metapackage",
+            UnitKind::Distribution => "distribution",
         }
+    }
+
+    /// Whether this kind is cognitive *content*.
+    ///
+    /// Content joins a metapackage only with a separate adoption attitude
+    /// (SPEC §51.1/.3); a code plugin is installed, not adopted, and a
+    /// sub-metapackage is judged by the attitudes of its own content members.
+    pub fn is_content(&self) -> bool {
+        matches!(
+            self,
+            UnitKind::Perception | UnitKind::Awareness | UnitKind::Skill
+        )
+    }
+
+    /// Whether installing this kind means running a component here.
+    pub fn is_executable(&self) -> bool {
+        matches!(self, UnitKind::Code)
     }
 }
 
@@ -180,6 +213,10 @@ pub enum DependencySelector {
         unit_id: String,
         revision_requirement: Option<String>,
         artifact_digest: Option<Digest>,
+        /// The versioned contract the selected provider must declare, for an
+        /// edge that also pins a service ABI or a code contract (SPEC §45.10).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contract_requirement: Option<CapabilityContract>,
     },
     Abstract {
         capability_ref: Option<String>,
@@ -220,6 +257,63 @@ pub struct UnitDescriptor {
     pub dependencies: Vec<DependencySpec>,
     pub config: Value,
     pub applicability: Option<Applicability>,
+}
+
+impl UnitDescriptor {
+    /// The typed capability contracts this version declares providing.
+    ///
+    /// `provides` keeps its historical string shape so every retained package
+    /// still reads. An entry that begins with [`CAPABILITY_CONTRACT_PREFIX`] is
+    /// a versioned capability contract (`cap.<name>/<major>`, SPEC §51.8) and
+    /// is parsed here; every other entry is an opaque topic or capability name
+    /// that can satisfy a content dependency only. A malformed contract refuses
+    /// the version instead of quietly becoming a topic.
+    pub fn contracts(&self) -> Result<Vec<CapabilityContract>> {
+        let mut contracts = Vec::new();
+        for reference in &self.provides {
+            if !CapabilityContract::is_contract_ref(reference) {
+                continue;
+            }
+            let contract = CapabilityContract::parse(reference).with_context(|| {
+                format!(
+                    "UNIT_CAPABILITY_INVALID: {} revision {} declares {reference:?}",
+                    self.unit_id, self.revision
+                )
+            })?;
+            if !contracts.contains(&contract) {
+                contracts.push(contract);
+            }
+        }
+        contracts.sort();
+        Ok(contracts)
+    }
+
+    /// Whether this version declares providing exactly this capability
+    /// contract. The major version is part of the identity, so a provider of
+    /// `cap.forgetting/2` does not satisfy a `cap.forgetting/1` requirement.
+    pub fn provides_contract(&self, contract: &CapabilityContract) -> bool {
+        self.provides.iter().any(|reference| {
+            CapabilityContract::parse(reference)
+                .map(|provided| contract.matches(&provided))
+                .unwrap_or(false)
+        })
+    }
+
+    /// The declared topic or capability names: the `provides` entries that are
+    /// not typed capability contracts.
+    pub fn provides_topics(&self) -> Vec<&str> {
+        self.provides
+            .iter()
+            .map(String::as_str)
+            .filter(|reference| !CapabilityContract::is_contract_ref(reference))
+            .collect()
+    }
+
+    /// The resource declaration this version authored. Content kinds carry
+    /// none, and no version ever declares a conflict with another package.
+    pub fn package_declaration(&self) -> Result<PackageDeclaration> {
+        declared_package_capabilities(self)
+    }
 }
 
 /// One unit inside a transferable package: descriptor, actual bytes and the
@@ -274,7 +368,7 @@ pub enum EdgeStatus {
 }
 
 /// A resolved edge with the evidence for the choice.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ResolvedDependency {
     pub edge_id: String,
@@ -284,7 +378,33 @@ pub struct ResolvedDependency {
     pub selected_unit_id: Option<String>,
     pub selected_revision: Option<String>,
     pub selected_artifact_digest: Option<Digest>,
+    /// The capability contract the selected provider was chosen for, when the
+    /// declaration asked for one. A provider that changes contract major
+    /// version stops satisfying the edge; its selection stays recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_contract: Option<CapabilityContract>,
+    /// Other installed providers of the same abstract capability that coexist
+    /// with the selection, when their actually used atomic capabilities do not
+    /// conflict (SPEC §51.8). They are enabled facts on this node, never a
+    /// promise that they run here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coexisting_providers: Vec<ProviderSelection>,
+    /// The atomic capabilities the selected provider declares using.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub used_capabilities: Vec<AtomicCapability>,
     pub reason: String,
+}
+
+/// Another provider of one abstract capability, as this node has it installed.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderSelection {
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<CapabilityContract>,
+    pub enabled: bool,
 }
 
 /// Local readiness of an installed unit on this node.
@@ -686,6 +806,10 @@ pub enum UnitRequest {
         /// in this node's own object store and be bound to this version.
         /// An observation is never empirical acceptance.
         evidence: Vec<AdoptionEvidence>,
+        /// How confident the subject is in this judgement, when it states
+        /// one. Absent means the subject has not judged yet: the attitude
+        /// records that as unknown and never fills a default number.
+        confidence: Option<f64>,
         notes: Option<String>,
         /// Enable the unit in the same transaction. A rejected or retired
         /// decision never enables it. Enabling is an installation fact and
@@ -737,7 +861,117 @@ pub enum UnitRequest {
     /// The retained versions of one unit and the supersession relations
     /// between them.
     Lineage { unit_id: String },
+    /// Withdraw one installed version from this node.
+    ///
+    /// The version leaves discovery: it stops being current, its
+    /// materialized package directory is retired, and its dependency rows are
+    /// archived. Its artifact bytes, trial attempts, observations and adoption
+    /// decision stay as facts, so a receipt that named this artifact remains
+    /// readable. A version another retained unit still depends on, or one
+    /// owned by a running trial, is refused instead of silently breaking the
+    /// dependent closure.
+    Uninstall {
+        unit_id: String,
+        revision: String,
+        /// Mandatory when the revision retains several artifact digests.
+        artifact_digest: Option<Digest>,
+        /// Why this version is withdrawn. Recorded with the removal fact.
+        reason: String,
+        /// A different retained version to offer as current in the same
+        /// transaction. Never chosen implicitly.
+        activate: Option<UnitActivation>,
+    },
+    /// Resolve the transitive required closure of these roots against the
+    /// versions retained here and record it as a locked generation.
+    ///
+    /// Nothing becomes current: preparation is a candidate. A closure that
+    /// cannot be satisfied from retained, resolved edges is refused with every
+    /// problem listed, so an operator never receives a half-resolved
+    /// environment.
+    PrepareEnvironment { roots: Vec<EnvironmentRoot> },
+    /// Atomically select a prepared generation as this installation's current
+    /// environment. `expected_revision` is the selector revision the caller
+    /// read; the write is a compare-and-swap, so a concurrent activation
+    /// fails loudly instead of being overwritten.
+    ActivateEnvironment { generation: u64, expected_revision: u64 },
+    /// Select the previous generation of the current environment. The same
+    /// compare-and-swap as activation: the caller names the revision it read.
+    RollbackEnvironment { expected_revision: u64 },
+    /// The current environment selector, the recorded generations and the
+    /// append-only activation log. Pure query: an installation that never
+    /// activated a generation reports `pinned: false`.
+    Environment { limit: u32 },
+    /// Walk a metapackage's member list, resolve every member against
+    /// installed/retained units, check adoption via the content/attitude
+    /// ledger, and return the membership standing of each. Pure read.
+    ///
+    /// The metapackage must be installed on this node; membership never
+    /// crosses nodes. A content member that lacks an authenticated adoption
+    /// attitude is reported as unadopted, not omitted.
+    QueryMetapackage { unit_id: String },
+    /// Walk a distribution's preinstalled macros, target-access expectations,
+    /// and capability-provider defaults. Pure read: declarations are facts
+    /// about the distribution version, not grants of local readiness.
+    QueryDistribution { unit_id: String },
+    /// Resolve one named capability-contract slot across the installed
+    /// providers on this node. Returns every admitted provider, the
+    /// coexistence decision and the selected index (if any). Pure read.
+    QuerySlot {
+        macro_id: String,
+        contract: String,
+    },
 }
+
+/// One retained version to make current while another is withdrawn.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct UnitActivation {
+    pub revision: String,
+    pub artifact_digest: Digest,
+}
+
+/// A path the uninstall could not retire, with the reason it was left.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RetainedPath {
+    pub path: String,
+    pub reason: String,
+}
+
+/// The durable fact of one withdrawn unit version.
+///
+/// A removal is a lifecycle fact, not an erasure: the version's bytes remain
+/// in the object store and its trials, observations and adoption stay
+/// readable. This row explains why a previously installed identity is gone
+/// from the live tables.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemovedVersionFact {
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub removed_at: String,
+    pub reason: String,
+    /// Whether the withdrawn version was the one this node offered.
+    pub was_current: bool,
+    /// Whether the withdrawn version was enabled before removal.
+    pub was_enabled: bool,
+    /// The version made current in the same transaction, if any.
+    pub replacement: Option<UnitActivation>,
+    /// The materialization record the version carried.
+    pub materialization: Option<MaterializationFact>,
+    /// Directories this uninstall actually removed.
+    pub files_retired: Vec<String>,
+    /// Paths it left in place, with the reason.
+    pub files_retained: Vec<RetainedPath>,
+    pub artifact_retained: bool,
+    pub evidence_retained: bool,
+    /// The adoption decision the archived descriptor carried, so a caller can
+    /// see that an earlier judgement existed after the version left the live
+    /// tables.
+    pub adoption: Option<Value>,
+}
+
 
 /// How one unit version was judged on this installation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -836,6 +1070,59 @@ pub enum AdoptionEvidence {
     /// Bytes this node stores for this unit version.
     StoredObservation { digest: Digest },
 }
+
+/// Why the installation authority refused one evidence item of a judgement.
+///
+/// A refusal travels as a typed payload inside the error, so a caller can
+/// report the reason as a stable code instead of parsing this node's prose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdoptionEvidenceRejection {
+    /// The attempt id names no trial attempt this node ever opened.
+    AttemptNotOpened,
+    /// The attempt is bound to a different unit, revision or artifact.
+    AttemptOfOtherVersion,
+    /// The attempt was opened and never reached a terminal trial fact, so
+    /// nothing about a measurement is recorded under it.
+    AttemptNeverExecuted,
+    /// The observation is not held for this exact unit version.
+    ObservationNotHeld,
+}
+
+impl AdoptionEvidenceRejection {
+    /// The stable result code a judgement child reports for this refusal.
+    pub fn code(&self) -> &'static str {
+        match self {
+            AdoptionEvidenceRejection::AttemptNeverExecuted => "evidence_unexecuted",
+            AdoptionEvidenceRejection::AttemptNotOpened
+            | AdoptionEvidenceRejection::AttemptOfOtherVersion
+            | AdoptionEvidenceRejection::ObservationNotHeld => "evidence_not_admissible",
+        }
+    }
+}
+
+/// One refused evidence item, with this node's own explanation.
+#[derive(Debug, Clone)]
+pub struct AdoptionEvidenceRejected {
+    pub reason: AdoptionEvidenceRejection,
+    pub detail: String,
+}
+
+impl AdoptionEvidenceRejected {
+    fn refusal(reason: AdoptionEvidenceRejection, detail: impl Into<String>) -> anyhow::Error {
+        anyhow::Error::new(AdoptionEvidenceRejected {
+            reason,
+            detail: detail.into(),
+        })
+    }
+}
+
+impl std::fmt::Display for AdoptionEvidenceRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for AdoptionEvidenceRejected {}
 
 /// An artifact whose bytes live outside the node's inline object store.
 ///
@@ -954,6 +1241,47 @@ pub struct MaterializationFact {
     pub detail: String,
 }
 
+/// What one trial attempt can carry as evidence of a measurement.
+///
+/// The node derives this from the attempt's own durable facts — the plan it
+/// was opened with, the receipts its run produced, and the execution fact of
+/// a command trial — never from an outcome word. A failed, signalled or
+/// timed-out run is a measurement; an attempt that was opened and never
+/// closed is not.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AttemptMeasurement {
+    /// Every sample slot of the attempt's own plan produced a judge-scored
+    /// receipt, or a command trial recorded that its command ran.
+    Measured,
+    /// Some planned slots produced judge-scored receipts; others did not.
+    Partial,
+    /// The attempt closed without a single authenticated measurement fact.
+    Inconclusive,
+    /// The attempt was opened and never closed: no terminal trial fact exists.
+    Unexecuted,
+}
+
+impl AttemptMeasurement {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AttemptMeasurement::Measured => "measured",
+            AttemptMeasurement::Partial => "partial",
+            AttemptMeasurement::Inconclusive => "inconclusive",
+            AttemptMeasurement::Unexecuted => "unexecuted",
+        }
+    }
+
+    /// Whether the attempt carries an authenticated measurement, including a
+    /// negative one. Only such evidence can make a judgement empirical.
+    pub fn carries_measurement(&self) -> bool {
+        matches!(
+            self,
+            AttemptMeasurement::Measured | AttemptMeasurement::Partial
+        )
+    }
+}
+
 /// The durable facts of one trial attempt.
 ///
 /// An attempt is opened before the trial runs and closed with the receipts
@@ -972,6 +1300,21 @@ pub struct TrialAttemptFacts {
     pub started_at: String,
     pub kind: Option<String>,
     pub plan_digest: Option<String>,
+    /// The terminal outcome of the append-only trial row, when one exists.
+    /// `None` means the attempt was never closed.
+    pub outcome: Option<String>,
+    /// The environment the closed run was bound to. A command trial has no
+    /// plan; this is the probe the node made around its run.
+    pub environment_digest: Option<String>,
+    /// The receipts the closed run wrote, counted before they are judged.
+    pub receipts: u64,
+    /// The receipts that are judge-scored facts of a slot the attempt's own
+    /// plan named.
+    pub scored: u64,
+    /// The sample slots the attempt's own plan named, when it names them.
+    pub planned_slots: Option<u64>,
+    /// What this attempt's facts can carry.
+    pub measurement: AttemptMeasurement,
 }
 
 /// The exact content of one installed unit version.
@@ -1001,7 +1344,18 @@ pub struct ToolUnitFact {
     pub revision: String,
     pub artifact_digest: Digest,
     pub enabled: bool,
+    /// True when the installation's unit inventory currently names this
+    /// version for its unit id (`unit_current`). It is a fact about the
+    /// inventory, not about any environment generation.
     pub current: bool,
+    /// True when the version this installation resolves for name-only use is
+    /// this one: the active environment generation's pin when a generation is
+    /// active, otherwise the `current` row. A version retained outside the
+    /// active generation stays resolvable by exact name@version but is not
+    /// selected.
+    pub selected: bool,
+    /// The active environment generation, when this version is its pin.
+    pub environment: Option<EnvironmentPin>,
     /// The unit-authored `config.tool` object: `{name, abi, entrypoint,
     /// source, imports}` — recorded claims whose executable part
     /// (`abi`/`imports`) was verified at admission.
@@ -1010,6 +1364,1286 @@ pub struct ToolUnitFact {
     pub materialization_root: Option<String>,
     /// Exact materialized artifact path, when materialization completed.
     pub materialization_path: Option<String>,
+}
+
+// ------------------------------------------------------- environment ------
+
+/// Storage schema of the environment-generation tables. They are created on
+/// first use inside the writing transaction (the same pattern the ledger's
+/// activation tables use), so a node database written by an older build opens
+/// unchanged and a read-only inspection never creates them.
+pub const UNIT_ENVIRONMENT_SCHEMA: u32 = 1;
+
+/// Version of the closure-digest formula a newly prepared generation is
+/// recorded with. Version 1 hashed only the pinned unit identities, so two
+/// closures that differed only in their locked selections or declarations
+/// hashed equal. Version 2 hashes both, which is what lets an environment keep
+/// the exact dependency meaning it published.
+pub const ENVIRONMENT_CLOSURE_VERSION: u32 = 2;
+
+/// Serde default for a generation document written before the closure-digest
+/// version was recorded: those documents are version 1.
+fn environment_closure_version_v1() -> u32 {
+    1
+}
+
+/// Bounds on one environment. Both bound memory and the closure walk; neither
+/// is a product permission decision.
+pub const MAX_ENVIRONMENT_ROOTS: usize = 64;
+pub const MAX_ENVIRONMENT_MEMBERS: usize = 256;
+
+/// Meta-document keys of the environment state.
+///
+/// The environment lives in the node's existing `meta` key/value documents,
+/// the same durable place the node already keeps its identity, retired
+/// identities and branch facts. Storing it there keeps one transactional
+/// authority and needs no storage-schema change, so an installation written by
+/// an older build keeps opening unchanged and no read path creates storage.
+/// Generations and activations are append-only keys whose zero-padded numeric
+/// suffix orders them exactly as `u64` ordering does.
+const ENVIRONMENT_SELECTOR_KEY: &str = "unit_environment.selector";
+const ENVIRONMENT_GENERATION_GLOB: &str = "unit_environment.generation.*";
+const ENVIRONMENT_GENERATION_PREFIX: &str = "unit_environment.generation.";
+const ENVIRONMENT_ACTIVATION_GLOB: &str = "unit_environment.activation.*";
+const ENVIRONMENT_ACTIVATION_PREFIX: &str = "unit_environment.activation.";
+
+fn environment_generation_key(generation: u64) -> String {
+    format!("{ENVIRONMENT_GENERATION_PREFIX}{generation:020}")
+}
+
+fn environment_activation_key(revision: u64) -> String {
+    format!("{ENVIRONMENT_ACTIVATION_PREFIX}{revision:020}")
+}
+
+// ------------------------------------------------- package declarations ---
+
+/// One guest-visible filesystem requirement of a package — SPEC §9
+/// "权限需求": a guest path the executor must preopen, and whether the
+/// package writes under it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct FileRequirement {
+    /// Absolute guest path, for example `/home` or `/home/work`.
+    pub guest_path: String,
+    /// True when the package writes under the path, false for read-only use.
+    pub write: bool,
+}
+
+/// One socket operation a package needs.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NetworkOperation {
+    Connect {},
+    Listen {},
+    Accept {},
+}
+
+impl NetworkOperation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NetworkOperation::Connect {} => "connect",
+            NetworkOperation::Listen {} => "listen",
+            NetworkOperation::Accept {} => "accept",
+        }
+    }
+}
+
+/// One network target a package declares it needs, in the same typed shape the
+/// network transport admits. A requirement is matched against an admitted
+/// target; the transport never invents one.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkTarget {
+    pub host: String,
+    pub port: u16,
+    /// True when the guest asks the host to resolve the name; false when it
+    /// connects to the literal host.
+    #[serde(default)]
+    pub resolve: bool,
+    /// The operations the package needs on this target.
+    pub operations: Vec<NetworkOperation>,
+}
+
+/// A host facility a package can require beyond files, arguments, environment
+/// variables and the three standard streams.
+///
+/// The variants are zero-field structs rather than unit variants so that
+/// `deny_unknown_fields` rejects an unexpected key on every one of them
+/// (serde routes internally tagged unit variants through an ignoring visitor).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(tag = "facility", rename_all = "snake_case", deny_unknown_fields)]
+pub enum HostRequirement {
+    /// Wall-clock and monotonic clock calls.
+    Clock {},
+    /// Entropy (`random_get`).
+    Random {},
+    /// Socket access to these exact targets. A package that declares this and
+    /// receives no admitted target set is unsupported, never run under an
+    /// invented empty admission.
+    Network { targets: Vec<NetworkTarget> },
+    /// One named host import module other than `wasi_snapshot_preview1`.
+    HostImport { module: String },
+}
+
+/// The capability requirements one package version declares. They are
+/// requirements, never grants: a declaration is admitted against the resources
+/// the runtime actually hands the guest, and a declaration is never permission
+/// to reach anything outside that grant.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PackageCapabilities {
+    #[serde(default)]
+    pub filesystem: Vec<FileRequirement>,
+    /// Environment variable names that must be supplied per invocation.
+    #[serde(default)]
+    pub environment: Vec<String>,
+    #[serde(default)]
+    pub host: Vec<HostRequirement>,
+    /// The atomic capabilities this code version actually exercises at run
+    /// time (hook points, event subscriptions, singleton services).
+    ///
+    /// They are what coexistence is judged on: providers may be installed and
+    /// enabled together unless both need the same atom exclusively (SPEC
+    /// §51.8). There is deliberately no package-level `conflicts` field.
+    #[serde(default)]
+    pub atoms: Vec<AtomicCapability>,
+}
+
+/// Whether one package version records its capability requirements.
+///
+/// A package written before declarations existed carries none. That absence is
+/// not "needs nothing" and never a blanket grant: the runtime keeps the
+/// profile's own grant and reports the declaration as unrecorded, so an old
+/// artifact neither loses access it had nor gains any.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PackageDeclaration {
+    /// `None` when the unit version was written before declarations existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared: Option<PackageCapabilities>,
+}
+
+impl PackageDeclaration {
+    /// A version that records no declaration.
+    pub fn unrecorded() -> Self {
+        Self::default()
+    }
+
+    pub fn declared(capabilities: PackageCapabilities) -> Self {
+        Self {
+            declared: Some(capabilities),
+        }
+    }
+
+    pub fn is_unrecorded(&self) -> bool {
+        self.declared.is_none()
+    }
+
+    /// `"declared"` or `"unrecorded"`, for receipts and projections.
+    pub fn state(&self) -> &'static str {
+        if self.declared.is_some() {
+            "declared"
+        } else {
+            "unrecorded"
+        }
+    }
+
+    pub fn capabilities(&self) -> Option<&PackageCapabilities> {
+        self.declared.as_ref()
+    }
+
+    /// The declaration in canonical order, so two equal declarations are one
+    /// document for digests and divergence reports.
+    pub fn normalized(&self) -> Self {
+        match &self.declared {
+            Some(capabilities) => Self::declared(capabilities.normalized()),
+            None => Self::unrecorded(),
+        }
+    }
+}
+
+/// Bounds on one declaration. They bound memory and the admission walk; none
+/// of them is a product permission decision.
+pub const MAX_DECLARED_PATHS: usize = 32;
+pub const MAX_DECLARED_ENVIRONMENT: usize = 32;
+pub const MAX_DECLARED_HOST: usize = 16;
+/// Bound on the targets one network requirement may name.
+pub const MAX_DECLARED_NETWORK_TARGETS: usize = 16;
+/// Guest path and environment-name length bound. Long enough for a real
+/// managed-home layout, small enough to keep a generation document bounded.
+pub const MAX_CAPABILITY_NAME_BYTES: usize = 256;
+
+impl PackageCapabilities {
+    /// Typed admission of the declaration itself: bounded counts, absolute
+    /// normalized guest paths, environment variable names and host facilities.
+    /// Nothing here consults a model, a human or a keyword list.
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.filesystem.len() <= MAX_DECLARED_PATHS,
+            "TOOL_CAPABILITY_INVALID: at most {MAX_DECLARED_PATHS} declared filesystem paths"
+        );
+        ensure!(
+            self.environment.len() <= MAX_DECLARED_ENVIRONMENT,
+            "TOOL_CAPABILITY_INVALID: at most {MAX_DECLARED_ENVIRONMENT} declared environment variables"
+        );
+        ensure!(
+            self.host.len() <= MAX_DECLARED_HOST,
+            "TOOL_CAPABILITY_INVALID: at most {MAX_DECLARED_HOST} declared host facilities"
+        );
+        for requirement in &self.filesystem {
+            validate_guest_path(&requirement.guest_path)?;
+        }
+        for name in &self.environment {
+            ensure!(
+                !name.is_empty()
+                    && name.len() <= MAX_CAPABILITY_NAME_BYTES
+                    && name
+                        .chars()
+                        .enumerate()
+                        .all(|(index, c)| if index == 0 {
+                            c.is_ascii_alphabetic() || c == '_'
+                        } else {
+                            c.is_ascii_alphanumeric() || c == '_'
+                        }),
+                "TOOL_CAPABILITY_INVALID: environment name {name:?} must match \
+                 [A-Za-z_][A-Za-z0-9_]*"
+            );
+        }
+        for requirement in &self.host {
+            match requirement {
+                HostRequirement::HostImport { module } => {
+                    ensure!(
+                        !module.is_empty()
+                            && module.len() <= MAX_CAPABILITY_NAME_BYTES
+                            && module != "wasi_snapshot_preview1",
+                        "TOOL_CAPABILITY_INVALID: host import module {module:?} is not a \
+                         declared requirement beyond wasi_snapshot_preview1"
+                    );
+                }
+                HostRequirement::Network { targets } => {
+                    ensure!(
+                        !targets.is_empty(),
+                        "TOOL_CAPABILITY_INVALID: a network requirement must name the \
+                         targets it needs; there is no default target set"
+                    );
+                    ensure!(
+                        targets.len() <= MAX_DECLARED_NETWORK_TARGETS,
+                        "TOOL_CAPABILITY_INVALID: at most {MAX_DECLARED_NETWORK_TARGETS} \
+                         declared network targets"
+                    );
+                    for target in targets {
+                        ensure!(
+                            !target.host.is_empty()
+                                && target.host.len() <= 253
+                                && !target
+                                    .host
+                                    .chars()
+                                    .any(|c| c.is_whitespace() || c.is_control()),
+                            "TOOL_CAPABILITY_INVALID: network target host {:?} is not a \
+                             host name or address",
+                            target.host
+                        );
+                        ensure!(
+                            !target.operations.is_empty(),
+                            "TOOL_CAPABILITY_INVALID: network target {}:{} declares no \
+                             operation",
+                            target.host,
+                            target.port
+                        );
+                    }
+                }
+                HostRequirement::Clock {} | HostRequirement::Random {} => {}
+            }
+        }
+        ensure!(
+            self.atoms.len() <= MAX_ATOMIC_CAPABILITIES,
+            "TOOL_CAPABILITY_INVALID: at most {MAX_ATOMIC_CAPABILITIES} declared atomic capabilities"
+        );
+        let mut atoms: Vec<&str> = Vec::new();
+        for atom in &self.atoms {
+            validate_atom_id(&atom.atom_id)?;
+            ensure!(
+                !atoms.contains(&atom.atom_id.as_str()),
+                "TOOL_CAPABILITY_INVALID: atomic capability {} is declared twice",
+                atom.atom_id
+            );
+            atoms.push(&atom.atom_id);
+        }
+        Ok(())
+    }
+
+    /// The declaration in one stable order, so two equal declarations produce
+    /// equal documents and equal closure digests.
+    pub fn normalized(&self) -> Self {
+        let mut normalized = self.clone();
+        normalized.filesystem.sort();
+        normalized.filesystem.dedup();
+        normalized.environment.sort();
+        normalized.environment.dedup();
+        for requirement in &mut normalized.host {
+            if let HostRequirement::Network { targets } = requirement {
+                for target in targets.iter_mut() {
+                    target.operations.sort();
+                    target.operations.dedup();
+                }
+                targets.sort();
+                targets.dedup();
+            }
+        }
+        normalized.host.sort();
+        normalized.host.dedup();
+        normalized.atoms.sort();
+        normalized.atoms.dedup();
+        normalized
+    }
+}
+
+/// A guest path a package may name: absolute, normalized, bounded.
+fn validate_guest_path(path: &str) -> Result<()> {
+    ensure!(
+        path.starts_with('/') && path.len() <= MAX_CAPABILITY_NAME_BYTES,
+        "TOOL_CAPABILITY_INVALID: guest path {path:?} must be absolute and at most \
+         {MAX_CAPABILITY_NAME_BYTES} bytes"
+    );
+    ensure!(
+        !path.contains('\0'),
+        "TOOL_CAPABILITY_INVALID: guest path contains NUL"
+    );
+    let body = path.trim_start_matches('/');
+    if !body.is_empty() {
+        ensure!(
+            !body.ends_with('/'),
+            "TOOL_CAPABILITY_INVALID: guest path {path:?} must not end with '/'"
+        );
+        for component in body.split('/') {
+            ensure!(
+                !component.is_empty() && component != "." && component != "..",
+                "TOOL_CAPABILITY_INVALID: guest path {path:?} is not normalized"
+            );
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------ capability contracts (SPEC §51.8) ---
+
+/// Reserved prefix of a capability contract identifier.
+///
+/// A capability contract and a unit id are two identifier spaces: a unit id may
+/// never begin with this prefix, and a dependency written on a contract is
+/// satisfied by whichever installed unit declares providing it (SPEC §51.8).
+pub const CAPABILITY_CONTRACT_PREFIX: &str = "cap.";
+
+/// Bounds on one metapackage or distribution declaration. They bound the
+/// admission walk; none of them is a product permission decision.
+pub const MAX_MACRO_MEMBERS: usize = 64;
+/// Bound on nested metapackages while a macro closure is walked.
+pub const MAX_MACRO_DEPTH: usize = 4;
+/// Bound on the atomic capabilities one code version declares.
+pub const MAX_ATOMIC_CAPABILITIES: usize = 32;
+/// Bound on a capability contract name.
+pub const MAX_CONTRACT_BYTES: usize = 128;
+
+fn validate_dotted_name(name: &str, what: &str) -> Result<()> {
+    ensure!(
+        !name.is_empty() && name.len() <= MAX_CONTRACT_BYTES,
+        "UNIT_CAPABILITY_INVALID: {what} {name:?} must be 1..{MAX_CONTRACT_BYTES} bytes"
+    );
+    for segment in name.split('.') {
+        ensure!(
+            !segment.is_empty(),
+            "UNIT_CAPABILITY_INVALID: {what} {name:?} has an empty segment"
+        );
+        ensure!(
+            segment
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'),
+            "UNIT_CAPABILITY_INVALID: {what} {name:?} must be lowercase ASCII letters, digits, '-' or '_' in dot-separated segments"
+        );
+    }
+    Ok(())
+}
+
+/// One versioned capability contract, written `cap.<name>/<major>`.
+///
+/// The contract identity is the pair (name, major): a provider's own package
+/// version may change freely, and only a different contract major version makes
+/// a dependency unsatisfied (SPEC §51.8). The value serializes as its text form,
+/// so an author writes one string and no field can drift from it.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CapabilityContract {
+    /// `cap.` followed by a dotted name, for example `cap.forgetting`.
+    pub contract_id: String,
+    /// Major version, at least 1.
+    pub major: u32,
+}
+
+impl CapabilityContract {
+    /// Parse the text form. A malformed contract is refused instead of being
+    /// treated as an opaque topic.
+    pub fn parse(text: &str) -> Result<Self> {
+        let trimmed = text.trim();
+        let Some(rest) = trimmed.strip_prefix(CAPABILITY_CONTRACT_PREFIX) else {
+            bail!(
+                "UNIT_CAPABILITY_INVALID: capability contract {text:?} must begin with {CAPABILITY_CONTRACT_PREFIX:?}"
+            );
+        };
+        let Some((name, version)) = rest.rsplit_once('/') else {
+            bail!(
+                "UNIT_CAPABILITY_INVALID: capability contract {text:?} must be `cap.<name>/<major>`"
+            );
+        };
+        validate_dotted_name(name, "capability contract name")?;
+        ensure!(
+            !version.is_empty()
+                && version.len() <= 9
+                && version.chars().all(|c| c.is_ascii_digit()),
+            "UNIT_CAPABILITY_INVALID: capability contract {text:?} major version must be a decimal number"
+        );
+        let major: u32 = version.parse().with_context(|| {
+            format!("UNIT_CAPABILITY_INVALID: capability contract {text:?} major version is out of range")
+        })?;
+        ensure!(
+            major >= 1,
+            "UNIT_CAPABILITY_INVALID: capability contract {text:?} starts at major version 1"
+        );
+        Ok(Self {
+            contract_id: format!("{CAPABILITY_CONTRACT_PREFIX}{name}"),
+            major,
+        })
+    }
+
+    /// Build a contract from a name with or without the reserved prefix.
+    pub fn new(name: &str, major: u32) -> Result<Self> {
+        let text = if name.starts_with(CAPABILITY_CONTRACT_PREFIX) {
+            format!("{name}/{major}")
+        } else {
+            format!("{CAPABILITY_CONTRACT_PREFIX}{name}/{major}")
+        };
+        Self::parse(&text)
+    }
+
+    /// The text form, `cap.<name>/<major>`.
+    pub fn text(&self) -> String {
+        format!("{}/{}", self.contract_id, self.major)
+    }
+
+    /// Whether a reference names a typed capability contract at all. Every
+    /// other `provides` entry is a topic or capability name.
+    pub fn is_contract_ref(text: &str) -> bool {
+        text.starts_with(CAPABILITY_CONTRACT_PREFIX)
+    }
+
+    /// Whether a provider of `provided` satisfies this requirement. Same name
+    /// and same major version; nothing else.
+    pub fn matches(&self, provided: &Self) -> bool {
+        self.contract_id == provided.contract_id && self.major == provided.major
+    }
+}
+
+impl fmt::Display for CapabilityContract {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.text())
+    }
+}
+
+impl Serialize for CapabilityContract {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text())
+    }
+}
+
+impl<'de> Deserialize<'de> for CapabilityContract {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Whether a provider needs an atomic capability to itself or shares it.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityExclusivity {
+    /// Several providers may hold this capability at the same time.
+    #[default]
+    Shared,
+    /// Two enabled providers cannot both hold it.
+    Exclusive,
+}
+
+/// One atomic capability a code version actually exercises at run time: a hook
+/// point, an event subscription, a singleton service.
+///
+/// Coexistence is judged here, on what is actually used (SPEC §51.8). Packages
+/// carry no `conflicts` field and there is no package-level exclusivity.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct AtomicCapability {
+    pub atom_id: String,
+    #[serde(default)]
+    pub exclusivity: CapabilityExclusivity,
+}
+
+fn validate_atom_id(atom_id: &str) -> Result<()> {
+    ensure!(
+        !atom_id.is_empty() && atom_id.len() <= MAX_CONTRACT_BYTES,
+        "TOOL_CAPABILITY_INVALID: atomic capability {atom_id:?} must be 1..{MAX_CONTRACT_BYTES} bytes"
+    );
+    ensure!(
+        atom_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':')),
+        "TOOL_CAPABILITY_INVALID: atomic capability {atom_id:?} must be ASCII letters, digits, '.', '_', '-' or ':'"
+    );
+    Ok(())
+}
+
+/// The atomic capability two enabled providers both need exclusively, if any.
+///
+/// Providers that only share capabilities coexist. Nothing here consults a
+/// model, a human or a package-level declaration.
+pub fn atomic_conflict(left: &[AtomicCapability], right: &[AtomicCapability]) -> Option<String> {
+    for atom in left
+        .iter()
+        .filter(|atom| atom.exclusivity == CapabilityExclusivity::Exclusive)
+    {
+        if right.iter().any(|other| {
+            other.exclusivity == CapabilityExclusivity::Exclusive && other.atom_id == atom.atom_id
+        }) {
+            return Some(atom.atom_id.clone());
+        }
+    }
+    None
+}
+
+/// How one metapackage member's admission is judged.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemberAdoption {
+    /// The member's own kind decides: content needs an authenticated adoption
+    /// attitude, code needs installation only. This is the default and it can
+    /// never be used to waive the content requirement.
+    #[default]
+    Required,
+    /// The author additionally requires an adoption attitude for a code or
+    /// metapackage member.
+    Attested,
+}
+
+/// One declared member of a metapackage.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MacroMemberSpec {
+    /// The member's unit id. A unit id, never a capability contract.
+    pub member_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_requirement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_digest: Option<Digest>,
+    /// A named slot: the member must itself declare providing this exact
+    /// capability contract, so a consumer resolves a role — a revision
+    /// projection rule, an awareness host — without naming a package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<CapabilityContract>,
+    #[serde(default)]
+    pub adoption: MemberAdoption,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+}
+
+/// The member list one metapackage version authors.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MetapackageBody {
+    #[serde(default)]
+    pub members: Vec<MacroMemberSpec>,
+}
+
+impl MetapackageBody {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.members.len() <= MAX_MACRO_MEMBERS,
+            "UNIT_METAPACKAGE_INVALID: at most {MAX_MACRO_MEMBERS} members"
+        );
+        let mut ids: Vec<&str> = Vec::new();
+        for member in &self.members {
+            ensure!(
+                !member.member_id.is_empty() && member.member_id.len() <= 128,
+                "UNIT_METAPACKAGE_INVALID: invalid member identity {:?}",
+                member.member_id
+            );
+            ensure!(
+                !member.member_id.starts_with(CAPABILITY_CONTRACT_PREFIX),
+                "UNIT_METAPACKAGE_INVALID: member {:?} uses the reserved capability namespace",
+                member.member_id
+            );
+            ensure!(
+                !ids.contains(&member.member_id.as_str()),
+                "UNIT_METAPACKAGE_INVALID: duplicate member identity {:?}",
+                member.member_id
+            );
+            ids.push(&member.member_id);
+            if let Some(requirement) = &member.revision_requirement {
+                ensure!(
+                    !requirement.trim().is_empty(),
+                    "UNIT_METAPACKAGE_INVALID: member {:?} declares an empty revision requirement",
+                    member.member_id
+                );
+            }
+            if let Some(purpose) = &member.purpose {
+                ensure!(
+                    purpose.len() <= MAX_TEXT_BYTES,
+                    "UNIT_METAPACKAGE_INVALID: member {:?} purpose exceeds the text bound",
+                    member.member_id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn member(&self, member_id: &str) -> Option<&MacroMemberSpec> {
+        self.members.iter().find(|member| member.member_id == member_id)
+    }
+}
+
+/// The member list a version declares, or `None` for a version that declares
+/// none. A metapackage without a member declaration, or a non-metapackage that
+/// declares members, is refused: a macro that silently installs nothing is not
+/// a macro.
+pub fn declared_metapackage(descriptor: &UnitDescriptor) -> Result<Option<MetapackageBody>> {
+    let Some(value) = descriptor.config.get("metapackage") else {
+        ensure!(
+            descriptor.kind != UnitKind::Metapackage,
+            "UNIT_METAPACKAGE_INVALID: {} revision {} is a metapackage without a member declaration",
+            descriptor.unit_id,
+            descriptor.revision
+        );
+        return Ok(None);
+    };
+    ensure!(
+        descriptor.kind == UnitKind::Metapackage,
+        "UNIT_METAPACKAGE_INVALID: {} revision {} declares members but its kind is {}",
+        descriptor.unit_id,
+        descriptor.revision,
+        descriptor.kind.as_str()
+    );
+    let body: MetapackageBody = serde_json::from_value(value.clone()).with_context(|| {
+        format!(
+            "UNIT_METAPACKAGE_INVALID: {} revision {} declares unreadable members",
+            descriptor.unit_id, descriptor.revision
+        )
+    })?;
+    body.validate()?;
+    Ok(Some(body))
+}
+
+/// What the installation's distribution declares about one named target's
+/// expected access.
+///
+/// It is installable content (SPEC §51.3), not a kernel constant: the kernel
+/// never decides which access a deployment expects for a target. `expected`
+/// uses the same typed requirement shape a package declares for itself, so an
+/// expectation is compared with a real grant instead of matched as a keyword.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TargetAccessExpectation {
+    pub target_id: String,
+    pub expected: PackageCapabilities,
+    /// Requirements this runtime's mechanism does not provide at all (no
+    /// process spawn, no raw sockets on this build). They are facts about the
+    /// mechanism that the expectation was written against, not a product
+    /// permission decision.
+    #[serde(default)]
+    pub unavailable_requirements: Vec<String>,
+}
+
+/// One metapackage a distribution preinstalls.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PreinstalledMacro {
+    pub unit_id: String,
+    /// Parallel macros are peers; none contains another (SPEC §51.3).
+    #[serde(default)]
+    pub parallel: bool,
+    /// The distribution is designed to depend on this macro. It records a
+    /// closure fact; it is not a boot identity gate.
+    #[serde(default)]
+    pub design_dependency: bool,
+}
+
+/// The unit a distribution uses by default for one capability contract. It is
+/// replaceable data: another unit may provide the same contract instead.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProviderDefault {
+    pub contract: CapabilityContract,
+    pub unit_id: String,
+}
+
+/// The distribution data one distribution version authors.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DistributionBody {
+    #[serde(default)]
+    pub targets: Vec<TargetAccessExpectation>,
+    #[serde(default)]
+    pub macros: Vec<PreinstalledMacro>,
+    #[serde(default)]
+    pub capability_providers: Vec<CapabilityProviderDefault>,
+}
+
+impl DistributionBody {
+    pub fn validate(&self) -> Result<()> {
+        let mut targets: Vec<&str> = Vec::new();
+        for target in &self.targets {
+            ensure!(
+                !target.target_id.is_empty() && target.target_id.len() <= 128,
+                "UNIT_DISTRIBUTION_INVALID: invalid target identity {:?}",
+                target.target_id
+            );
+            ensure!(
+                !targets.contains(&target.target_id.as_str()),
+                "UNIT_DISTRIBUTION_INVALID: target {:?} is declared twice",
+                target.target_id
+            );
+            targets.push(&target.target_id);
+            target.expected.validate()?;
+            ensure!(
+                target.unavailable_requirements.len() <= MAX_DECLARED_HOST,
+                "UNIT_DISTRIBUTION_INVALID: target {:?} declares too many unavailable requirements",
+                target.target_id
+            );
+        }
+        let mut macros: Vec<&str> = Vec::new();
+        for name in &self.macros {
+            ensure!(
+                !name.unit_id.is_empty() && name.unit_id.len() <= 128,
+                "UNIT_DISTRIBUTION_INVALID: invalid preinstalled metapackage identity {:?}",
+                name.unit_id
+            );
+            ensure!(
+                !name.unit_id.starts_with(CAPABILITY_CONTRACT_PREFIX),
+                "UNIT_DISTRIBUTION_INVALID: preinstalled metapackage {:?} uses the reserved capability namespace",
+                name.unit_id
+            );
+            ensure!(
+                !macros.contains(&name.unit_id.as_str()),
+                "UNIT_DISTRIBUTION_INVALID: metapackage {:?} is preinstalled twice",
+                name.unit_id
+            );
+            macros.push(&name.unit_id);
+        }
+        let mut contracts: Vec<&CapabilityContract> = Vec::new();
+        for provider in &self.capability_providers {
+            ensure!(
+                !provider.unit_id.is_empty() && provider.unit_id.len() <= 128,
+                "UNIT_DISTRIBUTION_INVALID: invalid provider default identity {:?}",
+                provider.unit_id
+            );
+            ensure!(
+                !contracts.iter().any(|contract| **contract == provider.contract),
+                "UNIT_DISTRIBUTION_INVALID: capability contract {} has two default providers",
+                provider.contract
+            );
+            contracts.push(&provider.contract);
+        }
+        Ok(())
+    }
+
+    pub fn provider_for(&self, contract: &CapabilityContract) -> Option<&str> {
+        self.capability_providers
+            .iter()
+            .find(|provider| provider.contract.matches(contract))
+            .map(|provider| provider.unit_id.as_str())
+    }
+}
+
+pub fn declared_distribution(descriptor: &UnitDescriptor) -> Result<Option<DistributionBody>> {
+    let Some(value) = descriptor.config.get("distribution") else {
+        ensure!(
+            descriptor.kind != UnitKind::Distribution,
+            "UNIT_DISTRIBUTION_INVALID: {} revision {} is a distribution without a declaration",
+            descriptor.unit_id,
+            descriptor.revision
+        );
+        return Ok(None);
+    };
+    ensure!(
+        descriptor.kind == UnitKind::Distribution,
+        "UNIT_DISTRIBUTION_INVALID: {} revision {} declares distribution data but its kind is {}",
+        descriptor.unit_id,
+        descriptor.revision,
+        descriptor.kind.as_str()
+    );
+    let body: DistributionBody = serde_json::from_value(value.clone()).with_context(|| {
+        format!(
+            "UNIT_DISTRIBUTION_INVALID: {} revision {} declares unreadable distribution data",
+            descriptor.unit_id, descriptor.revision
+        )
+    })?;
+    body.validate()?;
+    Ok(Some(body))
+}
+
+/// Which unit version a distribution declaration came from. A declaration is
+/// read with its provenance, so a projection can name the content that carried
+/// it instead of presenting it as a kernel table.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DeclaredBy {
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+}
+
+/// One target expectation with the content that declared it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DeclaredTargetAccess {
+    pub expectation: TargetAccessExpectation,
+    pub declared_by: DeclaredBy,
+}
+
+/// Where one metapackage member stands on this node.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MembershipStatus {
+    /// A content member with an authenticated adoption attitude: it joined.
+    Joined,
+    /// A code member that is installed here.
+    CodeInstalled,
+    /// The member version is installed but its adoption attitude is missing,
+    /// undetermined locally, or refuted locally. It has not joined.
+    Unadopted,
+    /// No installed version matches the member declaration.
+    Absent,
+    /// A version matched the identity but not the declaration (a named slot
+    /// whose contract it does not provide, or a retained version that no longer
+    /// satisfies the requirement), or its own closure is unresolved.
+    Unresolved,
+}
+
+impl MembershipStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MembershipStatus::Joined => "joined",
+            MembershipStatus::CodeInstalled => "code_installed",
+            MembershipStatus::Unadopted => "unadopted",
+            MembershipStatus::Absent => "absent",
+            MembershipStatus::Unresolved => "unresolved",
+        }
+    }
+
+    /// Whether the member is part of the macro on this node.
+    pub fn joined(&self) -> bool {
+        matches!(self, MembershipStatus::Joined | MembershipStatus::CodeInstalled)
+    }
+}
+
+/// Tri-state result of verifying an adoption attitude's reason pointers.
+///
+/// It is a local verification result, never a property of the record: an
+/// imported, unrelated or unexecuted reason pointer is `Undetermined`, and
+/// `Undetermined` is reported as unresolved instead of being collapsed into a
+/// claim of either verification or refutation.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentAdoptionEvidence {
+    /// Every reason pointer was re-verified against this installation.
+    VerifiedLocal,
+    /// At least one reason pointer no longer holds here.
+    RefutedLocal,
+    /// Nothing local establishes the pointers either way.
+    Undetermined,
+}
+
+impl ContentAdoptionEvidence {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContentAdoptionEvidence::VerifiedLocal => "verified_local",
+            ContentAdoptionEvidence::RefutedLocal => "refuted_local",
+            ContentAdoptionEvidence::Undetermined => "undetermined",
+        }
+    }
+}
+
+/// The adoption attitude a content member carries, as read from the
+/// installation that holds it.
+///
+/// This module never stores an adoption attitude: the canonical content and
+/// attitude ledger owns them. What arrives here is a read projection, and the
+/// membership decision needs exactly three things — the attitude points at this
+/// exact content digest, it reads as adopted, and its reason pointers verify
+/// locally.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ContentAdoption {
+    pub attitude_id: String,
+    pub content_digest: Digest,
+    pub adopted: bool,
+    pub evidence: ContentAdoptionEvidence,
+    /// Digest of a content reason pointer, when the attitude carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_digest: Option<Digest>,
+    pub recorded_at: String,
+}
+
+impl ContentAdoption {
+    /// Whether this attitude lets the exact content revision join a macro.
+    pub fn accepts(&self, digest: &Digest) -> bool {
+        self.adopted
+            && self.evidence == ContentAdoptionEvidence::VerifiedLocal
+            && &self.content_digest == digest
+    }
+
+    /// Why this attitude does not admit the content, when it does not.
+    pub fn refusal(&self, digest: &Digest) -> Option<String> {
+        if self.accepts(digest) {
+            return None;
+        }
+        if &self.content_digest != digest {
+            return Some(format!(
+                "adoption attitude {} points at {} instead of this content revision",
+                self.attitude_id, self.content_digest
+            ));
+        }
+        if !self.adopted {
+            return Some(format!(
+                "adoption attitude {} does not read as adopted",
+                self.attitude_id
+            ));
+        }
+        Some(match self.evidence {
+            ContentAdoptionEvidence::VerifiedLocal => format!(
+                "adoption attitude {} verified locally but is not adopted",
+                self.attitude_id
+            ),
+            ContentAdoptionEvidence::RefutedLocal => format!(
+                "adoption attitude {} has a reason pointer that no longer holds on this node",
+                self.attitude_id
+            ),
+            ContentAdoptionEvidence::Undetermined => format!(
+                "adoption attitude {} has no locally verified reason pointer; the evidence is undetermined, not refuted",
+                self.attitude_id
+            ),
+        })
+    }
+}
+
+/// The port through which a metapackage asks the content/attitude ledger
+/// whether one exact content revision carries an admissible adoption attitude.
+///
+/// The canonical ledger (content, attitudes and reason pointers) implements
+/// this; this module offers [`UnitAdoptionProjection`] as the projection over
+/// the installation adoption records it already keeps, so nothing is duplicated
+/// and no second adoption store exists.
+pub trait MacroContentAdoption {
+    fn adoption(
+        &self,
+        member_id: &str,
+        revision: &str,
+        digest: &Digest,
+    ) -> Result<Option<ContentAdoption>>;
+}
+
+/// Read projection over this installation's own adoption records.
+///
+/// The record lives inside the exact retained unit version it judged: an
+/// imported descriptor has its cognition section stripped on arrival, so a
+/// judgement made on another node can never be read here as a local adoption.
+/// Every reason pointer is re-verified now against this node's own trial and
+/// observation store; a stored `verified` flag is not trusted on its own.
+pub struct UnitAdoptionProjection<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> UnitAdoptionProjection<'a> {
+    pub fn new(conn: &'a Connection) -> Self {
+        Self { conn }
+    }
+}
+
+impl MacroContentAdoption for UnitAdoptionProjection<'_> {
+    fn adoption(
+        &self,
+        member_id: &str,
+        revision: &str,
+        digest: &Digest,
+    ) -> Result<Option<ContentAdoption>> {
+        let data: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![member_id, revision, digest.0],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else {
+            return Ok(None);
+        };
+        let stored: StoredVersion = serde_json::from_str(&data)?;
+        let Some(record) = stored.unit.config.pointer("/cognition/adoption") else {
+            return Ok(None);
+        };
+        let decision = record
+            .get("decision")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let recorded_at = record
+            .get("recorded_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let mut pointers = 0usize;
+        let mut verified = 0usize;
+        let mut refuted = false;
+        let mut reason_digest: Option<Digest> = None;
+        for item in record
+            .get("evidence")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            pointers += 1;
+            match item.get("kind").and_then(Value::as_str) {
+                Some("trial_attempt") => {
+                    let attempt_id = item
+                        .get("attempt_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let holds = Node::trial_attempt_facts(self.conn, attempt_id)?.is_some_and(|facts| {
+                        facts.unit_id == member_id
+                            && facts.revision == revision
+                            && facts.artifact_digest == *digest
+                            && facts.state == "finished"
+                            && facts.plan_digest.is_some()
+                    });
+                    if holds {
+                        verified += 1;
+                    } else {
+                        refuted = true;
+                    }
+                }
+                Some("stored_observation") => {
+                    let Some(observed) = item.get("digest").and_then(Value::as_str) else {
+                        refuted = true;
+                        continue;
+                    };
+                    let observed = Digest(observed.to_string());
+                    if Node::observation_bound(self.conn, &stored.unit, &observed)? {
+                        verified += 1;
+                        if reason_digest.is_none() {
+                            reason_digest = Some(observed);
+                        }
+                    } else {
+                        refuted = true;
+                    }
+                }
+                _ => refuted = true,
+            }
+        }
+        let evidence = if refuted {
+            ContentAdoptionEvidence::RefutedLocal
+        } else if pointers > 0 && verified == pointers {
+            ContentAdoptionEvidence::VerifiedLocal
+        } else {
+            ContentAdoptionEvidence::Undetermined
+        };
+        Ok(Some(ContentAdoption {
+            attitude_id: format!("unit-adoption:{member_id}@{revision}:{recorded_at}"),
+            content_digest: digest.clone(),
+            adopted: decision == AdoptionDecision::Adopted.as_str(),
+            evidence,
+            reason_digest,
+            recorded_at,
+        }))
+    }
+}
+
+/// One metapackage member's standing on this node.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MembershipResolution {
+    pub macro_id: String,
+    /// The metapackages that reached this member, outermost first. Empty for a
+    /// direct member of `macro_id`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<String>,
+    pub member_id: String,
+    /// The named slot this member fills, when the declaration names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<CapabilityContract>,
+    pub status: MembershipStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_kind: Option<UnitKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_artifact_digest: Option<Digest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adoption: Option<ContentAdoption>,
+    /// Local facts. An installed member that is not enabled here has not joined
+    /// a running macro, and a member installed on a peer never joins locally.
+    #[serde(default)]
+    pub enabled: bool,
+    pub readiness: ReadinessState,
+    pub reason: String,
+}
+
+/// One provider of a metapackage slot, as installed on this node.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MemberSelection {
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub member_kind: UnitKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adoption: Option<ContentAdoption>,
+    pub enabled: bool,
+    pub readiness: ReadinessState,
+}
+
+/// The providers a named metapackage slot has on this node.
+///
+/// `selected` is an index into `providers`, never a kernel default: when no
+/// provider is enabled and admitted the slot is omitted here, and a consumer
+/// reports that instead of claiming a rule was applied.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MacroSlot {
+    pub macro_id: String,
+    pub contract: CapabilityContract,
+    #[serde(default)]
+    pub providers: Vec<MemberSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<usize>,
+    /// True when more than one admitted provider is enabled and their actually
+    /// used atomic capabilities do not conflict.
+    #[serde(default)]
+    pub coexisting: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<String>,
+}
+
+/// Why one unit version is part of an environment closure.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentRole {
+    /// Named by the caller as a root of the environment.
+    Root,
+    /// Reached through a dependency of a root or of another member.
+    Dependency,
+}
+
+impl EnvironmentRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EnvironmentRole::Root => "root",
+            EnvironmentRole::Dependency => "dependency",
+        }
+    }
+}
+
+/// One unit version an environment pins.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentMember {
+    pub unit_id: String,
+    pub revision: String,
+    /// The *unit* artifact digest: the module for an inline tool, the pointer
+    /// document for an out-of-line one. It is the identity the unit inventory
+    /// keys on, so it is the identity an environment pins.
+    pub artifact_digest: Digest,
+    pub role: EnvironmentRole,
+    /// The dependency selections this closure locks for this member.
+    ///
+    /// They are copied into the generation instead of read back from the unit
+    /// record, because a retained unit version's selections can be re-resolved
+    /// later (`ResolveVersion`). A generation that kept only pointers would
+    /// silently change meaning — and an older generation could become
+    /// unsatisfiable just because a newer decision was recorded — so the
+    /// closure document carries the exact selections it locks.
+    #[serde(default)]
+    pub edges: Vec<ResolvedDependency>,
+    /// The capability requirements this member declared when the closure was
+    /// locked, copied out of the unit version's authored configuration.
+    ///
+    /// A reimport can replace a retained unit version's descriptor at the same
+    /// artifact identity, so reading the declaration back from the live unit
+    /// row would let the permission surface of an already-selected
+    /// environment change behind its back. A generation recorded before
+    /// declarations existed stays [`PackageDeclaration::unrecorded`] — never a
+    /// fabricated empty declaration and never a blanket grant.
+    #[serde(default, skip_serializing_if = "PackageDeclaration::is_unrecorded")]
+    pub declarations: PackageDeclaration,
+}
+
+/// A locked environment closure.
+///
+/// Immutable once prepared: it names exact retained unit versions, so a later
+/// import of another version changes neither this document nor what a running
+/// invocation resolved. Selecting it is a separate, conditional write of
+/// [`EnvironmentSelector`].
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentGeneration {
+    pub schema: u32,
+    /// Version of the closure-digest formula this generation was recorded
+    /// with. Version 1 hashed only the pinned unit identities; version 2 also
+    /// hashes the locked selections and the frozen declarations, so a closure
+    /// whose edges or declarations changed is a different closure instead of
+    /// "unchanged". Generations written before this field existed are
+    /// version 1 and keep verifying against their own formula.
+    #[serde(default = "environment_closure_version_v1")]
+    pub closure_version: u32,
+    pub generation: u64,
+    /// blake3 over the canonical closure document (sorted roots and members).
+    pub digest: Digest,
+    pub roots: Vec<String>,
+    /// Members ordered by unit id.
+    pub members: Vec<EnvironmentMember>,
+    pub created_at: String,
+}
+
+/// The durable environment selector — the linearization point of an
+/// activation. Only a successful conditional update of `revision` publishes a
+/// generation; a materialized file, a process or a printed list does not.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentSelector {
+    pub schema: u32,
+    pub generation: u64,
+    pub generation_digest: Digest,
+    pub revision: u64,
+    pub previous_generation: Option<u64>,
+    pub updated_at: String,
+}
+
+/// Where one unit version stands relative to the active environment.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentPin {
+    pub generation: u64,
+    pub generation_digest: Digest,
+    pub selector_revision: u64,
+    pub role: EnvironmentRole,
+    /// The declarations the generation froze for this member.
+    #[serde(default, skip_serializing_if = "PackageDeclaration::is_unrecorded")]
+    pub declarations: PackageDeclaration,
+}
+
+/// One requested root: an exact retained version, or the unit's current one.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentRoot {
+    pub unit_id: String,
+    #[serde(default)]
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub artifact_digest: Option<Digest>,
 }
 
 #[derive(Default)]
@@ -1025,6 +2659,60 @@ fn edge_matches_spec(edge: &ResolvedDependency, spec: &DependencySpec) -> bool {
         && edge.selector == spec.selector
 }
 
+/// The exact selection a retained edge records, or `None` when the inventory
+/// never resolved it. An unresolved or ambiguous edge is not a candidate for
+/// an environment closure: guessing here would publish a closure the node
+/// cannot explain.
+fn selection_of(edge: Option<&ResolvedDependency>) -> Option<(String, String, Digest)> {
+    let edge = edge?;
+    match (
+        edge.status,
+        edge.selected_unit_id.as_ref(),
+        edge.selected_revision.as_ref(),
+        edge.selected_artifact_digest.as_ref(),
+    ) {
+        (EdgeStatus::Satisfied, Some(unit_id), Some(revision), Some(digest)) => {
+            Some((unit_id.clone(), revision.clone(), digest.clone()))
+        }
+        _ => None,
+    }
+}
+
+/// The capability requirements one unit version authored, read from the
+/// package description that travels with it.
+///
+/// A code package carries its description under `config.tool`; the
+/// `capabilities` object there is the declaration SPEC §9 requires every
+/// package description to record. A version without that object records no
+/// declaration: that is [`PackageDeclaration::unrecorded`], which the runtime
+/// reports as such — never a fabricated empty declaration (which would claim
+/// the package needs nothing) and never a blanket grant.
+///
+/// A malformed declaration refuses the closure it belongs to, so an
+/// environment never pins requirements the node cannot even parse.
+pub fn declared_package_capabilities(descriptor: &UnitDescriptor) -> Result<PackageDeclaration> {
+    if descriptor.kind != UnitKind::Code {
+        return Ok(PackageDeclaration::unrecorded());
+    }
+    let Some(value) = descriptor.config.pointer("/tool/capabilities") else {
+        return Ok(PackageDeclaration::unrecorded());
+    };
+    let declaration: PackageDeclaration =
+        serde_json::from_value(value.clone()).with_context(|| {
+            format!(
+                "UNIT_PACKAGE_CAPABILITIES_INVALID: {} revision {} declares unreadable capabilities",
+                descriptor.unit_id, descriptor.revision
+            )
+        })?;
+    if let Some(capabilities) = declaration.capabilities() {
+        capabilities.validate()?;
+    }
+    // The frozen copy is normalized so two equal declarations are one
+    // document: the closure digest and the divergence report both compare
+    // declarations, not authoring order.
+    Ok(declaration.normalized())
+}
+
 fn legacy_ambiguous(spec: &DependencySpec, reason: &str) -> ResolvedDependency {
     ResolvedDependency {
         edge_id: spec.edge_id.clone(),
@@ -1034,6 +2722,9 @@ fn legacy_ambiguous(spec: &DependencySpec, reason: &str) -> ResolvedDependency {
         selected_unit_id: None,
         selected_revision: None,
         selected_artifact_digest: None,
+        selected_contract: None,
+        coexisting_providers: Vec::new(),
+        used_capabilities: Vec::new(),
         reason: reason.to_string(),
     }
 }
@@ -1166,6 +2857,7 @@ impl Node {
                 decision,
                 method,
                 evidence,
+                confidence,
                 notes,
                 enable,
             } => self.unit_record_adoption(
@@ -1175,6 +2867,7 @@ impl Node {
                 decision,
                 method,
                 &evidence,
+                confidence,
                 notes.as_deref(),
                 enable,
             )?,
@@ -1199,6 +2892,33 @@ impl Node {
             } => self.unit_register_observation(&unit_id, &revision, &artifact_digest, &kind, &bytes)?,
             UnitRequest::Observations { unit_id } => self.unit_observations(&unit_id)?,
             UnitRequest::Lineage { unit_id } => self.unit_lineage(&unit_id)?,
+            UnitRequest::Uninstall {
+                unit_id,
+                revision,
+                artifact_digest,
+                reason,
+                activate,
+            } => self.unit_uninstall(
+                &unit_id,
+                &revision,
+                artifact_digest.as_ref(),
+                &reason,
+                activate.as_ref(),
+            )?,
+            UnitRequest::PrepareEnvironment { roots } => self.prepare_environment(&roots)?,
+            UnitRequest::ActivateEnvironment {
+                generation,
+                expected_revision,
+            } => self.activate_environment(generation, expected_revision)?,
+            UnitRequest::RollbackEnvironment { expected_revision } => {
+                self.rollback_environment(expected_revision)?
+            }
+            UnitRequest::Environment { limit } => self.environment_report(limit)?,
+            UnitRequest::QueryMetapackage { unit_id } => self.query_metapackage(&unit_id)?,
+            UnitRequest::QueryDistribution { unit_id } => self.query_distribution(&unit_id)?,
+            UnitRequest::QuerySlot { macro_id, contract } => {
+                self.query_slot(&macro_id, &contract)?
+            }
         };
         if let Some(object) = result.as_object_mut() {
             object.insert("schema".into(), json!(UNIT_SCHEMA));
@@ -1211,6 +2931,16 @@ impl Node {
 
     // ---------------------------------------------------------- import -----
 
+    /// Register a transferred package closure in this installation.
+    ///
+    /// A package import writes unit versions, their edges, the inventory's
+    /// per-unit current pointer, materialization state and trial provenance.
+    /// It never writes `unit_environment.*`: the environment selector and the
+    /// generations it names are local authority, so a `sync`/`receive` import
+    /// (which is exactly this request) cannot activate a foreign environment.
+    /// With a generation active, `tool_unit_facts` selects by that
+    /// generation's pins, so even an import that changes `unit_current` does
+    /// not change what a name-only resolution selects.
     fn unit_import(
         &mut self,
         export: UnitExport,
@@ -1305,15 +3035,20 @@ impl Node {
             // Bind the candidates and existing pins to the same write-locked
             // database snapshot. Supplied versions take precedence only for
             // new selections, never for an already pinned local selection.
-            let mut available: Vec<(String, String, Digest, Vec<String>)> = members.iter()
+            let mut available = members.iter()
                 .map(|(unit, _, _, _)| (unit.unit_id.clone(), unit.revision.clone(), unit.artifact_digest.clone(), unit.provides.clone()))
-                .collect();
+                .collect::<Vec<(String, String, Digest, Vec<String>)>>();
             // Incoming versions replace the exact same identity, not merely
             // take precedence. Their old retained descriptor would otherwise
             // keep declaring capabilities the package explicitly removed.
-            available.extend(resolution_candidates(&tx)?.into_iter()
-                .filter(|candidate| !members.iter().any(|(unit, _, _, _)| unit.unit_id == candidate.0
-                    && unit.revision == candidate.1 && unit.artifact_digest == candidate.2)));
+            let extra = resolution_candidates(&tx)?;
+            for candidate in extra {
+                let dominated = members.iter().any(|(unit, _, _, _)| unit.unit_id == candidate.unit_id
+                    && unit.revision == candidate.revision && unit.artifact_digest == candidate.digest);
+                if !dominated {
+                    available.push((candidate.unit_id, candidate.revision, candidate.digest, candidate.provides));
+                }
+            }
             let mut resolved_versions = Vec::new();
             for (descriptor, _, _, carried) in &members {
                 if let Some(carried) = carried {
@@ -1587,7 +3322,10 @@ impl Node {
 
     fn unit_resolve_version(&mut self, unit_id: &str, revision: &str, artifact_digest: &Digest) -> Result<Value> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let available = resolution_candidates(&tx)?;
+        let available: Vec<(String, String, Digest, Vec<String>)> = resolution_candidates(&tx)?
+            .into_iter()
+            .map(|c| (c.unit_id, c.revision, c.digest, c.provides))
+            .collect();
         let data: Option<String> = tx.query_row(
             "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
             params![unit_id, revision, artifact_digest.0], |r| r.get(0),
@@ -1815,20 +3553,32 @@ impl Node {
     /// versioning and replication stay here; the tool layer adds name/ABI
     /// resolution on top of these facts. Pure query — no schema creation, no
     /// trial reconciliation, no materialization.
+    ///
+    /// `selected` is the only field a name-only lookup may use. When an
+    /// environment generation is active it is that generation's pin; when no
+    /// generation exists yet the installation is honestly unpinned and the
+    /// unit-current row is the selection.
     pub fn tool_unit_facts(&self) -> Result<Vec<ToolUnitFact>> {
+        let selector = read_environment_selector(&self.conn)?;
+        let pins: Vec<EnvironmentMember> = match &selector {
+            Some(selector) => self.environment_members(selector.generation)?,
+            None => Vec::new(),
+        };
+        let rows: Vec<(String, bool, bool, Option<String>, Option<String>)> = self
+            .conn
+            .prepare(
+                "SELECT v.data,c.enabled,(c.revision=v.revision AND c.artifact_digest=v.artifact_digest),m.root,m.path \
+                 FROM unit_versions v JOIN unit_current c ON c.unit_id=v.unit_id \
+                 LEFT JOIN unit_materializations m ON m.unit_id=v.unit_id AND m.revision=v.revision AND m.artifact_digest=v.artifact_digest \
+                 ORDER BY v.unit_id,v.revision,v.artifact_digest"
+            )?
+            .query_map([], |r| Ok((
+                r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, bool>(2)?,
+                r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?,
+            )))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut facts = Vec::new();
-        let mut statement = self.conn.prepare(
-            "SELECT v.data,c.enabled,(c.revision=v.revision AND c.artifact_digest=v.artifact_digest),m.root,m.path \
-             FROM unit_versions v JOIN unit_current c ON c.unit_id=v.unit_id \
-             LEFT JOIN unit_materializations m ON m.unit_id=v.unit_id AND m.revision=v.revision AND m.artifact_digest=v.artifact_digest \
-             ORDER BY v.unit_id,v.revision,v.artifact_digest"
-        )?;
-        let rows = statement.query_map([], |r| Ok((
-            r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, bool>(2)?,
-            r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?,
-        )))?;
-        for row in rows {
-            let (data, enabled, current, root, path) = row?;
+        for (data, enabled, current, root, path) in rows {
             let stored: StoredVersion = serde_json::from_str(&data)?;
             if stored.unit.kind != UnitKind::Code {
                 continue;
@@ -1836,6 +3586,24 @@ impl Node {
             let Some(tool) = stored.unit.config.get("tool").cloned() else {
                 continue;
             };
+            let pin = match &selector {
+                Some(selector) => pins
+                    .iter()
+                    .find(|member| {
+                        member.unit_id == stored.unit.unit_id
+                            && member.revision == stored.unit.revision
+                            && member.artifact_digest == stored.unit.artifact_digest
+                    })
+                    .map(|member| EnvironmentPin {
+                        generation: selector.generation,
+                        generation_digest: selector.generation_digest.clone(),
+                        selector_revision: selector.revision,
+                        role: member.role,
+                        declarations: member.declarations.clone(),
+                    }),
+                None => None,
+            };
+            let selected = if selector.is_some() { pin.is_some() } else { current };
             facts.push(ToolUnitFact {
                 unit_id: stored.unit.unit_id,
                 kind: stored.unit.kind,
@@ -1843,12 +3611,1162 @@ impl Node {
                 artifact_digest: stored.unit.artifact_digest,
                 enabled,
                 current,
+                selected,
+                environment: pin,
                 tool,
                 materialization_root: root,
                 materialization_path: path,
             });
         }
         Ok(facts)
+    }
+
+    // ---------------------------------------------------- environment -----
+
+    /// The active environment selector, if any. Read-only: an installation
+    /// that never activated a generation reports `None` and is not mutated.
+    pub fn environment_selector(&self) -> Result<Option<EnvironmentSelector>> {
+        read_environment_selector(&self.conn)
+    }
+
+    /// One recorded generation, exactly as it was prepared.
+    pub fn environment_generation(
+        &self,
+        generation: u64,
+    ) -> Result<Option<EnvironmentGeneration>> {
+        read_environment_generation(&self.conn, generation)
+    }
+
+    /// Recorded generations, oldest first.
+    pub fn environment_generations(&self, limit: u32) -> Result<Vec<EnvironmentGeneration>> {
+        ensure!((1..=512).contains(&limit), "environment limit 1..=512");
+        environment_documents(&self.conn, ENVIRONMENT_GENERATION_GLOB, limit)?
+            .into_iter()
+            .map(|(_, data)| environment_generation_document(&data))
+            .collect()
+    }
+
+    /// The members of one generation, ordered by unit id.
+    pub fn environment_members(&self, generation: u64) -> Result<Vec<EnvironmentMember>> {
+        Ok(self
+            .environment_generation(generation)?
+            .map(|record| record.members)
+            .unwrap_or_default())
+    }
+
+    /// The append-only activation log, oldest first.
+    pub fn environment_activations(&self, limit: u32) -> Result<Vec<Value>> {
+        ensure!((1..=512).contains(&limit), "environment limit 1..=512");
+        environment_documents(&self.conn, ENVIRONMENT_ACTIVATION_GLOB, limit)?
+            .into_iter()
+            .map(|(_, data)| Ok(serde_json::from_str::<Value>(&data)?))
+            .collect()
+    }
+
+    /// Resolve the transitive closure of these roots against the versions and
+    /// selections this node actually retains, and record it as a locked
+    /// generation. Nothing is selected by preparing.
+    fn prepare_environment(&mut self, roots: &[EnvironmentRoot]) -> Result<Value> {
+        let (root_ids, members) = self.plan_environment(roots)?;
+        let digest =
+            environment_closure_digest(&root_ids, &members, ENVIRONMENT_CLOSURE_VERSION)?;
+        // A closure identical to the active environment is not a new
+        // candidate: the selector is not advanced and no generation row is
+        // written, so repeating an install does not churn generations.
+        if let Some(selector) = self.environment_selector()? {
+            if selector.generation_digest == digest {
+                let existing = self
+                    .environment_generation(selector.generation)?
+                    .context("the active environment generation is not recorded")?;
+                return Ok(json!({
+                    "generation": existing,
+                    "unchanged": true,
+                    "note": "this closure is already the active environment; the selector was not advanced",
+                }));
+            }
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Generations are append-only documents: the next number is one past
+        // the highest recorded one, read inside this write transaction.
+        let generation = latest_environment_generation(&tx)?.map_or(1, |latest| latest + 1);
+        let record = EnvironmentGeneration {
+            schema: UNIT_ENVIRONMENT_SCHEMA,
+            closure_version: ENVIRONMENT_CLOSURE_VERSION,
+            generation,
+            digest,
+            roots: root_ids,
+            members,
+            created_at: now(),
+        };
+        crate::set(&tx, &environment_generation_key(generation), &record)?;
+        tx.commit()?;
+        Ok(json!({
+            "generation": record,
+            "unchanged": false,
+            "note": "prepared only; nothing becomes current until the selector is advanced",
+        }))
+    }
+
+    /// Publish a prepared generation as the current environment through one
+    /// conditional update of the selector revision.
+    fn activate_environment(&mut self, generation: u64, expected_revision: u64) -> Result<Value> {
+        let record = self.environment_generation(generation)?.with_context(|| {
+            format!("UNIT_ENVIRONMENT_UNKNOWN: generation {generation} was never prepared on this node")
+        })?;
+        // A generation is immutable: its document must still hash to its own
+        // digest. A disagreement is corruption, not a new closure.
+        ensure!(
+            environment_closure_digest(
+                &record.roots,
+                &record.members,
+                record.closure_version
+            )? == record.digest,
+            "UNIT_ENVIRONMENT_CORRUPT: generation {generation} does not hash to its recorded digest"
+        );
+        // The closure must still be satisfiable here: every required
+        // declaration lands on this environment's pin and every pinned unit's
+        // own bytes are held. Activation never publishes a closure the node
+        // cannot actually supply.
+        let problems = self.environment_closure_problems(&record.members)?;
+        ensure!(problems.is_empty(), "{}", environment_problems(problems));
+        for member in &record.members {
+            self.ensure_environment_member_bytes(member)?;
+        }
+        // Retained versions, resolved selections and stored unit bytes are
+        // append-only facts, so the verification above cannot be invalidated
+        // by a concurrent import before this write. The compare-and-swap is
+        // the linearization point of the activation itself.
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated_at = now();
+        // The selector document is rewritten only when it still carries the
+        // revision the caller read: read and write happen in one immediate
+        // transaction, so a concurrent activation either wins the whole
+        // transaction or is refused here. The activation log entry lands in
+        // the same transaction as the selector it describes.
+        let (previous, revision) = match read_environment_selector(&tx)? {
+            Some(selector) => {
+                ensure!(
+                    selector.revision == expected_revision,
+                    "UNIT_ENVIRONMENT_CONFLICT: the environment selector changed while activating (now revision {}, caller expected {expected_revision})",
+                    selector.revision
+                );
+                ensure!(
+                    selector.generation != generation,
+                    "UNIT_ENVIRONMENT_ALREADY_ACTIVE: generation {generation} is the current environment; nothing was changed"
+                );
+                (Some(selector.generation), expected_revision + 1)
+            }
+            None => {
+                ensure!(
+                    expected_revision == 0,
+                    "UNIT_ENVIRONMENT_CONFLICT: this installation has no environment selector; the expected revision must be 0"
+                );
+                (None, 1)
+            }
+        };
+        let selector = EnvironmentSelector {
+            schema: UNIT_ENVIRONMENT_SCHEMA,
+            generation,
+            generation_digest: record.digest.clone(),
+            revision,
+            previous_generation: previous,
+            updated_at: updated_at.clone(),
+        };
+        crate::set(&tx, ENVIRONMENT_SELECTOR_KEY, &selector)?;
+        crate::set(
+            &tx,
+            &environment_activation_key(revision),
+            &json!({
+                "revision": revision,
+                "generation": generation,
+                "generation_digest": &record.digest.0,
+                "previous_generation": previous,
+                "activated_at": updated_at,
+            }),
+        )?;
+        // Publishing the environment publishes which version each unit id
+        // currently names, in the same transaction: the selector and the
+        // per-unit current pointers cannot disagree after an activation.
+        // `enabled` stays an independent installation fact, so publishing a
+        // selection never enables or disables anything.
+        for member in &record.members {
+            let enabled: Option<i64> = tx
+                .query_row(
+                    "SELECT enabled FROM unit_current WHERE unit_id=?1",
+                    [&member.unit_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            tx.execute(
+                "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
+                 VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id) DO UPDATE SET \
+                 revision=excluded.revision,artifact_digest=excluded.artifact_digest,\
+                 updated_at=excluded.updated_at",
+                params![
+                    &member.unit_id,
+                    &member.revision,
+                    &member.artifact_digest.0,
+                    enabled.unwrap_or(1),
+                    &updated_at
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(json!({
+            "selector": selector,
+            "generation": record,
+            "activated": true,
+        }))
+    }
+
+    /// Select the previous generation of the current environment through the
+    /// same compare-and-swap. Retained versions, earlier generations and every
+    /// other installation fact stay untouched: a rollback changes the
+    /// selection, never the history.
+    fn rollback_environment(&mut self, expected_revision: u64) -> Result<Value> {
+        let selector = self.environment_selector()?.context(
+            "UNIT_ENVIRONMENT_NONE: this installation has no active environment; prepare and activate one first",
+        )?;
+        let previous = selector.previous_generation.context(
+            "UNIT_ENVIRONMENT_NO_PREVIOUS: the current environment records no previous generation; activate the target generation explicitly",
+        )?;
+        let mut outcome = self.activate_environment(previous, expected_revision)?;
+        if let Some(object) = outcome.as_object_mut() {
+            object.insert("rolled_back_from".into(), json!(selector.generation));
+            object.insert("rollback".into(), json!(true));
+        }
+        Ok(outcome)
+    }
+
+    /// The complete environment projection: the selector, the locked closure
+    /// of the current generation (with the selections it froze beside the live
+    /// unit rows), every recorded generation and the activation log. Pure
+    /// read; a read-only inspection can call it.
+    pub fn environment_report(&self, limit: u32) -> Result<Value> {
+        let selector = self.environment_selector()?;
+        let members = match &selector {
+            Some(selector) => self.environment_members(selector.generation)?,
+            None => Vec::new(),
+        };
+        // A retained unit version's selections can be re-resolved after a
+        // generation was locked. The generation's own copies stay the
+        // authority for its closure; reporting the live rows beside them keeps
+        // that divergence visible instead of pretending the unit record
+        // rewrote history.
+        let mut closure = Vec::with_capacity(members.len());
+        let mut diverged: Vec<String> = Vec::new();
+        let mut host_requirements: Vec<HostRequirement> = Vec::new();
+        for member in members {
+            let live = self.installed_unit_version(
+                &member.unit_id,
+                &member.revision,
+                &member.artifact_digest,
+            )?;
+            let live_declarations = match &live {
+                Some(unit) => declared_package_capabilities(&unit.descriptor)?,
+                None => PackageDeclaration::unrecorded(),
+            };
+            let edges_agree = live
+                .as_ref()
+                .is_some_and(|unit| unit.edges == member.edges);
+            let declarations_agree = live_declarations == member.declarations;
+            if !edges_agree || !declarations_agree {
+                diverged.push(member.unit_id.clone());
+            }
+            if let Some(capabilities) = member.declarations.capabilities() {
+                host_requirements.extend(capabilities.host.iter().cloned());
+            }
+            closure.push(json!({
+                "unit_id": member.unit_id,
+                "revision": member.revision,
+                "artifact_digest": member.artifact_digest,
+                "role": member.role.as_str(),
+                "locked_edges": member.edges,
+                "live_edges": live.as_ref().map(|unit| unit.edges.clone()).unwrap_or_default(),
+                "live_edges_agree": edges_agree,
+                "declarations": declaration_document(&member.declarations),
+                "live_declarations": declaration_document(&live_declarations),
+                "live_declarations_agree": declarations_agree,
+            }));
+        }
+        host_requirements.sort();
+        host_requirements.dedup();
+        Ok(json!({
+            "pinned": selector.is_some(),
+            "selector": selector,
+            "closure": closure,
+            // Which copy of the closure decides what a run depends on: the
+            // documents the generation froze. A reader that re-resolves
+            // dependencies from live unit rows can silently change the meaning
+            // of an environment that is already published.
+            "execution_authority": "generation.locked_edges_and_declarations",
+            "diverged": diverged,
+            "host_requirements": host_requirements,
+            "generations": self.environment_generations(limit)?,
+            "activations": self.environment_activations(limit)?,
+            "note": "the selector is the only authority for which generation is current; an activation or a rollback never deletes a retained version or a prior generation",
+        }))
+    }
+
+    /// Follow one dependency declaration of one member *inside a locked
+    /// generation*, using only the selections and members that generation
+    /// froze.
+    ///
+    /// This is the execution authority for an environment's dependency
+    /// meaning: a later `resolve_version` on the retained unit row changes
+    /// neither this answer nor the version a selected environment pins. The
+    /// returned member is the whole frozen identity — revision, artifact
+    /// digest, locked edges and declarations — never a mutable live row.
+    pub fn environment_locked_selection(
+        &self,
+        generation: u64,
+        unit_id: &str,
+        edge_id: &str,
+    ) -> Result<Option<EnvironmentMember>> {
+        let Some(record) = self.environment_generation(generation)? else {
+            return Ok(None);
+        };
+        let Some(member) = record
+            .members
+            .iter()
+            .find(|member| member.unit_id == unit_id)
+        else {
+            return Ok(None);
+        };
+        let Some(edge) = member
+            .edges
+            .iter()
+            .find(|edge| edge.edge_id == edge_id)
+        else {
+            return Ok(None);
+        };
+        let Some((selected_unit, revision, digest)) = selection_of(Some(edge)) else {
+            return Ok(None);
+        };
+        Ok(record.members.into_iter().find(|member| {
+            member.unit_id == selected_unit
+                && member.revision == revision
+                && member.artifact_digest == digest
+        }))
+    }
+
+    /// The member one *active* environment pins for this unit, if any. Read
+    /// only from the generation the selector names; a version retained outside
+    /// that generation is not a member and resolves to `None`.
+    pub fn active_environment_member(&self, unit_id: &str) -> Result<Option<EnvironmentMember>> {
+        let Some(selector) = self.environment_selector()? else {
+            return Ok(None);
+        };
+        Ok(self
+            .environment_members(selector.generation)?
+            .into_iter()
+            .find(|member| member.unit_id == unit_id))
+    }
+
+    // --------------------------------------------- metapackage/distribution queries -----
+
+    /// Walk a metapackage's declared members, resolve each against installed
+    /// units, and check adoption via the installation's own adoption records.
+    ///
+    /// A member that is content (perception, awareness, skill) **must** carry
+    /// an authenticated adoption attitude whose evidence verifies locally
+    /// (SPEC §51.1, §51.3, §51.8). Code members need installation only.
+    /// A member installed on a peer never joins locally: declarations crossing
+    /// nodes never imply local readiness.
+    fn query_metapackage(&self, unit_id: &str) -> Result<Value> {
+        let unit = self
+            .installed_unit(unit_id)?
+            .with_context(|| format!("UNIT_NOT_FOUND: {unit_id} is not installed on this node"))?;
+        let body = declared_metapackage(&unit.descriptor)?
+            .with_context(|| format!("UNIT_NOT_METAPACKAGE: {unit_id} does not declare a metapackage body"))?;
+
+        let adoption_projection = UnitAdoptionProjection::new(&self.conn);
+        let mut memberships: Vec<MembershipResolution> = Vec::new();
+        let mut slots: Vec<MacroSlot> = Vec::new();
+        let mut contract_providers: BTreeMap<String, Vec<MemberSelection>> = BTreeMap::new();
+
+        for spec in &body.members {
+            let resolution = self.resolve_macro_member(
+                unit_id,
+                spec,
+                &adoption_projection,
+            )?;
+            // Track providers for named contract slots.
+            if let Some(contract) = &spec.contract {
+                if let (Some(revision), Some(digest)) = (
+                    resolution.selected_revision.as_ref(),
+                    resolution.selected_artifact_digest.as_ref(),
+                ) {
+                    let selection = MemberSelection {
+                        unit_id: spec.member_id.clone(),
+                        revision: revision.clone(),
+                        artifact_digest: digest.clone(),
+                        member_kind: resolution.member_kind.unwrap_or(UnitKind::Code),
+                        adoption: resolution.adoption.clone(),
+                        enabled: resolution.enabled,
+                        readiness: resolution.readiness,
+                    };
+                    contract_providers
+                        .entry(contract.text())
+                        .or_default()
+                        .push(selection);
+                }
+            }
+            memberships.push(resolution);
+        }
+
+        // Build named slots from the collected providers.
+        for (contract_text, providers) in &contract_providers {
+            let contract = CapabilityContract::parse(contract_text)?;
+            let slot = self.build_macro_slot(unit_id, &contract, providers)?;
+            slots.push(slot);
+        }
+
+        Ok(json!({
+            "unit_id": unit_id,
+            "kind": "metapackage",
+            "revision": unit.revision,
+            "artifact_digest": unit.artifact_digest,
+            "members": memberships,
+            "slots": slots,
+            "member_count": body.members.len(),
+        }))
+    }
+
+    /// Resolve one metapackage member spec against installed/retained units.
+    fn resolve_macro_member(
+        &self,
+        macro_id: &str,
+        spec: &MacroMemberSpec,
+        adoption: &dyn MacroContentAdoption,
+    ) -> Result<MembershipResolution> {
+        // Look up the member as an installed unit.
+        let installed = self.installed_unit(&spec.member_id)?;
+        let Some(unit) = installed else {
+            return Ok(MembershipResolution {
+                macro_id: macro_id.to_string(),
+                path: vec![],
+                member_id: spec.member_id.clone(),
+                contract: spec.contract.clone(),
+                status: MembershipStatus::Absent,
+                member_kind: None,
+                selected_revision: None,
+                selected_artifact_digest: None,
+                adoption: None,
+                enabled: false,
+                readiness: ReadinessState::NotInstalled,
+                reason: format!("{} is not installed on this node", spec.member_id),
+            });
+        };
+
+        // Check revision requirement if the spec pins one.
+        if let Some(requirement) = &spec.revision_requirement {
+            if !revision_matches(requirement, &unit.revision) {
+                return Ok(MembershipResolution {
+                    macro_id: macro_id.to_string(),
+                    path: vec![],
+                    member_id: spec.member_id.clone(),
+                    contract: spec.contract.clone(),
+                    status: MembershipStatus::Unresolved,
+                    member_kind: Some(unit.descriptor.kind),
+                    selected_revision: Some(unit.revision.clone()),
+                    selected_artifact_digest: Some(unit.artifact_digest.clone()),
+                    adoption: None,
+                    enabled: unit.enabled,
+                    readiness: ReadinessState::Unresolved,
+                    reason: format!(
+                        "installed revision {} does not satisfy requirement {requirement}",
+                        unit.revision
+                    ),
+                });
+            }
+        }
+
+        // Check artifact digest if pinned.
+        if let Some(expected) = &spec.artifact_digest {
+            if &unit.artifact_digest != expected {
+                return Ok(MembershipResolution {
+                    macro_id: macro_id.to_string(),
+                    path: vec![],
+                    member_id: spec.member_id.clone(),
+                    contract: spec.contract.clone(),
+                    status: MembershipStatus::Unresolved,
+                    member_kind: Some(unit.descriptor.kind),
+                    selected_revision: Some(unit.revision.clone()),
+                    selected_artifact_digest: Some(unit.artifact_digest.clone()),
+                    adoption: None,
+                    enabled: unit.enabled,
+                    readiness: ReadinessState::Unresolved,
+                    reason: format!(
+                        "installed artifact digest does not match the pinned value"
+                    ),
+                });
+            }
+        }
+
+        // Check contract: if the spec names one, the member must declare
+        // providing it.
+        if let Some(contract) = &spec.contract {
+            if !unit.descriptor.provides_contract(contract) {
+                return Ok(MembershipResolution {
+                    macro_id: macro_id.to_string(),
+                    path: vec![],
+                    member_id: spec.member_id.clone(),
+                    contract: Some(contract.clone()),
+                    status: MembershipStatus::Unresolved,
+                    member_kind: Some(unit.descriptor.kind),
+                    selected_revision: Some(unit.revision.clone()),
+                    selected_artifact_digest: Some(unit.artifact_digest.clone()),
+                    adoption: None,
+                    enabled: unit.enabled,
+                    readiness: ReadinessState::Unresolved,
+                    reason: format!(
+                        "{} does not declare providing {}",
+                        spec.member_id,
+                        contract
+                    ),
+                });
+            }
+        }
+
+        // Adoption check: content kinds require authenticated adoption.
+        let needs_adoption = unit.descriptor.kind.is_content()
+            || spec.adoption == MemberAdoption::Attested;
+        let adoption_result = if needs_adoption {
+            adoption.adoption(
+                &spec.member_id,
+                &unit.revision,
+                &unit.artifact_digest,
+            )?
+        } else {
+            None
+        };
+
+        let (status, reason) = if needs_adoption {
+            match &adoption_result {
+                None => (
+                    MembershipStatus::Unadopted,
+                    format!(
+                        "{} is content or attested; no adoption attitude found",
+                        spec.member_id
+                    ),
+                ),
+                Some(ca) if !ca.accepts(&unit.artifact_digest) => {
+                    let refusal = ca
+                        .refusal(&unit.artifact_digest)
+                        .unwrap_or_else(|| "adoption does not accept this revision".into());
+                    (MembershipStatus::Unadopted, refusal)
+                }
+                Some(_) => {
+                    let (readiness, reason) = self.readiness_of(&unit)?;
+                    if readiness == ReadinessState::Ready {
+                        (
+                            MembershipStatus::Joined,
+                            format!("{} is adopted and ready", spec.member_id),
+                        )
+                    } else {
+                        (
+                            MembershipStatus::CodeInstalled,
+                            format!("{} is adopted but readiness is {:?}: {reason}", spec.member_id, readiness),
+                        )
+                    }
+                }
+            }
+        } else {
+            // Code member: installation is sufficient, no adoption needed.
+            let (readiness, reason) = self.readiness_of(&unit)?;
+            if readiness == ReadinessState::Ready {
+                (
+                    MembershipStatus::Joined,
+                    format!("{} is installed and ready", spec.member_id),
+                )
+            } else {
+                (
+                    MembershipStatus::CodeInstalled,
+                    format!("{} is installed but readiness is {:?}: {reason}", spec.member_id, readiness),
+                )
+            }
+        };
+
+        let (readiness, _) = self.readiness_of(&unit)?;
+
+        Ok(MembershipResolution {
+            macro_id: macro_id.to_string(),
+            path: vec![],
+            member_id: spec.member_id.clone(),
+            contract: spec.contract.clone(),
+            status,
+            member_kind: Some(unit.descriptor.kind),
+            selected_revision: Some(unit.revision.clone()),
+            selected_artifact_digest: Some(unit.artifact_digest.clone()),
+            adoption: adoption_result,
+            enabled: unit.enabled,
+            readiness,
+            reason,
+        })
+    }
+
+    /// Build a named contract slot from the collected providers.
+    ///
+    /// Multiple admitted providers coexist when their actually used atomic
+    /// capabilities do not conflict (SPEC §51.8). Selection: the first
+    /// admitted and enabled provider is the selected one; a slot where no
+    /// provider is admitted stays unselected, and a consumer reports that
+    /// omission rather than claiming a rule was applied.
+    fn build_macro_slot(
+        &self,
+        macro_id: &str,
+        contract: &CapabilityContract,
+        providers: &[MemberSelection],
+    ) -> Result<MacroSlot> {
+        let admitted: Vec<&MemberSelection> = providers
+            .iter()
+            .filter(|provider| {
+                provider
+                    .adoption
+                    .as_ref()
+                    .is_none_or(|ca| ca.accepts(&provider.artifact_digest))
+            })
+            .collect();
+
+        // Check coexistence: admitted providers whose used atomic capabilities
+        // conflict cannot coexist.
+        let mut coexisting = admitted.len() > 1;
+        let mut conflict: Option<String> = None;
+        if admitted.len() > 1 {
+            for (i, a) in admitted.iter().enumerate() {
+                for b in admitted.iter().skip(i + 1) {
+                    let a_atoms = self.provider_atoms(&a.unit_id, &a.revision, &a.artifact_digest)?;
+                    let b_atoms = self.provider_atoms(&b.unit_id, &b.revision, &b.artifact_digest)?;
+                    if let Some(reason) = atomic_conflict(&a_atoms, &b_atoms) {
+                        coexisting = false;
+                        conflict = Some(format!(
+                            "{} and {} conflict: {reason}",
+                            a.unit_id, b.unit_id
+                        ));
+                        break;
+                    }
+                }
+                if conflict.is_some() {
+                    break;
+                }
+            }
+        }
+
+        // Select: first admitted + enabled provider.
+        let selected = providers.iter().position(|provider| {
+            provider.enabled
+                && provider
+                    .adoption
+                    .as_ref()
+                    .is_none_or(|ca| ca.accepts(&provider.artifact_digest))
+        });
+
+        Ok(MacroSlot {
+            macro_id: macro_id.to_string(),
+            contract: contract.clone(),
+            providers: providers.to_vec(),
+            selected,
+            coexisting,
+            conflict,
+        })
+    }
+
+    /// Read the atomic capabilities a version declares.
+    fn provider_atoms(
+        &self,
+        unit_id: &str,
+        revision: &str,
+        digest: &Digest,
+    ) -> Result<Vec<AtomicCapability>> {
+        let fact = self.retained_unit_fact(unit_id, revision, digest)?;
+        match fact {
+            Some(f) => {
+                let decl = declared_package_capabilities(&f.descriptor)?;
+                Ok(decl
+                    .capabilities()
+                    .map(|c| c.normalized().atoms)
+                    .unwrap_or_default())
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// Walk a distribution's declarations and return the complete projection.
+    ///
+    /// Target-access expectations replace the kernel's `NAMED_TARGETS` const
+    /// table (SPEC §51.3). Preinstalled macros name the metapackages the
+    /// distribution ships by design. Capability-provider defaults name the
+    /// replaceable provider selections. All are declarations — facts about the
+    /// distribution version, never grants of local readiness.
+    fn query_distribution(&self, unit_id: &str) -> Result<Value> {
+        let unit = self
+            .installed_unit(unit_id)?
+            .with_context(|| format!("UNIT_NOT_FOUND: {unit_id} is not installed on this node"))?;
+        let body = declared_distribution(&unit.descriptor)?
+            .with_context(|| format!("UNIT_NOT_DISTRIBUTION: {unit_id} does not declare a distribution body"))?;
+
+        let declared_by = DeclaredBy {
+            unit_id: unit.unit_id.clone(),
+            revision: unit.revision.clone(),
+            artifact_digest: unit.artifact_digest.clone(),
+        };
+
+        // Each target-access expectation carries its provenance.
+        let mut targets: Vec<Value> = Vec::new();
+        for expectation in &body.targets {
+            let access = DeclaredTargetAccess {
+                expectation: expectation.clone(),
+                declared_by: declared_by.clone(),
+            };
+            targets.push(serde_json::to_value(&access)?);
+        }
+
+        // Resolve preinstalled macros.
+        let mut macros: Vec<Value> = Vec::new();
+        for macro_spec in &body.macros {
+            let installed = self.installed_unit(&macro_spec.unit_id)?.is_some();
+            let is_metapackage = self
+                .installed_unit(&macro_spec.unit_id)?
+                .is_some_and(|u| u.descriptor.kind == UnitKind::Metapackage);
+            macros.push(json!({
+                "macro_id": macro_spec.unit_id,
+                "parallel": macro_spec.parallel,
+                "design_dependency": macro_spec.design_dependency,
+                "installed": installed,
+                "is_metapackage": is_metapackage,
+            }));
+        }
+
+        // Resolve capability-provider defaults.
+        let mut capability_defaults: Vec<Value> = Vec::new();
+        for default in &body.capability_providers {
+            let provider_installed = self.installed_unit(&default.unit_id)?.is_some();
+            let provides = self
+                .installed_unit(&default.unit_id)?
+                .is_some_and(|u| u.descriptor.provides_contract(&default.contract));
+            capability_defaults.push(json!({
+                "contract": default.contract.text(),
+                "provider_unit_id": default.unit_id,
+                "installed": provider_installed,
+                "declares_providing": provides,
+            }));
+        }
+
+        Ok(json!({
+            "unit_id": unit_id,
+            "kind": "distribution",
+            "revision": unit.revision,
+            "artifact_digest": unit.artifact_digest,
+            "targets": targets,
+            "macros": macros,
+            "capability_providers": capability_defaults,
+        }))
+    }
+
+    /// Resolve one named capability-contract slot across installed providers.
+    fn query_slot(&self, macro_id: &str, contract_text: &str) -> Result<Value> {
+        let contract = CapabilityContract::parse(contract_text)?;
+        let unit = self
+            .installed_unit(macro_id)?
+            .with_context(|| format!("UNIT_NOT_FOUND: {macro_id} is not installed on this node"))?;
+        let body = declared_metapackage(&unit.descriptor)?
+            .with_context(|| format!("UNIT_NOT_METAPACKAGE: {macro_id} does not declare a metapackage body"))?;
+
+        // Collect members that name this contract.
+        let adoption_projection = UnitAdoptionProjection::new(&self.conn);
+        let mut providers: Vec<MemberSelection> = Vec::new();
+        for spec in &body.members {
+            if spec.contract.as_ref() != Some(&contract) {
+                continue;
+            }
+            let installed = self.installed_unit(&spec.member_id)?;
+            let Some(member_unit) = installed else {
+                continue;
+            };
+            let needs_adoption = member_unit.descriptor.kind.is_content()
+                || spec.adoption == MemberAdoption::Attested;
+            let adoption_result = if needs_adoption {
+                adoption_projection.adoption(
+                    &spec.member_id,
+                    &member_unit.revision,
+                    &member_unit.artifact_digest,
+                )?
+            } else {
+                None
+            };
+            let (readiness, _) = self.readiness_of(&member_unit)?;
+            providers.push(MemberSelection {
+                unit_id: spec.member_id.clone(),
+                revision: member_unit.revision.clone(),
+                artifact_digest: member_unit.artifact_digest.clone(),
+                member_kind: member_unit.descriptor.kind,
+                adoption: adoption_result,
+                enabled: member_unit.enabled,
+                readiness,
+            });
+        }
+
+        let slot = self.build_macro_slot(macro_id, &contract, &providers)?;
+        Ok(serde_json::to_value(slot)?)
+    }
+
+    /// Walk the retained, resolved dependency closure of the requested roots.
+    ///
+    /// Only selections this node actually recorded are followed: an edge the
+    /// inventory left unresolved is a refusal, not something the planner
+    /// guesses at. Recommended dependencies join the environment when they
+    /// resolve and are dropped when they do not.
+    fn plan_environment(
+        &self,
+        roots: &[EnvironmentRoot],
+    ) -> Result<(Vec<String>, Vec<EnvironmentMember>)> {
+        ensure!(
+            !roots.is_empty(),
+            "UNIT_ENVIRONMENT_EMPTY: an environment needs at least one root unit"
+        );
+        ensure!(
+            roots.len() <= MAX_ENVIRONMENT_ROOTS,
+            "UNIT_ENVIRONMENT_ROOTS: at most {MAX_ENVIRONMENT_ROOTS} roots"
+        );
+        let mut root_ids: Vec<String> = Vec::new();
+        let mut queue: Vec<(InstalledUnit, EnvironmentRole)> = Vec::with_capacity(roots.len());
+        for root in roots {
+            let unit = self.root_environment_version(root)?;
+            ensure!(
+                !root_ids.contains(&unit.unit_id),
+                "UNIT_ENVIRONMENT_DUPLICATE_ROOT: {} is requested twice",
+                unit.unit_id
+            );
+            root_ids.push(unit.unit_id.clone());
+            queue.push((unit, EnvironmentRole::Root));
+        }
+        root_ids.sort();
+        let mut members: Vec<EnvironmentMember> = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
+        let mut index = 0usize;
+        while index < queue.len() {
+            ensure!(
+                members.len() <= MAX_ENVIRONMENT_MEMBERS,
+                "UNIT_ENVIRONMENT_TOO_LARGE: the closure exceeds {MAX_ENVIRONMENT_MEMBERS} members"
+            );
+            let (unit, role) = queue[index].clone();
+            index += 1;
+            // A unit reached twice is resolved by the second pass below: an
+            // explicit root pin outranks an older recorded selection, and the
+            // closure check afterwards is the authoritative verdict.
+            if members.iter().any(|member| member.unit_id == unit.unit_id) {
+                continue;
+            }
+            members.push(EnvironmentMember {
+                unit_id: unit.unit_id.clone(),
+                revision: unit.revision.clone(),
+                artifact_digest: unit.artifact_digest.clone(),
+                role,
+                edges: unit.edges.clone(),
+                declarations: declared_package_capabilities(&unit.descriptor)?,
+            });
+            for spec in &unit.descriptor.dependencies {
+                let edge = unit.edges.iter().find(|edge| edge_matches_spec(edge, spec));
+                let selected = selection_of(edge);
+                let dependency = match selected {
+                    Some((unit_id, revision, digest)) => {
+                        self.installed_unit_version(&unit_id, &revision, &digest)?
+                    }
+                    None => None,
+                };
+                let Some(dependency) = dependency else {
+                    if spec.strength == DependencyStrength::Required {
+                        let reason = edge
+                            .map(|edge| edge.reason.clone())
+                            .filter(|reason| !reason.is_empty())
+                            .unwrap_or_else(|| {
+                                "no retained, resolved selection exists for this declaration"
+                                    .to_string()
+                            });
+                        problems.push(format!(
+                            "TOOL_DEPENDENCY_MISSING: {} revision {} edge {}: {}; resolve this exact version first",
+                            unit.unit_id, unit.revision, spec.edge_id, reason
+                        ));
+                    }
+                    continue;
+                };
+                if !selection_matches(
+                    spec,
+                    &dependency.unit_id,
+                    &dependency.revision,
+                    &dependency.artifact_digest,
+                    &dependency.descriptor.provides,
+                ) {
+                    if spec.strength == DependencyStrength::Required {
+                        problems.push(format!(
+                            "TOOL_DEPENDENCY_MISSING: {} revision {} edge {} keeps a selection that no longer satisfies its declaration",
+                            unit.unit_id, unit.revision, spec.edge_id
+                        ));
+                    }
+                    continue;
+                }
+                queue.push((dependency, EnvironmentRole::Dependency));
+            }
+        }
+        // Second pass: an explicit root pin outranks a selection recorded
+        // earlier, so a required declaration is re-solved onto the version
+        // this environment actually pins — but only onto a member that still
+        // satisfies the declaration. Nothing is invented: a declaration no
+        // member satisfies keeps its recorded selection, and the closure check
+        // below reports it.
+        for index in 0..members.len() {
+            let specs = {
+                let member = &members[index];
+                let Some(unit) = self.installed_unit_version(
+                    &member.unit_id,
+                    &member.revision,
+                    &member.artifact_digest,
+                )?
+                else {
+                    continue;
+                };
+                unit.descriptor.dependencies
+            };
+            for spec in specs
+                .iter()
+                .filter(|spec| spec.strength == DependencyStrength::Required)
+            {
+                let member = &members[index];
+                let current = member
+                    .edges
+                    .iter()
+                    .find(|edge| edge_matches_spec(edge, spec))
+                    .and_then(|edge| selection_of(Some(edge)));
+                let already_pinned = current.as_ref().is_some_and(
+                    |(unit_id, revision, digest)| {
+                        members.iter().any(|other| {
+                            &other.unit_id == unit_id
+                                && &other.revision == revision
+                                && &other.artifact_digest == digest
+                        })
+                    },
+                );
+                if already_pinned {
+                    continue;
+                }
+                let mut best: Option<(String, String, Digest)> = None;
+                for candidate in &members {
+                    let Some(candidate_unit) = self.installed_unit_version(
+                        &candidate.unit_id,
+                        &candidate.revision,
+                        &candidate.artifact_digest,
+                    )?
+                    else {
+                        continue;
+                    };
+                    if !selection_matches(
+                        spec,
+                        &candidate_unit.unit_id,
+                        &candidate_unit.revision,
+                        &candidate_unit.artifact_digest,
+                        &candidate_unit.descriptor.provides,
+                    ) {
+                        continue;
+                    }
+                    let better = match &best {
+                        None => true,
+                        Some(previous) => {
+                            compare_versions(&candidate.revision, &previous.1) == Ordering::Greater
+                        }
+                    };
+                    if better {
+                        best = Some((
+                            candidate.unit_id.clone(),
+                            candidate.revision.clone(),
+                            candidate.artifact_digest.clone(),
+                        ));
+                    }
+                }
+                let Some((unit_id, revision, digest)) = best else {
+                    continue;
+                };
+                let member = &mut members[index];
+                if let Some(edge) = member
+                    .edges
+                    .iter_mut()
+                    .find(|edge| edge_matches_spec(&**edge, spec))
+                {
+                    edge.status = EdgeStatus::Satisfied;
+                    edge.selected_unit_id = Some(unit_id);
+                    edge.selected_revision = Some(revision);
+                    edge.selected_artifact_digest = Some(digest);
+                    edge.reason =
+                        "re-solved to the version this environment pins".to_string();
+                }
+            }
+        }
+        problems.extend(self.environment_closure_problems(&members)?);
+        if !problems.is_empty() {
+            bail!("{}", environment_problems(problems));
+        }
+        members.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
+        Ok((root_ids, members))
+    }
+
+    fn root_environment_version(&self, root: &EnvironmentRoot) -> Result<InstalledUnit> {
+        let unit = match (&root.revision, &root.artifact_digest) {
+            (Some(revision), Some(digest)) => {
+                self.installed_unit_version(&root.unit_id, revision, digest)?
+            }
+            (Some(revision), None) => {
+                let retained: Vec<InstalledUnit> = self
+                    .retained_unit_versions(&root.unit_id)?
+                    .into_iter()
+                    .filter(|unit| unit.revision.as_str() == revision.as_str())
+                    .collect();
+                ensure!(
+                    retained.len() <= 1,
+                    "UNIT_ENVIRONMENT_AMBIGUOUS: {} revision {} is retained with {} different artifact digests; pin one by digest",
+                    root.unit_id,
+                    revision,
+                    retained.len()
+                );
+                retained.into_iter().next()
+            }
+            (None, None) => self.installed_unit(&root.unit_id)?,
+            (None, Some(_)) => bail!(
+                "UNIT_ENVIRONMENT_INVALID: {} pins an artifact digest without a revision",
+                root.unit_id
+            ),
+        };
+        unit.with_context(|| {
+            format!(
+                "UNIT_ENVIRONMENT_ROOT_MISSING: {} is not retained on this node",
+                root.unit_id
+            )
+        })
+    }
+
+    /// Every required declaration of every member must land on exactly the pin
+    /// this environment records. Preparation and activation share this
+    /// predicate, so a prepared closure is never activated under a weaker
+    /// check than the one that admitted it.
+    fn environment_closure_problems(
+        &self,
+        members: &[EnvironmentMember],
+    ) -> Result<Vec<String>> {
+        let mut problems = Vec::new();
+        for member in members {
+            // The frozen declaration is admitted here as well: preparation and
+            // activation share this predicate, so a generation can never be
+            // published under a weaker declaration check than the one that
+            // prepared it, and a malformed declaration names its member
+            // instead of surfacing later inside a guest run.
+            if let Some(capabilities) = member.declarations.capabilities() {
+                if let Err(error) = capabilities.validate() {
+                    problems.push(format!(
+                        "{} revision {}: {error:#}",
+                        member.unit_id, member.revision
+                    ));
+                }
+            }
+            let Some(unit) = self.installed_unit_version(
+                &member.unit_id,
+                &member.revision,
+                &member.artifact_digest,
+            )? else {
+                problems.push(format!(
+                    "TOOL_GENERATION_STALE: {} revision {} ({}) is no longer retained on this node",
+                    member.unit_id, member.revision, member.artifact_digest
+                ));
+                continue;
+            };
+            // The declarations are the unit version's own; the *selections*
+            // are the ones this generation locked. A later re-resolution of
+            // the retained unit version does not rewrite this closure.
+            for spec in unit
+                .descriptor
+                .dependencies
+                .iter()
+                .filter(|spec| spec.strength == DependencyStrength::Required)
+            {
+                let edge = member.edges.iter().find(|edge| edge_matches_spec(edge, spec));
+                let Some((unit_id, revision, digest)) = selection_of(edge) else {
+                    problems.push(format!(
+                        "TOOL_DEPENDENCY_MISSING: {} revision {} edge {} has no retained, satisfied selection",
+                        member.unit_id, member.revision, spec.edge_id
+                    ));
+                    continue;
+                };
+                let pinned = members.iter().find(|other| other.unit_id == unit_id);
+                match pinned {
+                    Some(pinned)
+                        if pinned.revision == revision && pinned.artifact_digest == digest => {}
+                    Some(pinned) => {
+                        problems.push(format!(
+                            "TOOL_DEPENDENCY_CONFLICT: {} revision {} requires {} revision {} ({}) but the environment pins {} ({})",
+                            member.unit_id,
+                            member.revision,
+                            unit_id,
+                            revision,
+                            digest,
+                            pinned.revision,
+                            pinned.artifact_digest
+                        ));
+                        continue;
+                    }
+                    None => {
+                        problems.push(format!(
+                            "TOOL_DEPENDENCY_MISSING: {} revision {} requires {} revision {} which the environment does not contain",
+                            member.unit_id, member.revision, unit_id, revision
+                        ));
+                        continue;
+                    }
+                }
+                // A capability selector must still be satisfied by the
+                // dependency's actual `provides`, not only by its identity.
+                let Some(dependency) = self.installed_unit_version(&unit_id, &revision, &digest)?
+                else {
+                    problems.push(format!(
+                        "TOOL_GENERATION_STALE: {} revision {} ({}) is no longer retained on this node",
+                        unit_id, revision, digest
+                    ));
+                    continue;
+                };
+                if !selection_matches(
+                    spec,
+                    &dependency.unit_id,
+                    &dependency.revision,
+                    &dependency.artifact_digest,
+                    &dependency.descriptor.provides,
+                ) {
+                    problems.push(format!(
+                        "TOOL_DEPENDENCY_MISSING: {} revision {} edge {} selects {} revision {}, which no longer satisfies its declaration",
+                        member.unit_id, member.revision, spec.edge_id, unit_id, revision
+                    ));
+                }
+            }
+        }
+        Ok(problems)
+    }
+
+    /// The unit's own bytes must be held before a generation that pins them is
+    /// published. For an inline tool this object is the module; for an
+    /// out-of-line tool it is the pointer document, and the module chunks live
+    /// in the installation's content store, which the executor re-verifies per
+    /// run.
+    fn ensure_environment_member_bytes(&self, member: &EnvironmentMember) -> Result<()> {
+        let present: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE digest=?1)",
+            params![member.artifact_digest.0],
+            |r| r.get(0),
+        )?;
+        ensure!(
+            present,
+            "TOOL_ARTIFACT_UNAVAILABLE: {} revision {}: this installation's object store does not hold the pinned unit bytes",
+            member.unit_id, member.revision
+        );
+        Ok(())
     }
 
     /// Read-only access to a retained package's exact bytes, digest-verified.
@@ -2574,6 +5492,9 @@ impl Node {
             rows
         {
             cursor = seq as u64;
+            // The classification is the node's own reading of the attempt,
+            // so a reader never has to re-derive it from the raw evidence.
+            let classified = Self::trial_attempt_facts(&self.conn, &attempt)?;
             entries.push(json!({
                 "seq": seq.to_string(),
                 "attempt_id": attempt,
@@ -2584,6 +5505,9 @@ impl Node {
                 "started_at": started,
                 "finished_at": finished,
                 "outcome": outcome,
+                "measurement": classified.as_ref().map(|facts| facts.measurement.as_str()),
+                "scored": classified.as_ref().map(|facts| facts.scored),
+                "planned_slots": classified.as_ref().and_then(|facts| facts.planned_slots),
                 "evidence": serde_json::from_str::<Value>(&data)?,
             }));
         }
@@ -2818,6 +5742,12 @@ impl Node {
     /// The decision is stored under the unit's own configuration as a
     /// recorded fact. The node never derives a decision from the unit's
     /// text and never requires one: an unjudged unit stays unjudged.
+    ///
+    /// The record is an attitude about one immutable content revision: it
+    /// names the artifact digest, the reason pointers the caller cited and
+    /// how far that reason reaches. Its confidence is what the subject
+    /// stated; absent means unknown, and this node never supplies a default
+    /// number.
     fn unit_record_adoption(
         &mut self,
         unit_id: &str,
@@ -2826,6 +5756,7 @@ impl Node {
         decision: AdoptionDecision,
         method: AdoptionMethod,
         evidence: &[AdoptionEvidence],
+        confidence: Option<f64>,
         notes: Option<&str>,
         enable: Option<bool>,
     ) -> Result<Value> {
@@ -2833,6 +5764,15 @@ impl Node {
             evidence.len() <= MAX_EDGES,
             "adoption evidence count out of bounds"
         );
+        if let Some(confidence) = confidence {
+            // This node records the number the subject stated. It supplies no
+            // scale and no range of its own: a bound here would be a reading
+            // of the subject's confidence that the subject never made.
+            ensure!(
+                confidence.is_finite(),
+                "the stated confidence must be a finite number; an unjudged subject states nothing and is recorded as unknown"
+            );
+        }
         if let Some(notes) = notes {
             ensure!(notes.len() <= MAX_TEXT_BYTES, "adoption notes exceed the text bound");
         }
@@ -2864,7 +5804,10 @@ impl Node {
         // measurement produced them, so it can never carry empirical
         // acceptance.
         let mut resolved: Vec<Value> = Vec::new();
-        let mut trial_backed = false;
+        // What the cited trials can carry, strongest first. A citation that
+        // resolved to a recorded run is not the same fact as one that
+        // resolved to a measurement, and the record says which it was.
+        let mut measurement: Option<AttemptMeasurement> = None;
         for item in evidence {
             match item {
                 AdoptionEvidence::TrialAttempt { attempt_id } => {
@@ -2875,38 +5818,69 @@ impl Node {
                     );
                     let facts = Self::trial_attempt_facts(&tx, attempt_id)?;
                     let Some(facts) = facts else {
-                        bail!("adoption evidence names a trial attempt this node never opened");
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::AttemptNotOpened,
+                            "adoption evidence names a trial attempt this node never opened",
+                        ));
                     };
-                    ensure!(
-                        facts.unit_id == unit_id
-                            && facts.revision == revision
-                            && facts.artifact_digest == *artifact_digest,
-                        "adoption evidence names a trial attempt of a different unit version"
-                    );
-                    ensure!(
-                        facts.state == "finished",
-                        "adoption evidence names a trial attempt that never reached a terminal state"
-                    );
-                    let plan_digest = match facts.plan_digest {
-                        Some(digest) => digest,
-                        None => bail!("the trial attempt carries no bound plan"),
-                    };
-                    trial_backed = true;
+                    if facts.unit_id != unit_id
+                        || facts.revision != revision
+                        || facts.artifact_digest != *artifact_digest
+                    {
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::AttemptOfOtherVersion,
+                            "adoption evidence names a trial attempt of a different unit version",
+                        ));
+                    }
+                    // An attempt that was opened and never closed records no
+                    // terminal fact, so citing it claims a measurement that
+                    // does not exist. A closed attempt with no authenticated
+                    // measurement is citable — the subject may judge on what
+                    // it did not learn — but it never carries acceptance.
+                    if facts.measurement == AttemptMeasurement::Unexecuted {
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::AttemptNeverExecuted,
+                            "adoption evidence names a trial attempt that never executed: this node opened it but recorded no terminal trial fact, so it is not a measurement",
+                        ));
+                    }
+                    // A comparison attempt is bound by the plan digest it was
+                    // opened with. A command trial has no plan: what the node
+                    // probed around its run is the environment digest. An
+                    // attempt with neither carries no binding at all.
+                    if facts.plan_digest.is_none() && facts.environment_digest.is_none() {
+                        bail!("the trial attempt carries no bound plan or environment");
+                    }
+                    if facts.measurement.carries_measurement() {
+                        measurement = Some(match measurement {
+                            Some(AttemptMeasurement::Measured) => AttemptMeasurement::Measured,
+                            _ => facts.measurement,
+                        });
+                    } else {
+                        measurement.get_or_insert(facts.measurement);
+                    }
                     resolved.push(json!({
                         "kind": "trial_attempt",
                         "attempt_id": attempt_id,
                         "verified": true,
-                        "plan_digest": plan_digest,
+                        "plan_digest": facts.plan_digest,
+                        "environment_digest": facts.environment_digest,
+                        "outcome": facts.outcome,
+                        "measurement": facts.measurement.as_str(),
+                        "receipts": facts.receipts,
+                        "scored": facts.scored,
+                        "planned_slots": facts.planned_slots,
                         "bound_unit_id": facts.unit_id,
                         "bound_revision": facts.revision,
                         "bound_artifact_digest": facts.artifact_digest,
                     }));
                 }
                 AdoptionEvidence::StoredObservation { digest } => {
-                    ensure!(
-                        Self::observation_bound(&tx, &stored.unit, digest)?,
-                        "adoption evidence names an observation this node does not hold for this unit version"
-                    );
+                    if !Self::observation_bound(&tx, &stored.unit, digest)? {
+                        return Err(AdoptionEvidenceRejected::refusal(
+                            AdoptionEvidenceRejection::ObservationNotHeld,
+                            "adoption evidence names an observation this node does not hold for this unit version",
+                        ));
+                    }
                     resolved.push(json!({
                         "kind": "stored_observation",
                         "digest": digest.0,
@@ -2917,9 +5891,11 @@ impl Node {
             }
         }
         // The empirical flag says what the evidence can carry. An operator
-        // statement, or an observation without a trial attempt, records what
-        // was said; it never claims a measurement happened.
-        let empirical = trial_backed && method.is_empirical();
+        // statement, an observation, or a trial that recorded no measurement
+        // records what was said or attempted; none of them claims that a
+        // measurement happened.
+        let carried = measurement.is_some_and(|measurement| measurement.carries_measurement());
+        let empirical = carried && method.is_empirical();
         let adoption = json!({
             "decision": decision.as_str(),
             "method": method.as_str(),
@@ -2928,6 +5904,10 @@ impl Node {
                 .iter()
                 .all(|item| item.get("verified").and_then(Value::as_bool) == Some(true)),
             "empirical": empirical,
+            "measurement": measurement.map(|measurement| measurement.as_str()),
+            // The subject's own confidence, stated or unknown. It is never a
+            // number this node invented and never a reading of the evidence.
+            "confidence": confidence,
             "notes": notes,
             "recorded_at": recorded_at,
         });
@@ -2990,6 +5970,69 @@ impl Node {
             return Ok(None);
         };
         let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
+        let plan = stored.get("plan").filter(|plan| plan.is_object());
+        // The append-only trial row is the attempt's terminal fact. Its
+        // absence means the attempt was opened and never closed, so nothing
+        // about a run is recorded under it.
+        let trial: Option<(String, String, String)> = conn
+            .prepare(
+                "SELECT outcome,environment_digest,data FROM unit_trials WHERE attempt_id=?1 ORDER BY seq DESC LIMIT 1",
+            )?
+            .query_row(params![attempt_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .optional()?;
+        let (outcome, environment_digest, receipts, scored, planned_slots, measurement) = match trial
+        {
+            None => (None, None, 0, 0, plan_slots(plan), AttemptMeasurement::Unexecuted),
+            Some((outcome, environment_digest, trial_data)) => {
+                let trial_data: Value =
+                    serde_json::from_str(&trial_data).unwrap_or_else(|_| json!({}));
+                let receipts = trial_data
+                    .get("receipts")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
+                match plan {
+                    // A comparison attempt is measured by the receipts its
+                    // own run wrote for the slots its own plan named. The
+                    // outcome word is not what makes it a measurement.
+                    Some(plan) => {
+                        let planned_slots = plan_slots(Some(plan));
+                        let scored = scored_receipts(plan, &trial_data);
+                        let measurement = if scored == 0 {
+                            AttemptMeasurement::Inconclusive
+                        } else if planned_slots.is_none_or(|planned| scored as u64 >= planned) {
+                            AttemptMeasurement::Measured
+                        } else {
+                            AttemptMeasurement::Partial
+                        };
+                        (
+                            Some(outcome),
+                            Some(environment_digest),
+                            receipts as u64,
+                            scored as u64,
+                            planned_slots,
+                            measurement,
+                        )
+                    }
+                    // A command trial has no plan slots: its measurement is
+                    // the execution fact the run recorded.
+                    None => {
+                        let measurement = if command_ran(&trial_data) {
+                            AttemptMeasurement::Measured
+                        } else {
+                            AttemptMeasurement::Inconclusive
+                        };
+                        (
+                            Some(outcome),
+                            Some(environment_digest),
+                            0,
+                            0,
+                            None,
+                            measurement,
+                        )
+                    }
+                }
+            }
+        };
         Ok(Some(TrialAttemptFacts {
             unit_id,
             revision,
@@ -3001,7 +6044,29 @@ impl Node {
                 .get("plan_digest")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            outcome,
+            environment_digest,
+            receipts,
+            scored,
+            planned_slots,
+            measurement,
         }))
+    }
+
+    /// The plan one attempt was opened with, when it carries one.
+    fn attempt_plan(conn: &Connection, attempt_id: &str) -> Result<Option<Value>> {
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM unit_attempts WHERE attempt_id=?1",
+                params![attempt_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else {
+            return Ok(None);
+        };
+        let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
+        Ok(stored.get("plan").filter(|plan| plan.is_object()).cloned())
     }
 
     /// Whether this node holds the observation bytes and binds them to this
@@ -3126,6 +6191,20 @@ impl Node {
                 receipt.get("digest").and_then(Value::as_str).is_some(),
                 "a trial receipt must name the digest of the fact it carries"
             );
+        }
+        // A comparison attempt's receipts are facts about the sample slots
+        // its own plan named. When the plan names slots, a receipt outside
+        // them was never produced by this attempt's run, so accepting it
+        // would let a caller hand the node a measurement it did not make.
+        if let Some(plan) = Self::attempt_plan(&self.conn, attempt_id)? {
+            if plan_slots(Some(&plan)).is_some() {
+                for receipt in receipts {
+                    ensure!(
+                        receipt_in_plan(&plan, receipt),
+                        "a trial receipt does not belong to a sample slot this attempt's plan named"
+                    );
+                }
+            }
         }
         let facts = Self::trial_attempt_facts(&self.conn, attempt_id)?
             .context("this node never opened that trial attempt")?;
@@ -3385,7 +6464,11 @@ impl Node {
     /// The retained versions of one unit and their supersession relations.
     fn unit_lineage(&self, unit_id: &str) -> Result<Value> {
         let facts = self.retained_unit_facts(unit_id)?;
-        ensure!(!facts.is_empty(), "unit is not installed on this node");
+        let removed = self.removed_unit_facts(unit_id)?;
+        ensure!(
+            !facts.is_empty() || !removed.is_empty(),
+            "unit is not installed on this node"
+        );
         Ok(json!({
             "unit_id": unit_id,
             "current": facts
@@ -3397,6 +6480,322 @@ impl Node {
                     "enabled": fact.enabled,
                 })),
             "versions": facts,
+            "removed": removed,
+        }))
+    }
+
+    /// The durable removal facts of one unit's versions.
+    pub fn removed_unit_facts(&self, unit_id: &str) -> Result<Vec<RemovedVersionFact>> {
+        let rows: Vec<(String, String, String, String, String, String)> = self
+            .conn
+            .prepare(
+                "SELECT unit_id,revision,artifact_digest,removed_at,reason,data \
+                 FROM unit_removals WHERE unit_id=?1 ORDER BY seq",
+            )?
+            .query_map([unit_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut facts = Vec::new();
+        for (unit_id, revision, digest, removed_at, reason, data) in rows {
+            let stored: Value = serde_json::from_str(&data)?;
+            facts.push(RemovedVersionFact {
+                unit_id,
+                revision,
+                artifact_digest: Digest(digest),
+                removed_at,
+                reason,
+                was_current: stored.get("was_current").and_then(Value::as_bool).unwrap_or(false),
+                was_enabled: stored.get("was_enabled").and_then(Value::as_bool).unwrap_or(false),
+                replacement: stored
+                    .get("replacement")
+                    .filter(|value| !value.is_null())
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?,
+                materialization: stored
+                    .get("materialization")
+                    .filter(|value| !value.is_null())
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?,
+                files_retired: string_list(stored.get("files_retired")),
+                files_retained: stored
+                    .get("files_retained")
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?
+                    .unwrap_or_default(),
+                artifact_retained: stored
+                    .get("artifact_retained")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                evidence_retained: stored
+                    .get("evidence_retained")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                adoption: stored.get("adoption").filter(|value| !value.is_null()).cloned(),
+            });
+        }
+        Ok(facts)
+    }
+
+    /// Withdraw one installed version from this node.
+    ///
+    /// The removal is one immediate transaction: the version's closure
+    /// dependents, a still-running trial and the requested successor are
+    /// checked under the write lock, the version, its edges and its
+    /// materialization record leave the live tables, the archived rows keep
+    /// the descriptor and its evidence, and one append-only removal fact
+    /// explains the gap. The package directory is retired inside the same
+    /// transaction; a directory this node did not canonicalize for exactly
+    /// this version is reported, never deleted. A crash after the directory
+    /// is gone but before the commit leaves the record in place, and the next
+    /// execution re-verifies the artifact instead of trusting it.
+    fn unit_uninstall(
+        &mut self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: Option<&Digest>,
+        reason: &str,
+        activate: Option<&UnitActivation>,
+    ) -> Result<Value> {
+        ensure!(
+            !unit_id.is_empty() && unit_id.len() <= 128,
+            "invalid unit identity"
+        );
+        ensure!(
+            !revision.is_empty() && revision.len() <= 128,
+            "invalid unit revision"
+        );
+        ensure!(
+            !reason.trim().is_empty() && reason.len() <= MAX_TEXT_BYTES,
+            "an uninstall reason is required and bounded"
+        );
+        let removed_at = now();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let digests: Vec<String> = tx
+            .prepare(
+                "SELECT artifact_digest FROM unit_versions \
+                 WHERE unit_id=?1 AND revision=?2 ORDER BY artifact_digest",
+            )?
+            .query_map(params![unit_id, revision], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ensure!(
+            !digests.is_empty(),
+            "unit version is not retained on this node"
+        );
+        let digest = match artifact_digest {
+            Some(digest) => {
+                ensure!(
+                    digests.iter().any(|stored| stored == &digest.0),
+                    "unit revision does not retain the requested artifact digest"
+                );
+                digest.clone()
+            }
+            None => {
+                ensure!(
+                    digests.len() == 1,
+                    "unit revision retains several artifacts; name the artifact digest"
+                );
+                Digest(digests[0].clone())
+            }
+        };
+        // Withdrawing a version that a retained closure still selects would
+        // silently turn a satisfied edge into a gap. Report the dependents and
+        // leave the graph alone.
+        let dependents = dependent_edges(&tx, unit_id, revision, &digest)?;
+        ensure!(
+            dependents.is_empty(),
+            "UNIT_IN_USE:{}@{}: retained units still depend on this version: {}",
+            unit_id,
+            revision,
+            dependents.join(",")
+        );
+        // A running trial owns the version's process and evidence. The attempt
+        // must settle first; uninstall never kills or replays it.
+        let running: Option<String> = tx
+            .query_row(
+                "SELECT attempt_id FROM unit_attempts \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 \
+                   AND state IN ('trial_open','prepared','spawning','running') \
+                 ORDER BY started_at LIMIT 1",
+                params![unit_id, revision, digest.0],
+                |r| r.get(0),
+            )
+            .optional()?;
+        ensure!(
+            running.is_none(),
+            "UNIT_TRIAL_IN_PROGRESS:{}@{}: trial attempt {} still owns this version",
+            unit_id,
+            revision,
+            running.unwrap_or_default()
+        );
+        let current: Option<(String, String, i64)> = tx
+            .query_row(
+                "SELECT revision,artifact_digest,enabled FROM unit_current WHERE unit_id=?1",
+                [unit_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let was_current = current
+            .as_ref()
+            .is_some_and(|(current_revision, stored, _)| {
+                current_revision == revision && stored == &digest.0
+            });
+        let was_enabled = was_current
+            && current
+                .as_ref()
+                .is_some_and(|(_, _, enabled)| *enabled != 0);
+        if let Some(activation) = activate {
+            ensure!(
+                was_current,
+                "activate names a successor but the withdrawn version is not the current one"
+            );
+            ensure!(
+                activation.revision != revision || activation.artifact_digest != digest,
+                "activate must name a version other than the withdrawn one"
+            );
+            let retained: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM unit_versions \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3)",
+                params![unit_id, activation.revision, activation.artifact_digest.0],
+                |r| r.get(0),
+            )?;
+            ensure!(
+                retained,
+                "activate names a version this node does not retain"
+            );
+        }
+        let stored_data: String = tx.query_row(
+            "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+            |r| r.get(0),
+        )?;
+        let stored: StoredVersion = serde_json::from_str(&stored_data)?;
+        let materialization: Option<MaterializationFact> = tx
+            .query_row(
+                "SELECT root,path,state,detail FROM unit_materializations \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit_id, revision, digest.0],
+                |r| {
+                    Ok(MaterializationFact {
+                        root: r.get(0)?,
+                        path: r.get(1)?,
+                        state: r.get(2)?,
+                        detail: r.get(3)?,
+                    })
+                },
+            )
+            .optional()?;
+        let mut files_retired: Vec<String> = Vec::new();
+        let mut files_retained: Vec<RetainedPath> = Vec::new();
+        if let Some(materialization) = &materialization {
+            retire_package_directory(
+                materialization,
+                unit_id,
+                revision,
+                &digest,
+                &mut files_retired,
+                &mut files_retained,
+            )?;
+        }
+        let archived_edges: i64 = tx.query_row(
+            "SELECT count(*) FROM unit_edges \
+             WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO unit_version_history(unit_id,revision,artifact_digest,imported_at,data) \
+             SELECT unit_id,revision,artifact_digest,imported_at,data FROM unit_versions \
+             WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "INSERT INTO unit_edge_history(unit_id,revision,artifact_digest,edge_id,data) \
+             SELECT unit_id,revision,artifact_digest,edge_id,data FROM unit_edges \
+             WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "DELETE FROM unit_edges WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "DELETE FROM unit_materializations WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "DELETE FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        if was_current {
+            match activate {
+                Some(activation) => {
+                    tx.execute(
+                        "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
+                         VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id) DO UPDATE SET \
+                         revision=excluded.revision,artifact_digest=excluded.artifact_digest,\
+                         enabled=excluded.enabled,updated_at=excluded.updated_at",
+                        params![
+                            unit_id,
+                            activation.revision,
+                            activation.artifact_digest.0,
+                            i64::from(was_enabled),
+                            removed_at
+                        ],
+                    )?;
+                }
+                None => {
+                    tx.execute("DELETE FROM unit_current WHERE unit_id=?1", [unit_id])?;
+                }
+            }
+        }
+        let evidence = json!({
+            "was_current": was_current,
+            "was_enabled": was_enabled,
+            "replacement": activate,
+            "materialization": materialization,
+            "files_retired": files_retired,
+            "files_retained": files_retained,
+            "artifact_retained": true,
+            "evidence_retained": true,
+            // The adoption decision lived in the archived descriptor; it is
+            // reported here so a caller does not have to guess whether an
+            // earlier judgement existed.
+            "adoption": stored.unit.config.pointer("/cognition/adoption").cloned(),
+            "archived_edges": archived_edges.to_string(),
+        });
+        tx.execute(
+            "INSERT INTO unit_removals(unit_id,revision,artifact_digest,removed_at,reason,data) \
+             VALUES(?1,?2,?3,?4,?5,?6)",
+            params![
+                unit_id,
+                revision,
+                digest.0,
+                removed_at,
+                reason,
+                serde_json::to_string(&evidence)?
+            ],
+        )?;
+        let removal_seq = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(json!({
+            "unit_id": unit_id,
+            "revision": revision,
+            "artifact_digest": digest,
+            "removed": true,
+            "removal_seq": removal_seq.to_string(),
+            "was_current": was_current,
+            "was_enabled": was_enabled,
+            "replacement": activate,
+            // The receipt repeats what the durable row already holds.
+            "materialization": evidence.get("materialization").cloned().unwrap_or(Value::Null),
+            "files_retired": evidence.get("files_retired").cloned().unwrap_or(json!([])),
+            "files_retained": evidence.get("files_retained").cloned().unwrap_or(json!([])),
+            "artifact_retained": true,
+            "evidence_retained": true,
+            "note": "the version left discovery; its bytes, trial attempts, observations and adoption stay readable",
         }))
     }
 
@@ -3933,6 +7332,90 @@ impl Node {
 
 // ------------------------------------------------------------- helpers -----
 
+/// The sample slots a comparison plan named: one candidate and one control
+/// run per scenario and repetition.
+///
+/// A plan that names no scenarios or no repetition count does not describe
+/// slots, so nothing in it can be called a complete measurement.
+fn plan_slots(plan: Option<&Value>) -> Option<u64> {
+    let plan = plan?;
+    let scenarios = plan.get("scenarios")?.as_array()?;
+    let trials = plan.get("trials_per_condition")?.as_u64()?;
+    (scenarios.len() as u64).checked_mul(trials)?.checked_mul(2)
+}
+
+/// Whether one receipt names a sample slot the plan named.
+fn receipt_in_plan(plan: &Value, receipt: &Value) -> bool {
+    let Some(scenarios) = plan.get("scenarios").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(trials) = plan.get("trials_per_condition").and_then(Value::as_u64) else {
+        return false;
+    };
+    let Some(name) = receipt.get("scenario").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(condition) = receipt.get("condition").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(trial) = receipt.get("trial").and_then(Value::as_u64) else {
+        return false;
+    };
+    matches!(condition, "candidate" | "control")
+        && trial < trials
+        && scenarios
+            .iter()
+            .any(|scenario| scenario.get("name").and_then(Value::as_str) == Some(name))
+}
+
+/// Receipts that are judge-scored facts of a slot the attempt's own plan
+/// named.
+///
+/// A receipt naming a sample the plan never asked for was not produced by
+/// this attempt's run, so it never counts as a scored sample.
+fn scored_receipts(plan: &Value, trial_data: &Value) -> usize {
+    trial_data
+        .get("receipts")
+        .and_then(Value::as_array)
+        .map(|receipts| {
+            receipts
+                .iter()
+                .filter(|receipt| {
+                    matches!(
+                        receipt.get("verdict").and_then(Value::as_str),
+                        Some("effective") | Some("ineffective")
+                    ) && receipt_in_plan(plan, receipt)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Whether a command trial's evidence records that its command really ran.
+///
+/// A command that could not be started still writes a trial fact, and an
+/// attempt retired without its owner leaves one with no output at all;
+/// neither records an execution. A real run leaves an exit status, a signal,
+/// or a deadline that produced output or signalled the process group.
+fn command_ran(evidence: &Value) -> bool {
+    let status = ["exit_code", "signal"]
+        .iter()
+        .any(|key| evidence.get(*key).is_some_and(|value| !value.is_null()));
+    if status {
+        return true;
+    }
+    let captured = |key: &str| {
+        evidence
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|text| !text.is_empty())
+    };
+    evidence.get("interrupted").and_then(Value::as_bool) == Some(true)
+        && (evidence.get("group_signalled").and_then(Value::as_bool) == Some(true)
+            || captured("stdout")
+            || captured("stderr"))
+}
+
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
@@ -4021,15 +7504,146 @@ fn declared_supersedes(descriptor: &UnitDescriptor) -> Vec<SupersededVersion> {
 fn ensure_unit_schema(conn: &rusqlite::Connection) -> Result<()> {
     let count: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN \
-         ('unit_versions','unit_version_history','unit_current','unit_edges','unit_edge_history','unit_edges_legacy','unit_materializations','unit_attempts','unit_trials')",
+         ('unit_versions','unit_version_history','unit_current','unit_edges','unit_edge_history','unit_edges_legacy','unit_materializations','unit_attempts','unit_trials','unit_removals')",
         [],
         |r| r.get(0),
     )?;
     ensure!(
-        count == 9,
+        count == 10,
         "node storage schema lacks the installation-unit tables; migrate the node storage schema first"
     );
     Ok(())
+}
+
+fn read_environment_document(conn: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))
+        .optional()?)
+}
+
+/// The documents stored under one environment key family, in key order — that
+/// is, in ascending generation or selector-revision order.
+fn environment_documents(
+    conn: &Connection,
+    pattern: &str,
+    limit: u32,
+) -> Result<Vec<(String, String)>> {
+    Ok(conn
+        .prepare("SELECT k,v FROM meta WHERE k GLOB ?1 ORDER BY k LIMIT ?2")?
+        .query_map(params![pattern, i64::from(limit)], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn read_environment_selector(conn: &Connection) -> Result<Option<EnvironmentSelector>> {
+    read_environment_document(conn, ENVIRONMENT_SELECTOR_KEY)?
+        .map(|data| {
+            serde_json::from_str(&data).context("stored environment selector is not readable")
+        })
+        .transpose()
+}
+
+fn read_environment_generation(
+    conn: &Connection,
+    generation: u64,
+) -> Result<Option<EnvironmentGeneration>> {
+    read_environment_document(conn, &environment_generation_key(generation))?
+        .map(|data| environment_generation_document(&data))
+        .transpose()
+}
+
+fn environment_generation_document(data: &str) -> Result<EnvironmentGeneration> {
+    serde_json::from_str(data).context("stored environment generation is not readable")
+}
+
+/// The highest generation this installation recorded, if any.
+fn latest_environment_generation(conn: &Connection) -> Result<Option<u64>> {
+    let key: Option<String> = conn
+        .query_row(
+            "SELECT k FROM meta WHERE k GLOB ?1 ORDER BY k DESC LIMIT 1",
+            [ENVIRONMENT_GENERATION_GLOB],
+            |r| r.get(0),
+        )
+        .optional()?;
+    key.map(|key| {
+        key.strip_prefix(ENVIRONMENT_GENERATION_PREFIX)
+            .and_then(|suffix| suffix.parse::<u64>().ok())
+            .context("recorded environment generation key is not readable")
+    })
+    .transpose()
+}
+
+/// The closure identity: blake3 over the canonical document (sorted roots and
+/// members). Two environments that pin the same versions have the same digest,
+/// whatever order the caller listed them in.
+fn environment_closure_digest(
+    roots: &[String],
+    members: &[EnvironmentMember],
+    version: u32,
+) -> Result<Digest> {
+    ensure!(
+        (1..=ENVIRONMENT_CLOSURE_VERSION).contains(&version),
+        "UNIT_ENVIRONMENT_CORRUPT: unknown closure digest version {version}"
+    );
+    let mut roots = roots.to_vec();
+    roots.sort();
+    let mut members = members.to_vec();
+    members.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
+    let mut documents = Vec::with_capacity(members.len());
+    for member in &members {
+        let mut document = json!({
+            "unit_id": member.unit_id,
+            "revision": member.revision,
+            "artifact_digest": member.artifact_digest.0,
+            "role": member.role.as_str(),
+        });
+        if version >= 2 {
+            let mut edges = member.edges.clone();
+            edges.sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
+            let object = document
+                .as_object_mut()
+                .context("closure member document is not an object")?;
+            object.insert("edges".into(), serde_json::to_value(&edges)?);
+            object.insert(
+                "declarations".into(),
+                declaration_document(&member.declarations),
+            );
+        }
+        documents.push(document);
+    }
+    let mut document = json!({
+        "schema": UNIT_ENVIRONMENT_SCHEMA,
+        "roots": roots,
+        "members": documents,
+    });
+    if version >= 2 {
+        document
+            .as_object_mut()
+            .context("closure document is not an object")?
+            .insert("closure_version".into(), json!(version));
+    }
+    Ok(Digest::blake3(&serde_json::to_vec(&document)?))
+}
+
+/// The canonical JSON one declaration is hashed and reported as. An
+/// unrecorded declaration is its own state, not an empty declaration.
+pub fn declaration_document(declarations: &PackageDeclaration) -> Value {
+    match declarations.capabilities() {
+        Some(capabilities) => json!({
+            "state": "declared",
+            "capabilities": capabilities.normalized(),
+        }),
+        None => json!({"state": "unrecorded"}),
+    }
+}
+
+/// A refusal that names every problem once, in a stable order, instead of one
+/// arbitrary first failure.
+fn environment_problems(mut problems: Vec<String>) -> String {
+    problems.sort();
+    problems.dedup();
+    problems.join("; ")
 }
 
 fn archive_edge(tx: &rusqlite::Transaction<'_>, unit_id: &str, revision: &str, digest: &str, edge_id: &str) -> Result<()> {
@@ -4042,27 +7656,62 @@ fn archive_edge(tx: &rusqlite::Transaction<'_>, unit_id: &str, revision: &str, d
     Ok(())
 }
 
+/// One installed unit version a dependency declaration can resolve against.
+///
+/// A candidate carries what resolution actually decides on: the identity, the
+/// declared `provides` entries (topic names and typed capability contracts) and
+/// the atomic capabilities the version uses. `enabled` is a local fact of this
+/// node and never travels with a package.
+#[derive(Clone, Debug)]
+struct Candidate {
+    unit_id: String,
+    revision: String,
+    digest: Digest,
+    provides: Vec<String>,
+    enabled: bool,
+    atoms: Vec<AtomicCapability>,
+}
+
+impl Candidate {
+    fn of(descriptor: &UnitDescriptor, enabled: bool) -> Result<Self> {
+        Ok(Self {
+            unit_id: descriptor.unit_id.clone(),
+            revision: descriptor.revision.clone(),
+            digest: descriptor.artifact_digest.clone(),
+            provides: descriptor.provides.clone(),
+            enabled,
+            atoms: descriptor
+                .package_declaration()?
+                .capabilities()
+                .map(|capabilities| capabilities.normalized().atoms)
+                .unwrap_or_default(),
+        })
+    }
+}
+
 /// Current versions come first; retained non-current versions remain valid
 /// exact-digest candidates. This runs inside the import/resolution transaction.
-fn resolution_candidates(conn: &rusqlite::Connection) -> Result<Vec<(String, String, Digest, Vec<String>)>> {
-    let current: Vec<(String, String, String, Option<String>)> = conn.prepare(
-        "SELECT c.unit_id,c.revision,c.artifact_digest,v.data FROM unit_current AS c \
+fn resolution_candidates(conn: &rusqlite::Connection) -> Result<Vec<Candidate>> {
+    let current: Vec<(String, String, String, Option<String>, i64)> = conn.prepare(
+        "SELECT c.unit_id,c.revision,c.artifact_digest,v.data,c.enabled FROM unit_current AS c \
          LEFT JOIN unit_versions AS v ON v.unit_id=c.unit_id AND v.revision=c.revision AND v.artifact_digest=c.artifact_digest \
          ORDER BY c.unit_id"
-    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let retained: Vec<(String, String, String, Option<String>)> = conn.prepare(
-        "SELECT unit_id,revision,artifact_digest,data FROM unit_versions ORDER BY unit_id,revision,artifact_digest"
-    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+    let retained: Vec<(String, String, String, Option<String>, i64)> = conn.prepare(
+        "SELECT v.unit_id,v.revision,v.artifact_digest,v.data,COALESCE(c.enabled,0) FROM unit_versions AS v \
+         LEFT JOIN unit_current AS c ON c.unit_id=v.unit_id AND c.revision=v.revision AND c.artifact_digest=v.artifact_digest \
+         ORDER BY v.unit_id,v.revision,v.artifact_digest"
+    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut available = Vec::new();
-    for (unit_id, revision, digest, data) in current.into_iter().chain(retained) {
+    let mut available: Vec<Candidate> = Vec::new();
+    for (unit_id, revision, digest, data, enabled) in current.into_iter().chain(retained) {
         let stored: StoredVersion = serde_json::from_str(&data.context("current unit version is not retained")?)?;
         ensure!(stored.unit.unit_id == unit_id && stored.unit.revision == revision && stored.unit.artifact_digest.0 == digest,
             "stored unit version identity does not match its key");
-        if !available.iter().any(|candidate: &(String, String, Digest, Vec<String>)|
-            candidate.0 == unit_id && candidate.1 == revision && candidate.2 == stored.unit.artifact_digest) {
-            available.push((unit_id, revision, stored.unit.artifact_digest, stored.unit.provides));
+        if !available.iter().any(|candidate| candidate.unit_id == unit_id
+            && candidate.revision == revision && candidate.digest == stored.unit.artifact_digest) {
+            available.push(Candidate::of(&stored.unit, enabled != 0)?);
         }
     }
     Ok(available)
@@ -4097,11 +7746,7 @@ fn validate_descriptor(unit: &UnitDescriptor) -> Result<()> {
         );
         edge_ids.push(&edge.edge_id);
         match &edge.selector {
-            DependencySelector::Exact {
-                unit_id,
-                revision_requirement,
-                artifact_digest,
-            } => {
+            DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } => {
                 ensure!(
                     !unit_id.is_empty() && unit_id.len() <= 128,
                     "invalid exact dependency target"
@@ -4148,7 +7793,7 @@ fn carry_edge(
     ensure!(matches!(edge.status, EdgeStatus::Satisfied | EdgeStatus::Unresolved),
         "dependency selection conflicts with its status");
     let (id, revision, digest) = selected.unwrap();
-    if let DependencySelector::Exact { unit_id, revision_requirement, artifact_digest } = &spec.selector {
+    if let DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } = &spec.selector {
         ensure!(id == unit_id
             && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
             && artifact_digest.as_ref().is_none_or(|expected| expected == digest),
@@ -4174,7 +7819,7 @@ fn carry_edge(
 
 fn selection_matches(spec: &DependencySpec, unit_id: &str, revision: &str, digest: &Digest, provides: &[String]) -> bool {
     match &spec.selector {
-        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest } => {
+        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest, contract_requirement: _ } => {
             unit_id == expected
                 && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
                 && artifact_digest.as_ref().is_none_or(|expected| expected == digest)
@@ -4199,14 +7844,13 @@ fn resolve_edge(
         selected_unit_id: None,
         selected_revision: None,
         selected_artifact_digest: None,
+        selected_contract: None,
+        coexisting_providers: Vec::new(),
+        used_capabilities: Vec::new(),
         reason: String::new(),
     };
     match &spec.selector {
-        DependencySelector::Exact {
-            unit_id,
-            revision_requirement,
-            artifact_digest,
-        } => {
+        DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } => {
             let candidates: Vec<&(String, String, Digest, Vec<String>)> = available
                 .iter()
                 .filter(|candidate| &candidate.0 == unit_id)
@@ -4428,6 +8072,159 @@ fn safe_component(name: &str) -> Result<String> {
     } else {
         let hex = Digest::blake3(name.as_bytes()).hex().to_string();
         Ok(format!("{sanitized}.{}", &hex[..8]))
+    }
+}
+
+/// Retained versions whose satisfied edge selects exactly this version.
+///
+/// An uninstall refuses to turn a satisfied closure into a gap. The list is
+/// bounded and names the dependent and the edge, so an operator can retire the
+/// dependent first instead of guessing why the withdrawal was refused.
+fn dependent_edges(
+    conn: &rusqlite::Connection,
+    unit_id: &str,
+    revision: &str,
+    digest: &Digest,
+) -> Result<Vec<String>> {
+    const MAX_REPORTED: usize = 16;
+    let mut dependents = Vec::new();
+    let mut statement = conn.prepare(
+        "SELECT unit_id,revision,artifact_digest,edge_id,data FROM unit_edges \
+         WHERE json_extract(data,'$.status')='satisfied' \
+           AND json_extract(data,'$.selected_unit_id')=?1 \
+           AND json_extract(data,'$.selected_revision')=?2 \
+           AND json_extract(data,'$.selected_artifact_digest')=?3 \
+         ORDER BY unit_id,revision,artifact_digest,edge_id",
+    )?;
+    let rows = statement.query_map(params![unit_id, revision, digest.0], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (dependent, dependent_revision, dependent_digest, edge_id, data) = row?;
+        // The SQL filter narrows the scan; the parsed record still has to
+        // agree, so a hand-edited or older row cannot be reported as a
+        // dependent on a shape this code would not dispatch.
+        let edge: ResolvedDependency = serde_json::from_str(&data)?;
+        if edge.status != EdgeStatus::Satisfied
+            || edge.selected_unit_id.as_deref() != Some(unit_id)
+            || edge.selected_revision.as_deref() != Some(revision)
+            || edge.selected_artifact_digest.as_ref() != Some(digest)
+        {
+            continue;
+        }
+        // The version's own outgoing edges do not depend on it.
+        if dependent == unit_id && dependent_revision == revision && dependent_digest == digest.0 {
+            continue;
+        }
+        dependents.push(format!("{dependent}@{dependent_revision}#{edge_id}"));
+        if dependents.len() >= MAX_REPORTED {
+            break;
+        }
+    }
+    Ok(dependents)
+}
+
+/// Retire the canonical package directory of exactly one version.
+///
+/// Only `<root>/units/<unit>/<revision>/<digest>` may be removed, and only
+/// when the recorded materialization describes that directory. An external
+/// artifact, a record whose path points somewhere else, a symlink or a
+/// replaced directory is reported and left in place: an uninstall never
+/// deletes a path it cannot prove it owns.
+fn retire_package_directory(
+    materialization: &MaterializationFact,
+    unit_id: &str,
+    revision: &str,
+    digest: &Digest,
+    files_retired: &mut Vec<String>,
+    files_retained: &mut Vec<RetainedPath>,
+) -> Result<()> {
+    if materialization.state == "external" {
+        files_retained.push(RetainedPath {
+            path: if materialization.detail.is_empty() {
+                materialization.root.clone()
+            } else {
+                materialization.detail.clone()
+            },
+            reason: "the artifact bytes live outside this installation".into(),
+        });
+        return Ok(());
+    }
+    let canonical = Path::new(&materialization.root)
+        .join("units")
+        .join(safe_component(unit_id)?)
+        .join(safe_component(revision)?)
+        .join(safe_component(&digest.0)?);
+    let canonical_text = canonical.to_string_lossy().into_owned();
+    // A completed materialization names its exact artifact file. A failed one
+    // may have created the directory before writing, so it records no path;
+    // both are removable only under the canonical directory computed above.
+    let owned = if materialization.state == "materialized" {
+        !materialization.path.is_empty()
+            && Path::new(&materialization.path).parent() == Some(canonical.as_path())
+    } else {
+        materialization.path.is_empty()
+    };
+    if !owned {
+        files_retained.push(RetainedPath {
+            path: materialization.path.clone(),
+            reason: format!(
+                "the recorded package path does not belong to the canonical directory {canonical_text} of this version"
+            ),
+        });
+        return Ok(());
+    }
+    match std::fs::symlink_metadata(&canonical) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            files_retained.push(RetainedPath {
+                path: canonical_text,
+                reason: format!("the package directory could not be inspected: {error}"),
+            });
+            Ok(())
+        }
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            match std::fs::remove_dir_all(&canonical) {
+                Ok(()) => {
+                    files_retired.push(canonical_text);
+                    // Prune the now-empty version ancestors, never the
+                    // caller-chosen root: a later install must not find a
+                    // stale `units/` tree it cannot admit as its own.
+                    let root = Path::new(&materialization.root);
+                    let mut ancestor = canonical.parent();
+                    while let Some(current) = ancestor {
+                        if current == root || !current.starts_with(root) {
+                            break;
+                        }
+                        if std::fs::remove_dir(current).is_err() {
+                            break;
+                        }
+                        ancestor = current.parent();
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    files_retained.push(RetainedPath {
+                        path: canonical_text,
+                        reason: format!("retiring the package directory failed: {error}"),
+                    });
+                    Ok(())
+                }
+            }
+        }
+        Ok(_) => {
+            files_retained.push(RetainedPath {
+                path: canonical_text,
+                reason: "the canonical package path is not a plain directory".into(),
+            });
+            Ok(())
+        }
     }
 }
 
@@ -5562,5 +9359,465 @@ mod tests {
             .unwrap();
         assert_eq!(unknown, 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn uninstall_retires_the_package_and_keeps_the_evidence() {
+        let dir = scratch("uninstall-node");
+        let packages = scratch("uninstall-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let unit = package("demo.skill.remove", "1.0.0", b"removable", vec![]);
+        let digest = unit.unit.artifact_digest.clone();
+        node.handle_unit_request(UnitRequest::Import {
+            export: export(vec![unit]),
+            package_root: packages.to_string_lossy().into_owned(),
+            enable: Some(true),
+        })
+        .unwrap();
+        let found = node
+            .installed_unit_fact("demo.skill.remove")
+            .unwrap()
+            .unwrap();
+        let path = found.materialization.as_ref().unwrap().path.clone();
+        let directory = std::path::Path::new(&path)
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(std::path::Path::new(&path).is_file());
+        node.handle_unit_request(UnitRequest::RecordAdoption {
+            unit_id: "demo.skill.remove".into(),
+            revision: "1.0.0".into(),
+            artifact_digest: digest.clone(),
+            decision: AdoptionDecision::Adopted,
+            method: AdoptionMethod::OperatorStatement,
+            evidence: vec![],
+            notes: Some("kept by the owner".into()),
+            enable: None,
+        })
+        .unwrap();
+
+        let receipt = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.skill.remove".into(),
+                revision: "1.0.0".into(),
+                artifact_digest: None,
+                reason: "replaced by an external implementation".into(),
+                activate: None,
+            })
+            .unwrap();
+        assert_eq!(receipt["removed"], json!(true));
+        assert_eq!(receipt["was_current"], json!(true));
+        assert_eq!(receipt["was_enabled"], json!(true));
+        assert_eq!(receipt["files_retired"], json!([directory]));
+        assert_eq!(receipt["files_retained"], json!([]));
+        assert!(
+            !std::path::Path::new(&path).exists(),
+            "the materialized package directory is gone"
+        );
+        // Nothing offers the unit any more; the artifact bytes and the
+        // archived judgement remain readable facts.
+        assert!(node.unit_status("demo.skill.remove").is_err());
+        assert_eq!(node.unit_object_bytes(&digest).unwrap(), b"removable".to_vec());
+        let lineage = node
+            .handle_unit_request(UnitRequest::Lineage {
+                unit_id: "demo.skill.remove".into(),
+            })
+            .unwrap();
+        assert_eq!(lineage["versions"], json!([]));
+        let removed = lineage["removed"].as_array().unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0]["revision"], json!("1.0.0"));
+        assert_eq!(removed[0]["was_current"], json!(true));
+        assert_eq!(removed[0]["artifact_retained"], json!(true));
+        assert_eq!(removed[0]["evidence_retained"], json!(true));
+        assert_eq!(removed[0]["adoption"]["decision"], json!("adopted"));
+        assert_eq!(
+            removed[0]["reason"],
+            json!("replaced by an external implementation")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&packages);
+    }
+
+    #[test]
+    fn uninstall_refuses_a_version_a_retained_closure_still_selects() {
+        let dir = scratch("uninstall-dependent-node");
+        let packages = scratch("uninstall-dependent-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let dependency = package("demo.dep", "1.0.0", b"dependency", vec![]);
+        import(&mut node, &packages, vec![dependency]);
+        let consumer = package(
+            "demo.root",
+            "1.0.0",
+            b"consumer",
+            vec![exact("edge", "demo.dep", None)],
+        );
+        import(&mut node, &packages, vec![consumer]);
+        assert_eq!(
+            node.unit_status("demo.root").unwrap()["closure"]["state"],
+            json!("complete")
+        );
+
+        let refused = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.dep".into(),
+                revision: "1.0.0".into(),
+                artifact_digest: None,
+                reason: "attempted while a consumer exists".into(),
+                activate: None,
+            })
+            .expect_err("a satisfied closure must not be broken silently");
+        let message = format!("{refused:#}");
+        assert!(message.contains("UNIT_IN_USE:"), "{message}");
+        assert!(message.contains("demo.root@1.0.0#edge"), "{message}");
+        // The refused withdrawal changed nothing.
+        assert_eq!(
+            node.unit_status("demo.dep").unwrap()["installed"],
+            json!(true)
+        );
+        assert_eq!(
+            node.unit_status("demo.root").unwrap()["closure"]["state"],
+            json!("complete")
+        );
+
+        // Retiring the consumer first makes the dependency removable.
+        node.handle_unit_request(UnitRequest::Uninstall {
+            unit_id: "demo.root".into(),
+            revision: "1.0.0".into(),
+            artifact_digest: None,
+            reason: "the consumer is retired first".into(),
+            activate: None,
+        })
+        .unwrap();
+        node.handle_unit_request(UnitRequest::Uninstall {
+            unit_id: "demo.dep".into(),
+            revision: "1.0.0".into(),
+            artifact_digest: None,
+            reason: "no retained consumer remains".into(),
+            activate: None,
+        })
+        .unwrap();
+        assert!(node.unit_status("demo.dep").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&packages);
+    }
+
+    #[test]
+    fn uninstall_of_the_current_version_activates_the_named_successor() {
+        let dir = scratch("uninstall-activate-node");
+        let packages = scratch("uninstall-activate-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let old = package("demo.swap", "1.0.0", b"swap-one", vec![]);
+        let new = package("demo.swap", "2.0.0", b"swap-two", vec![]);
+        node.handle_unit_request(UnitRequest::Import {
+            export: export(vec![new.clone()]),
+            package_root: packages.to_string_lossy().into_owned(),
+            enable: Some(true),
+        })
+        .unwrap();
+        // The earlier revision arrives later as a retained version and is the
+        // one this node currently offers; importing a version never deletes
+        // the other retained one.
+        import(&mut node, &packages, vec![old.clone()]);
+        assert_eq!(
+            node.unit_status("demo.swap").unwrap()["revision"],
+            json!("1.0.0")
+        );
+        assert_eq!(node.retained_unit_facts("demo.swap").unwrap().len(), 2);
+        let old_path = node
+            .installed_unit_version("demo.swap", "1.0.0", &old.unit.artifact_digest)
+            .unwrap()
+            .unwrap()
+            .materialization
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        let new_path = node
+            .installed_unit_version("demo.swap", "2.0.0", &new.unit.artifact_digest)
+            .unwrap()
+            .unwrap()
+            .materialization
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+
+        let receipt = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.swap".into(),
+                revision: "1.0.0".into(),
+                artifact_digest: Some(old.unit.artifact_digest.clone()),
+                reason: "upgrade to the retained successor".into(),
+                activate: Some(UnitActivation {
+                    revision: "2.0.0".into(),
+                    artifact_digest: new.unit.artifact_digest.clone(),
+                }),
+            })
+            .unwrap();
+        assert_eq!(receipt["replacement"]["revision"], json!("2.0.0"));
+        let status = node.unit_status("demo.swap").unwrap();
+        assert_eq!(status["revision"], json!("2.0.0"));
+        // The successor inherits the enable state the withdrawn version had.
+        assert_eq!(status["enabled"], json!(true));
+        assert!(!std::path::Path::new(&old_path).exists());
+        assert!(std::path::Path::new(&new_path).is_file());
+        assert_eq!(node.retained_unit_facts("demo.swap").unwrap().len(), 1);
+
+        // Naming a successor that is not retained is refused before anything
+        // is withdrawn.
+        let refused = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.swap".into(),
+                revision: "2.0.0".into(),
+                artifact_digest: None,
+                reason: "successor must exist".into(),
+                activate: Some(UnitActivation {
+                    revision: "9.9.9".into(),
+                    artifact_digest: Digest::blake3(b"absent"),
+                }),
+            })
+            .expect_err("an activation must name a retained version");
+        assert!(format!("{refused:#}").contains("activate names a version this node does not retain"));
+        assert_eq!(
+            node.unit_status("demo.swap").unwrap()["revision"],
+            json!("2.0.0")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&packages);
+    }
+    /// Counterexample and admission proof for a trial that never ran.
+    ///
+    /// Nothing in this test dispatches a child. The attempts are opened
+    /// against a real installation and closed — or deliberately left open —
+    /// by the node itself, which is exactly the state a crash or a
+    /// never-started trial leaves behind. A judgement citing an attempt that
+    /// recorded no measurement must not become empirically adopted, and an
+    /// attempt that was opened and never reached a terminal trial fact is not
+    /// admissible evidence at all.
+    #[test]
+    fn orphaned_trial_cannot_certify_adoption_until_a_measurement_is_recorded() {
+        let dir = scratch("adoption-evidence-node");
+        let root = scratch("adoption-evidence-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let material = package(
+            "awareness.adoption-evidence",
+            "1.0.0",
+            b"a self-authored candidate nobody has measured\n",
+            vec![],
+        );
+        let identity = material.unit.clone();
+        import(&mut node, &root, vec![material]);
+
+        let plan = json!({
+            "unit_id": identity.unit_id,
+            "revision": identity.revision,
+            "artifact_digest": identity.artifact_digest,
+            "candidate": {"enabled": true},
+            "control": {"excluded_unit_id": identity.unit_id, "exclude_all_versions": true},
+            "scenarios": [{"name": "self-test", "message_digest": "fixture", "rubric_digest": "fixture"}],
+            "trials_per_condition": 1,
+            "scope": "admission mechanics; no model or efficacy claim",
+        });
+        let begin = |node: &mut Node| -> String {
+            node.handle_unit_request(UnitRequest::BeginTrial {
+                unit_id: identity.unit_id.clone(),
+                revision: identity.revision.clone(),
+                artifact_digest: identity.artifact_digest.clone(),
+                kind: "sandbox_comparison".into(),
+                plan: plan.clone(),
+            })
+            .unwrap()["attempt_id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let finish = |node: &mut Node, attempt: &str, outcome: TrialOutcome, receipts: Vec<Value>| {
+            node.handle_unit_request(UnitRequest::FinishTrial {
+                attempt_id: attempt.to_string(),
+                outcome,
+                receipts,
+            })
+        };
+        let judge_with_confidence = |node: &mut Node, attempt: &str, confidence: Option<f64>| {
+            node.handle_unit_request(UnitRequest::RecordAdoption {
+                unit_id: identity.unit_id.clone(),
+                revision: identity.revision.clone(),
+                artifact_digest: identity.artifact_digest.clone(),
+                decision: AdoptionDecision::Adopted,
+                method: AdoptionMethod::SandboxComparison,
+                evidence: vec![AdoptionEvidence::TrialAttempt {
+                    attempt_id: attempt.to_string(),
+                }],
+                confidence,
+                notes: None,
+                enable: Some(true),
+            })
+        };
+        let judge = |node: &mut Node, attempt: &str| {
+            judge_with_confidence(node, attempt, None)
+        };
+        let sample = |condition: &str, trial: u64, verdict: &str, scenario: &str| {
+            json!({
+                "kind": "sample",
+                "scenario": scenario,
+                "condition": condition,
+                "trial": trial,
+                "verdict": verdict,
+                "digest": identity.artifact_digest,
+            })
+        };
+
+        // (1) Opened and never closed: no terminal trial fact exists, so the
+        // citation is refused instead of being recorded as evidence.
+        let orphan = begin(&mut node);
+        let refused = judge(&mut node, &orphan).unwrap_err();
+        assert_eq!(
+            refused
+                .downcast_ref::<AdoptionEvidenceRejected>()
+                .map(|rejected| rejected.reason),
+            Some(AdoptionEvidenceRejection::AttemptNeverExecuted),
+            "an attempt that recorded no terminal fact was admitted as evidence: {refused:#}"
+        );
+        assert_eq!(
+            AdoptionEvidenceRejection::AttemptNeverExecuted.code(),
+            "evidence_unexecuted"
+        );
+
+        // (2) Opening another attempt retires the orphan as unknown — the
+        // reopen path. The retired attempt is now a real record, so the
+        // judgement is recorded, but nothing in it measured anything.
+        let _live = begin(&mut node);
+        let recorded = judge(&mut node, &orphan).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(false));
+        assert_eq!(recorded["adoption"]["measurement"], json!("inconclusive"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["measurement"], json!("inconclusive"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["outcome"], json!("unknown"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["scored"], json!(0));
+
+        // (3) A comparison closed before it measured: the real trial child
+        // takes this path when the run failed before any sample was judged.
+        let unmeasured = begin(&mut node);
+        finish(&mut node, &unmeasured, TrialOutcome::Unknown, vec![]).unwrap();
+        let recorded = judge(&mut node, &unmeasured).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(false));
+        assert_eq!(recorded["adoption"]["measurement"], json!("inconclusive"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["receipts"], json!(0));
+
+        // (4) A receipt that names a sample the plan never asked for was not
+        // produced by this attempt's run, so closing with it is refused.
+        let stray = begin(&mut node);
+        let stray_finish = finish(
+            &mut node,
+            &stray,
+            TrialOutcome::Succeeded,
+            vec![sample("candidate", 0, "effective", "never-planned")],
+        );
+        assert!(
+            stray_finish.is_err(),
+            "a receipt outside the attempt's plan was accepted: {stray_finish:?}"
+        );
+
+        // (5) One of the two planned slots measured: a partial measurement is
+        // still a measurement, and the record says it was partial.
+        let partial = begin(&mut node);
+        finish(
+            &mut node,
+            &partial,
+            TrialOutcome::Unknown,
+            vec![sample("candidate", 0, "effective", "self-test")],
+        )
+        .unwrap();
+        let recorded = judge(&mut node, &partial).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(true));
+        assert_eq!(recorded["adoption"]["measurement"], json!("partial"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["scored"], json!(1));
+        assert_eq!(recorded["adoption"]["evidence"][0]["planned_slots"], json!(2));
+
+        // (6) Every planned slot measured: the comparison is complete and the
+        // judgement is empirical on a measured record.
+        let measured = begin(&mut node);
+        finish(
+            &mut node,
+            &measured,
+            TrialOutcome::Failed,
+            vec![
+                sample("candidate", 0, "effective", "self-test"),
+                sample("control", 0, "ineffective", "self-test"),
+            ],
+        )
+        .unwrap();
+        let recorded = judge_with_confidence(&mut node, &measured, Some(0.8)).unwrap();
+        assert_eq!(recorded["adoption"]["empirical"], json!(true));
+        assert_eq!(recorded["adoption"]["measurement"], json!("measured"));
+        // The subject's own number is recorded as stated; a judgement that
+        // states none records that explicitly instead of a filled-in number.
+        assert_eq!(recorded["adoption"]["confidence"], json!(0.8));
+        let unstated = judge(&mut node, &measured).unwrap();
+        assert_eq!(unstated["adoption"]["confidence"], Value::Null);
+        // A value that is not a number is refused; the node supplies no scale.
+        let refused_confidence =
+            judge_with_confidence(&mut node, &measured, Some(f64::NAN)).unwrap_err();
+        assert!(
+            format!("{refused_confidence:#}").contains("finite number"),
+            "a non-number confidence was accepted: {refused_confidence:#}"
+        );
+        assert_eq!(recorded["adoption"]["evidence"][0]["outcome"], json!("failed"));
+        assert_eq!(recorded["adoption"]["evidence"][0]["scored"], json!(2));
+
+        // (7) A command trial that really ran is a measurement even when it
+        // failed, while a command that never started is not one.
+        let failed_run = node
+            .handle_unit_request(UnitRequest::Trial {
+                unit_id: identity.unit_id.clone(),
+                argv: vec!["/bin/sh".into(), "-c".into(), "exit 3".into()],
+                cwd: None,
+                timeout_ms: Some(10_000),
+                risk: "runs a trivial shell command".into(),
+                benefit: "records a real negative execution fact".into(),
+                consequence: "a failed command leaves the unit unverified here".into(),
+            })
+            .unwrap();
+        assert_eq!(failed_run["outcome"], json!("failed"));
+        let failed_attempt = failed_run["attempt_id"].as_str().unwrap().to_string();
+        let recorded = judge(&mut node, &failed_attempt).unwrap();
+        assert_eq!(
+            recorded["adoption"]["measurement"],
+            json!("measured"),
+            "a real negative run was not counted as a measurement: {recorded}"
+        );
+        assert_eq!(recorded["adoption"]["empirical"], json!(true));
+
+        let never_started = node
+            .handle_unit_request(UnitRequest::Trial {
+                unit_id: identity.unit_id.clone(),
+                argv: vec!["/nonexistent/shenko-trial-program".into()],
+                cwd: None,
+                timeout_ms: Some(10_000),
+                risk: "runs a program that is not installed".into(),
+                benefit: "records that no execution happened".into(),
+                consequence: "the unit stays unverified here".into(),
+            })
+            .unwrap();
+        assert_eq!(never_started["outcome"], json!("failed"));
+        let never_started_attempt = never_started["attempt_id"].as_str().unwrap().to_string();
+        let recorded = judge(&mut node, &never_started_attempt).unwrap();
+        assert_eq!(
+            recorded["adoption"]["measurement"],
+            json!("inconclusive"),
+            "a command that never started was counted as a measurement: {recorded}"
+        );
+        assert_eq!(recorded["adoption"]["empirical"], json!(false));
+
+        // The earlier judgements stay in the version's own history; each call
+        // recorded one fact and never rewrote the version.
+        assert_eq!(
+            node.handle_unit_request(UnitRequest::Lineage { unit_id: identity.unit_id.clone() })
+                .unwrap()["versions"][0]["revision"],
+            json!(identity.revision)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

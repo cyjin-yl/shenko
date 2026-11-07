@@ -37,6 +37,7 @@ use shenko_broker::{
 };
 use shenko_store::{
     Store, TaskInvocation,
+    child::DialogueDelivery,
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
         MODEL_CHILD_RESULT_OPERATION, MODEL_CHILD_STEP_OPERATION,
@@ -54,7 +55,10 @@ use shenko_types::{
     subject::{BudgetHint, DelegationIntent, PublicationIntent, ReplyGrant},
     task::*,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -96,6 +100,7 @@ const ROLE_CONTRACT: &str = "运行角色：有明确任务边界的有限模型
 只有在你被明确授权外发时，才可以用 [reply] 正文发出一条消息；目标由授权固定，你不能选择或改投。\n\
 每一步有独立的输出预算，整个运行还有总步数、总工具调用和总 token 预算；预算用尽时如实说明还差什么，不要假装完成。\n\
 如果你缺少必须由 owner 决定的信息，用 [ask] 写下一个问题结束本轮；owner 的回答会作为同一讨论的下一条用户消息交回给你。\n\
+你运行期间 owner 也可能直接发来 [owner 消息 …]；那是同一讨论里新的用户消息，读懂它再决定下一步，不要把它当成任务说明的重置或新的运行。\n\
 你的输出是交回 owner 的结果正文，不是主体控制协议；不得声称未实际执行的工具或外部动作已经完成。\n\
 以下是 owner 为你独立编写的完整语义 system prompt：";
 
@@ -332,12 +337,24 @@ struct FrozenModelChildStep {
     /// must never turn a schema-2 request into an unused contribution.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "read_contribution_plan")]
     contribution_plan: Option<ContributionPlan>,
+    /// The owner messages this step carried into its payload. They are bound
+    /// to their authored intent identity, so the same message is never read
+    /// twice and the sealed bytes prove exactly what this step was told.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    dialogue: Vec<DialogueDelivery>,
 }
 
 fn read_contribution_plan<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<Option<ContributionPlan>, D::Error> {
-    ContributionPlan::deserialize(deserializer).map(Some)
+    // A plan sealed before the SPEC §51.9 cutover spells the sourced-content
+    // kind `fact`. The sealed bytes are never rewritten; this reader migrates
+    // its parsed copy through the one named migration.
+    let mut document = serde_json::Value::deserialize(deserializer)?;
+    shenko_types::plugin_runtime::migrate_legacy_contribution_kinds(&mut document);
+    ContributionPlan::deserialize(document)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 impl FrozenModelChildStep {
@@ -368,6 +385,10 @@ struct ModelChildStepRecord {
     tool_calls: Vec<ModelChildToolCall>,
     reply: Option<ModelChildReply>,
     question: Option<String>,
+    /// The owner messages this step read, kept as durable facts so a restart
+    /// and a continued discussion rebuild the same transcript.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    dialogue: Vec<DialogueDelivery>,
     usage: Option<TokenUsage>,
     output_ref: Option<ObjectRef>,
     complete: bool,
@@ -453,6 +474,74 @@ fn tool_task_id(call_id: &str) -> EntityId {
     derived_id("shenko.model-child.tool", &[call_id])
 }
 
+/// Whether the sealed child contract granted exactly this tool.
+fn nested_tool_granted(contract: &FrozenModelChild, tool: &ModelChildTool) -> bool {
+    contract.allowed_tools().iter().any(|granted| {
+        granted.kind == tool.kind && granted.definition_version == tool.definition_version
+    })
+}
+
+/// Why a tool call never became a durable subtask, when that reason is a
+/// deterministic function of durable facts. `None` means this run cannot say:
+/// the call may still be waiting for its own evidence.
+///
+/// A refused call is the child's own escalation attempt, so it must read the
+/// real refusal in its next step — never an invented success, and never a
+/// silent "unknown" that invites the same escalation again.
+fn refused_tool_reason(contract: &FrozenModelChild, call: &ModelChildToolCall) -> Option<String> {
+    if !contract
+        .allowed_tools()
+        .iter()
+        .any(|tool| tool.kind == call.kind && tool.definition_version == call.definition_version)
+    {
+        return Some(format!(
+            "unavailable {}",
+            serde_json::json!({
+                "reason": "this tool is not part of the child's granted tool choice",
+                "kind": call.kind,
+                "definition_version": call.definition_version,
+            })
+        ));
+    }
+    if call.kind != MODEL_CHILD_KIND {
+        // A granted tool of another kind either ran as a durable subtask or
+        // had no registered definition when it was called. No subtask exists,
+        // so it definitely never executed.
+        return Some(format!(
+            "unavailable {}",
+            serde_json::json!({
+                "reason": "the shared native runtime had no registered definition for this tool, so nothing was executed",
+                "kind": call.kind,
+                "definition_version": call.definition_version,
+            })
+        ));
+    }
+    let spec: ModelChildSpec = serde_json::from_value(call.input.clone()).ok()?;
+    let widened = spec
+        .tools
+        .iter()
+        .filter(|tool| !nested_tool_granted(contract, tool))
+        .map(|tool| format!("{}:{}", tool.kind, tool.definition_version))
+        .collect::<Vec<_>>();
+    if !widened.is_empty() {
+        return Some(format!(
+            "not_allowed {}",
+            serde_json::json!({
+                "reason": "a nested model child may not request a tool its own parent was not granted",
+                "tools": widened,
+            })
+        ));
+    }
+    // A nested spec that is well formed and inside the granted tools either
+    // ran as a durable subtask or was refused for its own budget/contract.
+    // The budget reason is deterministic too.
+    let budget = ModelChildBudget::resolve(&spec);
+    if !budget.is_finite() {
+        return Some("failed {\"reason\":\"nested model child budget is not finite\"}".to_string());
+    }
+    None
+}
+
 fn plugin_id() -> EntityId {
     "de5bdc7a-ae54-45d5-948c-125f515f866d"
         .parse()
@@ -474,6 +563,7 @@ fn delegation_grammar(profile_id: &str) -> String {
  \"reply_grant\":{{\"target\":{{\"schema_version\":2,\"channel\":\"…\",\"kind\":\"…\",\"id\":\"…\",\"account\":\"…\"}},\"allowed_message_types\":[\"text\"],\"expires_at\":\"…\"}},\
  \"continue_task_id\":\"<先前已完成的 child 任务 id>\",\"owner_answer\":\"<你对它提问的回答>\"}}。\
 只有 goal/system_prompt/model/max_tokens 必填；tools 为空即纯文本 child；continue_task_id 与 owner_answer 必须同时出现（继续同一讨论）。\
+继续运行只能使用原运行剩下的总 token 与工具调用预算：child 结果里的 continuation.remaining_total_tokens/remaining_tool_calls 给出上限，新 budget 超过它会被拒绝。\
 reply_grant 是可选的外发授权：target 必须是已注册通道的版本化目标——schema_version 固定 2，id 是平台不透明字符串（不要写数字），account 是账号命名空间（未知时留空字符串）；kind 是受众类别，不是账号。\
 child 每步一次真实 generation，可按 tools 调用**已注册**能力，工具结果回灌下一步；它自己的输出预算不受你本步上限限制，但受 transport 配置上限与它自己的 budget 限制。\
 当前 provider 通路为 {profile_id}；model 名称不代表已验证可用。T1/E1/T2 与主体共用 broker/资源域。"
@@ -625,6 +715,42 @@ struct ChildHistory {
     pending: Option<OperationRecord>,
 }
 
+/// The largest owner message a child reads. The subject's own authored
+/// dialogue control is bounded to the same number, so a delivered turn is
+/// never a truncated surprise.
+const MAX_DIALOGUE_BYTES: usize = 64 * 1024;
+
+/// How one delivered owner message reads inside the child's discussion. The
+/// intent identity and the message it answers stay visible: the child can
+/// tell two owner messages apart and answer the right one.
+fn dialogue_turn_text(turn: &DialogueDelivery) -> String {
+    let mut text = format!("[owner 消息 intent:{}]", turn.intent_id);
+    if let Some(reply_to) = turn.in_reply_to {
+        text.push_str(&format!("（回应 {reply_to}）"));
+    }
+    text.push('\n');
+    text.push_str(&turn.message);
+    text
+}
+
+/// What the run did with the owner messages delivered to this endpoint.
+///
+/// All three numbers are derived from durable facts: the sealed step records
+/// (what a step actually read) and the endpoint's pending inbox (what is
+/// still unread). None of them is an inferred success.
+#[derive(Default)]
+struct DialogueReport {
+    /// Owner messages a conclusive step of this run read.
+    read: usize,
+    /// Intents whose settlement could not be written. The message text is
+    /// already in the step record, so nothing is lost; the authored intent
+    /// stays claimed instead of being reported as processed.
+    unsettled: Vec<serde_json::Value>,
+    /// Messages delivered to this endpoint that this run never read. They
+    /// stay claimed and are reported as facts, never marked as answered.
+    undelivered: Vec<DialogueDelivery>,
+}
+
 pub struct ModelChildHandler {
     store: Arc<Store>,
     broker: BrokerHandle,
@@ -694,6 +820,7 @@ impl ModelChildHandler {
     fn system_prompt(
         contract: &FrozenModelChild,
         catalog: &[(String, u32, String)],
+        cognition: Option<&str>,
     ) -> String {
         let mut prompt = String::from(ROLE_CONTRACT);
         prompt.push_str("\n\n");
@@ -711,6 +838,14 @@ impl ModelChildHandler {
                 prompt.push('\n');
             }
         }
+        // Installed cognition is ONE directory: a finite child sees the same
+        // bounded cards the main subject sees, and each card names the call
+        // this child can actually make. The index is advisory material — it
+        // grants nothing, and a card without a granted read call says so.
+        if let Some(cognition) = cognition.filter(|index| !index.trim().is_empty()) {
+            prompt.push_str("\n已安装的认知单元目录（感知／直觉／Skill／代码；与本主体共享同一安装）：\n");
+            prompt.push_str(cognition);
+        }
         if let Some(grant) = &contract.reply_grant {
             prompt.push_str(&format!(
                 "\n你被授权向 {} 的 {} 直接发送一条消息：用 [reply] 正文。目标由授权固定，你不能选择或改投；授权过期后不再有效。\n",
@@ -719,6 +854,36 @@ impl ModelChildHandler {
             ));
         }
         prompt
+    }
+
+    /// The installed cognition index as this child can actually address it.
+    ///
+    /// A finite child shares the installation the subject discloses, but it
+    /// may only call the tools its own delegation granted. The index therefore
+    /// names the child's own `[tool:…]` form for the grants that exist, and
+    /// says plainly that the directory is all this child has when none does: a
+    /// delegate-form call would only produce a refused step.
+    fn cognition_index(&self, catalog: &[(String, u32, String)]) -> Option<String> {
+        let cognition = match self
+            .plugin_context
+            .try_service::<shenko_awareness_core::CognitionCatalog>()
+        {
+            Ok(cognition) => cognition,
+            Err(error) => {
+                tracing::debug!(
+                    %error,
+                    "no published cognition catalog; this child is not shown the installed units"
+                );
+                return None;
+            }
+        };
+        match cognition.render_index(cognition_grant(catalog)) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                tracing::warn!(%error, "installed cognition index unavailable for this child run");
+                None
+            }
+        }
     }
 
     /// The first user message: the goal and the authored context blocks.
@@ -756,6 +921,19 @@ impl ModelChildHandler {
                 }
             }
             let mut assistant = record.text.clone();
+            for turn in &record.dialogue {
+                messages.push(InferenceMessage::text("user", dialogue_turn_text(turn)));
+            }
+            // The child's own control lines are part of what it said. A
+            // continued discussion reads the question it asked, and a later
+            // step reads the reply it already granted, instead of a
+            // transcript that silently lost them.
+            if let Some(question) = &record.question {
+                assistant.push_str(&format!("\n[ask] {question}"));
+            }
+            if let Some(reply) = &record.reply {
+                assistant.push_str(&format!("\n[reply] {}", reply.body));
+            }
             for call in &record.tool_calls {
                 assistant.push_str(&format!(
                     "\n[tool:{}:{}] {}",
@@ -933,18 +1111,99 @@ impl ModelChildHandler {
     // before its next operation, never adopt a replacement task or authority.
     // The Store still rechecks this snapshot atomically at the next T1.
     fn refresh_invocation(&self, invocation: &mut NativeTaskInvocation) -> Result<()> {
-        let current = self.store.external_task(invocation.task.task_id)?;
-        let bound = &mut invocation.task_invocation;
-        ensure!(current.task_revision == bound.task_revision
-            && current.abort_request.is_none()
-            && current.input_ref == invocation.task.input_ref
-            && current.implementation_ref == invocation.task.implementation_ref
-            && matches!(current.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
-                if invocation_id == bound.invocation_id && epoch == bound.epoch),
-            "model child invocation superseded before next operation");
-        bound.record_revision = current.record_revision;
-        invocation.task.record_revision = current.record_revision;
+        let revision = self.owned_revision(invocation)?;
+        invocation.task_invocation.record_revision = revision;
+        invocation.task.record_revision = revision;
         Ok(())
+    }
+
+    /// The record revision of the task this invocation still owns. Ownership
+    /// is task revision, invocation, epoch, sealed input, implementation and
+    /// cancellation state; the mutable record revision is exactly what a
+    /// concurrent T1 or a delivered owner message advances.
+    fn owned_revision(&self, invocation: &NativeTaskInvocation) -> Result<RecordRevision> {
+        let current = self.store.external_task(invocation.task.task_id)?;
+        let bound = &invocation.task_invocation;
+        ensure!(
+            current.task_revision == bound.task_revision
+                && current.abort_request.is_none()
+                && current.input_ref == invocation.task.input_ref
+                && current.implementation_ref == invocation.task.implementation_ref
+                && matches!(current.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
+                    if invocation_id == bound.invocation_id && epoch == bound.epoch),
+            "model child invocation superseded before next operation"
+        );
+        Ok(current.record_revision)
+    }
+
+    /// The owner messages this child has not read yet.
+    ///
+    /// The delivery is bound to this endpoint by the Store. A message a step
+    /// already recorded is not read again, so a restart replays the durable
+    /// discussion exactly once instead of duplicating the owner's words.
+    fn pending_dialogue(
+        &self,
+        contract: &FrozenModelChild,
+        read: &BTreeSet<EntityId>,
+    ) -> Result<Vec<DialogueDelivery>> {
+        let mut turns = Vec::new();
+        for delivery in self.store.pending_child_dialogue(contract.task_id)? {
+            ensure!(
+                delivery.target_task_id == contract.task_id,
+                "child dialogue delivery is bound to another endpoint"
+            );
+            ensure!(
+                !delivery.message.trim().is_empty() && delivery.message.len() <= MAX_DIALOGUE_BYTES,
+                "child dialogue delivery is not a bounded owner message"
+            );
+            if read.contains(&delivery.intent_id) {
+                continue;
+            }
+            turns.push(delivery);
+        }
+        Ok(turns)
+    }
+
+    /// What this run did with the owner messages delivered to it.
+    ///
+    /// Ownership of the reading is the durable step record, so settlement is
+    /// idempotent bookkeeping over facts that already exist. A settlement
+    /// that cannot be written is reported; the message is never re-sent and
+    /// never silently marked as answered.
+    fn dialogue_report(
+        &self,
+        contract: &FrozenModelChild,
+        history: &ChildHistory,
+    ) -> Result<DialogueReport> {
+        let mut read = BTreeSet::new();
+        for record in history.records[history.inherited_count..]
+            .iter()
+            .filter(|record| record.complete)
+        {
+            for turn in &record.dialogue {
+                read.insert(turn.intent_id);
+            }
+        }
+        let mut report = DialogueReport {
+            read: read.len(),
+            ..Default::default()
+        };
+        if !read.is_empty() {
+            let intents: Vec<EntityId> = read.iter().copied().collect();
+            if let Err(error) = self.store.consume_child_dialogue(contract.task_id, &intents) {
+                tracing::warn!(
+                    task_id = %contract.task_id,
+                    %error,
+                    "owner message settlement did not commit; the durable step already holds the message"
+                );
+                report.unsettled.push(serde_json::json!({
+                    "intent_ids": intents,
+                    "reason": error.to_string(),
+                }));
+            }
+        }
+        report.undelivered = self.pending_dialogue(contract, &read)?;
+        Ok(report)
     }
 
     async fn run(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -966,6 +1225,9 @@ impl ModelChildHandler {
             anyhow::bail!("model child run has no shared native runtime");
         };
         let catalog = tools.describe_tools(contract.allowed_tools());
+        // One projection per run: the installed units and the grants this
+        // child actually received do not change between its steps.
+        let cognition = self.cognition_index(&catalog);
         let mut history = self.history(&contract)?;
         let (inherited, previous_budget, previous_reserved, previous_tool_calls) =
             self.inherited_transcript(&contract)?;
@@ -1008,9 +1270,52 @@ impl ModelChildHandler {
         if let Some(failed) = history.records[history.inherited_count..]
             .iter().find(|record| !record.complete)
         {
+            let dialogue = self.dialogue_report(&contract, &history)?;
+            // Settlement is a task write; the run result must be armed with
+            // the revision that write left behind.
             self.refresh_invocation(&mut invocation)?;
             return self.finish(&invocation, &contract, &history,
-                ModelChildTermination::GenerationFailed, failed.text.clone(), vec![]);
+                ModelChildTermination::GenerationFailed, failed.text.clone(), vec![], &dialogue);
+        }
+        // Owner messages a conclusive step of this run already read. The
+        // durable record owns the reading, so a restart continues the same
+        // discussion instead of reading the same message twice.
+        let mut read_dialogue: BTreeSet<EntityId> = history.records[history.inherited_count..]
+            .iter()
+            .filter(|record| record.complete)
+            .flat_map(|record| record.dialogue.iter().map(|turn| turn.intent_id))
+            .collect();
+        // The last finished step of THIS run already decided how the run
+        // ends. A restart between that step's E1 and the run result settles
+        // the same decision instead of sending a second generation: a child
+        // that asked its owner a question stays a question, and a run that
+        // answered without further tool calls stays answered. A message that
+        // arrived in the meantime is still a live conversation, so it is read
+        // by the next step instead.
+        let unread = self.pending_dialogue(&contract, &read_dialogue)?;
+        let decided = match history.records[history.inherited_count..].last() {
+            Some(last) if last.complete && last.question.is_some() => {
+                Some((ModelChildTermination::NeedsDecision, last.text.clone()))
+            }
+            Some(last)
+                if last.complete && last.tool_calls.is_empty() && unread.is_empty() =>
+            {
+                Some((ModelChildTermination::Completed, last.text.clone()))
+            }
+            _ => None,
+        };
+        if let Some((termination, answer)) = decided {
+            let dialogue = self.dialogue_report(&contract, &history)?;
+            self.refresh_invocation(&mut invocation)?;
+            return self.finish(
+                &invocation,
+                &contract,
+                &history,
+                termination,
+                answer,
+                vec![],
+                &dialogue,
+            );
         }
         let mut termination = ModelChildTermination::Completed;
         let mut publications: Vec<PublicationIntent> = vec![];
@@ -1034,9 +1339,17 @@ impl ModelChildHandler {
             }
             let step_index = history.next_index;
             let tool_results = self.tool_results(&contract, &history)?;
+            // The owner's messages to this live child are the newest user
+            // turns of the same discussion: the child reads them before it
+            // decides its next step, and the step seals exactly what it read.
+            let dialogue = self.pending_dialogue(&contract, &read_dialogue)?;
+            let mut messages = Self::transcript(&contract, &history, &tool_results);
+            for turn in &dialogue {
+                messages.push(InferenceMessage::text("user", dialogue_turn_text(turn)));
+            }
             let payload = InferencePayload {
-                system_prompt: Self::system_prompt(&contract, &catalog),
-                messages: Self::transcript(&contract, &history, &tool_results),
+                system_prompt: Self::system_prompt(&contract, &catalog, cognition.as_deref()),
+                messages,
                 max_tokens: Some(contract.max_tokens),
                 // The shared provider wire does not carry provider-native tool
                 // blocks yet; the child's tool protocol is textual.
@@ -1045,7 +1358,15 @@ impl ModelChildHandler {
             };
             self.refresh_invocation(&mut invocation)?;
             let step = self
-                .run_step(&invocation, &contract, &broker, &history, step_index, payload)
+                .run_step(
+                    &mut invocation,
+                    &contract,
+                    &broker,
+                    &history,
+                    step_index,
+                    payload,
+                    dialogue.clone(),
+                )
                 .await?;
             let record = step.record;
             answer = record.text.clone();
@@ -1064,6 +1385,9 @@ impl ModelChildHandler {
             history.next_index = step_index + 1;
             history.own_steps = history.own_steps.saturating_add(1);
             history.operations.insert(step_index, step.operation);
+            if conclusive {
+                read_dialogue.extend(dialogue.iter().map(|turn| turn.intent_id));
+            }
             history.records.push(record);
             if !conclusive {
                 // Keep failed/partial output as evidence, never as authority
@@ -1101,11 +1425,20 @@ impl ModelChildHandler {
                 termination = ModelChildTermination::NeedsDecision;
                 break;
             }
+            // A message delivered while this step ran is still unread: the
+            // same discussion continues for one more step instead of ending
+            // a live conversation the owner is still having. The finite
+            // budget checks above bound this, so it can never become a
+            // second unbounded loop.
+            if !self.pending_dialogue(&contract, &read_dialogue)?.is_empty() {
+                continue;
+            }
             termination = ModelChildTermination::Completed;
             break;
         }
+        let dialogue = self.dialogue_report(&contract, &history)?;
         self.refresh_invocation(&mut invocation)?;
-        self.finish(&invocation, &contract, &history, termination, answer, publications)
+        self.finish(&invocation, &contract, &history, termination, answer, publications, &dialogue)
     }
 
     /// The publication intent of one granted reply, when the grant still
@@ -1196,12 +1529,13 @@ impl ModelChildHandler {
     /// One durable model step: arm T1, send once, record E1.
     async fn run_step(
         &self,
-        invocation: &NativeTaskInvocation,
+        invocation: &mut NativeTaskInvocation,
         contract: &FrozenModelChild,
         broker: &BrokerHandle,
         history: &ChildHistory,
         step_index: u32,
         mut payload: InferencePayload,
+        dialogue: Vec<DialogueDelivery>,
     ) -> Result<StepOutcome> {
         let logical_key = format!("model-child-step:{step_index}");
         // A recorded step is read, never sent again. The quota reservation of
@@ -1247,6 +1581,7 @@ impl ModelChildHandler {
             payload_fingerprint: Digest::blake3(&serde_json::to_vec(&payload)?),
             payload,
             contribution_plan: Some(contribution_plan),
+            dialogue: dialogue.clone(),
         };
         let input_ref = seal_value(
             &self.store,
@@ -1258,12 +1593,20 @@ impl ModelChildHandler {
             "shenko.model-child.step",
             &[contract.task_id.to_string().as_str(), &step_index.to_string()],
         );
+        // The child decides with the same installed strategy set as its
+        // parent: a finite child request is not a second policy source.
+        let quota_strategies = crate::quota_strategies::installed(&self.plugin_context);
         let quota_send = match quota_dispatch_gate(
             &self.store,
             &contract.provider_binding,
             request_id,
             &tokio_util::sync::CancellationToken::new(),
+            &quota_strategies,
             Some(&invocation.task_invocation),
+            // A finite child's round is not a committed subject step: the
+            // subject's measured useful work is a different unit and is not
+            // projected onto the child's expectation.
+            None,
         )
         .await?
         {
@@ -1378,12 +1721,9 @@ impl ModelChildHandler {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        if let Some(existing) = self.store.arm_external_inference_operation(
-            &invocation.task_invocation,
-            &mut operation,
-            &mut attempt,
-            &send_binding,
-        )? {
+        if let Some(existing) =
+            self.arm_step(invocation, &mut operation, &mut attempt, &send_binding)?
+        {
             // The step was already armed. A repeated identity is never a
             // second send: read the original outcome instead.
             ensure!(
@@ -1447,6 +1787,49 @@ impl ModelChildHandler {
         );
         let record = read_step_record(&self.store, &operation)?;
         Ok(StepOutcome { record, operation })
+    }
+
+    /// T1 admission of one step.
+    ///
+    /// An owner message delivered to this live child advances only the
+    /// task's mutable record revision, so a step that captured the previous
+    /// snapshot would be refused as stale even though this invocation still
+    /// owns the task. The admission is atomic and committed nothing when it
+    /// refuses, and no send can happen before T1, so re-reading the revision
+    /// and admitting the very same operation again is not a replay. The
+    /// retries are bounded; any other refusal is returned unchanged.
+    fn arm_step(
+        &self,
+        invocation: &mut NativeTaskInvocation,
+        operation: &mut OperationRecord,
+        attempt: &mut AttemptRecord,
+        send_binding: &InferenceSendBinding,
+    ) -> Result<Option<OperationRecord>> {
+        let mut retries = 0;
+        loop {
+            match self.store.arm_external_inference_operation(
+                &invocation.task_invocation,
+                operation,
+                attempt,
+                send_binding,
+            ) {
+                Ok(existing) => return Ok(existing),
+                Err(error) => {
+                    if retries == 3 {
+                        return Err(error);
+                    }
+                    let Ok(revision) = self.owned_revision(invocation) else {
+                        return Err(error);
+                    };
+                    if revision == invocation.task_invocation.record_revision {
+                        return Err(error);
+                    }
+                    retries += 1;
+                    invocation.task_invocation.record_revision = revision;
+                    invocation.task.record_revision = revision;
+                }
+            }
+        }
     }
 
     /// Execute one tool call as a durable child subtask.
@@ -1534,6 +1917,25 @@ impl ModelChildHandler {
         nested_spec.reply_grant = None;
         nested_spec.continue_task_id = None;
         nested_spec.owner_answer = None;
+        // A nested child is narrower than the child that spawns it, never
+        // wider: it may only request tools its own parent was granted. The
+        // tool choice is authored by a model, so accepting it unmapped would
+        // let a child grant itself a capability the owner never delegated.
+        let widened = nested_spec
+            .tools
+            .iter()
+            .filter(|tool| !nested_tool_granted(contract, tool))
+            .map(|tool| format!("{}:{}", tool.kind, tool.definition_version))
+            .collect::<Vec<_>>();
+        if !widened.is_empty() {
+            return Ok(unavailable(
+                "not_allowed",
+                serde_json::json!({
+                    "reason": "a nested model child may not request a tool its own parent was not granted",
+                    "tools": widened,
+                }),
+            ));
+        }
         let nested_budget = ModelChildBudget::resolve(&nested_spec);
         if !nested_budget.is_finite() {
             return Ok(unavailable(
@@ -1709,7 +2111,16 @@ impl ModelChildHandler {
                             .unwrap_or_default();
                         format!("{} {}", task_outcome_name(&result.outcome), payload)
                     }
-                    None => "unknown: the tool subtask has no durable result yet".to_string(),
+                    None => {
+                        // No subtask at all means the call was refused before
+                        // any execution, so its reason is a durable fact. A
+                        // subtask that exists without a result is genuinely
+                        // unresolved and stays unknown.
+                        match refused_tool_reason(contract, call) {
+                            Some(reason) if self.store.get_task(subtask)?.is_none() => reason,
+                            _ => "unknown: the tool subtask has no durable result yet".to_string(),
+                        }
+                    }
                 };
                 let body = if body.len() > MAX_TOOL_RESULT_BYTES {
                     let mut end = MAX_TOOL_RESULT_BYTES;
@@ -1728,7 +2139,6 @@ impl ModelChildHandler {
             }
             results.push(step_results);
         }
-        let _ = contract;
         Ok(results)
     }
 
@@ -1742,6 +2152,7 @@ impl ModelChildHandler {
         termination: ModelChildTermination,
         answer: String,
         publications: Vec<PublicationIntent>,
+        dialogue: &DialogueReport,
     ) -> Result<OperationRecord> {
         let contract_ref = seal_value(
             &self.store,
@@ -1749,11 +2160,39 @@ impl ModelChildHandler {
             "model-child-frozen-input",
             1,
         )?;
+        // The question this run ended on is the parent's next decision. It is
+        // a top-level fact here, not a string buried in the transcript, and
+        // it names the exact task a continuation answers.
+        let question = match termination {
+            ModelChildTermination::NeedsDecision => {
+                history.records.last().and_then(|record| record.question.clone())
+            }
+            _ => None,
+        };
+        let continuation = question.as_ref().map(|_| {
+            // A continuation may only spend what this run has left, so the
+            // remaining numbers travel with the question instead of being
+            // guessed from the other result fields (SPEC §14.5).
+            serde_json::json!({
+                "continue_task_id": contract.task_id,
+                "owner_answer_required": true,
+                "remaining_total_tokens": contract
+                    .budget
+                    .max_total_tokens
+                    .saturating_sub(history.reserved_tokens),
+                "remaining_tool_calls": contract
+                    .budget
+                    .max_tool_calls
+                    .saturating_sub(history.tool_calls),
+            })
+        });
         let result = serde_json::json!({
             "schema_version": 1,
             "task_id": contract.task_id,
             "termination": termination,
             "answer": answer,
+            "question": question,
+            "continuation": continuation,
             "model": contract.spec.model,
             "provider_binding": contract.provider_binding,
             "steps": history.records.len(),
@@ -1768,6 +2207,11 @@ impl ModelChildHandler {
             "prompt_fingerprint": contract.prompt_fingerprint,
             "toolset_fingerprint": contract.toolset_fingerprint,
             "continued_from": contract.continued_from,
+            "dialogue": {
+                "read": dialogue.read,
+                "unsettled": dialogue.unsettled,
+                "undelivered": dialogue.undelivered,
+            },
             "step_records": history.records.iter().map(|record| serde_json::json!({
                 "step_index": record.step_index,
                 "request_id": record.request_id,
@@ -1775,6 +2219,7 @@ impl ModelChildHandler {
                 "text_bytes": record.text.len(),
                 "tool_calls": record.tool_calls.len(),
                 "question": record.question,
+                "dialogue": record.dialogue.iter().map(|turn| turn.intent_id).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "transcript": history.records.clone(),
             "publications": publications,
@@ -2074,6 +2519,7 @@ impl InferenceReceiptSink for ChildStepSink {
             tool_calls,
             reply,
             question,
+            dialogue: self.step.dialogue.clone(),
             usage: result.response.as_ref().and_then(|response| response.usage.clone()),
             output_ref,
             complete,
@@ -2197,12 +2643,18 @@ impl NativeTaskHandler for ModelChildHandler {
             .last()
             .map(|record| record.text.clone())
             .unwrap_or_default();
-        let termination = if history
-            .records
-            .iter()
-            .any(|record| !record.complete)
-        {
+        // The last step's own record decides how the run ended. A run that
+        // asked the owner a question stays that decision after a crash
+        // between E1 and the run result: re-deriving it as `completed` would
+        // silently answer for the owner.
+        let termination = if history.records.iter().any(|record| !record.complete) {
             ModelChildTermination::GenerationFailed
+        } else if history
+            .records
+            .last()
+            .is_some_and(|record| record.question.is_some())
+        {
+            ModelChildTermination::NeedsDecision
         } else if history
             .records
             .last()
@@ -2213,6 +2665,10 @@ impl NativeTaskHandler for ModelChildHandler {
         } else {
             ModelChildTermination::StepsExhausted
         };
+        let dialogue = self.dialogue_report(&contract, &history)?;
+        // Settling an owner message is a task write; the rebuilt result is
+        // armed against the revision that write left behind.
+        let task = self.store.external_task(task.task_id)?;
         self.finish(
             &NativeTaskInvocation {
                 context: shenko_types::agent::CallContext {
@@ -2247,6 +2703,7 @@ impl NativeTaskHandler for ModelChildHandler {
             termination,
             answer,
             vec![],
+            &dialogue,
         )
     }
 }
@@ -2343,6 +2800,28 @@ fn read_original_terminal(
         settle_quota_terminal(store, &result, step.request_id, send_id);
     }
     Ok(Some(result))
+}
+
+/// The cognition calls this finite child can actually make.
+///
+/// `describe_tools` only reports tools the runtime has registered and the
+/// delegation actually granted, so this reads the runtime's truth rather than
+/// the delegation's wish. `None` means this child has no call at all: the
+/// directory still says what is installed, but nothing in it is advertised as
+/// callable.
+fn cognition_grant(
+    catalog: &[(String, u32, String)],
+) -> Option<shenko_awareness_core::CognitionCall> {
+    let granted = |kind: &str| {
+        catalog.iter().any(|(name, version, _)| {
+            name == kind && *version == shenko_awareness_core::TOOL_VERSION
+        })
+    };
+    let call = shenko_awareness_core::CognitionCall::Tool {
+        read: granted(shenko_awareness_core::READ_TOOL),
+        list: granted(shenko_awareness_core::LIST_TOOL),
+    };
+    (!call.is_empty()).then_some(call)
 }
 
 #[cfg(test)]
@@ -2447,6 +2926,47 @@ mod grant_account_tests {
         let mut frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
         frozen.schema_version = CONTRACT_SCHEMA + 1;
         assert!(frozen.validate().is_err());
+    }
+
+    /// The installed cognition directory is advisory material for this child,
+    /// and a child with no published catalogue is not told anything about
+    /// units it cannot see.
+    #[test]
+    fn the_cognition_directory_travels_only_when_it_exists() {
+        let frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
+        let index = "- unit@1 [perception] card。正文按需读取：[tool:cognition.unit.read:1] {}";
+        let with_index = ModelChildHandler::system_prompt(&frozen, &[], Some(index));
+        assert!(with_index.contains("已安装的认知单元目录"), "{with_index}");
+        assert!(with_index.contains(index), "{with_index}");
+        // The authored prompt and the tool catalog still lead.
+        assert!(with_index.starts_with(ROLE_CONTRACT));
+        assert!(with_index.contains("you are the worker"));
+        let without = ModelChildHandler::system_prompt(&frozen, &[], None);
+        assert!(!without.contains("已安装的认知单元目录"), "{without}");
+    }
+
+    /// Only the tools the runtime actually registered and the delegation
+    /// granted name a call; nothing else is advertised.
+    #[test]
+    fn only_the_registered_grants_name_a_call() {
+        use shenko_awareness_core::{CognitionCall, LIST_TOOL, READ_TOOL, TOOL_VERSION};
+        let tool = |kind: &str, version: u32| (kind.to_string(), version, String::new());
+        assert_eq!(
+            cognition_grant(&[tool(READ_TOOL, TOOL_VERSION)]),
+            Some(CognitionCall::Tool { read: true, list: false })
+        );
+        assert_eq!(
+            cognition_grant(&[tool(LIST_TOOL, TOOL_VERSION)]),
+            Some(CognitionCall::Tool { read: false, list: true })
+        );
+        assert_eq!(
+            cognition_grant(&[tool(READ_TOOL, TOOL_VERSION), tool(LIST_TOOL, TOOL_VERSION)]),
+            Some(CognitionCall::Tool { read: true, list: true })
+        );
+        // An allowed tool the registry does not hold, or another definition
+        // version, is not a grant this child can use.
+        assert_eq!(cognition_grant(&[tool(READ_TOOL, TOOL_VERSION + 1)]), None);
+        assert_eq!(cognition_grant(&[]), None);
     }
 
 }

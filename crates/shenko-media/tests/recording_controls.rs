@@ -169,6 +169,7 @@ async fn emit_final(
             MediaTranscriptEvent {
                 text: text.to_owned(),
                 partial: false,
+                segment: None,
                 speaker: None,
                 captured_at_ms: None,
                 provider_facts: serde_json::Map::new(),
@@ -281,7 +282,11 @@ async fn admitted_stop_stops_live_capture_and_seals_only_pre_stop_audio() {
     assert!(!originals.is_empty());
     let decoded: Vec<InboxEvent> = originals
         .iter()
-        .map(|data| serde_json::from_str::<InboxEvent>(data).unwrap())
+        .map(|(event_id, data)| {
+            let event: InboxEvent = serde_json::from_str(data).unwrap();
+            assert_eq!(event.event_id, *event_id, "row identity must match its original");
+            event
+        })
         .collect();
     let stop_event = decoded
         .iter()

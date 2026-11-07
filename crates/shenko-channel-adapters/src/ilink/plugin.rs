@@ -22,8 +22,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use shenko_types::channel::{
-    BoxFuture, ChannelAction, ChannelDispatch, ChannelEnvelope, ChannelError, ChannelPlugin,
-    ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
+    AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
+    ChannelError, ChannelPlugin, ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
+    ResolvedAttachment,
 };
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
@@ -341,6 +342,38 @@ impl ChannelPlugin for ILinkChannel {
                     kind: format!("{other:?}"),
                 }),
             }
+        })
+    }
+
+    /// Download and decrypt one CDN object with the message's own descriptor.
+    ///
+    /// The CDN keeps media encrypted, so the locator alone is not enough: the
+    /// download parameter and the symmetric key were captured from the message
+    /// the provider sent. Both are the provider's facts, never a location the
+    /// model chose, and the resolved bytes are the provider's plaintext under
+    /// the channel byte bound.
+    fn resolve_attachment(
+        &self,
+        attachment: &ChannelAttachment,
+    ) -> BoxFuture<'static, Result<ResolvedAttachment, AttachmentError>> {
+        let attachment = attachment.clone();
+        let api = self.api.clone();
+        Box::pin(async move {
+            let descriptor = attachment
+                .locator
+                .params
+                .as_ref()
+                .and_then(media::EncryptedMedia::from_value);
+            let Some(descriptor) = descriptor else {
+                return Err(AttachmentError::Refused {
+                    attachment_id: attachment.attachment_id.clone(),
+                    detail:
+                        "the message carried no CDN download parameter with its symmetric key"
+                            .to_string(),
+                });
+            };
+            let bytes = media::download(&api, &descriptor, &attachment.attachment_id).await?;
+            crate::common::resolved_from_media(&attachment, None, bytes)
         })
     }
 }

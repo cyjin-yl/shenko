@@ -23,11 +23,13 @@ mod selection;
 pub use selection::*;
 mod election;
 pub use election::*;
+mod cognition;
+pub use cognition::*;
 
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 6;
+const STORAGE_SCHEMA: u32 = 7;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -217,6 +219,10 @@ pub enum Request {
         config: MemberConfiguration,
         entries: Vec<ControlEntry>,
     },
+    /// The committed control log. A peer needs it to verify and adopt the
+    /// configuration it is pushed, and a rejoining node needs it to learn the
+    /// decisions committed while it was partitioned.
+    ControlLog,
     /// Adopt an existing self; the local experience is retained.
     Adopt {
         request: AdoptRequest,
@@ -224,6 +230,29 @@ pub enum Request {
     /// Merge a peer's verified experience as parallel facts.
     Reconcile {
         request: PeerExperience,
+    },
+    /// Ensure the committed member configuration and start a campaign for
+    /// primary. The self vote of a one-member genesis configuration is the
+    /// only vote it counts; a larger configuration needs its members' votes.
+    Campaign,
+    /// Start the final phase of a membership change from the committed joint
+    /// configuration.
+    FinalMemberChange {
+        proposal: MemberProposal,
+    },
+    /// Record an explicit availability branch: this node keeps thinking inside
+    /// its connected domain without claiming a global quorum.
+    AvailabilityBranch {
+        branch_id: EntityId,
+        subject_id: Option<EntityId>,
+        reason: String,
+    },
+    /// Close a partition branch after its experience was merged by a
+    /// reconciliation this node actually recorded.
+    MergeBranch {
+        branch_id: EntityId,
+        reconciliation_id: EntityId,
+        note: String,
     },
 }
 
@@ -382,13 +411,20 @@ impl Node {
                 units::migrate_v3_edges(&tx)?;
             }
             // Schema 5 introduced the capability tables; schema 6 adds the
-            // election, membership, branch and reconciliation tables. Each
-            // step only creates the tables that version did not have yet.
+            // election, membership, branch and reconciliation tables; schema 7
+            // adds the unit-removal lifecycle fact. Each step only creates the
+            // tables that version did not have yet.
             if locked <= 4 {
                 tx.execute_batch(capability::CAPABILITY_SCHEMA)?;
             }
             if locked <= 5 {
                 tx.execute_batch(election::ELECTION_SCHEMA)?;
+            }
+            if locked <= 6 {
+                // Schema 7 records a withdrawn unit version as its own
+                // append-only lifecycle fact; the live installation tables
+                // keep their schema-6 shape.
+                tx.execute_batch(units::UNIT_REMOVALS_TABLE)?;
             }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
@@ -765,12 +801,38 @@ impl Node {
             Request::PushConfig { config, entries } => Ok(
                 serde_json::to_value(self.adopt_member_configuration(&config, &entries)?)?,
             ),
+            Request::ControlLog => Ok(json!({"entries": self.control_log()?})),
             Request::Adopt { request } => {
                 Ok(serde_json::to_value(self.adopt_identity(request)?)?)
             }
             Request::Reconcile { request } => Ok(
                 serde_json::to_value(self.reconcile_peer_experience(&request)?)?,
             ),
+            Request::Campaign => {
+                self.ensure_member_configuration()?;
+                Ok(serde_json::to_value(self.campaign()?)?)
+            }
+            Request::FinalMemberChange { proposal } => Ok(serde_json::to_value(
+                self.propose_final_member_change(&proposal)?,
+            )?),
+            Request::AvailabilityBranch {
+                branch_id,
+                subject_id,
+                reason,
+            } => Ok(serde_json::to_value(self.open_availability_branch(
+                branch_id,
+                subject_id,
+                &reason,
+            )?)?),
+            Request::MergeBranch {
+                branch_id,
+                reconciliation_id,
+                note,
+            } => Ok(serde_json::to_value(self.merge_availability_branch(
+                branch_id,
+                reconciliation_id,
+                &note,
+            )?)?),
         }
     }
     fn execute(&mut self, lease: Ticket, input: Vec<u8>) -> Result<Value> {
@@ -1072,7 +1134,14 @@ impl Node {
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         Ok(
-            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v3","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
+            json!({"node_id":node,"metadata":metadata,
+                // The installation's own Store observation, reported on the
+                // authenticated route so a peer reads a published report rather
+                // than a claim about one. It is a mechanism report, not content
+                // or an attitude (SPEC §51.1). `null` means this installation
+                // has published none: unknown, never a default.
+                "cognition":self.cognition_report()?,
+                "running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v3","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
         )
     }
 }
@@ -1104,6 +1173,9 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     }
     if version >= 6 {
         expected.execute_batch(election::ELECTION_SCHEMA)?;
+    }
+    if version >= 7 {
+        expected.execute_batch(units::UNIT_REMOVALS_TABLE)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
@@ -1273,10 +1345,22 @@ fn append_event(tx: &Transaction<'_>, e: &Event) -> Result<&'static str> {
         if source == e.raw.node_id.to_string() && d == e.digest.0 {
             return Ok("duplicate");
         }
-        tx.execute(
-            "INSERT INTO conflicts(id,data) VALUES(?1,?2)",
-            params![e.raw.event_id.to_string(), text(e)?],
-        )?;
+        // Retain the parallel fact once. Replaying the same reconciliation
+        // must not grow the conflict journal into duplicate rows: a second
+        // identical conflict is the same retained fact, not new evidence.
+        let retained: Option<String> = tx
+            .query_row(
+                "SELECT data FROM conflicts WHERE id=?1 AND data=?2 LIMIT 1",
+                params![e.raw.event_id.to_string(), text(e)?],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if retained.is_none() {
+            tx.execute(
+                "INSERT INTO conflicts(id,data) VALUES(?1,?2)",
+                params![e.raw.event_id.to_string(), text(e)?],
+            )?;
+        }
         return Ok("conflict");
     }
     tx.execute(

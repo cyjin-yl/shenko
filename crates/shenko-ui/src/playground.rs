@@ -28,7 +28,7 @@ use shenko_subject::{NativeChildService, InboxEvent, InboxEventKind};
 use shenko_types::{ids::EntityId, object::{Digest, ObjectRef}};
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
-use crate::playground_backend::{ActionError, BackendActionRequest, BackendBinding, BackendReceipt};
+use crate::playground_backend::{ActionError, ArtifactActor, BackendActionRequest, BackendBinding, BackendReceipt};
 
 pub(crate) const ARTIFACT_SCHEMA: u32 = 2;
 
@@ -57,8 +57,15 @@ pub struct PlaygroundState {
     pub(crate) root: Arc<PathBuf>,
     pub(crate) store: Arc<Store>,
     pub(crate) agent_id: EntityId,
-    pub(crate) native: Option<Arc<NativeChildService>>,
-    inbox_tx: Option<Sender<InboxEvent>>,
+    /// The live native dispatcher. It is attached after the state is built
+    /// (the server and the subject's own `playground.manage` handler share one
+    /// Playground), so it is a shared cell rather than a per-clone `Option`: a
+    /// clone that already exists must see the attachment instead of failing
+    /// closed against a stale `None`.
+    pub(crate) native: Arc<RwLock<Option<Arc<NativeChildService>>>>,
+    /// The volatile wake channel. Only a wake: the durable fact is admitted by
+    /// the store, and the subject's pending-inbox drain owns delivery.
+    inbox_tx: Arc<RwLock<Option<Sender<InboxEvent>>>>,
     records: Arc<RwLock<HashMap<EntityId, ArtifactVersion>>>,
 }
 
@@ -72,7 +79,8 @@ impl PlaygroundState {
         fs::create_dir_all(&root)?;
         let state = Self {
             root: Arc::new(root.canonicalize()?), store, agent_id,
-            native: None, inbox_tx: None,
+            native: Arc::new(RwLock::new(None)),
+            inbox_tx: Arc::new(RwLock::new(None)),
             records: Arc::new(RwLock::new(HashMap::new())),
         };
         state.load()?;
@@ -81,14 +89,25 @@ impl PlaygroundState {
         Ok(state)
     }
 
-    pub fn with_inbox(mut self, tx: Sender<InboxEvent>) -> Self {
-        self.inbox_tx = Some(tx);
-        self
+    pub fn with_inbox(&self, tx: Sender<InboxEvent>) -> Self {
+        *self.inbox_tx.write() = Some(tx);
+        self.clone()
     }
 
-    pub fn with_native(mut self, native: Arc<NativeChildService>) -> Self {
-        self.native = Some(native);
-        self
+    pub fn with_native(&self, native: Arc<NativeChildService>) -> Self {
+        *self.native.write() = Some(native);
+        self.clone()
+    }
+
+    pub(crate) fn native(&self) -> Option<Arc<NativeChildService>> {
+        self.native.read().clone()
+    }
+
+    /// Wake the subject about a fact that is already durably admitted.
+    fn wake(&self, event: &InboxEvent) {
+        if let Some(tx) = self.inbox_tx.read().as_ref() {
+            let _ = tx.try_send(event.clone());
+        }
     }
 
     pub fn root(&self) -> &Path { self.root.as_path() }
@@ -162,11 +181,12 @@ impl PlaygroundState {
             updated_at: Utc::now(), backend: previous.and_then(|r| r.backend.clone()),
         };
         self.commit_version(&record, bytes)?;
+        // The durable record and the fact announcing this revision commit
+        // together; a failure here leaves the version chain committed and
+        // reopen reconciles it, but the caller is never told the notification
+        // succeeded when it did not.
         self.sync_durable(&record).map_err(io::Error::other)?;
         records.insert(id, record.clone());
-        // A failure here does not undo the committed artifact. The caller sees
-        // an error; reopen/import retries this SAME stable fact, not the write.
-        self.notify_changed(&record).map_err(io::Error::other)?;
         Ok(record)
     }
 
@@ -247,7 +267,6 @@ impl PlaygroundState {
         self.commit_version(&record, &bytes)?;
         self.sync_durable(&record).map_err(io::Error::other)?;
         records.insert(id, record.clone());
-        self.notify_changed(&record).map_err(io::Error::other)?;
         Ok(record)
     }
 
@@ -268,7 +287,6 @@ impl PlaygroundState {
         self.commit_version(&record, &bytes)?;
         self.sync_durable(&record).map_err(io::Error::other)?;
         records.insert(id, record.clone());
-        self.notify_changed(&record).map_err(io::Error::other)?;
         Ok(record)
     }
 
@@ -377,37 +395,152 @@ impl PlaygroundState {
             root_identity,
             updated_commit: shenko_types::commit::CommitRef::new(EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO),
         };
-        self.store.put_artifact_record(&record)
+        // The content revision and the fact announcing it commit together, so
+        // a committed version is never missing from the subject's perception.
+        let event = self.change_event(version);
+        self.commit_record(&record, Some(&event))
     }
 
     /// Stage the current head as a candidate manifest without changing the
-    /// active one. Staging is durable and replicated; nothing here executes.
+    /// active one. Staging is durable and replicated; nothing here executes and
+    /// nothing is adopted: the candidate is a proposal, not the closure other
+    /// nodes must run (SPEC §51.1 "explicit adoption before content joins").
     pub fn stage_artifact(&self, id: EntityId) -> anyhow::Result<ArtifactRecord> {
         let version = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
         let (manifest, manifest_ref, _) = self.build_manifest(&version)?;
         self.store.put_artifact_manifest(&manifest)?;
         let mut record = self.store.artifact_record(id)?
             .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
-        if !record.candidate_manifest_refs.contains(&manifest_ref) {
-            record.candidate_manifest_refs.push(manifest_ref);
+        if record.candidate_manifest_refs.contains(&manifest_ref)
+            || record.active_manifest_ref.as_ref() == Some(&manifest_ref)
+        {
+            // Already staged (or already active): this is a replay of the
+            // same proposal, not a new transition. No record write, no new
+            // fact, no risk of re-admitting a different payload under one id.
+            return Ok(record);
         }
-        record.lifecycle = "staged".into();
-        self.store.put_artifact_record(&record)
+        record.candidate_manifest_refs.push(manifest_ref);
+        // Lifecycle is the artifact's declared stage, never a manifest-selection
+        // word: staging changes the candidate set only.
+        let event = self.state_event(&record, "stage");
+        self.commit_record(&record, Some(&event))
     }
 
-    /// Publish one staged candidate as the active manifest. The other
-    /// candidates are demoted, not deleted: a published manifest is the new
-    /// closure other nodes must be able to verify against.
+    /// Publish one staged candidate as the active manifest — the explicit
+    /// adoption attitude for this content (SPEC §51.1, §43.2).
+    ///
+    /// The candidate refs are NOT erased: a published manifest stays a recorded
+    /// candidate and `active_manifest_ref` says which one is in force, so the
+    /// previous proposal facts remain readable. The published manifest must be
+    /// CAS-resolvable right now (digest and length), because it becomes the
+    /// closure other nodes verify against.
     pub fn publish_artifact(&self, id: EntityId, manifest_digest: &Digest) -> anyhow::Result<ArtifactRecord> {
         let mut record = self.store.artifact_record(id)?
             .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
+        if record.active_manifest_ref.as_ref().map(|reference| &reference.digest) == Some(manifest_digest) {
+            // Exact replay of an already-published adoption: answer from the
+            // durable record instead of writing a second transition.
+            return Ok(record);
+        }
         let published = record.candidate_manifest_refs.iter()
             .find(|reference| &reference.digest == manifest_digest).cloned()
             .ok_or_else(|| anyhow::anyhow!("publish requires a staged candidate manifest"))?;
+        let manifest = self.store.artifact_manifest(id, manifest_digest)?
+            .ok_or_else(|| anyhow::anyhow!("published manifest is not in the durable manifest set"))?;
+        let bytes = self.store.cas.read_object(&published.digest)?;
+        anyhow::ensure!(
+            bytes.len() as u64 == published.bytes && Digest::blake3(&bytes) == published.digest,
+            "published manifest reference does not resolve to its exact bytes"
+        );
+        anyhow::ensure!(
+            serde_json::to_vec(&manifest)?.as_slice() == bytes.as_slice(),
+            "durable manifest row and its CAS object describe different closures"
+        );
         record.active_manifest_ref = Some(published);
-        record.candidate_manifest_refs.retain(|reference| &reference.digest != manifest_digest);
-        record.lifecycle = "published".into();
-        self.store.put_artifact_record(&record)
+        let event = self.state_event(&record, "publish");
+        self.commit_record(&record, Some(&event))
+    }
+
+    /// A lifecycle/manifest transition of an artifact is a business fact the
+    /// subject must be able to perceive — SPEC §43.2 (`artifact.state_changed`
+    /// enters the same subject inbox as actions and content revisions).
+    ///
+    /// The announcing fact is built BEFORE the record is written and committed
+    /// with it in one transaction, so there is no "recorded but unnotified"
+    /// window to retry: the transition and the subject's perception of it are
+    /// one durable boundary (SPEC §43.2, §51.1).
+    fn state_event(&self, record: &ArtifactRecord, cause: &str) -> InboxEvent {
+        let active = record
+            .active_manifest_ref
+            .as_ref()
+            .map(|reference| reference.digest.0.clone());
+        let candidates = record
+            .candidate_manifest_refs
+            .iter()
+            .map(|reference| reference.digest.0.clone())
+            .collect::<Vec<_>>();
+        // The identity names the transition, not a timestamp: the same
+        // resulting state reached by the same cause is the same fact, and a
+        // different cause or a different manifest set is a different one.
+        InboxEvent {
+            event_id: stable_id(&format!(
+                "artifact-state/v2:{}:{cause}:{}:{}:{}",
+                record.artifact_id,
+                record.lifecycle,
+                active.clone().unwrap_or_else(|| "-".into()),
+                candidates.join(","),
+            )),
+            kind: InboxEventKind::ArtifactChanged,
+            created_at: chrono::Utc::now(),
+            source: "playground".into(),
+            payload: json!({
+                "kind": "artifact.state_changed",
+                "artifact_id": record.artifact_id,
+                "cause": cause,
+                "lifecycle": &record.lifecycle,
+                "active_manifest_digest": active,
+                "candidate_manifest_digests": candidates,
+                "state_revision": &record.state_revision,
+                // Reason pointers: the subject can cite this exact record
+                // state and commit, never a paraphrase of it.
+                "updated_commit": record.updated_commit,
+                "desired_lifecycle_ref": record.desired_lifecycle_ref,
+                "explanation": format!(
+                    "Artifact '{}' is in lifecycle '{}' after {cause}; the durable record, its manifest refs and its commit above are the exact transition.",
+                    record.artifact_id, record.lifecycle
+                ),
+            }),
+        }
+    }
+
+    fn notification(&self, event: &InboxEvent) -> anyhow::Result<shenko_store::artifacts::ArtifactNotification> {
+        Ok(shenko_store::artifacts::ArtifactNotification {
+            event_id: event.event_id,
+            agent_id: self.agent_id,
+            kind: "artifact_changed".into(),
+            source: "playground".into(),
+            payload: serde_json::to_value(event)?,
+        })
+    }
+
+    /// Commit a durable record together with the fact announcing it. The
+    /// volatile wake happens only after the fact is durable.
+    pub(crate) fn commit_record(
+        &self,
+        record: &ArtifactRecord,
+        event: Option<&InboxEvent>,
+    ) -> anyhow::Result<ArtifactRecord> {
+        let notification = match event {
+            Some(event) => Some(self.notification(event)?),
+            None => None,
+        };
+        let (record, _) = self
+            .store
+            .put_artifact_record_with_event(record, notification.as_ref())?;
+        if let Some(event) = event {
+            self.wake(event);
+        }
+        Ok(record)
     }
 
     fn change_event(&self, record: &ArtifactVersion) -> InboxEvent {
@@ -421,6 +554,11 @@ impl PlaygroundState {
                 "parent_revision": record.parent_revision, "restored_from": record.restored_from,
                 "content_digest": record.content_ref.digest, "content_ref": record.content_ref,
                 "backend_module_ref": backend,
+                // Reason pointers: this fact is provable from the immutable
+                // version record and its content digest, and the subject can
+                // cite either instead of a paraphrase. No confidence value and
+                // no knowledge kind are attached — mechanism facts do not
+                // pretend to be judged attitudes (SPEC §51.1).
                 "explanation": format!("Artifact '{}' committed revision {} ({} bytes, {}). Exact content and executable references are attached; binary content is not treated as text.",
                     record.title, record.revision, record.content_ref.bytes, record.mime),
             }),
@@ -433,7 +571,7 @@ impl PlaygroundState {
             &serde_json::to_value(&event)?)?;
         // This is only a wake. C11's pending_inbox_events drains the already
         // committed full InboxEvent if the queue is full/closed or absent.
-        if let Some(tx) = &self.inbox_tx { let _ = tx.try_send(event); }
+        self.wake(&event);
         Ok(())
     }
 
@@ -658,7 +796,10 @@ async fn manifest_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumP
 
 async fn backend_action_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
     Json(request): Json<BackendActionRequest>) -> Response {
-    receipt_response(pg.invoke_action(id, request))
+    // Browser actions from the playground panel are Participant: an ordinary
+    // session of this installation without an admin credential.
+    let actor = ArtifactActor::Participant;
+    receipt_response(pg.invoke_action(id, request, &actor))
 }
 
 #[derive(Deserialize)]

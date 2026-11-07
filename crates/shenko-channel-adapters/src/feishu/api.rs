@@ -17,7 +17,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 
-use crate::common::{PlatformAnswer, PlatformHttp, endpoint_provenance, text_field};
+use shenko_types::channel::AttachmentError;
+
+use crate::common::{
+    MediaAnswer, PlatformAnswer, PlatformHttp, endpoint_provenance, fetch_media_bounded,
+    refused_attachment, text_field,
+};
 
 use super::auth::{AuthError, TenantAuth};
 use super::config::FeishuConfig;
@@ -241,13 +246,26 @@ impl FeishuApi {
         Ok(UploadedMedia { file_key })
     }
 
-    /// Download the bytes of one message resource.
+    /// Download one message resource in bounded chunks.
+    ///
+    /// The resource endpoint needs both the message id the resource arrived
+    /// with and the tenant ticket, so this is the installed app's own call, not
+    /// a bare fetch of a published URL. The ticket is one real fact about the
+    /// app: a refused ticket is reported as such, distinct from a resource the
+    /// platform will not serve.
     pub async fn download_media(
         &self,
+        channel: &str,
+        attachment_id: &str,
         message_id: &str,
         file_key: &str,
         resource_type: &str,
-    ) -> Result<Vec<u8>, FeishuError> {
+    ) -> Result<MediaAnswer, AttachmentError> {
+        let token = self.token().await.map_err(|error| AttachmentError::Unauthenticated {
+            channel: channel.to_string(),
+            attachment_id: attachment_id.to_string(),
+            detail: format!("tenant ticket refused: {error}"),
+        })?;
         let url = format!(
             "{}/open-apis/im/v1/messages/{}/resources/{}?type={}",
             self.config.base_url,
@@ -255,11 +273,15 @@ impl FeishuApi {
             encode_path(file_key),
             encode_query(resource_type)
         );
-        let token = self.token().await?;
-        self.http
-            .get_bytes(&url, Some(&token))
-            .await
-            .map_err(|detail| FeishuError::Unknown(detail))
+        match fetch_media_bounded(&self.http, &url, Some(&token), attachment_id).await? {
+            delivered @ MediaAnswer::Delivered { .. } => Ok(delivered),
+            MediaAnswer::Refused { status, detail } => Err(refused_attachment(
+                channel,
+                attachment_id,
+                status,
+                detail,
+            )),
+        }
     }
 
     /// One authorized JSON POST.

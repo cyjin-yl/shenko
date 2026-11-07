@@ -260,6 +260,26 @@ fn pacing_deadline(admitted_at: DateTime<Utc>, rate: f64) -> Option<DateTime<Utc
     Duration::try_milliseconds(millis as i64).and_then(|interval| admitted_at.checked_add_signed(interval))
 }
 
+/// Whether this request may go out inside the policy's short burst allowance
+/// for one window. Only the pacing interval is relaxed: the window's held
+/// budget still bounds the admission, and unconsumed burst is never carried
+/// into another window or another period.
+fn burst_allows(policy: &QuotaPolicy, pacer: &Pacer, window: &WindowRef, now: DateTime<Utc>) -> bool {
+    let Some(burst) = policy.admission_pacing.burst else { return false };
+    let since = now.checked_sub_signed(burst.within);
+    let admitted = pacer
+        .reservations
+        .values()
+        .filter(|reservation| reservation.dispatch != Some(DispatchEvidence::NeverDispatched))
+        .filter_map(|reservation| reservation.admission.admitted_at.map(|at| (reservation, at)))
+        .filter(|(_, at)| *at <= now && since.is_none_or(|since| *at > since))
+        .filter(|(reservation, _)| {
+            reservation.admission.estimated_cost.iter().any(|cost| &cost.window == window)
+        })
+        .count();
+    admitted < burst.max_requests as usize
+}
+
 /// Decide admission of `request_id` under a sealed policy decision. The
 /// single-writer pacer must be persisted before any external dispatch.
 pub fn admit(
@@ -377,12 +397,19 @@ pub fn admit(
             "backend availability changed; recompute the decision", vec![]), Vec::new());
     }
     match &decision.choice {
-        Choice::Cloud { profile_id, rate_per_hour, unbounded_windows } => {
+        Choice::Cloud { profile_id, effort, rate_per_hour, unbounded_windows } => {
             let Some(p) = profile(policy, profile_id) else {
                 return invalid("decided profile no longer configured");
             };
             if p.local { return invalid("cloud choice refers to a local profile"); }
             if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
+            // The decision names the effort level it selected: the request is
+            // priced at exactly that level's costs (SPEC §42.3, §42.6). An
+            // unknown level is not silently charged at the profile's default
+            // level, and a pre-effort decision names none.
+            let Some(priced) = p.costs_at(effort.as_deref()) else {
+                return invalid("decided effort level is not configured on its profile");
+            };
             if rate_per_hour.is_some_and(|rate| !rate.is_finite() || rate <= 0.0) {
                 return invalid("cloud rate must be finite and positive when present");
             }
@@ -391,7 +418,7 @@ pub fn admit(
             let mut period_rate: Option<f64> = None;
             for constraint in &decision.constraints {
                 if !seen.insert(&constraint.window) { return invalid("duplicate window constraint"); }
-                let Some(cost) = p.cost_per_request.iter().find(|cost| cost.window == constraint.window) else { return invalid("constraint is outside the profile"); };
+                let Some(cost) = priced.iter().find(|cost| cost.window == constraint.window) else { return invalid("constraint is outside the selected effort level"); };
                 attempts.clear();
                 if cost.unit != constraint.unit || Range::new(cost.amount.lower, cost.amount.upper).is_none()
                     || cost.amount.upper <= 0.0 || constraint.accounted_attempts.iter().any(|a| !a.cost_upper.is_finite()
@@ -415,7 +442,7 @@ pub fn admit(
                     period_rate = Some(period_rate.map_or(rate, |prior| prior.min(rate)));
                 }
             }
-            if seen.len() != p.cost_per_request.len() || unbounded_windows.len() != decision.constraints.iter().filter(|c| c.available.is_none()).count()
+            if seen.len() != priced.len() || unbounded_windows.len() != decision.constraints.iter().filter(|c| c.available.is_none()).count()
                 || *rate_per_hour != period_rate
             {
                 return invalid("decision does not bind every cost, unknown window, and pacing rate");
@@ -455,6 +482,10 @@ pub fn admit(
             }
             let mut eligible_at = None::<DateTime<Utc>>;
             for constraint in &decision.constraints {
+                // A short burst allowance lets planned work proceed above the
+                // sustainable rate without touching the budget: the window
+                // ceiling below still bounds every admission.
+                if burst_allows(policy, pacer, &constraint.window, now) { continue; }
                 for reservation in pacer.reservations.values().filter(|r| r.dispatch != Some(DispatchEvidence::NeverDispatched)) {
                     let Some(admitted_at) = reservation.admission.admitted_at else { continue };
                     let Some(cost) = reservation.admission.estimated_cost.iter().find(|cost| cost.window == constraint.window) else { continue };
@@ -475,6 +506,13 @@ pub fn admit(
                         };
                         if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
                     }
+                    // A policy may also demand a hard floor between two
+                    // admissions that charge the same window.
+                    if let Some(interval) = policy.admission_pacing.minimum_interval {
+                        if let Some(next) = admitted_at.checked_add_signed(interval) {
+                            if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
+                        }
+                    }
                 }
             }
             if let Some(next) = eligible_at {
@@ -483,7 +521,7 @@ pub fn admit(
             }
             for constraint in &decision.constraints {
                 let Some(limit) = constraint.available else { continue };
-                let Some(cost) = p.cost_per_request.iter().find(|cost| cost.window == constraint.window) else { return invalid("constraint is outside the profile") };
+                let Some(cost) = priced.iter().find(|cost| cost.window == constraint.window) else { return invalid("constraint is outside the selected effort level") };
                 let Some(total) = reserved_upper(pacer, constraint).and_then(Range::point)
                     .and_then(|reserved| reserved.checked_add(Range::point(cost.amount.upper)?)) else {
                     return invalid("reservation arithmetic is invalid or overflowing");
@@ -493,7 +531,7 @@ pub fn admit(
                         constraint.next_change, "window budget is reserved by outstanding requests", vec![]), Vec::new());
                 }
             }
-            let costs = p.cost_per_request.clone();
+            let costs = priced.to_vec();
             let mut admission = record(AdmissionState::Admitted, Some(profile_id), None, "within quota and pacing bounds", costs.clone());
             for constraint in &decision.constraints {
                 let Some(rate) = constraint.rate_per_hour else { continue };
@@ -559,6 +597,112 @@ pub fn admit(
             }
         }
     }
+}
+
+/// Decide admission of `request_id` under a replaceable cadence strategy
+/// (SPEC §42.1, §42.5).
+///
+/// The cadence strategy is read *before* the durable transition and may only
+/// withhold a fresh admission it would otherwise be granted. The library's
+/// own state machine stays authoritative in every other direction:
+///
+/// * a plan can never grant an admission the durable state refuses, so a
+///   deferral can neither fake balance nor bypass pacing;
+/// * a request that is already admitted, or armed with bound attempt rows,
+///   keeps its preserved charge history and pacing debt — a later cadence
+///   opinion cannot downgrade evidence that a wire send may have happened;
+/// * a capacity, validity or cancellation outcome is returned verbatim; a
+///   cadence cannot turn it into a quota wait;
+/// * withholding never writes an outstanding reservation, so no budget is
+///   consumed and no armed attempt row is implied.
+///
+/// A refusal is a typed [`crate::strategy::StrategyError`] and leaves the
+/// pacer untouched: the caller decides what it means and never records a
+/// fabricated outcome.
+pub fn admit_with_cadence(
+    policy: &QuotaPolicy,
+    decision: &PolicyDecision,
+    request_id: EntityId,
+    pacer: &mut Pacer,
+    availability: &HashMap<String, BackendState>,
+    now: DateTime<Utc>,
+    cadence: &dyn crate::strategy::QuotaCadence,
+) -> Result<AdmissionOutcome, crate::strategy::StrategyError> {
+    use crate::strategy::{CadencePlan, CadenceRequest};
+
+    let plan = cadence.plan(CadenceRequest {
+        policy,
+        decision,
+        request_id,
+        pacer,
+        availability,
+        now,
+    })?;
+    let CadencePlan::Defer { until, reason } = plan else {
+        return Ok(admit(policy, decision, request_id, pacer, availability, now));
+    };
+    // A deadline that is not still ahead means "re-evaluate when new
+    // evidence arrives": the gate's bounded wait clock decides then.
+    let until = until.filter(|at| *at > now);
+    // The durable transition is computed on a scratch copy so a deferral can
+    // never leave a reservation, pacing advance or reconciliation behind.
+    let mut scratch = pacer.clone();
+    let baseline = admit(policy, decision, request_id, &mut scratch, availability, now);
+    let granted = match &baseline {
+        AdmissionOutcome::Quota(admission) | AdmissionOutcome::Existing { admission } => {
+            admission.state == AdmissionState::Admitted
+        }
+        _ => false,
+    };
+    // Preserved history outranks a cadence opinion: an admitted request or
+    // armed/unknown dispatch evidence is never rewritten by a deferral.
+    let fresh = pacer.reservations.get(&request_id).is_none_or(|reservation| {
+        reservation.admission.state != AdmissionState::Admitted
+            && reservation.dispatch.is_none()
+    });
+    if !granted || !fresh {
+        *pacer = scratch;
+        return Ok(baseline);
+    }
+    let profile_id = match &baseline {
+        AdmissionOutcome::Quota(admission) | AdmissionOutcome::Existing { admission } => {
+            admission.profile_id.clone()
+        }
+        _ => None,
+    };
+    let (admission_id, revision) = match pacer.reservations.get(&request_id) {
+        Some(previous) => (
+            previous.admission.admission_id,
+            match previous.admission.record_revision.checked_add(1) {
+                Some(revision) => revision,
+                None => {
+                    return Ok(AdmissionOutcome::Invalid {
+                        reason: "admission revision exhausted".into(),
+                    })
+                }
+            },
+        ),
+        None => (EntityId::new(), 0),
+    };
+    let mut held = String::from("cadence deferred: ");
+    held.push_str(&crate::strategy::bounded_reason(&reason));
+    Ok(record_admission(
+        pacer,
+        QuotaAdmission {
+            admission_id,
+            request_id,
+            decision_id: decision.decision_id,
+            profile_id,
+            state: AdmissionState::QuotaPolicyWait,
+            next_eligible_at: until,
+            admitted_at: None,
+            paced_windows: Vec::new(),
+            reason: held,
+            estimated_cost: Vec::new(),
+            record_revision: revision,
+        },
+        Vec::new(),
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
