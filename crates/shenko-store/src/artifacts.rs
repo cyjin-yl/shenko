@@ -13,11 +13,13 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::EntityId;
 use shenko_types::object::{Digest, ObjectRef};
 
+use crate::external::{InboxAdmission, validate_original_event};
 use crate::store::Store;
 
 /// Schema owned by this module. Additive; an existing installation keeps its
@@ -134,6 +136,28 @@ pub struct ArtifactRecord {
     pub updated_commit: CommitRef,
 }
 
+/// The subject-facing fact that announces one artifact record transition —
+/// SPEC §43.2 (`artifact.state_changed` enters the same subject inbox).
+///
+/// It is committed in the SAME ledger transaction as the record it describes,
+/// so a transition can never be durable without its admitted inbox fact and an
+/// admitted fact can never describe a transition that was not committed. That
+/// atomic boundary is what makes "notification admission" non-lossy: there is
+/// no window in which the caller could retry a transition whose notification
+/// was lost, and no blind repeat after an ambiguous effect.
+#[derive(Debug, Clone)]
+pub struct ArtifactNotification {
+    pub event_id: EntityId,
+    /// The subject that must drain this fact.
+    pub agent_id: EntityId,
+    /// Inbox kind column (`artifact_changed`).
+    pub kind: String,
+    pub source: String,
+    /// The full serialized `InboxEvent`; it is validated exactly as an
+    /// externally produced original event.
+    pub payload: Value,
+}
+
 /// The identity of a running host process — enough to tell "the same process
 /// is still there" from "a new process reused the pid".
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,6 +247,57 @@ impl Store {
     /// Commit an artifact record. The record and its manifest move together
     /// with the record's revision in one ledger commit.
     pub fn put_artifact_record(&self, record: &ArtifactRecord) -> Result<ArtifactRecord> {
+        self.put_artifact_record_with_event(record, None)
+            .map(|(record, _)| record)
+    }
+
+    /// Commit one artifact record and — when supplied — the subject-facing
+    /// fact that announces it, in ONE ledger transaction.
+    ///
+    /// This is the one atomic boundary between "the transition happened" and
+    /// "the subject was told": the record write and the admitted inbox event
+    /// commit together, so a caller that lost the response finds the same
+    /// transition and the same `Replay` admission afterwards. Repeating the
+    /// transition re-admits the identical fact (same stable event id), so no
+    /// retry can manufacture a second stimulus and no transition can be
+    /// durable with its notification silently dropped.
+    ///
+    /// The event is validated before the writer is claimed: an invalid fact
+    /// must fail before it poisons the mutation line.
+    pub fn put_artifact_record_with_event(
+        &self,
+        record: &ArtifactRecord,
+        notification: Option<&ArtifactNotification>,
+    ) -> Result<(ArtifactRecord, Option<InboxAdmission>)> {
+        let serialized_event = match notification {
+            None => None,
+            Some(notification) => {
+                validate_original_event(
+                    notification.event_id,
+                    &notification.kind,
+                    &notification.source,
+                    &notification.payload,
+                )?;
+                // The fact needs a real drain owner before it is worth
+                // committing; a missing head is a typed rejection here, not a
+                // row failure inside the writer transaction.
+                {
+                    let conn = self.ledger.conn.lock();
+                    let head_exists: Option<String> = conn
+                        .query_row(
+                            "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                            [notification.agent_id.to_string()],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    ensure!(
+                        head_exists.is_some(),
+                        "artifact notification agent has no subject head"
+                    );
+                }
+                Some(serde_json::to_string(&notification.payload)?)
+            }
+        };
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -265,9 +340,50 @@ impl Store {
                         seq.0 as i64,
                     ],
                 )?;
-                self.ledger.record_commit(&tx, seq, 1)?;
+                let admission = match (notification, serialized_event.as_ref()) {
+                    (Some(notification), Some(serialized)) => {
+                        let existing: Option<(String, String, String, String)> = tx
+                            .query_row(
+                                "SELECT agent_id, kind, source, data FROM inbox_events WHERE event_id=?1",
+                                [notification.event_id.to_string()],
+                                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                            )
+                            .optional()?;
+                        match existing {
+                            Some((agent, kind, source, data)) => {
+                                if agent != notification.agent_id.to_string()
+                                    || kind != notification.kind
+                                    || source != notification.source
+                                    || &data != serialized
+                                {
+                                    anyhow::bail!(
+                                        "inbox_event_conflict: same event_id with different facts"
+                                    );
+                                }
+                                Some(InboxAdmission::Replay)
+                            }
+                            None => {
+                                tx.execute(
+                                    "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data)
+                                     VALUES(?1,?2,?3,?4,0,?5)",
+                                    params![
+                                        notification.event_id.to_string(),
+                                        notification.agent_id.to_string(),
+                                        notification.kind,
+                                        notification.source,
+                                        serialized,
+                                    ],
+                                )?;
+                                Some(InboxAdmission::Inserted)
+                            }
+                        }
+                    }
+                    _ => None,
+                };
+                let entities = if admission.is_some() { 2 } else { 1 };
+                self.ledger.record_commit(&tx, seq, entities)?;
                 tx.commit()?;
-                Ok(next)
+                Ok((next, admission))
             },
             |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
         )

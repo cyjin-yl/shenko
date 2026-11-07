@@ -11,6 +11,8 @@ pub mod stream;
 pub mod playground;
 pub mod playground_backend;
 pub mod config_service;
+pub mod config_namespaces;
+pub mod config_task;
 pub mod owner;
 
 pub use server::*;
@@ -23,4 +25,5 @@ pub use stream::*;
 pub use playground::*;
 pub use playground_backend::PlaygroundBackendHandler;
 pub use config_service::ConfigService;
+pub use config_task::ConfigHandler;
 pub use owner::{OwnerState, AuthenticatedActor};

@@ -32,5 +32,7 @@ process-wrap = { version = "10", features = ["tokio1"] }
 
 [dev-dependencies]
 shenko-kernel = { path = "../shenko-kernel" }
+shenko-broker = { path = "../shenko-broker" }
 shenko-exec-host = { path = "../shenko-exec-host" }
 shenko-compat-skill = { path = "../shenko-compat-skill" }
+sha2.workspace = true

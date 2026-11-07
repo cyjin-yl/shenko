@@ -29,16 +29,15 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use crate::common::{HealthState, ReplyContext, ReplyContextCache, endpoint_provenance};
-use crate::InboundEvent;
+use crate::ingress::SharedAdapterIngress;
 
 use super::api::QqOfficialApi;
 use super::config::QqOfficialConfig;
-use super::events::{QQ_OFFICIAL_CHANNEL_ID, classify};
+use super::events::{QQ_OFFICIAL_SOURCE, classify};
 
 /// The durable cursor of one gateway session.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -90,6 +89,9 @@ pub enum GatewayError {
     /// The platform closed the session.
     #[error("qq official gateway closed: {0}")]
     Closed(String),
+    /// The event could not be made durable, so the cursor must not move.
+    #[error("qq official ingress refused the event: {0}")]
+    Ingress(String),
 }
 
 /// One official QQ gateway connection.
@@ -99,6 +101,7 @@ pub struct QqGatewaySession {
     health: HealthState,
     replies: ReplyContextCache,
     cursor_path: PathBuf,
+    ledger: SharedAdapterIngress,
 }
 
 impl QqGatewaySession {
@@ -109,6 +112,7 @@ impl QqGatewaySession {
         health: HealthState,
         replies: ReplyContextCache,
         cursor_path: PathBuf,
+        ledger: SharedAdapterIngress,
     ) -> Self {
         Self {
             config,
@@ -116,6 +120,7 @@ impl QqGatewaySession {
             health,
             replies,
             cursor_path,
+            ledger,
         }
     }
 
@@ -126,7 +131,6 @@ impl QqGatewaySession {
     /// resumes the old session or identifies a new one.
     pub async fn run(
         &self,
-        sender: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<(), GatewayError> {
         let mut cursor = load_cursor(&self.cursor_path).await;
@@ -142,7 +146,7 @@ impl QqGatewaySession {
                 .transition("connecting", Some("opening the gateway connection".into()))
                 .await;
             let outcome = self
-                .run_once(&sender, &cancel, &mut cursor)
+                .run_once(&cancel, &mut cursor)
                 .await;
             match outcome {
                 Ok(()) => {
@@ -172,7 +176,6 @@ impl QqGatewaySession {
     /// One connection attempt.
     async fn run_once(
         &self,
-        sender: &mpsc::Sender<InboundEvent>,
         cancel: &CancellationToken,
         cursor: &mut GatewayCursor,
     ) -> Result<(), GatewayError> {
@@ -233,8 +236,13 @@ impl QqGatewaySession {
                             if let Some(seq) = frame.get("s").and_then(Value::as_i64) {
                                 cursor.seq = Some(seq);
                             }
+                            // The event must be durable before the cursor that
+                            // claims it is advanced: a crash in between then
+                            // replays the window instead of losing the message.
+                            self.handle_dispatch(&frame)
+                                .await
+                                .map_err(GatewayError::Ingress)?;
                             let _ = store_cursor(&self.cursor_path, cursor).await;
-                            self.handle_dispatch(&frame, sender).await;
                         }
                         7 => {
                             // The server asks for a reconnect; resume keeps
@@ -338,45 +346,32 @@ impl QqGatewaySession {
         Ok(interval)
     }
 
-    /// Classify one dispatch frame and hand it to the subject ingress.
-    async fn handle_dispatch(&self, frame: &Value, sender: &mpsc::Sender<InboundEvent>) {
+    /// Classify one dispatch frame and make it durable.
+    ///
+    /// The classified envelope and the platform's own frame are written to the
+    /// account's ingress ledger before the cursor advances. An error here is
+    /// returned to `run_once`, which ends the connection without storing the
+    /// new sequence: the platform replays the window.
+    async fn handle_dispatch(&self, frame: &Value) -> Result<(), String> {
         let Some(envelope) = classify(&self.config, frame) else {
-            return;
+            return Ok(());
         };
         self.health.observe_event().await;
+        self.ledger.record(QQ_OFFICIAL_SOURCE, &envelope, frame)?;
         if let Some(target) = &envelope.reply_target {
-            if let Some(conversation) = &target.conversation {
-                self.replies
-                    .record(
-                        conversation,
-                        ReplyContext {
-                            message_id: envelope.message_id.clone(),
-                            context_token: None,
-                            thread_id: None,
-                            at: chrono::Utc::now(),
-                        },
-                    );
-            } else if !target.id.is_empty() {
-                self.replies
-                    .record(
-                        &target.id,
-                        ReplyContext {
-                            message_id: envelope.message_id.clone(),
-                            context_token: None,
-                            thread_id: None,
-                            at: chrono::Utc::now(),
-                        },
-                    );
+            let conversation = target.conversation.as_ref().unwrap_or(&target.id);
+            if !conversation.is_empty() {
+                self.replies.record(
+                    conversation,
+                    ReplyContext {
+                        message_id: envelope.message_id.clone(),
+                        context_token: None,
+                        thread_id: None,
+                        at: chrono::Utc::now(),
+                    },
+                );
             }
         }
-        let raw = frame.clone();
-        let event = InboundEvent {
-            envelope,
-            raw,
-            source: QQ_OFFICIAL_CHANNEL_ID.to_string(),
-        };
-        if sender.send(event).await.is_err() {
-            tracing::warn!("qq official ingress closed; the event stays pending");
-        }
+        Ok(())
     }
 }

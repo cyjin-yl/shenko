@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "kind": "kv_residency_pool_seam_map",
+  "description": "Maps the formal TLA+ model (KvResidencyPool.tla) actions to actual Rust call sites and the broker integration boundary. Each seam is a point where the formal model's abstraction boundary meets real source code.",
+  "worktree": "/tank/shared/projects/shenko/worktrees/deepseek-kv-20261105",
+  "base_commit": "d6eb9fb6e13539a6e2e99b767202129e35ebd928",
+  "seams": [
+    {
+      "model_action": "Acquire",
+      "source_method": "KvAllocator::acquire",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "822-907",
+      "callers": [
+        {
+          "function": "observe_kv",
+          "file": "crates/shenko-broker/src/execution.rs",
+          "line": 430,
+          "trigger": "After a successful provider completion, observe_kv derives LeaseDemand from the response's usage.prompt_tokens and calls kv.acquire."
+        }
+      ],
+      "model_guard": "OccupiedUnits < Capacity",
+      "source_guard": "occupied_units + incoming <= capacity (with rollback: previous lease is restored on capacity refusal; reclaim is triggered)",
+      "abstraction_gap": "The model uses 1 unit per context; source uses variable units derived from prompt_tokens. The model does not model the rollback-on-failure path (restoring the previous lease)."
+    },
+    {
+      "model_action": "BeginRead",
+      "source_method": "KvAllocator::begin_read",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "909-927",
+      "callers": [
+        {
+          "function": "execute_request (read hold acquisition)",
+          "file": "crates/shenko-broker/src/execution.rs",
+          "line": 51,
+          "trigger": "Before dispatching a request to the provider, a read hold is taken on the context whose KV may be reused."
+        }
+      ],
+      "model_guard": "state in {Resident, ReclaimPending, Transferring}; readers < MaxReaders",
+      "source_guard": "state in {Resident, ReclaimPending, Transferring}; ReclaimPending is revived to Resident",
+      "abstraction_gap": "Source has no explicit MaxReaders bound; the model bound is for TLC finiteness."
+    },
+    {
+      "model_action": "EndReadRemove / EndReadKeep",
+      "source_method": "KvAllocator::end_read -> drain_reader",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "929-949, 987-1014",
+      "callers": [
+        {
+          "function": "execute_request (normal completion path)",
+          "file": "crates/shenko-broker/src/execution.rs",
+          "line": 74,
+          "trigger": "After the provider completes (terminal 200, 429, or error), end_read drains the read hold taken at dispatch."
+        }
+      ],
+      "model_guard": "readers > 0; if ShouldDrainRemove (readers=1 + ReclaimPending/Invalid): remove",
+      "source_guard": "readers > 0; lease_revision incremented; if readers reaches 0 and state in {ReclaimPending, Invalid}: lease removed"
+    },
+    {
+      "model_action": "HoldUnknownRead",
+      "source_method": "KvAllocator::hold_unknown_read",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "951-975",
+      "callers": [
+        {
+          "function": "execute_request (unknown outcome path)",
+          "file": "crates/shenko-broker/src/execution.rs",
+          "line": 72,
+          "trigger": "When the provider connection dies without a response (DropWithoutResponse / timeout), the read hold is converted to an unknown-read hold instead of being released."
+        }
+      ],
+      "model_guard": "unknownReads[r] = none; lease present; readers > 0",
+      "source_guard": "request not already held; context has a lease with readers > 0",
+      "note": "The pool never invents occupancy: only a context that already had a reader can be held."
+    },
+    {
+      "model_action": "ReleaseUnknownReadRemove / ReleaseUnknownReadKeep / ReleaseUnknownReadGone",
+      "source_method": "KvAllocator::release_unknown_read -> drain_reader",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "977-985",
+      "callers": [
+        {
+          "function": "BrokerHandle::reconcile_recorded (terminal evidence path)",
+          "file": "crates/shenko-broker/src/broker.rs",
+          "lines": [305, 806, 814],
+          "trigger": "When the original terminal evidence for an unknown request arrives (429, durable error, or late success), release_unknown_read drains the held reader."
+        }
+      ],
+      "model_guard": "unknownReads[r] != none; drain_reader on the held context",
+      "source_guard": "the hold exists in unknown_reads; the context_id is looked up and drain_reader is called"
+    },
+    {
+      "model_action": "ReleaseImmediate / ReleaseDeferred",
+      "source_method": "KvAllocator::release",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "1016-1050",
+      "callers": [
+        {
+          "function": "Not directly called by broker dispatch; called by rebalance/reclaim indirectly or by explicit pool cleanup",
+          "note": "The broker handle exposes no raw release entry point. Release happens through reclaim (eviction) or through explicit pool management during identity changes."
+        }
+      ],
+      "model_guard": "present; !HasUnknownRead; if readers=0: remove, else: ReclaimPending",
+      "source_guard": "has_unknown_read check returns Err(UnresolvedUnknownRead); readers > 0 moves to ReclaimPending"
+    },
+    {
+      "model_action": "Reclaim",
+      "source_method": "KvAllocator::reclaim",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "1096-1154",
+      "callers": [
+        {
+          "function": "KvAllocator::rebalance -> reclaim",
+          "file": "crates/shenko-broker/src/kv.rs",
+          "line": 1058,
+          "trigger": "Called after plan application during rebalance. Also called during acquire when the context doesn't fit."
+        },
+        {
+          "function": "BrokerHandle::rebalance_kv",
+          "file": "crates/shenko-broker/src/broker.rs",
+          "line": 388,
+          "trigger": "The broker periodically rebalances, which triggers reclaim if occupied > capacity."
+        }
+      ],
+      "model_guard": "OccupiedUnits > Capacity; state=Resident; readers=0; !HasUnknownRead",
+      "source_guard": "Same guards plus ordering by return_probability, priority, recompute_units",
+      "abstraction_gap": "The model nondeterministically picks any eligible context; source uses a deterministic ordering."
+    },
+    {
+      "model_action": "IdentityChange",
+      "source_method": "KvAllocator::adopt_identity -> KvPoolState::invalidate_stale",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "811-820, 344-365",
+      "callers": [
+        {
+          "function": "BrokerHandle::adopt_capabilities",
+          "file": "crates/shenko-broker/src/broker.rs",
+          "line": 742,
+          "trigger": "After a successful capability probe (GET /v1/models + GET /metrics), the broker adopts the new identity and invalidates stale handles."
+        }
+      ],
+      "model_guard": "newId != poolIdentity; all non-matching leases set to Invalid",
+      "source_guard": "pool.identity.adopt(observed); pool.invalidate_stale(&identity) iterates all leases",
+      "abstraction_gap": "Source identity has 6 optional fields with option-compatible matching; model uses single-tag equality."
+    },
+    {
+      "model_action": "ReAcquire",
+      "source_method": "KvAllocator::acquire (re-entry path on existing lease)",
+      "source_file": "crates/shenko-broker/src/kv.rs",
+      "source_lines": "822-850",
+      "callers": [
+        {
+          "function": "observe_kv (when context already has a lease)",
+          "file": "crates/shenko-broker/src/execution.rs",
+          "line": 430,
+          "trigger": "When acquire is called for a context that already has a lease, the lease is updated in place."
+        }
+      ],
+      "model_guard": "present; state=Resident",
+      "source_guard": "previous lease is removed, new lease is built from the old one with updated demand/identity, then re-inserted"
+    }
+  ],
+  "integration_boundary": {
+    "pool_ownership": "The pool state (KvPoolState) is owned by ResourceDomain and accessed through &mut self methods. The KvAllocator borrows the pool mutably for each operation. No concurrent access is possible at the Rust level.",
+    "broker_dispatch_lifecycle": "execute_request (execution.rs) is the single entry point: it calls begin_read before dispatch, observe_kv after success, hold_unknown_read on unknown outcome, and end_read on all terminal paths. The broker's reconcile_recorded handles late terminal evidence for unknown reads.",
+    "capability_probe_lifecycle": "BrokerHandle::probe_capabilities (broker.rs) drives GET /v1/models + GET /metrics, then adopt_capabilities -> adopt_identity + apply_capabilities + rebalance.",
+    "cross_owner_needs": [
+      "RefillBrokerWiring1106 owns the WindowLimits/effective-window path; this slice exposes Option<u64> backend pool observation for parent integration",
+      "Parent owns Cargo.toml, lib.rs module wiring, integration tests"
+    ]
+  }
+}

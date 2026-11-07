@@ -64,7 +64,12 @@ impl ContributionSlot {
     }
 }
 
-/// What kind of thing produced a contribution — SPEC §45.1.
+/// What kind of thing produced a contribution — SPEC §45.1, §51.1, §51.9.
+///
+/// This is a producer hint, not a storage or knowledge classification: fact
+/// and conclusion are readings of where a reason terminates, not two kinds
+/// (§51.1). `SourcedContent` therefore names material that carries its source,
+/// whatever that reading turns out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContributionKind {
@@ -80,8 +85,13 @@ pub enum ContributionKind {
     Code,
     /// A transient nudge prepared for one request.
     Reminder,
-    /// A plain fact with a source.
-    Fact,
+    /// Content that carries its source and revision — SPEC §51.9.
+    ///
+    /// A record sealed before this cutover spells this kind `fact` in its
+    /// immutable bytes; readers of those records run
+    /// [`migrate_legacy_contribution_kinds`] instead of the enum accepting a
+    /// legacy alias forever.
+    SourcedContent,
 }
 
 /// Who produced a contribution, bound to the actual implementation artifact.
@@ -95,6 +105,49 @@ pub struct ContributionSource {
     pub plugin_version: String,
     pub artifact_digest: Option<Digest>,
     pub kind: ContributionKind,
+}
+
+/// The serde label [`ContributionKind::SourcedContent`] carried in records
+/// sealed before the SPEC §51.9 cutover.
+pub const LEGACY_SOURCED_CONTENT_LABEL: &str = "fact";
+
+/// Migration reader for immutable records sealed before §51.9.
+///
+/// Writers only ever emit `sourced_content`, and [`ContributionKind`] has no
+/// legacy alias: a record that still says `fact` fails to decode rather than
+/// being silently re-read as the current spelling. A reader that must
+/// interpret such a record runs this migration over the parsed document
+/// first. It rewrites only a contribution source — an object pairing `kind`
+/// with its producer identity `plugin_id` — so an unrelated `kind` tag (a
+/// contribution lifetime's discriminant, for example) is never touched, and
+/// it never rewrites sealed bytes: the caller migrates its parsed copy.
+///
+/// Returns how many labels were migrated.
+pub fn migrate_legacy_contribution_kinds(document: &mut serde_json::Value) -> usize {
+    fn walk(value: &mut serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut migrated = 0;
+                let legacy_source = map.contains_key("plugin_id")
+                    && map.get("kind").and_then(serde_json::Value::as_str)
+                        == Some(LEGACY_SOURCED_CONTENT_LABEL);
+                if legacy_source {
+                    map.insert(
+                        "kind".into(),
+                        serde_json::Value::String("sourced_content".into()),
+                    );
+                    migrated += 1;
+                }
+                for (_, child) in map.iter_mut() {
+                    migrated += walk(child);
+                }
+                migrated
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(walk).sum(),
+            _ => 0,
+        }
+    }
+    walk(document)
 }
 
 /// Applicability scope of one prepared contribution.

@@ -16,9 +16,9 @@
 use crate::store::{storage_error, Store};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use shenko_quota::{
-    admit, cancel, mark_armed, AdmissionOutcome, AttemptBilling, BackendState, DispatchEvidence,
-    Choice, LocalAttempt, Pacer, PolicyDecision, QuotaAdmission, QuotaEvent, QuotaEventKind,
-    QuotaForecast, QuotaPolicy, QuotaSnapshot, Range, SourceKind, WindowCost, WindowRef,
+    cancel, mark_armed, AdmissionOutcome, AttemptBilling, BackendState, DispatchEvidence, Choice,
+    LocalAttempt, Pacer, PolicyDecision, QuotaAdmission, QuotaEvent, QuotaEventKind, QuotaForecast,
+    QuotaPolicy, QuotaSnapshot, Range, SourceKind, WindowCost, WindowRef,
 };
 use shenko_types::commit::{CommitRef, CommitReceipt, UpdatedEntity};
 use shenko_types::error::ShenkoError;
@@ -488,6 +488,14 @@ impl Store {
                                 "based_on_snapshot": forecast.based_on_snapshot,
                                 "freshness": forecast.freshness,
                                 "source_validity": forecast.source_validity,
+                                // Which replaceable forecast strategy produced
+                                // the new plan (SPEC §42.1). Absent on legacy
+                                // records: unknown, never assumed.
+                                "cost_model_version": forecast.cost_model_version.clone(),
+                                // How far the plan reaches and how much it can
+                                // be trusted (SPEC §42.3).
+                                "horizon": forecast.horizon,
+                                "confidence": forecast.confidence,
                                 "windows": forecast.windows.iter().map(|window| serde_json::json!({
                                     "window_key": window.window_key,
                                     "unit": window.unit,
@@ -904,6 +912,90 @@ impl Store {
         Ok(None)
     }
 
+    /// The most recently recorded forecast of one provider/account scope.
+    ///
+    /// The subject-readable view needs the plan its current decision was
+    /// computed from, and that plan belongs to the account, not to one
+    /// window. The scope lives inside the forecast body (the table predates
+    /// per-scope columns), so the lookup reads it from the recorded JSON
+    /// instead of adding a column or rewriting existing rows.
+    pub fn latest_quota_forecast(
+        &self,
+        provider_id: &str,
+        account_scope_ref: &str,
+    ) -> Result<Option<QuotaForecast>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM quota_forecasts
+                 WHERE json_extract(data,'$.provider_id')=?1
+                   AND json_extract(data,'$.account_scope_ref')=?2
+                 ORDER BY commit_seq DESC LIMIT 1",
+                params![provider_id, account_scope_ref],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let Some(data) = data else { return Ok(None) };
+        let forecast: QuotaForecast = serde_json::from_str(&data)?;
+        if forecast.provider_id != provider_id || forecast.account_scope_ref != account_scope_ref {
+            return Err(conflict("recorded forecast scope differs from its stored columns"));
+        }
+        Ok(Some(forecast))
+    }
+
+    /// Measured useful work of one subject's admitted rounds, read from the
+    /// ledger's own record (SPEC §42.3 `expected_useful_work`).
+    ///
+    /// Rounds are the subject's own request attempts that reached terminal
+    /// provider evidence; useful outcomes are the steps among them whose S1
+    /// action durably committed. A step that was retried, rejected or never
+    /// committed counts as a round that did not advance the subject — this is
+    /// a measurement, never a score and never "one request equals one useful
+    /// outcome". A subject with no terminal round has no evidence: `None`,
+    /// not zero.
+    pub fn quota_work_evidence(
+        &self,
+        agent_id: EntityId,
+    ) -> Result<Option<shenko_quota::WorkEvidence>, ShenkoError> {
+        // The ledger position the counts below are read at. Read first: the
+        // connection guard must not be held across another lock.
+        let head = self.current_commit_seq()?;
+        let conn = self.ledger.conn.lock();
+        let rounds: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM subject_request_attempts WHERE agent_id=?1 AND state='terminal'",
+                [agent_id.to_string()],
+                |r| r.get(0),
+            )
+            .map_err(storage_error)?;
+        if rounds <= 0 {
+            return Ok(None);
+        }
+        let useful: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT attempts.step_id) FROM subject_request_attempts AS attempts
+                 JOIN subject_steps AS steps ON steps.step_id=attempts.step_id
+                 WHERE attempts.agent_id=?1 AND attempts.state='terminal'
+                   AND json_extract(steps.data,'$.commit_ref') IS NOT NULL",
+                [agent_id.to_string()],
+                |r| r.get(0),
+            )
+            .map_err(storage_error)?;
+        if useful < 0 || useful > rounds {
+            // A committed step per terminal round can never exceed one; a
+            // larger count means the durable rows contradict the unit, and
+            // the honest answer is that this cannot be measured.
+            return Ok(None);
+        }
+        Ok(Some(shenko_quota::WorkEvidence {
+            unit: shenko_quota::WorkUnit::CommittedSubjectStep,
+            rounds_observed: rounds as u64,
+            useful_observed: useful as u64,
+            evidence: CommitRef::new(self.ledger.ledger_id(), LedgerSeq(head)),
+        }))
+    }
+
     /// Record one durable quota event (SPEC §42.6). Re-recording the
     /// identical event is idempotent; the same id with different bytes is a
     /// conflict.
@@ -1069,13 +1161,47 @@ impl Store {
         read_pacer(&conn)
     }
 
+    /// Admission of one wire SEND under the built-in cadence baseline.
+    ///
+    /// A runtime that installed a cadence strategy uses
+    /// [`Self::admit_quota_send_with`]; this entry point is exactly the
+    /// zero-plugin configuration and therefore keeps the pre-existing
+    /// behavior byte for byte.
+    pub fn admit_quota_send(
+        &self,
+        request_id: EntityId,
+        policy: &QuotaPolicy,
+        decision: &PolicyDecision,
+        send_id: EntityId,
+        availability: &HashMap<String, BackendState>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<QuotaAdmissionReceipt, ShenkoError> {
+        self.admit_quota_send_with(
+            &shenko_quota::QuotaStrategies::baseline(),
+            request_id,
+            policy,
+            decision,
+            send_id,
+            availability,
+            now,
+        )
+    }
+
     /// Run typed admission for one wire SEND `send_id` of the immutable
     /// sealed `request_id` and persist any pacer change plus the send's
     /// lineage row in the same mutation, so a charged send can never become
     /// unfindable. An existing lineage row must bind the identical request;
     /// the policy and decision must be the recorded rows verbatim.
-    pub fn admit_quota_send(
+    ///
+    /// `strategies` supplies the replaceable admission cadence (SPEC §42.1,
+    /// §42.5). The cadence is consulted inside this same transaction and may
+    /// only withhold a fresh admission: the pacer, the preserved armed
+    /// history and every refusal stay the library's own transition, so a
+    /// strategy cannot grant budget the portfolio does not have. A refusing
+    /// strategy aborts the transaction with nothing written.
+    pub fn admit_quota_send_with(
         &self,
+        strategies: &shenko_quota::QuotaStrategies,
         request_id: EntityId,
         policy: &QuotaPolicy,
         decision: &PolicyDecision,
@@ -1122,8 +1248,16 @@ impl Store {
                 }
                 let mut pacer = read_pacer(&tx)?;
                 let before = pacer.clone();
-                let outcome =
-                    admit(policy, decision, send_id, &mut pacer, availability, now);
+                let outcome = shenko_quota::admit_with_cadence(
+                    policy,
+                    decision,
+                    send_id,
+                    &mut pacer,
+                    availability,
+                    now,
+                    strategies.cadence(),
+                )
+                .map_err(|error| conflict(&format!("quota cadence strategy refused: {error}")))?;
                 let mut commit = None;
                 if pacer != before {
                     let seq = self.ledger.allocate_seq(&tx)?;

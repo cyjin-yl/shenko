@@ -1,6 +1,6 @@
 use crate::mount::{MountMode, MountSpec, admit_mounts, validate_mounts};
 use crate::p1::{P1Host, StdioStreams};
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -146,10 +146,11 @@ impl WasiCancellation {
 /// Guarantees are deliberately bounded and documented rather than implied:
 /// both `deadline` and `cancel` interrupt **guest code** at wasmtime epoch
 /// checkpoints, with a check granularity of `WASI_EPOCH_CHECK_INTERVAL`.
-/// A guest blocked inside a blocking host call (for example `fd_read` on an
-/// empty pipe, or `poll_oneoff` on a WASI clock subscription) stays blocked
-/// until that host call returns; the deadline is a bound on guest-executed
-/// work and the host-side run, not a promise to abort blocked host calls.
+/// A guest blocked inside a host call that has no stop observation (for
+/// example `fd_read` on an empty pipe, or `poll_oneoff` on a WASI clock
+/// subscription) stays blocked until that host call returns. Network host
+/// calls are the exception: they poll in bounded slices against the same
+/// [`RunStop`], so a blocked socket read ends with the run.
 /// `deadline` is measured from the start of the run and includes module
 /// compilation and mount setup, so an elapsed budget reports
 /// `WasiRunOutcome::DeadlineExceeded` before the guest executes at all.
@@ -168,6 +169,82 @@ pub struct WasiRunControl {
 /// a tick, so observed latency is at most one interval plus one guest
 /// checkpoint for CPU-bound guests.
 const WASI_EPOCH_CHECK_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Stop conditions shared by the epoch callback (guest execution) and the
+/// preview1 host (blocking host I/O).
+///
+/// A run has exactly one `RunStop`; every clone observes and commits the same
+/// first stop. Cancellation outranks the deadline, matching the epoch
+/// callback's decision order, and the first committed outcome is never
+/// overwritten — a host call that terminates on a cancellation cannot later
+/// relabel the run as a deadline expiry.
+#[derive(Clone, Default)]
+pub struct RunStop {
+    committed: Arc<parking_lot::Mutex<Option<WasiRunOutcome>>>,
+    cancel: Option<WasiCancellation>,
+    deadline: Option<Instant>,
+}
+
+impl RunStop {
+    pub fn new(cancel: Option<WasiCancellation>, deadline: Option<Instant>) -> Self {
+        Self {
+            committed: Arc::new(parking_lot::Mutex::new(None)),
+            cancel,
+            deadline,
+        }
+    }
+
+    /// Commit the first live stop condition and return the committed outcome.
+    pub fn observe(&self) -> Option<WasiRunOutcome> {
+        let live = if self
+            .cancel
+            .as_ref()
+            .is_some_and(WasiCancellation::is_cancelled)
+        {
+            Some(WasiRunOutcome::Cancelled)
+        } else if self.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            Some(WasiRunOutcome::DeadlineExceeded)
+        } else {
+            None
+        };
+        if let Some(outcome) = live {
+            self.commit(outcome);
+        }
+        self.committed()
+    }
+
+    /// Record `outcome` when nothing was recorded yet, and return whatever is
+    /// now committed.
+    pub fn commit(&self, outcome: WasiRunOutcome) -> Option<WasiRunOutcome> {
+        let mut slot = self.committed.lock();
+        if slot.is_none() {
+            *slot = Some(outcome);
+        }
+        *slot
+    }
+
+    /// The first committed stop, if any.
+    pub fn committed(&self) -> Option<WasiRunOutcome> {
+        *self.committed.lock()
+    }
+
+    /// Whether a stop was already committed.
+    pub fn is_stopped(&self) -> bool {
+        self.committed.lock().is_some()
+    }
+
+    /// Whether this run carries a deadline at all.
+    pub fn has_deadline(&self) -> bool {
+        self.deadline.is_some()
+    }
+
+    /// Time left before the deadline; `None` without a deadline or once it
+    /// has already elapsed.
+    pub fn remaining(&self) -> Option<Duration> {
+        let deadline = self.deadline?;
+        deadline.checked_duration_since(Instant::now())
+    }
+}
 
 /// Typed, caller-visible result of a real WASI execution (R007 task
 /// lifecycle). Host-side failures (invalid commands, mount validation,
@@ -209,6 +286,14 @@ pub struct WasiCommand<I, O, E> {
     /// Optional execution controls; `WasiRunControl::default()` runs without
     /// a deadline or cancellation, exactly as before.
     pub control: WasiRunControl,
+    /// Exact network reach for this run, or `None` for a guest with no
+    /// transport. The host opens every admitted socket before the guest
+    /// exists and publishes it through the host-owned `SHENKO_NET_*`
+    /// descriptors (see [`crate::net::NetworkAdmission`]); a guest can never
+    /// create, re-point or widen one. A networked run must also carry a
+    /// deadline or a cancellation handle, so no host socket call can park the
+    /// run indefinitely.
+    pub network: Option<crate::net::NetworkAdmission>,
     stdin: I,
     stdout: O,
     stderr: E,
@@ -227,6 +312,7 @@ impl<I, O, E> WasiCommand<I, O, E> {
             limits: WasiResourceLimits::default(),
             replay_io: None,
             control: WasiRunControl::default(),
+            network: None,
             stdin,
             stdout,
             stderr,
@@ -243,6 +329,12 @@ impl<I, O, E> WasiCommand<I, O, E> {
             if key.is_empty() || key.contains('\0') || key.contains('=') {
                 bail!("WASI_COMMAND_INVALID: environment key {index} is empty or contains NUL or '='");
             }
+            ensure!(
+                !crate::net::is_reserved_env_key(key),
+                "WASI_COMMAND_INVALID: environment key {index} is in the host-owned \
+                 {} namespace; the host alone publishes installed socket descriptors",
+                crate::net::GUEST_ENV_ROOT
+            );
             if value.contains('\0') {
                 bail!("WASI_COMMAND_INVALID: environment value {index} contains NUL");
             }
@@ -373,8 +465,10 @@ impl WasmRuntime {
     /// runtime's private epoch engine, so ticking one run can never interrupt
     /// stores on the shared `engine` or on engines other runtimes own, and a
     /// stopped run leaves the runtime fully usable for the next call. These
-    /// controls interrupt guest code only; a guest blocked inside a blocking
-    /// host call stays blocked until that call returns.
+    /// controls interrupt guest code at epoch checkpoints, and a guest blocked
+    /// in a *network* host call observes the same stop in bounded poll slices
+    /// (see [`crate::net`]); other blocking host calls (an empty stdin pipe)
+    /// still stay blocked until they return.
     pub fn run_wasi_module<I, O, E>(
         &mut self,
         wasm_or_wat: &[u8],
@@ -392,6 +486,25 @@ impl WasmRuntime {
         }
         command.validate()?;
         let control = command.control.clone();
+
+        // A networked guest owns host sockets, so it must also own a bound:
+        // refusing here (before any mount, compile or socket work) keeps every
+        // socket host call interruptible instead of trusting the peer. A
+        // deterministic transcript cannot represent a live socket either, so
+        // replay and transport are refused together rather than silently
+        // mixing a recorded run with real I/O.
+        if command.network.is_some() {
+            ensure!(
+                control.deadline.is_some() || control.cancel.is_some(),
+                "WASI_NETWORK_RUN_UNBOUNDED: a networked guest needs a run deadline or a \
+                 cancellation handle; an unbounded socket run could never be stopped"
+            );
+            ensure!(
+                command.replay_io.is_none(),
+                "WASI_NETWORK_REPLAY_UNSUPPORTED: a live socket is not a deterministic replay \
+                 input; run the networked guest without replay_io"
+            );
+        }
 
         // Deterministic boundary checks, before any mount, compile or spawn
         // work: an already-cancelled run must not produce guest effects, and a
@@ -500,16 +613,14 @@ impl WasmRuntime {
     }
 }
 
-/// Per-store state for a controlled run: the WASI context plus the stop
-/// bookkeeping consulted by the epoch-deadline callback. `stop` records the
-/// typed outcome the callback committed to, so the caller can distinguish a
-/// deliberate kill from an ordinary guest trap.
+/// Per-store state for a run: the WASI context plus the stop cell consulted by
+/// the epoch-deadline callback and by every blocking host socket call. The
+/// first committed outcome is what the caller sees, so a deliberate kill is
+/// never confused with an ordinary guest trap.
 struct ControlledCtx {
     host: P1Host,
     limits: wasmtime::StoreLimits,
-    cancel: Option<WasiCancellation>,
-    deadline: Option<Instant>,
-    stop: Option<WasiRunOutcome>,
+    stop: RunStop,
 }
 
 fn store_limits(limits: WasiResourceLimits) -> wasmtime::StoreLimits {
@@ -556,7 +667,9 @@ where
 {
     let controlled = deadline_at.is_some() || command.control.cancel.is_some();
     let resource_limits = command.limits;
-    let cancel = command.control.cancel.clone();
+    // One stop cell per run: the epoch callback and every host socket call
+    // observe and commit the same first outcome.
+    let stop = RunStop::new(command.control.cancel.clone(), deadline_at);
     if let Some(io) = &command.replay_io {
         let invocation = crate::replay_io::invocation_digest(&command.arguments, &command.environment, mounts, home)?;
         io.verify_execution(wasm_or_wat, &invocation)?;
@@ -570,6 +683,15 @@ where
         command.stdout.async_stream(), command.stderr.async_stream());
     let mut host = P1Host::new(bindings, stdio, command.arguments, command.environment)?;
     host.set_replay_io(command.replay_io);
+    // Sockets are opened from the admission before the guest exists, so the
+    // guest can only ever reach an endpoint the caller was granted. A stop
+    // observed while connecting ends the run here, with no guest code run.
+    if let Some(admission) = command.network {
+        match host.install_network(admission, stop.clone())? {
+            crate::net::NetworkStart::Installed => {}
+            crate::net::NetworkStart::Stopped(outcome) => return Ok(outcome),
+        }
+    }
 
     if !controlled {
         let mut linker: Linker<ControlledCtx> = Linker::new(engine);
@@ -577,7 +699,7 @@ where
             .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
         let mut store = Store::new(engine, ControlledCtx {
-            host, limits: store_limits(resource_limits), cancel: None, deadline: None, stop: None,
+            host, limits: store_limits(resource_limits), stop,
         });
         store.limiter(|cx| &mut cx.limits);
         store.set_fuel(resource_limits.max_fuel.unwrap_or(u64::MAX))
@@ -597,9 +719,7 @@ where
         ControlledCtx {
             host,
             limits: store_limits(resource_limits),
-            cancel,
-            deadline: deadline_at,
-            stop: None,
+            stop,
         },
     );
     store.limiter(|cx| &mut cx.limits);
@@ -613,27 +733,13 @@ where
     // deadline: at every checkpoint the callback re-evaluates cancellation
     // (an explicit request wins deterministically) and the real deadline
     // against `Instant`. The watcher thread only advances engine epochs; all
-    // stop decisions happen on the execution thread in this callback, so a
-    // committed `stop` always corresponds to the trap that follows.
+    // stop decisions happen on the execution thread — in this callback, or in
+    // a host socket call that cannot make progress — and they commit to the
+    // same `RunStop`, so the reported outcome is the first condition that was
+    // actually observed.
     store.epoch_deadline_callback(|mut cx| {
-        let data = cx.data_mut();
-        let kill = if data
-            .cancel
-            .as_ref()
-            .is_some_and(WasiCancellation::is_cancelled)
-        {
-            Some(WasiRunOutcome::Cancelled)
-        } else if data
-            .deadline
-            .is_some_and(|d| Instant::now() >= d)
-        {
-            Some(WasiRunOutcome::DeadlineExceeded)
-        } else {
-            None
-        };
-        match kill {
+        match cx.data().stop.observe() {
             Some(outcome) => {
-                cx.data_mut().stop = Some(outcome);
                 // The callback's error type is wasmtime's own Error (not
                 // anyhow::Error): it is what unwinds guest execution into the
                 // caller-visible trap for this store.
@@ -652,28 +758,11 @@ where
     // Deterministic pre-execution check: cancellation or an elapsed deadline
     // observed after compilation/setup but before instantiation means no
     // guest code (including `start` sections) ever runs for this call.
-    {
-        let data = store.data();
-        let pre = if data
-            .cancel
-            .as_ref()
-            .is_some_and(WasiCancellation::is_cancelled)
-        {
-            Some(WasiRunOutcome::Cancelled)
-        } else if data
-            .deadline
-            .is_some_and(|d| Instant::now() >= d)
-        {
-            Some(WasiRunOutcome::DeadlineExceeded)
-        } else {
-            None
-        };
-        if let Some(outcome) = pre {
-            return Ok(outcome);
-        }
+    if let Some(outcome) = store.data().stop.observe() {
+        return Ok(outcome);
     }
 
-    let stopped = |store: &Store<ControlledCtx>| store.data().stop;
+    let stopped = |store: &Store<ControlledCtx>| store.data().stop.committed();
     let instance = match linker.instantiate(&mut store, &module) {
         Ok(instance) => instance,
         // A stop committed by the epoch callback outranks the trap it raised.

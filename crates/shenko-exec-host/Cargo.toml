@@ -40,6 +40,18 @@ futures = { workspace = true }
 
 [dev-dependencies]
 rusqlite = { workspace = true }
+# The self-learning proof consumer reads a stopped installation the way the
+# launcher resolves it (durable slot pointer) and records its own binary's
+# sha256 as declared source binding. Both are consumer-only, dev-only needs.
+shenko-update = { path = "../shenko-update" }
+sha2 = { workspace = true }
+
+# The self-learning proof consumer takes its own `--binary`/`--repo` and runs
+# exactly once per invocation, so it is a plain binary rather than a libtest
+# target that would reject those arguments.
+[[test]]
+name = "cognition_self_learning"
+harness = false
 
 [target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
 rustix = { version = "=1.1.5", features = ["fs"] }
