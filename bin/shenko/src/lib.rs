@@ -304,7 +304,9 @@ pub enum UpdateCli {
         #[arg(long)]
         expected_selector_revision: u64,
     },
-    /// Deterministic recovery read. No model is required.
+    /// Deterministic recovery. No model is required: it completes a committed
+    /// publication, takes back an interrupted hand-over boundary when this
+    /// process owns the installation, and reports what it found.
     Recover,
     /// §51.4 append-node rollback: restore the subject's state root to a
     /// historical node. This appends a new node, never rewinding or
