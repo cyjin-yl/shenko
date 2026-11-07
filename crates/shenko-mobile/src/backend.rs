@@ -2566,7 +2566,7 @@ mod tests {
         assert!(sealed.frame_fingerprint.starts_with("pixels:"));
         assert!(sealed.fingerprint_scope.is_none());
         assert!(sealed.fingerprint_algorithm.is_none());
-        let absence = sealed.fingerprint_absent.expect("absence is a recorded fact");
+        let absence = sealed.fingerprint_absent.as_ref().expect("absence is a recorded fact");
         assert_eq!(absence.reason, "hierarchy_unavailable");
         assert!(absence.detail.contains("accessibility"));
         assert!(

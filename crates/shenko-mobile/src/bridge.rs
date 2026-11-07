@@ -277,6 +277,7 @@ impl SocketBridge {
 /// that never sends LF, or sends an oversized frame, cannot make the node
 /// buffer without limit. A frame is decoded only once complete, so a
 /// multibyte code point split across reads cannot alter text or argv.
+#[derive(Debug)]
 enum FrameError {
     /// The peer closed the connection before the frame's LF.
     Closed,
