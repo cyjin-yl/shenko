@@ -177,7 +177,7 @@ pub fn reconcile_units(node: &mut Node, package_root: &Path) -> Result<Vec<Insta
         // A record that does not exist yet is installed enabled; an existing
         // record keeps the state the owner gave it.
         let enabled = if policy.installed { policy.enabled } else { true };
-        import_record(node, policy, &policy.config, enabled, package_root)?;
+        import_record(node, &policy, &policy.config, enabled, package_root)?;
     }
     installed_policies(node)
 }
@@ -226,7 +226,8 @@ fn import_record(
         package_root: package_root.to_string_lossy().into_owned(),
         enable: Some(enabled),
     })
-    .with_context(|| format!("install context policy unit {}", policy.unit_id))
+    .with_context(|| format!("install context policy unit {}", policy.unit_id))?;
+    Ok(())
 }
 
 /// Install or disable one strategy's installation record.
