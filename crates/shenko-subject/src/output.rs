@@ -34,7 +34,8 @@ child 是多步有界运行：可用所授 tools 调用已注册能力；有 rep
 输入处置用 [dispose] {\"event_id\":\" durable 事件 uuid\",\"disposition\":\"acknowledged|deferred|delegated|ignored\",\"reason\":\"你的理由\",\"priority\":\"low|normal|high\",\"review_after\":\"RFC3339 时间\"}；除 acknowledged 外必须给 reason；带 priority 必须给 review_after。\n\
 持久义务用 [obligation] {\"description\":\"要做什么\",\"depends_on_task_id\":\"uuid 可选\",\"resume_condition\":\"恢复条件 可选\",\"origin_event_id\":\"对应的输入事件 uuid 可选\",\"due_at\":\"RFC3339 可选\"}；义务会一直带在后续思考里直到完成或取消。\n\
 完成或取消本轮持久事实中的义务用 [obligation:terminal] {\"obligation_id\":\"本轮义务 uuid\",\"state\":\"completed|cancelled\",\"reason\":\"完成或取消的理由\"}；同一义务一次结果最多改变一次，两个终态都不可再改变。\n\
-对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个已存在的 child task。\n\
+对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个仍在运行的 child task：消息进入它同一讨论，由它下一步读取；已经结束的 child 收不到对话。\n\
+child 以 needs_decision 交回问题时，用 [delegate] 带上该 task_id 的 continue_task_id 与你自己的 owner_answer 继续同一讨论；这是对已结束 child 说话的唯一路径。\n\
 免打扰用 [dnd] {\"state\":\"off|active\",\"sources\":[\"来源…\"],\"reason\":\"理由\",\"review_after\":\"RFC3339\"}；state=off 必须列出静默的来源并给回顾时间，不是无限期静默开关。\n\
 采用一条实时插入用 [steer] {\"submission_id\":\"提交键\"}；只能采用本轮输入里真实存在的那条插入，其他键会被拒绝。\n\
 外部效果仍未知时，接受这份不确定性继续别的工作用 [reconcile] {\"case_id\":\"本轮上下文里真实出现过的 case id\",\"reason_refs\":[\"该 case 已有的 evidence 收据 id\"],\"remaining_impact\":\"剩余影响与还需什么证据\"}；\

@@ -460,7 +460,7 @@ impl Plugin for TasteHost {
     async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
         // Generation-owned: Cordis withdraws the publication on dispose.
         let _publication = ctx
-            .provide(InstalledTaste::new(Arc::clone(input)))
+            .provide(Arc::new(InstalledTaste::new(Arc::clone(input))))
             .map_err(std::io::Error::other)?;
         Ok(())
     }
@@ -526,10 +526,10 @@ mod tests {
     fn the_canonical_counters_are_carried_and_never_recomputed() {
         // The store says two older versions exist although this caller only
         // read one revision number: the store's disclosure is the authority.
-        let chain = chain(&[(7, "gg", 70)])
+        let known = chain(&[(7, "gg", 70)])
             .with_canonical(CanonicalDisclosure::new("gg", 5, 90));
         let projected = DefaultRevisionTaste
-            .disclose(&chain, DisclosureRequest::Selected)
+            .disclose(&known, DisclosureRequest::Selected)
             .unwrap();
         assert_eq!(projected.revision(), Some(7), "the digest names its mechanism revision");
         assert_eq!(
@@ -610,9 +610,9 @@ mod tests {
 
     #[test]
     fn a_node_without_an_installed_taste_reports_unresolved_not_a_default() {
-        let chain = chain(&[(1, "aa", 10)]);
+        let existing = chain(&[(1, "aa", 10)]);
         assert_eq!(
-            disclose_revisions(None, &chain, DisclosureRequest::Selected).unwrap(),
+            disclose_revisions(None, &existing, DisclosureRequest::Selected).unwrap(),
             None,
             "no installed taste is not the distribution default"
         );
@@ -621,6 +621,6 @@ mod tests {
             Err(TasteError::EmptyChain { family: "context.notebook".into() })
         );
         assert_eq!(DefaultRevisionTaste.unit().content_digest, None);
-        assert_eq!(installed_taste(&Context::new()), None);
+        assert!(installed_taste(&Context::new()).is_none());
     }
 }

@@ -413,11 +413,12 @@ impl OwnedNetworkFixture {
                     *fixture.namespace.lock() = Some(lease);
                 }
                 Err(prerequisite) => {
+                    let dependent = format!(
+                        "the namespace tier itself was not admitted: {prerequisite}"
+                    );
                     fixture.capabilities.namespace = CapabilityState::Rejected { prerequisite };
                     fixture.capabilities.namespace_dns = CapabilityState::Rejected {
-                        prerequisite: format!(
-                            "the namespace tier itself was not admitted: {prerequisite}"
-                        ),
+                        prerequisite: dependent,
                     };
                 }
             }

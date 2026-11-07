@@ -438,6 +438,10 @@ fn receive<R: Read>(
             memory_root: Some(data_dir.join("memory")),
             workspace_root,
             peer_id: Some(metadata.source_node_id),
+            // A node sync is peer replication, never the same-installation
+            // handover: the importing installation keeps its own context
+            // control state.
+            local_control_handover: false,
         },
     )?;
     let mut unit_statuses = Vec::with_capacity(metadata.units.len());

@@ -25,7 +25,7 @@ use shenko_types::ids::EntityId;
 use shenko_wasm::{HOME_GUEST_PATH, InputFile, MountMode, MountSpec, OutputFile, WasiCancellation, WasiCommand, WasiRunControl, WasiRunOutcome, WasmRuntime};
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -97,6 +97,9 @@ impl ReplProvider for WasiReplProvider {
         let ModuleSource::ModulePath(module_path) = &request.kernel.module;
         let module_bytes = fs::read(module_path).with_context(||
             format!("REPL_KERNEL_UNAVAILABLE: cannot read interpreter module {}", module_path.display()))?;
+        // A native kernel execs this artifact directly; refuse a file the
+        // kernel would never be able to execute, before any session exists.
+        kernel::validate_module_mode(&request.kernel, module_path)?;
         let module_blake3 = jrn::hash_bytes(&module_bytes);
         let environment_generation = kernel::environment_generation(&request.kernel);
         let root = self.canonical_root()?;
@@ -278,6 +281,81 @@ fn read_manifest(dir: &Path) -> Result<SessionManifest> {
         }
     }
     serde_json::from_slice(&bytes).context("REPL_SESSION_INVALID: manifest schema")
+}
+
+/// One durable session as a *listing* sees it. Reading a summary validates the
+/// manifest and reads nothing else: no engine is started, no journal torn tail
+/// is repaired and nothing is restored, so a listing cannot change a session.
+/// This is what lets a restarted controller tell a caller which sessions still
+/// exist before anything resumes them.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionSummary {
+    pub session_id: EntityId,
+    pub kernel_id: String,
+    pub runtime: ReplRuntime,
+    pub backend: BackendKind,
+    pub session_model: SessionModel,
+    pub recovery_level: RecoveryLevel,
+    pub module_blake3: String,
+    pub environment_generation: String,
+    pub forked_from: Option<EntityId>,
+    pub created_unix_ms: i64,
+    pub disposed_unix_ms: Option<i64>,
+}
+
+impl SessionSummary {
+    pub fn read(session_dir: &Path) -> Result<Self> {
+        let dir = session_dir
+            .canonicalize()
+            .with_context(|| format!("REPL_SESSION_INVALID: {}", session_dir.display()))?;
+        let manifest = read_manifest(&dir)?;
+        validate_manifest(&dir, &manifest)?;
+        Ok(Self {
+            session_id: manifest.session_id,
+            kernel_id: manifest.kernel.kernel_id.clone(),
+            runtime: manifest.kernel.runtime.clone(),
+            backend: manifest.kernel.backend,
+            session_model: manifest.kernel.session_model(),
+            recovery_level: manifest.recovery_level,
+            module_blake3: manifest.module_blake3,
+            environment_generation: manifest.environment_generation.0.clone(),
+            forked_from: manifest.forked_from,
+            created_unix_ms: manifest.created_unix_ms,
+            disposed_unix_ms: manifest.disposed_unix_ms,
+        })
+    }
+}
+
+/// One session directory as a listing sees it. A corrupt directory is reported
+/// with its reason; it is never silently dropped and never listed as resumable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionListing {
+    Ok(SessionSummary),
+    Corrupt { session: String, detail: String },
+}
+
+/// Every session directory under `sessions_root`, sorted by identity. Nothing
+/// here opens an interpreter.
+pub fn list_sessions(sessions_root: &Path) -> Result<Vec<SessionListing>> {
+    if !sessions_root.exists() {
+        return Ok(Vec::new());
+    }
+    let mut listings: Vec<(String, SessionListing)> = Vec::new();
+    for entry in fs::read_dir(sessions_root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let listing = match SessionSummary::read(&entry.path()) {
+            Ok(summary) => SessionListing::Ok(summary),
+            Err(error) => SessionListing::Corrupt { session: name.clone(), detail: format!("{error:#}") },
+        };
+        listings.push((name, listing));
+    }
+    listings.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(listings.into_iter().map(|(_, listing)| listing).collect())
 }
 
 /// Reopen without replay. An interrupted reset is finished before the handle
@@ -817,8 +895,13 @@ impl WasiReplSession {
                 };
                 (outcome, Some(report))
             }
-            Err(live::CellInterrupt::CancelRequested) => (CellOutcome::Cancelled, None),
-            Err(live::CellInterrupt::DeadlineExceeded) => (CellOutcome::DeadlineExceeded, None),
+            Err(live::CellFailure::CancelRequested) => (CellOutcome::Cancelled, None),
+            Err(live::CellFailure::DeadlineExceeded) => (CellOutcome::DeadlineExceeded, None),
+            Err(live::CellFailure::ProcessExited { detail }) => {
+                (CellOutcome::Failed { error: self.driver_exit_failure(detail) }, None)
+            }
+            Err(live::CellFailure::DeliveryFailed { detail }) =>
+                (CellOutcome::Failed { error: format!("REPL_CELL_UNDELIVERED: {detail}") }, None),
         };
         if let Some(state) = &self.state { state.verify_root()?; }
         Ok((outcome, report, wall_clock_ms))
@@ -832,6 +915,30 @@ impl WasiReplSession {
         buf.truncate(self.preview_bytes);
         Ok(StreamPreview { text: String::from_utf8_lossy(&buf).into_owned(), total_bytes,
             truncated, blake3, path: path.strip_prefix(&self.dir)?.to_path_buf() })
+    }
+
+    /// The failure text for an owned interpreter that ended on its own. The
+    /// real status is the caller's; a bounded tail of the driver's own stderr
+    /// explains a startup death (a missing module, an unsupported REPL API),
+    /// which is otherwise only visible as an unexplained process exit.
+    fn driver_exit_failure(&self, detail: String) -> String {
+        const TAIL_BYTES: u64 = 2048;
+        let mut tail = Vec::new();
+        if let Ok(mut file) = File::open(self.dir.join("guest.err.log")) {
+            if let Ok(metadata) = file.metadata() {
+                let start = metadata.len().saturating_sub(TAIL_BYTES);
+                if file.seek(SeekFrom::Start(start)).is_ok() {
+                    let _ = file.take(TAIL_BYTES.saturating_add(1)).read_to_end(&mut tail);
+                }
+            }
+        }
+        let text = String::from_utf8_lossy(&tail);
+        let text = text.trim_end();
+        if text.is_empty() {
+            format!("REPL_DRIVER_EXITED: {detail}")
+        } else {
+            format!("REPL_DRIVER_EXITED: {detail}; driver stderr tail: {text}")
+        }
     }
 
     /// Re-execute one journaled Pure cell through the current engine during
@@ -911,6 +1018,22 @@ fn move_replay_streams(stdout: &Path, stderr: &Path, dir: &Path, artifact: Entit
     Ok(())
 }
 
+/// A driver that ended before writing a cell stream leaves no file, but the
+/// durable cell record still needs a real (empty) stream rather than a host
+/// read error that would hide the recorded failure. Any other I/O problem —
+/// permissions, a directory in the way — still propagates.
+fn ensure_stream_file(path: &Path) -> Result<()> {
+    match File::create_new(path) {
+        Ok(file) => {
+            file.sync_all()?;
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("create missing cell stream {}", path.display())),
+    }
+}
+
 impl ReplSession for WasiReplSession {
     fn execute(&mut self, request: CellRequest) -> Result<CellResult> {
         self.ensure_ready()?;
@@ -929,6 +1052,10 @@ impl ReplSession for WasiReplSession {
                     &request.source)?;
                 let (o, d, ms) = self.run_live_cell(cell, seq, &request.source)?;
                 let paths = self.live_cell_paths(seq);
+                // A driver that died mid-delivery wrote neither stream; the
+                // record keeps the empty streams it actually produced.
+                ensure_stream_file(&paths.out_host)?;
+                ensure_stream_file(&paths.err_host)?;
                 (o, d, paths.out_host, paths.err_host, ms)
             }
         };

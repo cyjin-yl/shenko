@@ -223,7 +223,11 @@ async function main() {
         sshPort,
         layerfsCommitted: false,
         guest: caps,
-        sdk: { pin: PIN, exports: bound.exports },
+        sdk: {
+          pin: PIN,
+          exports: bound.exports,
+          missingOptional: bound.missingOptional,
+        },
       });
     },
 
@@ -239,6 +243,7 @@ async function main() {
     async state(seq) {
       let display = null;
       let sshPort = null;
+      let guest = null;
       if (vm) {
         if (typeof vm.displayAddress === 'function') display = await vm.displayAddress();
         if (typeof vm.sshPort === 'function') sshPort = await vm.sshPort();
@@ -246,13 +251,21 @@ async function main() {
           const reported = await vm.state();
           if (reported && reported.state) vmState = reported.state;
         }
+        // Re-probe the guest instead of replaying the open-time answer: a
+        // running workspace must report what this guest can prove NOW.
+        guest = await guestCapabilities(vm);
       }
       ok(seq, {
         state: vmState,
         display,
         sshPort,
         layerfsCommitted: false,
-        sdk: { pin: PIN, exports: bound.exports },
+        guest,
+        sdk: {
+          pin: PIN,
+          exports: bound.exports,
+          missingOptional: bound.missingOptional,
+        },
       });
     },
 

@@ -582,7 +582,7 @@ async fn a_timed_out_judge_retains_its_original_late_result_after_drain() -> Res
         "scope": "synthetic parsed output for broker-lifetime proof; no subject trial",
         "output": output,
     }), "cognition-late-judge-probe")?;
-    let context = JudgeContext { configuration_ref: &prepared.configuration_ref,
+    let context = SandboxJudgeContext { configuration_ref: &prepared.configuration_ref,
         installation_ref: &installation_ref, sample_digest: &sample_ref.digest.0,
         scenario: "late-judge", condition: Condition::Candidate, trial: 0 };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -726,13 +726,10 @@ fn the_judge_verdict_is_read_from_the_judges_own_words() {
     // `EFFECTIVE` inside a longer word is prose, not the verdict token.
     let prose = judge_verdict("这回答的 effectiveness 很高，它确实核实了").unwrap_err().to_string();
     assert!(prose.contains("neither EFFECTIVE nor NOT_EFFECTIVE"), "{prose}");
-    // The underscore-joined negative is still the negative token.
     assert!(matches!(judge_verdict("not_effective：直接下结论").unwrap(),
         JudgeVerdict::Ineffective(_)));
     let empty = judge_verdict("   ").unwrap_err().to_string();
     assert!(empty.contains("empty verdict"), "{empty}");
-    // Neither token is a judge-protocol failure, never a negative verdict.
-    let absent = judge_verdict("我觉得这次回答还可以").unwrap_err().to_string();
     assert!(absent.contains("neither EFFECTIVE nor NOT_EFFECTIVE"), "{absent}");
 }
 

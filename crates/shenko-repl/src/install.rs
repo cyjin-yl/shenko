@@ -362,13 +362,23 @@ pub fn install_registry_packages(
     let (tool, args_prefix): (PathBuf, Vec<String>) = match profile.backend {
         BackendKind::NativeHost if profile.runtime == crate::contract::ReplRuntime::NodeWasm => {
             let npm = exe_dir.join("npm");
-            if !npm.is_file() {
+            if crate::kernel::executable_file(&npm) {
+                (npm, vec!["install".into(), "--no-audit".into(), "--no-fund".into(), "--loglevel=error".into()])
+            } else if exe_dir.join("npm-cli.js").is_file() {
+                // Some node layouts ship only the npm CLI script (Debian's
+                // nodejs does). Running that script with the *bound*
+                // interpreter is the same npm on the same runtime — not a
+                // substitute installer and not another runtime.
+                let cli = exe_dir.join("npm-cli.js");
+                let mut args = vec![cli.to_string_lossy().into_owned()];
+                args.extend(["install".into(), "--no-audit".into(), "--no-fund".into(), "--loglevel=error".into()]);
+                (executable.clone(), args)
+            } else {
                 bail!(
-                    "REPL_INSTALL_UNSUPPORTED: no npm next to the bound node executable ({})",
+                    "REPL_INSTALL_UNSUPPORTED: no npm or npm-cli.js next to the bound node executable ({})",
                     exe_dir.display()
                 );
             }
-            (npm, vec!["install".into(), "--no-audit".into(), "--no-fund".into(), "--loglevel=error".into()])
         }
         BackendKind::NativeHost if profile.runtime == crate::contract::ReplRuntime::BunWasm => {
             (executable.clone(), vec!["add".into()])
@@ -481,6 +491,20 @@ pub fn install_registry_packages(
 /// Bind and sync the actual installed closure, including transitive packages,
 /// lockfiles and literal symlink targets. Never follow an installer symlink.
 fn sync_environment_tree(dir: &Path, hasher: &mut blake3::Hasher) -> Result<()> {
+    walk_tree(dir, hasher, true)
+}
+
+/// Read-only digest of a *referenced* directory tree (a kernel's standard
+/// library, say). Same shape as the installed-environment digest so a reader
+/// can reason about both the same way, but it writes and syncs nothing: the
+/// tree is not owned by this crate.
+pub fn tree_digest(dir: &Path) -> Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    walk_tree(dir, &mut hasher, false)?;
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+fn walk_tree(dir: &Path, hasher: &mut blake3::Hasher, sync: bool) -> Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let mut entries = fs::read_dir(dir)?.collect::<std::io::Result<Vec<_>>>()?;
     entries.sort_by_key(|entry| entry.file_name());
@@ -497,18 +521,18 @@ fn sync_environment_tree(dir: &Path, hasher: &mut blake3::Hasher) -> Result<()> 
             hasher.update(target.as_os_str().as_bytes());
         } else if metadata.is_dir() {
             hasher.update(b"D");
-            sync_environment_tree(&path, hasher)?;
+            walk_tree(&path, hasher, sync)?;
             hasher.update(b"E");
         } else if metadata.is_file() {
             hasher.update(b"F");
             hasher.update(&metadata.len().to_le_bytes());
             hasher.update(crate::journal::hash_file(&path)?.as_bytes());
-            File::open(&path)?.sync_all()?;
+            if sync { File::open(&path)?.sync_all()?; }
         } else {
             bail!("REPL_INSTALL_INVALID: installed environment contains a special file");
         }
     }
-    File::open(dir)?.sync_all()?;
+    if sync { File::open(dir)?.sync_all()?; }
     Ok(())
 }
 

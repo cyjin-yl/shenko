@@ -464,7 +464,7 @@ impl Store {
                     .map_err(|e| ShenkoError::storage(e.to_string()))?,
                 recorded_commit: CommitRef::new(
                     ledger.parse().map_err(|_| ShenkoError::storage("invalid ledger"))?,
-                    shenko_types::ids::LedgerSeq(seq),
+                    shenko_types::ids::LedgerSeq(seq as u64),
                 ),
                 recorded_at_ms: at,
             })
@@ -548,7 +548,7 @@ impl Store {
                 state,
                 updated_commit: CommitRef::new(
                     ledger.parse().map_err(|_| ShenkoError::storage("invalid ledger"))?,
-                    shenko_types::ids::LedgerSeq(seq),
+                    shenko_types::ids::LedgerSeq(seq as u64),
                 ),
             });
         }
@@ -960,7 +960,7 @@ fn inflate_root_node(raw: RawRootNode) -> Result<CognitiveRootNode, ShenkoError>
         attitude_id: attitude_id.parse().map_err(|_| ShenkoError::storage("invalid attitude_id"))?,
         recorded_commit: CommitRef::new(
             ledger.parse().map_err(|_| ShenkoError::storage("invalid ledger"))?,
-            shenko_types::ids::LedgerSeq(seq),
+            shenko_types::ids::LedgerSeq(seq as u64),
         ),
         fence,
         reinstated_from,

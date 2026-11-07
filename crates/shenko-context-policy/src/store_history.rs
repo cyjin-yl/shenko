@@ -28,8 +28,9 @@ use shenko_types::object::ObjectRef;
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
 use crate::notes::{
     MAX_NOTE_BYTES, NoteRevision, NoteSource, NotesError, NotesJournal, ReminderJournal,
-    RolloverJournal, RolloverRequest,
+    RolloverJournal,
 };
+use crate::RolloverRequest;
 use crate::policy::{Derivative, WINDOW_BODY_VERSION, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 

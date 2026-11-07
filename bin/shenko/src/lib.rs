@@ -306,6 +306,22 @@ pub enum UpdateCli {
     },
     /// Deterministic recovery read. No model is required.
     Recover,
+    /// §51.4 append-node rollback: restore the subject's state root to a
+    /// historical node. This appends a new node, never rewinding or
+    /// truncating the chain. Distinct from `rollback` which switches the
+    /// software generation.
+    RootRollback {
+        /// The canonical `blake3:<64 hex>` digest of the historical root
+        /// node to restore.
+        #[arg(long)]
+        target_node: String,
+        /// The chain head digest at selection time; omit for an empty chain.
+        #[arg(long)]
+        expected_head: Option<String>,
+        /// Activation this rollback accompanies, if any.
+        #[arg(long)]
+        activation: Option<shenko_types::ids::EntityId>,
+    },
 }
 
 impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
@@ -343,6 +359,15 @@ impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
                 expected_selector_revision,
             },
             UpdateCli::Recover => UpdateCommand::Recover,
+            UpdateCli::RootRollback {
+                target_node,
+                expected_head,
+                activation,
+            } => UpdateCommand::RootRollback {
+                target_node,
+                expected_head,
+                activation,
+            },
         }
     }
 }
@@ -5514,7 +5539,514 @@ mod recovery_integration_tests {
             serde_json::to_value(reopened.external_operation_evidence(result.operation_id).unwrap()).unwrap(),
             serde_json::to_value(&evidence).unwrap(),
         );
+        // The same real receipt delivered again after the reopen is a replay
+        // of one fact: no second receipt, no new operation revision, and the
+        // single writer still accepts the next fact.
+        let before_replay = reopened.external_operation(result.operation_id).unwrap();
+        let replayed = reopened
+            .record_external_evidence(
+                result.operation_id,
+                attempts[0].attempt_id,
+                evidence[0].clone(),
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::None,
+            )
+            .unwrap();
+        assert_eq!(replayed.record_revision, before_replay.record_revision);
+        assert_eq!(replayed.evidence_through, before_replay.evidence_through);
+        assert_eq!(
+            reopened
+                .external_operation_evidence(result.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(reopened
+            .external_receipt_conflicts(result.operation_id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            reopened.external_operation_attempts(result.operation_id).unwrap().len(),
+            1
+        );
         // The process/ledger/evidence directory is retained for readback.
+    }
+
+    /// A receipt is one fact. Replaying it must not consume a second commit,
+    /// duplicate its evidence or close the single writer; a different original
+    /// under the same stable source event scope is an explicit
+    /// `RECEIPT_KEY_CONFLICT` that preserves the refused original, never a
+    /// silent replacement and never a second folding of the operation.
+    ///
+    /// A separate process reopens the retained ledger and performs the replay,
+    /// the conflict and the task settlement; this process then reads the
+    /// durable result back. Nothing here executes an external effect: the
+    /// operation is armed by `arm_simulated_native_operation`.
+    #[test]
+    fn receipt_replay_and_source_key_conflict_survive_real_process_reopen() {
+        const HELPER: &str = "SHENKO_RECEIPT_CONFLICT_REOPEN_HELPER";
+        if let Some(payload) = std::env::var_os(HELPER) {
+            run_receipt_conflict_helper(std::path::Path::new(&payload)).unwrap();
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("shenko-receipt-conflict-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let store = Arc::new(open_native_fixture(&dir));
+        let home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(),
+            ..Default::default()
+        })
+        .prepare(store.ledger.ledger_id())
+        .unwrap();
+        let agent = bootstrap_genesis(
+            &store,
+            None,
+            &home.manifest,
+            &shenko_seed::ModelProfile::from_env(),
+        )
+        .unwrap();
+        store.start_subject_dispatcher().unwrap();
+        let task_id = EntityId::new();
+        commit_native_fixture_step(
+            &store,
+            "[delegate:host.printf:1] {\"text\":\"receipt admission\"}",
+            &[task_id],
+            vec![],
+        );
+        let descriptor = shenko_subject::NativeTaskHandler::descriptor(
+            &shenko_exec_host::HostPrintfHandler::new(store.clone()),
+        );
+        let claim = store
+            .claim_native_task(task_id, descriptor.implementation_ref.clone(), false)
+            .unwrap()
+            .unwrap();
+        let (operation, attempt) = arm_simulated_native_operation(
+            &store,
+            &claim,
+            descriptor.implementation_ref.clone(),
+            "host.printf.v1",
+        )
+        .unwrap();
+        let source_instance = attempt.node_id.to_string();
+        let original = native_observation_receipt(
+            &operation,
+            &attempt,
+            &source_instance,
+            "printf-observation",
+            seal_native_observation(&store, br#"{"stdout":"original"}"#),
+        );
+        let resolved = store
+            .record_external_evidence(
+                operation.operation_id,
+                attempt.attempt_id,
+                original.clone(),
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::Complete,
+            )
+            .unwrap();
+        assert_eq!(resolved.state, OperationState::Resolved);
+        assert_eq!(
+            store
+                .external_operation_evidence(operation.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        let conflict = native_observation_receipt(
+            &operation,
+            &attempt,
+            &source_instance,
+            "printf-observation",
+            seal_native_observation(&store, br#"{"stdout":"divergent"}"#),
+        );
+        // The same source id and stable event key seen by one observer is one
+        // source scope; a second observer instance is a different scope.
+        let foreign_instance = native_observation_receipt(
+            &operation,
+            &attempt,
+            &format!("{source_instance}.observer"),
+            "printf-observation",
+            seal_native_observation(&store, br#"{"stdout":"second observer"}"#),
+        );
+        let after_conflict = native_observation_receipt(
+            &operation,
+            &attempt,
+            &source_instance,
+            "printf-observation-followup",
+            seal_native_observation(&store, br#"{"stdout":"later original"}"#),
+        );
+        let payload = ReceiptConflictPayload {
+            dir: dir.clone(),
+            operation_id: operation.operation_id,
+            attempt_id: attempt.attempt_id,
+            original: original.clone(),
+            conflict: conflict.clone(),
+            foreign_instance: foreign_instance.clone(),
+            after_conflict: after_conflict.clone(),
+            claim: ReceiptConflictClaim {
+                task: claim.task.clone(),
+                invocation: claim.invocation.clone(),
+                operation_id: claim.operation_id,
+                result_id: claim.result_id,
+                software_generation: claim.software_generation.clone(),
+                settlement_only: claim.settlement_only,
+            },
+            report: dir.join("receipt-conflict-report.json"),
+        };
+        let payload_path = dir.join("receipt-conflict-payload.json");
+        std::fs::write(&payload_path, serde_json::to_vec(&payload).unwrap()).unwrap();
+        drop(store);
+
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg(
+                "recovery_integration_tests::receipt_replay_and_source_key_conflict_survive_real_process_reopen",
+            )
+            .arg("--nocapture")
+            .env(HELPER, &payload_path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "receipt admission helper process failed: {status}");
+
+        let report: ReceiptConflictReport =
+            serde_json::from_slice(&std::fs::read(&payload.report).unwrap()).unwrap();
+        assert_eq!(
+            report.replay_record_revision, resolved.record_revision.0,
+            "the replayed receipt must bind to the durable operation fact",
+        );
+        assert_eq!(
+            report.evidence_receipt_ids,
+            vec![
+                original.receipt_id,
+                foreign_instance.receipt_id,
+                after_conflict.receipt_id
+            ],
+            "the refused receipt must never become this operation's evidence",
+        );
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(report.conflicts[0].receipt_id, conflict.receipt_id);
+        assert_eq!(report.conflicts[0].original_receipt_id, original.receipt_id);
+        assert_eq!(
+            report.conflicts[0].matched,
+            shenko_store::ConflictIdentity::SourceEventKey
+        );
+        assert!(
+            report.conflicts[0]
+                .differing_fields
+                .iter()
+                .any(|field| field == "raw_ref"),
+            "the conflict must name the differing original, not only its identity",
+        );
+        assert_eq!(report.conflicts[0].receipt.raw_ref, conflict.raw_ref);
+        assert_eq!(
+            report.conflicts[0].receipt.operation_id,
+            Some(operation.operation_id)
+        );
+
+        let reopened = open_native_fixture(&dir);
+        let conflicts = reopened
+            .external_receipt_conflicts(operation.operation_id)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&conflicts).unwrap(),
+            serde_json::to_value(&report.conflicts).unwrap(),
+            "conflict evidence must survive the process that refused it",
+        );
+        let evidence = reopened
+            .external_operation_evidence(operation.operation_id)
+            .unwrap();
+        assert_eq!(evidence.len(), 3);
+        assert_eq!(evidence[0].receipt_id, original.receipt_id);
+        assert_eq!(evidence[0].raw_ref, original.raw_ref);
+        // The first durable receipt is not rewritten by the replay or the
+        // conflict: same identity, same original, same observed facts.
+        assert_eq!(evidence[0].observed_at, original.observed_at);
+        assert_eq!(evidence[0].source_event_key, original.source_event_key);
+        let operation_after = reopened.external_operation(operation.operation_id).unwrap();
+        assert!(matches!(operation_after.state, OperationState::Resolved));
+        assert_eq!(operation_after.outcome, Some(OperationOutcome::Succeeded));
+        assert_eq!(
+            serde_json::to_value(&operation_after).unwrap(),
+            serde_json::to_value(&report.operation).unwrap()
+        );
+        let task = reopened.external_task(task_id).unwrap();
+        assert!(task.is_terminal());
+        assert_eq!(
+            reopened
+                .native_task_result(task_id)
+                .unwrap()
+                .unwrap()
+                .result_id,
+            report.result_id,
+            "the task effect must settle exactly once from the replayed evidence",
+        );
+        // A late observation in the reopened process is still admitted, and it
+        // does not rewrite the already-settled durable result.
+        let late = native_observation_receipt(
+            &operation,
+            &attempt,
+            &source_instance,
+            "printf-observation-late",
+            seal_native_observation(&reopened, br#"{"stdout":"late"}"#),
+        );
+        reopened
+            .record_external_evidence(
+                operation.operation_id,
+                attempt.attempt_id,
+                late,
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::Complete,
+            )
+            .unwrap();
+        assert_eq!(
+            reopened
+                .external_operation_evidence(operation.operation_id)
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            reopened
+                .native_task_result(task_id)
+                .unwrap()
+                .unwrap()
+                .result_id,
+            report.result_id
+        );
+        // The process/ledger/conflict directory is retained for readback.
+    }
+
+    /// One stable source event of a simulated printf observation, sealed by the
+    /// calling ledger's CAS. Only the source scope and the original bytes
+    /// decide admission; no external process runs.
+    fn native_observation_receipt(
+        operation: &shenko_types::operation::OperationRecord,
+        attempt: &shenko_types::operation::AttemptRecord,
+        source_instance: &str,
+        source_event_key: &str,
+        raw: shenko_types::object::ObjectRef,
+    ) -> shenko_types::evidence::EvidenceReceipt {
+        shenko_types::evidence::EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: EntityId::new(),
+            operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id),
+            source_id: "host.printf.v1".into(),
+            source_instance_id: source_instance.into(),
+            source_event_key: Some(source_event_key.into()),
+            producer_epoch: Some(attempt.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw,
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: shenko_types::evidence::DecodeStatus::Decoded,
+            observation_level: Some(shenko_types::evidence::ObservationLevel::RemoteCompleted),
+            normalized_ref: None,
+            observed_at: Some(chrono::Utc::now()),
+            received_commit: operation.prepared_commit,
+        }
+    }
+
+    fn seal_native_observation(
+        store: &shenko_store::store::Store,
+        bytes: &[u8],
+    ) -> shenko_types::object::ObjectRef {
+        store
+            .cas
+            .seal_object(
+                bytes,
+                "application/json",
+                "receipt-admission-fixture",
+                "printf-observation",
+                1,
+            )
+            .unwrap()
+            .object
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    struct ReceiptConflictClaim {
+        task: shenko_types::task::TaskRecord,
+        invocation: shenko_store::TaskInvocation,
+        operation_id: EntityId,
+        result_id: EntityId,
+        software_generation: RuntimeGeneration,
+        settlement_only: bool,
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    struct ReceiptConflictPayload {
+        dir: std::path::PathBuf,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        original: shenko_types::evidence::EvidenceReceipt,
+        conflict: shenko_types::evidence::EvidenceReceipt,
+        foreign_instance: shenko_types::evidence::EvidenceReceipt,
+        after_conflict: shenko_types::evidence::EvidenceReceipt,
+        claim: ReceiptConflictClaim,
+        report: std::path::PathBuf,
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    struct ReceiptConflictReport {
+        replay_record_revision: u64,
+        evidence_receipt_ids: Vec<EntityId>,
+        conflicts: Vec<shenko_store::EvidenceReceiptConflict>,
+        operation: shenko_types::operation::OperationRecord,
+        result_id: EntityId,
+    }
+
+    fn run_receipt_conflict_helper(path: &std::path::Path) -> Result<()> {
+        use shenko_types::error::{RetryStrategy, ShenkoError};
+        let payload: ReceiptConflictPayload = serde_json::from_slice(&std::fs::read(path)?)?;
+        let store = Arc::new(open_native_fixture(&payload.dir));
+        store.start_subject_dispatcher()?;
+        let operation = store.external_operation(payload.operation_id)?;
+        assert_eq!(operation.state, OperationState::Resolved);
+        let evidence_before = store.external_operation_evidence(payload.operation_id)?;
+        assert_eq!(evidence_before.len(), 1);
+
+        // 1. The identical fact again is a replay of the durable projection.
+        let replayed = store.record_external_evidence(
+            payload.operation_id,
+            payload.attempt_id,
+            payload.original.clone(),
+            Some(OperationOutcome::Succeeded),
+            EffectStatus::Complete,
+        )?;
+        assert_eq!(
+            replayed.record_revision, operation.record_revision,
+            "a replay must not consume an operation revision",
+        );
+        assert_eq!(replayed.outcome, operation.outcome);
+        assert_eq!(replayed.evidence_through, operation.evidence_through);
+        assert_eq!(
+            store
+                .external_operation_evidence(payload.operation_id)?
+                .len(),
+            1,
+            "a replay must not duplicate the durable receipt",
+        );
+        assert!(store
+            .external_receipt_conflicts(payload.operation_id)?
+            .is_empty());
+
+        // 2. A different original under the same scope and stable event key is
+        // refused explicitly, and the refusal itself becomes durable evidence.
+        let refusal = store
+            .record_external_evidence(
+                payload.operation_id,
+                payload.attempt_id,
+                payload.conflict.clone(),
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::Complete,
+            )
+            .expect_err("a divergent original under one source event key must be refused");
+        let typed = refusal
+            .downcast_ref::<ShenkoError>()
+            .expect("the refusal must be a typed protocol error");
+        let ShenkoError::Protocol(protocol) = typed else {
+            panic!("unexpected refusal: {typed}");
+        };
+        assert_eq!(protocol.code, "RECEIPT_KEY_CONFLICT");
+        assert_eq!(protocol.retry, RetryStrategy::NeverAutomatically);
+        assert_eq!(protocol.operation_id, Some(payload.operation_id));
+        assert!(
+            protocol.details["differing_fields"]
+                .as_array()
+                .is_some_and(|fields| fields.iter().any(|field| field == "raw_ref")),
+            "the refusal must report the differing original bytes",
+        );
+        let conflicts = store.external_receipt_conflicts(payload.operation_id)?;
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].receipt_id, payload.conflict.receipt_id);
+        assert_eq!(conflicts[0].original_receipt_id, payload.original.receipt_id);
+        assert_eq!(
+            conflicts[0].matched,
+            shenko_store::ConflictIdentity::SourceEventKey
+        );
+        assert_eq!(
+            serde_json::to_value(&store.external_operation(payload.operation_id)?)?,
+            serde_json::to_value(&operation)?,
+            "a refused receipt must not move the operation projection",
+        );
+        assert_eq!(
+            serde_json::to_value(&store.external_operation_evidence(payload.operation_id)?)?,
+            serde_json::to_value(&evidence_before)?,
+            "a refused receipt must not rewrite the admitted evidence",
+        );
+
+        // 3. Refusing the same receipt again preserves one fact, not two.
+        store
+            .record_external_evidence(
+                payload.operation_id,
+                payload.attempt_id,
+                payload.conflict.clone(),
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::Complete,
+            )
+            .expect_err("the repeated divergent original stays refused");
+        assert_eq!(
+            store.external_receipt_conflicts(payload.operation_id)?.len(),
+            1,
+            "a repeated conflict must not duplicate the preserved fact",
+        );
+
+        // 4. The writer is still usable, and a different observer instance of
+        // the same source and key is a different source scope, not a conflict.
+        let foreign = store.record_external_evidence(
+            payload.operation_id,
+            payload.attempt_id,
+            payload.foreign_instance.clone(),
+            Some(OperationOutcome::Succeeded),
+            EffectStatus::Complete,
+        )?;
+        assert_eq!(foreign.state, OperationState::Resolved);
+        // 5. A later original under a new stable key is admitted normally.
+        store.record_external_evidence(
+            payload.operation_id,
+            payload.attempt_id,
+            payload.after_conflict.clone(),
+            Some(OperationOutcome::Succeeded),
+            EffectStatus::Complete,
+        )?;
+
+        // 6. The durable task effect settles once from the replayed evidence,
+        // and settles the same result again when it is replayed.
+        let claim = shenko_store::NativeTaskClaim {
+            task: payload.claim.task.clone(),
+            invocation: payload.claim.invocation.clone(),
+            operation_id: payload.claim.operation_id,
+            result_id: payload.claim.result_id,
+            software_generation: payload.claim.software_generation.clone(),
+            settlement_only: payload.claim.settlement_only,
+        };
+        let current = store.external_operation(payload.operation_id)?;
+        let result = store
+            .complete_native_task(&claim, &current)?
+            .expect("the resolved operation must settle exactly one result");
+        assert_eq!(result.operation_id, payload.operation_id);
+        let resettled = store
+            .complete_native_task(&claim, &current)?
+            .expect("a settled task replays its durable result");
+        assert_eq!(resettled.result_id, result.result_id);
+
+        let report = ReceiptConflictReport {
+            replay_record_revision: replayed.record_revision.0,
+            evidence_receipt_ids: store
+                .external_operation_evidence(payload.operation_id)?
+                .iter()
+                .map(|receipt| receipt.receipt_id)
+                .collect(),
+            conflicts: store.external_receipt_conflicts(payload.operation_id)?,
+            operation: store.external_operation(payload.operation_id)?,
+            result_id: result.result_id,
+        };
+        assert_eq!(
+            report.replay_record_revision, operation.record_revision.0,
+            "the helper reports the projection the replay bound to",
+        );
+        std::fs::write(&payload.report, serde_json::to_vec(&report)?)?;
+        Ok(())
     }
 
     /// Arm the existing T1 record without spawning a process. This is explicitly
