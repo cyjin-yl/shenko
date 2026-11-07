@@ -789,6 +789,7 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use shenko_types::channel::AttachmentLocator;
 
     fn test_attachment(bytes: Option<u64>) -> ChannelAttachment {
