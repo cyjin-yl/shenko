@@ -676,7 +676,11 @@ impl Store {
             // implies "not sent". A claimed row without an operation is a
             // legacy record of the old split admission (claim committed, arm
             // not): no attempt ever existed, so re-admitting it is safe.
-            tx.execute("UPDATE subject_intents SET state=CASE WHEN EXISTS(SELECT 1 FROM operations o WHERE o.operation_id=subject_intents.intent_id) THEN 'unknown' ELSE 'ready' END, owner=NULL,revision=revision+1,updated_seq=?1 WHERE state='claimed'",[seq.0 as i64])?;
+            // A dialogue claim is not dispatcher ownership: it records that
+            // the message reached a live endpoint's own durable inbox. The
+            // endpoint releases it, so a restart must not re-admit the same
+            // created message as an undelivered intent.
+            tx.execute("UPDATE subject_intents SET state=CASE WHEN EXISTS(SELECT 1 FROM operations o WHERE o.operation_id=subject_intents.intent_id) THEN 'unknown' ELSE 'ready' END, owner=NULL,revision=revision+1,updated_seq=?1 WHERE state='claimed' AND NOT (kind='dialogue' AND contract=?2)",params![seq.0 as i64, crate::child::CHILD_DIALOGUE_CONTRACT])?;
             self.intent_log(&tx,CommitRef::new(self.ledger.ledger_id(),seq))?;
             tx.commit()?; Ok(())
         },storage_failure)
@@ -944,6 +948,16 @@ fn deliver_child_dialogue(
 ) -> Result<DialogueOutcome, shenko_types::error::ShenkoError> {
     use crate::child::{DIALOGUE_INBOX, DialogueDelivery, read_task, write_task};
     use shenko_types::error::ShenkoError;
+    // The direction of a message is part of its meaning, not decoration. The
+    // subject loop authors turns that address a child; a `to_subject` intent
+    // is the child's own answer to its parent and is never delivered into a
+    // child's inbox as if the child had written to itself.
+    if intent.direction != shenko_types::subject::DialogueDirection::ToChild {
+        return Ok(DialogueOutcome::Late(
+            "a to_subject dialogue turn is authored by a child endpoint, not by the subject loop; it was not delivered"
+                .into(),
+        ));
+    }
     let Some(mut target) = read_task(tx, intent.target_task_id)
         .map_err(crate::store::storage_error)? else {
         return Ok(DialogueOutcome::Late(

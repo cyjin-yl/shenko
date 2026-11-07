@@ -39,8 +39,14 @@ class ShenkoNodeService : Service() {
         val port = intent?.getIntExtra(EXTRA_PORT, DEFAULT_PORT) ?: DEFAULT_PORT
         startAsForeground()
         if (!bridgeRunning) {
-            runCatching { bridgeServer.start() }
-            bridgeRunning = true
+            // A failed start must not be recorded as running: with the flag
+            // already true no later start attempt happens, and the node would
+            // keep answering typed-unavailable for a bridge that never bound.
+            bridgeRunning = runCatching { bridgeServer.start() }
+                .onFailure { error ->
+                    Log.e(TAG, "device bridge failed to start; mobile ops stay typed-unavailable", error)
+                }
+                .isSuccess
         }
         if (nodeThread == null) {
             nodeThread = Thread({ runNode(port) }, "shenko-node").apply { start() }

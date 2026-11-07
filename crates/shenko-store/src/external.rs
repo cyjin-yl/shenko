@@ -508,6 +508,14 @@ impl Store {
 
     /// Evidence may arrive after cancellation/epoch change. This method does
     /// not advance a task, create children, or grant the old callback authority.
+    ///
+    /// A receipt is admitted once (SPEC X04): the identical fact again is a
+    /// replay that returns the durable projection and writes nothing, while a
+    /// different original under the same receipt identity or the same
+    /// `(source_id, source_instance_id, source_event_key)` scope is refused as
+    /// `RECEIPT_KEY_CONFLICT` and preserved as its own conflict fact. Neither
+    /// answer re-folds the operation, duplicates its evidence or closes the
+    /// single writer.
     pub fn record_external_evidence(
         &self,
         operation_id: EntityId,
@@ -589,6 +597,27 @@ impl Store {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        match crate::receipt_admission::decide(&tx, &ev)? {
+            crate::receipt_admission::Admission::New => {}
+            // The same fact is already durable: the ledger's own projection is
+            // the answer, not a second commit. It may only be confirmed — a
+            // different settlement for one fact is a divergence, and the
+            // durable projection is never rewritten to match it.
+            crate::receipt_admission::Admission::Replay { .. } => {
+                if let Some(observed) = outcome {
+                    ensure!(
+                        op.outcome == Some(observed) && op.effect_status == effect,
+                        "receipt replay carries a different settlement than the durable fact"
+                    );
+                }
+                return Ok(op);
+            }
+            crate::receipt_admission::Admission::Conflict(conflict) => {
+                let refusal =
+                    crate::receipt_admission::refuse(&self.ledger, tx, &ev, conflict)?;
+                return Err(refusal.into());
+            }
+        }
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         ev.received_commit = commit;
@@ -670,6 +699,17 @@ impl Store {
         tx.commit()?;
         Ok(op)
     }
+    /// The agent one durable task row records, or None when the row is gone.
+    fn task_agent(tx: &Transaction<'_>, task_id: EntityId) -> Result<Option<String>> {
+        Ok(tx
+            .query_row(
+                "SELECT json_extract(data,'$.agent_id') FROM tasks WHERE task_id=?1",
+                [task_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// The operation and the attempt one receipt belongs to.
     fn load_external_records(
         tx: &Transaction<'_>,
@@ -724,6 +764,17 @@ impl Store {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        match crate::receipt_admission::decide(&tx, &ev)? {
+            crate::receipt_admission::Admission::New => {}
+            // The answer is already durable; replaying it writes nothing and
+            // never promotes it to a decision.
+            crate::receipt_admission::Admission::Replay { .. } => return Ok(op),
+            crate::receipt_admission::Admission::Conflict(conflict) => {
+                let refusal =
+                    crate::receipt_admission::refuse(&self.ledger, tx, &ev, conflict)?;
+                return Err(refusal.into());
+            }
+        }
         ensure!(
             op.outcome.is_none() && !op.outcome_conflict,
             "the intervention operation was already settled"
@@ -779,6 +830,63 @@ impl Store {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        if let Some(reminder) = decision {
+            // A decision belongs to one research epoch, and an epoch that
+            // records its owning task belongs to that task's agent. Settling
+            // another agent's operation with it would publish one agent's
+            // decision into another agent's ledger, so the durable boundary
+            // refuses the settlement before any evidence, outcome or decision
+            // row is written — including on a replay, which must not launder
+            // a mismatched decision.
+            //
+            // An epoch that records NO owning task (the column is nullable and
+            // some lineages are opened without one) makes no agent claim, so
+            // there is nothing to contradict; the operation's own frozen
+            // request still binds that epoch to this task.
+            let epoch_task: Option<Option<String>> = tx
+                .query_row(
+                    "SELECT task_id FROM research_epochs WHERE epoch_id=?1",
+                    [reminder.epoch_id.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            ensure!(
+                epoch_task.is_some(),
+                "intervention decision names no research epoch"
+            );
+            if let Some(task_id) = epoch_task.flatten() {
+                let epoch_agent = Self::task_agent(&tx, task_id.parse::<EntityId>()?)?;
+                ensure!(
+                    epoch_agent.is_some()
+                        && epoch_agent == Self::task_agent(&tx, op.task_id)?,
+                    "intervention decision epoch belongs to a different agent than the settled task"
+                );
+            }
+        }
+        match crate::receipt_admission::decide(&tx, &ev)? {
+            crate::receipt_admission::Admission::New => {}
+            crate::receipt_admission::Admission::Replay { .. } => {
+                // The settlement is already durable. A replay may only confirm
+                // it: a different outcome or a decision this settlement never
+                // committed is a divergence, not a second settlement.
+                ensure!(
+                    op.outcome == Some(outcome) && op.effect_status == effect,
+                    "intervention replay carries a different settlement"
+                );
+                if let Some(reminder) = decision {
+                    ensure!(
+                        !Self::insert_intervention(&tx, reminder).map_err(anyhow::Error::from)?,
+                        "intervention replay carries a decision this settlement never committed"
+                    );
+                }
+                return Ok(op);
+            }
+            crate::receipt_admission::Admission::Conflict(conflict) => {
+                let refusal =
+                    crate::receipt_admission::refuse(&self.ledger, tx, &ev, conflict)?;
+                return Err(refusal.into());
+            }
+        }
         ensure!(
             op.outcome.is_none() && !op.outcome_conflict,
             "the intervention operation was already settled"

@@ -16,6 +16,13 @@ use shenko_store::Store;
 use shenko_subject::{ChildToolCall, NativeChildPlugin, NativeChildService, NativeTaskHandler, NativeTaskHandlerPlugin};
 use shenko_types::{commit::CommitRef, ids::*, object::{Digest, ObjectRef, SchemaRef}, operation::AuthorityRef, subject::*, task::*};
 
+#[path = "plugin_lifecycle/sandbox_execution.rs"]
+mod sandbox_execution;
+#[path = "plugin_lifecycle/unknown_admission.rs"]
+mod unknown_admission;
+#[path = "plugin_lifecycle/learning_fixture.rs"]
+mod learning_fixture;
+
 const SERVER: &str = r#"import json, os, pathlib, sqlite3, sys, time
 root = pathlib.Path(sys.argv[1])
 (root / 'server.pid').write_text(str(os.getpid()))
@@ -33,11 +40,17 @@ for line in sys.stdin:
         result = {'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'native-effect-fixture','version':'1'}}
     elif method == 'tools/call':
         params = message['params']
-        task = params['arguments']['task_id']
+        task = params['arguments'].get('task_id')
         db = sqlite3.connect('file:' + str(root / 'shenko.db') + '?mode=ro', uri=True)
-        row = db.execute("SELECT data FROM operations WHERE json_extract(data,'$.task_id')=?", [task]).fetchone()
+        if task is None:
+            rows = db.execute("SELECT data FROM operations WHERE json_extract(data,'$.operation_name')='compat.mcp.request' AND json_extract(data,'$.state')='in_flight'").fetchall()
+            assert len(rows) == 1, 'subject fixture requires one armed request'
+            row = rows[0]
+        else:
+            row = db.execute("SELECT data FROM operations WHERE json_extract(data,'$.task_id')=?", [task]).fetchone()
         assert row is not None, 'effect attempted before T1'
         operation = json.loads(row[0])
+        task = operation['task_id']
         attempt = json.loads(db.execute('SELECT data FROM attempts WHERE operation_id=?', [operation['operation_id']]).fetchone()[0])
         assert attempt['dispatch_stage'] == 'armed', attempt
         db.close()
@@ -153,11 +166,13 @@ for line in sys.stdin:
 #[tokio::test]
 async fn streamable_http_transport_bounds_json_and_sse() -> Result<()> {
     use shenko_compat_mcp::protocol::{Response, Session};
+    use tokio::io::AsyncBufReadExt as _;
     use tokio_util::sync::CancellationToken;
-    const HTTP_SERVER: &str = r#"import json, os, pathlib, sys, time
+    const HTTP_SERVER: &str = r#"import json, os, pathlib, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 root = pathlib.Path(sys.argv[1])
-posts = open(root/'posts.jsonl','ab',buffering=0)
+posts = []
+gets = []
 class H(BaseHTTPRequestHandler):
     protocol_version='HTTP/1.1'
     def log_message(*a): pass
@@ -171,7 +186,7 @@ class H(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.send_header('Mcp-Session-Id','fixture-session-1'); self.send_header('Content-Length',str(len(body))); self.end_headers()
         self.wfile.write(body)
     def do_GET(self):
-        open(root/'server.gets.log','ab').write(b'get\n')
+        gets.append('get\n')
         if not self.authed(): return self.unauth()
         self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.send_header('Transfer-Encoding','chunked'); self.end_headers()
         self.wfile.write(b'5\r\n: hi\n\r\n'); self.wfile.flush()
@@ -183,7 +198,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.authed(): return self.unauth()
         message=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0')) or b'0') or b'{}')
-        posts.write((json.dumps({'method':message.get('method'),'id':message.get('id')})+'\n').encode())
+        posts.append({'method':message.get('method'),'id':message.get('id')})
         method,ident=message.get('method'),message.get('id')
         if method=='initialize':
             self.sse({'jsonrpc':'2.0','id':ident,'result':{'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'http-fixture','version':'1'}}})
@@ -203,11 +218,25 @@ class H(BaseHTTPRequestHandler):
                 self.sse({'jsonrpc':'2.0','id':ident,'result':{'content':[{'type':'text','text':'echo:'+name}],'isError':False}})
         else:
             self.sse({'jsonrpc':'2.0','id':ident,'error':{'code':-32601,'message':'unknown method'}})
-port=int(sys.argv[2])
-server=ThreadingHTTPServer(('127.0.0.1',port),H)
+class Server(ThreadingHTTPServer):
+    ready=False
+    def service_actions(self):
+        if not self.ready:
+            self.ready=True
+            print(self.server_address[1],flush=True)
+server=Server(('127.0.0.1',0),H)
 (root/'server.bound').write_text(str(server.server_address[1]))
 (root/'server.pid').write_text(str(os.getpid()))
-server.serve_forever()
+def stop_on_eof():
+    sys.stdin.buffer.read()
+    server.shutdown()
+threading.Thread(target=stop_on_eof,daemon=True).start()
+try:
+    server.serve_forever()
+finally:
+    server.server_close()
+    (root/'posts.jsonl').write_text(''.join(json.dumps(post)+'\n' for post in posts))
+    (root/'server.gets.log').write_text(''.join(gets))
 "#;
     let base = std::env::var_os("SHENKO_COMPAT_EVIDENCE_ROOT").map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/compat-native-fixtures"));
@@ -215,31 +244,28 @@ server.serve_forever()
     std::fs::create_dir_all(&root)?;
     std::fs::write(root.join("server.py"), HTTP_SERVER)?;
     let stderr = std::fs::File::create(root.join("server.stderr"))?;
-    // Bind the port in the test and hand it over, so there is no file-based
-    // handshake to lag on NFS; the fixture owns an already-chosen address.
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port().to_string();
-    drop(listener);
-    let mut server = std::process::Command::new("/usr/bin/python3")
-        .arg(root.join("server.py")).arg(&root).arg(&port)
-        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(stderr)
+    let mut server = tokio::process::Command::new("/usr/bin/python3")
+        .arg(root.join("server.py")).arg(&root)
+        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(stderr)
+        .kill_on_drop(true)
         .spawn()?;
-    let started = std::time::Instant::now();
-    loop {
-        if std::net::TcpStream::connect(("127.0.0.1", port.parse::<u16>()?)).is_ok() { break; }
-        ensure!(started.elapsed() < Duration::from_secs(15), "HTTP fixture never bound a port");
-        ensure!(server.try_wait()?.is_none(), "HTTP fixture exited before binding");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    unsafe { std::env::set_var("SHENKO_HTTP_FIXTURE_TOKEN", "secret-token-value"); }
-    let spec = ConnectionSpec::StreamableHttp { url: format!("http://127.0.0.1:{}/mcp", port.trim()),
-        header_env_refs: BTreeMap::from([("X-Fixture-Auth".into(), "SHENKO_HTTP_FIXTURE_TOKEN".into())]) };
-    let outcome: Result<()> = async {
+    let pid = server.id().context("HTTP fixture has no process ID")?;
+    // Readiness comes from the running server loop, after startup writes;
+    // request diagnostics stay in memory until the owned server is joined.
+    let outcome: Result<u16> = async {
+        let stdout = server.stdout.take().context("HTTP fixture has no readiness pipe")?;
+        let mut readiness = tokio::io::BufReader::new(stdout);
+        let mut port_line = String::new();
+        let bytes = tokio::time::timeout(Duration::from_secs(15), readiness.read_line(&mut port_line)).await
+            .context("HTTP fixture readiness exceeded its guard")??;
+        ensure!(bytes > 0, "HTTP fixture exited before announcing readiness");
+        let port: u16 = port_line.trim().parse().context("HTTP fixture announced an invalid port")?;
+        ensure!(port != 0, "HTTP fixture announced an unbound port");
+        unsafe { std::env::set_var("SHENKO_HTTP_FIXTURE_TOKEN", "secret-token-value"); }
+        let spec = ConnectionSpec::StreamableHttp { url: format!("http://127.0.0.1:{port}/mcp"),
+            header_env_refs: BTreeMap::from([("X-Fixture-Auth".into(), "SHENKO_HTTP_FIXTURE_TOKEN".into())]) };
         let mut session = Session::connect(&spec, Duration::from_secs(5)).await
-            .with_context(|| format!("HTTP fixture did not negotiate at port {port} (bound={:?} gets={:?} posts={:?})",
-                std::fs::read_to_string(root.join("server.bound")).ok(),
-                std::fs::read_to_string(root.join("server.gets.log")).ok(),
-                std::fs::read_to_string(root.join("posts.jsonl")).ok()))?;
+            .with_context(|| format!("HTTP fixture did not negotiate at port {port}"))?;
         let info = session.server_info()?;
         ensure!(info["serverInfo"]["name"] == "http-fixture", "legacy HTTP negotiation failed: {info}");
         let request = |name: &str| serde_json::from_value(json!({"method":"tools/call","params":{"name":name,"arguments":{}}})).unwrap();
@@ -252,11 +278,26 @@ server.serve_forever()
         ensure!(matches!(&large_sse, Response::Unknown { .. }), "oversized SSE event was accepted: {large_sse:?}");
         tokio::time::timeout(Duration::from_secs(8), session.close()).await
             .context("HTTP session close exceeded its guard")??;
+        Ok(port)
+    }.await;
+    // EOF requests shutdown on a separate Python thread. Always join before
+    // propagating a protocol failure, and preserve that primary failure.
+    drop(server.stdin.take());
+    let cleanup: Result<()> = async {
+        let status = match tokio::time::timeout(Duration::from_secs(15), server.wait()).await {
+            Ok(status) => status?,
+            Err(_) => {
+                server.start_kill()?;
+                tokio::time::timeout(Duration::from_secs(5), server.wait()).await
+                    .context("HTTP fixture kill exceeded its guard")??;
+                anyhow::bail!("HTTP fixture shutdown exceeded its guard");
+            }
+        };
+        ensure!(status.success(), "HTTP fixture exited unsuccessfully: {status}");
         Ok(())
     }.await;
-    server.kill().ok();
-    let _ = server.wait();
-    outcome?;
+    let port = outcome?;
+    cleanup?;
     let mut counts = BTreeMap::<String, usize>::new();
     for line in std::fs::read_to_string(root.join("posts.jsonl"))?.lines() {
         let line: Value = serde_json::from_str(line)?;
@@ -269,9 +310,9 @@ server.serve_forever()
         ("server/discover".to_owned(), 1), ("initialize".to_owned(), 1),
         ("notifications/initialized".into(), 1),
         ("tools/call".into(), 3)]), "HTTP request was replayed or dropped: {counts:?}");
-    let pid = std::fs::read_to_string(root.join("server.pid"))?;
+    ensure!(!Path::new(&format!("/proc/{pid}")).exists(), "HTTP fixture child was not joined");
     std::fs::write(root.join("receipt.json"), serde_json::to_vec_pretty(&json!({
-        "port":port.trim(),"observed_counts":counts,"joined_pid":pid.trim(),
+        "port":port,"observed_counts":counts,"joined_pid":pid,
         "scope":"real HTTP server over TCP; legacy session+SSE, bounded JSON body and SSE event; no model efficacy"}))?)?;
     println!("http transport receipt: {}", root.join("receipt.json").display());
     Ok(())

@@ -14,6 +14,9 @@ use crate::build::BuildProfile;
 use crate::handoff::{
     CandidateSource, PrepareRequest, UpdateService,
 };
+use crate::rollback::{
+    self, ExternalEffectReconciliation, RollbackRequest,
+};
 use crate::slots;
 use crate::smoke::{SmokeCheckOutcome, SmokeReport, SMOKE_SCHEMA_VERSION};
 
@@ -48,7 +51,9 @@ pub enum UpdateCommand {
         activation: EntityId,
         expected_selector_revision: u64,
     },
-    /// Deterministic recovery read. No model is required.
+    /// Deterministic recovery. No model is required: it completes a committed
+    /// publication, takes back an interrupted hand-over boundary when this
+    /// process owns the installation, and reports what it found.
     Recover,
     /// Readiness check of a candidate slot, run inside the candidate
     /// program itself. Never starts a subject loop.
@@ -56,11 +61,28 @@ pub enum UpdateCommand {
         /// Print the machine-readable report.
         json: bool,
     },
+    /// §51.4 append-node rollback of the cognitive root. This restores the
+    /// subject's state root to a historical node by appending a new node
+    /// with equal content — never rewinding, truncating or deleting the
+    /// chain. Distinct from the generation `Rollback` which switches the
+    /// software generation.
+    RootRollback {
+        /// The canonical `blake3:<64 hex>` digest of the historical root
+        /// node to restore.
+        target_node: String,
+        /// The chain head at the time the selection was made.
+        expected_head: Option<String>,
+        /// The activation this rollback accompanies, if any.
+        activation: Option<EntityId>,
+    },
 }
 
 pub async fn run(command: UpdateCommand, data_dir: PathBuf) -> Result<()> {
     match command {
         UpdateCommand::Smoke { json } => run_smoke(data_dir, json),
+        UpdateCommand::RootRollback { .. } => {
+            bail!("root rollback requires the installation-owned runtime with a RootChain provider")
+        }
         _ => bail!("update mutations require the installation-owned binary control transport"),
     }
 }
@@ -75,8 +97,19 @@ pub async fn execute(command: UpdateCommand, service: &UpdateService, agent_id: 
         }
         UpdateCommand::Recover => {
             service.finish_committed_handoff(agent_id)?;
+            // Only the exclusive owner may decide who resumes a boundary; a
+            // live runtime still holding the participants reports `null`
+            // instead of reviving a generation it does not own.
+            let reconciliation = service.reconcile_if_exclusive(agent_id)?;
             let report = service.recover(agent_id)?;
-            Ok(serde_json::to_value(report)?)
+            let mut value = serde_json::to_value(&report)?;
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "interrupted_handoff".to_string(),
+                    serde_json::to_value(&reconciliation)?,
+                );
+            }
+            Ok(value)
         }
         UpdateCommand::Prepare {
             generation,
@@ -145,7 +178,60 @@ pub async fn execute(command: UpdateCommand, service: &UpdateService, agent_id: 
             }))
         }
         UpdateCommand::Smoke { .. } => unreachable!("handled by run()"),
+        UpdateCommand::RootRollback {
+            target_node,
+            expected_head,
+            activation,
+        } => {
+            execute_root_rollback(service, agent_id, target_node, expected_head, activation).await
+        }
     }
+}
+
+/// Execute a §51.4 root rollback through the controller's [`RootChain`] seam.
+///
+/// The `UpdateService` is expected to provide a `RootChain` implementor.
+/// If the controller has not published one yet, this function returns an
+/// error naming the exact seam it needs — it never fabricates a second root.
+async fn execute_root_rollback(
+    service: &UpdateService,
+    agent_id: EntityId,
+    target_node: String,
+    expected_head: Option<String>,
+    activation: Option<EntityId>,
+) -> Result<serde_json::Value> {
+    let target = rollback::parse_node_digest(&target_node)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let expected = match expected_head {
+        Some(text) => Some(
+            rollback::parse_node_digest(&text)
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+        ),
+        None => None,
+    };
+    let chain = service.root_chain()
+        .ok_or_else(|| anyhow::anyhow!(
+            "root-chain-unavailable: the installation has no RootChain provider; \
+             the ControllerProofR2 contract must publish root_chain() on UpdateService \
+             before §51.4 root rollbacks can run"
+        ))?;
+    let external_effects = match service.external_effects() {
+        Some(ledger) => {
+            let items = ledger.unreconciled(agent_id)?;
+            ExternalEffectReconciliation::Observed { items }
+        }
+        None => ExternalEffectReconciliation::Unobserved {
+            detail: "no external-effect ledger installed on this UpdateService".into(),
+        },
+    };
+    let request = RollbackRequest {
+        target,
+        expected_head: expected,
+        activation,
+    };
+    let store = service.store();
+    let outcome = rollback::append_rollback(store, chain.as_ref(), &request, external_effects)?;
+    Ok(serde_json::to_value(&outcome)?)
 }
 
 /// The candidate readiness check, run inside the candidate program.

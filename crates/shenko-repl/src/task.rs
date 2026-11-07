@@ -44,10 +44,12 @@ const MAX_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_NAME_BYTES: usize = 256;
 
 const SESSION_CONTRACT: &[u8] =
-    b"shenko.repl.session/v1: manage a real long-lived REPL session (create/inspect/checkpoint/\
-      restore/fork/reset/cancel/dispose/install_dependencies) with a durable R0 journal, an R1 \
-      driver state file where the kernel declares one, candidate-environment dependency commits, \
-      and no R2 claim anywhere";
+    b"shenko.repl.session/v1: install a durable named kernel binding (install_kernel) and manage a \
+      real long-lived REPL session (list_sessions/create/inspect/checkpoint/restore/fork/reset/\
+      cancel/dispose/install_dependencies) with a durable R0 journal, an R1 driver state file where \
+      the kernel declares one, candidate-environment dependency commits, and no R2 claim anywhere. \
+      A binding pins one interpreter artifact (and its stdlib tree) by digest; create resolves it \
+      again instead of trusting the caller's path";
 const CELL_CONTRACT: &[u8] =
     b"shenko.repl.cell/v1: execute one journaled cell on the session's real engine (live owned \
       interpreter process or one-shot WASI guest), preserve the R0 work record with stream \
@@ -77,7 +79,9 @@ struct NoArgs {}
 #[serde(rename_all = "snake_case")]
 enum SessionOp {
     ListKernels,
+    ListSessions,
     Create,
+    InstallKernel,
     Inspect,
     Checkpoint,
     Restore,
@@ -93,7 +97,9 @@ impl SessionOp {
     fn wire_name(&self) -> &'static str {
         match self {
             SessionOp::ListKernels => "list_kernels",
+            SessionOp::ListSessions => "list_sessions",
             SessionOp::Create => "create",
+            SessionOp::InstallKernel => "install_kernel",
             SessionOp::Inspect => "inspect",
             SessionOp::Checkpoint => "checkpoint",
             SessionOp::Restore => "restore",
@@ -109,10 +115,19 @@ impl SessionOp {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CreateInput {
-    /// Named adapter target (see `list_kernels`).
-    kernel_id: String,
-    /// Interpreter artifact path, canonical-contained under `<data>/repl/kernels`.
-    module: PathBuf,
+    /// Installed kernel binding (see `list_kernels`) to create from. Resolves
+    /// the profile, re-verifies the artifact digests, and takes no other
+    /// binding fields.
+    #[serde(default)]
+    entry: Option<String>,
+    /// Named adapter target (see `list_kernels`); required without `entry`.
+    #[serde(default)]
+    kernel_id: Option<String>,
+    /// Interpreter artifact path, canonical-contained under
+    /// `<data>/repl/kernels`; required without `entry`, which already records
+    /// its own artifact.
+    #[serde(default)]
+    module: Option<PathBuf>,
     /// Optional CPython stdlib directory (python-wasi only).
     #[serde(default)]
     stdlib: Option<PathBuf>,
@@ -120,6 +135,26 @@ struct CreateInput {
     limits: LimitInput,
     #[serde(default)]
     preview_bytes: usize,
+}
+
+/// Publish or replace one durable kernel binding. The artifact must already
+/// exist under the admitted kernels tree; nothing is downloaded or built here.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstallKernelInput {
+    /// Entry name the caller will `create` by.
+    entry: String,
+    /// Named §19.1 target this binding is built from.
+    target: String,
+    /// Interpreter artifact, canonical-contained under `<data>/repl/kernels`.
+    module: PathBuf,
+    /// Referenced standard library (python-wasi only); admitted the same way.
+    #[serde(default)]
+    stdlib: Option<PathBuf>,
+    /// Replace an existing binding of the same name. The previous binding is
+    /// retired only after the new manifest is durable.
+    #[serde(default)]
+    replace: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -210,6 +245,18 @@ fn op_args<T: serde::de::DeserializeOwned>(payload: &serde_json::Value) -> serde
     serde_json::from_value(args)
 }
 
+/// A resolution refusal is a caller-resolvable answer about *this
+/// installation* — no session, no binding, an artifact that no longer matches
+/// its recorded digest, a target this build cannot bind. It is recorded as the
+/// task's explicit result instead of parking the operation, and it never
+/// claims an effect. Anything else is a real failure and propagates.
+fn resolution_refusal(message: &str) -> bool {
+    message.contains("REPL_SESSION_UNAVAILABLE")
+        || message.contains("REPL_KERNEL_UNAVAILABLE")
+        || message.contains("REPL_KERNEL_INVALID")
+        || message.contains("REPL_ENTRY_")
+}
+
 // ---------------------------------------------------------------------------
 // Frozen inputs and bounded results (sealed into CAS).
 // ---------------------------------------------------------------------------
@@ -218,6 +265,8 @@ fn op_args<T: serde::de::DeserializeOwned>(payload: &serde_json::Value) -> serde
 struct SessionFrozenInput {
     op: String,
     kernel_id: Option<String>,
+    /// Installed binding the op resolved, when it used one.
+    entry: Option<String>,
     module: Option<PathBuf>,
     module_digest: Option<String>,
     session_id: Option<EntityId>,
@@ -278,6 +327,17 @@ struct DriverReportView {
 #[derive(Debug, Serialize)]
 struct ListKernelsResult {
     targets: Vec<KernelTargetView>,
+    /// Durable bindings this installation actually has. Listing reports the
+    /// recorded digest and only a cheap artifact-length check; `create`
+    /// re-verifies the bytes.
+    entries: Vec<crate::entry::EntryListing>,
+}
+
+/// Durable sessions this installation still has, including ones whose
+/// controller process is gone. Reading a listing never opens an interpreter.
+#[derive(Debug, Serialize)]
+struct ListSessionsResult {
+    sessions: Vec<crate::session::SessionListing>,
 }
 
 #[derive(Debug, Serialize)]
@@ -314,7 +374,7 @@ pub struct QuiesceReport {
 
 impl SessionStore {
     pub fn new(data_dir: PathBuf) -> Result<Self> {
-        for sub in ["sessions", "kernels", "wheels"] {
+        for sub in ["sessions", "kernels", "wheels", "entries"] {
             fs::create_dir_all(data_dir.join(sub))?;
         }
         Ok(Self { data_dir, sessions: parking_lot::Mutex::new(BTreeMap::new()),
@@ -375,6 +435,10 @@ impl SessionStore {
     }
     fn kernels_root(&self) -> PathBuf { self.data_dir.join("kernels") }
     fn wheels_root(&self) -> PathBuf { self.data_dir.join("wheels") }
+    /// Durable kernel bindings (§19.1 replaceable kernel plugins). Kept apart
+    /// from `kernels`, which holds the admitted interpreter artifacts the
+    /// bindings point at.
+    fn entries_root(&self) -> PathBuf { self.data_dir.join("entries") }
 
     /// Canonical-containment admission: the real path must live under the
     /// root; both sides are canonical before comparison, so no pathname
@@ -764,10 +828,7 @@ impl ReplSessionHandler {
             Ok(parts) => parts,
             Err(error) => {
                 let message = format!("{error:#}");
-                let refused = message.contains("REPL_SESSION_UNAVAILABLE")
-                    || message.contains("REPL_KERNEL_UNAVAILABLE")
-                    || message.contains("REPL_KERNEL_INVALID");
-                if refused {
+                if resolution_refusal(&message) {
                     return self.record_refusal(&invocation, message).await;
                 }
                 return Err(error);
@@ -813,8 +874,8 @@ impl ReplSessionHandler {
     async fn record_refusal(&self, invocation: &NativeTaskInvocation, detail: String)
         -> Result<OperationRecord>
     {
-        let frozen = SessionFrozenInput { op: "refused".into(), kernel_id: None, module: None,
-            module_digest: None, session_id: None, limits: None };
+        let frozen = SessionFrozenInput { op: "refused".into(), kernel_id: None, entry: None,
+            module: None, module_digest: None, session_id: None, limits: None };
         let value = serde_json::to_value(SessionResult {
             session_id: None, outcome: Some("refused".into()), kernel_id: None, runtime: None,
             backend: None, session_model: None, recovery_level: None, cells_executed: None,
@@ -880,9 +941,25 @@ fn run_session_op(
                     note: target.note.clone(),
                 }
             }).collect();
-            let value = serde_json::to_value(ListKernelsResult { targets })?;
+            // Installed bindings are part of discovery: a restarted node's
+            // caller must not have to remember interpreter paths.
+            let entries = crate::entry::list(&sessions.entries_root())?;
+            let value = serde_json::to_value(ListKernelsResult { targets, entries })?;
             Ok((SessionFrozenInput { op: "list_kernels".into(), kernel_id: None, module: None,
-                module_digest: None, session_id: None, limits: None }, value, true,
+                entry: None, module_digest: None, session_id: None, limits: None }, value, true,
+                Some(OperationOutcome::Succeeded), EffectStatus::None, None))
+        }
+        SessionOp::ListSessions => {
+            let _strict: NoArgs = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+            // A restarted controller must be able to tell a caller which
+            // durable sessions still exist. Listing reads and validates each
+            // manifest only: no interpreter is opened and no journal is
+            // repaired, so this observation changes nothing.
+            let listings = crate::session::list_sessions(&sessions.sessions_root_cloned())?;
+            let value = serde_json::to_value(ListSessionsResult { sessions: listings })?;
+            Ok((SessionFrozenInput { op: "list_sessions".into(), kernel_id: None, entry: None,
+                module: None, module_digest: None, session_id: None, limits: None }, value, true,
                 Some(OperationOutcome::Succeeded), EffectStatus::None, None))
         }
         SessionOp::Create => {
@@ -923,11 +1000,52 @@ fn run_session_op(
                 error: None,
             })?;
             Ok((SessionFrozenInput { op: "create".into(), kernel_id: Some(profile.kernel_id.clone()),
-                module: Some(match &profile.module {
+                entry: create.entry.clone(), module: Some(match &profile.module {
                     crate::kernel::ModuleSource::ModulePath(path) => path.clone(),
                 }), module_digest: Some(module_digest), session_id: Some(session_id),
                 limits: Some(create.limits) }, value, true, Some(OperationOutcome::Succeeded),
                 EffectStatus::Complete, None))
+        }
+        SessionOp::InstallKernel => {
+            let install: InstallKernelInput = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_ENTRY_INVALID: install_kernel payload: {error}"))?;
+            let module = sessions.admit_module(&install.module)?;
+            let stdlib = match &install.stdlib {
+                Some(path) => Some(sessions.admit_module(path)?),
+                None => None,
+            };
+            let entry = crate::entry::install(&sessions.entries_root(), &crate::entry::InstallEntry {
+                entry: install.entry.clone(),
+                target: install.target.clone(),
+                module,
+                stdlib,
+                replace: install.replace,
+            })?;
+            let value = serde_json::to_value(SessionResult {
+                session_id: None,
+                outcome: Some("installed".into()),
+                kernel_id: Some(entry.entry.clone()),
+                runtime: Some(format!("{:?}", entry.profile.runtime)),
+                backend: Some(format!("{:?}", entry.profile.backend)),
+                session_model: Some(format!("{:?}", entry.session_model())),
+                recovery_level: Some(format!("{:?}", entry.recovery_level())),
+                cells_executed: None,
+                environment_generation: Some(crate::kernel::environment_generation(&entry.profile).0),
+                detail: Some(format!(
+                    "target={} artifact={} bytes={} replacement_requested={}",
+                    entry.target, entry.module_path.display(), entry.module_bytes, install.replace
+                )),
+                error: None,
+            })?;
+            Ok((SessionFrozenInput {
+                op: "install_kernel".into(),
+                kernel_id: Some(entry.entry.clone()),
+                entry: Some(entry.entry.clone()),
+                module: Some(entry.module_path.clone()),
+                module_digest: Some(entry.module_blake3.clone()),
+                session_id: None,
+                limits: None,
+            }, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Complete, None))
         }
         SessionOp::Cancel => {
             let reference: SessionRef = op_args(payload)
@@ -935,7 +1053,8 @@ fn run_session_op(
             let session_id = reference.session_id;
             let requested = sessions.request_cancel(session_id)?;
             let frozen = SessionFrozenInput { op: "cancel".into(), kernel_id: None,
-                module: None, module_digest: None, session_id: Some(session_id), limits: None };
+                entry: None, module: None, module_digest: None, session_id: Some(session_id),
+                limits: None };
             let value = serde_json::to_value(SessionResult {
                 session_id: Some(session_id),
                 outcome: Some(if requested { "interrupt_requested" } else { "nothing_running" }.into()),
@@ -967,8 +1086,8 @@ fn run_session_op(
             let session_id = route.session_id;
             let handle = sessions.open(session_id)?;
             let frozen = SessionFrozenInput { op: input.op.wire_name().into(),
-                kernel_id: None, module: None, module_digest: None, session_id: Some(session_id),
-                limits: None };
+                kernel_id: None, entry: None, module: None, module_digest: None,
+                session_id: Some(session_id), limits: None };
             let mut session = handle.lock()
                 .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
             match input.op {
@@ -1116,7 +1235,8 @@ fn run_session_op(
                     };
                     Ok((frozen, value, true, Some(operation_outcome), effect, None))
                 }
-                SessionOp::ListKernels | SessionOp::Create | SessionOp::Cancel => unreachable!("routed above"),
+                SessionOp::ListKernels | SessionOp::ListSessions | SessionOp::Create
+                | SessionOp::InstallKernel | SessionOp::Cancel => unreachable!("routed above"),
             }
         }
     }
@@ -1126,39 +1246,56 @@ fn run_session_op(
 fn build_kernel(sessions: &SessionStore, create: &CreateInput)
     -> Result<(crate::kernel::KernelProfile, String)>
 {
-    ensure!(!create.kernel_id.is_empty() && create.kernel_id.len() <= MAX_NAME_BYTES,
+    let explicit = create.kernel_id.is_some() || create.module.is_some() || create.stdlib.is_some();
+    if let Some(entry) = &create.entry {
+        ensure!(
+            !explicit,
+            "REPL_KERNEL_INVALID: create takes one binding — either \"entry\" or \
+             \"kernel_id\"+\"module\", never both"
+        );
+        return resolve_entry(sessions, entry);
+    }
+    let (Some(kernel_id), Some(module)) = (&create.kernel_id, &create.module) else {
+        anyhow::bail!(
+            "REPL_KERNEL_INVALID: create needs either \"entry\" (an installed kernel binding) or \
+             \"kernel_id\"+\"module\""
+        );
+    };
+    ensure!(!kernel_id.is_empty() && kernel_id.len() <= MAX_NAME_BYTES,
         "REPL_KERNEL_INVALID: kernel_id");
-    let module = sessions.admit_module(&create.module)?;
+    let module = sessions.admit_module(module)?;
     let digest = crate::journal::hash_bytes(&fs::read(&module)?);
     let stdlib = match &create.stdlib {
         Some(path) => Some(sessions.admit_module(path)?),
         None => None,
     };
-    let profile = match create.kernel_id.as_str() {
-        "python-wasi" => crate::adapters::python_wasi(create.kernel_id.clone(), module, stdlib),
-        "quickjs-wasm" => {
-            if stdlib.is_some() {
-                anyhow::bail!("REPL_KERNEL_INVALID: stdlib is a python-wasi-only field");
-            }
-            crate::adapters::quickjs_wasi(create.kernel_id.clone(), module)
-        }
-        "python-native-host" | "node-native-host" | "bun-native-host" => {
-            if stdlib.is_some() {
-                anyhow::bail!("REPL_KERNEL_INVALID: stdlib is a python-wasi-only field");
-            }
-            match create.kernel_id.as_str() {
-                "python-native-host" =>
-                    crate::adapters::python_native(create.kernel_id.clone(), module),
-                "node-native-host" =>
-                    crate::adapters::node_native(create.kernel_id.clone(), module),
-                _ => crate::adapters::bun_native(create.kernel_id.clone(), module),
-            }
-        }
-        other => anyhow::bail!(
-            "REPL_KERNEL_UNAVAILABLE: named target {other:?} is not bound in this installation"),
-    };
-    crate::kernel::validate_profile(&profile)?;
+    // One mapping for both routes: an installed binding and an explicit
+    // create can never describe the same named target differently.
+    let profile = crate::adapters::profile_for_target(
+        kernel_id, kernel_id.clone(), module, stdlib)?;
     Ok((profile, digest))
+}
+
+/// Create-time resolution of a durable kernel binding. The entry must still
+/// verify byte-for-byte, and both its artifact and its stdlib must live in the
+/// admitted kernels tree: a tampered manifest cannot run an interpreter from
+/// outside the tree the operator installed into.
+fn resolve_entry(sessions: &SessionStore, entry: &str)
+    -> Result<(crate::kernel::KernelProfile, String)>
+{
+    let (profile, record) = crate::entry::resolve(&sessions.entries_root(), entry)?;
+    let module = sessions.admit_module(crate::entry::profile_module(&profile))?;
+    ensure!(
+        module == record.module_path,
+        "REPL_ENTRY_CORRUPT: kernel entry {entry:?} resolves outside the admitted kernels tree"
+    );
+    if let Some(stdlib) = &record.stdlib_path {
+        ensure!(
+            sessions.admit_module(stdlib)? == *stdlib,
+            "REPL_ENTRY_CORRUPT: kernel entry {entry:?} stdlib is outside the admitted kernels tree"
+        );
+    }
+    Ok((profile, record.module_blake3))
 }
 
 #[async_trait]
@@ -1166,11 +1303,19 @@ impl NativeTaskHandler for ReplSessionHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
         self.core.descriptor(
             "repl.session/v1 管理真实长生命周期 REPL 会话（WASI 或原生解释器进程，变量在进程存活期间保留）：\
-             [delegate:repl.session:1] {\"op\":\"create\",\"kernel_id\":\"python-wasi|quickjs-wasm|python-native-host|node-native-host|bun-native-host\",\
-             \"module\":\"<data>/repl/kernels 下的解释器路径\",\"limits\":{\"max_wall_clock_ms\":60000}}；\
+             先看已安装的 kernel 绑定与具名目标 {\"op\":\"list_kernels\"}（targets = 本构建能绑定/不能绑定的运行时，\
+             entries = 本机真实安装的绑定及其 artifact 状态；列目录只核对长度，真正执行前会重新核对摘要）。\
+             重启后先 {\"op\":\"list_sessions\"} 看本机真实存续的会话（只校验 manifest，不开解释器、不修复 journal），\
+             再用返回的 session_id 继续 inspect/restore。\
+             安装绑定：[delegate:repl.session:1] {\"op\":\"install_kernel\",\"entry\":\"python-3.13\",\
+             \"target\":\"python-wasi|quickjs-wasm|python-native-host|node-native-host|bun-native-host\",\
+             \"module\":\"<data>/repl/kernels 下的解释器路径\",\"stdlib\":\"可选 <data>/repl/kernels 下的标准库目录\",\
+             \"replace\":false}；同名已有绑定需显式 replace，旧绑定在新清单持久后才退场。\
+             创建会话可用绑定名 {\"op\":\"create\",\"entry\":\"python-3.13\",\"limits\":{\"max_wall_clock_ms\":60000}}，\
+             也可显式给 {\"op\":\"create\",\"kernel_id\":\"...\",\"module\":\"...\"}；两者不可混用。\
              其余 op（inspect/checkpoint/restore/fork/reset/cancel/dispose/install_dependencies）带 {\"session_id\":\"...\"}。\
              restore 通过重放 Pure cell 重建状态，DeclaredEffect 只保留凭据不重放；install_dependencies 提交候选环境并推进 generation；\
-             会话进程中断后会话进入 recovery-required。无 R2。"
+             node-wasm/bun-wasm/pyodide 具名不可用，不会被 quickjs 或宿主解释器顶替；会话进程中断后会话进入 recovery-required。无 R2。"
                 .into(),
         )
     }
@@ -1469,80 +1614,121 @@ mod tests {
         /// its exact revision/invocation) and invoke the handler through the
         /// registered `NativeTaskHandler::execute` path.
         async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
-            let (task_id, invocation_id) = (EntityId::new(), EntityId::new());
-            let epoch = ControllerEpoch(1);
-            let zero = CommitRef::new(self.store.ledger.ledger_id(), LedgerSeq::ZERO);
-            let input_ref = self.handler.core.seal(&input, "repl-session-request")?;
-            let task = TaskRecord {
-                record_schema_version: 1,
-                task_id,
-                task_revision: TaskRevision(0),
-                record_revision: RecordRevision(0),
-                agent_id: EntityId::new(),
-                conversation_id: EntityId::new(),
-                owner: TaskOwner::Conversation { id: EntityId::new() },
-                background: false,
-                kind: "repl.session".into(),
-                definition_version: 1,
-                implementation_ref: self.handler.descriptor().implementation_ref,
-                input_ref,
-                state: TaskState::Running {
-                    checkpoint_ref: None,
-                    invocation_id,
-                    mode: RunMode::Run,
-                    epoch,
-                },
-                abort_request: None,
-                memos: serde_json::Map::new(),
-                residual_case_ids: vec![],
-                created_by_step_id: None,
-                dispatch_eligibility: DispatchEligibility::Ready,
-                no_progress_crashes: 0,
-                first_run_at: None,
-                terminal_at: None,
-                created_commit: zero,
-                updated_commit: zero,
-            };
-            let mut batch = WriteBatch::new();
-            batch.task_upserts.push(task.clone());
-            self.store.commit(batch)?;
-            let task_invocation = TaskInvocation {
-                task_id,
-                task_revision: TaskRevision(0),
-                record_revision: RecordRevision(0),
-                invocation_id,
-                epoch,
-                software_generation: RuntimeGeneration::default(),
-                worker_id: EntityId::new(),
-                node_id: EntityId::new(),
-            };
-            let mut context = CallContext::new_system(RuntimeGeneration::default());
-            context.task_id = Some(task_id);
-            context.invocation_id = Some(invocation_id);
-            context.controller_epoch = epoch;
-            self.handler
-                .execute(NativeTaskInvocation {
-                    context,
-                    task_invocation,
-                    task,
-                    operation_id: EntityId::new(),
-                    authority: AuthorityRef {
-                        delegation_id: task_id,
-                        delegation_revision: RecordRevision(0),
-                        decision_ref: EntityId::new(),
-                    },
-                    input,
-                    child_tools: None,
-                })
-                .await
+            invoke(&self.store, &self.handler.core, &self.handler, "repl.session",
+                "repl-session-request", input).await
         }
 
         /// The sealed bounded result of exactly one settled observation.
         fn normalized(&self, operation: &OperationRecord) -> Result<serde_json::Value> {
-            let evidence = self.store.external_operation_evidence(operation.operation_id)?;
-            ensure!(evidence.len() == 1, "expected one observation, got {}", evidence.len());
-            let normalized = evidence[0].normalized_ref.as_ref().context("no bounded result")?;
-            Ok(serde_json::from_slice(&self.store.cas.read_object(&normalized.digest)?)?)
+            normalized_result(&self.store, operation)
+        }
+    }
+
+    /// Register one Running task in the real ledger and invoke *that* handler.
+    /// Shared by both handler kinds so the cell surface is exercised through
+    /// the same T1/CAS path the session surface is.
+    async fn invoke(
+        store: &Arc<Store>,
+        core: &HandlerCore,
+        handler: &dyn NativeTaskHandler,
+        kind: &str,
+        schema: &str,
+        input: serde_json::Value,
+    ) -> Result<OperationRecord> {
+        let (task_id, invocation_id) = (EntityId::new(), EntityId::new());
+        let epoch = ControllerEpoch(1);
+        let zero = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
+        let input_ref = core.seal(&input, schema)?;
+        let task = TaskRecord {
+            record_schema_version: 1,
+            task_id,
+            task_revision: TaskRevision(0),
+            record_revision: RecordRevision(0),
+            agent_id: EntityId::new(),
+            conversation_id: EntityId::new(),
+            owner: TaskOwner::Conversation { id: EntityId::new() },
+            background: false,
+            kind: kind.into(),
+            definition_version: 1,
+            implementation_ref: handler.descriptor().implementation_ref,
+            input_ref,
+            state: TaskState::Running {
+                checkpoint_ref: None,
+                invocation_id,
+                mode: RunMode::Run,
+                epoch,
+            },
+            abort_request: None,
+            memos: serde_json::Map::new(),
+            residual_case_ids: vec![],
+            created_by_step_id: None,
+            dispatch_eligibility: DispatchEligibility::Ready,
+            no_progress_crashes: 0,
+            first_run_at: None,
+            terminal_at: None,
+            created_commit: zero,
+            updated_commit: zero,
+        };
+        let mut batch = WriteBatch::new();
+        batch.task_upserts.push(task.clone());
+        store.commit(batch)?;
+        let task_invocation = TaskInvocation {
+            task_id,
+            task_revision: TaskRevision(0),
+            record_revision: RecordRevision(0),
+            invocation_id,
+            epoch,
+            software_generation: RuntimeGeneration::default(),
+            worker_id: EntityId::new(),
+            node_id: EntityId::new(),
+        };
+        let mut context = CallContext::new_system(RuntimeGeneration::default());
+        context.task_id = Some(task_id);
+        context.invocation_id = Some(invocation_id);
+        context.controller_epoch = epoch;
+        handler
+            .execute(NativeTaskInvocation {
+                context,
+                task_invocation,
+                task,
+                operation_id: EntityId::new(),
+                authority: AuthorityRef {
+                    delegation_id: task_id,
+                    delegation_revision: RecordRevision(0),
+                    decision_ref: EntityId::new(),
+                },
+                input,
+                child_tools: None,
+            })
+            .await
+    }
+
+    /// The sealed bounded result of exactly one settled observation.
+    fn normalized_result(store: &Store, operation: &OperationRecord) -> Result<serde_json::Value> {
+        let evidence = store.external_operation_evidence(operation.operation_id)?;
+        ensure!(evidence.len() == 1, "expected one observation, got {}", evidence.len());
+        let normalized = evidence[0].normalized_ref.as_ref().context("no bounded result")?;
+        Ok(serde_json::from_slice(&store.cas.read_object(&normalized.digest)?)?)
+    }
+
+    /// The cell surface over the same durable sessions and the same ledger.
+    struct CellHarness {
+        store: Arc<Store>,
+        handler: ReplCellHandler,
+    }
+
+    impl CellHarness {
+        fn new(store: Arc<Store>, sessions: Arc<SessionStore>) -> Self {
+            Self { store: store.clone(), handler: ReplCellHandler::new(store, sessions) }
+        }
+
+        async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
+            invoke(&self.store, &self.handler.core, &self.handler, "repl.cell",
+                "repl-cell-request", input).await
+        }
+
+        fn normalized(&self, operation: &OperationRecord) -> Result<serde_json::Value> {
+            normalized_result(&self.store, operation)
         }
     }
 
@@ -1738,6 +1924,221 @@ mod tests {
             }
             Ok(op) => panic!("unknown op dispatched: {op:?}"),
         }
+
+        drop(harness);
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+
+    /// A durable kernel binding is the §19.1 replaceable-kernel entry: install
+    /// it once, discover it from `list_kernels`, create a session from the
+    /// name, and fail closed when the artifact no longer matches. The guest
+    /// below is the resident synthetic one, so this proves the binding and
+    /// session-admission path — never CPython/Node/Bun language delivery.
+    #[tokio::test]
+    async fn kernel_binding_is_installed_listed_and_created_by_name() -> Result<()> {
+        let (harness, root) = Harness::new("entry")?;
+        let module = harness.data_dir.join("kernels").join("python.wat");
+        fs::write(&module, RESIDENT_GUEST)?;
+
+        let op = harness.run(serde_json::json!({
+            "op": "install_kernel",
+            "entry": "python-3.13",
+            "target": "python-wasi",
+            "module": module,
+        })).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        assert_eq!(op.effect_status, EffectStatus::Complete);
+        let result = harness.normalized(&op)?;
+        assert_eq!(result["outcome"], "installed");
+        assert_eq!(result["kernel_id"], "python-3.13");
+        assert_eq!(result["session_model"], "LiveProcess");
+        assert_eq!(result["recovery_level"], "R1ObjectCheckpoint");
+
+        // Discovery reports the binding beside the named targets: available
+        // and unavailable targets stay listed, and the installed entry carries
+        // its own artifact state.
+        let op = harness.run(serde_json::json!({"op": "list_kernels"})).await?;
+        let result = harness.normalized(&op)?;
+        let entry = result["entries"].as_array().context("entries")?
+            .iter()
+            .find(|entry| entry["ok"]["entry"]["entry"] == "python-3.13")
+            .with_context(|| format!("installed binding missing from {result}"))?;
+        assert_eq!(entry["ok"]["entry"]["target"], "python-wasi");
+        assert_eq!(entry["ok"]["artifact"], "size_matches");
+        let targets = result["targets"].as_array().context("targets")?;
+        assert!(targets.iter().any(|target| target["name"] == "node-wasm"), "{result}");
+        assert!(targets.iter().any(|target| {
+            target["name"] == "node-wasm"
+                && target["availability"].as_str().unwrap_or_default().starts_with("unavailable")
+        }), "{result}");
+
+        // create resolves the binding: same profile, same admission, and a
+        // real durable session — the caller never names the interpreter path.
+        let op = harness.run(serde_json::json!({"op": "create", "entry": "python-3.13"})).await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        let result = harness.normalized(&op)?;
+        assert_eq!(result["outcome"], "created");
+        assert_eq!(result["kernel_id"], "python-3.13");
+        let session_id = session_id_of(&result);
+        let op = harness
+            .run(serde_json::json!({"op": "inspect", "session_id": session_id}))
+            .await?;
+        let inspected = harness.normalized(&op)?;
+        assert_eq!(inspected["kernel_id"], "python-3.13");
+        assert_eq!(inspected["outcome"], "Ready", "{inspected}");
+
+        // A same-length replacement is a different interpreter: create
+        // re-verifies the digest, refuses explicitly, and creates no session.
+        let sessions_before = fs::read_dir(harness.data_dir.join("sessions"))?.count();
+        fs::write(&module, RESIDENT_GUEST.replace("i32.const 512", "i32.const 513"))?;
+        let op = harness.run(serde_json::json!({"op": "create", "entry": "python-3.13"})).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Failed));
+        assert_eq!(op.effect_status, EffectStatus::None);
+        let result = harness.normalized(&op)?;
+        assert_eq!(result["outcome"], "refused");
+        assert!(result["session_id"].is_null(), "{result}");
+        assert!(result["error"].as_str().context("error")?
+            .contains("REPL_ENTRY_DIGEST_MISMATCH"), "{result}");
+        assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), sessions_before);
+
+        drop(harness);
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+
+    /// Every binding refusal is explicit, publishes nothing, and never
+    /// substitutes another runtime for a named-but-unavailable target.
+    #[tokio::test]
+    async fn binding_refusals_stay_explicit_and_publish_nothing() -> Result<()> {
+        let (harness, root) = Harness::new("entry-refusals")?;
+        let module = harness.data_dir.join("kernels").join("node.wat");
+        fs::write(&module, RESIDENT_GUEST)?;
+        let outside = root.join("outside.wat");
+        fs::write(&outside, RESIDENT_GUEST)?;
+
+        let refusals = [
+            // node-wasm is a named target with no verified WASM binding; the
+            // native Node route is a different target, never a substitute.
+            (serde_json::json!({"op": "install_kernel", "entry": "node", "target": "node-wasm",
+                "module": module}), "REPL_KERNEL_UNAVAILABLE"),
+            // The artifact must already live in the admitted kernels tree.
+            (serde_json::json!({"op": "install_kernel", "entry": "node", "target": "node-native-host",
+                "module": outside}), "REPL_KERNEL_UNAVAILABLE"),
+            // An entry name cannot escape its directory.
+            (serde_json::json!({"op": "install_kernel", "entry": "../node", "target": "node-native-host",
+                "module": module}), "REPL_ENTRY_INVALID"),
+            // No binding exists under that name.
+            (serde_json::json!({"op": "create", "entry": "no-such-kernel"}),
+                "REPL_ENTRY_UNAVAILABLE"),
+            // One binding per create, never two.
+            (serde_json::json!({"op": "create", "entry": "node", "kernel_id": "node-native-host",
+                "module": module}), "REPL_KERNEL_INVALID"),
+        ];
+        for (input, expected) in refusals {
+            let op = harness.run(input.clone()).await?;
+            assert_eq!(op.state, OperationState::Resolved, "{input}");
+            assert_eq!(op.outcome, Some(OperationOutcome::Failed), "{input}");
+            assert_eq!(op.effect_status, EffectStatus::None, "{input}");
+            let result = harness.normalized(&op)?;
+            assert_eq!(result["outcome"], "refused", "{input}");
+            assert!(result["error"].as_str().context("error")?.contains(expected),
+                "{input}: {result}");
+        }
+        // Nothing was published by any refusal.
+        let op = harness.run(serde_json::json!({"op": "list_kernels"})).await?;
+        assert!(harness.normalized(&op)?["entries"].as_array().context("entries")?.is_empty());
+
+        // A published binding is replaced only on explicit request, and the
+        // replacement is the single remaining binding.
+        let op = harness.run(serde_json::json!({
+            "op": "install_kernel", "entry": "node", "target": "node-native-host", "module": module,
+        })).await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        let op = harness.run(serde_json::json!({
+            "op": "install_kernel", "entry": "node", "target": "node-native-host", "module": module,
+        })).await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Failed));
+        assert!(harness.normalized(&op)?["error"].as_str().context("error")?
+            .contains("REPL_ENTRY_EXISTS"));
+        let op = harness.run(serde_json::json!({
+            "op": "install_kernel", "entry": "node", "target": "node-native-host", "module": module,
+            "replace": true,
+        })).await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        let op = harness.run(serde_json::json!({"op": "list_kernels"})).await?;
+        let entries = harness.normalized(&op)?["entries"].as_array().cloned().context("entries")?;
+        assert_eq!(entries.len(), 1, "{entries:?}");
+
+        drop(harness);
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+
+    /// A restarted caller can enumerate the durable sessions it may resume.
+    /// Listing validates manifests only — no interpreter is opened, no journal
+    /// is repaired — and a corrupt session directory is reported rather than
+    /// disappearing from the list.
+    #[tokio::test]
+    async fn durable_sessions_are_listed_for_resumption() -> Result<()> {
+        let (harness, root) = Harness::new("sessions")?;
+        let module = harness.data_dir.join("kernels").join("python.wat");
+        fs::write(&module, RESIDENT_GUEST)?;
+        let op = harness.run(serde_json::json!({
+            "op": "install_kernel", "entry": "python-3.13", "target": "python-wasi", "module": module,
+        })).await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        let op = harness.run(serde_json::json!({"op": "create", "entry": "python-3.13"})).await?;
+        let created = session_id_of(&harness.normalized(&op)?);
+
+        // A fresh view over the same data directory — what a restarted
+        // controller has — reports the session from its durable manifest
+        // without opening an interpreter or resuming anything.
+        let durable = crate::session::list_sessions(&harness.data_dir.join("sessions"))?;
+        assert!(
+            durable.iter().any(|listing| matches!(
+                listing,
+                crate::session::SessionListing::Ok(summary)
+                    if summary.session_id == created && summary.kernel_id == "python-3.13"
+            )),
+            "{durable:?}"
+        );
+        let op = harness.run(serde_json::json!({"op": "list_sessions"})).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.effect_status, EffectStatus::None);
+        let result = harness.normalized(&op)?;
+        let listed = result["sessions"].as_array().context("sessions")?
+            .iter()
+            .find(|session| session["ok"]["session_id"] == created.to_string())
+            .with_context(|| format!("session missing from {result}"))?;
+        assert_eq!(listed["ok"]["kernel_id"], "python-3.13");
+        assert!(listed["ok"]["disposed_unix_ms"].is_null());
+        // The durable session is bound to the exact bytes the installed
+        // binding records — that is what makes it resumable against a known
+        // runtime, and it is a fact, not a rendering of an enum.
+        let op = harness.run(serde_json::json!({"op": "list_kernels"})).await?;
+        let bound = harness.normalized(&op)?;
+        let binding = bound["entries"].as_array().context("entries")?
+            .iter()
+            .find(|entry| entry["ok"]["entry"]["entry"] == "python-3.13")
+            .map(|entry| &entry["ok"]["entry"]["module_blake3"])
+            .with_context(|| format!("binding missing from {bound}"))?;
+        assert_eq!(&listed["ok"]["module_blake3"], binding, "{listed}");
+        assert!(listed["ok"]["environment_generation"]
+            .as_str()
+            .is_some_and(|generation| !generation.is_empty()));
+
+        // A directory that is not a session is reported, never hidden.
+        let corrupt = harness.data_dir.join("sessions").join(EntityId::new().to_string());
+        fs::create_dir_all(&corrupt)?;
+        fs::write(corrupt.join(crate::journal::SESSION_MANIFEST), b"{\"schema_version\":3}")?;
+        let op = harness.run(serde_json::json!({"op": "list_sessions"})).await?;
+        let result = harness.normalized(&op)?;
+        assert!(result["sessions"].as_array().context("sessions")?.iter()
+            .any(|session| session["corrupt"]["session"]
+                == corrupt.file_name().unwrap().to_string_lossy().as_ref()), "{result}");
 
         drop(harness);
         fs::remove_dir_all(root).ok();

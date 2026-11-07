@@ -11,7 +11,14 @@ import java.nio.charset.StandardCharsets;
 public final class BridgeFrames {
     private BridgeFrames() {}
 
-    /** Returns null for EOF before LF or an oversized frame; rejects malformed UTF-8. */
+    /**
+     * Returns null for EOF before LF or an oversized frame; rejects malformed UTF-8.
+     *
+     * {@code cap} is the largest frame the peer may send, so exactly {@code cap}
+     * bytes plus LF is a valid frame and {@code cap + 1} is not. The bound is
+     * enforced while reading, so a peer that never sends LF cannot grow the
+     * buffer past it.
+     */
     public static String readLine(InputStream input, int cap) throws IOException {
         ByteArrayOutputStream frame = new ByteArrayOutputStream(Math.min(cap, 256));
         for (;;) {
@@ -23,8 +30,8 @@ public final class BridgeFrames {
                         .onUnmappableCharacter(CodingErrorAction.REPORT)
                         .decode(ByteBuffer.wrap(frame.toByteArray())).toString();
             }
-            if (frame.size() == cap) return null;
             frame.write(next);
+            if (frame.size() > cap) return null;
         }
     }
 }

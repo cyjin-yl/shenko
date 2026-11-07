@@ -17,7 +17,7 @@ pub struct JudgeReceiptIdentity {
 }
 
 #[derive(Serialize)]
-pub(super) struct JudgeContext<'a> {
+pub struct SandboxJudgeContext<'a> {
     pub configuration_ref: &'a ObjectRef,
     pub installation_ref: &'a ObjectRef,
     pub sample_digest: &'a str,
@@ -27,7 +27,7 @@ pub(super) struct JudgeContext<'a> {
 }
 
 #[derive(Serialize)]
-struct RequestEnvelope<'a, 'b> {
+struct RequestEnvelope<'a, C: ?Sized> {
     schema_version: u32,
     request_id: EntityId,
     agent_id: EntityId,
@@ -36,7 +36,7 @@ struct RequestEnvelope<'a, 'b> {
     priority: &'a InferencePriority,
     epoch: ControllerEpoch,
     payload: &'a InferencePayload,
-    trial: &'a JudgeContext<'b>,
+    trial: &'a C,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,10 +59,10 @@ pub(super) struct JudgeReceiptSink {
 }
 
 impl JudgeReceiptSink {
-    pub fn open(
+    pub fn open<C: Serialize + ?Sized>(
         store: Arc<Store>,
         request: &InferenceRequest,
-        context: &JudgeContext<'_>,
+        context: &C,
         receipt: &mut Option<JudgeReceiptIdentity>,
     ) -> Result<Arc<Self>> {
         let identity = receipt.insert(JudgeReceiptIdentity {

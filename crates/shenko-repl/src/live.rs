@@ -63,11 +63,24 @@ pub struct CellHeader {
     pub env_dir: String,
 }
 
-/// What interrupted an in-flight cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CellInterrupt {
+/// Why an in-flight cell did not produce a report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CellFailure {
+    /// A caller cancellation was requested and the process was killed.
     CancelRequested,
+    /// The per-cell wall-clock budget elapsed.
     DeadlineExceeded,
+    /// The owned interpreter ended on its own: no cancel and no deadline was
+    /// requested. `detail` retains the real exit status or the transport
+    /// error, so a driver that died at startup (missing module, unsupported
+    /// `node:repl`, `sys.exit()` in a cell) is never reported as a cancel the
+    /// caller never asked for.
+    ProcessExited { detail: String },
+    /// The frame could not be delivered and the interpreter was still alive
+    /// after the death-observation window. It is killed rather than left
+    /// executing a partially written frame; the cell's completion is unknown
+    /// and this is not a caller cancel.
+    DeliveryFailed { detail: String },
 }
 
 /// Why the owned process is gone.
@@ -217,18 +230,51 @@ impl LiveProcess {
         self.outcome.lock().expect("live outcome lock").clone()
     }
 
+    /// Classify an interpreter end that no interrupt asked for. The real exit
+    /// status (or the transport error that ended the process) is retained; an
+    /// unobserved status is reported as unobserved rather than invented.
+    fn death_failure(&self) -> CellFailure {
+        if let Some(recorded) = self.outcome() {
+            if let Some(error) = recorded.transport_error {
+                return CellFailure::ProcessExited {
+                    detail: format!("interpreter failed: {error}"),
+                };
+            }
+            match recorded.outcome {
+                Some(WasiRunOutcome::Exited(code)) => return CellFailure::ProcessExited {
+                    detail: format!(
+                        "interpreter exited with status {code} without completing the cell"
+                    ),
+                },
+                Some(WasiRunOutcome::Cancelled) => return CellFailure::ProcessExited {
+                    detail: "the runtime cancelled the interpreter without a host interrupt request"
+                        .into(),
+                },
+                Some(WasiRunOutcome::DeadlineExceeded) => return CellFailure::ProcessExited {
+                    detail: "the runtime's own deadline ended the interpreter".into(),
+                },
+                None => {}
+            }
+        }
+        CellFailure::ProcessExited {
+            detail: "interpreter ended and its exit status was not observed".into(),
+        }
+    }
+
     /// Deliver one cell and wait for its report. On interrupt the process is
-    /// killed and `Err(CellInterrupt)` is returned after death is observed;
+    /// killed and the failure is returned after death is observed;
     /// the caller journals the partial record from the durable stream files.
+    /// A process that ends on its own is reported as exactly that, with its
+    /// real status, never as a caller interrupt.
     pub fn run_cell(
         &mut self,
         header: &CellHeader,
         source: &[u8],
         report_path: &Path,
         deadline: Option<Duration>,
-    ) -> std::result::Result<(), CellInterrupt> {
+    ) -> std::result::Result<(), CellFailure> {
         if self.is_dead() {
-            return Err(CellInterrupt::CancelRequested);
+            return Err(self.death_failure());
         }
         let header_json = serde_json::to_vec(header).expect("cell header serializes");
         let started = Instant::now();
@@ -253,30 +299,51 @@ impl LiveProcess {
             Ok(())
         })();
         if framed.is_err() {
-            // Delivery failure is not observed worker termination.
+            // Delivery failure is not by itself observed worker termination.
+            // A deadline or an explicit cancel owns the classification; an
+            // unexplained broken pipe means the interpreter closed its own
+            // stdin (it ended), so retain whatever status it left behind.
+            if deadline.is_some_and(|limit| started.elapsed() >= limit) {
+                self.cancel.cancel();
+                self.await_death(DEATH_TIMEOUT);
+                return Err(CellFailure::DeadlineExceeded);
+            }
+            if self.cancel.is_cancelled() {
+                self.await_death(DEATH_TIMEOUT);
+                return Err(CellFailure::CancelRequested);
+            }
+            self.await_death(DEATH_TIMEOUT);
+            if self.is_dead() {
+                return Err(self.death_failure());
+            }
+            // Still alive with a half-written frame: never let it run a
+            // partially delivered cell. Kill the owned process and report the
+            // undelivered frame; completion is unknown, and this is not a
+            // caller cancel.
             self.cancel.cancel();
             self.await_death(DEATH_TIMEOUT);
-            if deadline.is_some_and(|limit| started.elapsed() >= limit) {
-                return Err(CellInterrupt::DeadlineExceeded);
-            }
-            return Err(CellInterrupt::CancelRequested);
+            return Err(CellFailure::DeliveryFailed {
+                detail: "the cell frame was not delivered completely; the interpreter was killed \
+                         and the cell's completion is unknown"
+                    .into(),
+            });
         }
 
         loop {
             if report_path.exists() {
                 return Ok(());
             }
-            if self.cancel.is_cancelled() {
-                self.await_death(DEATH_TIMEOUT);
-                return Err(CellInterrupt::CancelRequested);
-            }
             if deadline.is_some_and(|limit| started.elapsed() > limit) {
                 self.cancel.cancel();
                 self.await_death(DEATH_TIMEOUT);
-                return Err(CellInterrupt::DeadlineExceeded);
+                return Err(CellFailure::DeadlineExceeded);
+            }
+            if self.cancel.is_cancelled() {
+                self.await_death(DEATH_TIMEOUT);
+                return Err(CellFailure::CancelRequested);
             }
             if self.is_dead() {
-                return Err(CellInterrupt::CancelRequested);
+                return Err(self.death_failure());
             }
             std::thread::sleep(POLL_INTERVAL);
         }

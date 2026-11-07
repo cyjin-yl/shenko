@@ -9,11 +9,10 @@
 
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::ids::EntityId;
-use shenko_types::output::{AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, SteerSpec};
-use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};use shenko_types::output::{
+use shenko_types::output::{
     AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, ReconcileSpec, SteerSpec,
 };
-use shenko_types::subject::{AttentionState, Disposition};
+use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};
 fn invalid(line: u64, reason: &str) -> ShenkoError {
     ProtocolError::new(
         "CONTROL_PROTOCOL_INVALID",
@@ -88,6 +87,15 @@ pub(super) fn parse_dialogue(value: &str, line_no: u64) -> Result<DialogueSpec, 
     }
     if spec.message.len() > 64 * 1024 {
         return Err(invalid(line_no, "dialogue message too large"));
+    }
+    // `to_subject` is how a child answers its parent. The subject loop only
+    // addresses a child, so an authored `to_subject` turn is a protocol
+    // error rather than a message delivered in the wrong direction.
+    if spec.direction != shenko_types::subject::DialogueDirection::ToChild {
+        return Err(invalid(
+            line_no,
+            "dialogue from the subject addresses a child; to_subject is a child's own direction",
+        ));
     }
     Ok(spec)
 }

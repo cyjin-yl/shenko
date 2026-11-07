@@ -204,6 +204,14 @@ pub struct CognitionImportOptions {
     pub workspace_root: Option<PathBuf>,
     /// The peer that sent the snapshot.
     pub peer_id: Option<EntityId>,
+    /// The caller declares this archive the same-installation handover (the
+    /// A/B catch-up), not a peer replication. Only then may the archive
+    /// carry and install local control facts (the scope's rollover
+    /// request). The claim is never read from the archive: a peer archive
+    /// cannot make itself authoritative over this installation's context
+    /// boundaries. Peer importers leave this false, so an archive that
+    /// declares the control class is refused whole.
+    pub local_control_handover: bool,
 }
 
 /// What an export produced.
@@ -4346,6 +4354,63 @@ fn memory_member_differs(member: &MemoryIntentMember) -> bool {
     parent_differs || binding_differs
 }
 
+const MEMORY_RETIREMENT_COLUMNS: &[&str] = &["deleted", "record_revision", "updated_at"];
+
+/// `memory_entries` records a semantic forget as `deleted`, not as a
+/// tombstone timestamp, so `row_is_retired` does not describe it.
+fn memory_entry_retired(values: &[(String, Option<String>)]) -> bool {
+    memory_row_value(values, "deleted").is_some_and(|value| value != "0" && !value.is_empty())
+}
+
+/// Is the peer's retirement of this entry source-proven?
+///
+/// A retirement is not a generic row replacement: the retained copy owns the
+/// entry's content, provenance and identity, so only the request that retired
+/// the fact may move it forward, and only when every other column already
+/// agrees. The archive must therefore carry the peer's own committed `forget`
+/// request for this entry — applied in this unit without conflict — the
+/// peer's entry must be retired while the local one is live, nothing outside
+/// the retirement columns may differ, and the revision must advance by exactly
+/// the one that forget commits. An unrelated or concurrent edit still
+/// conflicts, and a revival is never admitted.
+fn memory_retirement_admitted(
+    entry_spec: &TableSpec,
+    local: &[(String, Option<String>)],
+    entry: &CognitionRow,
+    members: &[MemoryIntentMember],
+) -> bool {
+    if memory_entry_retired(local) || !memory_entry_retired(&entry.values) {
+        return false;
+    }
+    let untouched = entry_spec
+        .columns
+        .iter()
+        .copied()
+        .filter(|column| !MEMORY_RETIREMENT_COLUMNS.contains(column))
+        .all(|column| memory_row_value(local, column) == entry.value(column));
+    if !untouched {
+        return false;
+    }
+    let revision_advanced = match (
+        memory_row_value(local, "record_revision").and_then(|value| value.parse::<u64>().ok()),
+        entry.value("record_revision").and_then(|value| value.parse::<u64>().ok()),
+    ) {
+        (Some(local), Some(incoming)) => incoming == local + 1,
+        _ => false,
+    };
+    if !revision_advanced {
+        return false;
+    }
+    members.iter().any(|member| {
+        let parent = &member.parent;
+        !matches!(member.results[0], Some(MemoryRowOutcome::Conflict))
+            && parent.value("kind") == Some("forget")
+            && parent.value("state") == Some("committed")
+            && parent.value("entry_id") == Some(entry.key.as_str())
+            && parent.value("agent_id") == entry.value("agent_id")
+    })
+}
+
 /// A request, its immutable reference, the produced or targeted entry and
 /// every other intent bound to that same entry are reconciled as one atomic
 /// conflict unit. A locator-only legacy request cannot acquire another
@@ -4353,6 +4418,9 @@ fn memory_member_differs(member: &MemoryIntentMember) -> bool {
 /// and a refused intent can never publish its effect through a sibling: a
 /// divergent `forget` cannot hide the entry its `save` parent still
 /// protects, and a divergent entry refuses the intents that reference it.
+///
+/// A retirement the peer provably committed is admitted on top of that rule
+/// by `memory_retirement_admitted`.
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<CognitionApplyOutcome> {
@@ -4473,6 +4541,31 @@ fn apply_memory_pairs(
             }) {
                 if let Some(entry) = &entry {
                     entry_result = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                    // The generic rule refuses any differing row it has no
+                    // delivered baseline for. A retirement the peer committed
+                    // is the one forward move a retained copy may accept
+                    // without one: it changes nothing but the retirement and
+                    // travels with the request that performed it.
+                    if matches!(entry_result, Some(MemoryRowOutcome::Conflict)) {
+                        if let Some(local) = read_existing(tx, entry_spec, entry)? {
+                            if memory_retirement_admitted(entry_spec, &local, entry, members) {
+                                match update_row(tx, entry_spec, entry, seq) {
+                                    Ok(()) => {
+                                        write_baseline(
+                                            tx,
+                                            peer_id,
+                                            entry_spec.name,
+                                            &entry.key,
+                                            &entry.values,
+                                        )?;
+                                        entry_result = Some(MemoryRowOutcome::Updated);
+                                    }
+                                    Err(error) if is_constraint_violation(&error) => {}
+                                    Err(error) => return Err(error),
+                                }
+                            }
+                        }
+                    }
                 }
             }
             rejected = entry_result.is_some_and(|result| matches!(result, MemoryRowOutcome::Conflict))

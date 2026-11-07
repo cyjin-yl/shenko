@@ -59,6 +59,13 @@ try:
 except FileExistsError:
     print(json.dumps(inspect(), separators=(",", ":")))
     sys.exit(0)
+# Persist the new operation directory entry before recording intent or effects.
+# Syncing files inside folder does not persist its name in the receipt root.
+fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
 write_atomic(os.path.join(folder, "intent.json"), {"seal": seal, "action": payload})
 stdout = os.path.join(folder, "stdout")
 stderr = os.path.join(folder, "stderr")
