@@ -870,9 +870,7 @@ impl WasmRuntime {
             ControlledCtx {
                 host,
                 limits: store_limits(command.limits),
-                cancel: None,
-                deadline: None,
-                stop: None,
+                stop: RunStop::new(None, None),
             },
         );
         store.limiter(|ctx| &mut ctx.limits);

@@ -1170,7 +1170,7 @@ fn read_descriptor_from<T: 'static>(
 }
 
 /// The guest's fixed-size continuation descriptor (little-endian).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ContinuationDescriptor {
     magic: u32,
     abi: u32,
