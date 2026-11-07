@@ -46,7 +46,7 @@ use crate::provider::{
     SpeakerIdentity,
 };
 use crate::recording::MediaAudioRecorder;
-use crate::{MediaDelivery, MediaIngress};
+use crate::{MediaDelivery, MediaIngress, SubjectDelivery};
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
