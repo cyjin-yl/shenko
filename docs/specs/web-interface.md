@@ -103,8 +103,7 @@
 
 `web/upstream-pin.json`：`971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e`
 （migrated_from `7181a93…`）。上游 `pnpm-lock.yaml` sha256 不变
-（`3ac437fd…`）；adapter-react 签名、shadcn 导出、compiler seam_only 状态经
-比对一致。
+（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。
 
 构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
 `adapter-react`、`prototypes-shadcn`、`cli` 三个入口的依赖闭包，而不是调用
@@ -115,6 +114,33 @@
 生成资源、样式、许可及带资源摘要的 manifest。Rust 将这些资源嵌入二进制，
 因此资源重建之后还必须重新编译并启动 UI；修改 manifest 或只打开旧二进制
 不能证明升级生效。
+
+### compiler：构建期编译 Shenko 自己的 Prototype
+
+该 pin 的 `@proto.ui/compiler` 是私有源码包：`exports` 只有
+`./src/index.ts`，没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
+当包产物导入，也不能假装存在运行期编译器。现行路径是**构建期编译**
+（`web/compiler.mjs`）：
+
+- 用同一份审查过的源码，审计 `packages/compiler/package.json` 的包身份、私有标记
+  与 `exports` 入口，再对其 `src/` 计算确定性目录摘要；
+- 用工作区锁定的 esbuild 把该 TypeScript 模块图打成一份 Node ESM
+  （`generated/compiler/`），`typescript` 保持外部依赖（compiler 声明 `^5.0.0`，
+  由 web 锁定的 devDependency 满足）；`@floating-ui/dom` 由声明它的
+  `packages/modules/positioning` 安装副本解析并记录版本与摘要；
+- 用 `compileFile` 编译 `web/prototypes/*.proto.ts`（Shenko 自己写的
+  Prototype），profile 为 `react-dom-source-v1`，输出 create-only 写入
+  `web/generated/prototypes/<name>/`，含 compiler 自己的 `provenance.json`；
+- 浏览器 bundle 只导入生成的 React DOM 源码，因此 manifest 记
+  `runtime_imported: false`；compiler 源码摘要、bundle 摘要、每个 Prototype
+  的源字节摘要与生成摘要都写进 `build-manifest.json` 的 `compiler` 事实里。
+
+`web/generated/` 是构建产物、不入库；`tsc` 需要先有这次编译，因此
+`pnpm check` = `node build.mjs --prototypes-only && tsc --noEmit`。
+
+界面上的 transport 状态徽标就是这个编译产物：Prototype 只负责呈现（props
+`label`/`tone` 与 token 样式），连接事实、文案与推理仍留在
+`react-renderer.tsx`，没有搬进 compiler 或 Prototype。
 
 界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
 或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
@@ -127,5 +153,7 @@
 - `InferenceStreamEvent` 生产者与 part 写入器归 **ArchBroker/ArchSubject**；
   未接线时 `streaming:false`，全部测试不依赖流。
 - server.rs 中的 `media_runtime` 字段/`with_media_runtime()` 归 **ArchMedia**。
-- 父代执行：cargo check/test（shenko-store + shenko-ui）、web `tsc`/构建、
-  原生浏览器验证、发布前 pin 新鲜度。
+- 父代执行：cargo check/test（shenko-store + shenko-ui）、
+  `node build.mjs --prototypes-only` + `tsc --noEmit`、`node build.mjs`、
+  原生浏览器验证、发布前 pin 新鲜度。构建产物（`src/static/*`）与 Rust 嵌入
+  由父代重建；未重建时不得声称界面已升级。

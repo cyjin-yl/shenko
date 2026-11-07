@@ -15,6 +15,8 @@
 //! §41.2.2). Speaker claims are stored verbatim with
 //! confidence/correction/unknown and carry no identity authority.
 
+use std::collections::HashMap;
+
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use shenko_types::commit::CommitRef;
@@ -950,8 +952,13 @@ pub(crate) fn media_recovery_gaps(
                         "initial media revision carries a contradictory predecessor");
                 }
                 MediaRevisionDisposition::Superseded => {
+                    // Two honest late arrivals resolve here: evidence older
+                    // than the effective revision, and an interim claim that
+                    // reached a segment AFTER it had already finalized (a
+                    // final is never displaced by a partial).
                     ensure!(original.supersedes_revision.is_none() && retained.superseded_by.is_none()
-                        && prior.is_some_and(|prior| prior.revision > revision),
+                        && prior.is_some_and(|prior| prior.revision > revision
+                            || (original.partial && !prior.partial)),
                         "late media revision does not resolve to its newer effective prior");
                 }
                 MediaRevisionDisposition::AppliedSupersedes | MediaRevisionDisposition::FinalCorrection => {
@@ -1260,6 +1267,13 @@ impl Store {
 
         let (disposition, supersedes) = match &prior_effective {
             None => (MediaRevisionDisposition::Applied, None),
+            // An interim claim never displaces a final observation. A late
+            // partial that arrives after the segment finalized is retained
+            // raw like any other out-of-order evidence, so the effective text
+            // never regresses from final to partial beneath the subject.
+            Some(prior) if input.partial && !prior.partial => {
+                (MediaRevisionDisposition::Superseded, None)
+            }
             Some(prior) => {
                 if input.revision > prior.revision {
                     (
@@ -2337,18 +2351,29 @@ impl Store {
             .map_err(storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage_error)?;
-        let mut audio_bytes = 0u64;
+        // Storage cost counts each sealed object ONCE: a correction that
+        // repeats an earlier reference stores no new byte, and a carried
+        // forward reference must not be billed twice. `audio_segments` still
+        // counts every retained revision that carries one.
+        let mut sealed_bytes: HashMap<String, u64> = HashMap::new();
         let mut audio_segments = 0u64;
         for audio_json in audio_refs.into_iter().flatten() {
             let parsed: serde_json::Value =
                 serde_json::from_str(&audio_json).map_err(ShenkoError::Serde)?;
             if parsed.get("kind").and_then(|kind| kind.as_str()) == Some("sealed") {
-                if let Some(bytes) = parsed.pointer("/object/bytes").and_then(|b| b.as_u64()) {
-                    audio_bytes += bytes;
-                    audio_segments += 1;
-                }
+                let Some(bytes) = parsed.pointer("/object/bytes").and_then(|b| b.as_u64()) else {
+                    continue;
+                };
+                audio_segments += 1;
+                let digest = parsed
+                    .pointer("/object/digest")
+                    .and_then(|digest| digest.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                sealed_bytes.insert(digest, bytes);
             }
         }
+        let audio_bytes = sealed_bytes.values().copied().sum();
         Ok(MediaRecordingUsage {
             audio_bytes,
             audio_segments,

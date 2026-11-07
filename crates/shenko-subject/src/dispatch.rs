@@ -14,6 +14,9 @@ pub async fn run_committed_dispatcher(
 ) -> anyhow::Result<()> {
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
     let mut delivered = HashSet::new();
+    // Durable results this process could not read. They stay durable and
+    // undisposed; this only keeps one bad row from failing every pass.
+    let mut unreadable = HashSet::new();
     loop {
         tokio::select! { biased;
             _=cancel.cancelled()=>return Ok(()),
@@ -28,16 +31,67 @@ pub async fn run_committed_dispatcher(
                     // With no subject model, results stay durable for the later
                     // subject to consume. Do not fill an undrained in-memory inbox.
                     if let Some(task_result_tx) = task_result_tx.as_ref() {
-                        let ready = store.ready_native_results(agent_id, 64)?;
+                        let ready = store.ready_native_result_rows(agent_id, 64)?;
                         let ready_ids: HashSet<_> =
-                            ready.iter().map(|result| result.result_id).collect();
+                            ready.iter().map(|(result_id, _)| *result_id).collect();
                         delivered.retain(|id| ready_ids.contains(id));
-                        for result in ready {
-                            if !delivered.insert(result.result_id) {
+                        for (result_id, data) in ready {
+                            if !delivered.insert(result_id) {
+                                continue;
+                            }
+                            // One unreadable durable result is an undecodable
+                            // FACT: the original row keeps its identity and
+                            // disposition, the skip is journaled once, and the
+                            // remaining results still reach the subject.
+                            let result: shenko_types::task::TaskResult =
+                                match serde_json::from_str(&data) {
+                                    Ok(result) => result,
+                                    Err(error) => {
+                                        if unreadable.insert(result_id) {
+                                            store.journal_runtime_error(
+                                                agent_id,
+                                                shenko_store::RuntimeErrorContext {
+                                                    kind: "undecodable_native_result".into(),
+                                                    source_module: module_path!().into(),
+                                                    message: format!(
+                                                        "durable native result {result_id} is not a TaskResult this build reads: {error}"
+                                                    ),
+                                                    step_no: None,
+                                                    task_id: None,
+                                                    extra: serde_json::json!({
+                                                        "result_id": result_id.to_string(),
+                                                    }),
+                                                },
+                                            );
+                                        }
+                                        continue;
+                                    }
+                                };
+                            if result.result_id != result_id {
+                                // The row and its original disagree about which
+                                // result this is. Delivering it would bind the
+                                // wrong identity; leave it for reconciliation.
+                                if unreadable.insert(result_id) {
+                                    store.journal_runtime_error(
+                                        agent_id,
+                                        shenko_store::RuntimeErrorContext {
+                                            kind: "native_result_identity_mismatch".into(),
+                                            source_module: module_path!().into(),
+                                            message: format!(
+                                                "durable native result row {result_id} carries a different result identity"
+                                            ),
+                                            step_no: None,
+                                            task_id: None,
+                                            extra: serde_json::json!({
+                                                "result_id": result_id.to_string(),
+                                            }),
+                                        },
+                                    );
+                                }
                                 continue;
                             }
                             let event = InboxEvent {
-                                event_id: result.result_id,
+                                event_id: result_id,
                                 kind: InboxEventKind::TaskResult,
                                 payload: serde_json::to_value(&result)?,
                                 created_at: chrono::Utc::now(),

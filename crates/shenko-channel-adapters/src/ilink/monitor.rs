@@ -11,15 +11,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::common::{HealthState, ReplyContext, ReplyContextCache};
-use crate::InboundEvent;
+use crate::ingress::SharedAdapterIngress;
 
 use super::api::{ILinkApi, ILinkError, Updates};
 use super::config::ILinkConfig;
-use super::events::{ILINK_CHANNEL_ID, classify, context_token};
+use super::events::{ILINK_SOURCE, classify, context_token};
 
 /// The durable cursor of one iLink account.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -63,6 +62,7 @@ pub struct ILinkMonitor {
     health: HealthState,
     replies: ReplyContextCache,
     cursor_path: PathBuf,
+    ledger: SharedAdapterIngress,
 }
 
 impl ILinkMonitor {
@@ -73,6 +73,7 @@ impl ILinkMonitor {
         health: HealthState,
         replies: ReplyContextCache,
         cursor_path: PathBuf,
+        ledger: SharedAdapterIngress,
     ) -> Self {
         Self {
             config,
@@ -80,15 +81,12 @@ impl ILinkMonitor {
             health,
             replies,
             cursor_path,
+            ledger,
         }
     }
 
     /// Run the monitor until the runtime asks it to stop.
-    pub async fn run(
-        &self,
-        sender: mpsc::Sender<InboundEvent>,
-        cancel: CancellationToken,
-    ) -> Result<(), String> {
+    pub async fn run(&self, cancel: CancellationToken) -> Result<(), String> {
         if let Err(error) = self.api.notify_start().await {
             self.health
                 .transition("degraded", Some(format!("notifyStart failed: {error}")))
@@ -111,7 +109,12 @@ impl ILinkMonitor {
                     backoff = Duration::from_secs(1);
                     // The provider suggests how long to hold the next poll.
                     let hold = Duration::from_millis(updates.long_poll_timeout_ms);
-                    self.handle(&updates, &sender).await;
+                    // Durable first: if any message of this poll cannot be
+                    // recorded, the provider cursor stays where it was and the
+                    // next poll re-reads the same window.
+                    self.handle(&updates)
+                        .await
+                        .map_err(|error| format!("ilink ingress refused the poll: {error}"))?;
                     if let Some(next) = &updates.next_cursor {
                         cursor.buf = next.clone();
                         if let Err(error) = store_cursor(&self.cursor_path, &cursor).await {
@@ -151,13 +154,18 @@ impl ILinkMonitor {
         }
     }
 
-    /// Classify and forward one poll's messages.
-    async fn handle(&self, updates: &Updates, sender: &mpsc::Sender<InboundEvent>) {
+    /// Classify and durably record one poll's messages.
+    ///
+    /// The error is returned to `run`, which then does not store the new
+    /// `get_updates_buf`: the provider re-serves the same window instead of the
+    /// message being lost.
+    async fn handle(&self, updates: &Updates) -> Result<(), String> {
         for message in &updates.messages {
             let Some(envelope) = classify(&self.config, message) else {
                 continue;
             };
             self.health.observe_event().await;
+            self.ledger.record(ILINK_SOURCE, &envelope, message)?;
             let token = context_token(message);
             if let Some(target) = &envelope.reply_target {
                 if let Some(conversation) = &target.conversation {
@@ -172,16 +180,8 @@ impl ILinkMonitor {
                     );
                 }
             }
-            let event = InboundEvent {
-                envelope,
-                raw: message.clone(),
-                source: ILINK_CHANNEL_ID.to_string(),
-            };
-            if sender.send(event).await.is_err() {
-                tracing::warn!("ilink ingress closed; the message stays pending");
-                return;
-            }
         }
+        Ok(())
     }
 }
 

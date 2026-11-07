@@ -127,7 +127,8 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
             model_generation,
             policy_epoch: 0,
         };
-        let input = ContextInput { base, items: &raw, caps: &VISION, used_tokens: used };
+        let input =
+            ContextInput { base, items: &raw, caps: &VISION, used_tokens: used, rollover: false };
         SnapCompact::new(config).prepare(&input).unwrap()
     };
     let a = ledger.commit(cut(2000, ledger.current().unwrap().id, 0), &h).unwrap();

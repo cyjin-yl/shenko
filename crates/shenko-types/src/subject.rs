@@ -377,6 +377,12 @@ pub struct StepDecision {
     pub policy_intents: Vec<PolicyIntent>,
     pub publication_intents: Vec<PublicationIntent>,
     pub pending_obligations: Vec<PendingObligation>,
+    /// The subject's explicit decisions about external effects whose
+    /// outcome is unknown (SPEC §41.4 X11). Each one names a case that was
+    /// carried into this step's S0; the Store refuses a case the step never
+    /// saw. Absent in decisions committed before schema 9.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_acknowledgements: Vec<crate::evidence::ReconciliationAcknowledgement>,
     /// The subject's own attention decision (免打扰). SPEC §13.8: off →
     /// active → off, with the applicable sources and the end/review
     /// condition kept durable. It changes selection, not history.
@@ -464,6 +470,54 @@ pub enum PolicyKind {
     InterruptPolicy,
     /// The subject's own semantic wait decision.
     SemanticWait { change: SemanticWaitChange },
+    /// Explicit retirement of an obligation present in this step’s S0.
+    ObligationTerminal { change: ObligationTerminalChange },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObligationTerminalState {
+    Completed,
+    Cancelled,
+}
+
+impl ObligationTerminalState {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObligationTerminalChange {
+    pub obligation_id: EntityId,
+    pub state: ObligationTerminalState,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ObligationTerminalOutcome {
+    Applied,
+    Rejected { current_state: ObligationTerminalState, reason: String },
+}
+
+/// The exact S1 settlement, stored as JSON in the policy intent’s result_ref.
+/// A request or a rejected settlement is never evidence of applied state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObligationTerminalReceipt {
+    pub schema_version: u32,
+    pub step_id: EntityId,
+    pub intent_id: EntityId,
+    pub input_plan_ref: ObjectRef,
+    pub change: ObligationTerminalChange,
+    pub sealed_obligation: PendingObligation,
+    pub outcome: ObligationTerminalOutcome,
+    pub committed_at: CommitRef,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -474,7 +528,7 @@ pub struct PublicationIntent {
     pub reply_grant_id: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingObligation {
     pub obligation_id: EntityId,
     pub description: String,

@@ -73,7 +73,9 @@
 
 ### 机器准入格式与边界
 
-`shenko-evidence` 的报告与库存 JSON 使用 schema 2。`unresolved_references` 保留未定义行为、场景和不完整范围；`B15.Q1` 这类子编号不是 `B15` 定义，不能覆盖父项。定义表按 `Case` 列或明确的通过条件列识别，其他参考表中的数字标签不是场景。范围按实际场景集合解析，不按外部给出的巨大数字上界分配成员。定义表中无法分类的场景保持可见、未达验收。
+`shenko-evidence` 的报告 JSON 使用 schema 3，库存 JSON 使用 schema 2。`unresolved_references` 保留未定义行为、场景和不完整范围；`B15.Q1` 这类子编号不是 `B15` 定义，不能覆盖父项。定义表按 `Case` 列或明确的通过条件列识别，其他参考表中的数字标签不是场景。范围按实际场景集合解析，不按外部给出的巨大数字上界分配成员。定义表中无法分类的场景保持可见、未达验收。
+
+报告的 `acceptance_case_matrix` 与 `case_status_counts` 以场景为单位给出 `proven`、`partial`、`unproven`、`unclassified`，`withdrawals` / `dangling_withdrawals` 保留撤回声明及其未匹配引用；场景级状态不因某条需求的其他场景通过而改变。
 
 库存中的 `issues` 保留目录、条目、JSON 与字段读取失败，`non_evidence_files` 单列非证据 JSON。存在读取失败时，`analyze` 把库存标为不完整，并为需求保留 `inventory_incomplete`；不把仍能读取的子集当作完整库存。候选字段别名若互相矛盾，记录也是无效输入。
 
@@ -125,6 +127,8 @@
 - 回调计数、压缩循环、人工修改时间戳、历史片段拼接或“计划运行到某日”不能替代真实时长。
 - 中途换候选、产物、profile 或观测环境时，记录边界，不能把不等价的区间当作同一候选的连续证明。
 - 观察中断或 collector 失败必须可见；没有数据的区间不是成功区间。
+
+`shenko-evidence --long-run PATH=SHA256` 只准入 `scripts/observe_longrun.py` 生成的 schema 5 报告：调用方给出的摘要必须与保留字节一致，报告必须绑定同一候选提交、所测二进制摘要与 profile。每个存活样本必须从打开的 `/proc/<pid>/exe` 文件描述符读取实际字节并核验 SHA-256；相同文件长度或修改时间不能代替摘要，无法读取的身份保持未知。`candidate_binary_binding` 为 `proc_exe_sha256`，验证样本列表必须无重复并覆盖全部存活样本，未知或不匹配样本不得成为时长证据。旧 schema 4 报告没有这项必需绑定，保留原字节并明确拒绝，不推断升级。其余条件仍须成立：`integrity.intact` 为真，`lifecycle.sealed` 且 `stop_reason` 为 `completed`，停止样本不晚于已记录样本，且至少一个声明窗口的合格秒数达到其声明时长；`duration_status` 只有在名为 `7d` 与 `30d` 的窗口都按 SPEC 时长合格时才为 `observed`，以这两个名字声明更短时长会被拒绝。被拒绝的报告不消失：其声明窗口仍留在分母并保持 `unobserved`，拒绝原因写入 `rejections`。多个已准入报告只有在二进制与 profile 完全一致时才能合并窗口；不一致时 `identity_conflicts` 显式列出，`duration_status` 保持 `unobserved`。没有绑定报告时该字段就是 `unobserved`。
 
 达到时间长度也不是全产品通过：期间必须有规格要求的实际场景、正确性、资源和恢复观测。尚未经过所需时间的义务保持未达验收，不使用伪造完成日期。
 
