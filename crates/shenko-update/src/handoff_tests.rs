@@ -1244,7 +1244,7 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     assert_eq!(outcome.selector.generation, target);
     assert_eq!(
         outcome.selector.active_epoch,
-        ControllerEpoch(2),
+        2,
         "the controller epoch advances exactly once per hand-over"
     );
     assert_eq!(outcome.fenced_head.mode, SubjectMode::Handoff);
