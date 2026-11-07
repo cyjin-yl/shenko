@@ -452,6 +452,7 @@ fn committed_candidate_with(
         pending_obligations: vec![],
         attention_policy: None,
         evidence_refs: vec![],
+        unknown_acknowledgements: vec![],
         successor_step_id: next,
     };
     step.decision_ref = Some(
