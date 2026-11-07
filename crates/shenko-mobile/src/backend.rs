@@ -937,12 +937,6 @@ impl AndroidBackend {
                     Some(absence),
                 ),
             };
-        // Only two device-clock samples can produce an honest distance; a
-        // node-clock fallback for the frame would make the delta meaningless.
-        let fingerprint_frame_skew_ms = match (&fingerprint_scope, frame_captured_at_ms) {
-            (Some(scope), Some(frame_ms)) => Some(scope.sampled_at_ms.saturating_sub(frame_ms)),
-            _ => None,
-        };
         let lease_epoch = if bind_lease {
             self.lease_snapshot(session.display_id).0
         } else {
@@ -975,7 +969,6 @@ impl AndroidBackend {
             fingerprint_kind: fingerprint_kind.to_string(),
             fingerprint_algorithm,
             fingerprint_scope,
-            fingerprint_frame_skew_ms,
             fingerprint_absent,
             pixel_hash: pixel_hash.clone(),
             raw_frame_ref: raw_ref.clone(),
