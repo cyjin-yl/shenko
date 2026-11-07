@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -555,10 +555,7 @@ fn validate_op(op: &ConfigOp) -> Result<()> {
                 validate_name("logical_key", logical_key)
             }
             (None, None) => Ok(()),
-            _ => ensure!(
-                false,
-                "recover needs both the namespace and the logical key, or neither"
-            ),
+            _ => bail!("recover needs both the namespace and the logical key, or neither"),
         },
     }
 }
