@@ -985,7 +985,7 @@ impl WasmRuntime {
         let store = self
             .stateful
             .as_mut()
-            .context("STATEFUL_INSTANCE_MISSING: no retained stateful instance")?;
+            .ok_or_else(|| anyhow!("STATEFUL_INSTANCE_MISSING: no retained stateful instance"))?;
         let provider = WasmStateProvider::new(cas);
         let backend = WasmBackendIdentity::current();
         let restored = provider.restore(store, &handle.instance, manifest, &backend)?;

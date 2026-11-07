@@ -1663,7 +1663,7 @@ fn file_identity(metadata: &cap_std::fs::Metadata) -> (u64, Option<i128>, u64) {
     let modified = metadata
         .modified()
         .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|time| time.into_std().duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_nanos() as i128);
     #[cfg(unix)]
     {
