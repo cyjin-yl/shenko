@@ -213,6 +213,7 @@ fn guest_echoes_bytes_from_the_admitted_socket() -> Result<()> {
     command.control = WasiRunControl {
         deadline: Some(Duration::from_secs(10)),
         cancel: None,
+        revocation: None,
     };
 
     let outcome = runtime.run_wasi_module(&module, command)?;
@@ -239,6 +240,7 @@ fn guest_half_close_is_visible_to_the_peer() -> Result<()> {
     command.control = WasiRunControl {
         deadline: Some(Duration::from_secs(10)),
         cancel: None,
+        revocation: None,
     };
 
     let outcome = runtime.run_wasi_module(&module, command)?;
@@ -315,6 +317,7 @@ fn cancellation_ends_a_guest_blocked_in_a_socket_read() -> Result<()> {
     command.control = WasiRunControl {
         deadline: Some(Duration::from_secs(30)),
         cancel: Some(cancel),
+        revocation: None,
     };
 
     let started = Instant::now();

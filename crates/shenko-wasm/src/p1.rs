@@ -1684,10 +1684,18 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         offset: types::Filesize,
         len: types::Filesize,
     ) -> Result<(), types::Error> {
+        let revocation = self.revocation.clone();
         let handle = self.file_handle_mut(fd)?;
         if !handle.writable {
             return Err(types::Errno::Perm.into());
         }
+        let guard = match &revocation {
+            Some(state) => match WriteInFlight::begin(state, handle.mount) {
+                Some(guard) => Some(guard),
+                None => return Err(types::Errno::Perm.into()),
+            },
+            None => None,
+        };
         let current = handle
             .file
             .metadata()
@@ -1698,6 +1706,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             handle.file.set_len(want).map_err(|e| {
                 types::Error::trap(anyhow!("fd_allocate set_len: {e}"))
             })?;
+        }
+        if let Some(guard) = guard {
+            guard.commit();
         }
         Ok(())
     }
@@ -1837,13 +1848,24 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         fd: types::Fd,
         size: types::Filesize,
     ) -> Result<(), types::Error> {
+        let revocation = self.revocation.clone();
         let handle = self.file_handle_mut(fd)?;
         if !handle.writable {
             return Err(types::Errno::Perm.into());
         }
+        let guard = match &revocation {
+            Some(state) => match WriteInFlight::begin(state, handle.mount) {
+                Some(guard) => Some(guard),
+                None => return Err(types::Errno::Perm.into()),
+            },
+            None => None,
+        };
         handle.file.set_len(size).map_err(|e| {
             types::Error::trap(anyhow!("fd_filestat_set_size: {e}"))
         })?;
+        if let Some(guard) = guard {
+            guard.commit();
+        }
         Ok(())
     }
 
