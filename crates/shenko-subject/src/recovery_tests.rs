@@ -2347,6 +2347,58 @@ async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn unselected_obligation_origin_preserves_evidence_and_reopens_correction() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let cancelled = tokio_util::sync::CancellationToken::new();
+    cancelled.cancel();
+    execute_step(1, &[], &mut subject, &cancelled).await.unwrap();
+    let raw = format!("[remember] this rejected decision must not save memory\n[obligation] {}",
+        serde_json::json!({"description":"Wait for the original task result",
+            "origin_event_id":EntityId::new()}));
+    let rejected_id = record_result(&store, &mut subject, &raw);
+    let rejected = subject.step.clone();
+    let original_head = subject.head.clone();
+    let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+    subject = subject.with_outbox(tx);
+    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().is_none());
+    assert_eq!(subject.head.committed_at, original_head.committed_at);
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert!(store.committed_intents(None, None, 8).unwrap().is_empty());
+    assert!(store.open_subject_obligations(agent).unwrap().is_empty());
+    assert!(rx.try_recv().is_err());
+    let retired = store.get_step(&original_head.branch_id, rejected_id).unwrap().unwrap();
+    assert_eq!(retired.state, SubjectStepState::Retired);
+    assert_eq!(retired.model_result_ref, rejected.model_result_ref);
+    assert_eq!(retired.model_outcome_ref, rejected.model_outcome_ref);
+    assert_eq!(retired.input_plan_ref, rejected.input_plan_ref);
+    assert_eq!(super::read_sealed(&store, retired.model_result_ref.as_ref().unwrap()).unwrap(), raw.as_bytes());
+    let rejection: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&store, retired.retry_reason_ref.as_ref().unwrap()).unwrap()
+    ).unwrap();
+    assert_eq!(rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(rejection.request_id, rejected.active_request_id.unwrap());
+    assert_eq!(rejection.replacement_step_id, subject.step.step_id);
+    drop(subject);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.step_id, rejection.replacement_step_id);
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    let correction = super::frozen_input(&reopened, &subject.step).unwrap();
+    assert!(correction.events.is_empty());
+    assert!(correction.obligations.is_empty());
+    record_result(&reopened, &mut subject, "Continue from the original durable receipts.");
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().expect("corrected S1 commits without replaying the rejected request");
+    assert_eq!(subject.head.committed_step_no, 1);
+    assert!(reopened.open_subject_obligations(agent).unwrap().is_empty());
+    assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
+}
+
 /// R143/§41.5: a wait is a durable subject decision, not an in-memory flag.
 /// Polling never renews its deadline, an unrelated message does not end it and
 /// a late continue cannot resurrect a wait that already ended.

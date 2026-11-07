@@ -2922,6 +2922,110 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         Ok(())
     }
 
+
+    fn sock_accept(
+        &mut self,
+        _memory: &mut GuestMemory<'_>,
+        fd: types::Fd,
+        flags: types::Fdflags,
+    ) -> Result<types::Fd, types::Error> {
+        if flags.intersects(
+            types::Fdflags::APPEND
+                | types::Fdflags::SYNC
+                | types::Fdflags::RSYNC
+                | types::Fdflags::DSYNC,
+        ) {
+            return Err(types::Errno::Inval.into());
+        }
+        let nonblocking = flags.contains(types::Fdflags::NONBLOCK);
+        let stop = self.socket_stop()?;
+        let max_sockets = match &self.net {
+            Some(net) => net.admission.max_sockets(),
+            None => return Err(types::Errno::Notsock.into()),
+        };
+        if self.open_socket_count() >= max_sockets {
+            return Err(types::Errno::Mfile.into());
+        }
+        let accepted = match self.fd(fd)? {
+            FdEntry::Socket(SocketHandle {
+                socket: AdmittedSocket::Listener(listener),
+                nonblocking: listener_nonblocking,
+            }) => crate::net::listener_accept(listener, *listener_nonblocking, &stop),
+            // A connected stream never accepts; only a granted listener does.
+            FdEntry::Socket(SocketHandle { socket: AdmittedSocket::Stream(_), .. }) => {
+                return Err(types::Errno::Inval.into());
+            }
+            _ => return Err(types::Errno::Notsock.into()),
+        };
+        let stream = match accepted {
+            Ok(stream) => stream,
+            Err(error) => return net_err(error),
+        };
+        Ok(self.alloc_fd(FdEntry::Socket(SocketHandle {
+            socket: AdmittedSocket::Stream(stream),
+            nonblocking,
+        })))
+    }
+
+    fn sock_recv(
+        &mut self,
+        memory: &mut GuestMemory<'_>,
+        fd: types::Fd,
+        ri_data: types::IovecArray,
+        ri_flags: types::Riflags,
+    ) -> Result<(types::Size, types::Roflags), types::Error> {
+        // wiggle already rejected any flag bit outside the two defined ones.
+        let peek = ri_flags.contains(types::Riflags::RECV_PEEK);
+        let waitall = ri_flags.contains(types::Riflags::RECV_WAITALL);
+        let total = self.socket_scatter_recv(memory, fd, ri_data, peek, waitall)?;
+        Ok((total, types::Roflags::empty()))
+    }
+
+    fn sock_send(
+        &mut self,
+        memory: &mut GuestMemory<'_>,
+        fd: types::Fd,
+        si_data: types::CiovecArray,
+        si_flags: types::Siflags,
+    ) -> Result<types::Size, types::Error> {
+        // `siflags` defines no flag: anything but zero is invalid input, not a
+        // silently ignored hint.
+        if si_flags != 0 {
+            return Err(types::Errno::Inval.into());
+        }
+        self.socket_send_bytes(memory, fd, si_data)
+    }
+
+    fn sock_shutdown(
+        &mut self,
+        _memory: &mut GuestMemory<'_>,
+        fd: types::Fd,
+        how: types::Sdflags,
+    ) -> Result<(), types::Error> {
+        let mode = match (how.contains(types::Sdflags::RD), how.contains(types::Sdflags::WR)) {
+            (true, true) => Shutdown::Both,
+            (true, false) => Shutdown::Read,
+            (false, true) => Shutdown::Write,
+            (false, false) => return Err(types::Errno::Inval.into()),
+        };
+        let (handle, _stop) = self.socket_entry(fd)?;
+        let stream = handle.stream()?;
+        match crate::net::shutdown_stream(stream, mode) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(socket_error(error)),
+        }
+    }
+}
+
+fn duration_nanos(nanos: u64) -> std::time::Duration {
+    std::time::Duration::from_nanos(nanos)
+}
+
+/// Preview1 socket surface the generated `WasiSnapshotPreview1` trait does not
+/// declare: `fd_read`/`fd_write` over an installed socket descriptor and
+/// `poll_oneoff` readiness. A guest reaches these through the standard calls,
+/// never by name.
+impl P1Host {
     /// `fd_read` on an installed socket: one guest `read(2)`, scattered across
     /// the descriptor's iovecs in order.
     fn socket_fd_read(
@@ -3052,101 +3156,4 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             Err(error) => Err(socket_error(error)),
         }
     }
-
-    fn sock_accept(
-        &mut self,
-        _memory: &mut GuestMemory<'_>,
-        fd: types::Fd,
-        flags: types::Fdflags,
-    ) -> Result<types::Fd, types::Error> {
-        if flags.intersects(
-            types::Fdflags::APPEND
-                | types::Fdflags::SYNC
-                | types::Fdflags::RSYNC
-                | types::Fdflags::DSYNC,
-        ) {
-            return Err(types::Errno::Inval.into());
-        }
-        let nonblocking = flags.contains(types::Fdflags::NONBLOCK);
-        let stop = self.socket_stop()?;
-        let max_sockets = match &self.net {
-            Some(net) => net.admission.max_sockets(),
-            None => return Err(types::Errno::Notsock.into()),
-        };
-        if self.open_socket_count() >= max_sockets {
-            return Err(types::Errno::Mfile.into());
-        }
-        let accepted = match self.fd(fd)? {
-            FdEntry::Socket(SocketHandle {
-                socket: AdmittedSocket::Listener(listener),
-                nonblocking: listener_nonblocking,
-            }) => crate::net::listener_accept(listener, *listener_nonblocking, &stop),
-            // A connected stream never accepts; only a granted listener does.
-            FdEntry::Socket(SocketHandle { socket: AdmittedSocket::Stream(_), .. }) => {
-                return Err(types::Errno::Inval.into());
-            }
-            _ => return Err(types::Errno::Notsock.into()),
-        };
-        let stream = match accepted {
-            Ok(stream) => stream,
-            Err(error) => return net_err(error),
-        };
-        Ok(self.alloc_fd(FdEntry::Socket(SocketHandle {
-            socket: AdmittedSocket::Stream(stream),
-            nonblocking,
-        })))
-    }
-
-    fn sock_recv(
-        &mut self,
-        memory: &mut GuestMemory<'_>,
-        fd: types::Fd,
-        ri_data: types::IovecArray,
-        ri_flags: types::Riflags,
-    ) -> Result<(types::Size, types::Roflags), types::Error> {
-        // wiggle already rejected any flag bit outside the two defined ones.
-        let peek = ri_flags.contains(types::Riflags::RECV_PEEK);
-        let waitall = ri_flags.contains(types::Riflags::RECV_WAITALL);
-        let total = self.socket_scatter_recv(memory, fd, ri_data, peek, waitall)?;
-        Ok((total, types::Roflags::empty()))
-    }
-
-    fn sock_send(
-        &mut self,
-        memory: &mut GuestMemory<'_>,
-        fd: types::Fd,
-        si_data: types::CiovecArray,
-        si_flags: types::Siflags,
-    ) -> Result<types::Size, types::Error> {
-        // `siflags` defines no flag: anything but zero is invalid input, not a
-        // silently ignored hint.
-        if si_flags != 0 {
-            return Err(types::Errno::Inval.into());
-        }
-        self.socket_send_bytes(memory, fd, si_data)
-    }
-
-    fn sock_shutdown(
-        &mut self,
-        _memory: &mut GuestMemory<'_>,
-        fd: types::Fd,
-        how: types::Sdflags,
-    ) -> Result<(), types::Error> {
-        let mode = match (how.contains(types::Sdflags::RD), how.contains(types::Sdflags::WR)) {
-            (true, true) => Shutdown::Both,
-            (true, false) => Shutdown::Read,
-            (false, true) => Shutdown::Write,
-            (false, false) => return Err(types::Errno::Inval.into()),
-        };
-        let (handle, _stop) = self.socket_entry(fd)?;
-        let stream = handle.stream()?;
-        match crate::net::shutdown_stream(stream, mode) {
-            Ok(()) => Ok(()),
-            Err(error) => Err(socket_error(error)),
-        }
-    }
-}
-
-fn duration_nanos(nanos: u64) -> std::time::Duration {
-    std::time::Duration::from_nanos(nanos)
 }

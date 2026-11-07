@@ -28,6 +28,12 @@ CLI、Store、broker 的验证不等于真实模型行为验收，也不覆盖�
 child 与主体共用同一套 broker、同一 quota gate、同一 native handler 注册表、同一
 provider 通路。child 不新增第二个 registry、第二个循环或第二套账本。
 
+主体的 native 能力说明由 `NativeChildService::installed_prompt_sections()` 生成：每条可见
+说明先给出描述符中真实的 `[delegate:<kind>:<definition_version>]`，再给出该 handler 的
+用法。安装单元 ID 不能代替调用定义；例如 `compat.mcp` 单元提供的调用是
+`compat.mcp.request:1`，`compat.skill` 单元提供的是 `compat.skill.source:2`。
+主体的 S0 随请求封存这份实际说明；说明不替模型选择工具，也不改写已经创建的任务。
+
 ### 1.1 有限性
 
 child 运行永远有界，三条预算同时生效（`ModelChildBudget`）：

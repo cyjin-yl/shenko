@@ -22,10 +22,20 @@ async-trait = { workspace = true }
 parking_lot = { workspace = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
-rustix = { version = "=1.1.5", features = ["fs"] }
+rustix = { version = "=1.1.5", features = ["fs", "process"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
+# `JobObjects`/`Threading`/`Diagnostics_ToolHelp` own and start the smoke's
+# candidate tree; `Foundation` closes those handles and `Security` is named by
+# `CreateJobObjectW`'s attribute pointer, which is null here.
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

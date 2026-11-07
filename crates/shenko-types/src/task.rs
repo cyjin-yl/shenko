@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::commit::CommitRef;
 use crate::ids::{ControllerEpoch, EntityId, RecordRevision, TaskRevision};
 use crate::object::{Digest, ObjectRef};
+use crate::operation::{EffectStatus, OperationOutcome, OperationState};
 
 /// Explicit deterministic native work requested by a delegation. Identity,
 /// role and authority are deliberately absent: the Cordis registry supplies them.
@@ -249,4 +250,26 @@ pub struct TaskResult {
     pub result: Option<serde_json::Value>,
     pub evidence_ref: ObjectRef,
     pub commit_ref: CommitRef,
+}
+
+/// Ordinary input reporting original E1 while a native operation remains
+/// unresolved. This is not T2, does not settle the task and permits no replay.
+pub const NATIVE_EVIDENCE_OBSERVATION_SOURCE: &str = "native-observation";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeEvidenceObservation {
+    pub schema_version: u32,
+    pub task_id: EntityId,
+    pub operation_id: EntityId,
+    pub operation_name: String,
+    pub operation_state: OperationState,
+    pub outcome: Option<OperationOutcome>,
+    pub effect_status: EffectStatus,
+    pub attempt_id: EntityId,
+    pub receipt_id: EntityId,
+    pub raw_ref: ObjectRef,
+    pub normalized_ref: Option<ObjectRef>,
+    pub observed_at: chrono::DateTime<chrono::Utc>,
+    pub received_commit: CommitRef,
 }

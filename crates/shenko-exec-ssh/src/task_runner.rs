@@ -12,6 +12,9 @@ const HELPER: &str = include_str!("remote_helper.py");
 // Never use this compatibility path to dispatch or replay the old operation.
 const LEGACY_RECEIPT_V1: &str =
     "blake3:3db899dc077c398ecc459e86565ed432e31097335af46291b579c6c3e0eaf9c6";
+// Preserve the exact PR127 helper artifact as data for query-only recovery.
+// It is never dispatched; new effects use HELPER and its new contract digest.
+const PR127_RECEIPT_V1: &str = include_str!("remote_helper_pr127_v1.py");
 const MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,7 +440,8 @@ impl SshTaskRunner<'_> {
         ensure!(
             op.operation_name == "ssh.native.v1"
                 && (op.contract_ref.contract_digest == Digest::blake3(HELPER.as_bytes())
-                    || op.contract_ref.contract_digest.0 == LEGACY_RECEIPT_V1),
+                    || op.contract_ref.contract_digest.0 == LEGACY_RECEIPT_V1
+                    || op.contract_ref.contract_digest == Digest::blake3(PR127_RECEIPT_V1.as_bytes())),
             "unsupported receipt reader version"
         );
         let bytes = self.store.cas.read_object(&op.final_input_ref.digest)?;

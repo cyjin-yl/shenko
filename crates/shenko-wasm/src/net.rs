@@ -349,6 +349,18 @@ pub(crate) enum OpenOutcome {
     Stopped(WasiRunOutcome),
 }
 
+/// What a run start did with its admitted sockets.
+///
+/// Sockets are opened before the guest is instantiated, so a stop observed
+/// while connecting ends the run with no guest code executed.
+pub enum NetworkStart {
+    /// Every admitted socket is installed as a guest descriptor.
+    Installed,
+    /// The run's cancellation or deadline was observed before any guest code
+    /// ran; the outcome is the run's committed result.
+    Stopped(WasiRunOutcome),
+}
+
 /// Why a socket host call ended without a normal result.
 #[derive(Debug)]
 pub(crate) enum NetIoError {
@@ -632,7 +644,7 @@ fn wait_accept(
 /// reading until the buffer is full, the peer closes, or the caller's
 /// non-blocking mode has nothing more to give.
 pub(crate) fn stream_read(
-    stream: &TcpStream,
+    mut stream: &TcpStream,
     buf: &mut [u8],
     nonblocking: bool,
     peek: bool,
@@ -682,7 +694,7 @@ pub(crate) fn stream_read(
 /// guest gets whatever one readiness window accepts (a partial count is a
 /// normal `sock_send` result).
 pub(crate) fn stream_write(
-    stream: &TcpStream,
+    mut stream: &TcpStream,
     buf: &[u8],
     nonblocking: bool,
     stop: &RunStop,

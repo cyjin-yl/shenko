@@ -22,6 +22,7 @@
 //! committed locally.
 
 use super::{Event, Identity, Manifest, Node, ResultReceipt, digest, get, number, set, text};
+use crate::cognition::{CognitionComparison, CognitionOrigin};
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};

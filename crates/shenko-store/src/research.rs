@@ -1860,10 +1860,71 @@ impl Store {
                 "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
                 params![id],
             )? {
-                reminders.push(reminder);
+                // An agent-scoped drain never prepares a decision whose
+                // accepted evidence names another author. The decision and its
+                // receipt stay readable; the omission is reported by
+                // [`Store::pending_intervention_omissions`].
+                if reminder_omission(&conn, &reminder)?.is_none() {
+                    reminders.push(reminder);
+                }
             }
         }
         Ok(reminders)
+    }
+
+    /// Committed reminders that this agent may NOT prepare, each with the
+    /// durable link that refused it.
+    ///
+    /// A decision that is already committed stays readable and unchanged; this
+    /// is the explicit omission the preparation boundary reports instead of
+    /// publishing foreign material or silently dropping it. Owner and author
+    /// are read from accepted evidence (`pma-decision:<reminder_id>` receipt →
+    /// operation → task) and from the epoch's committed owning task — never
+    /// from model text, the reminder body or the declared address.
+    pub fn pending_intervention_omissions(
+        &self,
+        agent_id: EntityId,
+        now_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<InterventionOmission>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT r.reminder_id FROM intervention_reminders r
+                 JOIN research_epochs e ON e.epoch_id = r.epoch_id
+                 JOIN tasks t ON t.task_id = e.task_id
+                 WHERE e.status='active'
+                   AND json_extract(t.data, '$.agent_id') = ?1
+                   AND r.decision='remind'
+                   AND (r.expires_at_ms IS NULL OR r.expires_at_ms > ?2)
+                   AND (r.transient=0 OR r.used_at_ms IS NULL)
+                 ORDER BY r.created_at_ms ASC, r.reminder_id ASC
+                 LIMIT ?3",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let ids = statement
+            .query_map(
+                params![agent_id.to_string(), now_ms, limit as i64],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        drop(statement);
+        let mut omissions = Vec::new();
+        for id in ids {
+            if let Some(reminder) = read_reminder_by(
+                &conn,
+                "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
+                params![id],
+            )? {
+                if let Some(omission) = reminder_omission(&conn, &reminder)? {
+                    omissions.push(omission);
+                }
+            }
+        }
+        Ok(omissions)
     }
 
     /// Record that a reminder was actually sent in a call. This is the usage
@@ -2291,6 +2352,10 @@ pub fn validate_intervention_scope(epoch: EntityId, address: &str) -> Result<(),
 
 /// One SQL snapshot; the optional agent binding avoids scanning other agents
 /// for each prepared scope. Callers keep the connection lock through routing.
+///
+/// A reminder that survives the SQL scope filter is still checked against the
+/// author of its accepted decision evidence; a foreign-authored decision is
+/// left out of the prepared set instead of being published.
 fn pending_scope_reminders(
     conn: &Connection,
     agent: Option<&str>,
@@ -2310,10 +2375,20 @@ fn pending_scope_reminders(
     let ids = statement.query_map(params![agent, now_ms], |row| row.get::<_, String>(0))
         .map_err(|error| ShenkoError::storage(error.to_string()))?
         .collect::<Result<Vec<_>, _>>().map_err(|error| ShenkoError::storage(error.to_string()))?;
-    ids.into_iter().map(|id| read_reminder_by(conn,
-        "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1", params![id])?
-        .ok_or_else(|| ShenkoError::conflict("pending reminder disappeared within its snapshot")))
-        .collect()
+    drop(statement);
+    let mut admitted = Vec::with_capacity(ids.len());
+    for id in ids {
+        let reminder = read_reminder_by(conn,
+            "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1", params![id])?
+            .ok_or_else(|| ShenkoError::conflict("pending reminder disappeared within its snapshot"))?;
+        // A committed decision whose accepted evidence names another author is
+        // never prepared for this epoch's agent. It stays readable, and
+        // [`Store::pending_intervention_omissions`] reports it.
+        if reminder_omission(conn, &reminder)?.is_none() {
+            admitted.push(reminder);
+        }
+    }
+    Ok(admitted)
 }
 
 fn reminder_delivery_scope(
@@ -2350,6 +2425,223 @@ fn reminder_delivery_scope(
             .ok_or_else(|| ShenkoError::conflict("epoch task owner is missing"))?;
     }
     Err(ShenkoError::conflict("epoch task ownership depth exceeded"))
+}
+
+/// One committed reminder that a preparation boundary refused.
+///
+/// The decision, its receipt and its reminder row are unchanged and stay
+/// readable; this record only says why the reminder is not prepared material
+/// for this epoch's agent. It carries identities and the refusing link, never
+/// the reminder body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterventionOmission {
+    pub reminder_id: EntityId,
+    pub epoch_id: EntityId,
+    /// The address the committed decision declared.
+    pub address: String,
+    pub kind: InterventionOmissionKind,
+    /// The agent the accepted decision evidence names, when it is readable.
+    pub author_agent: Option<EntityId>,
+    /// The agent of the epoch's committed owning task, when it is readable.
+    pub epoch_agent: Option<EntityId>,
+    /// The concrete missing or contradictory durable link.
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterventionOmissionKind {
+    /// No accepted `pma-decision:` receipt names this reminder.
+    AuthorUnproven,
+    /// The evidence → operation → task chain is missing or unreadable.
+    AuthorDangling,
+    /// Accepted decision evidence names more than one author.
+    AuthorAmbiguous,
+    /// The decision's author is a different agent than the epoch's owner.
+    ForeignAuthor,
+    /// The epoch's committed owning task does not resolve to an agent.
+    /// Both prepared readers bind an agent, so this classification is only
+    /// reachable for a snapshot that is not agent-scoped.
+    EpochOwnerUnproven,
+}
+
+/// The agent that authored one committed decision, read from accepted
+/// evidence — never from model text.
+///
+/// `intervention` records exactly one settlement receipt per bounded call under
+/// `source_event_key = "pma-decision:<request_id>"`, and the reminder id IS the
+/// frozen request id. That receipt's operation names the task that authored the
+/// decision, and that task names its agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReminderAuthor {
+    /// Accepted decision evidence names exactly this agent.
+    Proven(EntityId),
+    /// No accepted `pma-decision:` receipt is linked to the reminder.
+    Unproven,
+    /// The evidence → operation → task chain is missing or unreadable.
+    Dangling(String),
+    /// Accepted decision evidence names more than one author.
+    Ambiguous(Vec<EntityId>),
+}
+
+fn reminder_author(conn: &Connection, reminder_id: EntityId) -> Result<ReminderAuthor, ShenkoError> {
+    let key = format!("pma-decision:{reminder_id}");
+    let mut statement = conn
+        .prepare(
+            "SELECT operation_id FROM evidence_receipts
+             WHERE json_extract(data,'$.source_event_key')=?1 ORDER BY rowid",
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+    let operations = statement
+        .query_map([key], |row| row.get::<_, Option<String>>(0))
+        .map_err(|error| ShenkoError::storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+    drop(statement);
+    if operations.is_empty() {
+        return Ok(ReminderAuthor::Unproven);
+    }
+    let mut authors = std::collections::BTreeSet::new();
+    for operation in operations {
+        let Some(operation) = operation else {
+            return Ok(ReminderAuthor::Dangling(
+                "accepted decision receipt names no operation".into(),
+            ));
+        };
+        let task: Option<Option<String>> = conn
+            .query_row(
+                "SELECT json_extract(data,'$.task_id') FROM operations WHERE operation_id=?1",
+                params![operation],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let Some(task) = task else {
+            return Ok(ReminderAuthor::Dangling(format!(
+                "authoring operation {operation} is missing"
+            )));
+        };
+        let Some(task) = task else {
+            return Ok(ReminderAuthor::Dangling(format!(
+                "authoring operation {operation} names no task"
+            )));
+        };
+        let agent: Option<Option<String>> = conn
+            .query_row(
+                "SELECT json_extract(data,'$.agent_id') FROM tasks WHERE task_id=?1",
+                params![task],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let Some(agent) = agent else {
+            return Ok(ReminderAuthor::Dangling(format!(
+                "authoring task {task} is missing"
+            )));
+        };
+        let Some(agent) = agent.and_then(|agent| agent.parse::<EntityId>().ok()) else {
+            return Ok(ReminderAuthor::Dangling(format!(
+                "authoring task {task} names no readable agent"
+            )));
+        };
+        authors.insert(agent);
+    }
+    Ok(match authors.len() {
+        1 => ReminderAuthor::Proven(*authors.iter().next().expect("one author")),
+        _ => ReminderAuthor::Ambiguous(authors.into_iter().collect()),
+    })
+}
+
+/// The agent of the epoch's committed owning task — the same ownership
+/// `reminder_delivery_scope` resolves. `None` means the committed chain does
+/// not name an agent (a legacy ownerless epoch).
+fn reminder_epoch_agent(
+    conn: &Connection,
+    epoch: EntityId,
+) -> Result<Option<EntityId>, ShenkoError> {
+    let agent: Option<Option<String>> = conn
+        .query_row(
+            "SELECT json_extract(t.data,'$.agent_id') FROM research_epochs e
+             LEFT JOIN tasks t ON t.task_id=e.task_id WHERE e.epoch_id=?1",
+            [epoch.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+    Ok(agent.flatten().and_then(|agent| agent.parse::<EntityId>().ok()))
+}
+
+/// Whether one committed reminder may enter a prepared batch.
+///
+/// The reminder body, the model answer and the declared address are not
+/// authority: only accepted decision evidence links a reminder to the agent
+/// that authored it. A reminder whose author differs from the epoch's committed
+/// owner — or whose author cannot be read — is reported as an omission, never
+/// prepared. Nothing is deleted, rewritten or re-keyed.
+fn reminder_omission(
+    conn: &Connection,
+    reminder: &InterventionReminder,
+) -> Result<Option<InterventionOmission>, ShenkoError> {
+    fn omit(
+        reminder: &InterventionReminder,
+        epoch_agent: Option<EntityId>,
+        kind: InterventionOmissionKind,
+        author_agent: Option<EntityId>,
+        reason: String,
+    ) -> InterventionOmission {
+        InterventionOmission {
+            reminder_id: reminder.reminder_id,
+            epoch_id: reminder.epoch_id,
+            address: reminder.scope.clone(),
+            kind,
+            author_agent,
+            epoch_agent,
+            reason,
+        }
+    }
+    let epoch_agent = reminder_epoch_agent(conn, reminder.epoch_id)?;
+    let author = reminder_author(conn, reminder.reminder_id)?;
+    Ok(Some(match (&author, epoch_agent) {
+        (ReminderAuthor::Proven(author), Some(owner)) if *author == owner => return Ok(None),
+        (ReminderAuthor::Proven(author), Some(owner)) => omit(
+            reminder,
+            epoch_agent,
+            InterventionOmissionKind::ForeignAuthor,
+            Some(*author),
+            format!("decision authored by agent {author}; epoch owned by agent {owner}"),
+        ),
+        (ReminderAuthor::Proven(author), None) => omit(
+            reminder,
+            epoch_agent,
+            InterventionOmissionKind::EpochOwnerUnproven,
+            Some(*author),
+            "the epoch's committed owning task does not resolve to an agent".into(),
+        ),
+        (ReminderAuthor::Unproven, _) => omit(
+            reminder,
+            epoch_agent,
+            InterventionOmissionKind::AuthorUnproven,
+            None,
+            format!(
+                "no accepted pma-decision receipt names reminder {}",
+                reminder.reminder_id
+            ),
+        ),
+        (ReminderAuthor::Dangling(reason), _) => omit(
+            reminder,
+            epoch_agent,
+            InterventionOmissionKind::AuthorDangling,
+            None,
+            reason.clone(),
+        ),
+        (ReminderAuthor::Ambiguous(authors), _) => omit(
+            reminder,
+            epoch_agent,
+            InterventionOmissionKind::AuthorAmbiguous,
+            None,
+            format!("accepted decision evidence names several authors: {authors:?}"),
+        ),
+    }))
 }
 
 fn read_reminder_by(
@@ -2452,3 +2744,205 @@ pub const EPOCH_COLUMN_LIST: &str = EPOCH_COLUMNS;
 /// The column list of the reminder table.
 #[allow(dead_code)]
 pub const REMINDER_COLUMN_LIST: &str = REMINDER_COLUMNS;
+
+#[cfg(test)]
+mod reminder_author_admission_tests {
+    use super::*;
+
+    /// The committed reminders one preparation boundary would return.
+    fn prepared(store: &Store, agent: EntityId, now_ms: i64) -> Vec<EntityId> {
+        let conn = store.ledger.conn.lock();
+        let mut ids: Vec<EntityId> =
+            pending_scope_reminders(&conn, Some(&agent.to_string()), now_ms)
+                .unwrap()
+                .into_iter()
+                .map(|reminder| reminder.reminder_id)
+                .collect();
+        ids.sort();
+        ids
+    }
+
+    fn omissions(store: &Store, agent: EntityId, now_ms: i64) -> Vec<InterventionOmission> {
+        store
+            .pending_intervention_omissions(agent, now_ms, 8)
+            .unwrap()
+    }
+
+    /// A reminder id is prepared only while its accepted decision evidence and
+    /// its epoch's committed owning task name the same agent. Every other case
+    /// is an explicit omission, and the committed decision never changes.
+    #[test]
+    fn only_the_evidenced_author_of_a_decision_is_prepared() {
+        let dir = std::env::temp_dir().join(format!("shenko-reminder-author-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap();
+        let owner = EntityId::new();
+        let foreign = EntityId::new();
+        let owner_task = EntityId::new();
+        let foreign_task = EntityId::new();
+        let other_task = EntityId::new();
+        let epoch = EntityId::new();
+        let lineage = EntityId::new();
+        let reminder_id = EntityId::new();
+        let operation = EntityId::new();
+        let other_operation = EntityId::new();
+        let now_ms = Utc::now().timestamp_millis();
+        let task_data = |agent: EntityId| serde_json::json!({"agent_id": agent.to_string()}).to_string();
+        let operation_data =
+            |task: EntityId| serde_json::json!({"task_id": task.to_string()}).to_string();
+        let receipt_data =
+            |key: &str| serde_json::json!({"source_event_key": key}).to_string();
+        {
+            let conn = store.ledger.conn.lock();
+            ensure_research_schema(&conn).unwrap();
+            for (task, agent) in [
+                (owner_task, owner),
+                (foreign_task, foreign),
+                (other_task, owner),
+            ] {
+                conn.execute(
+                    "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,1)",
+                    params![task.to_string(), task_data(agent)],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO research_epochs(epoch_id,lineage_id,epoch_no,task_id,status,created_at_ms)
+                 VALUES(?1,?2,1,?3,'active',?4)",
+                params![epoch.to_string(), lineage.to_string(), owner_task.to_string(), now_ms],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO intervention_reminders
+                 (reminder_id,epoch_id,lineage_id,decision,policy,policy_revision,content,provenance,
+                  relevance,scope,expires_at_ms,transient,bank_entry_ids,reason,created_at_ms,
+                  used_step_id,used_at_ms)
+                 VALUES(?1,?2,?3,'remind','fixture-policy','1','prepared body','[]','fixture','subject',
+                        NULL,1,'[]',NULL,?4,NULL,NULL)",
+                params![reminder_id.to_string(), epoch.to_string(), lineage.to_string(), now_ms],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,1)",
+                params![operation.to_string(), operation_data(owner_task)],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,1)",
+                params![
+                    EntityId::new().to_string(),
+                    operation.to_string(),
+                    receipt_data(&format!("pma-decision:{reminder_id}"))
+                ],
+            )
+            .unwrap();
+        }
+
+        // The evidenced author and the epoch owner agree: prepared.
+        assert_eq!(prepared(&store, owner, now_ms), vec![reminder_id]);
+        assert!(omissions(&store, owner, now_ms).is_empty());
+
+        // The very same committed decision, authored by another agent's
+        // operation: readable, never prepared, and reported explicitly.
+        {
+            let conn = store.ledger.conn.lock();
+            conn.execute(
+                "UPDATE operations SET data=?2 WHERE operation_id=?1",
+                params![operation.to_string(), operation_data(foreign_task)],
+            )
+            .unwrap();
+        }
+        assert!(prepared(&store, owner, now_ms).is_empty());
+        let reported = omissions(&store, owner, now_ms);
+        assert_eq!(reported.len(), 1);
+        assert_eq!(reported[0].reminder_id, reminder_id);
+        assert_eq!(reported[0].kind, InterventionOmissionKind::ForeignAuthor);
+        assert_eq!(reported[0].author_agent, Some(foreign));
+        assert_eq!(reported[0].epoch_agent, Some(owner));
+        // The committed decision itself is unchanged and still readable.
+        let committed = store.intervention_reminder(reminder_id).unwrap().unwrap();
+        assert_eq!(committed.content.as_deref(), Some("prepared body"));
+        assert_eq!(
+            store.latest_intervention(epoch).unwrap().unwrap().reminder_id,
+            reminder_id
+        );
+
+        // A second accepted decision receipt naming a different author makes
+        // the identity ambiguous instead of silently picking one.
+        {
+            let conn = store.ledger.conn.lock();
+            conn.execute(
+                "INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,1)",
+                params![other_operation.to_string(), operation_data(other_task)],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,1)",
+                params![
+                    EntityId::new().to_string(),
+                    other_operation.to_string(),
+                    receipt_data(&format!("pma-decision:{reminder_id}"))
+                ],
+            )
+            .unwrap();
+        }
+        assert!(prepared(&store, owner, now_ms).is_empty());
+        let reported = omissions(&store, owner, now_ms);
+        assert_eq!(reported.len(), 1);
+        assert_eq!(reported[0].kind, InterventionOmissionKind::AuthorAmbiguous);
+        assert!(reported[0].reason.contains("several authors"));
+
+        // A dangling authoring chain is reported as dangling, never guessed.
+        {
+            let conn = store.ledger.conn.lock();
+            conn.execute("DELETE FROM operations", params![]).unwrap();
+        }
+        assert!(prepared(&store, owner, now_ms).is_empty());
+        let reported = omissions(&store, owner, now_ms);
+        assert_eq!(reported.len(), 1);
+        assert_eq!(reported[0].kind, InterventionOmissionKind::AuthorDangling);
+
+        // Without any accepted decision receipt the reminder is unproven.
+        {
+            let conn = store.ledger.conn.lock();
+            conn.execute("DELETE FROM evidence_receipts", params![]).unwrap();
+        }
+        assert!(prepared(&store, owner, now_ms).is_empty());
+        let reported = omissions(&store, owner, now_ms);
+        assert_eq!(reported.len(), 1);
+        assert_eq!(reported[0].kind, InterventionOmissionKind::AuthorUnproven);
+
+        // An epoch with no committed owning task makes no agent claim.
+        {
+            let conn = store.ledger.conn.lock();
+            conn.execute(
+                "UPDATE research_epochs SET task_id=NULL WHERE epoch_id=?1",
+                params![epoch.to_string()],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,1)",
+                params![operation.to_string(), operation_data(owner_task)],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,1)",
+                params![
+                    EntityId::new().to_string(),
+                    operation.to_string(),
+                    receipt_data(&format!("pma-decision:{reminder_id}"))
+                ],
+            )
+            .unwrap();
+        }
+        // An ownerless epoch makes no agent claim, so the reminder is not even
+        // addressable to this agent: it is neither prepared nor reported as
+        // this agent's omission.
+        assert!(prepared(&store, owner, now_ms).is_empty());
+        assert!(omissions(&store, owner, now_ms).is_empty());
+        // Nothing above deleted, rewrote or re-keyed the decision.
+        let committed = store.intervention_reminder(reminder_id).unwrap().unwrap();
+        assert_eq!(committed.content.as_deref(), Some("prepared body"));
+        assert_eq!(committed.scope, "subject");
+    }
+}

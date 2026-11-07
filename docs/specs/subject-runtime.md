@@ -198,8 +198,8 @@ store at S1.
 
 ## R0 rejection and correction
 
-A syntactically valid disposition that names an event outside its own sealed S0 is
-rejected BEFORE the step can be committed, at the same parsed-result boundary
+A syntactically valid disposition or obligation origin that names an event outside
+its own sealed S0 is rejected BEFORE the step can be committed, at the same parsed-result boundary
 that validates the rest of the control protocol. This is not an S1 conflict
 discovered late and it is not a reason to kill the subject.
 
@@ -208,6 +208,10 @@ discovered late and it is not a reason to kill the subject.
   `CONTROL_PROTOCOL_INVALID` (`scope: request`, `retry: new_revision`); the
   store never sees it as an S1 commit attempt, so nothing about the step's
   other intents is partially applied.
+* An `[obligation]` with `origin_event_id` follows the same selected-event
+  check and correction path. A rejected origin does not create a commitment
+  or stop the subject loop; the Store independently preserves its S1
+  admission check.
 * Rejection retires the step: the original sealed input, the exact model
   text, the sealed outcome and a `StepRejection` record are all durable. The
   rejection names its replacement step; the next attempt gets a NEW request
@@ -215,7 +219,7 @@ discovered late and it is not a reason to kill the subject.
   between retire and reopen still reconstructs the correction from the
   durable facts alone.
 * The model's own text is preserved verbatim — including any `[remember]` or
-  other controls it wrote alongside the invalid disposition. They were never
+  other controls it wrote alongside the invalid disposition or obligation. They were never
   committed; they are not adopted into the correction either. The subject
   must re-author them in the new attempt.
 
@@ -230,6 +234,18 @@ build and source-integrity binding
 `subject-controls-verification-r6/receipt.json`. This proves the correction
 mechanism with a real store/broker/CLI; it is not live-model or physical
 power-loss evidence.
+
+The 2026-11-05 obligation-origin regression failed before the correction with
+the same late Store conflict seen in the retained Coder390 acquisition. After
+the repair, all 64 subject library cases passed, including a close/reopen of
+the durable correction. The actual CLI smoke then made two scripted provider
+requests with distinct identities, retained the rejected output, committed
+the correction, wrote no partial memory intent and exited normally. Receipts:
+`build/ecosystem-compat-20261104/compat-obligation-origin-after-20261105-r1/receipt.json`
+and `compat-obligation-origin-cli-20261105-r1/receipt.json`. The CLI binary's
+SHA-256 was `0bcf38de159f9855f42a4cb78a94219210b2053c56f9c0ec7320be74813f2b9a`.
+This is native correction and controlled reopen evidence; it does not score
+the original failed model acquisition or establish physical-crash recovery.
 
 ## Identity
 

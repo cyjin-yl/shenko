@@ -1,0 +1,227 @@
+{
+  "schema": "shenko.ssh.current-main-preparation.v1",
+  "recorded_at": "2026-11-06T04:13:09.271161+00:00",
+  "status": "TARGET_GRAPH_VERIFIED_RUST_UNCOMPILED_UNRUN",
+  "issue": 12,
+  "pull_request": 168,
+  "goal": "Prepare current-main integration without source execution, preserving old fixed candidate and independent ownership.",
+  "main_commit": "2cb17172cfd65291997df5953f54d0ab5abe4c38",
+  "main_tree": "0b9039981a75f224023bcdcf33e114705ccb5eb8",
+  "pr_commit": "9decb62454d20f8d54789e90bff27b9c517b59bd",
+  "pr_tree": "1979d480d17ede4c2d0edcb22523a3d47e2b235c",
+  "main_commits_since_pr_original_base": 42,
+  "local_candidate": {
+    "construction": "Current main tracked Rust-side files plus exactly the following five PR168 runtime/test files. No Git merge or branch update is implied.",
+    "overrides": [
+      {
+        "path": "crates/shenko-exec-ssh/src/native_query_tests.rs",
+        "git_blob": "70cb4c5203e1a8a7242d0b6e693926d306f8ae2c",
+        "sha256": "cecf178197719cfd5eb5abfff2d1bb8cd07c82bf88e0b2e6b3bf6b1610c00be3",
+        "origin": "PR168"
+      },
+      {
+        "path": "crates/shenko-exec-ssh/src/remote_helper.py",
+        "git_blob": "c6d5b60bae5cf2d108ceb54bbaa6eff4899e62f7",
+        "sha256": "7e0681219063fb4adab7e4dfe2a7990d818334ed635cf8d65962cc648ef12288",
+        "origin": "PR168"
+      },
+      {
+        "path": "crates/shenko-exec-ssh/src/remote_helper_pr127_v1.py",
+        "git_blob": "9bfcde2bd43b8959e1f43ff2e1bb8eb8329891dd",
+        "sha256": "84774195a09d28b1ecd6a2fd310648bb4478f89db0226b8d3831c95a563c2e95",
+        "origin": "PR168"
+      },
+      {
+        "path": "crates/shenko-exec-ssh/src/task_runner.rs",
+        "git_blob": "17a28b5a36d82cba6398ae7ed4e44674203f87de",
+        "sha256": "2833aa7ebd098cfa2a433197715a469fbc7721a2130b3d063083bf5dbd3bc397",
+        "origin": "PR168"
+      },
+      {
+        "path": "crates/shenko-exec-ssh/tests/test_remote_helper_durability.py",
+        "git_blob": "94e0a1137bb2dcb815bfa4de093349e10b8d7bbe",
+        "sha256": "889251ece4152ac670785c5cbadd95e938a7d694219d484a21bc5f35923e66f6",
+        "origin": "PR168"
+      }
+    ],
+    "files_verified": 538,
+    "all_files_match_expected_git_blobs": true,
+    "source_manifest_sha256": "ea6d2fd038417110529c252c5f44a28e97ace2a92e0e96b21b5635e30da67a28",
+    "excluded_ui_web_files": [
+      "crates/shenko-ui/web/build.mjs",
+      "crates/shenko-ui/web/package.json",
+      "crates/shenko-ui/web/pnpm-lock.yaml",
+      "crates/shenko-ui/web/src/app.css",
+      "crates/shenko-ui/web/src/demo-controller.ts",
+      "crates/shenko-ui/web/src/live-controller.ts",
+      "crates/shenko-ui/web/src/main.tsx",
+      "crates/shenko-ui/web/src/projection.ts",
+      "crates/shenko-ui/web/src/react-renderer.tsx",
+      "crates/shenko-ui/web/tests/live-controller.test.mjs",
+      "crates/shenko-ui/web/tsconfig.json",
+      "crates/shenko-ui/web/upstream-pin.json"
+    ],
+    "limit": "This is a complete materialized Rust-side source preparation for metadata/tree, not a full web checkout or a compiled artifact."
+  },
+  "lock_sha256": "c64da06d01d2c4edaa92a55ce3f3963839aea1b43926381e0525b87620f7c4d7",
+  "observations": [
+    {
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--offline",
+        "--format-version",
+        "1",
+        "--filter-platform",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "started_at": "2026-11-06T04:09:22.778687+00:00",
+      "finished_at": "2026-11-06T04:09:23.334938+00:00",
+      "exit_code": 101,
+      "source_unchanged": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "0e2f1eb0704c2e2b61821895a489fe3e07fa2f0871a3620d5b054f6c783b7e62",
+      "stderr": "error: no matching package named `process-wrap` found\nlocation searched: crates.io index\nrequired by package `shenko-compat-mcp v0.1.0 (/source/crates/shenko-compat-mcp)`\nnote: offline mode (via `--offline`) can sometimes cause surprising resolution failures\nhelp: if this error is too confusing you may wish to retry without `--offline`\n"
+    },
+    {
+      "command": [
+        "cargo",
+        "tree",
+        "--locked",
+        "--offline",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "-p",
+        "shenko-exec-ssh",
+        "--edges",
+        "normal,build,dev",
+        "--format",
+        "{p}|{f}",
+        "--prefix",
+        "none"
+      ],
+      "started_at": "2026-11-06T04:11:15.001853+00:00",
+      "finished_at": "2026-11-06T04:11:15.455914+00:00",
+      "exit_code": 0,
+      "source_unchanged": true,
+      "stdout_sha256": "74002f282dd49e7c1461622ee83ae0e5f7cbb2f134797797dd167551602aa988",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr": ""
+    }
+  ],
+  "repair": {
+    "action": "Copy prior private index; add original official rust-lang/crates.io-index records for 11 missing locked package names, verifying each locked checksum. Source, lockfile, member list, features and shared cache unchanged.",
+    "records": [
+      {
+        "name": "jni-macros",
+        "version": "0.22.4",
+        "path": "jn/i-/jni-macros",
+        "checksum": "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3",
+        "upstream_sha256": "80d915660c38111b574c95b5be72ed490a06b3c7e8093dcf341f8bcba22e8108"
+      },
+      {
+        "name": "process-wrap",
+        "version": "10.0.1",
+        "path": "pr/oc/process-wrap",
+        "checksum": "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da",
+        "upstream_sha256": "a2126072cb93878b1e25c1e66a14e8b4a246fe6a517e03c737a97803e83ca1de"
+      },
+      {
+        "name": "rmcp",
+        "version": "3.8.0",
+        "path": "rm/cp/rmcp",
+        "checksum": "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f",
+        "upstream_sha256": "1c9bd7b8e751307c21167074706a98e1a6d776b187e3197a2a94748794f050f7"
+      },
+      {
+        "name": "rustls-native-certs",
+        "version": "0.8.5",
+        "path": "ru/st/rustls-native-certs",
+        "checksum": "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4",
+        "upstream_sha256": "1464d674e031c4912c29aa2640d2c8e86de45d5a9c6f185ab18a073304fb6a74"
+      },
+      {
+        "name": "rustls-platform-verifier",
+        "version": "0.7.1",
+        "path": "ru/st/rustls-platform-verifier",
+        "checksum": "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98",
+        "upstream_sha256": "5a034f2cf06744813d222a64c0e2e4900e0166e7ef6d27989aca5887dc794a9e"
+      },
+      {
+        "name": "rustls-platform-verifier-android",
+        "version": "0.2.0",
+        "path": "ru/st/rustls-platform-verifier-android",
+        "checksum": "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f",
+        "upstream_sha256": "e36e91c5dc45915df9eb63b96cba2b46254a8abd6ac848c3c32444a758bae057"
+      },
+      {
+        "name": "serde_yaml_ng",
+        "version": "0.10.0",
+        "path": "se/rd/serde_yaml_ng",
+        "checksum": "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f",
+        "upstream_sha256": "aa58f02d4f09186206822fc8f6db4b289fe5bc65716c2324a0ef33ff284ac740"
+      },
+      {
+        "name": "simd_cesu8",
+        "version": "1.2.0",
+        "path": "si/md/simd_cesu8",
+        "checksum": "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520",
+        "upstream_sha256": "289119862c73a5fc557ba8793e58844034de04db22a6059ef80fb13bf7ca255d"
+      },
+      {
+        "name": "sse-stream",
+        "version": "0.2.6",
+        "path": "ss/e-/sse-stream",
+        "checksum": "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4",
+        "upstream_sha256": "790f324214f31ecbbe97f6ed406d4dd5737385eac7ab771206f560d14a91b722"
+      },
+      {
+        "name": "unsafe-libyaml",
+        "version": "0.2.11",
+        "path": "un/sa/unsafe-libyaml",
+        "checksum": "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861",
+        "upstream_sha256": "bf5fbb8acc6bcd8371b7ab94b520a3806d21ff5809f880083fc7890f0ef136b2"
+      },
+      {
+        "name": "webpki-root-certs",
+        "version": "1.0.11",
+        "path": "we/bp/webpki-root-certs",
+        "checksum": "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a",
+        "upstream_sha256": "4153c8ce6b15f0e55d9399e327ad9bfef333e33b372779341c9891d83abb1f10"
+      }
+    ],
+    "crate_archives_downloaded": 0,
+    "new_dependency_source_executed": false
+  },
+  "target_graph": {
+    "packages": 258,
+    "registry_packages": 244,
+    "added_packages": [],
+    "removed_packages": [],
+    "feature_changes": [],
+    "all_244_registry_lock_checksums_match_previous_verified_inventory": true,
+    "actual_new_stdout_byte_identical_to_prior_stdout": true,
+    "raw_stdout_url": "https://github.com/cyjin-yl/shenko/blob/9decb62454d20f8d54789e90bff27b9c517b59bd/docs/evidence/helper-operation-dir-sync-linux-tree-20261105.txt",
+    "raw_stdout_sha256": "74002f282dd49e7c1461622ee83ae0e5f7cbb2f134797797dd167551602aa988",
+    "inventory_url": "https://github.com/cyjin-yl/shenko/blob/9decb62454d20f8d54789e90bff27b9c517b59bd/docs/evidence/helper-operation-dir-sync-linux-inventory-20261105.json",
+    "interpretation": "The new MCP/Skill workspace manifests require index metadata for offline resolution, but their added registry package versions do not enter this selected Linux SSH graph. Identical package graph is not identical workspace implementation or proof of behavioral compatibility."
+  },
+  "isolation": "Existing socket-denying wrapper, read-only source/dependencies/toolchain, private empty HOME/PID/temp, offline Cargo. No build.rs, proc macro, project/helper/test execution, accounts, SSH, model or deployment.",
+  "resources": {
+    "captured_at": "2026-11-06T04:12:18.953734+00:00",
+    "free_disk_bytes": 461094912,
+    "memory_available_bytes": 2433896448
+  },
+  "unchanged_build_launch_reserves": {
+    "disk_bytes": 3489660928,
+    "memory_bytes": 3221225472
+  },
+  "remaining": [
+    "The historical Store reopen/query Rust regression remains uncompiled and unrun on both c388ed9 and current-main integration.",
+    "Exact fixed-source Rust execution approval and resource reserve are not established. No build launched and no reserve lowered.",
+    "Current main changes Store, subject and node implementation; identical dependency graph does not establish integration compatibility.",
+    "Initial full-workspace metadata failed; after repair only the selected Cargo tree was run. Do not label current full-workspace metadata passed.",
+    "Real SSH/helper recovery, external hosts, power loss and full C07/R017 remain unverified. Keep Draft and mother issue open."
+  ]
+}
