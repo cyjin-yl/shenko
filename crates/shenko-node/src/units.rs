@@ -6339,7 +6339,8 @@ impl Node {
         let running: Option<String> = tx
             .query_row(
                 "SELECT attempt_id FROM unit_attempts \
-                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 AND state='trial_open' \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 \
+                   AND state IN ('trial_open','prepared','spawning','running') \
                  ORDER BY started_at LIMIT 1",
                 params![unit_id, revision, digest.0],
                 |r| r.get(0),
