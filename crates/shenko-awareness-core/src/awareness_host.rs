@@ -605,7 +605,7 @@ fn attention_material(unit: &CognitionUnit) -> bool {
     match unit.kind {
         UnitKind::Awareness | UnitKind::Perception => true,
         UnitKind::Skill => attention.declared_by(&unit.provides),
-        UnitKind::Code => false,
+        UnitKind::Code | UnitKind::Metapackage | UnitKind::Distribution => false,
     }
 }
 

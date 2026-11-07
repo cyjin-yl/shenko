@@ -1237,8 +1237,10 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                      VALUES('subject_step',?1,?2,?3,?4,?5,?6)",
                     params![
                         step_id,
-                        PUBLICATION_TARGET_DECISION_VERSION,                        LEGACY_DECISION_SCHEMA_VERSION,
-                        DECISION_SCHEMA_VERSION,                        decision_ref.digest.to_string(),
+                        PUBLICATION_TARGET_DECISION_VERSION,
+                        LEGACY_DECISION_SCHEMA_VERSION,
+                        DECISION_SCHEMA_VERSION,
+                        decision_ref.digest.to_string(),
                         sealed.object.digest.to_string(),
                         seq.0 as i64,
                     ],

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use shenko_context_policy::{
     Availability, ContextInput, ContextPolicy, CostReport, ModelCaps, PolicyError, PolicyManifest,
     PolicyRegistry, PreparedWindow, TriggerInput, WindowEntry, WindowLedger, estimate_tokens,
+    HistorySource,
 };
 use shenko_types::ids::EntityId;
 

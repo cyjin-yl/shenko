@@ -150,6 +150,8 @@ pub enum UnitKind {
     Awareness,
     Skill,
     Code,
+    Metapackage,
+    Distribution,
 }
 
 impl UnitKind {
@@ -356,7 +358,7 @@ pub enum EdgeStatus {
 }
 
 /// A resolved edge with the evidence for the choice.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ResolvedDependency {
     pub edge_id: String,
@@ -2526,6 +2528,9 @@ fn legacy_ambiguous(spec: &DependencySpec, reason: &str) -> ResolvedDependency {
         selected_unit_id: None,
         selected_revision: None,
         selected_artifact_digest: None,
+        selected_contract: None,
+        coexisting_providers: Vec::new(),
+        used_capabilities: Vec::new(),
         reason: reason.to_string(),
     }
 }
@@ -2821,15 +2826,20 @@ impl Node {
             // Bind the candidates and existing pins to the same write-locked
             // database snapshot. Supplied versions take precedence only for
             // new selections, never for an already pinned local selection.
-            let mut available: Vec<(String, String, Digest, Vec<String>)> = members.iter()
+            let mut available = members.iter()
                 .map(|(unit, _, _, _)| (unit.unit_id.clone(), unit.revision.clone(), unit.artifact_digest.clone(), unit.provides.clone()))
-                .collect();
+                .collect::<Vec<(String, String, Digest, Vec<String>)>>();
             // Incoming versions replace the exact same identity, not merely
             // take precedence. Their old retained descriptor would otherwise
             // keep declaring capabilities the package explicitly removed.
-            available.extend(resolution_candidates(&tx)?.into_iter()
-                .filter(|candidate| !members.iter().any(|(unit, _, _, _)| unit.unit_id == candidate.0
-                    && unit.revision == candidate.1 && unit.artifact_digest == candidate.2)));
+            let extra = resolution_candidates(&tx)?;
+            for candidate in extra {
+                let dominated = members.iter().any(|(unit, _, _, _)| unit.unit_id == candidate.unit_id
+                    && unit.revision == candidate.revision && unit.artifact_digest == candidate.digest);
+                if !dominated {
+                    available.push((candidate.unit_id, candidate.revision, candidate.digest, candidate.provides));
+                }
+            }
             let mut resolved_versions = Vec::new();
             for (descriptor, _, _, carried) in &members {
                 if let Some(carried) = carried {
@@ -3103,7 +3113,10 @@ impl Node {
 
     fn unit_resolve_version(&mut self, unit_id: &str, revision: &str, artifact_digest: &Digest) -> Result<Value> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let available = resolution_candidates(&tx)?;
+        let available: Vec<(String, String, Digest, Vec<String>)> = resolution_candidates(&tx)?
+            .into_iter()
+            .map(|c| (c.unit_id, c.revision, c.digest, c.provides))
+            .collect();
         let data: Option<String> = tx.query_row(
             "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
             params![unit_id, revision, artifact_digest.0], |r| r.get(0),
@@ -6959,11 +6972,7 @@ fn validate_descriptor(unit: &UnitDescriptor) -> Result<()> {
         );
         edge_ids.push(&edge.edge_id);
         match &edge.selector {
-            DependencySelector::Exact {
-                unit_id,
-                revision_requirement,
-                artifact_digest,
-            } => {
+            DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } => {
                 ensure!(
                     !unit_id.is_empty() && unit_id.len() <= 128,
                     "invalid exact dependency target"
@@ -7010,7 +7019,7 @@ fn carry_edge(
     ensure!(matches!(edge.status, EdgeStatus::Satisfied | EdgeStatus::Unresolved),
         "dependency selection conflicts with its status");
     let (id, revision, digest) = selected.unwrap();
-    if let DependencySelector::Exact { unit_id, revision_requirement, artifact_digest } = &spec.selector {
+    if let DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } = &spec.selector {
         ensure!(id == unit_id
             && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
             && artifact_digest.as_ref().is_none_or(|expected| expected == digest),
@@ -7036,7 +7045,7 @@ fn carry_edge(
 
 fn selection_matches(spec: &DependencySpec, unit_id: &str, revision: &str, digest: &Digest, provides: &[String]) -> bool {
     match &spec.selector {
-        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest } => {
+        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest, contract_requirement: _ } => {
             unit_id == expected
                 && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
                 && artifact_digest.as_ref().is_none_or(|expected| expected == digest)
@@ -7061,14 +7070,13 @@ fn resolve_edge(
         selected_unit_id: None,
         selected_revision: None,
         selected_artifact_digest: None,
+        selected_contract: None,
+        coexisting_providers: Vec::new(),
+        used_capabilities: Vec::new(),
         reason: String::new(),
     };
     match &spec.selector {
-        DependencySelector::Exact {
-            unit_id,
-            revision_requirement,
-            artifact_digest,
-        } => {
+        DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } => {
             let candidates: Vec<&(String, String, Digest, Vec<String>)> = available
                 .iter()
                 .filter(|candidate| &candidate.0 == unit_id)

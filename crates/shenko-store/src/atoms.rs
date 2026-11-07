@@ -36,8 +36,6 @@ pub const COGNITION_LEGACY_NAMESPACE: &str = "cognition-legacy";
 pub const COGNITION_CONTENT_CODEC: &str = "shenko.cognition.content";
 pub const COGNITION_CONTENT_CODEC_MAJOR: u32 = 1;
 
-/// 按机制角色筛选态度：`None` 表示不限角色。
-pub type AttitudeKind = ::core::option::Option<&'static str>;
 /// 认知原子表。只建自己的表，不改任何已有行（SPEC §51.1 加法迁移）。
 pub const COGNITION_ATOMS_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS cognition_contents (
@@ -319,7 +317,8 @@ impl Store {
                     self.insert_attitude(&tx, commit, agent_id, &object, &draft)?;
                 // 一条账本行：内容登记（若新）与态度行，与其它写入共用同一行序。
                 self.ledger.record_commit(&tx, seq, 1 + inserted)?;
-                tx.commit().map_err(db_error)?;                tx.commit()?;                Ok(RecordedAttitude {
+                tx.commit().map_err(db_error)?;
+                Ok(RecordedAttitude {
                     attitude,
                     content,
                     commit,
@@ -372,10 +371,11 @@ impl Store {
                 let content = Self::read_content(&tx, &object.digest)?.ok_or_else(|| {
                     ShenkoError::storage("cognition content registration disappeared")
                 })?;
-                if inserted {
+                if inserted > 0 {
                     self.ledger.record_commit(&tx, seq, 1)?;
                 }
-                tx.commit().map_err(db_error)?;                tx.commit()?;                Ok(content)
+                tx.commit().map_err(db_error)?;
+                Ok(content)
             },
             |error: &ShenkoError| {
                 matches!(
@@ -427,7 +427,8 @@ impl Store {
                         |row| row.get(0),
                     )
                     .optional()
-                    .map_err(db_error)?;                    .optional()?;                if let Some(existing) = previous {
+                    .map_err(db_error)?;
+                if let Some(existing) = previous {
                     if existing != object.digest.0 {
                         return Err(ShenkoError::conflict(
                             "legacy content mapping already names a different digest",
@@ -447,7 +448,7 @@ impl Store {
                         now_ms(),
                         seq.0 as i64,
                     ],
-                )?;
+                ).map_err(db_error)?;
                 let content = Self::read_content(&tx, &object.digest)?.ok_or_else(|| {
                     ShenkoError::storage("legacy content registration disappeared")
                 })?;
@@ -472,9 +473,8 @@ impl Store {
                     ));
                 }
                 self.ledger.record_commit(&tx, seq, inserted + mapped)?;
-                tx.commit().map_err(db_error)?;                self.ledger
-                    .record_commit(&tx, seq, 1 + inserted + mapped)?;
-                tx.commit()?;                Ok((content, commit))
+                tx.commit().map_err(db_error)?;
+                Ok((content, commit))
             },
             |error: &ShenkoError| {
                 matches!(
@@ -566,7 +566,8 @@ impl Store {
         &self,
         agent_id: EntityId,
         digest: &Digest,
-        role_kind: Option<&str>,        role_kind: AttitudeKind,    ) -> Result<Option<ContentAttitude>, ShenkoError> {
+        role_kind: Option<&str>,
+    ) -> Result<Option<ContentAttitude>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         let sql = format!(
             "SELECT {ATTITUDE_COLUMNS} FROM cognition_attitudes
@@ -784,10 +785,8 @@ impl Store {
                     self.ledger.ledger_id().to_string()
                 ],
                 raw_attitude,
-            )              ORDER BY created_commit_seq DESC, attitude_id DESC LIMIT 1"
-        );
-        let raw: Option<RawAttitude> = conn
-            .query_row(&sql, params![agent_id.to_string(), unit_id, digest.0], raw_attitude)            .optional()
+            )
+            .optional()
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         let Some(raw) = raw else { return Ok(None) };
         let attitude = decode_attitude(raw)?;
