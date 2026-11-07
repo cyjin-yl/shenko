@@ -419,7 +419,7 @@ fn run(ev: &mut CliTakeoverEvidence, run_dir: &Path) -> Result<(), Stop> {
     met(ev, "xorg_drivers", "dummy + evdev found");
 
     let xorg_dir = run_dir.join("xorg");
-    let server = match owned_xorg::Server::spawn(&node.devnode, &xorg_dir, Some(&xorg_binary)) {
+    let server = match owned_xorg::spawn(&node.devnode, &xorg_dir, Some(&xorg_binary)) {
         Ok(s) => s,
         Err(fault) => return Err(unmet(ev, "xorg_owned_server_ready", fault.describe())),
     };
@@ -477,7 +477,7 @@ fn run(ev: &mut CliTakeoverEvidence, run_dir: &Path) -> Result<(), Stop> {
     // --- 5. Product provider + backend (same wiring as CLI) ---
     let fanout = Arc::new(HumanInputFanout::new());
     let dispatch = Arc::new(DispatchRecorder::default());
-    let observer: Arc<dyn HumanInputObserver> = Arc::clone(&dispatch);
+    let observer: Arc<dyn HumanInputObserver> = dispatch.clone();
     fanout.register(observer);
     let provider = X11Provider::with_fanout(Arc::clone(&fanout));
 
@@ -627,7 +627,7 @@ fn run(ev: &mut CliTakeoverEvidence, run_dir: &Path) -> Result<(), Stop> {
 
     ev.held_input = Some(HeldInputEvidence {
         actions: held_actions.iter().map(action_label).collect(),
-        sent_events: held_outcome.sent_events,
+        sent_events: held_outcome.sent_events as u32,
         postcondition_verified: held_outcome.postcondition_verified,
         button1_down_observed: held_state.button1_down,
         held_keycodes: held_state.held_keycodes.clone(),
@@ -870,7 +870,7 @@ fn run(ev: &mut CliTakeoverEvidence, run_dir: &Path) -> Result<(), Stop> {
         result: new_lease.result.into(),
         epoch: epoch_after,
         fresh_observation_digest: fresh_sealed.object.digest.0.clone(),
-        injected_sent_events: delivered.sent_events,
+        injected_sent_events: delivered.sent_events as u32,
         postcondition_verified: delivered.postcondition_verified,
         pointer_after: ptr_final,
     });
@@ -885,7 +885,7 @@ fn run(ev: &mut CliTakeoverEvidence, run_dir: &Path) -> Result<(), Stop> {
     // --- 14. Close ---
     let closed = map_provider("close session", provider.close(&handle, instance))?;
     ev.close = Some(CloseEvidence {
-        held_released: closed.held_released,
+        held_released: closed.held_released as u32,
         lease_revoked: closed.lease_revoked,
     });
 

@@ -110,6 +110,12 @@ impl DesktopError {
             DesktopError::Lost { detail, .. } => detail,
         }
     }
+
+    /// Whether the failure is environmental (no usable host/display or the
+    /// transport dropped) rather than a genuine provider rejection.
+    pub fn is_environment(&self) -> bool {
+        !matches!(self, DesktopError::Rejected { .. })
+    }
 }
 
 /// Stable identity and geometry of one display, as the platform reports it.
