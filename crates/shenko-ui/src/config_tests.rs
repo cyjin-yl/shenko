@@ -31,7 +31,7 @@ use shenko_types::{
     operation::OperationState,
     store::RawInboxEvent,
     subject::*,
-    task::TaskRecord,
+    task::{DispatchEligibility, TaskOwner, TaskRecord, TaskState},
 };
 
 use super::*;
