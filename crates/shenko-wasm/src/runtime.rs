@@ -1,5 +1,14 @@
 use crate::mount::{MountMode, MountSpec, admit_mounts, validate_mounts};
 use crate::p1::{P1Host, StdioStreams};
+use crate::revoke::WasiRevocation;
+use crate::state::{
+    CapturedWasmState, ExternalTransportEvidence, WasmBackendIdentity, WasmStateManifest,
+    WasmStateProvider, WasmStateRestore,
+};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use shenko_store::cas::ContentStore;
+use shenko_types::ids::EntityId;
+use shenko_types::object::Digest;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -161,6 +170,12 @@ pub struct WasiRunControl {
     pub deadline: Option<Duration>,
     /// Optional cancellation handle observed at epoch checkpoints.
     pub cancel: Option<WasiCancellation>,
+    /// Optional live write-withdrawal request (SPEC §8.3, §41.3). Another
+    /// thread may withdraw write capability while the guest runs; the guest's
+    /// already-open writable descriptors then refuse further writes at the
+    /// next hostcall boundary, while reads keep the same merged view. Unlike
+    /// `cancel`, this does not stop the run.
+    pub revocation: Option<WasiRevocation>,
 }
 
 /// How often the watcher advances the controlled engine's epoch, in ticks.
@@ -361,6 +376,11 @@ pub struct WasmRuntime {
     pub store: Option<Store<()>>,
     pub home_dir: PathBuf,
     pub mounts: Vec<MountSpec>,
+    /// Store of the retained stateful instance, when one was instantiated with
+    /// [`WasmRuntime::instantiate_stateful`]. Only one instance is retained per
+    /// runtime, and `&mut self` serializes calls, which is what makes "capture
+    /// is quiescent" a fact rather than an assumption.
+    stateful: Option<Store<ControlledCtx>>,
     /// Private epoch-interruption engine used only by controlled runs.
     ///
     /// Epoch engines require every store to declare an epoch deadline before
@@ -399,6 +419,7 @@ impl WasmRuntime {
             store: Some(store),
             home_dir: PathBuf::new(),
             mounts: Vec::new(),
+            stateful: None,
             control_engine: None,
         })
     }
@@ -683,6 +704,7 @@ where
         command.stdout.async_stream(), command.stderr.async_stream());
     let mut host = P1Host::new(bindings, stdio, command.arguments, command.environment)?;
     host.set_replay_io(command.replay_io);
+    host.set_revocation(command.control.revocation.as_ref().map(WasiRevocation::state));
     // Sockets are opened from the admission before the guest exists, so the
     // guest can only ever reach an endpoint the caller was granted. A stop
     // observed while connecting ends the run here, with no guest code run.
@@ -779,6 +801,196 @@ where
     match stopped(&store) {
         Some(outcome) => Ok(outcome),
         None => wasi_exit(result),
+    }
+}
+
+/// A retained WASI preview1 instance that can be driven across calls and
+/// snapshotted between them (SPEC §51.4 runtime state).
+///
+/// This is not a second engine or a parallel runtime: it is the same
+/// `ControlledCtx`/`P1Host`/`Linker` wiring as [`WasmRuntime::run_wasi_module`],
+/// with the store kept alive instead of being dropped when one command returns.
+/// `WasmRuntime::capture_state` runs only while no call is executing, because
+/// every operation takes `&mut WasmRuntime`.
+pub struct StatefulInstance {
+    instance: Instance,
+    pub instance_id: EntityId,
+    /// Exact bytes the instance was created from; a captured state is bound to
+    /// their digest and a restore refuses a different module.
+    module_bytes: Vec<u8>,
+    mounts: Vec<MountSpec>,
+    pub captures: u64,
+}
+
+impl StatefulInstance {
+    pub fn module_digest(&self) -> Digest {
+        Digest::blake3(&self.module_bytes)
+    }
+
+    pub fn mounts(&self) -> &[MountSpec] {
+        &self.mounts
+    }
+}
+
+impl WasmRuntime {
+    /// Instantiate a WASI preview1 command that stays alive for repeated
+    /// exports. `_start` is NOT called: the caller drives whichever exports it
+    /// needs, so a state can be captured between two calls.
+    pub fn instantiate_stateful<I, O, E>(
+        &mut self,
+        wasm_or_wat: &[u8],
+        command: WasiCommand<I, O, E>,
+    ) -> Result<StatefulInstance>
+    where
+        I: StdinStream + 'static,
+        O: StdoutStream + 'static,
+        E: StdoutStream + 'static,
+    {
+        command.validate()?;
+        // A retained instance does not run on the epoch engine, so a deadline or
+        // cancellation could not be enforced. Refusing is honest; bounded runs
+        // go through `run_wasi_module`.
+        ensure!(
+            command.control.deadline.is_none() && command.control.cancel.is_none(),
+            "STATEFUL_INSTANCE_UNSUPPORTED: a retained instance cannot enforce a deadline or cancellation; use run_wasi_module for bounded runs"
+        );
+        validate_mounts(&self.mounts, &self.home_dir)?;
+        let module = Module::new(&self.engine, wasm_or_wat)
+            .map_err(|error| anyhow!("compile stateful WASI module: {error}"))?;
+        let bindings = admit_mounts(&self.mounts, &self.home_dir)?;
+        let stdio = StdioStreams::from_async(
+            command.stdin.async_stream(),
+            command.stdout.async_stream(),
+            command.stderr.async_stream(),
+        );
+        let mut host = P1Host::new(bindings, stdio, command.arguments, command.environment)?;
+        host.set_replay_io(command.replay_io);
+        host.set_revocation(command.control.revocation.as_ref().map(WasiRevocation::state));
+        let mut store = Store::new(
+            &self.engine,
+            ControlledCtx {
+                host,
+                limits: store_limits(command.limits),
+                cancel: None,
+                deadline: None,
+                stop: None,
+            },
+        );
+        store.limiter(|ctx| &mut ctx.limits);
+        store
+            .set_fuel(command.limits.max_fuel.unwrap_or(u64::MAX))
+            .map_err(|error| anyhow!("set stateful WASI fuel: {error}"))?;
+        let mut linker: Linker<ControlledCtx> = Linker::new(&self.engine);
+        crate::p1::add_to_linker_sync(&mut linker, |ctx| &mut ctx.host)
+            .map_err(|error| anyhow!("configure stateful wasi preview1 linker: {error}"))?;
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .map_err(|error| anyhow!("instantiate stateful WASI module: {error}"))?;
+        // Only one retained instance per runtime: a second one would make
+        // "the store I snapshot" ambiguous.
+        self.stateful = Some(store);
+        Ok(StatefulInstance {
+            instance,
+            instance_id: EntityId::new(),
+            module_bytes: wasm_or_wat.to_vec(),
+            mounts: self.mounts.clone(),
+            captures: 0,
+        })
+    }
+
+    /// Call one export on the retained instance. Guest traps are errors, exactly
+    /// like [`WasmRuntime::call_func`]; effects already committed stand.
+    pub fn call_stateful(
+        &mut self,
+        handle: &StatefulInstance,
+        name: &str,
+        args: &[Val],
+    ) -> Result<Vec<Val>> {
+        let store = self
+            .stateful
+            .as_mut()
+            .context("STATEFUL_INSTANCE_MISSING: no retained stateful instance")?;
+        let func = handle
+            .instance
+            .get_func(&mut *store, name)
+            .ok_or_else(|| anyhow!("exported function `{name}` not found"))?;
+        let results = func.ty(&*store).results().len();
+        let mut out = vec![Val::I32(0); results];
+        func.call(&mut *store, args, &mut out)
+            .map_err(|error| anyhow!("call stateful `{name}`: {error}"))?;
+        Ok(out)
+    }
+
+    /// Capture the retained instance's linear memory, continuation and object
+    /// graph into this installation's CAS.
+    ///
+    /// Capture is only legal between calls: `&mut self` plus the retained store
+    /// means no guest code is executing, and the manifest records that
+    /// (`QuiesceReceipt`). A guest without the continuation protocol still has
+    /// its memory captured; the manifest then says `NotCapturable` and the state
+    /// is not resumable.
+    pub fn capture_state(
+        &mut self,
+        handle: &mut StatefulInstance,
+        cas: &ContentStore,
+        transport: &[ExternalTransportEvidence],
+    ) -> Result<CapturedWasmState> {
+        let store = self
+            .stateful
+            .as_mut()
+            .context("STATEFUL_INSTANCE_MISSING: no retained stateful instance")?;
+        let provider = WasmStateProvider::new(cas);
+        let sequence = handle.captures;
+        let captured = provider.capture(
+            store,
+            &handle.instance,
+            &handle.module_bytes,
+            handle.instance_id,
+            &handle.mounts,
+            transport,
+            sequence,
+        )?;
+        handle.captures = handle.captures.saturating_add(1);
+        Ok(captured)
+    }
+
+    /// Instantiate the same module again and restore a verified state onto it.
+    ///
+    /// The caller supplies the module bytes: a state is only restorable onto the
+    /// module it was captured from, and the digest is compared before anything
+    /// is overwritten. `WasmStateRestore` reports whether the guest actually
+    /// re-imported its continuation and reproduced the captured graph digest,
+    /// which is the difference between "memory copied" and "execution resumed".
+    pub fn restore_state<I, O, E>(
+        &mut self,
+        cas: &ContentStore,
+        manifest: &WasmStateManifest,
+        module_bytes: &[u8],
+        command: WasiCommand<I, O, E>,
+    ) -> Result<(StatefulInstance, WasmStateRestore)>
+    where
+        I: StdinStream + 'static,
+        O: StdoutStream + 'static,
+        E: StdoutStream + 'static,
+    {
+        let supplied = Digest::blake3(module_bytes);
+        ensure!(
+            supplied == manifest.module && module_bytes.len() as u64 == manifest.module_bytes,
+            "WASM_STATE_INCOMPLETE: state was captured from module {} ({} bytes), the supplied module is {supplied} ({} bytes)",
+            manifest.module,
+            manifest.module_bytes,
+            module_bytes.len()
+        );
+        let mut handle = self.instantiate_stateful(module_bytes, command)?;
+        let store = self
+            .stateful
+            .as_mut()
+            .context("STATEFUL_INSTANCE_MISSING: no retained stateful instance")?;
+        let provider = WasmStateProvider::new(cas);
+        let backend = WasmBackendIdentity::current();
+        let restored = provider.restore(store, &handle.instance, manifest, &backend)?;
+        handle.captures = manifest.quiesce.instance_sequence.saturating_add(1);
+        Ok((handle, restored))
     }
 }
 

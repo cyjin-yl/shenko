@@ -146,6 +146,7 @@ impl LiveProcess {
                 command.control = WasiRunControl {
                     deadline: None,
                     cancel: Some(run_cancel),
+                    revocation: None,
                 };
                 let result = runtime.run_wasi_module(&module, command);
                 let recorded = match result {
