@@ -171,7 +171,16 @@ pub struct SupersedesRef {
 }
 
 /// How one version was judged on this installation.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// The record is this installation's attitude towards one immutable content
+/// revision: the artifact digest it names, the reason pointers it cites and
+/// how far that reason reaches. It carries the subject's own confidence;
+/// `None` is "not judged yet" and is never replaced by a default number.
+///
+/// It is the domain view of the attitude, read from the unit's own
+/// configuration. The canonical content/attitude/confidence type is owned
+/// elsewhere; this record delegates to it rather than opening a second store.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct AdoptionRecord {
     pub decision: String,
@@ -182,10 +191,61 @@ pub struct AdoptionRecord {
     pub evidence: Vec<AdoptionEvidenceFact>,
     /// Whether every cited evidence item resolved against this installation.
     pub evidence_verified: bool,
-    /// Whether the evidence carries a measurement. Only a trial attempt can.
+    /// Whether the evidence carries a measurement. Only a trial attempt that
+    /// recorded one can.
     pub empirical: bool,
+    /// What the cited trials can carry, classified by the node that recorded
+    /// them: `measured`, `partial`, `inconclusive` or `unexecuted`.
+    ///
+    /// It is absent on records written before the node classified evidence.
+    /// Such a record's `empirical` flag is the judgement that was recorded at
+    /// the time and is never rewritten here; its evidence was not classified,
+    /// so nothing in this projection claims it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement: Option<String>,
+    /// The subject's stated confidence in this judgement.
+    ///
+    /// Three states, because they are different facts: the key is absent on a
+    /// record written before this installation recorded confidence at all;
+    /// `null` means the subject explicitly stated none, which is recorded as
+    /// unknown rather than a filled-in default; a number is what it stated.
+    /// It maps onto the canonical attitude confidence as `None` /
+    /// `Some(Unknown)` / `Some(Stated { value })`.
+    #[serde(
+        default,
+        deserialize_with = "claimed_confidence",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub confidence: Option<Option<f64>>,
     pub notes: Option<String>,
     pub recorded_at: String,
+}
+
+impl AdoptionRecord {
+    /// The confidence the subject stated, when it stated one.
+    ///
+    /// Callers ask this instead of unwrapping the recorded shape: an absent
+    /// value and an explicit unknown both mean "no number", and only a stated
+    /// number is a reading of the subject's own judgement.
+    pub fn stated_confidence(&self) -> Option<f64> {
+        self.confidence.flatten()
+    }
+}
+
+/// Read the recorded confidence without collapsing "absent" into "unknown".
+///
+/// A value this reading cannot use is treated as "no number stated" rather
+/// than as a parse failure: losing the whole recorded attitude because one
+/// field is unrecognisable would rewrite the judgement by omission.
+fn claimed_confidence<'de, D>(deserializer: D) -> Result<Option<Option<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let recorded = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(Some(match recorded {
+        Some(value) => value.as_f64().filter(|value| value.is_finite()),
+        None => None,
+    }))
 }
 
 /// One verified piece of evidence behind a recorded judgement.
@@ -200,6 +260,25 @@ pub struct AdoptionEvidenceFact {
     pub digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_digest: Option<String>,
+    /// What this cited attempt recorded, when the node classified it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement: Option<String>,
+    /// The terminal outcome of the cited attempt's trial row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// The environment the cited run was bound to. A command trial has no
+    /// plan, so this is what binds it to the machine it ran on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_digest: Option<String>,
+    /// The receipts the cited run wrote, and how many were judge-scored
+    /// facts of a slot its own plan named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipts: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scored: Option<u64>,
+    /// The sample slots the attempt's own plan named, when it names them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_slots: Option<u64>,
 }
 
 /// The metadata a cognition unit carries next to its body.
@@ -499,6 +578,11 @@ pub struct CognitionCard {
     pub adoption: Option<String>,
     /// Whether a measurement this installation ran backs this unit.
     pub empirical: bool,
+    /// What the evidence behind the recorded judgement can carry, when the
+    /// node classified it: `measured`, `partial`, `inconclusive` or
+    /// `unexecuted`. Absent when the version carries no classified evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement: Option<String>,
     /// What this node has actually observed for this perception unit version.
     ///
     /// Only perception units carry one: an awareness, Skill or code unit is
@@ -721,6 +805,10 @@ impl CognitionCatalog {
                         .adoption
                         .as_ref()
                         .is_some_and(|adoption| adoption.empirical && adoption.evidence_verified),
+                    measurement: unit
+                        .adoption
+                        .as_ref()
+                        .and_then(|adoption| adoption.measurement.clone()),
                     perception,
                 }
             })
@@ -908,7 +996,8 @@ impl CognitionCatalog {
     /// The node verifies every evidence item against its own durable state.
     /// A trial attempt is a record of a trial this installation ran; a stored
     /// observation is bytes this installation holds. Only the first can carry
-    /// empirical acceptance.
+    /// empirical acceptance. `confidence` is what the subject stated about
+    /// its own judgement; `None` records that it has not judged yet.
     pub fn record_adoption(
         &self,
         unit_id: &str,
@@ -917,6 +1006,7 @@ impl CognitionCatalog {
         decision: AdoptionDecision,
         method: AdoptionMethod,
         evidence: &[AdoptionEvidence],
+        confidence: Option<f64>,
         notes: Option<&str>,
         enable: Option<bool>,
     ) -> Result<Value> {
@@ -928,6 +1018,7 @@ impl CognitionCatalog {
             decision,
             method,
             evidence: evidence.to_vec(),
+            confidence,
             notes: notes.map(str::to_string),
             enable,
         })
