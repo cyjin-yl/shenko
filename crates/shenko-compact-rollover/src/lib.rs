@@ -76,7 +76,7 @@ impl Default for RolloverConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NotesRollover {
     config: RolloverConfig,
     notes: Arc<dyn NotesJournal>,
