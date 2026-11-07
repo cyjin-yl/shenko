@@ -107,9 +107,12 @@ impl NapCatCliSource {
                 // spool keeps everything else as raw evidence either way.
                 let spooled = spool
                     .ingest(raw.clone())
-                    .map_err(|error| CliSourceError::Spool(error.to_string()))?;
+                    .map_err(|error| CliSourceError::Spool(error.to_string()))?
+                    .event();
                 let Some(spooled) = spooled else {
-                    continue; // duplicate of an event the WS path already spooled
+                    // Duplicate of an event the WS path already spooled, or a
+                    // connectivity frame that is not a subject message at all.
+                    continue;
                 };
                 let event = OneBotEvent {
                     ingress_id: Some(spooled.spool_id),

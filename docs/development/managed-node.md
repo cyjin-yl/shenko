@@ -165,9 +165,18 @@ and missing programs still produce real failures. Time/output/package limits
 bound resources, not product authority. A deadline signals the process group;
 escaped-descendant uncertainty is retained instead of claiming universal kill.
 
-Local raw trial arguments, output, paths and environment probes remain local.
-Only typed `TrialProvenance` travels. No environment credential or provider grant
-is discovered for export. Authored package bytes/configuration are copied
+Command trials export a typed privacy projection; raw command arguments, output,
+paths and environment probes remain local. Generic trials opened through
+`BeginTrial` export their original kind, complete caller-supplied plan and exact
+completion receipts. Retired attempts retain their original plan and unknown
+outcome. This generic data is caller-authored transfer content and can itself
+contain private information; the exporter does not invent command fields or
+silently omit a generic attempt. A receiver retains it as remote provenance,
+without granting a local trial, readiness or adoption. Object references in a
+plan or receipt do not by themselves transfer the referenced CAS bodies.
+
+No environment credential or provider grant is discovered for export.
+Authored package bytes/configuration are copied
 exactly, however: a secret explicitly authored there is part of that package,
 not silently filtered by key name. This is not a credential-synchronization
 policy or a claim that installing a package activates every Cordis plugin.

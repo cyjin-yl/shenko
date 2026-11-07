@@ -11,9 +11,8 @@ pub mod config;
 pub mod napcat_cli;
 pub mod spool;
 
-pub use attachments::{
-    AttachmentError, ParsedMessage, ResolvedAttachment, MAX_ATTACHMENT_BYTES,
-};
+pub use attachments::ParsedMessage;
+pub use shenko_types::channel::{AttachmentError, ResolvedAttachment, MAX_ATTACHMENT_BYTES};
 pub use channel::{
     qq_registry, qq_test_registry, NapCatChannel, QQ_CHANNEL_ID, QQ_REPLY_KINDS, QQ_SOURCE,
     QQ_TRANSPORT_IDENTITY_DOMAIN,

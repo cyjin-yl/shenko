@@ -400,7 +400,19 @@ impl ProviderRuntime for LocalModelProvider {
                 evidence.push(serde_json::json!({ "probe_error": error.to_string() }));
             }
         }
-        let operations = classify_operations(&self.profile.backend_family, &evidence, false);
+        // The engine's own metrics surface is where a real KV pool figure lives.
+        // It is one idempotent read, never a generation and never retried.
+        evidence.push(
+            crate::capability::metrics_evidence(&client, &self.base_url, |builder| {
+                self.apply_auth(builder)
+            })
+            .await,
+        );
+        let operations = classify_operations(&self.profile.backend_family, &evidence);
+        // A figure the backend itself reported becomes a configured pool; no
+        // figure keeps the pool unknown. The model's context window is not a
+        // pool and is reported separately, so it is never read from here.
+        let kv = crate::capability::discover_kv_capacity(&self.profile.backend_family, &evidence);
         Ok(BackendCapabilitySnapshot {
             capability_id: format!("{}/{}", self.profile.profile_id, self.profile.revision),
             provider_implementation_digest: self.profile.profile_id.clone(),
@@ -414,12 +426,20 @@ impl ProviderRuntime for LocalModelProvider {
             template_fingerprint: None,
             toolset_digest: None,
             operations,
-            capacities: vec![CapacityEntry {
-                pool: crate::admission::CapacityPool::Compute,
-                unit: CapacityUnit::Requests,
-                value: None,
-                provenance: crate::admission::CapacityProvenance::Unknown,
-            }],
+            capacities: vec![
+                CapacityEntry {
+                    pool: crate::admission::CapacityPool::Compute,
+                    unit: CapacityUnit::Requests,
+                    value: None,
+                    provenance: crate::admission::CapacityProvenance::Unknown,
+                },
+                kv.map(|observed| observed.entry()).unwrap_or(CapacityEntry {
+                    pool: crate::admission::CapacityPool::ContextKv,
+                    unit: CapacityUnit::Tokens,
+                    value: None,
+                    provenance: crate::admission::CapacityProvenance::Unknown,
+                }),
+            ],
             raw_evidence: evidence,
         })
     }

@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": false,
     "types": ["react", "react-dom"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "generated/prototypes/**/*.ts", "generated/prototypes/**/*.tsx"]
 }

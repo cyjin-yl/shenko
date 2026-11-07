@@ -99,6 +99,53 @@ pub enum ObservationKind {
     Revision,
 }
 
+/// One connectivity frame the connector observed (`meta_event`).
+///
+/// OneBot/NapCat sends lifecycle and heartbeat frames on the same socket as
+/// messages. They are real observations about the *connector*, not messages a
+/// person wrote: keeping them out of the subject inbox is what stops a
+/// heartbeat every few seconds from being staged as chat text. The frames are
+/// still recorded durably (bounded) so "the socket was alive at T" remains
+/// evidence rather than an in-memory guess.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaObservation {
+    /// `meta_event_type` (`lifecycle` / `heartbeat` / anything the platform adds).
+    pub meta_event_type: String,
+    /// `sub_type` for lifecycle frames (`connect` / `enable` / `disable`).
+    pub sub_type: Option<String>,
+    /// When this process observed the frame.
+    pub observed_at: DateTime<Utc>,
+    /// The platform's own frame, unmodified.
+    pub raw: serde_json::Value,
+}
+
+/// What one `ingest` call did.
+#[derive(Debug, Clone)]
+pub enum Ingested {
+    /// A new subject-visible event was durably appended.
+    Event(SpooledEvent),
+    /// Another observation of an event already in the ledger. Never a second
+    /// message and never a command.
+    Observation,
+    /// A connectivity frame. Durable, but not a subject message.
+    Connectivity(MetaObservation),
+}
+
+impl Ingested {
+    /// The appended event, when this call created one.
+    pub fn event(self) -> Option<SpooledEvent> {
+        match self {
+            Self::Event(event) => Some(event),
+            _ => None,
+        }
+    }
+}
+
+/// How many connectivity frames the ledger keeps. Older rows are pruned in the
+/// same transaction, so a long-lived socket cannot grow the file without bound.
+pub const META_RETENTION: i64 = 64;
+
 struct Backend {
     connection: Connection,
     failed: bool,
@@ -176,6 +223,10 @@ impl IngressSpool {
             );
             CREATE INDEX IF NOT EXISTS ingress_pending ON ingress_events(consumed, seq);
             CREATE TABLE IF NOT EXISTS ingress_gaps (gap_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS ingress_meta (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                body TEXT NOT NULL
+            );
         ")?;
         if version < 2 {
             tx.execute_batch("
@@ -285,22 +336,42 @@ impl IngressSpool {
         result
     }
 
-    pub fn ingest(&self, raw: serde_json::Value) -> Result<Option<SpooledEvent>> {
+    /// Durably record one frame off the socket.
+    ///
+    /// Connectivity frames (`post_type = meta_event`) are recorded in their own
+    /// bounded table and never become a subject message: a heartbeat is
+    /// evidence that the connector is alive, not something a person said.
+    /// Everything else keeps the original path, including the message identity
+    /// and observation rules.
+    pub fn ingest(&self, raw: serde_json::Value) -> Result<Ingested> {
+        if raw.get("post_type").and_then(serde_json::Value::as_str) == Some("meta_event") {
+            return self.record_meta(raw);
+        }
         self.mutate(|tx| {
             let mut cursor = read_cursor(tx)?;
             let hash = blake3::hash(&serde_json::to_vec(&raw)?);
             let identity = source_identity(cursor.account, &raw);
-            if let Some(key) = identity.as_deref() {
+            // An event this spool already accepted may be retained under an
+            // earlier identity formula. Both candidates are tried, newest
+            // formula first, and a match binds this observation to the *stored*
+            // key: an accepted row is never rewritten, and the same external
+            // event is never admitted twice under two identities.
+            let retained = retained_source_identities(cursor.account, &raw);
+            if !retained.is_empty() {
                 // Preserve the existing strong-source routing when one is
                 // already present, including its observation history.
-                if let Some(original) = first_source_event(tx, key)? {
-                    save_observation(tx, key, original.spool_id, observation_kind(&original.raw, &raw), &raw, &hash)?;
-                    return Ok(None);
+                for key in &retained {
+                    if let Some(original) = first_source_event(tx, key)? {
+                        save_observation(tx, key, original.spool_id, observation_kind(&original.raw, &raw), &raw, &hash)?;
+                        return Ok(Ingested::Observation);
+                    }
                 }
                 if let Some(wire_id) = high_unsigned_wire_id(&raw) {
-                    if let Some((stored_key, original)) = first_unsigned_source_event(tx, cursor.account, key, &wire_id)? {
-                        save_observation(tx, &stored_key, original.spool_id, observation_kind(&original.raw, &raw), &raw, &hash)?;
-                        return Ok(None);
+                    for key in &retained {
+                        if let Some((stored_key, original)) = first_unsigned_source_event(tx, cursor.account, key, &wire_id)? {
+                            save_observation(tx, &stored_key, original.spool_id, observation_kind(&original.raw, &raw), &raw, &hash)?;
+                            return Ok(Ingested::Observation);
+                        }
                     }
                 }
             }
@@ -313,7 +384,7 @@ impl IngressSpool {
             if weak_dedup {
                 if let Some(original) = first_source_event(tx, &source_key)? {
                     save_observation(tx, &source_key, original.spool_id, observation_kind(&original.raw, &raw), &raw, &hash)?;
-                    return Ok(None);
+                    return Ok(Ingested::Observation);
                 }
             }
             let mut event = SpooledEvent {
@@ -341,8 +412,63 @@ impl IngressSpool {
             save_observation(tx, &source_key, event.spool_id, ObservationKind::Original, &event.raw, &hash)?;
             cursor.advance(event.seq);
             save_cursor(tx, &cursor)?;
-            Ok(Some(event))
+            Ok(Ingested::Event(event))
         })
+    }
+
+    /// Record one connectivity frame and prune the retention window.
+    fn record_meta(&self, raw: serde_json::Value) -> Result<Ingested> {
+        let observation = MetaObservation {
+            meta_event_type: raw
+                .get("meta_event_type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            sub_type: raw
+                .get("sub_type")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            observed_at: Utc::now(),
+            raw,
+        };
+        self.mutate(|tx| {
+            tx.execute(
+                "INSERT INTO ingress_meta (body) VALUES (?1)",
+                [serde_json::to_string(&observation)?],
+            )?;
+            tx.execute(
+                "DELETE FROM ingress_meta WHERE seq <= (SELECT max(seq) - ?1 FROM ingress_meta)",
+                [META_RETENTION],
+            )?;
+            Ok(Ingested::Connectivity(observation))
+        })
+    }
+
+    /// The most recent connectivity frames, oldest first, bounded by
+    /// `META_RETENTION`.
+    pub fn meta_observations(&self) -> Result<Vec<MetaObservation>> {
+        let backend = self.backend.lock();
+        ensure!(!backend.failed, "接收库 handle 已失效，必须重开核对");
+        let mut stmt = backend
+            .connection
+            .prepare("SELECT body FROM ingress_meta ORDER BY seq")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+    }
+
+    /// The newest connectivity frame, when one was observed.
+    pub fn last_meta(&self) -> Result<Option<MetaObservation>> {
+        let backend = self.backend.lock();
+        ensure!(!backend.failed, "接收库 handle 已失效，必须重开核对");
+        let body: Option<String> = backend
+            .connection
+            .query_row(
+                "SELECT body FROM ingress_meta ORDER BY seq DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        body.map(|body| Ok(serde_json::from_str(&body)?)).transpose()
     }
 
     /// 非破坏性取件。可重投，既不删除原文，也不将交付视为主体已处理。
@@ -518,7 +644,54 @@ fn read_gaps(connection: &Connection) -> Result<Vec<IngressGap>> {
     rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
 }
 
+/// Which platform field names the conversation of an own private send.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OwnConversation {
+    /// The target the account sent to (`target_id`). This is the conversation
+    /// the message belongs to, and it is what the classifier builds the
+    /// envelope's conversation from.
+    Target,
+    /// The historical reading, which took `user_id` — for an own
+    /// `message_sent` frame that is the *sending* account, so every private
+    /// conversation collapsed onto the account itself.
+    SenderField,
+}
+
 fn source_identity(account: u64, raw: &serde_json::Value) -> Option<String> {
+    conversation_identity(account, raw, OwnConversation::Target)
+}
+
+/// The identity this spool computed before the own-private conversation fix.
+///
+/// It is retained verbatim so a row this spool already accepted keeps its
+/// stored key: rows are never rewritten, and a replay of the same external
+/// event still meets its original identity instead of being admitted twice.
+fn historical_source_identity(account: u64, raw: &serde_json::Value) -> Option<String> {
+    conversation_identity(account, raw, OwnConversation::SenderField)
+}
+
+/// Every identity the same external event may be retained under, newest first.
+///
+/// The list is derived, never stored: only the row's own `source_key` is
+/// authoritative, and it is used as written when an observation is bound.
+fn retained_source_identities(account: u64, raw: &serde_json::Value) -> Vec<String> {
+    let mut identities = Vec::new();
+    if let Some(current) = source_identity(account, raw) {
+        identities.push(current);
+    }
+    if let Some(historical) = historical_source_identity(account, raw) {
+        if !identities.contains(&historical) {
+            identities.push(historical);
+        }
+    }
+    identities
+}
+
+fn conversation_identity(
+    account: u64,
+    raw: &serde_json::Value,
+    own_private: OwnConversation,
+) -> Option<String> {
     // Platform time and display names are not identities. Explicit revisions are
     // observations of this message, quarantined until an actual revision policy exists.
     let message_id = raw.get("message_id").filter(|v| match v {
@@ -529,7 +702,22 @@ fn source_identity(account: u64, raw: &serde_json::Value) -> Option<String> {
     })?;
     let conversation = match raw["message_type"].as_str() {
         Some("group") => serde_json::json!(["group", raw.get("group_id").filter(|v| !v.is_null())?]),
-        Some("private") => serde_json::json!(["private", raw.get("user_id").filter(|v| !v.is_null())?, raw.get("group_id")]),
+        Some("private") => {
+            // An own send (`message_sent`) names its peer by `target_id`; the
+            // `user_id` of that frame is the account itself, which is not a
+            // conversation. A frame without `target_id` cannot name its
+            // audience unambiguously and is left to the weak-dedup path rather
+            // than being filed under a conversation it does not have.
+            let peer = if raw["post_type"].as_str() == Some("message_sent") {
+                match own_private {
+                    OwnConversation::Target => raw.get("target_id").filter(|v| !v.is_null())?,
+                    OwnConversation::SenderField => raw.get("user_id").filter(|v| !v.is_null())?,
+                }
+            } else {
+                raw.get("user_id").filter(|v| !v.is_null())?
+            };
+            serde_json::json!(["private", peer, raw.get("group_id")])
+        }
         _ => return None,
     };
     if !matches!(raw["post_type"].as_str(), Some("message" | "message_sent")) { return None; }
@@ -544,7 +732,10 @@ fn legacy_v1_source_identity(account: u64, raw: &serde_json::Value) -> Option<St
     if let Some(serde_json::Value::Number(number)) = raw.get("message_id") {
         if number.as_i64().is_none() { return None; }
     }
-    source_identity(account, raw)
+    // The v1 backfill must reproduce the historical formula exactly: it keys
+    // rows that were accepted long before the own-private conversation fix, and
+    // rewriting those keys would break the retained history.
+    historical_source_identity(account, raw)
 }
 
 fn high_unsigned_wire_id(raw: &serde_json::Value) -> Option<Cow<'_, str>> {
@@ -720,7 +911,7 @@ mod tests {
         const CHILD_PATH: &str = "SHENKO_INGRESS_RECOVERY_CHILD";
         if let Some(path) = std::env::var_os(CHILD_PATH) {
             let spool = IngressSpool::open(path, 9).unwrap();
-            let event = spool.ingest(message()).unwrap().unwrap();
+            let event = spool.ingest(message()).unwrap().event().unwrap();
             spool.mark_delivered(event.spool_id).unwrap();
             spool.record_disconnect().unwrap();
             spool.record_disconnect().unwrap();
@@ -744,7 +935,7 @@ mod tests {
         let event = spool.consume(10).unwrap().pop().unwrap();
         assert!(!event.consumed && event.delivered_at.is_some());
         assert_eq!(spool.consume(10).unwrap()[0].spool_id, event.spool_id);
-        assert!(spool.ingest(message()).unwrap().is_none());
+        assert!(spool.ingest(message()).unwrap().event().is_none());
         assert!(
             spool
                 .gaps()
@@ -784,7 +975,7 @@ mod tests {
         assert_eq!(spool.cursor().unwrap().cursor_id, cursor.cursor_id);
         assert_eq!(spool.pending_count().unwrap(), 0);
         assert_eq!(spool.event(event.spool_id).unwrap().raw, message());
-        assert!(spool.ingest(message()).unwrap().is_none());
+        assert!(spool.ingest(message()).unwrap().event().is_none());
         let gaps = spool.gaps().unwrap();
         assert_eq!(gaps[0].status, GapStatus::Reconciling);
         assert_eq!(gaps[1].status, GapStatus::Reconciling);
@@ -797,15 +988,15 @@ mod tests {
     fn identities_do_not_collapse_distinct_source_events() {
         let scratch = Scratch::new();
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
-        let group = spool.ingest(message()).unwrap().unwrap();
+        let group = spool.ingest(message()).unwrap().event().unwrap();
         let private = json!({"post_type":"message", "message_type":"private", "user_id":7, "message_id":42, "time":1});
-        let private = spool.ingest(private).unwrap().unwrap();
+        let private = spool.ingest(private).unwrap().event().unwrap();
         let mut edit = message();
         edit["raw_message"] = json!("测试修订");
-        assert!(spool.ingest(edit.clone()).unwrap().is_none());
+        assert!(spool.ingest(edit.clone()).unwrap().event().is_none());
         let notice = json!({"post_type":"notice", "time":1, "user_id":7});
-        let first = spool.ingest(notice.clone()).unwrap().unwrap();
-        let second = spool.ingest(notice).unwrap().unwrap();
+        let first = spool.ingest(notice.clone()).unwrap().event().unwrap();
+        let second = spool.ingest(notice).unwrap().event().unwrap();
         assert_ne!(group.dedup_key, private.dedup_key);
         let observations = spool.observations(group.spool_id).unwrap();
         assert_eq!(observations.len(), 2);
@@ -821,7 +1012,51 @@ mod tests {
             spool.event(first.spool_id).unwrap().dedup_key,
             first.dedup_key
         );
-        assert_eq!(spool.ingest(message()).unwrap().map(|e| e.spool_id), None);
+        assert_eq!(spool.ingest(message()).unwrap().event().map(|e| e.spool_id), None);
+    }
+
+    /// A real NapCat connection sends lifecycle and heartbeat frames on the
+    /// same socket as messages. They must never become subject messages: a
+    /// heartbeat every few seconds would otherwise be staged as chat text, and
+    /// each one would also allocate a fresh weak-dedup event.
+    #[test]
+    fn connectivity_frames_are_recorded_but_are_not_messages() {
+        let scratch = Scratch::new();
+        let spool = IngressSpool::open(scratch.db(), 9).unwrap();
+        let heartbeat = json!({"post_type":"meta_event","meta_event_type":"heartbeat",
+            "time":1,"self_id":9,"interval":5000,"status":{"online":true,"good":true}});
+        let lifecycle = json!({"post_type":"meta_event","meta_event_type":"lifecycle",
+            "sub_type":"connect","time":1,"self_id":9});
+        for _ in 0..3 {
+            let outcome = spool.ingest(heartbeat.clone()).unwrap();
+            assert!(matches!(outcome, Ingested::Connectivity(_)));
+        }
+        assert_eq!(spool.meta_observations().unwrap()[0].meta_event_type, "heartbeat");
+        assert!(matches!(
+            spool.ingest(lifecycle).unwrap(),
+            Ingested::Connectivity(_)
+        ));
+        // Not one subject event was created, and the delivery scan is empty.
+        assert_eq!(spool.pending_count().unwrap(), 0);
+        assert!(spool.consume(8).unwrap().is_empty());
+        let observed = spool.meta_observations().unwrap();
+        assert_eq!(observed.len(), 4);
+        assert_eq!(observed[3].meta_event_type, "lifecycle");
+        assert_eq!(observed[3].sub_type.as_deref(), Some("connect"));
+        assert_eq!(
+            spool.last_meta().unwrap().unwrap().raw["interval"],
+            json!(5000)
+        );
+        // A real message still takes the ordinary path afterwards.
+        let message = spool.ingest(message()).unwrap().event().unwrap();
+        assert_eq!(message.seq, 1);
+        // Retention is bounded; the frames themselves stay evidence.
+        for _ in 0..(META_RETENTION + 10) {
+            spool.ingest(heartbeat.clone()).unwrap();
+        }
+        let observed = spool.meta_observations().unwrap();
+        assert_eq!(observed.len() as i64, META_RETENTION);
+        assert!(observed.iter().all(|meta| meta.meta_event_type == "heartbeat"));
     }
 
     #[test]
@@ -830,10 +1065,10 @@ mod tests {
         let id = i64::MAX as u64 + 1;
         let mut raw = message();
         raw["message_id"] = json!(id);
-        let first = spool.ingest(raw.clone()).unwrap().unwrap();
+        let first = spool.ingest(raw.clone()).unwrap().event().unwrap();
         assert!(!first.weak_dedup);
         raw["message_id"] = json!(id.to_string());
-        assert!(spool.ingest(raw).unwrap().is_none());
+        assert!(spool.ingest(raw).unwrap().event().is_none());
         assert_eq!(spool.pending_count().unwrap(), 1);
         assert_eq!(spool.observations(first.spool_id).unwrap()[1].kind, ObservationKind::MetadataOnly);
     }
@@ -849,7 +1084,7 @@ mod tests {
         let before = historical_rows(&scratch.db());
         let old_observations = historical_observations(&scratch.db());
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
-        assert!(spool.ingest(raw.clone()).unwrap().is_none());
+        assert!(spool.ingest(raw.clone()).unwrap().event().is_none());
         assert_eq!(historical_rows(&scratch.db()), before);
         assert_eq!(historical_observations(&scratch.db()), old_observations);
         assert_eq!(spool.cursor().unwrap().last_seq, 2);
@@ -857,7 +1092,7 @@ mod tests {
         assert_eq!(spool.event(second.spool_id).unwrap().disposition_ref.as_deref(), Some("control-ledger/old-disposition"));
         drop(spool);
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
-        assert!(spool.ingest(raw).unwrap().is_none());
+        assert!(spool.ingest(raw).unwrap().event().is_none());
         assert_eq!(historical_rows(&scratch.db()), before);
     }
 
@@ -873,7 +1108,7 @@ mod tests {
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
         raw["message_id"] = json!(u64::MAX.to_string());
         raw["message_revision"] = json!(1);
-        assert!(spool.ingest(raw.clone()).unwrap().is_none());
+        assert!(spool.ingest(raw.clone()).unwrap().event().is_none());
         assert_eq!(historical_rows(&scratch.db()), before);
         let observations = spool.observations(old.spool_id).unwrap();
         assert_eq!(observations.len(), 2);
@@ -909,7 +1144,7 @@ mod tests {
         let before = historical_rows(&scratch.db());
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
         raw["time"] = json!(2);
-        assert!(spool.ingest(raw.clone()).unwrap().is_none());
+        assert!(spool.ingest(raw.clone()).unwrap().event().is_none());
         assert_eq!(historical_rows(&scratch.db()), before);
         assert_eq!(spool.observations(weak.spool_id).unwrap().len(), 1);
         let observations = spool.observations(strong.spool_id).unwrap();
@@ -929,7 +1164,7 @@ mod tests {
         let before = historical_rows(&scratch.db());
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
         raw["group_id"] = json!(7);
-        let fresh = spool.ingest(raw).unwrap().unwrap();
+        let fresh = spool.ingest(raw).unwrap().event().unwrap();
         assert!(!fresh.weak_dedup);
         assert_ne!(fresh.spool_id, old.spool_id);
         assert_eq!(&historical_rows(&scratch.db())[..1], before.as_slice());
@@ -951,7 +1186,7 @@ mod tests {
         assert_eq!(rows[1].4.as_deref(), Some(second.dedup_key.as_str()));
         assert_eq!(rows[0].5, 1);
         assert_eq!(rows[1].5, 1);
-        assert!(spool.ingest(raw).unwrap().is_none());
+        assert!(spool.ingest(raw).unwrap().event().is_none());
         assert_eq!(historical_rows(&scratch.db()), rows);
         assert_eq!(spool.pending_count().unwrap(), 2);
     }
@@ -991,7 +1226,7 @@ mod tests {
         tx.commit().unwrap();
         drop(conn);
         let before = historical_rows(&scratch.db());
-        assert!(spool.ingest(raw).unwrap().is_none());
+        assert!(spool.ingest(raw).unwrap().event().is_none());
         assert_eq!(historical_rows(&scratch.db()), before);
         assert_eq!(spool.cursor().unwrap().last_seq, 1);
         assert_eq!(spool.consume(10).unwrap()[0].spool_id, old.spool_id);
@@ -1070,7 +1305,7 @@ mod tests {
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
         assert_eq!(spool.cursor().unwrap().last_seq, 0);
         assert_eq!(spool.pending_count().unwrap(), 0);
-        assert_eq!(spool.ingest(message()).unwrap().unwrap().seq, 1);
+        assert_eq!(spool.ingest(message()).unwrap().event().unwrap().seq, 1);
         assert!(IngressSpool::open(scratch.0.join("missing").join("spool.sqlite"), 9).is_err());
     }
 }

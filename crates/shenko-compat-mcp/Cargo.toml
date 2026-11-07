@@ -1,0 +1,36 @@
+[package]
+name = "shenko-compat-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-compat = { path = "../shenko-compat" }
+shenko-types = { path = "../shenko-types" }
+shenko-node = { path = "../shenko-node" }
+shenko-store = { path = "../shenko-store" }
+shenko-subject = { path = "../shenko-subject" }
+shenko-awareness-core = { path = "../shenko-awareness-core" }
+async-trait.workspace = true
+cordis-core.workspace = true
+parking_lot.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+bytes.workspace = true
+futures.workspace = true
+http = "1"
+sse-stream = "0.2.6"
+tracing.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
+rmcp = { version = "=3.8.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+process-wrap = { version = "10", features = ["tokio1"] }
+
+[dev-dependencies]
+shenko-kernel = { path = "../shenko-kernel" }
+shenko-exec-host = { path = "../shenko-exec-host" }
+shenko-compat-skill = { path = "../shenko-compat-skill" }

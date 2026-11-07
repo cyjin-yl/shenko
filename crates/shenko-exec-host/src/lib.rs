@@ -15,6 +15,12 @@ pub use browser::*;
 pub mod history_task;
 pub use history_task::*;
 
+pub mod net_probe;
+pub use net_probe::*;
+
+pub mod net_fixture;
+pub use net_fixture::*;
+
 pub mod memory_task;
 pub use memory_task::*;
 
@@ -32,6 +38,9 @@ pub use cognition_query::*;
 
 pub mod cognition_trial;
 pub use cognition_trial::*;
+
+pub mod awareness_host;
+pub use awareness_host::*;
 
 pub mod wasi_task;
 pub use wasi_task::*;
@@ -75,3 +84,6 @@ pub use desktop_macos::*;
 
 pub mod layerfs;
 pub use layerfs::*;
+
+#[cfg(target_os = "linux")]
+pub mod takeover_proof;

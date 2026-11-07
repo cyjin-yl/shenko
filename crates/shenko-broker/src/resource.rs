@@ -100,6 +100,30 @@ impl ResourceDomain {
         self.kv.write()
     }
 
+    /// Adopt one discovered residency pool size (SPEC §13.3).
+    ///
+    /// A probe that reported nothing leaves the pool unknown instead of erasing
+    /// a healthy observation, and a weaker provenance never overwrites a
+    /// stronger one. A stronger or equal observation replaces the figure even
+    /// when it is smaller: an engine restarted with less KV really does have
+    /// less. The value stays `None` until something was actually observed.
+    pub fn apply_kv_capacity(
+        &self,
+        capacity_units: Option<u64>,
+        provenance: CapacityProvenance,
+    ) -> bool {
+        let Some(capacity_units) = capacity_units else { return false };
+        let mut kv = self.kv.write();
+        if kv.capacity_units.is_some()
+            && provenance_strength(&kv.provenance) > provenance_strength(&provenance)
+        {
+            return false;
+        }
+        kv.capacity_units = Some(capacity_units);
+        kv.provenance = provenance;
+        true
+    }
+
     /// External, unmanaged clients of this engine.
     pub fn external_clients(&self) -> Vec<ExternalClientUsage> {
         self.external.read().clone()
@@ -195,6 +219,17 @@ pub struct CapacitySnapshot {
     pub pool: CapacityPool,
     pub value: Option<u64>,
     pub provenance: CapacityProvenance,
+}
+
+/// How much a capacity provenance can be trusted. A stronger observation
+/// replaces a weaker one; an unknown figure never replaces a known one.
+fn provenance_strength(provenance: &CapacityProvenance) -> u8 {
+    match provenance {
+        CapacityProvenance::Unknown => 0,
+        CapacityProvenance::Estimated => 1,
+        CapacityProvenance::Configured => 2,
+        CapacityProvenance::Measured => 3,
+    }
 }
 
 /// The registry that resolves a binding to its physical domain.

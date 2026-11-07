@@ -403,6 +403,10 @@ impl Bootstrap {
             ),
         ];
 
+        // Set only inside the manifest-load branch: a stored home whose
+        // capability map matches exactly the legacy declaration is upgraded
+        // in place; every other stored map mismatch is a migration error.
+        let mut legacy_capabilities = false;
         let mut manifest = if manifest_path.exists() {
             let bytes = fs::read(&manifest_path).map_err(|error| {
                 anyhow!(
@@ -437,11 +441,23 @@ impl Bootstrap {
                     "WASM_PROFILE_UNAVAILABLE: stored runtime/generation/guest binding requires an explicit compatible activation; data preserved"
                 );
             }
-            if stored.checkpoint != home_checkpoint() || stored.capabilities != home_capabilities()
-            {
+            if stored.checkpoint != home_checkpoint() {
                 bail!(
-                    "SEED_CLOSURE_INCOMPLETE: stored checkpoint/capability declaration differs from this seed; migrate explicitly"
+                    "SEED_CLOSURE_INCOMPLETE: stored checkpoint declaration differs from this seed; migrate explicitly"
                 );
+            }
+            // A home written before managed COW mounts were implemented
+            // carries the previous, honest capability declaration. It is
+            // upgraded explicitly below — and only it; any other declaration
+            // difference stays a migration error with data preserved.
+            if stored.capabilities != home_capabilities() {
+                if stored.capabilities == legacy_home_capabilities() {
+                    legacy_capabilities = true;
+                } else {
+                    bail!(
+                        "SEED_CLOSURE_INCOMPLETE: stored capability declaration differs from this seed; migrate explicitly"
+                    );
+                }
             }
             stored
         } else {
@@ -528,8 +544,9 @@ impl Bootstrap {
             );
         }
 
-        if manifest.state != HomeState::Ready {
+        if manifest.state != HomeState::Ready || legacy_capabilities {
             manifest.state = HomeState::Ready;
+            manifest.capabilities = home_capabilities();
             persist_manifest(&manifest_path, &manifest)?;
         }
         Ok(PreparedHome {
@@ -605,7 +622,14 @@ pub fn validate_home_for_exec(data_dir: &Path) -> Result<HomeManifest> {
             "WASM_PROFILE_UNAVAILABLE: stored runtime/generation/guest binding requires an explicit compatible activation; data preserved"
         );
     }
-    if stored.checkpoint != home_checkpoint() || stored.capabilities != home_capabilities() {
+    // A home prepared before managed COW mounts existed carries the earlier,
+    // conservative capability declaration. Exec admission keeps it usable and
+    // leaves the upgrade to the next `prepare`, which rewrites that exact map;
+    // any other declaration difference is still a migration error.
+    if stored.checkpoint != home_checkpoint()
+        || (stored.capabilities != home_capabilities()
+            && stored.capabilities != legacy_home_capabilities())
+    {
         bail!(
             "SEED_CLOSURE_INCOMPLETE: stored checkpoint/capability declaration differs from this seed; migrate explicitly"
         );
@@ -744,8 +768,11 @@ fn home_capabilities() -> BTreeMap<String, Capability> {
     );
     add(
         "copy_on_write_mounts",
-        CapabilityStatus::Unsupported,
-        "COW requests fail explicitly; never downgraded to direct RW",
+        CapabilityStatus::Available,
+        "managed COW: the base stays readonly, guest writes copy up into a \
+         per-branch overlay under the home workspace store, removals become \
+         durable tombstones, and commits are content-addressed manifests over \
+         the effective view; special files are not covered",
     );
     add(
         "live_wasm_memory_checkpoint",
@@ -768,4 +795,34 @@ fn home_capabilities() -> BTreeMap<String, Capability> {
         "Linux proc/device/socket compatibility has not been qualified",
     );
     capabilities
+}
+
+/// The capability declaration written by homes created before managed COW
+/// mounts were wired into the runtime. It differs from the current one in
+/// exactly the `copy_on_write_mounts` entry; `prepare` upgrades only this
+/// exact map in place, and any other difference stays a migration error with
+/// the stored data preserved.
+fn legacy_home_capabilities() -> BTreeMap<String, Capability> {
+    let mut legacy = home_capabilities();
+    legacy.insert(
+        "copy_on_write_mounts".into(),
+        Capability {
+            status: CapabilityStatus::Unsupported,
+            detail: "COW requests fail explicitly; never downgraded to direct RW".into(),
+        },
+    );
+    legacy
+}
+
+/// Build the initial home content snapshot from the prepared home's manifest.
+///
+/// The returned bytes are the canonical `shenko.home.content/1` form of
+/// the manifest JSON, and the `HomeContentRef` points to its blake3 digest.
+/// The caller is responsible for sealing the bytes in CAS before creating
+/// the initial cognitive root node.
+pub fn seed_home_content(manifest: &HomeManifest) -> Result<(Vec<u8>, shenko_types::cognitive_root::HomeContentRef)> {
+    let bytes = serde_json::to_vec(manifest)
+        .with_context(|| "serialize home manifest for initial cognitive root")?;
+    let digest = shenko_types::object::Digest::blake3(&bytes);
+    Ok((bytes, shenko_types::cognitive_root::HomeContentRef { manifest: digest }))
 }

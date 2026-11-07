@@ -151,6 +151,11 @@ captures the **current** scoped authority, not an obsolete earlier incarnation.
 A helper error re-reads committed selection before restoring the previous
 closure. New facts, revocations, tombstones and external debt cannot disappear
 because a workspace or software pointer moves backwards.
+Cognitive and home rollback follows SPEC §51.4: append a new node whose
+content matches a historical node, keep the log, and keep `agent_id`.
+This section describes the current software-generation activation. It is
+not the definition of that rollback, and it does not allow deleting the
+commit log.
 
 Launch receipts are durable `activation_launch_receipts` rows bound to launch ID,
 subject, selector revision/epoch/generation/origin and actual slot. Retrying the

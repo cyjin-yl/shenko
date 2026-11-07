@@ -10,7 +10,14 @@ provenance and dependencies have exactly one owner.
 
 Pure text units install no daemon, register no Cordis service and add no
 kernel hook. A unit that ships an executable helper keeps using the existing
-plugin contracts; the awareness path itself stays text.
+plugin contracts. The awareness bytes in this store are still text. That is
+the current harness, not the capability (SPEC §51). The text grants no
+authority and dispatches nothing.
+
+Awareness bodies express observations and principles; they do not contain
+prescribed passing replies or the judge's expected actions. Positive `cues`
+describe applicability. `negative_cues` describe when the unit usually does
+not apply, so an unverified capability claim belongs among positive cues.
 
 ## What a unit is
 
@@ -25,6 +32,13 @@ index ≤ 4 KiB, one read body ≤ 16 KiB, one discovery page ≤ 32 cards.
 
 Kinds: `awareness`, `perception`, `skill`, `code` — one storage and install
 path, distinguished only by the kind field.
+
+2026-11-05 conceptual contract ([SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由)):
+awareness is a capability, not a document the model can be assumed to follow.
+Text units and an external watcher are the present harness. fact and conclusion
+are not extra kinds; they are one content type whose justification stops at an
+observation or at other content. This file still describes the installed-unit
+mechanism. It does not implement attitudes, justification pointers, or metapackages.
 
 ## Disclosure: bounded cards, paged discovery, bodies read on demand
 
@@ -107,7 +121,7 @@ without a measurement stays tentative; being enabled is not being measured.
 the Node verifies every item against its own durable state:
 
 - `AdoptionMethod::SandboxComparison` — a finite comparison of the candidate
-  against a disabled baseline.
+  against a candidate-absent control that excludes every version of its unit id.
 - `AdoptionMethod::LocalTrial` — a local execution trial of the artifact.
 - `AdoptionMethod::OperatorStatement` — what the owner or an operator said.
   It records intent; it is never a measurement.
@@ -139,8 +153,26 @@ import, so a peer never inherits an acceptance it did not measure.
 
 ## Measuring a unit: the finite sandbox comparison
 
-`cognition.unit.trial:1` runs the candidate against the same installation with
-the unit switched off and compares what the model actually did.
+`cognition.unit.trial:1` compares the candidate with a candidate-absent control
+and measures what the model actually did. Disabling alone is insufficient: a
+learned candidate can remain discoverable and its exact body readable.
+
+Preparation freezes the full typed Node export and the source configuration in
+CAS. It preserves exact entry bytes, descriptors, learning and provenance
+records, and dependency pins, without reparsing, truncating or normalizing a
+BOM. Candidate import enables the exported root. Control removes **all
+versions** of the candidate unit id, preserves every other package and pin,
+and imports with the root disabled; nonroot imports are disabled in both
+conditions. A pin to the absent candidate remains unresolved through the real
+Node import. This preserves the dependency boundary rather than claiming the
+two installed closures are equivalent.
+
+Each condition uses an exclusively created UUID root and a fresh Node. Its
+actual installation/import outcome is sealed in CAS. The native handler's
+trial plan and execution share the same `PreparedTrial` and frozen
+`configuration_ref`. Schema-2 reports and sample receipts retain the
+configuration and installation references alongside the genuine committed
+output.
 
 What it runs on:
 
@@ -153,6 +185,27 @@ What it runs on:
 - the real broker, so the trial's inference is metered like every other
   inference.
 
+The sandbox publishes the Supervisor's services and acquires dispatcher
+ownership before starting the subject. Its original message is queued before
+startup. Measurement follows committed decisions in order, beginning with the
+decision that consumes that message. Delegated work stays outstanding until
+its genuine T2 result appears in a sealed input and receives a committed,
+non-deferred disposition. A consuming step may delegate further work; that
+work must also settle before the first non-delegating continuation is scored.
+Successful cognition reads bind the returned unit, revision and artifact
+digest. The sample receipt retains these results and the selected step/input
+identities. A model that never requests a body is judged on its actual
+message-consuming decision.
+
+An unresolved delegation or an expired subject/judge deadline fails the
+attempt. Cleanup closes subject delivery, joins the subject and dispatcher,
+and awaits the Supervisor's native-worker shutdown barrier on every setup or
+observation outcome. Cleanup errors remain visible alongside the original
+failure and also prevent a successful observation from being scored. Aborting
+a local task does not cancel or erase an already admitted provider request.
+Failure to seal a sample receipt is reported as a failed attempt without a
+receipt digest.
+
 The caller supplies the scenarios: a name, the message the subject receives,
 and the rubric clause that says what "the unit helped" means. The rubric is
 given to the judge only; the subject never sees it. The judge is a model call
@@ -160,6 +213,78 @@ against the same broker, and it sees the user message, the output and the
 rubric — **never the installed unit and never which condition produced the
 output**. There is no keyword scoring, no expected-output script and no
 caller-supplied verdict.
+
+The judge's full original request is retained before dispatch, including the
+payload, identities, binding, priority and epoch; only the oneshot response
+channel is omitted. The raw full `InferenceResult` is sealed and journaled
+before verdict parsing. A receipt snapshot may precede a late result and lack
+its `result_ref`; its `journal_id` is the durable authority for discovering
+the later terminal reference. A timed-out or otherwise failed judge remains
+a failed attempt even if that late result says `EFFECTIVE`.
+
+The capability-gap efficacy experiment retains the required twelve held-out
+scenarios. That count is an experiment requirement, not evidence of efficacy:
+tentative cases remain unaccepted until the real model comparison supports
+them. Retained reports are not overwritten to hide unsuccessful trials.
+
+The retained R7 run on source `22f27228bffc266e9290b3c157e9fb2524f65c27`
+planned 52 samples across thirteen scenarios and two repetitions per condition.
+Candidate samples were effective in 20 of 23 scored attempts, with 3 failures;
+control samples were effective in 9 of 18 scored attempts, with 8 failures.
+All thirteen scenarios remain `accepted: false`. The test exited 101: its
+eleven failed slots include five empty judge verdicts, three attempts that
+could not start within their pair budget, and three subject/deadline failures.
+This is a retained initial measurement, not six-repetition acceptance or a
+completed live-network fixture. The original requests, results, failures and
+broker retirement snapshot remain under
+`build/ecosystem-compat-20261104/cognition-model-r7/native/run-49b56b81-f817-4dcb-a68d-364644257d41/`.
+The broker snapshot reports its local provider readers drained and makes no
+remote-termination claim. Nine native mechanics regressions passed separately
+under `build/ecosystem-compat-20261104/cognition-preparation-after-r7/`;
+they establish preparation, consumption and receipt behavior, not model efficacy.
+
+The control-exclusion regressions require every retained candidate version to
+be absent and the exact known-ID/revision native read to return its original
+`unit_not_readable` failure, without a successful sample receipt, judge receipt
+or scored control attempt. A consuming S1 must contain that same complete T2
+in its authenticated sealed input. If the sandbox deadline stops observation
+before consumption, the original T2 must remain pending for the same agent,
+without a committed disposition. That deadline establishes exclusion and a
+failed read; the separate failed-read regression still requires actual S1
+consumption.
+
+The first merged-main check under `cognition-main-6c7f87a0-r1/` retained eight
+passing cases and the seed control's deadline-sensitive assertion failure.
+Its original failed read and pending T2 remain unchanged. The corrected
+assertions passed all nine native cases, and the model consumer compiled,
+under `build/ecosystem-compat-20261104/cognition-control-terminal-after-r1/`.
+That run consumed its control failures; it does not replace the earlier
+deadline receipt or establish model efficacy.
+
+The integration consumer is
+`cargo test -p shenko-exec-host --test awareness_efficacy -- --nocapture`.
+It calls `run_sandbox_trial`, the same measurement engine used by the native
+trial child, with the judge using the same metered broker. Each scenario and
+repetition gets a separate public runner call with `trials_per_condition: 1`
+and its own production deadline shared by that candidate/control pair. The
+complete `Batch`, including its repetition number and production report, is
+persisted before the next call. There are no scenario chunks or repetition
+offsets. Every consumer invocation creates a fresh persistent run directory
+under `SHENKO_SANDBOX_ROOT` before starting its broker. This consumer measures
+behaviour; the native trial handler owns the Node's trial lifecycle and
+adoption evidence registration.
+
+After measurement, including a measurement error, the consumer keeps the
+broker task alive during `quiesce_for_handoff`'s bounded 120-second drain of
+local provider readers and receipt writes. It persists the returned snapshot
+in `broker-shutdown.json`, including any unknown requests and active or
+unknown domain charges. An incomplete drain is explicitly recorded as an
+error with `remote_termination_claimed: false`; drain, artifact and local join
+failures are reported alongside the primary error before the final test
+result. Only after draining and attempting to persist that artifact does it
+abort and join the local broker task. A drained local reader does not prove
+remote termination or release unknown debt, and late completions never
+rewrite scenario results.
 
 Every attempt is reported. A provider error, a judge error or an exhausted
 budget is a failure of that attempt: it is counted, it appears in the report

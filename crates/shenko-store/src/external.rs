@@ -142,6 +142,64 @@ impl Store {
         rows.into_iter().map(|data| serde_json::from_str(&data).map_err(Into::into)).collect()
     }
 
+    /// Latest appended receipt per operation, globally newest first. The
+    /// cursor resumes strictly below (observed_at, receipt_id), with missing
+    /// timestamps last. This bounds returned metadata, not SQLite's query
+    /// work; it neither reads CAS payloads nor dispatches another attempt.
+    pub fn external_observations_before(
+        &self,
+        names: &[&str],
+        since: Option<chrono::DateTime<chrono::Utc>>,
+        before: Option<(Option<chrono::DateTime<chrono::Utc>>, EntityId)>,
+        limit: usize,
+    ) -> Result<Vec<(OperationRecord, EvidenceReceipt)>> {
+        if limit == 0 { return Ok(Vec::new()); }
+        let time_key = |time: chrono::DateTime<chrono::Utc>| {
+            time.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+                .trim_end_matches('Z').to_owned()
+        };
+        let since = since.map(time_key);
+        let before_id = before.as_ref().map(|(_, id)| id.to_string());
+        let before_time = before.and_then(|(time, _)| time).map(time_key);
+        let conn = self.ledger.conn.lock();
+        // EvidenceReceipt serializes DateTime<Utc>: remove the UTC suffix,
+        // then pad fractional seconds to nine digits before comparison.
+        // Raw RFC3339 lexical order is wrong when fraction widths differ.
+        let mut query = conn.prepare(
+            "WITH latest AS (
+                SELECT o.data AS operation_data, e.data AS receipt_data, e.receipt_id,
+                    replace(replace(json_extract(e.data,'$.observed_at'),'Z',''),'+00:00','') AS observed
+                FROM operations o JOIN evidence_receipts e ON e.operation_id=o.operation_id
+                WHERE json_extract(o.data,'$.operation_name') IN (SELECT value FROM json_each(?1))
+                  AND e.rowid=(SELECT rowid FROM evidence_receipts
+                               WHERE operation_id=o.operation_id ORDER BY rowid DESC LIMIT 1)
+             ), chronological AS (
+                SELECT operation_data, receipt_data, receipt_id,
+                    CASE WHEN observed IS NULL THEN NULL ELSE
+                        substr(observed,1,19) || '.' || substr(
+                            CASE WHEN substr(observed,20,1)='.' THEN substr(observed,21) ELSE '' END
+                            || '000000000',1,9)
+                    END AS observed_key
+                FROM latest
+             )
+             SELECT operation_data, receipt_data FROM chronological
+             WHERE (?2 IS NULL OR observed_key>=?2)
+               AND (?3 IS NULL
+                    OR (?4 IS NOT NULL AND (observed_key<?4
+                        OR (observed_key=?4 AND receipt_id<?3) OR observed_key IS NULL))
+                    OR (?4 IS NULL AND observed_key IS NULL AND receipt_id<?3))
+             ORDER BY observed_key DESC, receipt_id DESC LIMIT ?5",
+        )?;
+        let rows = query.query_map(
+            params![serde_json::to_string(names)?, since, before_id, before_time, i64::try_from(limit)?],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        rows.map(|row| {
+            let (operation, receipt) = row?;
+            Ok((serde_json::from_str(&operation)?, serde_json::from_str(&receipt)?))
+        }).collect()
+    }
+
     /// Returns None for a new armed admission, or the original operation for a
     /// matching repeated logical key. A hit NEVER authorizes another dispatch.
     pub fn arm_external_operation(
@@ -563,6 +621,27 @@ impl Store {
             op.effect_status = EffectStatus::Unknown;
             att.dispatch_stage = AttemptDispatchStage::Unknown;
             att.final_receipt_id = Some(ev.receipt_id);
+        }
+        // An operation that just became (or stayed) reconciling has a durable
+        // reconciliation case: the uncertainty is a fact with its own
+        // supervisor and evidence, not a property of the caller's timeout.
+        // Nothing is resent; the case is what a later receipt or an explicit
+        // subject decision acts on (SPEC §41.4 X11).
+        if op.state == OperationState::Reconciling {
+            let reason = if op.outcome_conflict {
+                crate::reconcile::REASON_CONTRADICTORY_EVIDENCE
+            } else {
+                crate::reconcile::REASON_EFFECT_UNKNOWN
+            };
+            self.ensure_unknown_effect_case(&tx, &op, ev.receipt_id, reason, commit)?;
+        } else if op.state == OperationState::Resolved
+            && op.effect_status != EffectStatus::Unknown
+        {
+            // Definite evidence arrived after an earlier unknown: the case
+            // becomes resolved, and the original unknown receipts are still
+            // there. This never rewrites the case row's earlier state in
+            // place — the row keeps its id and gains the new reference.
+            self.resolve_unknown_effect_cases(&tx, operation_id, ev.receipt_id, commit)?;
         }
         op.record_revision = RecordRevision(op.record_revision.0 + 1);
         op.evidence_through = Some(commit);

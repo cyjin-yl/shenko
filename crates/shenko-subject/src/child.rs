@@ -854,6 +854,13 @@ impl NativeChildService {
         // An existing subtask is read, never re-run.
         if let Some(existing) = self.store.get_task(call.task_id)? {
             let result = self.store.native_task_result(call.task_id)?;
+            if result.is_none() && existing.abort_request.is_none() {
+                if let Some(operation_id) = memo_uuid(&existing, NATIVE_OPERATION_ID) {
+                    if let Some(operation) = self.store.get_operation(operation_id)? {
+                        return self.unsettled_tool_outcome(call, &operation);
+                    }
+                }
+            }
             let outcome = match &result {
                 Some(result) => match result.outcome {
                     TaskOutcome::Succeeded => "succeeded",
@@ -955,6 +962,17 @@ impl NativeChildService {
                 ));
             }
         };
+        ensure!(operation.operation_id == claim.operation_id && operation.task_id == claim.task.task_id,
+            "handler returned a different task/operation identity");
+        if operation.state != OperationState::Resolved {
+            // Tool calls use the same unresolved-operation boundary as the
+            // managed dispatcher. An observed-but-unsettled attempt is not
+            // eligible for T2, and must not become a generic completion error
+            // that hides its original evidence or encourages a new attempt.
+            park_managed(&self.store, &claim.task, "reconciling",
+                "armed tool operation is unresolved; query original evidence without replay", true);
+            return self.unsettled_tool_outcome(call, &operation);
+        }
         let outcome = match operation.outcome {
             Some(OperationOutcome::Succeeded) => "succeeded",
             Some(OperationOutcome::Cancelled) => "cancelled",
@@ -973,6 +991,33 @@ impl NativeChildService {
             result: settled.as_ref().and_then(|result| result.result.clone()),
             evidence_ref: settled.as_ref().map(|result| result.evidence_ref.clone()),
         })
+    }
+
+    /// An unresolved operation can have genuine E1 without an accepted T2.
+    /// Return its original observation on both first delivery and later reads;
+    /// never imply that missing T2 means no request ran or no evidence exists.
+    fn unsettled_tool_outcome(&self, call: &ChildToolCall, operation: &OperationRecord) -> Result<ChildToolOutcome> {
+        ensure!(operation.task_id == call.task_id, "unresolved tool operation belongs to another task");
+        let attempt = self.store.external_operation_attempt(operation.operation_id)?;
+        let evidence = attempt.final_receipt_id.map(|id| self.store.external_evidence(id)).transpose()?;
+        if let Some(evidence) = &evidence {
+            ensure!(evidence.operation_id == Some(operation.operation_id) && evidence.attempt_id == Some(attempt.attempt_id),
+                "unresolved tool receipt belongs to another operation/attempt");
+        }
+        let result = match evidence.as_ref().and_then(|receipt| receipt.normalized_ref.as_ref()) {
+            Some(object) if object.bytes <= 512 * 1024 => {
+                let bytes = self.store.cas.read_object(&object.digest)?;
+                ensure!(bytes.len() as u64 == object.bytes && Digest::blake3(&bytes) == object.digest,
+                    "unresolved native evidence identity mismatch");
+                Some(serde_json::from_slice(&bytes)?)
+            }
+            Some(object) => Some(serde_json::json!({"status":"unknown","normalized_result_ref":object,
+                "content_included":false,"reason":"normalized observation exceeds the inline result bound"})),
+            None => None,
+        };
+        Ok(ChildToolOutcome { call_id: call.call_id.clone(), kind: call.kind.clone(), definition_version: call.definition_version,
+            task_id: call.task_id, operation_id: operation.operation_id, outcome: "unknown".into(),
+            result, evidence_ref: evidence.map(|receipt| receipt.raw_ref) })
     }
 
     /// Crate-visible view of the in-memory scan position for tests and
@@ -1228,11 +1273,15 @@ impl NativeChildService {
             Some("subject_decision") => {
                 let decision: StepDecision = serde_json::from_slice(&bytes)?;
                 // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6, model children schema 7 and
-                // the current committed decision schema 8; all bind the same
-                // native delegation field without rewriting the historical
-                // CAS object.
-                ensure!(matches!(decision.schema_version, 4 | 6 | 7 | 8), "unsupported_decision_schema");
+                // S1 decision. Waits use schema 6, model children schema 7,
+                // versioned publication targets schema 8 and reconciliation
+                // acknowledgements schema 9; all bind the same native
+                // delegation field without rewriting the historical CAS
+                // object.
+                ensure!(
+                    matches!(decision.schema_version, 4 | 6 | 7 | 8 | 9),
+                    "unsupported_decision_schema"
+                );
                 let intent = decision
                     .delegated_task_intents
                     .iter()

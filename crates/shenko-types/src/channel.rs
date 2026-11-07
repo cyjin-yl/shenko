@@ -225,6 +225,185 @@ pub struct AttachmentLocator {
     /// A fetchable URL, when the platform published one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Provider-owned fetch descriptor, when the locator alone is not enough.
+    ///
+    /// A platform may hand out a media reference that needs facts the URL
+    /// does not carry: a message id next to the resource key, or the symmetric
+    /// key of an encrypted CDN object. Those are the platform's own facts,
+    /// captured verbatim at classification time by the plugin that owns the
+    /// vocabulary. Nothing outside that plugin interprets them, and they are
+    /// never a location the model chose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<Value>,
+}
+
+/// The most bytes one attachment resolution may deliver.
+///
+/// The bound belongs to the channel boundary, not to one provider: a locator
+/// that names more bytes than this is refused while it is being read, instead
+/// of being buffered first and rejected afterwards.
+pub const MAX_ATTACHMENT_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Why a channel could not deliver an attachment's bytes.
+///
+/// The variants are the answers the subject can act on. They are derived from
+/// what the platform actually said or did — a refused credential, an expired
+/// signed locator, a missing object, a bound that was crossed — never from a
+/// guess, and none of them means "the message is lost": the envelope is
+/// admitted with its locator intact and the failure is a recorded fact.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AttachmentError {
+    /// The channel has no way to read this locator at all.
+    #[error("channel {channel} does not resolve attachment {attachment_id}")]
+    Unsupported {
+        /// The channel id that refused.
+        channel: String,
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+    },
+    /// The bytes live on a host whose file capability this channel does not own.
+    #[error("attachment {attachment_id} lives on host {host}; channel {channel} cannot read it")]
+    ForeignHost {
+        /// The channel id that refused.
+        channel: String,
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+        /// The host the locator named.
+        host: String,
+    },
+    /// The locator was refused before any provider call was made.
+    #[error("attachment {attachment_id} locator refused: {detail}")]
+    Refused {
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+        /// Why the plugin would not follow the locator.
+        detail: String,
+    },
+    /// The platform's locator is no longer accepted (a signed URL that aged out).
+    #[error("attachment {attachment_id} expired at the platform: {detail}")]
+    Expired {
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+        /// What the platform said.
+        detail: String,
+    },
+    /// The installed account's credential was refused for this resource.
+    #[error("channel {channel} is not authenticated for attachment {attachment_id}: {detail}")]
+    Unauthenticated {
+        /// The channel id whose credential was refused.
+        channel: String,
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+        /// What the platform said, credential-free.
+        detail: String,
+    },
+    /// The resource is not there, or the transport could not deliver it.
+    #[error("attachment {attachment_id} is unavailable: {detail}")]
+    Unavailable {
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+        /// What failed, credential-free.
+        detail: String,
+    },
+    /// The bytes exceed [`MAX_ATTACHMENT_BYTES`].
+    #[error("attachment {attachment_id} exceeds the {limit}-byte channel bound")]
+    TooLarge {
+        /// The attachment id inside its envelope.
+        attachment_id: String,
+        /// The bound that was crossed.
+        limit: u64,
+    },
+}
+
+impl AttachmentError {
+    /// A stable token for the durable channel fact that records this failure.
+    pub fn token(&self) -> &'static str {
+        match self {
+            AttachmentError::Unsupported { .. } => "unsupported",
+            AttachmentError::ForeignHost { .. } => "foreign_host",
+            AttachmentError::Refused { .. } => "refused",
+            AttachmentError::Expired { .. } => "expired",
+            AttachmentError::Unauthenticated { .. } => "unauthenticated",
+            AttachmentError::Unavailable { .. } => "unavailable",
+            AttachmentError::TooLarge { .. } => "too_large",
+        }
+    }
+}
+
+/// One attachment's bytes, accepted in provider chunks under a hard bound.
+///
+/// A channel pushes the bytes as the platform delivers them; the accumulator
+/// refuses the chunk that would cross [`MAX_ATTACHMENT_BYTES`], so an
+/// oversized attachment costs one chunk of memory, not its whole size. The
+/// assembled bytes are exactly the concatenation of the accepted chunks, in
+/// arrival order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachmentBytes {
+    attachment_id: String,
+    limit: u64,
+    bytes: Vec<u8>,
+}
+
+impl AttachmentBytes {
+    /// Start an accumulator for one attachment.
+    pub fn new(attachment_id: impl Into<String>, limit: u64) -> Self {
+        Self {
+            attachment_id: attachment_id.into(),
+            limit,
+            bytes: Vec::new(),
+        }
+    }
+
+    /// The bound this accumulator enforces.
+    pub fn limit(&self) -> u64 {
+        self.limit
+    }
+
+    /// How many bytes were accepted so far.
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// Whether nothing was accepted yet.
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    /// Append one provider chunk.
+    ///
+    /// The refused chunk is not partially accepted: crossing the bound leaves
+    /// the accumulator as it was and returns [`AttachmentError::TooLarge`].
+    pub fn push(&mut self, chunk: &[u8]) -> Result<(), AttachmentError> {
+        let next = (self.bytes.len() as u64).saturating_add(chunk.len() as u64);
+        if next > self.limit {
+            return Err(AttachmentError::TooLarge {
+                attachment_id: self.attachment_id.clone(),
+                limit: self.limit,
+            });
+        }
+        self.bytes.extend_from_slice(chunk);
+        Ok(())
+    }
+
+    /// The accepted bytes, in arrival order.
+    pub fn into_vec(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+/// One attachment whose bytes the owning channel delivered.
+///
+/// The attachment keeps its provider identity (`attachment_id`, `locator`,
+/// `kind`, `name`); the resolution adds the facts it established: the MIME
+/// type when the platform did not state one and the exact byte length. The
+/// content-addressed `object` is filled in by whoever owns the Store, after
+/// these bytes are sealed, so a plugin never needs a Store handle.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedAttachment {
+    /// The attachment with the resolution's facts applied.
+    pub attachment: ChannelAttachment,
+    /// The platform's own bytes, bounded by [`MAX_ATTACHMENT_BYTES`].
+    pub bytes: Vec<u8>,
 }
 
 /// The replyable audience of one inbound event.
@@ -397,17 +576,33 @@ pub trait ChannelPlugin: Send + Sync {
         content: &str,
     ) -> BoxFuture<'static, Result<ChannelReceipt, ChannelError>>;
 
-    /// Resolve one attachment locator on the host that owns the bytes and
-    /// seal the bytes into the content-addressed store, returning the
-    /// attachment with `object` set. Channels bound to a host file
-    /// capability override this; the default keeps the locator unresolved —
-    /// the runtime then records a subject-readable `attachment_locator` gap
-    /// and the message is delivered with the locator intact.
+    /// Resolve one attachment locator into the platform's own bytes.
+    ///
+    /// The call is asynchronous because the real answer is: an authenticated
+    /// request the platform serves (or a file read on the host that owns the
+    /// bytes), never a value that is already in memory. Implementations read
+    /// inside [`MAX_ATTACHMENT_BYTES`] and report the platform's refusal
+    /// verbatim through [`AttachmentError`]; the returned attachment keeps the
+    /// provider's identity and gains the facts the resolution established.
+    ///
+    /// Sealing the bytes into the content-addressed store is not the
+    /// plugin's business: the caller owns the Store, seals the bytes and sets
+    /// [`ChannelAttachment::object`]. A channel that cannot read the locator
+    /// keeps this default, so the runtime records a subject-readable
+    /// `attachment_locator` gap and delivers the message with the locator
+    /// intact.
     fn resolve_attachment(
         &self,
-        _attachment: &ChannelAttachment,
-    ) -> Result<ChannelAttachment, String> {
-        Err("attachment resolution is not available on this channel".to_string())
+        attachment: &ChannelAttachment,
+    ) -> BoxFuture<'static, Result<ResolvedAttachment, AttachmentError>> {
+        let channel = self.channel_id().to_string();
+        let attachment_id = attachment.attachment_id.clone();
+        Box::pin(async move {
+            Err(AttachmentError::Unsupported {
+                channel,
+                attachment_id,
+            })
+        })
     }
 }
 
@@ -552,4 +747,99 @@ impl ChannelRegistry {
 /// advance its acknowledgement.
 pub trait InboundSink: Send + Sync {
     fn admit(&self, envelope: &ChannelEnvelope, raw: &Value) -> Result<(), String>;
+}
+
+/// The replay-stable identity key of one inbound event.
+///
+/// It is built only from facts the provider repeats on a redelivery: the
+/// transport label that carried the event, the provider, the account scope,
+/// the platform message id and the declared revision. Display names, receive
+/// times and local sequence numbers are deliberately excluded, so a reconnect
+/// replay or an at-least-once redelivery names the same external event and the
+/// control ledger's disposition check makes it idempotent.
+pub fn envelope_identity_key(source: &str, envelope: &ChannelEnvelope) -> String {
+    format!(
+        "{}|{}|{}|{}|{}",
+        source,
+        envelope.provider,
+        envelope.account,
+        envelope.message_id,
+        envelope.source_event_revision.as_deref().unwrap_or(""),
+    )
+}
+
+/// The durable event id derived from [`envelope_identity_key`].
+///
+/// A connector's own durable ingress ledger and the subject admission path
+/// must agree on this id *before* either writes anything: the ledger stores
+/// the event under it, and admission reads the same id when it asks the
+/// control ledger whether a disposition already exists. Deriving it twice from
+/// the same key is the same computation, never a second identity scheme.
+pub fn envelope_event_id(source: &str, envelope: &ChannelEnvelope) -> crate::ids::EntityId {
+    let key = envelope_identity_key(source, envelope);
+    let digest = Digest::blake3(key.as_bytes());
+    let hex_text = digest.0.strip_prefix("blake3:").unwrap_or(&digest.0);
+    let mut bytes = [0u8; 32];
+    for (index, chunk) in hex_text.as_bytes().chunks(2).take(32).enumerate() {
+        let pair = std::str::from_utf8(chunk).unwrap_or("00");
+        bytes[index] = u8::from_str_radix(pair, 16).unwrap_or(0);
+    }
+    crate::ids::EntityId::from_digest(&bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attachment_bytes_accepts_within_limit() {
+        let mut acc = AttachmentBytes::new("a1", 16);
+        acc.push(&[1, 2, 3, 4]).unwrap();
+        acc.push(&[5, 6, 7, 8]).unwrap();
+        assert_eq!(acc.len(), 8);
+        let vec = acc.into_vec();
+        assert_eq!(vec, &[1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn attachment_bytes_rejects_at_limit() {
+        let mut acc = AttachmentBytes::new("a2", 4);
+        acc.push(&[1, 2, 3, 4]).unwrap();
+        let err = acc.push(&[5]).unwrap_err();
+        assert!(
+            matches!(err, AttachmentError::TooLarge { limit: 4, .. }),
+            "expected TooLarge, got {err:?}"
+        );
+        // The accumulator is unchanged after rejection.
+        assert_eq!(acc.len(), 4);
+    }
+
+    #[test]
+    fn attachment_bytes_rejects_oversized_first_chunk() {
+        let mut acc = AttachmentBytes::new("a3", 2);
+        let err = acc.push(&[1, 2, 3]).unwrap_err();
+        assert!(matches!(err, AttachmentError::TooLarge { .. }));
+        assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn attachment_bytes_zero_limit() {
+        let mut acc = AttachmentBytes::new("a4", 0);
+        let err = acc.push(&[1]).unwrap_err();
+        assert!(matches!(err, AttachmentError::TooLarge { limit: 0, .. }));
+        assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn attachment_bytes_empty_chunks_are_fine() {
+        let mut acc = AttachmentBytes::new("a5", 4);
+        acc.push(&[]).unwrap();
+        acc.push(&[]).unwrap();
+        assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn max_attachment_bytes_is_eight_mib() {
+        assert_eq!(MAX_ATTACHMENT_BYTES, 8 * 1024 * 1024);
+    }
 }

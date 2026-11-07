@@ -65,8 +65,10 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 - **原生任务处理**：实现 `NativeTaskHandler`（`descriptor` / `execute` / `reconcile`）并用 `NativeTaskHandlerPlugin` 注册，即可成为主体可委派的能力。已有的例子是 WASI 工具执行、Computer Use、Playground 后端、错误读取、issue 草稿与自解释。
 - **provider**：实现 broker 的 provider 合同接入推理；额度观测与 admission 是独立策略，不写死模型名单。
 - **渠道插件**：插件同时拥有入站分类、来源/账户命名空间与出站描述、派发与回执。目标标识是不透明字符串。
-- **意识与感知单元**：`shenko-awareness-core` 解析 awareness 文档，`shenko-node` 的单位库保存版本、依赖、启停与试用结果。纯文本单元不启动 daemon。
+- **意识与感知单元**：`shenko-awareness-core` 解析 awareness 文档，`shenko-node` 的单位库保存版本、依赖、启停与试用结果。纯文本单元不启动 daemon。文档是当前的 awareness harness，不是能力本身；概念合同见 [SPEC §51](SPEC.md#51-认知元概念内容态度与理由)。
 - **WASM 工具**：`shenko tool install --file <artifact> --name <n> --version <v> --abi wasi_preview1` 安装真实二进制，`shenko tool exec --tool <name>` 在受管 mount 下执行。声明了 ABI 但没有可核验工件的目标会被如实标记为未解析。
+
+- **第三方生态适配**：`compat.mcp` 与 `compat.skill` 是两个**独立、可选**的插件。用 `shenko compat mcp import <file> --unit-id <id>` 记录一个显式配置的 MCP 端点，或用 `shenko compat skill import <dir> --unit-id <id>` 原样导入一份 Agent Skill 材料，然后 `shenko compat enable <unit-id>` 才会向主体提供。产品不内置任何厂商 server、厂商 Skill、账号流程或依赖安装；第三方实现保持独立可移除，说明见 [docs/specs/ecosystem-adapters.md](docs/specs/ecosystem-adapters.md)。
 
 开发入口与协作规则见 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 是指向它的符号链接）与 [shenko-dev Skill](.agents/skills/shenko-dev/SKILL.md)。
 
@@ -74,7 +76,7 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 
 | 文档 | 内容 |
 | --- | --- |
-| [SPEC.md](SPEC.md) | 完整产品规格：47 章 + §48 文档分层，147 项需求、216 条具名验收，保留全部用户原话 |
+| [SPEC.md](SPEC.md) | 完整产品规格：47 章 + §48 文档分层 + §49 第三方生态兼容，147 项需求、216 条具名验收，保留全部用户原话 |
 | [docs/specs/architecture.md](docs/specs/architecture.md) | 当前功能边界与各层事实归属 |
 | [docs/INDEX.md](docs/INDEX.md) | 全部文档的真实盘点、阅读顺序与归档去向 |
 | [docs/specs/](docs/specs/) | 各领域的功能合同（功能、接口、理由、错误与恢复） |

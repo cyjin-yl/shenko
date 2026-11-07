@@ -1,0 +1,28 @@
+[package]
+name = "shenko-compact-rollover"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-context-policy = { path = "../shenko-context-policy" }
+shenko-store = { path = "../shenko-store" }
+shenko-subject = { path = "../shenko-subject" }
+shenko-types = { path = "../shenko-types" }
+cordis-core = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"
