@@ -250,6 +250,14 @@ pub struct UpdateService {
     builder: Arc<dyn BuildProvider>,
     /// The node-committed primary claim, re-read before the swap.
     claim_source: Option<Arc<dyn PrimaryClaimSource>>,
+    /// The subject's owned versioned-root chain (SPEC §51.4). The controller
+    /// owns its manifest and storage; an installation without the controller
+    /// contract cannot roll the state root back and says so instead of
+    /// pretending a file copy is one.
+    root_chain: Option<Arc<dyn crate::rollback::RootChain>>,
+    /// The mechanism that owns the external-effect ledger. Rollback reads it
+    /// once so the appended node's receipt can say what was not undone.
+    external_effects: Option<Arc<dyn crate::rollback::ExternalEffects>>,
 }
 
 /// The errors of the update service.
@@ -276,6 +284,8 @@ pub enum UpdateError {
     #[error("the candidate store rejected the state: {0}")]
     CandidateStore(#[from] ShenkoError),
     #[error(transparent)]
+    RootRollback(#[from] crate::rollback::RollbackError),
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -298,12 +308,109 @@ impl UpdateService {
             participants,
             builder,
             claim_source: None,
+            root_chain: None,
+            external_effects: None,
         }
     }
 
     pub fn with_claim_source(mut self, source: Arc<dyn PrimaryClaimSource>) -> Self {
         self.claim_source = Some(source);
         self
+    }
+
+    /// Bind the subject's versioned-root chain (SPEC §51.4).
+    ///
+    /// The chain is the controller's, not this crate's: nothing here defines a
+    /// root manifest, selector or node layout. Wiring is additive, so an
+    /// installation that has not adopted the controller contract keeps
+    /// working and its root rollback refuses with the missing contract named.
+    pub fn with_root_chain(mut self, chain: Arc<dyn crate::rollback::RootChain>) -> Self {
+        self.root_chain = Some(chain);
+        self
+    }
+
+    /// Bind the external-effect ledger read by root rollback.
+    pub fn with_external_effects(mut self, effects: Arc<dyn crate::rollback::ExternalEffects>) -> Self {
+        self.external_effects = Some(effects);
+        self
+    }
+
+    /// The bound root chain, if the controller contract has been wired.
+    pub fn root_chain(&self) -> Option<Arc<dyn crate::rollback::RootChain>> {
+        self.root_chain.clone()
+    }
+
+    /// The bound external-effect ledger, if one is installed.
+    pub fn external_effects(&self) -> Option<Arc<dyn crate::rollback::ExternalEffects>> {
+        self.external_effects.clone()
+    }
+
+    /// The installation's shared Store.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// SPEC §51.4 append-node rollback of the owned versioned root.
+    ///
+    /// This appends a new node whose content equals the selected historical
+    /// node; it never rewinds, truncates or deletes the chain or the ledger
+    /// log, and `agent_id` keeps its pre-switch value. External effects are
+    /// reconciled and recorded as not undone.
+    ///
+    /// The selected *software generation* is untouched: that is
+    /// [`UpdateService::rollback`], a different operation with its own record.
+    pub fn rollback_root(
+        &self,
+        agent_id: EntityId,
+        request: &crate::rollback::RollbackRequest,
+    ) -> UpdateResult<crate::rollback::RollbackOutcome> {
+        let chain = self.root_chain.as_ref().ok_or_else(|| {
+            anyhow!(
+                "ROOT_CHAIN_UNAVAILABLE: §51.4 state-root rollback needs the owned versioned-root \
+                 controller contract (node select + append-node over one manifest covering home \
+                 files, software slots, cognition selectors, WASM linear memory, execution stack \
+                 and interpreter object graph); no chain is bound to this installation"
+            )
+        })?;
+        let subject = self.store.get_existing_agent_id()?;
+        ensure!(
+            subject == Some(agent_id),
+            "rollback subject {agent_id} is not this installation's subject"
+        );
+        let external = self.external_effects_reconciliation(agent_id);
+        Ok(crate::rollback::append_rollback(
+            &self.store,
+            chain.as_ref(),
+            request,
+            external,
+        )?)
+    }
+
+    /// What the effect ledger shows at rollback time.
+    ///
+    /// Without a ledger source the record says `Unobserved`: that is a gap in
+    /// the evidence, never a claim that nothing was sent.
+    fn external_effects_reconciliation(
+        &self,
+        agent_id: EntityId,
+    ) -> crate::rollback::ExternalEffectReconciliation {
+        use crate::rollback::ExternalEffectReconciliation as Reconciliation;
+        match self.external_effects.as_ref() {
+            Some(source) => match source.unreconciled(agent_id) {
+                Ok(items) => Reconciliation::Observed { items },
+                Err(error) => Reconciliation::Unobserved {
+                    detail: format!(
+                        "the external-effect ledger could not be read, so no effect is claimed \
+                         undone and none is claimed absent: {error:#}"
+                    ),
+                },
+            },
+            None => Reconciliation::Unobserved {
+                detail: "no external-effect ledger source is installed; this receipt neither \
+                         claims that nothing left the process nor marks any effect undone"
+                    .to_owned(),
+            },
+        }
     }
 
     pub fn current_primary_claim(&self) -> UpdateResult<Option<PrimaryClaim>> {
