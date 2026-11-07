@@ -122,6 +122,7 @@ impl Sandbox {
             evidence: vec![AdoptionEvidence::StoredObservation {
                 digest: observation.clone(),
             }],
+            confidence: None,
             notes: Some(notes.to_string()),
             enable: Some(true),
         })?;
@@ -456,7 +457,7 @@ async fn a_native_read_reports_the_capability_and_grants_nothing() -> Result<()>
         descriptor.implementation_ref.clone(),
         8,
     )?;
-    drive_until(&native, &sandbox.store, task)?;
+    drive_until(&native, &sandbox.store, task).await?;
     let result = sandbox
         .store
         .native_task_result(task)?
@@ -499,7 +500,7 @@ async fn a_native_read_reports_the_capability_and_grants_nothing() -> Result<()>
         descriptor.implementation_ref.clone(),
         8,
     )?;
-    drive_until(&native, &sandbox.store, second)?;
+    drive_until(&native, &sandbox.store, second).await?;
     let absent = sandbox
         .store
         .native_task_result(second)?
@@ -646,7 +647,7 @@ async fn a_modeled_other_perspective_is_never_offered_as_this_subjects_observati
     Ok(())
 }
 
-fn drive_until(service: &Arc<NativeChildService>, store: &Arc<Store>, task: EntityId) -> Result<()> {
+async fn drive_until(service: &Arc<NativeChildService>, store: &Arc<Store>, task: EntityId) -> Result<()> {
     let started = Instant::now();
     loop {
         if store.native_task_result(task)?.is_some() {
