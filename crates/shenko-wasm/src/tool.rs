@@ -1282,6 +1282,7 @@ mod tests {
         shenko_node::DependencySpec {
             edge_id: edge_id.to_string(),
             strength: shenko_node::DependencyStrength::Required,
+            purpose: None,
             selector: shenko_node::DependencySelector::Exact {
                 unit_id: unit_id.to_string(),
                 revision_requirement: Some(requirement.to_string()),

@@ -550,14 +550,19 @@ impl ConfigService {
     /// Read one sealed JSON value, refusing a reference whose bytes no longer
     /// match its digest or declared length.
     fn read_sealed(&self, reference: &ObjectRef) -> Result<Value, ConfigError> {
-        let bytes = self.store.cas.read_object(&reference.digest)?;
+        let bytes = self
+            .store
+            .cas
+            .read_object(&reference.digest)
+            .map_err(|error| ConfigError::Internal(format!("read sealed config value: {error}")))?;
         if bytes.len() as u64 != reference.bytes || Digest::blake3(&bytes) != reference.digest {
             return Err(ConfigError::Internal(format!(
                 "sealed config value {} does not match its reference",
                 reference.digest
             )));
         }
-        Ok(serde_json::from_slice(&bytes)?)
+        serde_json::from_slice(&bytes)
+            .map_err(|error| ConfigError::Internal(format!("decode sealed config value: {error}")))
     }
 
     /// True when the change's sealed desired value is exactly this payload.
