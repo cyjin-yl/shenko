@@ -7,9 +7,10 @@ use shenko_node::Node;
 use shenko_store::cas::ContentStore;
 use shenko_wasm::{
     checkpoint::HomeCheckpointStore,
-    HOME_GUEST_PATH, MountMode, MountSourceState, MountSpec, TOOL_DIR_NAME, WasiCommand,
+    MountMode, MountSourceState, MountSpec, TOOL_DIR_NAME, WasiCommand,
     WasiRunOutcome, WasmRuntime,
 };
+pub use shenko_wasm::HOME_GUEST_PATH;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
