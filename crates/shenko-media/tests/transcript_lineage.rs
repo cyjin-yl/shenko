@@ -406,7 +406,7 @@ async fn declared_scope_without_audio_stores_nothing() {
 
     harness.runtime.push_audio(&stream, &[1, 2, 3, 4]).await.unwrap();
     harness
-        .emit(event("只转写不存音频", false, None))
+        .emit(event("只转写不存音频", false, None, None))
         .await;
 
     let recording = harness
@@ -526,7 +526,7 @@ async fn transport_loss_records_a_durable_disconnect() {
     let stream = harness.stream.clone();
 
     harness
-        .emit(event("one line", false, None))
+        .emit(event("one line", false, None, None))
         .await;
     harness
         .provider_finished(Some("websocket error: connection reset".into()))
