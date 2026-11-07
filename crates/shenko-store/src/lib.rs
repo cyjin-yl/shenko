@@ -24,10 +24,10 @@ pub mod runtime_boundary;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
-pub mod cognitive_root;/// Durable reconciliation cases for unknown external effects — SPEC §41.4 X11.
+pub mod cognitive_root;
+/// Durable reconciliation cases for unknown external effects — SPEC §41.4 X11.
 pub mod reconcile;
 /// Cognitive atoms: content registration, attitudes, reason pointers — SPEC §51.1, §51.3.
-pub mod atoms;
 pub use reconcile::{ReconciliationDocketEntry, REASON_EFFECT_UNKNOWN};pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };
@@ -56,6 +56,10 @@ pub use artifacts::*;
 
 pub mod external;
 pub use external::{InboxAdmission, TaskInvocation};
+
+/// Receipt admission identity and source-event dedup — SPEC X04, §41.7.3.
+pub mod receipt_admission;
+pub use receipt_admission::{ConflictIdentity, EvidenceReceiptConflict};
 
 pub mod child;
 pub use child::{NativeTaskClaim, TaskCancellation};

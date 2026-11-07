@@ -18,6 +18,7 @@ use shenko_types::ids::EntityId;
 use shenko_types::object::ObjectRef;
 
 use crate::history::StorageError;
+use crate::registry::RolloverRequest;
 
 /// Longest note a journal entry may carry, in UTF-8 bytes (not characters).
 pub const MAX_NOTE_BYTES: usize = 16_384;
@@ -98,12 +99,6 @@ pub enum NotesError {
     Empty,
     #[error("this scope already journaled revision {revision}; a fork copy cannot rewrite its history")]
     AlreadyJournaled { revision: u64 },
-}
-
-impl From<StorageError> for NotesError {
-    fn from(error: StorageError) -> Self {
-        Self::Storage(error)
-    }
 }
 
 /// Read and append access to one branch's note journal.

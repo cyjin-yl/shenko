@@ -8,9 +8,16 @@
 //! `shenko-wasm` with explicit argv/environment/stdin/stdout/stderr, journals
 //! every cell for R0 recovery, and reports — never performs — interrupt,
 //! dependency installation and in-VM state persistence it cannot implement.
+//!
+//! [`entry`] is the durable *binding* half of §19.1's replaceable kernel
+//! plugins: a named entry pins one real interpreter artifact (and its
+//! standard library, where the route has one) by digest, so a caller — or a
+//! restarted node — can list what this installation actually has and create a
+//! session from the name instead of re-supplying the interpreter path.
 
 pub mod adapters;
 pub mod contract;
+pub mod entry;
 pub mod install;
 pub mod journal;
 pub mod kernel;

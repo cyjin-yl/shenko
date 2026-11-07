@@ -1,0 +1,843 @@
+shenko-exec-ssh v0.1.0 (/source/crates/shenko-exec-ssh)|
+anyhow v1.0.104|default,std
+async-trait v0.1.92 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro
+unicode-ident v1.0.27|
+quote v1.0.47|default,proc-macro
+proc-macro2 v1.0.107|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+unicode-ident v1.0.27|
+base64 v0.22.1|alloc,default,std
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link
+iana-time-zone v0.1.65|fallback
+num-traits v0.2.19|i128,std
+autocfg v1.5.1|
+serde v1.0.229|default,derive,rc,serde_derive,std
+serde_core v1.0.229|rc,result,std
+serde_derive v1.0.229 (proc-macro)|default
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+libc v0.2.191|default,extra_traits,std
+russh v0.65.0 (/source/third-party/russh-duplex)|ring,rsa
+aes v0.9.3|zeroize
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper
+block-buffer v0.12.1|
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize
+ctutils v0.4.7|subtle
+cmov v0.5.4|
+subtle v2.6.1|const-generics,default,i128,std
+subtle v2.6.1|const-generics,default,i128,std
+typenum v1.20.1|const-generics
+zeroize v1.9.1|alloc,default
+crypto-common v0.2.2|getrandom,rand_core
+getrandom v0.4.3|std,sys_rng,wasm_js
+cfg-if v1.0.5|
+libc v0.2.191|default,extra_traits,std
+rand_core v0.10.1|
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+rand_core v0.10.1|
+inout v0.2.5|block-padding
+block-padding v0.4.2|
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+cpubits v0.1.1|
+cpufeatures v0.3.1|
+zeroize v1.9.1|alloc,default
+bitflags v2.13.2|std
+block-padding v0.4.2| (*)
+byteorder v1.5.0|default,std
+bytes v1.12.1|default,std
+cbc v0.2.1|block-padding,default
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize
+cpubits v0.1.1|
+ctutils v0.4.7|subtle (*)
+getrandom v0.4.3|std,sys_rng,wasm_js (*)
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+num-traits v0.2.19|i128,std (*)
+rand_core v0.10.1|
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+ctr v0.10.1|
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+curve25519-dalek v5.0.0|alloc,default,digest,precomputed-tables,rand_core,zeroize
+cfg-if v1.0.5|
+cpufeatures v0.3.1|
+curve25519-dalek-derive v0.1.1 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v2.0.119|clone-impls,default,derive,extra-traits,full,parsing,printing,proc-macro,visit-mut
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+unicode-ident v1.0.27|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core
+block-buffer v0.12.1| (*)
+const-oid v0.10.2|
+crypto-common v0.2.2|getrandom,rand_core (*)
+ctutils v0.4.7|subtle (*)
+rand_core v0.10.1|
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+rustc_version v0.4.1|
+semver v1.0.28|default,std
+data-encoding v2.11.1|alloc,default,std
+delegate v0.13.5 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v2.0.119|clone-impls,default,derive,extra-traits,full,parsing,printing,proc-macro,visit-mut (*)
+der v0.8.3|alloc,oid,pem,std,zeroize
+const-oid v0.10.2|
+pem-rfc7468 v1.0.0|alloc
+base64ct v1.8.3|alloc
+zeroize v1.9.1|alloc,default
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+ecdsa v0.17.0|algorithm,alloc,default,der,digest,getrandom,pem,pkcs8,spki,std
+der v0.8.3|alloc,oid,pem,std,zeroize (*)
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+elliptic-curve v0.14.3|alloc,arithmetic,default,digest,ecdh,ff,getrandom,group,pem,pkcs8,sec1,std
+base16ct v1.0.0|alloc
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize (*)
+crypto-common v0.2.2|getrandom,rand_core (*)
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+ff v0.14.0|alloc
+rand_core v0.10.1|
+subtle v2.6.1|const-generics,default,i128,std
+group v0.14.0|alloc
+ff v0.14.0|alloc (*)
+rand_core v0.10.1|
+subtle v2.6.1|const-generics,default,i128,std
+hkdf v0.13.0|
+hmac v0.13.0|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+pem-rfc7468 v1.0.0|alloc (*)
+pkcs8 v0.11.0|alloc,encryption,pem,pkcs5,std
+der v0.8.3|alloc,oid,pem,std,zeroize (*)
+pkcs5 v0.8.1|alloc,pbes2,rand_core
+aes v0.9.3|zeroize (*)
+aes-gcm v0.11.1|aes,zeroize
+aead v0.6.1|rand_core
+crypto-common v0.2.2|getrandom,rand_core (*)
+inout v0.2.5|block-padding (*)
+aes v0.9.3|zeroize (*)
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+ctr v0.10.1| (*)
+ctutils v0.4.7|subtle (*)
+ghash v0.6.0|zeroize
+polyval v0.7.3|hazmat,zeroize
+cpubits v0.1.1|
+cpufeatures v0.3.1|
+universal-hash v0.6.1|
+crypto-common v0.2.2|getrandom,rand_core (*)
+ctutils v0.4.7|subtle (*)
+zeroize v1.9.1|alloc,default
+zeroize v1.9.1|alloc,default
+zeroize v1.9.1|alloc,default
+cbc v0.2.1|block-padding,default (*)
+der v0.8.3|alloc,oid,pem,std,zeroize (*)
+pbkdf2 v0.13.0|default,hmac
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+hmac v0.13.0| (*)
+rand_core v0.10.1|
+scrypt v0.12.0|
+cfg-if v1.0.5|
+pbkdf2 v0.13.0|default,hmac (*)
+salsa20 v0.11.0|
+cfg-if v1.0.5|
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+sha2 v0.11.1|alloc,default,oid
+cfg-if v1.0.5|
+cpufeatures v0.3.1|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+sha2 v0.11.1|alloc,default,oid (*)
+spki v0.8.1|alloc,pem,std
+der v0.8.3|alloc,oid,pem,std,zeroize (*)
+rand_core v0.10.1|
+spki v0.8.1|alloc,pem,std (*)
+rand_core v0.10.1|
+sec1 v0.8.1|alloc,ctutils,default,der,pem,point,std,subtle,zeroize
+base16ct v1.0.0|alloc
+ctutils v0.4.7|subtle (*)
+der v0.8.3|alloc,oid,pem,std,zeroize (*)
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+rfc6979 v0.6.0|
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize (*)
+hmac v0.13.0| (*)
+signature v3.0.0|alloc,digest,rand_core
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+rand_core v0.10.1|
+spki v0.8.1|alloc,pem,std (*)
+zeroize v1.9.1|alloc,default
+ed25519-dalek v3.0.0|alloc,default,fast,pkcs8,rand_core,signature,zeroize
+curve25519-dalek v5.0.0|alloc,default,digest,precomputed-tables,rand_core,zeroize (*)
+ed25519 v3.0.0|alloc,pkcs8
+pkcs8 v0.11.0|alloc,encryption,pem,pkcs5,std (*)
+signature v3.0.0|alloc,digest,rand_core (*)
+rand_core v0.10.1|
+sha2 v0.11.1|alloc,default,oid (*)
+signature v3.0.0|alloc,digest,rand_core (*)
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+elliptic-curve v0.14.3|alloc,arithmetic,default,digest,ecdh,ff,getrandom,group,pem,pkcs8,sec1,std (*)
+enum_dispatch v0.3.13 (proc-macro)|
+once_cell v1.21.4|alloc,default,race,std
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v2.0.119|clone-impls,default,derive,extra-traits,full,parsing,printing,proc-macro,visit-mut (*)
+futures v0.3.34|alloc,async-await,default,executor,futures-executor,std
+futures-channel v0.3.34|alloc,default,futures-sink,sink,std
+futures-core v0.3.34|alloc,default,std
+futures-sink v0.3.34|alloc,default,std
+futures-core v0.3.34|alloc,default,std
+futures-executor v0.3.34|std
+futures-core v0.3.34|alloc,default,std
+futures-task v0.3.34|alloc,std
+futures-util v0.3.34|alloc,async-await,async-await-macro,channel,futures-channel,futures-io,futures-macro,futures-sink,io,memchr,sink,slab,std
+futures-channel v0.3.34|alloc,default,futures-sink,sink,std (*)
+futures-core v0.3.34|alloc,default,std
+futures-io v0.3.34|std
+futures-macro v0.3.34 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+futures-sink v0.3.34|alloc,default,std
+futures-task v0.3.34|alloc,std
+memchr v2.8.3|alloc,default,std
+pin-project-lite v0.2.17|
+slab v0.4.12|std
+futures-io v0.3.34|std
+futures-sink v0.3.34|alloc,default,std
+futures-task v0.3.34|alloc,std
+futures-util v0.3.34|alloc,async-await,async-await-macro,channel,futures-channel,futures-io,futures-macro,futures-sink,io,memchr,sink,slab,std (*)
+generic-array v1.4.5|compat-0_14
+generic-array v0.14.7|
+typenum v1.20.1|const-generics
+version_check v0.9.5|
+rustversion v1.0.23 (proc-macro)|
+typenum v1.20.1|const-generics
+getrandom v0.4.3|std,sys_rng,wasm_js (*)
+ghash v0.6.0|zeroize (*)
+hex-literal v1.1.0|
+hmac v0.13.0| (*)
+inout v0.2.5|block-padding (*)
+keccak v0.2.2|
+cfg-if v1.0.5|
+log v0.4.34|
+md5 v0.8.1|default,std
+ml-kem v0.3.4|alloc,default
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+kem v0.3.0|
+crypto-common v0.2.2|getrandom,rand_core (*)
+rand_core v0.10.1|
+module-lattice v0.2.4|alloc,ctutils
+ctutils v0.4.7|subtle (*)
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+num-traits v0.2.19|i128,std (*)
+rand_core v0.10.1|
+sha3 v0.12.0|alloc,default,oid
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+keccak v0.2.2| (*)
+sponge-cursor v0.1.0|
+shake v0.1.0|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+keccak v0.2.2| (*)
+sponge-cursor v0.1.0|
+module-lattice v0.2.4|alloc,ctutils (*)
+num-bigint v0.5.1|default,rand_0_10,rand_core_0_10,std
+num-integer v0.1.47|i128,std
+num-traits v0.2.19|i128,std (*)
+num-traits v0.2.19|i128,std (*)
+rand v0.10.3|alloc,default,std,std_rng,sys_rng,thread_rng
+chacha20 v0.10.2|cipher,legacy,rng,zeroize
+cfg-if v1.0.5|
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+cpufeatures v0.3.1|
+rand_core v0.10.1|
+zeroize v1.9.1|alloc,default
+getrandom v0.4.3|std,sys_rng,wasm_js (*)
+rand_core v0.10.1|
+rand_core v0.10.1|
+p256 v0.14.0|alloc,arithmetic,default,digest,ecdh,ecdsa,ecdsa-core,getrandom,pem,pkcs8,precomputed-tables,sha2,sha256,std
+ecdsa v0.17.0|algorithm,alloc,default,der,digest,getrandom,pem,pkcs8,spki,std (*)
+elliptic-curve v0.14.3|alloc,arithmetic,default,digest,ecdh,ff,getrandom,group,pem,pkcs8,sec1,std (*)
+primefield v0.14.0|
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize (*)
+crypto-common v0.2.2|getrandom,rand_core (*)
+ff v0.14.0|alloc (*)
+rand_core v0.10.1|
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+primeorder v0.14.0|alloc,basepoint-table,std
+elliptic-curve v0.14.3|alloc,arithmetic,default,digest,ecdh,ff,getrandom,group,pem,pkcs8,sec1,std (*)
+primefield v0.14.0| (*)
+wnaf v0.14.1|
+ff v0.14.0|alloc (*)
+group v0.14.0|alloc (*)
+hybrid-array v0.4.15|alloc,ctutils,extra-sizes,subtle,zeroize (*)
+primefield v0.14.0| (*)
+sha2 v0.11.1|alloc,default,oid (*)
+p384 v0.14.0|alloc,arithmetic,default,digest,ecdh,ecdsa,ecdsa-core,getrandom,pem,pkcs8,precomputed-tables,sha2,sha384,std
+ecdsa v0.17.0|algorithm,alloc,default,der,digest,getrandom,pem,pkcs8,spki,std (*)
+elliptic-curve v0.14.3|alloc,arithmetic,default,digest,ecdh,ff,getrandom,group,pem,pkcs8,sec1,std (*)
+primefield v0.14.0| (*)
+primeorder v0.14.0|alloc,basepoint-table,std (*)
+sha2 v0.11.1|alloc,default,oid (*)
+p521 v0.14.0|alloc,arithmetic,default,digest,ecdh,ecdsa,ecdsa-core,getrandom,pem,pkcs8,precomputed-tables,sha512,std
+base16ct v1.0.0|alloc
+ecdsa v0.17.0|algorithm,alloc,default,der,digest,getrandom,pem,pkcs8,spki,std (*)
+elliptic-curve v0.14.3|alloc,arithmetic,default,digest,ecdh,ff,getrandom,group,pem,pkcs8,sec1,std (*)
+primefield v0.14.0| (*)
+primeorder v0.14.0|alloc,basepoint-table,std (*)
+sha2 v0.11.1|alloc,default,oid (*)
+pbkdf2 v0.13.0|default,hmac (*)
+pkcs1 v0.8.0-rc.4|alloc,pem,std,zeroize
+der v0.8.3|alloc,oid,pem,std,zeroize (*)
+spki v0.8.1|alloc,pem,std (*)
+pkcs5 v0.8.1|alloc,pbes2,rand_core (*)
+pkcs8 v0.11.0|alloc,encryption,pem,pkcs5,std (*)
+polyval v0.7.3|hazmat,zeroize (*)
+rand v0.10.3|alloc,default,std,std_rng,sys_rng,thread_rng (*)
+rand_core v0.10.1|
+ring v0.17.14|alloc,default,dev_urandom_fallback
+cfg-if v1.0.5|
+getrandom v0.2.17|
+cfg-if v1.0.5|
+libc v0.2.191|default,extra_traits,std
+untrusted v0.9.0|
+cc v1.9.0|
+find-msvc-tools v0.1.15|
+shlex v2.0.1|default,std
+rsa v0.10.0-rc.18|default,encoding,sha2,std
+const-oid v0.10.2|
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize (*)
+crypto-primes v0.7.2|
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize (*)
+rand_core v0.10.1|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+pkcs1 v0.8.0-rc.4|alloc,pem,std,zeroize (*)
+pkcs8 v0.11.0|alloc,encryption,pem,pkcs5,std (*)
+rand_core v0.10.1|
+sha2 v0.11.1|alloc,default,oid (*)
+signature v3.0.0|alloc,digest,rand_core (*)
+spki v0.8.1|alloc,pem,std (*)
+zeroize v1.9.1|alloc,default
+russh-cryptovec v0.62.0|ssh-encoding
+log v0.4.34|
+nix v0.31.3|default,mman
+bitflags v2.13.2|std
+cfg-if v1.0.5|
+libc v0.2.191|default,extra_traits,std
+cfg_aliases v0.2.2|
+ssh-encoding v0.3.0|alloc,base64,bigint,bytes,ctutils,digest,pem,zeroize
+base64ct v1.8.3|alloc
+bytes v1.12.1|default,std
+crypto-bigint v0.7.10|alloc,default,getrandom,hybrid-array,rand_core,subtle,zeroize (*)
+ctutils v0.4.7|subtle (*)
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+pem-rfc7468 v1.0.0|alloc (*)
+zeroize v1.9.1|alloc,default
+russh-util v0.52.0|
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros
+bytes v1.12.1|default,std
+libc v0.2.191|default,extra_traits,std
+mio v1.2.4|net,os-ext,os-poll
+libc v0.2.191|default,extra_traits,std
+parking_lot v0.12.5|default
+lock_api v0.4.14|atomic_usize,default
+scopeguard v1.2.0|
+parking_lot_core v0.9.12|
+cfg-if v1.0.5|
+libc v0.2.191|default,extra_traits,std
+smallvec v1.16.3|const_generics,const_new
+pin-project-lite v0.2.17|
+signal-hook-registry v1.4.8|
+errno v0.3.14|default,std
+libc v0.2.191|default,extra_traits,std
+libc v0.2.191|default,extra_traits,std
+socket2 v0.6.5|all
+libc v0.2.191|default,extra_traits,std
+tokio-macros v2.7.2 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+salsa20 v0.11.0| (*)
+scrypt v0.12.0| (*)
+sec1 v0.8.1|alloc,ctutils,default,der,pem,point,std,subtle,zeroize (*)
+sha1 v0.11.0|alloc,default,oid
+cfg-if v1.0.5|
+cpufeatures v0.3.1|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+sha2 v0.11.1|alloc,default,oid (*)
+sha3 v0.12.0|alloc,default,oid (*)
+signature v3.0.0|alloc,digest,rand_core (*)
+spki v0.8.1|alloc,pem,std (*)
+ssh-encoding v0.3.0|alloc,base64,bigint,bytes,ctutils,digest,pem,zeroize (*)
+ssh-key v0.7.0-rc.11|alloc,default,ecdsa,ed25519,encryption,p256,p384,p521,ppk,rand_core,rsa,sha1,std
+argon2 v0.6.0|alloc
+base64ct v1.8.3|alloc
+blake2 v0.11.0|
+digest v0.11.3|alloc,block-api,default,mac,oid,rand_core (*)
+cpufeatures v0.3.1|
+bcrypt-pbkdf v0.11.0|alloc
+blowfish v0.10.0|bcrypt
+byteorder v1.5.0|default,std
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+pbkdf2 v0.13.0|default,hmac (*)
+sha2 v0.11.1|alloc,default,oid (*)
+ctutils v0.4.7|subtle (*)
+ed25519-dalek v3.0.0|alloc,default,fast,pkcs8,rand_core,signature,zeroize (*)
+hex v0.4.3|alloc,default,std
+hmac v0.13.0| (*)
+p256 v0.14.0|alloc,arithmetic,default,digest,ecdh,ecdsa,ecdsa-core,getrandom,pem,pkcs8,precomputed-tables,sha2,sha256,std (*)
+p384 v0.14.0|alloc,arithmetic,default,digest,ecdh,ecdsa,ecdsa-core,getrandom,pem,pkcs8,precomputed-tables,sha2,sha384,std (*)
+p521 v0.14.0|alloc,arithmetic,default,digest,ecdh,ecdsa,ecdsa-core,getrandom,pem,pkcs8,precomputed-tables,sha512,std (*)
+rand_core v0.10.1|
+rsa v0.10.0-rc.18|default,encoding,sha2,std (*)
+sec1 v0.8.1|alloc,ctutils,default,der,pem,point,std,subtle,zeroize (*)
+sha1 v0.11.0|alloc,default,oid (*)
+sha2 v0.11.1|alloc,default,oid (*)
+signature v3.0.0|alloc,digest,rand_core (*)
+ssh-cipher v0.3.0|aes,chacha20poly1305,encoding,rand_core,zeroize
+aead v0.6.1|rand_core (*)
+aes v0.9.3|zeroize (*)
+aes-gcm v0.11.1|aes,zeroize (*)
+chacha20 v0.10.2|cipher,legacy,rng,zeroize (*)
+cipher v0.5.2|block-buffer,block-padding,rand_core,stream-wrapper (*)
+ctutils v0.4.7|subtle (*)
+poly1305 v0.9.1|zeroize
+cpufeatures v0.3.1|
+universal-hash v0.6.1| (*)
+zeroize v1.9.1|alloc,default
+ssh-encoding v0.3.0|alloc,base64,bigint,bytes,ctutils,digest,pem,zeroize (*)
+zeroize v1.9.1|alloc,default
+ssh-encoding v0.3.0|alloc,base64,bigint,bytes,ctutils,digest,pem,zeroize (*)
+zeroize v1.9.1|alloc,default
+subtle v2.6.1|const-generics,default,i128,std
+thiserror v2.0.21|default,std
+thiserror-impl v2.0.21 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+typenum v1.20.1|const-generics
+universal-hash v0.6.1| (*)
+zeroize v1.9.1|alloc,default
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std
+itoa v1.0.18|
+memchr v2.8.3|alloc,default,std
+serde_core v1.0.229|rc,result,std
+zmij v1.0.23|
+shenko-node v0.1.0 (/source/crates/shenko-node)|
+anyhow v1.0.104|default,std
+blake3 v1.8.7|default,std
+arrayvec v0.7.8|
+cfg-if v1.0.5|
+constant_time_eq v0.4.2|std
+cpufeatures v0.3.1|
+cc v1.9.0| (*)
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+libc v0.2.191|default,extra_traits,std
+rusqlite v0.32.1|backup,bundled,functions,hooks,modern_sqlite
+bitflags v2.13.2|std
+fallible-iterator v0.3.0|alloc,default
+fallible-streaming-iterator v0.1.9|
+hashlink v0.9.1|
+hashbrown v0.14.5|ahash,inline-more
+ahash v0.8.12|
+cfg-if v1.0.5|
+once_cell v1.21.4|alloc,default,race,std
+zerocopy v0.8.63|simd
+version_check v0.9.5|
+libsqlite3-sys v0.30.1|bundled,bundled_bindings,cc,default,min_sqlite_version_3_14_0,pkg-config,vcpkg
+cc v1.9.0| (*)
+pkg-config v0.3.34|
+vcpkg v0.2.15|
+smallvec v1.16.3|const_generics,const_new
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)|
+base64 v0.22.1|alloc,default,std
+blake3 v1.8.7|default,std (*)
+bytes v1.12.1|default,std
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+hex v0.4.3|alloc,default,std
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_bytes v0.11.19|default,std
+serde_core v1.0.229|rc,result,std
+serde_json v1.0.154|default,float_roundtrip,std (*)
+thiserror v2.0.21|default,std (*)
+uuid v1.28.0|default,rng,serde,std,v4
+getrandom v0.4.3|std,sys_rng,wasm_js (*)
+serde_core v1.0.229|rc,result,std
+tempfile v3.27.0|default,getrandom
+fastrand v2.5.0|alloc,default,std
+getrandom v0.4.3|std,sys_rng,wasm_js (*)
+once_cell v1.21.4|alloc,default,race,std
+rustix v1.1.5|alloc,default,fs,process,std,termios,time
+bitflags v2.13.2|std
+linux-raw-sys v0.12.1|auxvec,elf,errno,general,ioctl,no_std,prctl
+shenko-store v0.1.0 (/source/crates/shenko-store)|
+anyhow v1.0.104|default,std
+blake3 v1.8.7|default,std (*)
+bytes v1.12.1|default,std
+cap-std v3.4.6|default
+cap-primitives v3.4.6|
+ambient-authority v0.0.2|
+fs-set-times v0.20.3|
+io-lifetimes v2.0.4|default
+rustix v1.1.5|alloc,default,fs,process,std,termios,time (*)
+io-extras v0.18.4|default
+io-lifetimes v2.0.4|default
+io-lifetimes v2.0.4|default
+ipnet v2.12.2|default,std
+maybe-owned v0.3.4|
+rustix v1.1.5|alloc,default,fs,process,std,termios,time (*)
+rustix-linux-procfs v0.1.1|default,std
+once_cell v1.21.4|alloc,default,race,std
+rustix v1.1.5|alloc,default,fs,process,std,termios,time (*)
+io-extras v0.18.4|default (*)
+io-lifetimes v2.0.4|default
+rustix v1.1.5|alloc,default,fs,process,std,termios,time (*)
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+libc v0.2.191|default,extra_traits,std
+parking_lot v0.12.5|default (*)
+rusqlite v0.32.1|backup,bundled,functions,hooks,modern_sqlite (*)
+rusqlite_migration v1.3.1|default
+log v0.4.34|
+rusqlite v0.32.1|backup,bundled,functions,hooks,modern_sqlite (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-quota v0.1.0 (/source/crates/shenko-quota)|
+blake3 v1.8.7|default,std (*)
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+tempfile v3.27.0|default,getrandom (*)
+thiserror v2.0.21|default,std (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes
+pin-project-lite v0.2.17|
+tracing-attributes v0.1.31 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v2.0.119|clone-impls,default,derive,extra-traits,full,parsing,printing,proc-macro,visit-mut (*)
+tracing-core v0.1.36|once_cell,std
+once_cell v1.21.4|alloc,default,race,std
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+shenko-subject v0.1.0 (/source/crates/shenko-subject)|
+anyhow v1.0.104|default,std
+async-trait v0.1.92 (proc-macro)| (*)
+blake3 v1.8.7|default,std (*)
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+cordis-core v0.6.1 (https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa)|default
+futures v0.3.34|alloc,async-await,default,executor,futures-executor,std (*)
+parking_lot v0.12.5|default (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+dashmap v5.5.3|
+cfg-if v1.0.5|
+hashbrown v0.14.5|ahash,inline-more (*)
+lock_api v0.4.14|atomic_usize,default (*)
+once_cell v1.21.4|alloc,default,race,std
+parking_lot_core v0.9.12| (*)
+futures v0.3.34|alloc,async-await,default,executor,futures-executor,std (*)
+parking_lot v0.12.5|default (*)
+pulldown-cmark v0.13.5|
+bitflags v2.13.2|std
+memchr v2.8.3|alloc,default,std
+unicase v2.10.0|
+reqwest v0.12.28|__rustls,__rustls-ring,__tls,json,rustls-tls,rustls-tls-webpki-roots,rustls-tls-webpki-roots-no-provider,stream
+base64 v0.22.1|alloc,default,std
+bytes v1.12.1|default,std
+futures-core v0.3.34|alloc,default,std
+futures-util v0.3.34|alloc,async-await,async-await-macro,channel,futures-channel,futures-io,futures-macro,futures-sink,io,memchr,sink,slab,std (*)
+http v1.5.0|default,std
+bytes v1.12.1|default,std
+itoa v1.0.18|
+http-body v1.1.0|
+bytes v1.12.1|default,std
+http v1.5.0|default,std (*)
+http-body-util v0.1.5|default
+bytes v1.12.1|default,std
+futures-core v0.3.34|alloc,default,std
+http v1.5.0|default,std (*)
+http-body v1.1.0| (*)
+pin-project-lite v0.2.17|
+hyper v1.12.0|client,default,http1
+atomic-waker v1.1.2|
+bytes v1.12.1|default,std
+futures-core v0.3.34|alloc,default,std
+http v1.5.0|default,std (*)
+http-body v1.1.0| (*)
+httparse v1.10.1|default,std
+itoa v1.0.18|
+pin-project-lite v0.2.17|
+smallvec v1.16.3|const_generics,const_new
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+want v0.3.2|
+try-lock v0.2.5|
+hyper-rustls v0.27.10|http1,ring,tls12,webpki-roots,webpki-tokio
+http v1.5.0|default,std (*)
+hyper v1.12.0|client,default,http1 (*)
+hyper-util v0.1.21|client,client-legacy,client-proxy,default,http1,tokio
+base64 v0.23.1|alloc,default,simd-unsafe,std
+bytes v1.12.1|default,std
+futures-channel v0.3.34|alloc,default,futures-sink,sink,std (*)
+futures-util v0.3.34|alloc,async-await,async-await-macro,channel,futures-channel,futures-io,futures-macro,futures-sink,io,memchr,sink,slab,std (*)
+http v1.5.0|default,std (*)
+http-body v1.1.0| (*)
+httparse v1.10.1|default,std
+hyper v1.12.0|client,default,http1 (*)
+ipnet v2.12.2|default,std
+libc v0.2.191|default,extra_traits,std
+percent-encoding v2.3.2|alloc,default,std
+pin-project-lite v0.2.17|
+socket2 v0.6.5|all (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tower-service v0.3.3|
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+rustls v0.23.46|ring,std,tls12
+once_cell v1.21.4|alloc,default,race,std
+ring v0.17.14|alloc,default,dev_urandom_fallback (*)
+rustls-pki-types v1.15.1|alloc,default,std
+zeroize v1.9.1|alloc,default
+rustls-webpki v0.103.16|alloc,ring,std
+ring v0.17.14|alloc,default,dev_urandom_fallback (*)
+rustls-pki-types v1.15.1|alloc,default,std (*)
+untrusted v0.9.0|
+subtle v2.6.1|const-generics,default,i128,std
+zeroize v1.9.1|alloc,default
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tokio-rustls v0.26.6|ring,tls12
+rustls v0.23.46|ring,std,tls12 (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tower-service v0.3.3|
+webpki-roots v1.0.10|
+rustls-pki-types v1.15.1|alloc,default,std (*)
+hyper-util v0.1.21|client,client-legacy,client-proxy,default,http1,tokio (*)
+log v0.4.34|
+percent-encoding v2.3.2|alloc,default,std
+pin-project-lite v0.2.17|
+rustls v0.23.46|ring,std,tls12 (*)
+rustls-pki-types v1.15.1|alloc,default,std (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+serde_urlencoded v0.7.1|
+form_urlencoded v1.2.2|alloc,default,std
+percent-encoding v2.3.2|alloc,default,std
+itoa v1.0.18|
+ryu v1.0.23|
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+sync_wrapper v1.0.2|futures,futures-core
+futures-core v0.3.34|alloc,default,std
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tokio-rustls v0.26.6|ring,tls12 (*)
+tokio-util v0.7.20|codec,default,io,libc
+bytes v1.12.1|default,std
+futures-core v0.3.34|alloc,default,std
+futures-sink v0.3.34|alloc,default,std
+libc v0.2.191|default,extra_traits,std
+pin-project-lite v0.2.17|
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tower v0.5.3|futures-core,futures-util,pin-project-lite,retry,sync_wrapper,timeout,tokio,util
+futures-core v0.3.34|alloc,default,std
+futures-util v0.3.34|alloc,async-await,async-await-macro,channel,futures-channel,futures-io,futures-macro,futures-sink,io,memchr,sink,slab,std (*)
+pin-project-lite v0.2.17|
+sync_wrapper v1.0.2|futures,futures-core (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tower-layer v0.3.3|
+tower-service v0.3.3|
+tower-http v0.6.11|follow-redirect,futures-util,tower
+bitflags v2.13.2|std
+bytes v1.12.1|default,std
+futures-util v0.3.34|alloc,async-await,async-await-macro,channel,futures-channel,futures-io,futures-macro,futures-sink,io,memchr,sink,slab,std (*)
+http v1.5.0|default,std (*)
+http-body v1.1.0| (*)
+pin-project-lite v0.2.17|
+tower v0.5.3|futures-core,futures-util,pin-project-lite,retry,sync_wrapper,timeout,tokio,util (*)
+tower-layer v0.3.3|
+tower-service v0.3.3|
+url v2.5.8|default,std
+form_urlencoded v1.2.2|alloc,default,std (*)
+idna v1.1.0|alloc,compiled_data,std
+idna_adapter v1.2.2|compiled_data
+icu_normalizer v2.4.0|compiled_data
+icu_collections v2.4.0|
+displaydoc v0.2.7 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+potential_utf v0.1.6|zerovec
+zerovec v0.11.9|derive,yoke
+yoke v0.8.4|derive,zerofrom
+stable_deref_trait v1.2.1|
+yoke-derive v0.8.4 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+synstructure v0.14.0|default,proc-macro
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+zerofrom v0.1.8|derive
+zerofrom-derive v0.1.8 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+synstructure v0.14.0|default,proc-macro (*)
+zerofrom v0.1.8|derive (*)
+zerovec-derive v0.11.7 (proc-macro)|
+proc-macro2 v1.0.107|default,proc-macro (*)
+quote v1.0.47|default,proc-macro (*)
+syn v3.0.9|clone-impls,default,derive,extra-traits,fold,full,parsing,printing,proc-macro,visit,visit-mut (*)
+utf8_iter v1.0.4|
+yoke v0.8.4|derive,zerofrom (*)
+zerofrom v0.1.8|derive (*)
+zerovec v0.11.9|derive,yoke (*)
+icu_normalizer_data v2.4.0|
+icu_provider v2.4.0|baked
+displaydoc v0.2.7 (proc-macro)| (*)
+icu_locale_core v2.4.0|zerovec
+displaydoc v0.2.7 (proc-macro)| (*)
+litemap v0.8.3|
+tinystr v0.8.5|zerovec
+displaydoc v0.2.7 (proc-macro)| (*)
+zerovec v0.11.9|derive,yoke (*)
+writeable v0.6.4|
+zerovec v0.11.9|derive,yoke (*)
+writeable v0.6.4|
+yoke v0.8.4|derive,zerofrom (*)
+zerofrom v0.1.8|derive (*)
+zerotrie v0.2.5|yoke,zerofrom
+displaydoc v0.2.7 (proc-macro)| (*)
+yoke v0.8.4|derive,zerofrom (*)
+zerofrom v0.1.8|derive (*)
+zerovec v0.11.9|derive,yoke (*)
+smallvec v1.16.3|const_generics,const_new
+zerovec v0.11.9|derive,yoke (*)
+icu_properties v2.4.0|compiled_data
+displaydoc v0.2.7 (proc-macro)| (*)
+icu_collections v2.4.0| (*)
+icu_locale_core v2.4.0|zerovec (*)
+icu_properties_data v2.4.0|
+icu_provider v2.4.0|baked (*)
+zerotrie v0.2.5|yoke,zerofrom (*)
+zerovec v0.11.9|derive,yoke (*)
+smallvec v1.16.3|const_generics,const_new
+utf8_iter v1.0.4|
+percent-encoding v2.3.2|alloc,default,std
+tower-service v0.3.3|
+url v2.5.8|default,std (*)
+webpki-roots v1.0.10| (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-awareness-core v0.1.0 (/source/crates/shenko-awareness-core)|
+anyhow v1.0.104|default,std
+async-trait v0.1.92 (proc-macro)| (*)
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+parking_lot v0.12.5|default (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-node v0.1.0 (/source/crates/shenko-node)| (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+shenko-broker v0.1.0 (/source/crates/shenko-broker)|
+anyhow v1.0.104|default,std
+async-trait v0.1.92 (proc-macro)| (*)
+base64 v0.22.1|alloc,default,std
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+cordis-core v0.6.1 (https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa)|default (*)
+dashmap v5.5.3| (*)
+parking_lot v0.12.5|default (*)
+reqwest v0.12.28|__rustls,__rustls-ring,__tls,json,rustls-tls,rustls-tls-webpki-roots,rustls-tls-webpki-roots-no-provider,stream (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+shenko-context-policy v0.1.0 (/source/crates/shenko-context-policy)|store
+blake3 v1.8.7|default,std (*)
+cordis-core v0.6.1 (https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa)|default (*)
+parking_lot v0.12.5|default (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-kernel v0.1.0 (/source/crates/shenko-kernel)|
+anyhow v1.0.104|default,std
+async-trait v0.1.92 (proc-macro)| (*)
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+cordis-core v0.6.1 (https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa)|default (*)
+crossbeam v0.8.5|alloc,crossbeam-channel,crossbeam-deque,crossbeam-epoch,crossbeam-queue,default,std
+crossbeam-channel v0.5.17|std
+crossbeam-utils v0.8.23|std
+crossbeam-deque v0.8.8|std
+crossbeam-epoch v0.9.21|alloc,std
+crossbeam-utils v0.8.23|std
+crossbeam-utils v0.8.23|std
+crossbeam-epoch v0.9.21|alloc,std (*)
+crossbeam-queue v0.3.14|alloc,std
+crossbeam-utils v0.8.23|std
+crossbeam-utils v0.8.23|std
+dashmap v5.5.3| (*)
+futures v0.3.34|alloc,async-await,default,executor,futures-executor,std (*)
+parking_lot v0.12.5|default (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tokio-util v0.7.20|codec,default,io,libc (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+shenko-store v0.1.0 (/source/crates/shenko-store)| (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+shenko-identity v0.1.0 (/source/crates/shenko-identity)|
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+cordis-core v0.6.1 (https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa)|default (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+shenko-kernel v0.1.0 (/source/crates/shenko-kernel)| (*)
+shenko-memory v0.1.0 (/source/crates/shenko-memory)|
+anyhow v1.0.104|default,std
+chrono v0.4.45|alloc,clock,default,iana-time-zone,js-sys,now,oldtime,serde,std,wasm-bindgen,wasmbind,winapi,windows-link (*)
+cordis-core v0.6.1 (https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa)|default (*)
+parking_lot v0.12.5|default (*)
+serde v1.0.229|default,derive,rc,serde_derive,std (*)
+serde_json v1.0.154|default,float_roundtrip,std (*)
+shenko-context-policy v0.1.0 (/source/crates/shenko-context-policy)|store (*)
+shenko-store v0.1.0 (/source/crates/shenko-store)| (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tokio-util v0.7.20|codec,default,io,libc (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+shenko-quota v0.1.0 (/source/crates/shenko-quota)| (*)
+shenko-store v0.1.0 (/source/crates/shenko-store)| (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tokio-util v0.7.20|codec,default,io,libc (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+shenko-types v0.1.0 (/source/crates/shenko-types)| (*)
+thiserror v2.0.21|default,std (*)
+tokio v1.54.1|bytes,default,fs,full,io-std,io-util,libc,macros,mio,net,parking_lot,process,rt,rt-multi-thread,signal,signal-hook-registry,socket2,sync,time,tokio-macros (*)
+tracing v0.1.44|attributes,default,std,tracing-attributes (*)
+uuid v1.28.0|default,rng,serde,std,v4 (*)
+zeroize v1.9.1|alloc,default
+rusqlite v0.32.1|backup,bundled,functions,hooks,modern_sqlite (*)
