@@ -204,6 +204,14 @@ pub struct CognitionImportOptions {
     pub workspace_root: Option<PathBuf>,
     /// The peer that sent the snapshot.
     pub peer_id: Option<EntityId>,
+    /// The caller declares this archive the same-installation handover (the
+    /// A/B catch-up), not a peer replication. Only then may the archive
+    /// carry and install local control facts (the scope's rollover
+    /// request). The claim is never read from the archive: a peer archive
+    /// cannot make itself authoritative over this installation's context
+    /// boundaries. Peer importers leave this false, so an archive that
+    /// declares the control class is refused whole.
+    pub local_control_handover: bool,
 }
 
 /// What an export produced.
