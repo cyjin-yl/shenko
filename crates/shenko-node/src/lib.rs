@@ -29,7 +29,7 @@ pub use cognition::*;
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 6;
+const STORAGE_SCHEMA: u32 = 7;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -411,13 +411,20 @@ impl Node {
                 units::migrate_v3_edges(&tx)?;
             }
             // Schema 5 introduced the capability tables; schema 6 adds the
-            // election, membership, branch and reconciliation tables. Each
-            // step only creates the tables that version did not have yet.
+            // election, membership, branch and reconciliation tables; schema 7
+            // adds the unit-removal lifecycle fact. Each step only creates the
+            // tables that version did not have yet.
             if locked <= 4 {
                 tx.execute_batch(capability::CAPABILITY_SCHEMA)?;
             }
             if locked <= 5 {
                 tx.execute_batch(election::ELECTION_SCHEMA)?;
+            }
+            if locked <= 6 {
+                // Schema 7 records a withdrawn unit version as its own
+                // append-only lifecycle fact; the live installation tables
+                // keep their schema-6 shape.
+                tx.execute_batch(units::UNIT_REMOVALS_TABLE)?;
             }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
@@ -1166,6 +1173,9 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     }
     if version >= 6 {
         expected.execute_batch(election::ELECTION_SCHEMA)?;
+    }
+    if version >= 7 {
+        expected.execute_batch(units::UNIT_REMOVALS_TABLE)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
