@@ -922,13 +922,17 @@ impl AndroidBackend {
         let evidence = self.fingerprint(session.display_id, region);
         let (frame_fingerprint, fingerprint_kind, fingerprint_algorithm, fingerprint_scope, fingerprint_absent) =
             match evidence {
-                FingerprintEvidence::Available(available) => (
-                    available.digest,
-                    available.kind(),
-                    Some(available.scope.algorithm.clone()),
-                    Some(available.scope),
-                    None,
-                ),
+                FingerprintEvidence::Available(available) => {
+                    let fingerprint_kind = available.kind();
+                    let fingerprint_algorithm = Some(available.scope.algorithm.clone());
+                    (
+                        available.digest,
+                        fingerprint_kind,
+                        fingerprint_algorithm,
+                        Some(available.scope),
+                        None,
+                    )
+                }
                 FingerprintEvidence::Absent(absence) => (
                     format!("pixels:{pixel_hash}"),
                     KIND_PIXELS_ONLY,
