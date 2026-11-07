@@ -24,12 +24,15 @@ import java.util.concurrent.TimeUnit
  */
 object BridgeOps {
     private const val TAG = "ShenkoBridgeOps"
+    /** Same bound the node refuses to exceed for a single capture. */
+    private const val MAX_REGION_PX = 32L * 1024 * 1024
 
     fun dispatch(context: Context, request: JSONObject): JSONObject =
         when (request.optString("op")) {
             "probe" -> probe(context)
             "capability_list" -> capabilityList(context)
             "screen_capture" -> screenCapture(context, request)
+            "node_tree_fingerprint" -> nodeTreeFingerprint(request)
             "input_batch" -> inputBatch(context, request)
             "shell_exec" -> shellExec(context, request)
             "db_snapshot" -> dbSnapshot(context, request)
@@ -49,6 +52,31 @@ object BridgeOps {
                 .put("digest", ShenkoApp.instance.installBindingDigest)
                 .put("method", "app_install_id"))
             .put("authorities", authorities)
+            .put("display", displayFacts(context))
+    }
+
+    /**
+     * Real screen metrics. `getRealMetrics` reports the physical display that
+     * `screencap` returns, unlike window metrics which exclude system decor —
+     * a session bound to the window size would place every coordinate wrong.
+     */
+    @Suppress("DEPRECATION")
+    private fun displayFacts(context: Context): JSONObject {
+        val metrics = android.util.DisplayMetrics()
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? android.view.WindowManager
+        try {
+            windowManager?.defaultDisplay?.getRealMetrics(metrics)
+        } catch (e: Exception) {
+            return JSONObject()
+                .put("display_id", 0)
+                .put("reason", "display metrics unavailable: ${e.message}")
+        }
+        return JSONObject()
+            .put("display_id", 0)
+            .put("width_px", metrics.widthPixels)
+            .put("height_px", metrics.heightPixels)
+            .put("density_dpi", metrics.densityDpi)
+            .put("rotation_deg", surfaceRotationDegrees(context))
     }
 
     private fun capabilityList(context: Context): JSONObject =
@@ -171,22 +199,45 @@ object BridgeOps {
         // shell-grade authority. Accessibility alone can only offer the node
         // tree, never pixels — that is reported, never faked.
         val result = execShellAuthority(context, listOf("screencap", "-p", dest.absolutePath))
-        if (result.has("error_kind")) {
-            return error(result.getString("error_kind"), result.getString("message"), false)
+        if (failed(result)) {
+            dest.delete()
+            return error(failureKind(result), failureMessage(result), false)
         }
         if (!dest.exists() || dest.length() == 0L) {
             return error("typed_unavailable",
-                "no granted pixel-capture mechanism (screencap failed; MediaProjection adapter not bundled)", false)
+                "no granted pixel-capture mechanism (screencap wrote no frame; MediaProjection adapter not bundled)", false)
         }
         val bytes = dest.readBytes()
         dest.delete()
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        val full = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: return error("internal", "screencap produced pixels that do not decode", false)
+        // The node refuses a region request answered with a larger frame, so
+        // the crop has to happen here for regioned observations to be
+        // coordinate-correct.
+        val cropped = cropRegion(full, request.optJSONArray("region"))
+            ?: return error("unsupported", "requested region is outside the captured display", false)
+        if (cropped.bitmap.width.toLong() * cropped.bitmap.height.toLong() > MAX_REGION_PX) {
+            return error("unsupported", "requested region exceeds the capture area bound", false)
+        }
+        val png = java.io.ByteArrayOutputStream().use { sink ->
+            cropped.bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, sink)
+            sink.toByteArray()
+        }
+        if (png.isEmpty()) {
+            return error("internal", "region re-encode produced no bytes", false)
+        }
+        val pngB64 = Base64.encodeToString(png, Base64.NO_WRAP)
+        if (pngB64.length + 1024 > DeviceBridgeServer.MAX_RESPONSE_BYTES) {
+            // Answering with a frame the node must reject as oversized would
+            // waste the whole round-trip.
+            return error("unsupported", "capture exceeds the response frame bound", false)
+        }
         return JSONObject()
             .put("ok", true)
-            .put("png_b64", Base64.encodeToString(bytes, Base64.NO_WRAP))
-            .put("width_px", options.outWidth)
-            .put("height_px", options.outHeight)
+            .put("png_b64", pngB64)
+            .put("width_px", cropped.bitmap.width)
+            .put("height_px", cropped.bitmap.height)
+            .put("region", cropped.region)
             .put("density_dpi", context.resources.displayMetrics.densityDpi)
             .put("rotation_deg", surfaceRotationDegrees(context))
             .put("secure_display", false)
@@ -194,6 +245,29 @@ object BridgeOps {
             .put("captured_at_ms", System.currentTimeMillis())
             .put("authority_used", result.optString("authority_used"))
             .put("display", JSONObject().put("display_id", displayId))
+    }
+
+    private class Cropped(val bitmap: android.graphics.Bitmap, val region: JSONArray)
+
+    /**
+     * Display-absolute crop, or null when the request is malformed or falls
+     * outside the captured frame. A full-display request reports the frame the
+     * node will see, so both sides agree on the coordinate space.
+     */
+    private fun cropRegion(full: android.graphics.Bitmap, requested: JSONArray?): Cropped? {
+        if (requested == null || requested.length() != 4) {
+            return Cropped(full, JSONArray().put(0).put(0).put(full.width).put(full.height))
+        }
+        val x = requested.optInt(0, -1)
+        val y = requested.optInt(1, -1)
+        val width = requested.optInt(2, -1)
+        val height = requested.optInt(3, -1)
+        if (x < 0 || y < 0 || width <= 0 || height <= 0) return null
+        if (x + width > full.width || y + height > full.height) return null
+        return Cropped(
+            android.graphics.Bitmap.createBitmap(full, x, y, width, height),
+            JSONArray().put(x).put(y).put(width).put(height),
+        )
     }
 
     private fun surfaceRotationDegrees(context: Context): Int =
@@ -204,6 +278,66 @@ object BridgeOps {
                 android.view.Surface.ROTATION_270 -> 270
                 else -> 0
             } } ?: 0
+
+    // ------------------------------------------------------------------
+    // Semantic hierarchy fingerprint
+    // ------------------------------------------------------------------
+
+    /**
+     * The node asks for the digest of the hierarchy the accessibility service
+     * can actually see inside a display-absolute rectangle, under the traversal
+     * bounds it declared.
+     *
+     * This is deliberately a separate op from [screenCapture]: pixels come from
+     * a shell-grade authority while the semantic tree comes from the enabled
+     * accessibility service, and one being granted never implies the other.
+     * When the hierarchy is unavailable this answers with the real reason and
+     * no digest — the node records a pixels-only observation instead of binding
+     * a hash of nothing.
+     */
+    private fun nodeTreeFingerprint(request: JSONObject): JSONObject {
+        val regionArray = request.optJSONArray("region")
+            ?: return error(
+                "unsupported",
+                "region is required: a hierarchy fingerprint is always scoped to the area it covers",
+                false,
+            )
+        if (regionArray.length() != 4) {
+            return error("unsupported", "region must be [x,y,width,height]", false)
+        }
+        val x = regionArray.optInt(0, -1)
+        val y = regionArray.optInt(1, -1)
+        val width = regionArray.optInt(2, -1)
+        val height = regionArray.optInt(3, -1)
+        if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+            return error(
+                "unsupported",
+                "region must have a non-negative origin and a positive area",
+                false,
+            )
+        }
+        if (x.toLong() + width > Int.MAX_VALUE.toLong() || y.toLong() + height > Int.MAX_VALUE.toLong()) {
+            return error("unsupported", "region exceeds the addressable display area", false)
+        }
+        if (width.toLong() * height.toLong() > MAX_REGION_PX) {
+            return error("unsupported", "region exceeds the capture area bound", false)
+        }
+        val region = android.graphics.Rect(x, y, x + width, y + height)
+        return try {
+            NodeTreeFingerprint.compute(
+                ShenkoAccessibilityService.instance,
+                request.optInt("display_id", 0),
+                region,
+                request.optInt("max_nodes", NodeTreeFingerprint.HARD_MAX_NODES),
+                request.optInt("max_depth", NodeTreeFingerprint.HARD_MAX_DEPTH),
+                request.optInt("max_windows", NodeTreeFingerprint.HARD_MAX_WINDOWS),
+            )
+        } catch (e: NodeTreeFingerprint.Unavailable) {
+            error(e.kind, e.message ?: "node hierarchy unavailable", false)
+        } catch (e: Exception) {
+            error("internal", "hierarchy traversal failed: ${e.message}", false)
+        }
+    }
 
     // ------------------------------------------------------------------
     // Input batch
@@ -222,12 +356,13 @@ object BridgeOps {
                     val y = action.getDouble("y").toFloat()
                     if (ShenkoAccessibilityService.instance?.dispatchTap(x, y) == true) {
                         authorityUsed = "accessibility"
-                        ack(i, "gesture tap")
+                        ack(i, "gesture tap", "accessibility")
                     } else {
                         val r = execShellAuthority(context, listOf("input", "tap", "$x", "$y"))
-                        authorityUsed = r.optString("authority_used", authorityUsed)
-                        if (r.has("error_kind")) nack(i, r.getString("message"))
-                        else ack(i, "input tap")
+                        val used = r.optString("authority_used", "none")
+                        authorityUsed = used
+                        if (failed(r)) nack(i, failureMessage(r), used)
+                        else ack(i, "input tap", used)
                     }
                 }
                 "swipe" -> {
@@ -238,35 +373,46 @@ object BridgeOps {
                     val durationMs = action.optLong("duration_ms", 100)
                     if (ShenkoAccessibilityService.instance?.dispatchSwipe(x1, y1, x2, y2, durationMs) == true) {
                         authorityUsed = "accessibility"
-                        ack(i, "gesture swipe")
+                        ack(i, "gesture swipe", "accessibility")
                     } else {
                         val r = execShellAuthority(context,
                             listOf("input", "swipe", "$x1", "$y1", "$x2", "$y2", "$durationMs"))
-                        authorityUsed = r.optString("authority_used", authorityUsed)
-                        if (r.has("error_kind")) nack(i, r.getString("message"))
-                        else ack(i, "input swipe")
+                        val used = r.optString("authority_used", "none")
+                        authorityUsed = used
+                        if (failed(r)) nack(i, failureMessage(r), used)
+                        else ack(i, "input swipe", used)
                     }
                 }
                 "key" -> {
                     val keycode = action.getInt("keycode")
-                    val r = execShellAuthority(context, listOf("input", "keyevent", "$keycode"))
-                    authorityUsed = r.optString("authority_used", authorityUsed)
-                    if (r.has("error_kind")) nack(i, r.getString("message"))
-                    else ack(i, "input keyevent")
+                    if (action.optBoolean("down", false)) {
+                        // `input keyevent` sends one complete press and cannot
+                        // hold a key; claiming delivery would invent a state
+                        // this mechanism never produced.
+                        nack(i, "keyevent delivers a complete press only; a held keycode $keycode is not deliverable", "none")
+                    } else {
+                        val r = execShellAuthority(context, listOf("input", "keyevent", "$keycode"))
+                        val used = r.optString("authority_used", "none")
+                        authorityUsed = used
+                        if (failed(r)) nack(i, failureMessage(r), used)
+                        else ack(i, "input keyevent (complete press)", used)
+                    }
                 }
                 "text" -> {
                     // Accessibility SET_TEXT on an arbitrary focus target is not
                     // honest here; text entry goes through the `input` argv path.
                     val r = execShellAuthority(context, listOf("input", "text", action.getString("text")))
-                    authorityUsed = r.optString("authority_used", authorityUsed)
-                    if (r.has("error_kind")) nack(i, r.getString("message"))
-                    else ack(i, "input text")
+                    val used = r.optString("authority_used", "none")
+                    authorityUsed = used
+                    if (failed(r)) nack(i, failureMessage(r), used)
+                    else ack(i, "input text", used)
                 }
                 "wait" -> {
                     Thread.sleep(action.optLong("ms", 0))
-                    ack(i, "wait")
+                    // A local sleep is not an OS input delivery.
+                    ack(i, "local wait", "none")
                 }
-                else -> nack(i, "unknown action kind $kind")
+                else -> nack(i, "unknown action kind $kind", "none")
             }
             receipts.put(receipt)
         }
@@ -276,11 +422,39 @@ object BridgeOps {
             .put("authority_used", authorityUsed)
     }
 
-    private fun ack(index: Int, note: String): JSONObject =
+    private fun ack(index: Int, note: String, authority: String): JSONObject =
         JSONObject().put("index", index).put("acked", true).put("note", note)
+            .put("authority_used", authority)
 
-    private fun nack(index: Int, note: String): JSONObject =
+    private fun nack(index: Int, note: String, authority: String): JSONObject =
         JSONObject().put("index", index).put("acked", false).put("note", note)
+            .put("authority_used", authority)
+
+    /**
+     * Authority results report failure as `{"ok":false,"error":{…}}` (and a
+     * timed-out process as `timed_out`), and a command that ran but failed
+     * still carries a non-zero `exit_code`. Delivery needs all three to be
+     * clean: treating a missing `error_kind` as success is how a refused tap
+     * used to be reported as an acknowledged one.
+     */
+    private fun failed(result: JSONObject): Boolean =
+        !result.optBoolean("ok", false) ||
+            result.optBoolean("timed_out", false) ||
+            (result.has("exit_code") && result.optInt("exit_code", -1) != 0)
+
+    private fun failureKind(result: JSONObject): String =
+        result.optJSONObject("error")?.optString("kind")?.takeIf { it.isNotEmpty() }
+            ?: if (result.has("exit_code")) "typed_unavailable" else "io"
+
+    private fun failureMessage(result: JSONObject): String =
+        result.optJSONObject("error")?.optString("message")?.takeIf { it.isNotEmpty() }
+            ?: if (result.optBoolean("timed_out", false)) {
+                "authority process timed out"
+            } else if (result.has("exit_code")) {
+                "authority command exited ${result.optInt("exit_code", -1)}"
+            } else {
+                "authority produced no result"
+            }
 
     // ------------------------------------------------------------------
     // Shell exec
