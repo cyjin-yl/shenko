@@ -5005,6 +5005,7 @@ mod recovery_integration_tests {
             pending_obligations: vec![],
             evidence_refs: vec![],
             attention_policy: None,
+            unknown_acknowledgements: vec![],
             successor_step_id: next,
         };
         step.decision_ref = Some(
@@ -5208,6 +5209,7 @@ mod recovery_integration_tests {
             pending_obligations: vec![],
             evidence_refs: vec![],
             attention_policy: None,
+            unknown_acknowledgements: vec![],
             successor_step_id: next,
         };
         step.decision_ref = Some(
