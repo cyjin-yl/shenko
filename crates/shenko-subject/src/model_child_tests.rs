@@ -413,7 +413,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     let (head, _) = reopened.load_subject(agent).unwrap();
     let native = service(&reopened, next.clone(), head.software_generation);
     native.run_once().await.unwrap();
-    assert_eq!(next.active_count(), 0);
+    assert_eq!(handle.active_count(), 0);
     let ready = reopened.ready_native_results(agent, 8).unwrap();
     assert_eq!(ready.iter().map(|r| r.result_id).collect::<Vec<_>>(), results.iter().map(|r| r.result_id).collect::<Vec<_>>());
     for result in ready {
@@ -953,7 +953,7 @@ async fn owner_message_reaches_a_running_child_and_is_settled_once() {
         2,
         "a restart never adds a step to a finished run"
     );
-    assert_eq!(next.active_count(), 0);
+    assert_eq!(handle.active_count(), 0);
     restored.close_and_join(0).await;
     broker_run.abort();
     let _ = broker_run.await;

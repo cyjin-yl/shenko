@@ -410,6 +410,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
         contribution_omissions: prepared.contribution_omissions,
         contribution_tokens: prepared.contribution_tokens,
         obligations: prepared.obligations,
+        reconciliation_docket: vec![],
         attention: None,
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
@@ -1905,6 +1906,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         pending_obligations: vec![],
         attention_policy: None,
         evidence_refs: vec![],
+        unknown_acknowledgements: vec![],
         successor_step_id: step.step_id,
     };
     step.state = SubjectStepState::Committed;

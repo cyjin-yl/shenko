@@ -284,7 +284,7 @@ async fn a_recorded_provider_rejection_continues_the_same_sealed_subject_step() 
         .await
         .expect("the subject loop settles at the requested shutdown");
     assert!(
-        matches!(&stopped, Ok(Ok(Ok(())))),
+        matches!(&stopped, Ok(Ok(()))),
         "unexpected subject loop end: {stopped:?}"
     );
     server.abort();

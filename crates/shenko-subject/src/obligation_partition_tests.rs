@@ -1293,7 +1293,7 @@ fn archive_settlements(manifest: &serde_json::Value) -> serde_json::Value {
             values
                 .iter()
                 .find(|value| value[0] == serde_json::json!(name))
-                .and_then(|value| value[1].clone())
+                .map(|value| value[1].clone())
         };
         if field("contract") != Some(serde_json::json!(TERMINAL_CONTRACT)) {
             continue;
@@ -1323,7 +1323,7 @@ fn archive_row_as_projection(row: &serde_json::Value) -> serde_json::Value {
         values
             .iter()
             .find(|value| value[0] == serde_json::json!(name))
-            .and_then(|value| value[1].clone())
+            .map(|value| value[1].clone())
             .unwrap_or(serde_json::json!(""))
     };
     let text = |name: &str| field(name).as_str().map(str::to_owned).unwrap_or_default();

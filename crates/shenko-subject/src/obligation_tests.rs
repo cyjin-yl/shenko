@@ -61,6 +61,7 @@ fn candidate(store: &Store, subject: &SubjectLoopState, raw: &str, next: EntityI
         event_dispositions:vec![], delegated_task_intents:vec![], child_dialogue_intents:vec![],
         memory_intents:vec![], policy_intents:vec![], publication_intents:vec![],
         pending_obligations:vec![], attention_policy:None, evidence_refs:vec![], successor_step_id:next,
+        unknown_acknowledgements:vec![],
     };
     for control in &decision.output.controls {
         match &control.action {
