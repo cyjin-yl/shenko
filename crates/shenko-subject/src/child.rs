@@ -764,7 +764,8 @@ impl NativeChildService {
     }
 
     /// Deterministic guidance from currently installed handlers, ordered by
-    /// frozen kind/version. No registry entry means no advertised capability.
+    /// frozen kind/version. The registry supplies the callable address even
+    /// when the handler's usage text omits it.
     pub fn installed_prompt_sections(&self) -> Vec<String> {
         self.registry
             .read()
@@ -773,7 +774,10 @@ impl NativeChildService {
             .filter_map(|registered| {
                 let descriptor = &registered.descriptor;
                 descriptor.prompt_section.as_ref().map(|section| {
-                    format!("[delegate:{}:{}] {section}", descriptor.kind, descriptor.definition_version)
+                    format!(
+                        "[delegate:{}:{}] 后接该定义的 JSON 输入。\n{section}",
+                        descriptor.kind, descriptor.definition_version
+                    )
                 })
             })
             .collect()
