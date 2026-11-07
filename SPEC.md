@@ -6186,7 +6186,6 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 - 生命周期沿用 native child：冻结输入 CAS、一次 armed attempt、一个 observation、一个 evidence receipt；reconcile 在同一 attempt 下重新测量；`EffectStatus::None`；卸载后已测观察仍可读。
 - 观察路径由真实 socket 的内联测试覆盖（真实 HTTP 应答的状态码、释放端口的 `connect_failed`、`.invalid` 的 `dns_failed`、URL 边界）。模型是否在被问到通路时真的去观察，属于 awareness 效能测量，不由本定义证明。
 
-=======
 ## 50.4 未竟义务的显式结清与复制闭包
 
 本节补充 §41 的 S0/S1 与 §45 的 unfinished-obligations 合同，不修改此前原文。主体在后续 S0 中取得本分支尚未结清的义务完整记录；请求所见与封口所用是同一份向量，描述、来源事件、依赖任务、恢复条件和复查时间均保留。历史窗口压缩不删除这些持久事实；正文仍计入正常上下文预算，不能以静默截断或省略记录假装可容纳。
@@ -6200,7 +6199,6 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 认知归档 schema 6 将上述原始创建、控制、policy、S0、投影与终态结算列为必须完整理解的事实。schema 5 及更早 reader 必须拒绝 schema 6；schema 6 reader 继续接纳其能完整解释的旧归档。缺失、矛盾或接收方已有的必需事实冲突应在发布前拒绝，不能发布部分数据库事实、文件、认知基线或复制水位后再报告失败。成功导入、关闭重开、重放和再次导出必须保留相同原始结算身份与正文。
 
 受控验证记录位于共享工作区 `build/obligation-lifecycle-20261105/actual-readers-20261105-112512/receipt.json`：分别编译的真实 schema-5/schema-6 Store reader 验证旧 reader 拒绝实际 schema-6 归档，新 reader 导入、重开、relay 后第二接收方保留同一已完成义务结算。旧 schema-5 导出再由新 reader 导入的来源为空 Store，该项只证明版本接纳，不证明有内容的历史归档恢复。原生回归与该合成 Store/CAS 场景不替代真实模型效能、断电、分区或长期运行验收。
->>>>>>> 27fd85e1
 # 51 认知元概念：内容、态度与理由
 
 2026-11-05 用户确认的概念合同。本节取代与之矛盾的设计读法，尤其是 §45 与 §48.3 里把 awareness 只当成模型读过就能遵守的文档、以及把 fact 与 conclusion 当成两种储存的读法。§1–47 的用户原话与既有验收字节不改；那些章节里的历史表述保留为来源。本节不宣称运行时已经实现这些原语。修订清单与被取代的旧观点见 [docs/decisions/0002-cognitive-atoms-2026-11-05.md](docs/decisions/0002-cognitive-atoms-2026-11-05.md)。
@@ -6333,7 +6331,6 @@ WASM 线性内存、执行栈和解释器对象图都在这个版本化根里。
 - §10.2.1 的 LayerFS 仍是合格 Linux VM 上的工作区集成。认知状态回滚不用它，只用自有版本化根。
 - 上游或操作系统自己的检查（例如打开 Store 前的文件系统类型、设备上的 su 策略）是外部事实。它们不是本节新加的认知 allowlist 或静态 hard deny。
 - 主体的判断不用关键词表、人工审批、权限门或静态 hard deny 来强制。真实的账户、设备和操作系统限制仍然是事实。§48.1 已写不把这些事实改写成人类审批。
-<<<<<<< HEAD
 # 52 通道协议优先级 / Channel Protocol Priority
 
 来源：用户指示 2026-11-06；与 §4、§45.10 DEP01/DEP02 的渠道绑定一致。
