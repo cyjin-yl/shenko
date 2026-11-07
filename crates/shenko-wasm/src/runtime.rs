@@ -9,7 +9,6 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use shenko_store::cas::ContentStore;
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
-use anyhow::{Context, Result, anyhow, bail, ensure};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -985,7 +984,7 @@ impl WasmRuntime {
         let store = self
             .stateful
             .as_mut()
-            .context("STATEFUL_INSTANCE_MISSING: no retained stateful instance")?;
+            .ok_or_else(|| anyhow!("STATEFUL_INSTANCE_MISSING: no retained stateful instance"))?;
         let provider = WasmStateProvider::new(cas);
         let backend = WasmBackendIdentity::current();
         let restored = provider.restore(store, &handle.instance, manifest, &backend)?;

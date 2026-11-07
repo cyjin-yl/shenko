@@ -976,7 +976,7 @@ fn file_identity(metadata: &Metadata) -> (u64, Option<i128>, u64) {
     let modified = metadata
         .modified()
         .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|time| time.into_std().duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_nanos() as i128);
     #[cfg(unix)]
     {
@@ -1087,7 +1087,7 @@ pub(crate) fn closure_file(
         "HOME_CHECKPOINT_INCOMPLETE: staged {rel:?} has {} bytes, the closure records {bytes}",
         staged.len()
     );
-    dir.rename(&staging, rel)
+    dir.rename(&staging, dir, rel)
         .with_context(|| format!("publish staged {rel:?}"))?;
     closure_mode(dir, rel, mode)?;
     Ok(replaced)
