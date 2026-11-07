@@ -1053,13 +1053,18 @@ impl Store {
         read_result_for_task(&conn, task_id)
     }
 
-    /// Durable ready projection: S1 dispositions, not an in-memory broadcast or
-    /// a single high-water cursor, decide whether a result still needs delivery.
-    pub fn ready_native_results(
+    /// Durable ready projection, undecoded: S1 dispositions, not an in-memory
+    /// broadcast or a single high-water cursor, decide whether a result still
+    /// needs delivery.
+    ///
+    /// The row identity travels with the original bytes so a consumer that
+    /// cannot decode one row can name it, leave the durable fact untouched and
+    /// keep delivering the rest (SPEC §41.4 X11).
+    pub fn ready_native_result_rows(
         &self,
         agent_id: EntityId,
         limit: usize,
-    ) -> Result<Vec<TaskResult>> {
+    ) -> Result<Vec<(EntityId, String)>> {
         let conn = self.ledger.conn.lock();
         let mut query = conn.prepare(
             "SELECT i.event_id,i.data FROM inbox_events i
@@ -1078,9 +1083,26 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         rows.into_iter()
             .map(|(event_id, data)| {
+                let event_id = event_id
+                    .parse::<EntityId>()
+                    .map_err(|error| anyhow::anyhow!("result event identity is not an id: {error}"))?;
+                Ok((event_id, data))
+            })
+            .collect()
+    }
+
+    /// Durable ready results, decoded strictly.
+    pub fn ready_native_results(
+        &self,
+        agent_id: EntityId,
+        limit: usize,
+    ) -> Result<Vec<TaskResult>> {
+        self.ready_native_result_rows(agent_id, limit)?
+            .into_iter()
+            .map(|(event_id, data)| {
                 let result: TaskResult = serde_json::from_str(&data)?;
                 ensure!(
-                    result.result_id == event_id.parse()?,
+                    result.result_id == event_id,
                     "result_event_identity_mismatch"
                 );
                 Ok(result)

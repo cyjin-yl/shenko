@@ -27,6 +27,7 @@ members = [
     "crates/shenko-quota",
     "crates/shenko-compact-budget",
     "crates/shenko-compact-snap",
+    "crates/shenko-compact-rollover",
     "crates/shenko-awareness-core",
     "crates/shenko-compat",
     "crates/shenko-compat-mcp",

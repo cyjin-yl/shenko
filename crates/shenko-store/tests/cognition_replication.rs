@@ -1004,3 +1004,92 @@ fn git(root: &Path, args: &[&str]) -> Option<String> {
         None
     }
 }
+
+/// A preserved deleted file is a filesystem fact, not a row: the retirement
+/// root is reserved and registered BEFORE any byte moves, so a later import
+/// failure (here the workspace restoration) can never leave the preserved
+/// bytes unregistered under the managed memory root.
+#[test]
+fn file_retirement_reservation_survives_a_rolled_back_import() {
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let source_memory = dir.join("source-memory");
+    let source_workspace = dir.join("source-workspace");
+    std::fs::create_dir_all(&source_memory).unwrap();
+    std::fs::create_dir_all(&source_workspace).unwrap();
+    std::fs::write(source_memory.join("keep.md"), b"kept").unwrap();
+    std::fs::write(source_memory.join("gone.md"), b"the retired body").unwrap();
+    std::fs::write(source_workspace.join("draft.md"), b"first draft").unwrap();
+    let source_options = || CognitionSnapshotOptions {
+        memory_root: Some(source_memory.clone()),
+        workspace_roots: vec![source_workspace.clone()],
+        include_git_history: false,
+        ..Default::default()
+    };
+    let mut first = Vec::new();
+    source.write_cognition_archive(&source_options(), None, &mut first).unwrap();
+    let receiver_dir = dir.join("receiver");
+    let receiver_memory = receiver_dir.join("memory");
+    let receiver_workspace = receiver_dir.join("workspace");
+    std::fs::create_dir_all(&receiver_memory).unwrap();
+    std::fs::create_dir_all(&receiver_workspace).unwrap();
+    let peer = EntityId::new();
+    let receiver_options = || CognitionImportOptions {
+        memory_root: Some(receiver_memory.clone()),
+        workspace_root: Some(receiver_workspace.clone()),
+        peer_id: Some(peer),
+        ..Default::default()
+    };
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    assert!(receiver.import_cognition_archive(&first[..], &receiver_options()).unwrap()
+        .ack(EntityId::new()).verified);
+    assert_eq!(std::fs::read_to_string(receiver_memory.join("gone.md")).unwrap(), "the retired body");
+    // The source deletes one memory file and adds a new workspace file. The
+    // receiver's workspace holds a regular file where that directory must be,
+    // so the workspace restoration fails AFTER the memory file was preserved.
+    std::fs::remove_file(source_memory.join("gone.md")).unwrap();
+    std::fs::create_dir_all(source_workspace.join("blocked")).unwrap();
+    std::fs::write(source_workspace.join("blocked/new.md"), b"a new file").unwrap();
+    std::fs::write(receiver_workspace.join("blocked"), b"a local file where a directory is needed").unwrap();
+    let mut second = Vec::new();
+    source.write_cognition_archive(&source_options(), None, &mut second).unwrap();
+    drop(receiver);
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    assert!(receiver.import_cognition_archive(&second[..], &receiver_options()).is_err(),
+        "the workspace restoration failure must refuse the import");
+    // The rename really happened: the bytes are preserved, not deleted.
+    assert!(!receiver_memory.join("gone.md").exists(), "the deleted path was preserved, not left in place");
+    let conn = rusqlite::Connection::open(receiver_dir.join("store.db")).unwrap();
+    let roots: Vec<String> = conn.prepare("SELECT path FROM cognition_retirements").unwrap()
+        .query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert_eq!(roots.len(), 1, "the reservation survived the rolled-back import: {roots:?}");
+    let mut preserved = Vec::new();
+    let mut pending = vec![PathBuf::from(&roots[0])];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                pending.push(entry.path());
+            } else if kind.is_file() && entry.file_name() == "gone.md" {
+                preserved.push(std::fs::read_to_string(entry.path()).unwrap());
+            }
+        }
+    }
+    assert_eq!(preserved, vec!["the retired body".to_string()]);
+    // The rolled-back facts left no tombstone, and the registered root is not
+    // re-exported as live memory content.
+    let tombstone: Option<String> = conn.query_row(
+        "SELECT state FROM cognition_file_baselines WHERE peer_id=?1 AND origin='memory' AND path='gone.md'",
+        [peer.to_string()], |row| row.get(0)).ok();
+    assert_eq!(tombstone.as_deref(), Some("present"), "the refused import advanced no file baseline");
+    drop(conn);
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let export = receiver.export_cognition(&CognitionSnapshotOptions {
+        memory_root: Some(receiver_memory.clone()),
+        include_git_history: false,
+        ..Default::default()
+    }).unwrap();
+    assert!(export.manifest.files.iter().all(|file| !file.path.contains(".shenko-retired")),
+        "{:?}", export.manifest.files.iter().map(|file| &file.path).collect::<Vec<_>>());
+}

@@ -19,11 +19,14 @@ use shenko_types::ids::EntityId;
 use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
-use crate::admission::{AdmissionController, AdmissionGuard, CapacitySnapshot};
+use crate::admission::{AdmissionController, AdmissionGuard, CapacityPool, CapacitySnapshot};
 use crate::capability::BackendCapabilitySnapshot;
 use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
 use crate::execution::{execute_request, now_ms};
-use crate::kv::{AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState};
+use crate::kv::{
+    AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState,
+    ResidencyIdentity,
+};
 use crate::registry::{ProviderRegistry, ProviderRuntime, TokenCount};
 use crate::request::{
     BrokeredCall, InferencePriority, InferenceRequest, InferenceResponse, InferenceResult,
@@ -295,6 +298,11 @@ impl BrokerHandle {
                 TerminationKind::Unknown => unreachable!("terminal evidence checked above"),
             }
             self.domain.reconcile_debt(request_id);
+            // The original terminal evidence ends the context read hold the
+            // unknown outcome kept charged; the context may now be reclaimed
+            // at the next safe boundary (§41.10).
+            self.kv
+                .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
             self.accounting_changed.notify_one();
         }
         if !accounting.contains_key(&request_id) {
@@ -367,6 +375,13 @@ impl BrokerHandle {
     /// The residency pool of this domain.
     pub fn kv_snapshot(&self) -> KvPoolState {
         self.domain.kv().clone()
+    }
+
+    /// The residency controls the pool currently relies on. An option that is
+    /// false was never demonstrated by this backend; a sealed request naming it
+    /// carries no residency claim.
+    pub fn kv_capabilities(&self) -> KvCapabilities {
+        self.kv.capabilities()
     }
 
     /// Recompute the main/children share of the residency pool.
@@ -686,14 +701,48 @@ impl Broker {
         Self::assemble(registry, domain, domains)
     }
 
-    /// Observe what the bound backend actually offers.
+    /// Observe what the bound backend actually offers, and adopt what the
+    /// residency pool may rely on.
+    ///
+    /// A probe whose result is only returned would leave the pool claiming
+    /// nothing, so the discovered pool size and the demonstrated residency
+    /// controls are applied to this domain here. An observation that reported
+    /// no pool figure leaves the capacity unknown; nothing is estimated.
     pub async fn probe_capabilities(&self) -> Result<BackendCapabilitySnapshot> {
         let binding = self
             .registry
             .primary_binding()
             .ok_or_else(|| anyhow!("no provider runtime is installed"))?;
         let runtime = self.runtime_for(&binding)?;
-        runtime.probe().await
+        let snapshot = runtime.probe().await?;
+        self.adopt_capabilities(&snapshot);
+        Ok(snapshot)
+    }
+
+    /// Adopt one capability snapshot into the live residency pool.
+    ///
+    /// The pool takes the ContextKv figure the backend reported, with its own
+    /// provenance, the controls the backend demonstrated and the identity the
+    /// binding belongs to. Everything the snapshot left unknown stays unknown:
+    /// no share, pause, spill, affinity or identity claim is invented from a
+    /// backend that never showed it.
+    ///
+    /// The share is recomputed here, so a newly discovered pool or a newly
+    /// demonstrated control reaches the existing leases instead of waiting for
+    /// the next admission; a pool that shrank below its occupancy reclaims down
+    /// to the new figure as part of that same step.
+    pub fn adopt_capabilities(&self, snapshot: &BackendCapabilitySnapshot) -> KvCapabilities {
+        let capabilities = KvCapabilities::from_snapshot(snapshot);
+        if let Some(entry) = snapshot.capacity(CapacityPool::ContextKv) {
+            self.domain.apply_kv_capacity(entry.value, entry.provenance);
+        }
+        let mut identity = ResidencyIdentity::from_snapshot(snapshot);
+        identity.engine_identity = Some(self.domain.identity().engine_identity);
+        let mut pool = self.domain.kv_mut();
+        self.kv.adopt_identity(&mut pool, &identity);
+        self.kv.apply_capabilities(&mut pool, capabilities);
+        let _ = self.kv.rebalance(&mut pool);
+        capabilities
     }
 
     /// Read one bounded native metadata response before dispatch. The model
@@ -705,6 +754,9 @@ impl Broker {
             .ok_or_else(|| anyhow!("no provider runtime is installed"))?;
         let runtime = self.runtime_for(&binding)?;
         let snapshot = runtime.probe().await?;
+        // Startup discovery is also the moment the residency pool learns what
+        // this backend offers; the metadata read below is only the model ceiling.
+        self.adopt_capabilities(&snapshot);
         let binding = runtime.binding();
         let metadata = snapshot
             .raw_evidence
@@ -748,12 +800,18 @@ impl Broker {
                 accounting.remove(&request_id);
                 self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
                 self.domain.reconcile_debt(request_id);
+                // Defensive drain: a hold can only exist after an unknown
+                // outcome, and this result is that outcome's own terminal fact.
+                self.kv
+                    .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
                 guard.release_terminal();
             }
             TerminationKind::NeverDispatched => {
                 accounting.remove(&request_id);
                 self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
                 self.domain.reconcile_debt(request_id);
+                self.kv
+                    .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
                 guard.release_never_dispatched();
             }
             TerminationKind::Unknown => {

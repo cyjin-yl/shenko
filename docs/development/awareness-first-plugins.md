@@ -1,5 +1,7 @@
 # 内核零业务，能力优先写成 perception + awareness
 
+2026-11-05 的概念修订见 [SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由) 与 [决策 0002](../decisions/0002-cognitive-atoms-2026-11-05.md)。下文把 awareness 写成「给模型的一段材料」的地方，包括 `AWARENESS.md` 的正文，描述的是当前 harness，不是能力本身。模型现在不能只靠文档稳定地注意；外部 watcher 的主动 notice 是模拟这层能力的必要抽象。兴趣、维护和空转填充仍是插件，不进内核。
+
 ## 原则
 
 内核只做机制：持久事实、协议校验、provider wire、调度、存储、权限边界。**业务判断不

@@ -16,10 +16,14 @@
 //! meant to help. The model receives the short cards and reads the body of
 //! the unit it actually wants, at the exact version it read.
 
+use std::borrow::Cow;
+use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, ensure};
+use chrono::{DateTime, Utc};
+use cordis_core::{Context, Plugin, Service};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,6 +32,10 @@ use shenko_node::{
     UnitDescriptor, UnitExport, UnitKind, UnitPackage, UnitRequest, UNIT_SCHEMA,
 };
 use shenko_types::object::Digest;
+
+use crate::perception::{
+    PerceptionBinding, PerceptionRegistry, PerceptionStatus, reconcile_perception_sources_from,
+};
 
 /// Maximum bytes of one capability card.
 pub const MAX_CARD_BYTES: usize = 512;
@@ -39,6 +47,54 @@ pub const MAX_PAGE_CARDS: usize = 32;
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
 /// Maximum bytes of one authored package entry.
 pub const MAX_ENTRY_BYTES: usize = 64 * 1024;
+
+/// The native tool a reader calls to fetch one unit body at an exact version.
+pub const READ_TOOL: &str = "cognition.unit.read";
+/// The native tool a reader calls for one page of the discovery index.
+pub const LIST_TOOL: &str = "cognition.unit.list";
+/// The definition version of both native tools in this build.
+pub const TOOL_VERSION: u32 = 1;
+
+/// How a reader addresses the material behind the index.
+///
+/// The main subject reads a body by delegating a native task; a finite child
+/// calls the native tool its own delegation granted. The index itself is the
+/// same installed catalogue either way — main and children share every
+/// discoverable unit, while the role and the grant decide what each of them
+/// can execute (SPEC §45.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CognitionCall {
+    /// The subject's own delegation syntax.
+    Delegate,
+    /// A finite child's granted native tools. Both grants travel separately:
+    /// a delegation may grant the exact-version read, the paginated index, or
+    /// only the index. The disclosure then never advertises a call the child
+    /// cannot make.
+    Tool { read: bool, list: bool },
+}
+
+impl CognitionCall {
+    /// Whether this reader can fetch one unit body at an exact version.
+    pub fn can_read(&self) -> bool {
+        match self {
+            CognitionCall::Delegate => true,
+            CognitionCall::Tool { read, .. } => *read,
+        }
+    }
+
+    /// Whether this reader can page the installed index.
+    pub fn can_list(&self) -> bool {
+        match self {
+            CognitionCall::Delegate => true,
+            CognitionCall::Tool { list, .. } => *list,
+        }
+    }
+
+    /// Whether this reader can make any call the index would name.
+    pub fn is_empty(&self) -> bool {
+        !self.can_read() && !self.can_list()
+    }
+}
 
 // ------------------------------------------------------------- metadata ---
 
@@ -366,6 +422,10 @@ pub fn seed_packages() -> Result<Vec<CognitionPackage>> {
             "seed-awareness/general-principles/AWARENESS.md",
             include_str!("../seed-awareness/general-principles/AWARENESS.md"),
         ),
+        (
+            "seed-perception/installation-units/PERCEPTION.md",
+            include_str!("../seed-perception/installation-units/PERCEPTION.md"),
+        ),
     ];
     SEEDS
         .iter()
@@ -418,6 +478,11 @@ pub struct CognitionUnit {
 }
 
 /// The short index entry of one installed cognition unit.
+///
+/// A card states installation facts only. The call that fetches the body is a
+/// property of the reader — the subject delegates, a child calls the tool its
+/// own delegation granted — so the index names it per reader instead of
+/// freezing one role's syntax into the shared fact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CognitionCard {
@@ -434,8 +499,13 @@ pub struct CognitionCard {
     pub adoption: Option<String>,
     /// Whether a measurement this installation ran backs this unit.
     pub empirical: bool,
-    /// The exact call that reads this unit's body at this version.
-    pub read_op: String,
+    /// What this node has actually observed for this perception unit version.
+    ///
+    /// Only perception units carry one: an awareness, Skill or code unit is
+    /// material, not an observation. `unknown` and `unavailable` are real
+    /// states and neither means the thing being watched is fine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perception: Option<PerceptionStatus>,
 }
 
 /// The content of one unit at one exact version.
@@ -519,6 +589,11 @@ pub struct CognitionObservation {
 pub struct CognitionCatalog {
     node: Arc<Mutex<Node>>,
     generation: RwLock<u64>,
+    /// The live half of the same catalogue: which source speaks for which
+    /// exact installed perception revision, and what it last observed. It
+    /// holds no installation state — a source is bound only to a revision the
+    /// Node actually holds.
+    perception: PerceptionRegistry,
 }
 
 impl CognitionCatalog {
@@ -527,7 +602,13 @@ impl CognitionCatalog {
         Self {
             node,
             generation: RwLock::new(0),
+            perception: PerceptionRegistry::new(),
         }
+    }
+
+    /// The observation sources bound to exact installed perception revisions.
+    pub fn perception(&self) -> &PerceptionRegistry {
+        &self.perception
     }
 
     /// The current generation of the read model.
@@ -543,17 +624,8 @@ impl CognitionCatalog {
     /// revision it was cut from; a caller that sees a different revision
     /// knows the page is stale.
     pub fn catalog_revision(&self) -> Result<u64> {
-        let facts = self.node.lock().installed_unit_facts()?;
-        let bytes = serde_json::to_vec(&facts)?;
-        let digest = Digest::blake3(&bytes);
-        // The digest carries its algorithm ("blake3:<64 hex>"): only the
-        // canonical hexadecimal part is a number. Parsing the whole string
-        // always failed and reported revision zero for every installation.
-        let hex = digest
-            .canonical_blake3_hex()
-            .context("catalog revision digest is not canonical")?;
-        let width = hex.len().min(16);
-        u64::from_str_radix(&hex[..width], 16).context("catalog revision is not a number")
+        let facts = self.facts()?;
+        revision_of(&facts)
     }
 
     /// Re-read the installation authority.
@@ -569,8 +641,7 @@ impl CognitionCatalog {
 
     /// Every installed unit, current versions only.
     pub fn units(&self) -> Result<Vec<CognitionUnit>> {
-        let node = self.node.lock();
-        let facts = node.installed_unit_facts()?;
+        let facts = self.facts()?;
         Ok(facts.iter().map(unit_from_fact).collect())
     }
 
@@ -581,15 +652,38 @@ impl CognitionCatalog {
         Ok(facts.iter().map(unit_from_fact).collect())
     }
 
+    /// One reading of the installation authority.
+    ///
+    /// A projection derives its cards, its revision and its observation
+    /// bindings from one reading, so the index can never mix units of two
+    /// installations or answer with a source bound to a version that reading
+    /// no longer contains.
+    fn facts(&self) -> Result<Vec<shenko_node::InstalledUnitFact>> {
+        Ok(self.node.lock().installed_unit_facts()?)
+    }
+
     /// The short index of the installed cognition units.
     ///
     /// The index carries the card of every unit that authored one. A unit
     /// without a card is still installed and still readable; it simply has
     /// nothing to disclose before it is read.
     pub fn cards(&self) -> Result<Vec<CognitionCard>> {
-        Ok(self
-            .units()?
-            .into_iter()
+        let facts = self.facts()?;
+        self.cards_from(&facts)
+    }
+
+    /// The cards of one reading of the installation.
+    fn cards_from(
+        &self,
+        facts: &[shenko_node::InstalledUnitFact],
+    ) -> Result<Vec<CognitionCard>> {
+        // The sources are re-derived from the installation on every
+        // projection: an updated or removed unit must not keep answering
+        // through the binding of the version it replaced.
+        reconcile_perception_sources_from(facts, &self.node, &self.perception)?;
+        Ok(facts
+            .iter()
+            .map(unit_from_fact)
             .filter(|unit| {
                 !unit.capability_card.is_empty()
                     && matches!(
@@ -599,23 +693,36 @@ impl CognitionCatalog {
                             | CognitionState::Adopted
                     )
             })
-            .map(|unit| CognitionCard {
-                unit_id: unit.unit_id.clone(),
-                kind: unit.kind,
-                revision: unit.revision.clone(),
-                artifact_digest: unit.artifact_digest.clone(),
-                title: unit.title.clone(),
-                capability_card: unit.capability_card.clone(),
-                cues: unit.cues.clone(),
-                negative_cues: unit.negative_cues.clone(),
-                applicability: unit.applicability.clone(),
-                state: unit.state,
-                adoption: unit.adoption.as_ref().map(|adoption| adoption.decision.clone()),
-                empirical: unit
-                    .adoption
-                    .as_ref()
-                    .is_some_and(|adoption| adoption.empirical && adoption.evidence_verified),
-                read_op: read_op(&unit.unit_id, &unit.revision),
+            .map(|unit| {
+                // A perception unit's card carries the observation this node
+                // holds for this exact version. Reading the definition does
+                // not produce one, so an unbound or silent source is reported
+                // as `unknown` rather than as a healthy fact.
+                let perception = (unit.kind == UnitKind::Perception).then(|| {
+                    self.perception.observe(&PerceptionBinding {
+                        unit_id: unit.unit_id.clone(),
+                        revision: unit.revision.clone(),
+                        artifact_digest: unit.artifact_digest.clone(),
+                    })
+                });
+                CognitionCard {
+                    unit_id: unit.unit_id.clone(),
+                    kind: unit.kind,
+                    revision: unit.revision.clone(),
+                    artifact_digest: unit.artifact_digest.clone(),
+                    title: unit.title.clone(),
+                    capability_card: unit.capability_card.clone(),
+                    cues: unit.cues.clone(),
+                    negative_cues: unit.negative_cues.clone(),
+                    applicability: unit.applicability.clone(),
+                    state: unit.state,
+                    adoption: unit.adoption.as_ref().map(|adoption| adoption.decision.clone()),
+                    empirical: unit
+                        .adoption
+                        .as_ref()
+                        .is_some_and(|adoption| adoption.empirical && adoption.evidence_verified),
+                    perception,
+                }
             })
             .collect())
     }
@@ -628,38 +735,58 @@ impl CognitionCatalog {
     /// [`MAX_INDEX_BYTES`], and the cards that did not fit are reached
     /// through the paginated index the last line names.
     pub fn disclosure(&self) -> Result<String> {
-        let revision = self.catalog_revision()?;
-        let cards = self.cards()?;
+        self.render_index(Some(CognitionCall::Delegate))
+    }
+
+    /// The same bounded index, rendered for one reader.
+    ///
+    /// `call` names the form that fetches a body for this reader. `None` means
+    /// this reader may not fetch bodies this turn: the index still says what
+    /// is installed — main and children share every discoverable unit — but
+    /// it does not advertise a call the reader cannot make.
+    pub fn render_index(&self, call: Option<CognitionCall>) -> Result<String> {
+        let facts = self.facts()?;
+        let revision = revision_of(&facts)?;
+        let cards = self.cards_from(&facts)?;
         let total = cards.len();
         // The footer names the total, the revision and the exact next call.
         // Its size is bounded by construction, so reserving room for it keeps
         // the whole disclosure inside the bound.
         const FOOTER_RESERVE: usize = 320;
         let budget = MAX_INDEX_BYTES.saturating_sub(FOOTER_RESERVE);
+        let now = chrono::Utc::now();
         let mut lines: Vec<String> = Vec::new();
         let mut used = 0_usize;
         for card in &cards {
-            let line = card_line(card);
+            let line = card_line(card, call, now);
             if used + line.len() + 1 > budget {
                 break;
             }
             used += line.len();
             lines.push(line);
         }
-        let mut shown = lines.len();
-        let footer = match (shown < total).then_some(shown) {
-            Some(next_start) => format!(
-                "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余按需分页读取：{}）\n",
-                list_op(next_start, MAX_PAGE_CARDS, revision)
-            ),
-            None => format!("（共 {total} 个单元，已全部显示；目录修订 {revision}）\n"),
+        // A page past the end has no reader-independent continuation: the
+        // footer only offers one when this reader can actually make the call.
+        let footer = |shown: usize| -> String {
+            if shown >= total {
+                return format!("（共 {total} 个单元，已全部显示；目录修订 {revision}）\n");
+            }
+            match call.and_then(|call| list_op_for(call, shown, MAX_PAGE_CARDS, revision)) {
+                Some(op) => format!(
+                    "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余按需分页读取：{op}）\n"
+                ),
+                None => format!(
+                    "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余本轮不可分页读取）\n"
+                ),
+            }
         };
+        let mut shown = lines.len();
         let mut text = String::new();
         for line in &lines {
             text.push_str(line);
             text.push('\n');
         }
-        text.push_str(&footer);
+        text.push_str(&footer(shown));
         if text.len() > MAX_INDEX_BYTES {
             // The reserve is generous, but the bound is the contract: drop
             // whole cards until the text fits rather than truncating one.
@@ -671,13 +798,7 @@ impl CognitionCatalog {
                     text.push_str(line);
                     text.push('\n');
                 }
-                text.push_str(&match (shown < total).then_some(shown) {
-                    Some(next_start) => format!(
-                        "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余按需分页读取：{}）\n",
-                        list_op(next_start, MAX_PAGE_CARDS, revision)
-                    ),
-                    None => format!("（共 {total} 个单元，已全部显示；目录修订 {revision}）\n"),
-                });
+                text.push_str(&footer(shown));
             }
         }
         Ok(text)
@@ -691,14 +812,16 @@ impl CognitionCatalog {
     /// sees one twice.
     pub fn discovery(&self, start: usize, count: usize) -> Result<CognitionDiscovery> {
         let count = count.clamp(1, MAX_PAGE_CARDS);
-        let cards = self.cards()?;
+        let facts = self.facts()?;
+        let revision = revision_of(&facts)?;
+        let cards = self.cards_from(&facts)?;
         let total = cards.len();
         let start = start.min(total);
         let end = start.saturating_add(count).min(total);
         let page = cards[start..end].to_vec();
         let next_start = (end < total).then_some(end);
         Ok(CognitionDiscovery {
-            catalog_revision: self.catalog_revision()?,
+            catalog_revision: revision,
             total,
             start,
             count: page.len(),
@@ -929,9 +1052,26 @@ impl CognitionCatalog {
 
 /// The delegate call that reads one unit's body at one exact version.
 pub fn read_op(unit_id: &str, revision: &str) -> String {
-    format!(
-        "[delegate:cognition.unit.read:1] {{\"unit_id\":\"{unit_id}\",\"revision\":\"{revision}\"}}"
-    )
+    read_op_for(CognitionCall::Delegate, unit_id, revision)
+        .expect("a delegating reader can always read a body at its exact version")
+}
+
+/// The call that reads one unit's body at one exact version, in the syntax of
+/// the reader that makes it.
+///
+/// A reader whose delegation granted no read has no such call, and inventing
+/// the address would only produce a refused call.
+pub fn read_op_for(call: CognitionCall, unit_id: &str, revision: &str) -> Option<String> {
+    if !call.can_read() {
+        return None;
+    }
+    let verb = match call {
+        CognitionCall::Delegate => "delegate",
+        CognitionCall::Tool { .. } => "tool",
+    };
+    Some(format!(
+        "[{verb}:{READ_TOOL}:{TOOL_VERSION}] {{\"unit_id\":\"{unit_id}\",\"revision\":\"{revision}\"}}"
+    ))
 }
 
 /// The delegate call that reads one page of the discovery index.
@@ -939,12 +1079,32 @@ pub fn read_op(unit_id: &str, revision: &str) -> String {
 /// The revision is part of the call: a page requested against an older
 /// revision is refused instead of mixed with the current installation.
 pub fn list_op(start: usize, count: usize, catalog_revision: u64) -> String {
-    format!(
-        "[delegate:cognition.unit.list:1] {{\"start\":{start},\"count\":{count},\"catalog_revision\":{catalog_revision}}}"
-    )
+    list_op_for(CognitionCall::Delegate, start, count, catalog_revision)
+        .expect("a delegating reader can always page the index")
 }
 
-fn card_line(card: &CognitionCard) -> String {
+/// The call that reads one page of the discovery index, when this reader has
+/// one: a child whose delegation granted neither tool has no paginated index
+/// to call, and inventing the address would only produce a refused call.
+pub fn list_op_for(
+    call: CognitionCall,
+    start: usize,
+    count: usize,
+    catalog_revision: u64,
+) -> Option<String> {
+    if !call.can_list() {
+        return None;
+    }
+    let verb = match call {
+        CognitionCall::Delegate => "delegate",
+        CognitionCall::Tool { .. } => "tool",
+    };
+    Some(format!(
+        "[{verb}:{LIST_TOOL}:{TOOL_VERSION}] {{\"start\":{start},\"count\":{count},\"catalog_revision\":{catalog_revision}}}"
+    ))
+}
+
+fn card_line(card: &CognitionCard, call: Option<CognitionCall>, now: DateTime<Utc>) -> String {
     let mut line = format!(
         "- {}@{} [{}] {}",
         card.unit_id,
@@ -964,7 +1124,13 @@ fn card_line(card: &CognitionCard) -> String {
     if card.state != CognitionState::Enabled {
         line.push_str(&format!("（状态：{}）", card.state.as_str()));
     }
-    line.push_str(&format!("。正文按需读取：{}", card.read_op));
+    if let Some(perception) = card.perception.as_ref() {
+        line.push_str(&format!("（{}）", perception.line(now)));
+    }
+    match call.and_then(|call| read_op_for(call, &card.unit_id, &card.revision)) {
+        Some(op) => line.push_str(&format!("。正文按需读取：{op}")),
+        None => line.push_str("。本轮没有读取正文的手段，这里只是已安装单元的名录"),
+    }
     line
 }
 
@@ -981,6 +1147,20 @@ pub fn adoption_from_config(config: &Value) -> Option<AdoptionRecord> {
     config
         .pointer("/cognition/adoption")
         .and_then(|value| serde_json::from_value::<AdoptionRecord>(value.clone()).ok())
+}
+
+/// The installation revision of one reading of the facts.
+fn revision_of(facts: &[shenko_node::InstalledUnitFact]) -> Result<u64> {
+    let bytes = serde_json::to_vec(facts)?;
+    let digest = Digest::blake3(&bytes);
+    // The digest carries its algorithm ("blake3:<64 hex>"): only the
+    // canonical hexadecimal part is a number. Parsing the whole string
+    // always failed and reported revision zero for every installation.
+    let hex = digest
+        .canonical_blake3_hex()
+        .context("catalog revision digest is not canonical")?;
+    let width = hex.len().min(16);
+    u64::from_str_radix(&hex[..width], 16).context("catalog revision is not a number")
 }
 
 fn unit_from_fact(fact: &shenko_node::InstalledUnitFact) -> CognitionUnit {
@@ -1077,7 +1257,7 @@ fn dependencies_of(fact: &shenko_node::InstalledUnitFact) -> Vec<DependencyFact>
         .collect()
 }
 
-fn truncate_utf8(text: &str, limit: usize) -> (String, bool) {
+pub(crate) fn truncate_utf8(text: &str, limit: usize) -> (String, bool) {
     if text.len() <= limit {
         return (text.to_string(), false);
     }
@@ -1260,4 +1440,172 @@ pub fn install_dir(catalog: &CognitionCatalog, package_root: &Path) -> Result<Ve
         installed.push(format!("{}@{}", package.unit_id, package.revision));
     }
     Ok(installed)
+}
+
+impl Service for CognitionCatalog {
+    const NAME: &'static str = "shenko.cognition.catalog";
+}
+
+/// Publishes the one catalog so any plugin — including a finite child's
+/// handler — finds the same installed material by name.
+///
+/// Publishing does not grant anything: a reader still has to be able to make
+/// the call the index names, and the index says so when it cannot.
+pub struct CognitionCatalogHost;
+
+impl Plugin for CognitionCatalogHost {
+    type Config = Arc<CognitionCatalog>;
+    type Input = Arc<CognitionCatalog>;
+    type PrepareError = Infallible;
+    type ApplyError = std::io::Error;
+
+    fn name(&self) -> Cow<'_, str> {
+        Cow::Borrowed("cognition-catalog-host")
+    }
+
+    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        Ok(config)
+    }
+
+    async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
+        let _publication = ctx.provide(Arc::clone(input)).map_err(std::io::Error::other)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::perception::{
+        INSTALLATION_UNITS, INSTALLATION_UNITS_SOURCE, INSTALLATION_UNITS_TARGET,
+        PerceptionFact, PerceptionObserver, PerceptionPerspective,
+    };
+
+    /// A source that answers with one prepared fact.
+    struct Fixed(PerceptionFact);
+
+    impl PerceptionObserver for Fixed {
+        fn observe(&self) -> Result<PerceptionFact> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn package(unit_id: &str, kind: UnitKind) -> CognitionPackage {
+        CognitionPackage {
+            unit_id: unit_id.into(),
+            kind,
+            revision: "0.1.0".into(),
+            title: "fixture".into(),
+            capability_card: "fixture card".into(),
+            why: Some("a fixture unit for the projection".into()),
+            cues: vec![],
+            negative_cues: vec![],
+            applicability: None,
+            knowledge: vec![],
+            provenance_refs: vec![],
+            learning: None,
+            supersedes: vec![],
+            provides: vec![],
+            dependencies: vec![],
+            body: "FIXTURE-BODY-MUST-NOT-BE-DISCLOSED".into(),
+            entry_text: "---\nid: fixture\n---\nFIXTURE-BODY-MUST-NOT-BE-DISCLOSED".into(),
+            enabled: true,
+        }
+    }
+
+    /// A real installation authority with one installed unit.
+    fn installed(unit_id: &str, kind: UnitKind) -> Arc<CognitionCatalog> {
+        let dir = std::env::temp_dir().join(format!("shenko-cognition-{}", uuid::Uuid::new_v4()));
+        let root = dir.join("cognition");
+        std::fs::create_dir_all(&root).unwrap();
+        let node = Arc::new(Mutex::new(shenko_node::Node::open(&dir.join("node")).unwrap()));
+        let catalog = Arc::new(CognitionCatalog::new(node));
+        catalog.install(&package(unit_id, kind), &root).unwrap();
+        catalog
+    }
+
+    fn card(catalog: &CognitionCatalog, unit_id: &str) -> CognitionCard {
+        catalog
+            .cards()
+            .unwrap()
+            .into_iter()
+            .find(|card| card.unit_id == unit_id)
+            .unwrap_or_else(|| panic!("unit '{unit_id}' has no card"))
+    }
+
+    #[test]
+    fn the_shipped_installation_unit_observes_this_nodes_installation() {
+        let catalog = installed(INSTALLATION_UNITS, UnitKind::Perception);
+        let card = card(&catalog, INSTALLATION_UNITS);
+        let Some(PerceptionStatus::Observed { fact }) = card.perception else {
+            panic!("the shipped source did not produce a fact")
+        };
+        assert_eq!(fact.binding.unit_id, INSTALLATION_UNITS);
+        assert_eq!(fact.source, INSTALLATION_UNITS_SOURCE);
+        assert_eq!(fact.target, INSTALLATION_UNITS_TARGET);
+        assert!(fact.summary.contains("认知单元"), "{}", fact.summary);
+        // The observation is archived against the exact installed version, so
+        // it outlives the definition and can be cited later.
+        let archived = catalog.observations(INSTALLATION_UNITS).unwrap();
+        assert!(archived.iter().any(|row| row.kind == "perception_observation" && row.bytes_held));
+        // Only the card travels; the definition body is read on demand.
+        let disclosure = catalog.disclosure().unwrap();
+        assert!(disclosure.contains("观察："), "{disclosure}");
+        assert!(!disclosure.contains("FIXTURE-BODY-MUST-NOT-BE-DISCLOSED"), "{disclosure}");
+    }
+
+    #[test]
+    fn a_perception_card_reports_the_fact_or_its_absence() {
+        let catalog = installed("test.perception", UnitKind::Perception);
+        let unknown = card(&catalog, "test.perception");
+        let Some(PerceptionStatus::Unknown { .. }) = unknown.perception else {
+            panic!("reading a definition must not fabricate a fact")
+        };
+        let binding = PerceptionBinding {
+            unit_id: "test.perception".into(),
+            revision: unknown.revision.clone(),
+            artifact_digest: unknown.artifact_digest.clone(),
+        };
+        catalog
+            .perception()
+            .bind(
+                binding.clone(),
+                Arc::new(Fixed(PerceptionFact {
+                    binding: binding.clone(),
+                    source: "test:probe".into(),
+                    target: "connection.fixture".into(),
+                    observed_at: "2026-11-05T00:00:00Z".into(),
+                    valid_until: None,
+                    summary: "连接 X 的 WebSocket 已关闭".into(),
+                    evidence_digest: None,
+                    perspective: Some(PerceptionPerspective::Own),
+                })),
+            )
+            .unwrap();
+        let observed = card(&catalog, "test.perception");
+        let Some(PerceptionStatus::Observed { fact }) = observed.perception else {
+            panic!("a bound source that answered is an observation")
+        };
+        assert_eq!(fact.source, "test:probe");
+        assert_eq!(fact.target, "connection.fixture");
+    }
+
+    #[test]
+    fn each_reader_is_told_only_the_calls_it_can_make() {
+        let catalog = installed("test.awareness", UnitKind::Awareness);
+        let delegate = catalog.render_index(Some(CognitionCall::Delegate)).unwrap();
+        assert!(delegate.contains("[delegate:cognition.unit.read:1]"), "{delegate}");
+        let tool = catalog.render_index(Some(CognitionCall::Tool { read: true, list: false })).unwrap();
+        assert!(tool.contains("[tool:cognition.unit.read:1]"), "{tool}");
+        assert!(!tool.contains("[delegate:"), "{tool}");
+        let index_only =
+            catalog.render_index(Some(CognitionCall::Tool { read: false, list: true })).unwrap();
+        assert!(!index_only.contains(READ_TOOL), "{index_only}");
+        assert!(index_only.contains("本轮没有读取正文的手段"), "{index_only}");
+        // A reader with no granted call still learns what is installed.
+        let directory = catalog.render_index(None).unwrap();
+        assert!(directory.contains("fixture card"), "{directory}");
+        assert!(!directory.contains(READ_TOOL), "{directory}");
+        assert!(!directory.contains(LIST_TOOL), "{directory}");
+    }
 }

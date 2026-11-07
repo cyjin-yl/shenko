@@ -33,10 +33,13 @@ child 是多步有界运行：可用所授 tools 调用已注册能力；有 rep
 等待最长 600 秒，继续等待不会延长原截止时间；新消息不会被框架自动当成结束，但你应判断它是否满足原条件或使你改变关注；不要用相同条件反复新建等待来绕过上限。\n\
 输入处置用 [dispose] {\"event_id\":\" durable 事件 uuid\",\"disposition\":\"acknowledged|deferred|delegated|ignored\",\"reason\":\"你的理由\",\"priority\":\"low|normal|high\",\"review_after\":\"RFC3339 时间\"}；除 acknowledged 外必须给 reason；带 priority 必须给 review_after。\n\
 持久义务用 [obligation] {\"description\":\"要做什么\",\"depends_on_task_id\":\"uuid 可选\",\"resume_condition\":\"恢复条件 可选\",\"origin_event_id\":\"对应的输入事件 uuid 可选\",\"due_at\":\"RFC3339 可选\"}；义务会一直带在后续思考里直到完成或取消。\n\
+完成或取消本轮持久事实中的义务用 [obligation:terminal] {\"obligation_id\":\"本轮义务 uuid\",\"state\":\"completed|cancelled\",\"reason\":\"完成或取消的理由\"}；同一义务一次结果最多改变一次，两个终态都不可再改变。\n\
 对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个仍在运行的 child task：消息进入它同一讨论，由它下一步读取；已经结束的 child 收不到对话。\n\
 child 以 needs_decision 交回问题时，用 [delegate] 带上该 task_id 的 continue_task_id 与你自己的 owner_answer 继续同一讨论；这是对已结束 child 说话的唯一路径。\n\
 免打扰用 [dnd] {\"state\":\"off|active\",\"sources\":[\"来源…\"],\"reason\":\"理由\",\"review_after\":\"RFC3339\"}；state=off 必须列出静默的来源并给回顾时间，不是无限期静默开关。\n\
 采用一条实时插入用 [steer] {\"submission_id\":\"提交键\"}；只能采用本轮输入里真实存在的那条插入，其他键会被拒绝。\n\
+外部效果仍未知时，接受这份不确定性继续别的工作用 [reconcile] {\"case_id\":\"本轮上下文里真实出现过的 case id\",\"reason_refs\":[\"该 case 已有的 evidence 收据 id\"],\"remaining_impact\":\"剩余影响与还需什么证据\"}；\
+它只记录你的判断，不会把效果改成成功、不会重发，也不删除原始回执；以后收到确定证据会重新评估。没有出现在本轮上下文里的 case 会被拒绝。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
 普通正文是自己的想法和观察，可显示在系统时间线，但不会作为外部消息送给对方；想让对方收到的内容必须使用回复控制行。未列出的方括号标签会被判为错误；\n\
 即使本步在调整身份或保存记忆，也要写下此刻的想法，不要只有控制行。\n\
@@ -228,6 +231,7 @@ pub fn parse_output(
     let mut literal_ranges = literal_ranges.into_iter().peekable();
     let mut identity_fields = std::collections::HashSet::new();
     let mut wait_controls = 0u32;
+    let mut obligation_targets = std::collections::HashSet::new();
     for (index, chunk) in raw.split_inclusive('\n').enumerate() {
         let line_no = index as u64 + 1;
         let line = chunk.trim_end_matches(['\r', '\n']);
@@ -360,6 +364,13 @@ pub fn parse_output(
                             spec: crate::authored_controls::parse_obligation(value, line_no)?,
                         }
                     }
+                    "[obligation:terminal" => {
+                        let change = crate::authored_controls::parse_obligation_terminal(value, line_no)?;
+                        if !obligation_targets.insert(change.obligation_id) {
+                            return Err(invalid(line_no, "duplicate obligation target in one result"));
+                        }
+                        OutputAction::ObligationTerminal { change }
+                    }
                     "[dialogue" => {
                         OutputAction::Dialogue {
                             spec: crate::authored_controls::parse_dialogue(value, line_no)?,
@@ -373,6 +384,11 @@ pub fn parse_output(
                     "[steer" => {
                         OutputAction::Steer {
                             spec: crate::authored_controls::parse_steer(value, line_no)?,
+                        }
+                    }
+                    "[reconcile" => {
+                        OutputAction::Reconcile {
+                            spec: crate::authored_controls::parse_reconcile(value, line_no)?,
                         }
                     }
                     "[delegate" => {
