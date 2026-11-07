@@ -338,6 +338,35 @@ pub fn validate_profile(profile: &KernelProfile) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Whether a host path is a regular file (symlinks followed) carrying an
+/// execute bit. An installer resolved next to a native interpreter and the
+/// interpreter artifact itself are both exec'd directly.
+pub(crate) fn executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    match std::fs::metadata(path) {
+        Ok(metadata) => metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
+        Err(_) => false,
+    }
+}
+
+/// A native kernel executes the bound artifact directly, so the artifact must
+/// actually be executable; a regular file without an execute bit is not an
+/// interpreter and is refused at admission instead of failing at first cell.
+/// WASI modules are read by the runtime, where the mode is irrelevant and is
+/// deliberately not invented as a requirement.
+pub fn validate_module_mode(profile: &KernelProfile, module: &Path) -> anyhow::Result<()> {
+    if profile.backend != BackendKind::NativeHost {
+        return Ok(());
+    }
+    if executable_file(module) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "REPL_KERNEL_UNAVAILABLE: native interpreter {} is not an executable file",
+        module.display()
+    )
+}
+
 fn validate_guest_path(path: &str) -> anyhow::Result<()> {
     if !path.starts_with('/') || path.contains('\0')
         || (path != "/" && path[1..].split('/').any(|part| part.is_empty() || part == "." || part == ".."))

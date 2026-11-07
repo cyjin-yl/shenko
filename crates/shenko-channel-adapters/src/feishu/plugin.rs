@@ -23,8 +23,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use shenko_types::channel::{
-    BoxFuture, ChannelAction, ChannelDispatch, ChannelEnvelope, ChannelError, ChannelPlugin,
-    ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
+    AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
+    ChannelError, ChannelPlugin, ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
+    ResolvedAttachment,
 };
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
@@ -418,6 +419,74 @@ impl ChannelPlugin for FeishuChannel {
                     Ok(receipt_of(dispatch, answer))
                 }
             }
+        })
+    }
+
+    /// Download one drive object through the message it arrived with.
+    ///
+    /// Feishu does not publish a fetchable URL for a message resource: the
+    /// bytes are served by the resource endpoint, keyed by the message id, the
+    /// `file_key` the platform named and the resource kind. All three were
+    /// captured at classification time, and the call carries the app's own
+    /// tenant ticket, so this is the installed account's authenticated read
+    /// rather than a fetch of an arbitrary address.
+    fn resolve_attachment(
+        &self,
+        attachment: &ChannelAttachment,
+    ) -> BoxFuture<'static, Result<ResolvedAttachment, AttachmentError>> {
+        let attachment = attachment.clone();
+        let api = self.api.clone();
+        Box::pin(async move {
+            let params = attachment.locator.params.as_ref();
+            let message_id = params
+                .and_then(|params| text_field(params, "message_id"));
+            let Some(message_id) = message_id else {
+                return Err(AttachmentError::Refused {
+                    attachment_id: attachment.attachment_id.clone(),
+                    detail: "the message carried no platform message id for its resource".to_string(),
+                });
+            };
+            let Some(file_key) = attachment
+                .locator
+                .path
+                .as_deref()
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_owned)
+            else {
+                return Err(AttachmentError::Refused {
+                    attachment_id: attachment.attachment_id.clone(),
+                    detail: "the platform named no resource key for this attachment".to_string(),
+                });
+            };
+            // The endpoint serves exactly two resource kinds. The kind captured
+            // with the locator wins; a locator without one falls back to its
+            // own attachment kind, which the platform's `type` accepts.
+            let resource_type = params
+                .and_then(|params| text_field(params, "resource_type"))
+                .unwrap_or_else(|| {
+                    if attachment.kind == "image" {
+                        "image".to_string()
+                    } else {
+                        "file".to_string()
+                    }
+                });
+            // `download_media` already maps platform refusal into `Err`, so
+            // every `Ok` is a delivered payload.
+            let crate::common::MediaAnswer::Delivered { media_type, bytes } = api
+                .download_media(
+                    FEISHU_CHANNEL_ID,
+                    &attachment.attachment_id,
+                    &message_id,
+                    &file_key,
+                    &resource_type,
+                )
+                .await?
+            else {
+                // `download_media` never returns `Ok(Refused{..})`.
+                unreachable!()
+            };
+            crate::common::resolved_from_media(&attachment, media_type, bytes)
         })
     }
 }

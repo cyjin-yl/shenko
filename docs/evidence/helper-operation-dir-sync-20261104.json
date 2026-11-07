@@ -1,0 +1,48 @@
+{
+  "as_of_utc": "2026-11-04T02:13:19Z",
+  "candidate_commit": "b607194c9f44a7dd4d34e048cf916a2ba823c883",
+  "candidate_tree": "0baa710347d3c7be931e091649be6c9fb75ac9cb",
+  "baseline_commit": "2a40b7aff38d3a21a92aba8f6a1039281395a5f2",
+  "requirements": [
+    "C07/#12",
+    "remote operation receipt persistence"
+  ],
+  "environment": "Linux, Python 3.13.5 standard library, python -I -S; read-only source, private PID/HOME/temp filesystem, no capabilities, existing socket-denying wrapper, no network/SSH/credentials",
+  "commands": [
+    "python3 -I -S test_helper_durability.py baseline/remote_helper.py",
+    "python3 -I -S test_helper_durability.py fixed/remote_helper.py"
+  ],
+  "results": {
+    "baseline": {
+      "exit_code": 1,
+      "passed": 0,
+      "failed": 2
+    },
+    "fixed": {
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "hashes": {
+    "baseline_helper": "84774195a09d28b1ecd6a2fd310648bb4478f89db0226b8d3831c95a563c2e95",
+    "fixed_helper": "7e0681219063fb4adab7e4dfe2a7990d818334ed635cf8d65962cc648ef12288",
+    "test": "889251ece4152ac670785c5cbadd95e938a7d694219d484a21bc5f35923e66f6",
+    "raw_receipt_sha256": "6352e176a8dc5d2aa13af211d0f7576565550f635eebf1bc75229fb97a3d631b"
+  },
+  "source_before_after": "identical",
+  "observed": [
+    "Original implementation never fsyncs the receipt root: no observed call, so injected root-sync failure cannot prevent upload.",
+    "Fixed implementation syncs the operation directory entry before intent and upload; real synthetic upload and query preserve a later independent target modification.",
+    "Injected root fsync failure raises before intent/effect. Query and repeated dispatch return unknown, leaving the operation directory empty and target absent."
+  ],
+  "unverified": [
+    "Rust compile and Store historical receipt-query integration",
+    "CI",
+    "Actual SSH/network",
+    "Physical crash or power loss",
+    "Durability of newly created recursive receipt-root ancestors",
+    "Full C07/R017 and S1-S5"
+  ],
+  "raw_test_output": "test_failed_parent_sync_stops_before_intent_or_effect (__main__.HelperDurability.test_failed_parent_sync_stops_before_intent_or_effect) ... FAIL\ntest_operation_entry_synced_before_intent_and_effect (__main__.HelperDurability.test_operation_entry_synced_before_intent_and_effect) ... FAIL\n\n======================================================================\nFAIL: test_failed_parent_sync_stops_before_intent_or_effect (__main__.HelperDurability.test_failed_parent_sync_stops_before_intent_or_effect)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/source/test_helper_durability.py\", line 79, in test_failed_parent_sync_stops_before_intent_or_effect\n    with self.assertRaisesRegex(OSError, \"owned injected\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: OSError not raised\n\n======================================================================\nFAIL: test_operation_entry_synced_before_intent_and_effect (__main__.HelperDurability.test_operation_entry_synced_before_intent_and_effect)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/source/test_helper_durability.py\", line 56, in test_operation_entry_synced_before_intent_and_effect\n    self.assertEqual(observed, [True], \"operation directory entry was not synced\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != [True]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\nTrue\n\n- []\n+ [True] : operation directory entry was not synced\n\n----------------------------------------------------------------------\nRan 2 tests in 0.013s\n\nFAILED (failures=2)\n\n=== FIXED ===\ntest_failed_parent_sync_stops_before_intent_or_effect (__main__.HelperDurability.test_failed_parent_sync_stops_before_intent_or_effect) ... ok\ntest_operation_entry_synced_before_intent_and_effect (__main__.HelperDurability.test_operation_entry_synced_before_intent_and_effect) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.016s\n\nOK\n"
+}

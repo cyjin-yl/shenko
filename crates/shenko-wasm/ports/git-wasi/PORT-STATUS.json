@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "tool": "git",
+  "upstream": "https://git.kernel.org/pub/scm/git/git.git",
+  "review_mirror": "https://github.com/git/git",
+  "license": "GPL-2.0-only",
+  "abi": "wasi_preview1",
+  "state": "unported",
+  "requires": ["cap.network.tcp/1"],
+  "pin": null,
+  "pin_tool": "../resolve-pin.sh",
+  "missing": [
+    "socket layer over the admitted preview1 descriptor (sysroot has no socket())",
+    "in-process builtin dispatch instead of fork/exec child processes",
+    "credential source via the tool admission stdin credential, no helper executables",
+    "wasip1 TLS and HTTP client provider, or an explicitly http-only first artifact",
+    "portability build without mmap, threads, iconv, gettext, Perl/Python/Tcl",
+    "measured artifact manifest only after a real build"
+  ],
+  "artifact": null
+}

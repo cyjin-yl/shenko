@@ -425,6 +425,24 @@ pub struct SteerSpec {
     pub submission_id: String,
 }
 
+/// The subject's explicit decision about one reconciliation case: the
+/// external effect stays unknown, and the subject records why it can keep
+/// working with that residue. It never claims the effect did not happen
+/// (SPEC §41.4 X11), so there is no "resolved" authored here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReconcileSpec {
+    /// A case that was actually carried into this step's S0.
+    pub case_id: EntityId,
+    /// The evidence this reading rests on — receipt identities already
+    /// attached to that case. A reason that cites a receipt it never saw is
+    /// refused at S1 (SPEC §51.1: reasons terminate at an observation,
+    /// original or receipt).
+    pub reason_refs: Vec<EntityId>,
+    /// What uncertainty remains, and what evidence would still settle it.
+    pub remaining_impact: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OutputAction {
@@ -459,6 +477,10 @@ pub enum OutputAction {
     Obligation {
         spec: ObligationSpec,
     },
+    /// Complete or cancel an existing obligation sealed into this step.
+    ObligationTerminal {
+        change: crate::subject::ObligationTerminalChange,
+    },
     /// An authored dialogue turn to a durable task.
     Dialogue {
         spec: DialogueSpec,
@@ -470,6 +492,10 @@ pub enum OutputAction {
     /// The subject adopted one live steer carried into this step.
     Steer {
         spec: SteerSpec,
+    },
+    /// The subject accepted one unknown external effect for now.
+    Reconcile {
+        spec: ReconcileSpec,
     },
 }
 

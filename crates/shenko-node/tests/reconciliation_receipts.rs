@@ -47,7 +47,9 @@ fn peer_receipts_survive_reopen_without_settlement_or_duplication() -> Result<()
     let experience = PeerExperience {
         peer_node_id: peer_id, peer_branch_id: Some(identity.branch_id), events: vec![],
         receipts: vec![conflict.clone(), unassociated.clone()], cognition_fingerprint: None,
-        cognition_high_water: None, note: "native fixture".into(),
+        cognition_high_water: None, cognition_origin: None, peer_high_water: Some("0".into()),
+        peer_manifest: None,
+        note: "native fixture".into(),
     };
     drop(peer);
     let record = local.reconcile_peer_experience(&experience)?;

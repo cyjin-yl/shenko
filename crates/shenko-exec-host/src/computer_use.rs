@@ -76,12 +76,24 @@ use x11rb::{
 const XI_ALL_MASTER_DEVICES: u16 = 1;
 /// XIAllDevices enumerates the hierarchy for XTEST source detection.
 const XI_ALL_DEVICES: u16 = 0;
-const CONTRACT: &[u8] = b"shenko.computer_use/v1: real X11 XTEST input and GetImage observation; observation-bound delivery; lease revocable by takeover or non-XTEST raw input; transport ACK is not an application effect";
+/// The operation contract every provider is bound to. It names the
+/// provider-neutral guarantees only: the per-platform mechanism (X11
+/// XTEST/GetImage, Win32 SendInput/BitBlt, CGEvent/CGDisplayCreateImage)
+/// is a provider fact reported in each session's capabilities, never a
+/// product-wide claim.
+const CONTRACT: &[u8] = b"shenko.computer_use/v1: real platform capture and input injection through a compiled-in provider; observation-bound delivery; one write lease per interactive display domain, revocable by takeover or external input; transport ACK is not an application effect";
 const MAX_ACTIONS: usize = 64;
 const MAX_TEXT_CHARS: usize = 4096;
 const MAX_REGION_PX: i64 = 33_554_432;
 const MAX_OBSERVATION_AGE_MS: i64 = 300_000;
 const KEY_SHIFT_L: Keysym = 0xFFE1;
+/// Capability level recorded on every computer-use operation binding: a
+/// real provider bound by frozen input, not a simulated surface.
+const REAL_PROVIDER_CAPABILITY_LEVEL: &str = "real_desktop_provider_bound_by_frozen_input";
+/// Retry contract text for the neutral product: input that left the process
+/// without conclusive transport evidence is unknown, never replayed.
+const NO_REPLAY_RETRY_CONTRACT: &str =
+    "no automatic replay; input armed on a real provider without conclusive transport evidence remains unknown";
 
 // ---------------------------------------------------------------------------
 // Frozen inputs
@@ -592,12 +604,16 @@ impl ComputerUseBackend {
         #[cfg(target_os = "windows")]
         providers.insert(
             "windows".into(),
-            Arc::new(crate::desktop_windows::WindowsDesktopProvider::new()),
+            Arc::new(crate::desktop_windows::WindowsDesktopProvider::with_fanout(
+                Arc::clone(&human_input),
+            )),
         );
         #[cfg(target_os = "macos")]
         providers.insert(
             "macos".into(),
-            Arc::new(crate::desktop_macos::MacOsDesktopProvider::new()),
+            Arc::new(crate::desktop_macos::MacOsDesktopProvider::with_fanout(
+                Arc::clone(&human_input),
+            )),
         );
         Self {
             store,
@@ -673,6 +689,43 @@ impl ComputerUseBackend {
                 })
             })
             .collect()
+    }
+
+    /// Capability discovery answer (SPEC §24.1/§24.2/§10.2.1): the desktop
+    /// providers this build really contains, the platform default for
+    /// "auto", and the original-LayerFS VM path's own readiness. It never
+    /// starts a VM, connects to a display or spawns the companion.
+    fn capabilities_facts(&self, requested: Option<&str>) -> serde_json::Value {
+        let probe_note = "declared; probed live at session open";
+        let providers = match requested {
+            Some(name) => match self.provider_for(name) {
+                Ok(provider) => vec![serde_json::json!({
+                    "provider": provider.provider_id(),
+                    "capabilities": provider.capabilities(),
+                    "probe": probe_note,
+                })],
+                Err(error) => vec![serde_json::json!({
+                    "provider": name,
+                    "available": false,
+                    "reason": error.reason(),
+                    "detail": error.detail(),
+                })],
+            },
+            None => self
+                .provider_capabilities()
+                .into_iter()
+                .map(|mut entry| {
+                    entry["probe"] = serde_json::json!(probe_note);
+                    entry
+                })
+                .collect(),
+        };
+        serde_json::json!({
+            "result": "available",
+            "platform_default": platform_default_provider(),
+            "providers": providers,
+            "layerfs_vm": self.layerfs.capabilities(),
+        })
     }
 
     fn session_entry(
@@ -766,15 +819,12 @@ impl ComputerUseBackend {
             account_identity: String::new(),
             runtime_node: invocation.task_invocation.node_id.to_string(),
             mount_generation: 0,
-            capability_level: "real_x11_bound_by_frozen_input".into(),
+            capability_level: REAL_PROVIDER_CAPABILITY_LEVEL.into(),
             extra: extra_binding,
         };
         let resource = self.seal(&bindings, "computer-use-binding")?;
         let acceptance_ref = self.seal(&acceptance, "computer-use-acceptance")?;
-        let retry = self.seal(
-            &"no automatic replay; armed XTEST input without conclusive evidence remains unknown",
-            "computer-use-retry",
-        )?;
+        let retry = self.seal(&NO_REPLAY_RETRY_CONTRACT, "computer-use-retry")?;
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
@@ -1476,11 +1526,12 @@ impl X11Provider {
         };
         let (frame_id, revision) = match session.locked() {
             Ok(mut shared) => {
-                let frame_id = shared.next_frame;
                 shared.next_frame += 1;
-                let revision = shared.next_revision;
                 shared.next_revision += 1;
-                (frame_id, revision)
+                // Both counters start at 1 and are monotonic per session, the
+                // same ordering the Windows/macOS providers report, so a
+                // consumer can compare revisions across providers.
+                (shared.next_frame, shared.next_revision)
             }
             Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
@@ -2509,6 +2560,19 @@ fn image_to_rgb8(frame: &CapturedFrame) -> Result<Vec<u8>, &'static str> {
     Ok(rgb)
 }
 
+/// Evidence media type for the provider's own raw pixel bytes. The sealed
+/// pixels stay provider-native, so their label must come from the frame's
+/// declared byte layout — an X11 ZPixmap buffer is never relabelled as a
+/// Win32/macOS BGRA buffer, and an unknown layout is not guessed.
+fn raw_pixel_media_type(pixel_format: &str) -> &'static str {
+    match pixel_format {
+        "x11_zpixmap" => "application/x-x11-zpixmap",
+        "bgra8" => "application/x-bgra8",
+        "rgba8" => "application/x-rgba8",
+        _ => "application/octet-stream",
+    }
+}
+
 fn computer_use_plugin_id() -> EntityId {
     "5f8b2a1d-9e3c-4a7b-8c1d-2e4f5a6b7c8d"
         .parse()
@@ -2792,7 +2856,11 @@ impl ComputerUseBackend {
         };
         // Seal the raw pixels, the normalized preview and the observation
         // record itself; the record digest is the durable observation id.
-        let raw_ref = match self.seal_media(&frame.raw_pixels, "application/x-x11-zpixmap", "computer-use-pixels") {
+        let raw_ref = match self.seal_media(
+            &frame.raw_pixels,
+            raw_pixel_media_type(&frame.pixel_format.name),
+            "computer-use-pixels",
+        ) {
             Ok(reference) => reference,
             Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
         };
@@ -2895,9 +2963,13 @@ impl ComputerUseBackend {
     ) -> (Option<OperationOutcome>, EffectStatus, serde_json::Value) {
         let mut sent: Option<usize> = None;
         let mut alive = false;
+        let mut providers: Vec<&'static str> = Vec::new();
         if let Ok(sessions) = self.sessions.lock() {
             for entry in sessions.values() {
                 let report = entry.provider.reconcile(&entry.handle, operation_id);
+                if !providers.contains(&entry.provider.provider_id()) {
+                    providers.push(entry.provider.provider_id());
+                }
                 if let Some(count) = report.sent_events {
                     sent = Some(count);
                 }
@@ -2905,7 +2977,8 @@ impl ComputerUseBackend {
             }
         }
         let note = serde_json::json!({
-            "observation": "controller recovered without a conclusive XTEST result",
+            "observation": "controller recovered without a conclusive transport result",
+            "providers_reported": providers,
             "sent_events_before_recovery": sent,
             "session_alive_in_memory": alive,
             "process_stop_proven": false,
@@ -3057,12 +3130,12 @@ fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescri
     }
 }
 
-const SESSION_PROMPT: &str = "computer.use.session opens/closes a real X11 desktop session {\"backend\":\"x11\"|\"auto\",\"display\":\":N\"|null,\"screen\":int|null,\"op\":\"open\"|\"close\",\"session_id\":uuid?}. Returns session_id, probed XTEST/XInput2 versions, display domain identity and DPI. Non-x11 backends and unreachable displays fail typed-unavailable; a human desktop is never guessed.";
-const OBSERVE_PROMPT: &str = "computer.use.observe captures a real framebuffer region via X11 GetImage {\"session_id\":uuid,\"region\":[x,y,w,h]|null}. Returns observation_id binding stable session/display identity, frame_id, layout fingerprint, pixel hash, viewport and DPI. Coordinates are only valid while that observation re-verifies.";
-const INPUT_PROMPT: &str = "computer.use.input injects through the real XTEST extension {\"session_id\":uuid,\"lease_token\":uuid,\"observation_id\":\"blake3:…\",\"actions\":[pointer_move|button|key|text],\"require_pixel_fresh\":bool?}. The observation re-verifies and the lease epoch must be live before any event; ACK is recorded separately from observed effects, dropped delivery stays unknown, nothing replays.";
+const SESSION_PROMPT: &str = "computer.use.session opens/closes a real desktop session on a compiled-in provider {\"backend\":\"x11\"|\"windows\"|\"macos\"|\"auto\",\"display\":\":N\"|desktop-or-display-name|null,\"screen\":int|null,\"op\":\"open\"|\"close\",\"session_id\":uuid?}. Returns session_id, the provider's own mechanism facts (X11: XTEST/XInput2 versions; Windows: input desktop, DPI; macOS: display, Screen Recording/Accessibility grants), display domain identity and DPI. A backend absent from this build, an unreachable display or an ungranted OS permission fails typed-unavailable naming it; a human desktop is never guessed.";
+const OBSERVE_PROMPT: &str = "computer.use.observe captures a real framebuffer region through the session's provider (X11 GetImage ZPixmap, Win32 BitBlt, or CGDisplayCreateImage) {\"session_id\":uuid,\"region\":[x,y,w,h]|null}. Returns observation_id binding stable session/display identity, frame_id, revision, layout fingerprint, pixel hash, provider pixel format, viewport and DPI. Coordinates are only valid while that observation re-verifies.";
+const INPUT_PROMPT: &str = "computer.use.input injects through the session's real provider transport (X11 XTEST, Win32 SendInput, or CGEventPost) {\"session_id\":uuid,\"lease_token\":uuid,\"observation_id\":\"blake3:…\",\"actions\":[pointer_move|button|key|text],\"require_pixel_fresh\":bool?}. The observation re-verifies and the lease epoch must be live before every atomic send unit; transport ACK is recorded separately from observed effects, dropped delivery stays unknown, nothing replays.";
 const LEASE_PROMPT: &str = "computer.use.lease manages the single write lease of one shared display domain {\"session_id\":uuid,\"op\":\"acquire\"|\"release\"|\"takeover\",\"lease_token\":uuid?}. One domain has one writer; takeover revokes the old epoch so late machine input is rejected and held keys/buttons are released. Read-only observation never needs a lease.";
-const CAPABILITIES_PROMPT: &str = "computer.use.capabilities reports the real desktop providers compiled into this build and their declared capability facts {\"backend\":\"x11\"|\"windows\"|\"macos\"|\"auto\"|null}. Declared facts are probed live per session at open; a provider absent from this build is named unavailable, never silently replaced.";
-const VM_PROMPT: &str = "computer.use.vm drives the ORIGINAL LayerFS SDK v1.0.0 pinned at 2aaf2552 inside a qualified Linux VM (BoxLite optional; SPEC §10.2.1) {\"op\":\"start\"|\"stop\"|\"state\"|\"commit_receipt\",\"name\":\"vm-name\"}. Never re-implements the Store: every Store/branch/workspace operation runs the upstream SDK in the guest via the companion. layerfs_committed is the upstream commit receipt only, never product_durable. A missing SDK path or VM provider is typed-unavailable evidence, not completion.";
+const CAPABILITIES_PROMPT: &str = "computer.use.capabilities reports the real desktop providers compiled into this build, their declared capability facts, and the original-LayerFS VM path's configuration readiness {\"backend\":\"x11\"|\"windows\"|\"macos\"|\"auto\"|null}. Declared provider facts are probed live per session at open; the VM path reports its pinned SDK/provider/companion prerequisites without starting anything. A provider absent from this build is named unavailable, never silently replaced.";
+const VM_PROMPT: &str = "computer.use.vm drives the ORIGINAL LayerFS SDK v1.0.0 pinned at 2aaf2552 inside a qualified Linux VM (BoxLite optional; SPEC §10.2.1) {\"op\":\"start\"|\"stop\"|\"state\"|\"commit_receipt\",\"name\":\"vm-name\"}. Never re-implements the Store: every Store/branch/workspace operation runs the upstream SDK in the guest via the companion. start/state return the guest capability facts the companion really probed (docker, /dev/fuse, /proc/mounts) and the bound SDK export surface; unprobed requirements stay unprobed. layerfs_committed is the upstream commit receipt only, never product_durable. A missing SDK path or VM provider is typed-unavailable evidence, not completion.";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3185,37 +3258,10 @@ impl ComputerUseCapabilitiesHandler {
                 "every returned provider id resolves through the registry; unknown providers are reported unavailable by name",
                 move |backend, _ctx| {
                     let requested = frozen_backend(&frozen);
-                    let providers = match requested {
-                        Some(name) => match backend.provider_for(&name) {
-                            Ok(provider) => vec![serde_json::json!({
-                                "provider": provider.provider_id(),
-                                "capabilities": provider.capabilities(),
-                                "probe": "declared; probed live at session open",
-                            })],
-                            Err(error) => vec![serde_json::json!({
-                                "provider": name,
-                                "available": false,
-                                "reason": error.reason(),
-                                "detail": error.detail(),
-                            })],
-                        },
-                        None => backend
-                            .provider_capabilities()
-                            .into_iter()
-                            .map(|mut entry| {
-                                entry["probe"] = serde_json::json!("declared; probed live at session open");
-                                entry
-                            })
-                            .collect(),
-                    };
                     DriveOutcome::done(
                         EffectStatus::None,
                         ObservationLevel::PostconditionVerified,
-                        serde_json::json!({
-                            "result": "available",
-                            "platform_default": platform_default_provider(),
-                            "providers": providers,
-                        }),
+                        backend.capabilities_facts(requested.as_deref()),
                     )
                 },
             )
@@ -3253,8 +3299,11 @@ impl ComputerUseSessionHandler {
                         "computer-use-session",
                         frozen.clone(),
                         "computer-use-session-input",
-                        serde_json::json!({"backend": name, "mechanism": "x11rb RustConnection"}),
-                        "a real X11 connection is established and capability versions are probed, or a typed-unavailable result names the exact missing capability",
+                        serde_json::json!({
+                            "backend": name,
+                            "mechanism": "compiled-in provider registry resolves the requested backend at open (x11: x11rb connection; windows: user32/gdi32 FFI; macos: CoreGraphics FFI)",
+                        }),
+                        "the resolved provider establishes a real display session and reports its own probed capability facts, or a typed-unavailable result names the exact missing capability",
                         move |backend, ctx| backend.open_session(&frozen, ctx.caller),
                     )
                     .await
@@ -3276,8 +3325,8 @@ impl ComputerUseSessionHandler {
                         "computer-use-session",
                         frozen.clone(),
                         "computer-use-session-input",
-                        serde_json::json!({"mechanism": "x11rb RustConnection close"}),
-                        "the session's X11 connection is dropped and its lease epoch revoked",
+                        serde_json::json!({"mechanism": "provider session teardown: display connection/handle dropped, lease epoch revoked"}),
+                        "the session's provider resources are dropped and its lease epoch revoked when this session was the writer or the domain's last session",
                         move |backend, ctx| backend.close_session(&frozen, ctx.caller),
                     )
                     .await
@@ -3309,8 +3358,10 @@ impl ComputerUseObserveHandler {
                 "computer-use-observe",
                 frozen.clone(),
                 "computer-use-observe-input",
-                serde_json::json!({"mechanism": "X11 GetImage ZPixmap + layout fingerprint"}),
-                "raw pixels hash to the recorded pixel_hash and the recorded layout fingerprint re-computes over the live window tree",
+                serde_json::json!({
+                    "mechanism": "provider capture (x11: GetImage ZPixmap; windows: GDI BitBlt; macos: CGDisplayCreateImage) + live layout fingerprint",
+                }),
+                "raw pixels hash to the recorded pixel_hash in the provider's own byte layout and the recorded layout fingerprint re-computes over the live desktop",
                 move |backend, _ctx| backend.observe(&frozen),
             )
             .await
@@ -3395,7 +3446,9 @@ impl ComputerUseInputHandler {
                 "computer-use-input",
                 frozen.clone(),
                 "computer-use-input-input",
-                serde_json::json!({"mechanism": "XTEST FakeInput; observation re-verify; lease epoch check"}),
+                serde_json::json!({
+                    "mechanism": "provider input transport (x11: XTEST FakeInput; windows: SendInput; macos: CGEventPost); observation re-verify; lease epoch check",
+                }),
                 "every action is delivered only after the bound observation re-verifies and the lease epoch is live; unverified delivery is never claimed complete",
                 move |backend, ctx| backend.inject(&frozen, ctx),
             )
@@ -3455,6 +3508,9 @@ impl NativeTaskHandler for ComputerUseSessionHandler {
 #[async_trait]
 impl NativeTaskHandler for ComputerUseObserveHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
+        // Historical authority spelling kept so operations armed before the
+        // provider-neutral cutover keep their recorded authority identity; it
+        // is an id, not a platform claim (see SESSION_PROMPT).
         descriptor_for(
             "computer.use.observe",
             "computer_use.x11.observe/v1",
@@ -3625,4 +3681,105 @@ async fn reconcile_any(
         None,
         EffectStatus::Unknown,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_backend() -> Arc<ComputerUseBackend> {
+        let dir = std::env::temp_dir().join(format!("shenko-computer-use-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).expect("store"));
+        Arc::new(ComputerUseBackend::new(store))
+    }
+
+    /// The sealed raw pixels keep their provider's byte layout. A Win32 or
+    /// macOS BGRA buffer must never be labelled as an X11 ZPixmap, and an
+    /// unknown layout is not guessed into one of them.
+    #[test]
+    fn raw_pixel_media_type_is_bound_to_the_provider_format() {
+        assert_eq!(raw_pixel_media_type("x11_zpixmap"), "application/x-x11-zpixmap");
+        assert_eq!(raw_pixel_media_type("bgra8"), "application/x-bgra8");
+        assert_eq!(raw_pixel_media_type("rgba8"), "application/x-rgba8");
+        assert_eq!(raw_pixel_media_type("planar_y8"), "application/octet-stream");
+        for name in ["bgra8", "rgba8", "planar_y8"] {
+            assert!(
+                !raw_pixel_media_type(name).contains("x11"),
+                "{name} must not be labelled as X11 pixels"
+            );
+        }
+    }
+
+    /// Recovery never replays and never names a platform transport: with no
+    /// live session the batch stays Unknown, reports no sent-event count and
+    /// says so in provider-neutral words.
+    #[test]
+    fn recovery_of_an_armed_batch_stays_unknown_and_provider_neutral() {
+        let backend = test_backend();
+        let (outcome, effect, note) = backend.reconcile_injected_batch(EntityId::new());
+        assert!(outcome.is_none(), "no conclusive result is invented");
+        assert_eq!(effect, EffectStatus::Unknown);
+        assert!(note["sent_events_before_recovery"].is_null());
+        assert_eq!(note["session_alive_in_memory"], serde_json::json!(false));
+        assert_eq!(note["process_stop_proven"], serde_json::json!(false));
+        assert_eq!(note["providers_reported"], serde_json::json!([]));
+        let text = note.to_string();
+        assert!(text.contains("transport"));
+        assert!(!text.contains("XTEST"), "recovery text must not claim XTEST");
+        assert!(!text.contains("x11"));
+    }
+
+    /// Capability discovery reports this build's real providers plus the
+    /// original-LayerFS VM path's own prerequisites, and it names an absent
+    /// backend instead of silently resolving another one.
+    #[test]
+    fn capability_discovery_binds_platforms_and_layerfs_prerequisites() {
+        let backend = test_backend();
+        let all = backend.capabilities_facts(None);
+        let providers = all["providers"].as_array().expect("providers array");
+        assert!(
+            providers
+                .iter()
+                .any(|entry| entry["provider"] == serde_json::json!("x11")),
+            "the X11 provider is compiled into every build"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert!(
+            providers
+                .iter()
+                .all(|entry| entry["provider"] != serde_json::json!("windows")),
+            "a provider absent from this build is not advertised"
+        );
+        let vm = &all["layerfs_vm"];
+        assert_eq!(vm["provider"], serde_json::json!("layerfs_vm"));
+        assert_eq!(vm["sdk_pin"], serde_json::json!(crate::layerfs::LAYERFS_SDK_PIN));
+        assert_eq!(
+            vm["guest_requirements"].as_array().map(|items| items.len()),
+            Some(5)
+        );
+        let state = vm["state"].as_str().expect("vm state");
+        assert!(
+            [
+                "sdk_path_unset",
+                "sdk_path_missing",
+                "companion_script_missing",
+                "configured_vm_not_started",
+            ]
+            .contains(&state),
+            "unexpected layerfs readiness state {state}"
+        );
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let windows = backend.capabilities_facts(Some("windows"));
+            let entry = &windows["providers"][0];
+            assert_eq!(entry["available"], serde_json::json!(false));
+            assert_eq!(
+                entry["reason"],
+                serde_json::json!("backend_not_available_on_this_build")
+            );
+            assert_eq!(entry["provider"], serde_json::json!("windows"));
+        }
+    }
 }

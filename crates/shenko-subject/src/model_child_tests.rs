@@ -695,12 +695,15 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
                 WindowCost { window: window("api:requests"), unit: "requests".into(), amount: Range::point(1.0).unwrap() },
                 WindowCost { window: window("api:tokens"), unit: "tokens".into(), amount: Range::point(64.0).unwrap() },
             ],
+            effort_levels: Vec::new(),
         }], assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
         decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![SourceObservationPolicy {
             source_kind: SourceKind::ApiHeaders, contract: None,
             ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse,
         }],
+        objective: PolicyObjective::Balanced, target_utilization_range: None, planning_horizon: None,
+        emergency_reserve_by_window: Vec::new(), uncertainty_margin: None, admission_pacing: AdmissionPacing::default(),
     };
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
     let snapshot = from_api_headers(&ObservationContext {
@@ -766,4 +769,679 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     assert_eq!(handle.active_count(), 0);
     native.close_and_join(0).await;
     run.abort(); let _ = run.await;
+}
+
+/// An owner message delivered while a child is running reaches that same
+/// discussion, is settled exactly once after the step that read it, and is
+/// never read again by a restart.
+#[tokio::test]
+async fn owner_message_reaches_a_running_child_and_is_settled_once() {
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut release = Some(release_rx);
+        for text in ["first observation recorded", "owner message answered"] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            if let Some(release) = release.take() {
+                release.await.unwrap();
+            }
+            let raw = serde_json::json!({
+                "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":12,"completion_tokens":7},
+            }).to_string();
+            socket
+                .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes())
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        }
+    });
+    let (broker, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
+            .unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        &delegation(
+            "owner-message-child",
+            "同一讨论里继续观察。",
+            "观察一次实验并交回结论。",
+            64,
+        ),
+    )
+    .await;
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    native.run_once().await.unwrap();
+    let first = tokio::time::timeout(Duration::from_secs(5), wires_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first["model"], "owner-message-child");
+    assert!(
+        !first.to_string().contains("OWNER_MESSAGE"),
+        "a message authored after this step was sent cannot be inside it"
+    );
+
+    // The owner writes to the live child while its first generation is still
+    // in flight. The delivery is a durable S1 fact bound to this endpoint.
+    let message = "OWNER_MESSAGE: 用 alpha 数据集重看一遍。";
+    let step_id = commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        &format!(
+            "[dialogue] {}",
+            serde_json::json!({"target_task_id": task.task_id, "message": message})
+        ),
+    )
+    .await;
+    let delivered = store.committed_intents(Some("dialogue"), None, 8).unwrap();
+    assert_eq!(delivered.len(), 1, "one authored dialogue intent");
+    let intent_id = delivered[0].intent_id;
+    assert_eq!(delivered[0].step_id, step_id);
+    assert_eq!(delivered[0].state, "claimed", "delivered to a live endpoint");
+    assert_eq!(store.pending_child_dialogue(task.task_id).unwrap().len(), 1);
+    assert!(
+        store.native_task_result(task.task_id).unwrap().is_none(),
+        "the child had not finished when the owner wrote to it"
+    );
+    release_tx.send(()).unwrap();
+
+    drive_until(
+        &native,
+        || store.native_task_result(task.task_id).unwrap().is_some(),
+        || {
+            format!(
+                "steps={:?} pending={:?}",
+                store
+                    .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+                    .map(|rows| rows.len()),
+                store.pending_child_dialogue(task.task_id).map(|rows| rows.len()),
+            )
+        },
+    )
+    .await;
+    let second = wires_rx.recv().await.unwrap();
+    let rendered: Vec<String> = second["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["content"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    let turn = format!("[owner 消息 intent:{intent_id}]\n{message}");
+    assert!(
+        rendered.iter().any(|content| content == &turn),
+        "the running child never read the owner message: {rendered:?}"
+    );
+    assert_eq!(
+        rendered.last().map(String::as_str),
+        Some(turn.as_str()),
+        "a delivered message is the newest user turn of the same discussion"
+    );
+
+    let result = store.native_task_result(task.task_id).unwrap().unwrap();
+    assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+    let payload = result.result.as_ref().unwrap();
+    assert_eq!(payload["termination"], "completed");
+    assert_eq!(payload["question"], serde_json::Value::Null);
+    assert_eq!(payload["dialogue"]["read"], 1);
+    assert_eq!(payload["dialogue"]["undelivered"], serde_json::json!([]));
+    assert_eq!(
+        store.committed_intents(Some("dialogue"), None, 8).unwrap()[0].state,
+        "settled",
+        "the step that read the message settles the authored intent"
+    );
+    assert!(store.pending_child_dialogue(task.task_id).unwrap().is_empty());
+    // The step that read the message sealed it together with its payload.
+    let steps = store
+        .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+        .unwrap();
+    assert_eq!(steps.len(), 2);
+    let sealed: serde_json::Value =
+        serde_json::from_slice(&store.cas.read_object(&steps[1].final_input_ref.digest).unwrap()).unwrap();
+    assert_eq!(sealed["dialogue"][0]["message"], message);
+    assert_eq!(sealed["dialogue"][0]["intent_id"], serde_json::json!(intent_id));
+    assert_eq!(sealed["dialogue"][0]["target_task_id"], serde_json::json!(task.task_id));
+    let sealed_turn = &sealed["payload"]["messages"].as_array().unwrap().last().unwrap()["parts"][0];
+    assert_eq!(sealed_turn["type"], "text");
+    assert_eq!(sealed_turn["text"], serde_json::json!(turn));
+    assert_eq!(store.external_operation_attempts(steps[1].operation_id).unwrap().len(), 1);
+
+    native.close_and_join(0).await;
+    drop(native);
+    drop(subject);
+    drop(handle);
+    run.abort();
+    let _ = run.await;
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    reopened.start_subject_dispatcher().unwrap();
+    assert_eq!(
+        reopened.committed_intents(Some("dialogue"), None, 8).unwrap()[0].state,
+        "settled",
+        "a restart must not re-admit an already settled delivery"
+    );
+    let (next, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
+    let (head, _) = reopened.load_subject(agent).unwrap();
+    let restored = service(&reopened, handle.clone(), head.software_generation);
+    let broker_run = tokio::spawn(next.run());
+    for _ in 0..3 {
+        restored.run_once().await.unwrap();
+    }
+    assert!(
+        wires_rx.try_recv().is_err(),
+        "a settled terminal child must not be dispatched again"
+    );
+    assert_eq!(
+        reopened
+            .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+            .unwrap()
+            .len(),
+        2,
+        "a restart never adds a step to a finished run"
+    );
+    assert_eq!(next.active_count(), 0);
+    restored.close_and_join(0).await;
+    broker_run.abort();
+    let _ = broker_run.await;
+    server.abort();
+    let _ = server.await;
+}
+
+/// A child that asks its owner a question ends as a durable decision, and the
+/// owner's answer continues the very same discussion after a restart instead
+/// of starting a second child or re-running the first run's steps.
+#[tokio::test]
+async fn a_child_question_is_answered_by_the_same_discussion_after_reopen() {
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(async move {
+        for text in ["[ask] 要观察哪个数据集？", "数据集 alpha 的观察完成"] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let raw = serde_json::json!({
+                "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":12,"completion_tokens":7},
+            }).to_string();
+            socket
+                .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes())
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        }
+    });
+    let (broker, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
+            .unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let task = {
+        commit_output(
+            &store,
+            &mut subject,
+            1,
+            &[],
+            &delegation(
+                "question-child",
+                "只报告观察事实。",
+                "观察一次实验并交回结论。",
+                64,
+            ),
+        )
+        .await;
+        store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1
+    };
+    let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    drive_until(
+        &native,
+        || store.native_task_result(task.task_id).unwrap().is_some(),
+        || format!("candidates={:?}", store.native_task_candidates_after(None, 8).map(|rows| rows.len())),
+    )
+    .await;
+    let first = wires_rx.recv().await.unwrap();
+    assert_eq!(first["model"], "question-child");
+    let result = store.native_task_result(task.task_id).unwrap().unwrap();
+    let payload = result.result.as_ref().unwrap();
+    assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+    assert_eq!(payload["termination"], "needs_decision");
+    assert_eq!(payload["question"], "要观察哪个数据集？");
+    assert_eq!(
+        payload["continuation"]["continue_task_id"],
+        serde_json::json!(task.task_id)
+    );
+    assert_eq!(payload["continuation"]["owner_answer_required"], true);
+    assert_eq!(
+        payload["continuation"]["remaining_total_tokens"],
+        serde_json::json!(512_u64 - 64_u64),
+        "the answer may only spend what the question left"
+    );
+    assert_eq!(payload["steps"], 1, "the question ended the run");
+    assert!(wires_rx.try_recv().is_err(), "asking does not send a second generation");
+
+    native.close_and_join(0).await;
+    drop(native);
+    drop(subject);
+    drop(handle);
+    run.abort();
+    let _ = run.await;
+    drop(store);
+
+    // A restart keeps the question as the durable decision of that child.
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    reopened.start_subject_dispatcher().unwrap();
+    let kept = reopened.native_task_result(task.task_id).unwrap().unwrap();
+    assert!(matches!(kept.outcome, TaskOutcome::Succeeded));
+    assert_eq!(
+        kept.result.as_ref().unwrap()["termination"],
+        "needs_decision",
+        "a restart must not turn a question into a completed answer"
+    );
+
+    // The owner answers the question it read: the continuation is the same
+    // discussion, on the bounded remainder of the original run.
+    let (broker, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
+            .unwrap();
+    let mut subject = state(reopened.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(
+        &reopened,
+        &mut subject,
+        2,
+        &[],
+        &format!(
+            "[delegate] {}",
+            serde_json::json!({
+                "goal": "观察一次实验并交回结论。",
+                "system_prompt": "只报告观察事实。",
+                "model": "question-child",
+                "max_tokens": 64,
+                "budget": {"max_total_tokens": 448, "max_steps": 4, "max_tool_calls": 4},
+                "continue_task_id": task.task_id,
+                "owner_answer": "数据集是 alpha。",
+            })
+        ),
+    )
+    .await;
+    let continued = reopened
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .pop()
+        .unwrap()
+        .1;
+    assert_ne!(continued.task_id, task.task_id, "a continuation is its own finite run");
+    let native = service(&reopened, handle.clone(), subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    drive_until(
+        &native,
+        || reopened.native_task_result(continued.task_id).unwrap().is_some(),
+        || format!("candidates={:?}", reopened.native_task_candidates_after(None, 8).map(|rows| rows.len())),
+    )
+    .await;
+    let second = wires_rx.recv().await.unwrap();
+    let rendered: Vec<String> = second["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["content"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert!(
+        rendered
+            .iter()
+            .any(|content| content.contains("[ask] 要观察哪个数据集？")),
+        "the continued discussion reads the question it asked: {rendered:?}"
+    );
+    assert!(
+        rendered.iter().any(|content| content == "[owner 回答]\n数据集是 alpha。"),
+        "the owner's own words are the next turn: {rendered:?}"
+    );
+    let answer_turn = rendered
+        .iter()
+        .position(|content| content == "[owner 回答]\n数据集是 alpha。")
+        .unwrap();
+    let question_turn = rendered
+        .iter()
+        .position(|content| content.contains("[ask] 要观察哪个数据集？"))
+        .unwrap();
+    assert!(question_turn < answer_turn, "the answer follows the question it answers");
+
+    let settled = reopened.native_task_result(continued.task_id).unwrap().unwrap();
+    assert!(matches!(settled.outcome, TaskOutcome::Succeeded));
+    let payload = settled.result.as_ref().unwrap();
+    assert_eq!(payload["termination"], "completed");
+    assert_eq!(payload["continued_from"], serde_json::json!(task.task_id));
+    assert_eq!(payload["question"], serde_json::Value::Null);
+    let step = child_step(&reopened, continued.task_id);
+    let sealed: serde_json::Value =
+        serde_json::from_slice(&reopened.cas.read_object(&step.final_input_ref.digest).unwrap()).unwrap();
+    assert_eq!(sealed["step_index"], 1, "the continuation continues the transcript");
+    // The first run's step is never re-sent by the continuation.
+    assert_eq!(
+        reopened
+            .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        reopened
+            .external_operation_attempts(child_step(&reopened, task.task_id).operation_id)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        reopened
+            .external_task_operations(continued.task_id, MODEL_CHILD_STEP_OPERATION)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(handle.binding().model(), "subject-model", "child choices cannot mutate the subject binding");
+
+    native.close_and_join(0).await;
+    run.abort();
+    let _ = run.await;
+    server.abort();
+    let _ = server.await;
+}
+
+/// A worker that disappears after the last step's E1 and before the run
+/// result settles the same decision on recovery. It must not send a second
+/// generation for a run that already answered.
+#[tokio::test]
+async fn a_decided_run_reopens_without_a_second_generation() {
+    use crate::{NativeTaskHandler, NativeTaskInvocation};
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (sent, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        sent.send(read_wire(&mut socket).await).unwrap();
+        release_rx.await.unwrap();
+        reply(&mut socket, "decided-child").await;
+        // A second request would surface here: the listener stays open.
+        let (_socket, _) = listener.accept().await.unwrap();
+        sent.send(serde_json::json!({"unexpected":"second send"})).unwrap();
+    });
+    let (broker, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
+            .unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        &delegation("decided-child", "只报告观察事实。", "观察一次实验并交回结论。", 64),
+    )
+    .await;
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let handler = Arc::new(
+        ModelChildHandler::new(store.clone(), handle.clone(), cordis_core::Context::new()).unwrap(),
+    );
+    let native = Arc::new(NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    native.install(handler.clone()).unwrap();
+    let descriptor = handler.descriptor();
+    let claim = store
+        .claim_native_task(task.task_id, descriptor.implementation_ref, false)
+        .unwrap()
+        .unwrap();
+    let decision: shenko_types::subject::StepDecision =
+        serde_json::from_slice(&store.cas.read_object(&task.input_ref.digest).unwrap()).unwrap();
+    let input = decision
+        .delegated_task_intents
+        .iter()
+        .find(|intent| intent.intent_id == task.task_id)
+        .unwrap()
+        .definition
+        .as_ref()
+        .unwrap()
+        .input
+        .clone();
+    let invocation = NativeTaskInvocation {
+        context: shenko_types::agent::CallContext {
+            caller_instance_id: store.capabilities.incarnation,
+            role_revision: descriptor.role_revision,
+            task_id: Some(task.task_id),
+            expected_task_revision: Some(claim.invocation.task_revision.0),
+            invocation_id: Some(claim.invocation.invocation_id),
+            controller_epoch: claim.invocation.epoch,
+            software_generation: claim.software_generation.clone(),
+            authority_refs: descriptor.authority_refs,
+            trace_id: EntityId::new(),
+        },
+        task_invocation: claim.invocation.clone(),
+        task: claim.task.clone(),
+        operation_id: claim.operation_id,
+        authority: shenko_types::operation::AuthorityRef {
+            delegation_id: task.task_id,
+            delegation_revision: RecordRevision(claim.invocation.task_revision.0),
+            decision_ref: task.created_by_step_id.unwrap(),
+        },
+        input,
+        child_tools: Some(native.tool_runtime()),
+    };
+    let broker_run = tokio::spawn(broker.run());
+    let mut execution = Box::pin(handler.execute(invocation));
+    tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::select! {
+            result = &mut execution => panic!("the child ended before the provider answered: {result:?}"),
+            wire = received.recv() => assert_eq!(wire.unwrap()["model"], "decided-child"),
+        }
+    })
+    .await
+    .unwrap();
+    // Release the provider answer but stop polling the worker: the real
+    // broker records E1 independently, exactly as it does after a crash.
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            if child_step(&store, task.task_id).state == OperationState::Resolved {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        store.native_task_result(task.task_id).unwrap().is_none(),
+        "the run result must not exist yet"
+    );
+    drop(execution);
+    native.close_and_join(0).await;
+    drop(native);
+    drop(handler);
+    drop(subject);
+    broker_run.abort();
+    let _ = broker_run.await;
+    drop(handle);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    reopened.start_subject_dispatcher().unwrap();
+    let (broker, next) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
+    let (head, _) = reopened.load_subject(agent).unwrap();
+    let restored = service(&reopened, next.clone(), head.software_generation);
+    let broker_run = tokio::spawn(broker.run());
+    drive_until(
+        &restored,
+        || reopened.native_task_result(task.task_id).unwrap().is_some(),
+        || {
+            format!(
+                "steps={:?} pending={:?}",
+                reopened
+                    .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+                    .map(|rows| rows.len()),
+                reopened.external_task(task.task_id).map(|task| format!("{:?}", task.state)),
+            )
+        },
+    )
+    .await;
+    let result = reopened.native_task_result(task.task_id).unwrap().unwrap();
+    assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+    assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+    assert_eq!(
+        result.result.as_ref().unwrap()["answer"],
+        "scripted answer for decided-child"
+    );
+    assert_eq!(
+        reopened
+            .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+            .unwrap()
+            .len(),
+        1,
+        "recovery settles the decided run instead of adding a step"
+    );
+    assert_eq!(
+        reopened
+            .external_operation_attempts(child_step(&reopened, task.task_id).operation_id)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        received.try_recv().is_err(),
+        "a decided run must not send a second generation after recovery"
+    );
+    restored.close_and_join(0).await;
+    broker_run.abort();
+    let _ = broker_run.await;
+    server.abort();
+    let _ = server.await;
+}
+
+/// A child cannot widen its own capability by spawning a nested child: the
+/// nested tool choice stays inside what its parent was granted, and the child
+/// reads the real refusal instead of an invented success or a reprieve.
+#[tokio::test]
+async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(async move {
+        for text in [
+            format!(
+                "[tool:model.child:1] {}",
+                serde_json::json!({
+                    "goal": "嵌套观察。",
+                    "system_prompt": "不要扩大能力。",
+                    "model": "nested-child",
+                    "max_tokens": 32,
+                    "tools": [{"kind": "fixture.not_granted", "definition_version": 1}],
+                })
+            ),
+            "没有可执行的嵌套委派，如实交回。".to_string(),
+        ] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let raw = serde_json::json!({
+                "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":12,"completion_tokens":7},
+            }).to_string();
+            socket
+                .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes())
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        }
+    });
+    let (broker, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
+            .unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        &format!(
+            "[delegate] {}",
+            serde_json::json!({
+                "goal": "观察一次实验。",
+                "system_prompt": "只报告观察事实。",
+                "model": "narrowing-child",
+                "max_tokens": 64,
+                "budget": {"max_total_tokens": 256, "max_steps": 3, "max_tool_calls": 3},
+                // Only the nested-child definition is granted. No other
+                // capability is delegated to this child.
+                "tools": [{"kind": "model.child", "definition_version": 1}],
+            })
+        ),
+    )
+    .await;
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    drive_until(
+        &native,
+        || store.native_task_result(task.task_id).unwrap().is_some(),
+        || format!("steps={:?}", store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).map(|rows| rows.len())),
+    )
+    .await;
+    let first = wires_rx.recv().await.unwrap();
+    assert_eq!(first["model"], "narrowing-child");
+    let second = wires_rx.recv().await.unwrap();
+    let rendered: Vec<String> = second["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["content"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    let refusal = rendered
+        .iter()
+        .find(|content| content.starts_with("[tool_result:model.child:1]"))
+        .unwrap_or_else(|| panic!("the child never read its refusal: {rendered:?}"));
+    assert!(
+        refusal.contains("may not request a tool its own parent was not granted"),
+        "the child must read the real reason: {refusal}"
+    );
+    assert!(refusal.contains("fixture.not_granted:1"));
+    // No nested run exists at all: the widening was refused before execution.
+    let result = store.native_task_result(task.task_id).unwrap().unwrap();
+    assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+    assert_eq!(
+        store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).unwrap().len(),
+        2
+    );
+    // The parent subject-root task and this child exist; a refused widening
+    // adds no third task at all.
+    let parent = subject.head.subject_root_task_id.to_string();
+    let children = store
+        .list_recent_tasks(64)
+        .unwrap()
+        .into_iter()
+        .filter(|recent| recent.task_id != task.task_id.to_string() && recent.task_id != parent)
+        .count();
+    assert_eq!(children, 0, "a refused nested delegation creates no child task at all");
+    native.close_and_join(0).await;
+    run.abort();
+    let _ = run.await;
+    server.abort();
+    let _ = server.await;
 }

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError, units, unresolved_calls};
+use crate::notes::NoteSource;
 use crate::policy::{
     CostReport, Derivative, PreparedWindow, WINDOW_BODY_VERSION, WindowBase, WindowEntry,
 };
@@ -51,6 +52,9 @@ enum InputIdentity<'a> {
     Pointer(u64, u64, &'a str),
     Text(u64, u64, &'a str),
     Image(u64, u64, &'a str, &'a str),
+    /// Range-free working state: same revision and same text is the same
+    /// input; a new revision is a different one even when the text is equal.
+    Note(u64, NoteSource, &'a str),
 }
 
 fn identities<'a>(
@@ -79,6 +83,9 @@ fn identities<'a>(
                 .get(*derivative)
                 .map(|d| Some(InputIdentity::Image(*from, *to, &d.media_type, &d.blake3)))
                 .ok_or_else(|| StorageError("window derivative missing for prefix identity".into())),
+            WindowEntry::Note { revision, source, text, .. } => {
+                Ok(Some(InputIdentity::Note(*revision, *source, text)))
+            }
         })
         .collect()
 }
@@ -147,6 +154,38 @@ impl CommittedWindow {
         }
         Ok(out)
     }
+}
+
+/// Structural admission of a window's entries.
+///
+/// The only rule that is not already expressed by the entry types themselves
+/// is the notebook: one window carries at most one authored note, so a
+/// committed input can never mix two journal revisions. A clearing revision
+/// is not a note — it is the absence of one — and an empty note is a clear
+/// that was written as a replacement. Commit and every body reader run this,
+/// so neither a strategy nor an edited body can present a mixed notebook.
+pub(crate) fn validate_entries(entries: &[WindowEntry]) -> Result<(), StorageError> {
+    let mut note: Option<u64> = None;
+    for entry in entries {
+        let WindowEntry::Note { revision, source, text, .. } = entry else { continue };
+        if let Some(first) = note {
+            return Err(StorageError(format!(
+                "window carries notebook revisions {first} and {revision}; one input shows one revision"
+            )));
+        }
+        if *source == NoteSource::Reset {
+            return Err(StorageError(
+                "a clearing revision is not a window note; the clearing is the absence of one".into(),
+            ));
+        }
+        if text.trim().is_empty() {
+            return Err(StorageError(format!(
+                "window note revision {revision} is empty; clear the notebook instead"
+            )));
+        }
+        note = Some(*revision);
+    }
+    Ok(())
 }
 
 fn call_states(items: &[HistoryItem]) -> BTreeMap<String, Vec<(u64, CallStatus)>> {
@@ -395,6 +434,9 @@ impl WindowLedger {
             model_generation: prepared.base.model_generation,
             cost: prepared.cost,
         };
+        // A window that mixes two notebook revisions is not a window of this
+        // branch: refuse it before it becomes a committed input.
+        validate_entries(&window.entries)?;
         let next = window.effective_entries(history)?;
         // Reusable only when the binding is unchanged and the final input of
         // each leading entry is identical, derivative bytes included.
@@ -438,6 +480,9 @@ pub const KV_ACCOUNTING: &str = "input-identity bound prefix reuse estimate (sam
 
 /// How many distinct raw events the window's entries stand for. The raw
 /// events themselves stay in the store and stay readable.
+///
+/// A [`WindowEntry::Note`] stands for no raw event: counting it would claim
+/// coverage of a range it never names.
 fn covered_raw_events(entries: &[WindowEntry]) -> u64 {
     let mut covered = BTreeSet::new();
     for entry in entries {
@@ -452,6 +497,7 @@ fn covered_raw_events(entries: &[WindowEntry]) -> u64 {
                     covered.insert(seq);
                 }
             }
+            WindowEntry::Note { .. } => {}
         }
     }
     covered.len() as u64
@@ -481,6 +527,10 @@ pub enum Projected {
     Note { from: u64, to: u64, text: String },
     /// A rendered frame; a lossy derivative of the given raw range.
     Frame { from: u64, to: u64, media_type: String, bytes: Arc<[u8]> },
+    /// The branch's authored working notebook. It has no raw range: the text
+    /// is working state written while working, so it is neither a raw event
+    /// nor a derivative of one.
+    WorkingNote { revision: u64, source: NoteSource, text: String },
 }
 
 impl CommittedWindow {
@@ -497,6 +547,9 @@ impl CommittedWindow {
                     .ok_or_else(|| StorageError(format!("raw event {} at seq {} is missing", at.event_id, at.seq))),
                 WindowEntry::Pointer { from, to, note: text, .. } | WindowEntry::Text { from, to, text, .. } => {
                     Ok(Projected::Note { from, to, text })
+                }
+                WindowEntry::Note { revision, source, text, .. } => {
+                    Ok(Projected::WorkingNote { revision, source, text })
                 }
                 WindowEntry::Image { from, to, derivative, .. } => self
                     .derivatives
@@ -529,6 +582,10 @@ fn emit_raw(
 fn lossy_range(entry: &WindowEntry) -> Result<Option<(u64, u64)>, StorageError> {
     let range = match entry {
         WindowEntry::Verbatim { .. } => return Ok(None),
+        // A note has no range to restore: it is branch working state, and
+        // rehydrating a raw range must not withdraw what the model wrote
+        // about the whole branch.
+        WindowEntry::Note { .. } => return Ok(None),
         WindowEntry::Pointer { from, to, .. } | WindowEntry::Text { from, to, .. }
         | WindowEntry::Image { from, to, .. } => (*from, *to),
     };
@@ -607,6 +664,9 @@ fn rehydrate(
                     out.push(entry);
                 }
             }
+            // Restoring raw events cannot withdraw or duplicate branch
+            // working state: the note does not stand for any of them.
+            entry @ WindowEntry::Note { .. } => out.push(entry),
         }
     }
     if let Some(missing) = restore.iter().find(|seq| !emitted.contains(seq)) {
@@ -660,6 +720,106 @@ mod tests {
             Projected::Event(event) if matches!(&event.kind, ItemKind::User))));
         history.set_call_status(call_id, CallStatus::Executed { ok: true });
         assert!(window.project(&history).unwrap().iter().all(|item| matches!(item, Projected::Note { .. })));
+    }
+
+    #[test]
+    fn a_window_carries_one_notebook_revision_or_none() {
+        let history = MemoryHistory::new();
+        history.append(ItemKind::User, "hello", 10);
+        let ledger = WindowLedger::default();
+        let base = WindowBase {
+            source_window: ledger.current().unwrap().id, leaf_seq: 0,
+            model_generation: 0, policy_epoch: 0,
+        };
+        let policy = PolicyManifest {
+            id: "fixture".into(),
+            version: "1".into(),
+            contract: crate::CONTRACT_VERSION,
+            requires: vec![],
+            ..PolicyManifest::default()
+        };
+        let note = |revision: u64, source: NoteSource, text: &str| WindowEntry::Note {
+            revision, source, text: text.into(), tokens: estimate_tokens(text),
+        };
+        let commit = |entries: Vec<WindowEntry>| {
+            ledger.commit(PreparedWindow {
+                base: base.clone(), policy: policy.clone(), entries,
+                carried_calls: vec![], derivatives: vec![], cost: CostReport::default(),
+            }, &history)
+        };
+
+        // Two revisions in one input is a merge, not a window of this branch.
+        let mixed = commit(vec![
+            note(1, NoteSource::Tool, "first"),
+            note(2, NoteSource::Tool, "second"),
+        ]);
+        assert!(matches!(&mixed, Err(CommitError::Storage(error))
+            if error.to_string().contains("one input shows one revision")));
+        // A clearing revision is the absence of a note, not a note.
+        let cleared = commit(vec![note(3, NoteSource::Reset, "")]);
+        assert!(matches!(&cleared, Err(CommitError::Storage(error))
+            if error.to_string().contains("clearing revision is not a window note")));
+        // An empty replacement is what `clear` already journals.
+        let empty = commit(vec![note(4, NoteSource::Tool, "  ")]);
+        assert!(matches!(&empty, Err(CommitError::Storage(error))
+            if error.to_string().contains("is empty; clear the notebook instead")));
+        // The same revision is admitted and names no raw coverage.
+        let window = commit(vec![note(1, NoteSource::Tool, "first")]).unwrap();
+        assert_eq!(window.cost.raw_events_covered, 0);
+    }
+
+    #[test]
+    fn restoring_raw_events_keeps_the_notebook_once() {
+        let history = MemoryHistory::new();
+        let call_id = "notebook-call";
+        history.append(ItemKind::ToolCall {
+            call_id: call_id.into(), tool: "native".into(), args_ref: "args".into(),
+            status: CallStatus::Executed { ok: true },
+        }, "call", 10);
+        history.append(ItemKind::ToolResult {
+            call_id: call_id.into(), status: CallStatus::Executed { ok: true },
+        }, "result", 10);
+        let ledger = WindowLedger::default();
+        let base = WindowBase {
+            source_window: ledger.current().unwrap().id, leaf_seq: 1,
+            model_generation: 0, policy_epoch: 0,
+        };
+        let prepared = PreparedWindow {
+            base,
+            policy: PolicyManifest {
+                id: "fixture".into(),
+                version: "1".into(),
+                contract: crate::CONTRACT_VERSION,
+                requires: vec![],
+                ..PolicyManifest::default()
+            },
+            entries: vec![
+                WindowEntry::Note {
+                    revision: 2, source: NoteSource::Tool,
+                    text: "keep the failing case in mind".into(), tokens: 8,
+                },
+                WindowEntry::Pointer { from: 0, to: 1, note: "stand-in".into(), tokens: 2 },
+            ],
+            carried_calls: vec![], derivatives: vec![], cost: CostReport::default(),
+        };
+        let window = ledger.commit(prepared, &history).unwrap();
+        let notes = |projected: &[Projected]| -> Vec<(u64, String)> {
+            projected.iter().filter_map(|item| match item {
+                Projected::WorkingNote { revision, text, .. } => Some((*revision, text.clone())),
+                _ => None,
+            }).collect()
+        };
+        assert_eq!(notes(&window.project(&history).unwrap()), vec![(2, "keep the failing case in mind".into())]);
+        // The covered call changed, so its raw unit is restored — the note is
+        // working state about the branch and must survive that restoration.
+        history.set_call_status(call_id, CallStatus::Unknown);
+        let restored = window.project(&history).unwrap();
+        assert_eq!(notes(&restored), vec![(2, "keep the failing case in mind".into())]);
+        let seqs: Vec<u64> = restored.iter().filter_map(|item| match item {
+            Projected::Event(event) => Some(event.at.seq),
+            _ => None,
+        }).collect();
+        assert_eq!(seqs, vec![0, 1], "the changed unit is restored by its raw range");
     }
 
     #[test]

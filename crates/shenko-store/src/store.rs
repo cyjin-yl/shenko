@@ -781,7 +781,7 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("S1 missing decision"))?;
         let decision: shenko_types::subject::StepDecision =
             serde_json::from_slice(&self.cas.read_object(&decision_ref.digest)?)?;
-        if decision.schema_version != crate::channel::DECISION_SCHEMA_VERSION
+        if !crate::channel::ADMITTED_DECISION_SCHEMA_VERSIONS.contains(&decision.schema_version)
             || decision.output.schema_version != crate::channel::OUTPUT_SCHEMA_VERSION
             || decision.output.step_id != step.step_id
             || Some(&decision.output.raw_ref) != step.model_result_ref.as_ref()
@@ -807,7 +807,9 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(12)
+                || !crate::store::admitted_input_plan_schema(
+                    frozen.get("schema_version").and_then(|v| v.as_u64()),
+                )
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())
@@ -868,6 +870,7 @@ impl Store {
             commit_ref,
             seq.0,
         )?;
+        let obligation_receipts = self.apply_obligation_changes(&tx, &head, step, &decision, commit_ref)?;
         let mut step = step.clone();
         step.commit_ref = Some(commit_ref);
         let successor = SubjectStep {
@@ -948,6 +951,7 @@ impl Store {
         // The handled wait policy intent carries the exact receipt of this
         // step. It is settled, never left ready and never left blocked.
         self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
+        self.settle_obligation_intents(&tx, &obligation_receipts, seq.0)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;
@@ -1065,8 +1069,13 @@ impl Store {
             .iter()
             .any(|obligation| obligation.origin_event_id.is_some())
         {
+            // The selected set must come from the authenticated sealed object:
+            // a pathname swapped under the referenced digest would otherwise
+            // decide membership for a promise the subject never authorized.
             let frozen: serde_json::Value = serde_json::from_slice(
-                &self.cas.read_object(&decision.input_plan_ref.digest)?,
+                &self
+                    .obligation_object_bytes(&decision.input_plan_ref)
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?,
             )?;
             let selected: Vec<String> = frozen
                 .get("events")
@@ -1091,6 +1100,103 @@ impl Store {
                     return Err(ShenkoError::conflict(
                         "obligation names an input event that was not selected into this step",
                     ));
+                }
+            }
+        }
+        // An acknowledgement of an unknown external effect names a case that
+        // was actually carried into this step's S0 (SPEC §41.4 X11), and its
+        // reason pointers must be evidence that case already carries. The
+        // subject may not accept an uncertainty it was never shown, and may
+        // not cite a receipt it was not given.
+        if !decision.unknown_acknowledgements.is_empty() {
+            if decision.schema_version < crate::channel::RECONCILIATION_DECISION_SCHEMA_VERSION {
+                return Err(ShenkoError::conflict(
+                    "an older decision schema cannot carry reconciliation acknowledgements",
+                ));
+            }
+            let frozen: serde_json::Value = serde_json::from_slice(
+                &self.cas.read_object(&decision.input_plan_ref.digest)?,
+            )?;
+            let docket: Vec<String> = frozen
+                .get("reconciliation_docket")
+                .and_then(|value| value.as_array())
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|entry| {
+                            entry
+                                .pointer("/case/case_id")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_owned)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut seen = std::collections::HashSet::new();
+            for acknowledgement in &decision.unknown_acknowledgements {
+                if acknowledgement.acknowledgement_id == EntityId::nil() {
+                    return Err(ShenkoError::conflict(
+                        "reconciliation acknowledgement without an identity",
+                    ));
+                }
+                if acknowledgement.remaining_impact.trim().is_empty() {
+                    return Err(ShenkoError::conflict(
+                        "reconciliation acknowledgement requires the remaining impact",
+                    ));
+                }
+                if acknowledgement.remaining_impact.len() > 64 * 1024 {
+                    return Err(ShenkoError::conflict(
+                        "reconciliation acknowledgement remaining impact is too large",
+                    ));
+                }
+                if !seen.insert(acknowledgement.case_id) {
+                    return Err(ShenkoError::conflict(
+                        "duplicate reconciliation acknowledgement for one case",
+                    ));
+                }
+                if !docket
+                    .iter()
+                    .any(|case_id| case_id == &acknowledgement.case_id.to_string())
+                {
+                    return Err(ShenkoError::conflict(
+                        "acknowledgement names a case that was not carried into this step",
+                    ));
+                }
+                let (owner, state, data): (Option<String>, String, String) = tx
+                    .query_row(
+                        "SELECT agent_id,state,data FROM reconciliation_cases WHERE case_id=?1",
+                        params![acknowledgement.case_id.to_string()],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()
+                    .map_err(storage_error)?
+                    .ok_or_else(|| {
+                        ShenkoError::conflict("reconciliation case not found")
+                    })?;
+                let expected_owner = head.agent_id.to_string();
+                if owner.as_deref() != Some(expected_owner.as_str()) {
+                    return Err(ShenkoError::conflict(
+                        "reconciliation case belongs to another subject",
+                    ));
+                }
+                if !matches!(state.as_str(), "open" | "working" | "waiting") {
+                    return Err(ShenkoError::conflict(
+                        "reconciliation case is already decided",
+                    ));
+                }
+                if acknowledgement.reason_refs.is_empty() {
+                    return Err(ShenkoError::conflict(
+                        "acknowledgement requires the evidence its reading rests on",
+                    ));
+                }
+                let case: shenko_types::evidence::ReconciliationCase =
+                    serde_json::from_slice(data.as_bytes())?;
+                for reason in &acknowledgement.reason_refs {
+                    if !case.evidence_refs.contains(reason) {
+                        return Err(ShenkoError::conflict(
+                            "acknowledgement cites evidence this case does not carry",
+                        ));
+                    }
                 }
             }
         }
@@ -1515,6 +1621,16 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
     ",
     )?;
     Ok(())
+}
+
+/// Frozen S0 plan schemas this Store still reads and admits.
+///
+/// 13 adds the reconciliation docket (SPEC §41.4 X11). A schema-12 plan is
+/// the same sealed request without one, so it can never carry an
+/// acknowledgement; old bytes keep their old meaning (SPEC §51.1) instead of
+/// being reinterpreted or rewritten.
+pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
+    matches!(version, Some(12) | Some(13))
 }
 
 pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {

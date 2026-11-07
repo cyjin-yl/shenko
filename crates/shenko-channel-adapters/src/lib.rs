@@ -19,6 +19,13 @@
 //!   and reply threads, and stores media on its own drive with a typed
 //!   message builder.
 //!
+//! Reception is durable before the platform cursor moves: each monitor writes
+//! the classified event into its account's [`ingress::AdapterIngress`] ledger
+//! first, and only then advances the provider cursor. The ledger keeps the
+//! provider's own frame and stays replayable until the subject's disposition
+//! commit acknowledges it, so a crash between reception and admission neither
+//! loses the message nor admits it twice.
+//!
 //! SPEC §15.3 (channel adapter boundary), §16 (platform account model), §35.6
 //! (channel plugin seam).
 
@@ -26,6 +33,7 @@ pub mod aes;
 pub mod common;
 pub mod feishu;
 pub mod ilink;
+pub mod ingress;
 pub mod qq_official;
 pub mod runtime;
 
@@ -33,18 +41,7 @@ pub use common::{
     ChannelCapabilities, ChannelHealth, HealthState, PlatformAnswer, PlatformHttp, ReplyContext,
     ReplyContextCache, redact_transport_error,
 };
-
-/// One inbound event off a channel monitor.
-///
-/// The envelope is the classified, provider-agnostic view; `raw` is the
-/// provider's own payload kept as evidence; `source` is the transport label
-/// the event arrived on.
-#[derive(Debug, Clone)]
-pub struct InboundEvent {
-    /// The normalized envelope.
-    pub envelope: shenko_types::channel::ChannelEnvelope,
-    /// The provider's own payload, kept as evidence.
-    pub raw: serde_json::Value,
-    /// The `InboxEvent.source` label of the connector that produced it.
-    pub source: String,
-}
+pub use ingress::{AdapterIngress, Recorded, SharedAdapterIngress, StoredAdapterEvent};
+pub use runtime::{
+    AdapterConfigFile, AdapterDeps, AdapterObservation, Adapters, register_adapters,
+};

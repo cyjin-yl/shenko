@@ -53,6 +53,7 @@ pub fn router(state: MediaRouteState) -> Router {
         .route("/api/media/priority", put(admit_priority).get(priority_view))
         .route("/api/media/speech", put(synthesize_speech))
         .route("/api/media/playback/stop", put(stop_playback))
+        .route("/api/media/identify", put(identify_speaker))
         .with_state(state)
 }
 
@@ -407,6 +408,55 @@ async fn stop_playback(
     match runtime.stop_playback().await {
         Ok(stopped) => (StatusCode::OK, Json(serde_json::json!({ "stopped": stopped }))),
         Err(error) => error_response(error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentifyInput {
+    provider: String,
+    account: String,
+    stream_id: String,
+    segment: u64,
+}
+
+/// `PUT /api/media/identify` — ask the configured speaker-identity engine
+/// about one segment's ORIGINAL sealed audio. The engine reads the bytes this
+/// ledger already sealed (never a re-capture, re-download or re-transcription)
+/// and its claim is admitted as a new revision of that same segment: the
+/// retained provider text and the original audio reference are carried
+/// forward, and the claim stays a model signal with its confidence (§35.3).
+/// No binding is an explicit 404/503, never a fabricated claim.
+async fn identify_speaker(
+    State(state): State<MediaRouteState>,
+    Json(input): Json<IdentifyInput>,
+) -> impl IntoResponse {
+    let Some(runtime) = state.runtime else {
+        return unavailable();
+    };
+    let descriptor = MediaStreamDescriptor {
+        provider: input.provider,
+        account: input.account,
+        stream_id: input.stream_id,
+    };
+    match runtime.identify_speaker(&descriptor, input.segment).await {
+        Ok(outcome) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "schema_version": 1,
+                "receipt": outcome.admission.receipt,
+                "delivery": outcome.delivery,
+            })),
+        ),
+        Err(error) => match &error {
+            ShenkoError::NotFound(_) => (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "code": "media_identify_unavailable",
+                    "detail": error.to_string(),
+                })),
+            ),
+            _ => error_response(error),
+        },
     }
 }
 

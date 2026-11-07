@@ -109,6 +109,10 @@ impl Store {
     /// subject, so this is a lookup of the boundary that exists, never a
     /// choice among candidates. A process that lost the boundary's private
     /// request id can still find the durable record the pause was made under.
+    /// This is a read-only projection, not a second source of truth: a runtime
+    /// uses it to honour a human-requested pause at a retry boundary, where no
+    /// model request is in flight, instead of continuing inference the
+    /// operator already stopped.
     pub fn open_subject_quiesce(&self, agent_id: EntityId) -> Result<Option<SubjectQuiesce>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         open_request(&conn, agent_id)

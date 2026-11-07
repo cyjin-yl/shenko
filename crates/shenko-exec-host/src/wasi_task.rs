@@ -50,7 +50,9 @@ const MAX_STREAM_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const CONTRACT: &[u8] =
     b"shenko.wasi.exec/v2: execute digest-verified WASI preview1 bytes under the actual frozen \
-      mount closure and explicit managed_home/read_only profile, preserve cancellation and \
+      mount closure and explicit managed_home/read_only profile, admit the package's declared \
+      capability requirements against that exact grant and refuse the run when they are unmet, \
+      bind the receipt to the environment generation's locked closure, preserve cancellation and \
       deadline outcomes, and retain unknown RW effects without replay or false settlement";
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +113,20 @@ struct ResolvedTool {
     bytes: u64,
     entrypoint: String,
     imports: Vec<String>,
+    /// The environment generation that pinned this version. `None` means the
+    /// invocation resolved a version outside the active closure (explicit
+    /// name@version) or the installation had no generation yet; either way the
+    /// receipt says exactly which closure ran.
+    environment: Option<shenko_wasm::ToolEnvironment>,
+    /// The capability requirements that were admitted for this run. This is the
+    /// declaration the environment generation froze when it pins this version,
+    /// otherwise the one the retained unit version authored; an old package
+    /// stays `unrecorded`.
+    capabilities: shenko_node::PackageDeclaration,
+    /// The locked closure member this run executed under, read from the
+    /// generation document: its frozen edges and declarations are the
+    /// dependency meaning of the run, not whatever the live unit row says now.
+    locked: Option<shenko_node::EnvironmentMember>,
 }
 
 /// Bounded evidence of one guest stream: full size + full digest computed by
@@ -171,6 +187,10 @@ struct WasiExecResult {
     mount_profile: ToolMountProfile,
     version: String,
     digest: String,
+    /// The environment generation the run resolved through, if any.
+    environment: Option<shenko_wasm::ToolEnvironment>,
+    /// The admitted capability declaration, or `unrecorded`.
+    capabilities: shenko_node::PackageDeclaration,
     outcome: Option<String>,
     exit_code: Option<i32>,
     stdout_utf8: Option<String>,
@@ -296,11 +316,50 @@ impl WasiExecHandler {
                     .into(),
             ));
         }
+        // The frozen mount closure this run will actually hand the guest.
+        let mounts = input.mount_profile.resolve(&self.mounts);
+        // A package's declared requirements are admitted against that real
+        // grant plus the explicit environment — never against its own claims.
+        // An unrecorded declaration produces no problems: the run keeps exactly
+        // the profile's grant.
+        let granted = shenko_wasm::GrantedCapabilities::of_invocation(&mounts, &input.env);
+        let unmet = shenko_wasm::capability_problems(&record.capabilities, &granted);
+        if !unmet.is_empty() {
+            return Err(PrepareError::Refusal(unmet.join("; ")));
+        }
+        // The locked closure member the environment pin names. Its frozen
+        // edges and declarations are the authority for what this run depends
+        // on, so they are read from the generation document and sealed into the
+        // input instead of being re-derived from mutable unit rows.
+        let locked = match &record.environment {
+            Some(pin) => node
+                .environment_members(pin.generation)
+                .map_err(PrepareError::Fault)?
+                .into_iter()
+                .find(|member| {
+                    member.unit_id == record.unit_id && member.revision == record.version
+                }),
+            None => None,
+        };
         // Re-verify the exact artifact bytes against the retained digest on
         // every execution: the materialized copy is never trusted.
         // tool_module returns the *actual* inspection — its imports are what
         // the sealed execution record reports, not the authored descriptor.
-        let (bytes, inspection) = tool_module(&node, &record).map_err(PrepareError::Fault)?;
+        //
+        // Both storage classes this installer produces are executable: an
+        // inline artifact is the unit's own object, and an out-of-line artifact
+        // is reassembled from its verified chunk objects in the installation's
+        // content store. Neither path is trusted before this re-verification.
+        let (bytes, inspection) = match record.artifact.kind {
+            shenko_wasm::ToolArtifactKind::NodeInline => {
+                tool_module(&node, &record).map_err(PrepareError::Fault)?
+            }
+            shenko_wasm::ToolArtifactKind::ContentStore => {
+                let content = shenko_wasm::CasToolContentStore::new(&self.store.cas);
+                shenko_wasm::tool_module_with_store(&node, &record, &content)
+                    .map_err(PrepareError::Fault)?
+            }
+        };
         let resolved_tool = ResolvedTool {
             name: record.name,
             version: record.version,
@@ -309,11 +368,14 @@ impl WasiExecHandler {
             bytes: bytes.len() as u64,
             entrypoint: record.entrypoint,
             imports: inspection.imports,
+            environment: record.environment,
+            capabilities: record.capabilities,
+            locked,
         };
         let frozen = FrozenInput {
             tool: input.tool,
             mount_profile: input.mount_profile,
-            mounts: input.mount_profile.resolve(&self.mounts),
+            mounts,
             args: input.args,
             env: input.env,
             stdin_len: stdin.len(),
@@ -522,12 +584,14 @@ impl WasiExecHandler {
             account_identity: String::new(),
             runtime_node: invocation.task_invocation.node_id.to_string(),
             mount_generation: 0,
-            capability_level: "managed_home_mounts_and_declared_streams".into(),
+            capability_level: "managed_home_mounts_and_admitted_capabilities".into(),
             extra: serde_json::json!({
                 "tool": resolved_tool.name,
                 "version": resolved_tool.version,
                 "artifact_digest": resolved_tool.digest,
                 "abi": resolved_tool.abi,
+                "environment": resolved_tool.environment,
+                "declared_capabilities": resolved_tool.capabilities,
                 "mount_profile": mount_profile,
                 "mounts": frozen.mounts,
             }),
@@ -628,6 +692,8 @@ impl WasiExecHandler {
                 mount_profile,
                 version: resolved_tool.version.clone(),
                 digest: resolved_tool.digest.to_string(),
+                environment: resolved_tool.environment.clone(),
+                capabilities: resolved_tool.capabilities.clone(),
                 outcome: guest.as_ref().and_then(|o| o.outcome.map(|v| format!("{v:?}"))),
                 exit_code: guest.as_ref().and_then(|o| o.exit_code),
                 stdout_utf8: guest.as_ref().and_then(|o| o.stdout.as_ref())
@@ -730,6 +796,9 @@ impl WasiExecHandler {
                 bytes: 0,
                 entrypoint: String::new(),
                 imports: vec![],
+                environment: None,
+                capabilities: shenko_node::PackageDeclaration::unrecorded(),
+                locked: None,
             },
         };
         let input_ref = self.seal(&frozen, "wasi-exec-frozen-input")?;
@@ -775,6 +844,8 @@ impl WasiExecHandler {
                 mount_profile,
                 version: String::new(),
                 digest: String::new(),
+                environment: None,
+                capabilities: shenko_node::PackageDeclaration::unrecorded(),
                 outcome: None,
                 exit_code: None,
                 stdout_utf8: None,
@@ -838,7 +909,10 @@ impl NativeTaskHandler for WasiExecHandler {
                  managed_home 保留声明权限，RW effects 仍未知且不能 T2/自动重放。\
                  argv[0] 是已安装工具名；\
                  未安装的名字返回明确 TOOL_UNAVAILABLE，已声明但未移植的具名目标返回 \
-                 TOOL_UNSUPPORTED，宿主工具不会被冒名顶替。截止/取消在 guest epoch \
+                 TOOL_UNSUPPORTED，宿主工具不会被冒名顶替。包声明的权限需求（挂载路径、\
+                 环境变量、宿主能力、网络目标）按本次真实授权逐项核验，未满足时返回 \
+                 TOOL_CAPABILITY_UNSUPPORTED/TOOL_MOUNT_*/TOOL_ENV_MISSING 等明确原因，\
+                 不会降级运行。截止/取消在 guest epoch \
                  checkpoint 生效；阻塞 host call 不承诺硬期限，worker 总会 join。"
                     .into(),
             ),

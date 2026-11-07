@@ -577,7 +577,7 @@ impl ProviderRuntime for AnthropicProvider {
                 evidence.push(serde_json::json!({ "probe_error": error.to_string() }));
             }
         }
-        let operations = classify_operations(&self.profile.backend_family, &evidence, false);
+        let operations = classify_operations(&self.profile.backend_family, &evidence);
         Ok(BackendCapabilitySnapshot {
             capability_id: format!("{}/{}", self.profile.profile_id, self.profile.revision),
             provider_implementation_digest: self.profile.profile_id.clone(),
@@ -591,12 +591,23 @@ impl ProviderRuntime for AnthropicProvider {
             template_fingerprint: None,
             toolset_digest: None,
             operations,
-            capacities: vec![CapacityEntry {
-                pool: crate::admission::CapacityPool::Compute,
-                unit: CapacityUnit::Requests,
-                value: None,
-                provenance: crate::admission::CapacityProvenance::Unknown,
-            }],
+            capacities: vec![
+                CapacityEntry {
+                    pool: crate::admission::CapacityPool::Compute,
+                    unit: CapacityUnit::Requests,
+                    value: None,
+                    provenance: crate::admission::CapacityProvenance::Unknown,
+                },
+                // The Messages surface reports usage, not an engine KV pool, so
+                // the residency capacity of this binding stays unknown instead
+                // of being inferred from a context window.
+                CapacityEntry {
+                    pool: crate::admission::CapacityPool::ContextKv,
+                    unit: CapacityUnit::Tokens,
+                    value: None,
+                    provenance: crate::admission::CapacityProvenance::Unknown,
+                },
+            ],
             raw_evidence: evidence,
         })
     }
