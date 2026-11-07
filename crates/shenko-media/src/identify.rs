@@ -30,7 +30,7 @@ use shenko_types::{
         CheckpointContract, EffectContract, EffectContractBuilder, ExternalEffect, GuaranteeBasis,
         IdempotencyGuarantee, LifecycleContract, ResourceAccess,
     },
-    error::{RetryStrategy, ShenkoError},
+    error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
     evidence::{DecodeStatus, EvidenceReceipt},
     ids::*,
     media::*,
@@ -676,7 +676,7 @@ mod tests {
     struct ScriptedSpeaker {
         binding: MediaProviderBinding,
         calls: tokio::sync::Mutex<Vec<String>>,
-        failure: Option<ShenkoError>,
+        failure: Option<ProtocolError>,
     }
 
     #[async_trait]
@@ -688,7 +688,7 @@ mod tests {
         async fn identify(&self, audio: &ObjectRef) -> Result<MediaSpeakerClaim, ShenkoError> {
             self.calls.lock().await.push(audio.digest.to_string());
             if let Some(failure) = &self.failure {
-                return Err(failure.clone());
+                return Err(failure.clone().into());
             }
             Ok(MediaSpeakerClaim {
                 speaker: Some("spk-teacher".into()),
@@ -700,7 +700,7 @@ mod tests {
         }
     }
 
-    fn scripted_speaker(failure: Option<ShenkoError>) -> Arc<ScriptedSpeaker> {
+    fn scripted_speaker(failure: Option<ProtocolError>) -> Arc<ScriptedSpeaker> {
         Arc::new(ScriptedSpeaker {
             binding: speaker_binding(),
             calls: tokio::sync::Mutex::new(Vec::new()),
@@ -1179,14 +1179,14 @@ mod tests {
     /// flattened into a generic failure.
     #[tokio::test]
     async fn engine_wire_failure_keeps_its_typed_code() {
-        let failure = ShenkoError::Protocol(ProtocolError {
+        let failure = ProtocolError {
             code: "media_engine_unreachable".into(),
             scope: ErrorScope::Operation,
             retry: RetryStrategy::AfterReconcile,
             operation_id: None,
             commit_ref: None,
             details: serde_json::json!({ "detail": "connect refused" }),
-        });
+        };
         let mut fixture = fixture(Some(scripted_speaker(Some(failure))));
         let original = seal_wav(&fixture.store, &[9, 8, 7, 6]);
         admit_final(
