@@ -129,3 +129,53 @@ fn real_python_wasm_executes_cells_with_stdlib_and_state() -> Result<()> {
     std::fs::remove_dir_all(&root).ok();
     Ok(())
 }
+
+/// R083 on a real artifact: install a real pure-Python wheel into a candidate
+/// environment through install_dependencies, then import it in a fresh cell.
+/// Gated on the wheel path via SHENKO_REAL_PYTHON_WHEEL.
+#[test]
+fn real_python_wasm_installs_wheel_then_imports_it() -> Result<()> {
+    let Some(dir) = artifact_dir() else {
+        eprintln!("SKIP: SHENKO_REAL_PYTHON_WASM artifact dir not set/absent");
+        return Ok(());
+    };
+    let Some(wheel) = std::env::var_os("SHENKO_REAL_PYTHON_WHEEL").map(PathBuf::from) else {
+        eprintln!("SKIP: SHENKO_REAL_PYTHON_WHEEL not set");
+        return Ok(());
+    };
+    let root = std::env::temp_dir()
+        .join(format!("shenko-repl-wheel-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root)?;
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut session = provider.create(CreateSession {
+        kernel: python_kernel(&dir),
+        bind: TaskBinding { task: None, worker: None, scope: Some("wheel".into()) },
+        limits: ResourceLimits::default(),
+        preview_bytes: 0,
+    })?;
+
+    // Run a cell so the driver reports its compatible wheel tags before we
+    // ask install_dependencies to admit a wheel against them.
+    let warmup = session.execute(cell("print('ready')"))?;
+    assert_eq!(warmup.record.outcome, CellOutcome::Completed { exit_code: 0 },
+        "warmup failed: {:?}", warmup.stderr.text);
+
+    let outcome = session.install_dependencies(InstallRequest {
+        wheels: vec![wheel],
+        packages: vec![],
+    })?;
+    let InstallOutcome::Installed { installed, environment_generation, .. } = outcome else {
+        panic!("wheel install refused/unsupported: {outcome:?}");
+    };
+    assert!(installed.iter().any(|s| s.starts_with("six=")), "installed={installed:?}");
+    eprintln!("installed six into generation {environment_generation}");
+
+    // Fresh cell on the committed generation must import the installed wheel.
+    let r = session.execute(cell("import six\nprint('SIX', six.__version__)"))?;
+    assert_eq!(r.record.outcome, CellOutcome::Completed { exit_code: 0 },
+        "import six failed: stderr={:?}", r.stderr.text);
+    assert!(r.stdout.text.contains("1.17.0"), "stdout={:?}", r.stdout.text);
+
+    std::fs::remove_dir_all(&root).ok();
+    Ok(())
+}
