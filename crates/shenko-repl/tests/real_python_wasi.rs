@@ -93,6 +93,44 @@ fn probe_guest_sys_path() -> Result<()> {
     Ok(())
 }
 
+/// R082 on a real artifact: a recovered session replays Pure cells to rebuild
+/// interpreter state — the guest variable set before drop is readable after
+/// recover() with no re-execution of a DeclaredEffect.
+#[test]
+fn real_python_wasm_recovers_state_by_pure_cell_replay() -> Result<()> {
+    let Some(dir) = artifact_dir() else {
+        eprintln!("SKIP: SHENKO_REAL_PYTHON_WASM artifact dir not set/absent");
+        return Ok(());
+    };
+    let root = std::env::temp_dir()
+        .join(format!("shenko-repl-recover-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root)?;
+    let sessions = root.join("sessions");
+    let provider = WasiReplProvider::new(sessions.clone());
+    let mut first = provider.create(CreateSession {
+        kernel: python_kernel(&dir),
+        bind: TaskBinding { task: None, worker: None, scope: Some("recover".into()) },
+        limits: ResourceLimits::default(),
+        preview_bytes: 0,
+    })?;
+    let r = first.execute(cell("mark = 'persisted-42'\nprint('set', mark)"))?;
+    assert_eq!(r.record.outcome, CellOutcome::Completed { exit_code: 0 },
+        "set cell failed: {:?}", r.stderr.text);
+    let session_dir = first.session_dir().to_path_buf();
+    drop(first);
+
+    let (mut recovered, _report) = WasiReplProvider::recover(&session_dir, 0)?;
+    // The recovered session must replay the Pure cell so `mark` exists again.
+    let r = recovered.execute(cell("print('read', mark)"))?;
+    assert_eq!(r.record.outcome, CellOutcome::Completed { exit_code: 0 },
+        "recovered cell failed: {:?}", r.stderr.text);
+    assert!(r.stdout.text.contains("persisted-42"),
+        "state not rebuilt by replay: stdout={:?}", r.stdout.text);
+
+    std::fs::remove_dir_all(&root).ok();
+    Ok(())
+}
+
 #[test]
 fn real_python_wasm_executes_cells_with_stdlib_and_state() -> Result<()> {
     let Some(dir) = artifact_dir() else {
