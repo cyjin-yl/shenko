@@ -42,25 +42,22 @@ async fn real_omp_rpc_seat_discovers_and_observes() -> Result<()> {
     assert!(handle.location_id.contains("omp"), "location_id={}", handle.location_id);
     assert!(handle.current_command.is_some());
 
-    // Poll observe for OMP's `ready` frame. A bare `omp --mode rpc` with no
-    // configured model refuses to start the protocol ("No models available")
-    // and never emits `ready` — that is honest adapter state, not a defect.
-    // The seat's spawn/discover/capability/observe path is what this test
-    // proves; a full ready→question journey needs a provisioned model, which
-    // is an environment prerequisite outside this crate's control.
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-    let mut saw_ready_pending = false;
+    // With a provisioned OMP model config the real process emits `ready` and
+    // begins streaming JSONL frames. Wait for the adapter to see it, then the
+    // seat is genuinely protocol-ready (not just spawned).
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut ready = false;
     while tokio::time::Instant::now() < deadline {
         let observation = seat.observe(handle).await?;
-        if observation.unknown.iter().any(|u| u.contains("ready")) {
-            saw_ready_pending = true;
+        if !observation.unknown.iter().any(|u| u.contains("ready")) {
+            ready = true;
+            eprintln!("OMP ready frame received; questions={} unknown={:?}",
+                observation.questions.len(), observation.unknown);
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
-    eprintln!("seat protocol state: {}",
-        if saw_ready_pending { "ready frame received" }
-        else { "spawned; no ready frame (model not provisioned) — adapter reports unknown honestly" });
+    assert!(ready, "omp --mode rpc never emitted its ready frame");
 
     seat.close().await;
     Ok(())
