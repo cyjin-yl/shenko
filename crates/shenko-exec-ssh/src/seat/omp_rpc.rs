@@ -91,6 +91,10 @@ struct Inner {
     state: Mutex<State>,
     session_id: String,
     command: Vec<String>,
+    /// The spawned process, kept alive for the seat's lifetime. Dropping this
+    /// `Child` (which was spawned with `kill_on_drop`) terminates the managed
+    /// OMP; without it the child is killed as soon as `spawn` returns.
+    child: Mutex<Child>,
 }
 
 #[derive(Default)]
@@ -138,6 +142,7 @@ impl OmpRpcSeat {
             state: Mutex::new(State::default()),
             session_id,
             command: command.clone(),
+            child: Mutex::new(child),
         });
         let reader_inner = Arc::clone(&inner);
         tokio::spawn(async move {
@@ -678,12 +683,19 @@ fn build_ui_response(
 }
 
 impl OmpRpcSeat {
-    /// Close this product's side of the stdio. The managed process may
-    /// still be doing its own work; dropping the adapter terminates the
-    /// child process because it was spawned with `kill_on_drop`.
+    /// Close this product's side of the stdio and terminate the managed
+    /// process. The seat owns the `Child` (spawned with `kill_on_drop`), so the
+    /// process also dies if the adapter is dropped without `close`.
     pub async fn close(&self) {
-        let mut guard = self.inner.stdin.lock().await;
-        *guard = None;
+        {
+            let mut guard = self.inner.stdin.lock().await;
+            *guard = None;
+        }
+        // Reap the managed process. It was spawned with `kill_on_drop`, so this
+        // is belt-and-suspenders; an explicit kill makes teardown deterministic
+        // rather than relying on `Inner` drop order.
+        let mut child = self.inner.child.lock().await;
+        let _ = child.kill().await;
     }
 }
 
