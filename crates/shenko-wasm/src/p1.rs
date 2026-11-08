@@ -2237,6 +2237,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         let children = effective_children(&handle, tombstones)?;
         let mut written = 0usize;
         let mut index = cookie as usize;
+        let dirent_size = types::Dirent::guest_size() as usize;
         while index < children.len() {
             let (name, meta, in_overlay) = &children[index];
             let filetype = Self::filetype_of(meta);
@@ -2247,10 +2248,44 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                 (in_overlay, handle.mount, handle.rel.join(name)).hash(&mut hasher);
                 hasher.finish()
             };
-            let dirent_size = types::Dirent::guest_size() as usize;
             let name_bytes = name.as_encoded_bytes();
             let entry_len = dirent_size + name_bytes.len();
-            if written + entry_len > buf_len as usize {
+            let remaining = buf_len as usize - written;
+            if entry_len > remaining {
+                // WASI requires the buffer to be filled "as much as
+                // possible, potentially truncating the last directory
+                // entry": `buf_used < buf_len` signals end-of-directory to
+                // the guest, so leaving a partially filled buffer while
+                // entries remain would end the scan early. Emit this
+                // entry's record truncated instead. Its `d_next` points at
+                // the entry itself (its own index), not index + 1, so a
+                // guest that derives its resume cookie from a truncated
+                // header re-reads the entry instead of skipping it.
+                let mut header = [0u8; 24];
+                debug_assert_eq!(header.len(), dirent_size);
+                header[0..8].copy_from_slice(&(index as u64).to_le_bytes());
+                header[8..16].copy_from_slice(&identity.to_le_bytes());
+                header[16..20].copy_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+                header[20] = filetype.into();
+                let head = buf
+                    .add(written as u32)
+                    .map_err(|e| types::Error::trap(anyhow!("dirent ptr: {e}")))?;
+                memory
+                    .copy_from_slice(
+                        &header[..remaining.min(dirent_size)],
+                        head.as_array(remaining.min(dirent_size) as u32),
+                    )
+                    .map_err(|e| types::Error::trap(anyhow!("dirent write: {e}")))?;
+                if remaining > dirent_size {
+                    let name_region = buf
+                        .add(written as u32 + dirent_size as u32)
+                        .map(|p| p.as_array((remaining - dirent_size) as u32))
+                        .map_err(|e| types::Error::trap(anyhow!("name region: {e}")))?;
+                    memory
+                        .copy_from_slice(&name_bytes[..remaining - dirent_size], name_region)
+                        .map_err(|e| types::Error::trap(anyhow!("name copy: {e}")))?;
+                }
+                written = buf_len as usize;
                 break;
             }
             let dirent = types::Dirent {
@@ -2262,9 +2297,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                     .map_err(|_| types::Error::trap(anyhow!("name too long")))?,
                 d_type: filetype,
             };
-            let head = buf.add(written as u32).map_err(|e| {
-                types::Error::trap(anyhow!("dirent ptr: {e}"))
-            })?;
+            let head = buf
+                .add(written as u32)
+                .map_err(|e| types::Error::trap(anyhow!("dirent ptr: {e}")))?;
             // Preview1 directory entries are packed byte records. A name
             // can leave the next header unaligned, so typed guest writes
             // would impose an invalid alignment restriction.
@@ -3232,5 +3267,139 @@ impl P1Host {
             Ok(()) => Ok(()),
             Err(error) => Err(socket_error(error)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::wasi_snapshot_preview1::WasiSnapshotPreview1;
+    use crate::mount::{MountMode, MountSpec, admit_mounts};
+    use std::collections::BTreeSet;
+    use std::fs;
+
+    /// The scan used by the test parses entries exactly the way a guest's
+    /// `readdir` does, so its pagination must mirror the guest contract. To
+    /// make a host-side bug observable the directory needs more entries than
+    /// a small read buffer can hold at once.
+    const ENTRY_COUNT: usize = 200;
+    const READ_BUF: usize = 512;
+
+    fn temp_dir(tag: &str) -> Result<PathBuf> {
+        let dir =
+            std::env::temp_dir().join(format!("shenko-wasm-p1-{tag}-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).context("create temp dir")?;
+        Ok(dir.canonicalize()?)
+    }
+
+    fn expected_names() -> BTreeSet<Vec<u8>> {
+        (0..ENTRY_COUNT)
+            .map(|i| format!("entry-{i:04}.txt").into_bytes())
+            .collect()
+    }
+
+    /// A guest-style directory scan over `fd_readdir`: read pages until a
+    /// short buffer (or empty one) signals end-of-directory, resuming at the
+    /// `d_next` of the last complete entry — or of a truncated header when
+    /// the buffer ends mid-entry. `fd_readdir` on a directory holding
+    /// `ENTRY_COUNT` children must deliver every name exactly once.
+    #[test]
+    fn fd_readdir_paginates_every_entry() -> Result<()> {
+        let home = temp_dir("readdir-home")?;
+        let source = temp_dir("readdir-src")?;
+        for name in expected_names() {
+            let name = String::from_utf8(name).expect("ascii entry name");
+            fs::write(source.join(name), b"x")?;
+        }
+        // `validate_mounts` requires exactly one /home preopen bound to the
+        // home directory; the directory under test rides a second mount.
+        let home_spec = MountSpec::new(
+            home.clone(),
+            crate::HOME_GUEST_PATH,
+            MountMode::ReadOnly,
+            true,
+            false,
+        );
+        let spec = MountSpec::new(source.clone(), "/mnt", MountMode::ReadOnly, true, false);
+        let bindings = admit_mounts(&[home_spec, spec], &home)?;
+        let mut host = P1Host::new(
+            bindings,
+            StdioStreams {
+                stdin: Box::new(std::io::empty()),
+                stdout: Box::new(std::io::sink()),
+                stderr: Box::new(std::io::sink()),
+            },
+            Vec::new(),
+            Vec::new(),
+        )?;
+
+        let mut backing = [0u8; READ_BUF];
+        let mut cookie = 0u64;
+        let mut seen: Vec<Vec<u8>> = Vec::new();
+        // One call must deliver at least one full entry (READ_BUF holds
+        // several), so ENTRY_COUNT calls is a safe ceiling plus a final EOF
+        // call. Any more means a cookie made no progress.
+        for _ in 0..(ENTRY_COUNT + 2) {
+            let used = {
+                let mut memory = GuestMemory::Unshared(&mut backing[..]);
+                host.fd_readdir(
+                    &mut memory,
+                    types::Fd::from(4),
+                    GuestPtr::<u8>::new(0),
+                    READ_BUF as types::Size,
+                    cookie,
+                )
+                .map_err(|e| ::anyhow::anyhow!("fd_readdir: {e:?}"))?
+            } as usize;
+            let mut offset = 0usize;
+            let mut next_cookie = cookie;
+            while offset < used {
+                let mut header = [0u8; 24];
+                let header_bytes = (used - offset).min(24);
+                header[..header_bytes].copy_from_slice(&backing[offset..offset + header_bytes]);
+                if header_bytes >= 8 {
+                    next_cookie = u64::from_le_bytes(header[0..8].try_into().unwrap());
+                }
+                if header_bytes < 24 {
+                    break;
+                }
+                let namlen = u32::from_le_bytes(header[16..20].try_into().unwrap()) as usize;
+                offset += 24;
+                if used - offset < namlen {
+                    break;
+                }
+                seen.push(backing[offset..offset + namlen].to_vec());
+                offset += namlen;
+            }
+            cookie = next_cookie;
+            // The final page is still parsed above; a short `buf_used`
+            // signals end-of-directory only after its entries are read.
+            if used < READ_BUF {
+                break;
+            }
+        }
+
+        fs::remove_dir_all(&source).ok();
+        fs::remove_dir_all(&home).ok();
+
+        let expected = expected_names();
+        let unique: BTreeSet<&Vec<u8>> = seen.iter().collect();
+        assert_eq!(
+            seen.len(),
+            unique.len(),
+            "fd_readdir delivered duplicate entries"
+        );
+        assert_eq!(
+            seen.len(),
+            expected.len(),
+            "fd_readdir delivered {} of {} entries",
+            seen.len(),
+            expected.len()
+        );
+        assert!(
+            expected.iter().all(|name| unique.contains(name)),
+            "fd_readdir missed entries"
+        );
+        Ok(())
     }
 }
