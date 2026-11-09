@@ -7,11 +7,17 @@
 //! observation — a fact only exists once a source on this node observed
 //! something and named its own source, target and time.
 //!
-//! This module owns the runtime half of that distinction: which source is
-//! bound to which exact installed revision, what that source last observed,
-//! and — when nothing is bound, when the source has not observed yet, or when
-//! it failed — the honest `unknown`/`unavailable` that the model must not read
-//! as a healthy fact.
+//! This module owns the runtime half of that distinction: which sources are
+//! bound to which exact installed revision, what each source last observed,
+//! and — when nothing is bound, when no source has observed yet, or when
+//! every source failed — the honest `unknown`/`unavailable` that the model
+//! must not read as a healthy fact.
+//!
+//! One binding may be answered by several independent sources. Each registers
+//! under its own [`PerceptionSourceId`]; the registry refuses a second
+//! registration under an id that is already live, so one source can never
+//! shadow another, and the answers of distinct sources are merged by
+//! freshness into the binding's single observation (see [`merge_facts`]).
 //!
 //! Nothing here decides which perception unit a message needs. The catalogue
 //! discloses every installed card with its real observation state; matching a
@@ -108,6 +114,58 @@ impl PerceptionBinding {
             revision: fact.revision.clone(),
             artifact_digest: fact.artifact_digest.0.clone(),
         }
+    }
+}
+
+/// The identity of one observation source under one binding.
+///
+/// Several sources may answer for the same [`PerceptionBinding`]; the id
+/// tells them apart. It is a registry-time label, not the `source` name an
+/// observation reports: a source names itself in every `PerceptionFact`, and
+/// this id only keeps two registrations from shadowing each other. The id is
+/// bounded by [`MAX_NAME_BYTES`] and never empty.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PerceptionSourceId(String);
+
+impl PerceptionSourceId {
+    /// The source id the plain [`PerceptionRegistry::bind`] registers under.
+    ///
+    /// Binding a second observer without naming a source is therefore still a
+    /// duplicate: distinct sources must name themselves through
+    /// [`PerceptionRegistry::bind_source`].
+    pub fn primary() -> Self {
+        Self("primary".to_string())
+    }
+
+    /// The source id the shipped runtime sources register under.
+    ///
+    /// It is the same name the shipped observations report in
+    /// `PerceptionFact::source`, so a consumer source that wants to answer
+    /// alongside the shipped one registers under its own distinct id.
+    pub fn builtin() -> Self {
+        Self(INSTALLATION_UNITS_SOURCE.to_string())
+    }
+
+    /// One caller-chosen source id, when it is a non-empty bounded label.
+    pub fn named(name: impl Into<String>) -> Result<Self> {
+        let id = Self(name.into());
+        ensure!(
+            !id.0.trim().is_empty() && id.0.len() <= MAX_NAME_BYTES,
+            "a perception source id is a non-empty name of at most {MAX_NAME_BYTES} bytes"
+        );
+        Ok(id)
+    }
+
+    /// The id as text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for PerceptionSourceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -222,9 +280,58 @@ pub trait PerceptionObserver: Send + Sync + 'static {
     fn observe(&self) -> Result<PerceptionFact>;
 }
 
+/// An observation source whose probe runs on its own cadence.
+///
+/// `observe` never waits for the probe: it returns the result the probe last
+/// published. Before the first publication the source reports that it has not
+/// observed yet rather than blocking the disclosure path, and a probe failure
+/// is reported as the source's own failure instead of freezing the last fact.
+/// A slow or asynchronous probe publishes through [`Self::publish`] /
+/// [`Self::fail`] whenever it finishes a reading.
+#[derive(Default)]
+pub struct CachedObservationSource {
+    current: Mutex<Option<std::result::Result<PerceptionFact, String>>>,
+}
+
+impl CachedObservationSource {
+    /// A source with nothing published yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Publish the probe's latest observation.
+    pub fn publish(&self, fact: PerceptionFact) {
+        *self.current.lock() = Some(Ok(fact));
+    }
+
+    /// Publish the probe's latest failure.
+    pub fn fail(&self, error: impl Into<String>) {
+        *self.current.lock() = Some(Err(error.into()));
+    }
+
+    /// Whether the probe has published at least once.
+    pub fn is_ready(&self) -> bool {
+        self.current.lock().is_some()
+    }
+}
+
+impl PerceptionObserver for CachedObservationSource {
+    fn observe(&self) -> Result<PerceptionFact> {
+        match self.current.lock().as_ref() {
+            Some(Ok(fact)) => Ok(fact.clone()),
+            Some(Err(error)) => anyhow::bail!("{error}"),
+            None => anyhow::bail!("the source has not published an observation yet"),
+        }
+    }
+}
+
 struct Registration {
     id: EntityId,
     binding: PerceptionBinding,
+    /// Which source this registration is. Several sources may answer for the
+    /// same binding; a second registration under this id is refused so one
+    /// source can never shadow another.
+    source_id: PerceptionSourceId,
     /// Whose perception this source reads through. The registration states it
     /// once; an observation that arrives with another attribution is refused
     /// instead of being relabelled (SPEC §51.2).
@@ -250,15 +357,22 @@ impl PerceptionRegistry {
 
     /// Bind one source to one exact installed revision.
     ///
-    /// A revision has at most one live source: a second bind is refused rather
-    /// than silently shadowing the observations of the first, so two providers
-    /// can never alternate as "the" fact for the same unit.
+    /// The source registers under [`PerceptionSourceId::primary`]: a second
+    /// unnamed bind is still refused rather than silently shadowing the
+    /// first. Sources with their own identity bind through
+    /// [`Self::bind_source`] so their observations merge by freshness (see
+    /// [`merge_facts`]) instead of competing for the binding.
     pub fn bind(
         &self,
         binding: PerceptionBinding,
         observer: Arc<dyn PerceptionObserver>,
     ) -> Result<EntityId> {
-        self.bind_as(binding, PerceptionPerspective::Own, observer)
+        self.bind_source_as(
+            binding,
+            PerceptionSourceId::primary(),
+            PerceptionPerspective::Own,
+            observer,
+        )
     }
 
     /// Bind one source that reads through a stated perspective.
@@ -268,23 +382,53 @@ impl PerceptionRegistry {
         perspective: PerceptionPerspective,
         observer: Arc<dyn PerceptionObserver>,
     ) -> Result<EntityId> {
+        self.bind_source_as(binding, PerceptionSourceId::primary(), perspective, observer)
+    }
+
+    /// Bind one named source to one exact installed revision.
+    ///
+    /// The source id must be free under this binding: a second registration
+    /// under an id that is already live is refused, so the two sources can
+    /// never alternate as the same fact. Distinct ids coexist and their
+    /// observations merge by freshness.
+    pub fn bind_source(
+        &self,
+        binding: PerceptionBinding,
+        source_id: PerceptionSourceId,
+        observer: Arc<dyn PerceptionObserver>,
+    ) -> Result<EntityId> {
+        self.bind_source_as(binding, source_id, PerceptionPerspective::Own, observer)
+    }
+
+    /// Bind one named source that reads through a stated perspective.
+    pub fn bind_source_as(
+        &self,
+        binding: PerceptionBinding,
+        source_id: PerceptionSourceId,
+        perspective: PerceptionPerspective,
+        observer: Arc<dyn PerceptionObserver>,
+    ) -> Result<EntityId> {
         check_binding(&binding)?;
         let id = EntityId::new();
         let mut registrations = self.registrations.lock();
         if let Some(existing) = registrations
             .iter()
-            .find(|registration| registration.binding == binding)
+            .find(|registration| {
+                registration.binding == binding && registration.source_id == source_id
+            })
         {
             anyhow::bail!(
-                "perception unit '{}@{}' already has a live observation source (registration {})",
+                "perception unit '{}@{}' already has a live observation source '{}' (registration {})",
                 binding.unit_id,
                 binding.revision,
+                source_id,
                 existing.id
             );
         }
         registrations.push(Registration {
             id,
             binding,
+            source_id,
             perspective,
             observer,
             last: None,
@@ -292,13 +436,15 @@ impl PerceptionRegistry {
         Ok(id)
     }
 
-    /// Bind this revision's source when it has none yet.
+    /// Bind this revision's unnamed source when it has none yet.
     ///
     /// Two readers project the same installation at the same time — the
     /// subject's step and a finite child's run, for instance — and both may
     /// discover that a shipped source needs binding. The binding happens once:
     /// the later caller observes through the registration the first one made
-    /// instead of failing the request or replacing the source.
+    /// instead of failing the request or replacing the source. Sources bound
+    /// under other ids do not count: a named source never satisfies the
+    /// unnamed slot.
     pub fn bind_if_absent(
         &self,
         binding: PerceptionBinding,
@@ -307,10 +453,41 @@ impl PerceptionRegistry {
         self.bind_if_absent_as(binding, PerceptionPerspective::Own, observer)
     }
 
-    /// Bind this revision's source in a stated perspective when it has none.
+    /// Bind this revision's unnamed source in a stated perspective when it
+    /// has none.
     pub fn bind_if_absent_as(
         &self,
         binding: PerceptionBinding,
+        perspective: PerceptionPerspective,
+        observer: Arc<dyn PerceptionObserver>,
+    ) -> Result<EntityId> {
+        self.bind_source_if_absent_as(
+            binding,
+            PerceptionSourceId::primary(),
+            perspective,
+            observer,
+        )
+    }
+
+    /// Bind this revision's named source when that source id has none yet.
+    pub fn bind_source_if_absent(
+        &self,
+        binding: PerceptionBinding,
+        source_id: PerceptionSourceId,
+        observer: Arc<dyn PerceptionObserver>,
+    ) -> Result<EntityId> {
+        self.bind_source_if_absent_as(binding, source_id, PerceptionPerspective::Own, observer)
+    }
+
+    /// Bind this revision's named source in a stated perspective when that
+    /// source id has none.
+    ///
+    /// The check is scoped to the source id: a registration under another id
+    /// is a different source, not this one's.
+    pub fn bind_source_if_absent_as(
+        &self,
+        binding: PerceptionBinding,
+        source_id: PerceptionSourceId,
         perspective: PerceptionPerspective,
         observer: Arc<dyn PerceptionObserver>,
     ) -> Result<EntityId> {
@@ -318,7 +495,9 @@ impl PerceptionRegistry {
         let mut registrations = self.registrations.lock();
         if let Some(existing) = registrations
             .iter()
-            .find(|registration| registration.binding == binding)
+            .find(|registration| {
+                registration.binding == binding && registration.source_id == source_id
+            })
         {
             return Ok(existing.id);
         }
@@ -326,6 +505,7 @@ impl PerceptionRegistry {
         registrations.push(Registration {
             id,
             binding,
+            source_id,
             perspective,
             observer,
             last: None,
@@ -341,12 +521,37 @@ impl PerceptionRegistry {
         registrations.len() != before
     }
 
-    /// The exact versions a source is currently bound to.
+    /// Remove every registration of this source under this binding.
+    ///
+    /// The other sources of the same binding keep answering; the binding's
+    /// observation merges what remains.
+    pub fn unbind_source(&self, binding: &PerceptionBinding, source_id: &PerceptionSourceId) -> usize {
+        let mut registrations = self.registrations.lock();
+        let before = registrations.len();
+        registrations.retain(|registration| {
+            !(registration.binding == *binding && registration.source_id == *source_id)
+        });
+        before - registrations.len()
+    }
+
+    /// The exact versions at least one source is currently bound to.
     pub fn bindings(&self) -> Vec<PerceptionBinding> {
+        let mut bindings = Vec::new();
+        for registration in self.registrations.lock().iter() {
+            if !bindings.contains(&registration.binding) {
+                bindings.push(registration.binding.clone());
+            }
+        }
+        bindings
+    }
+
+    /// The sources currently answering for exactly this installed version.
+    pub fn sources(&self, binding: &PerceptionBinding) -> Vec<PerceptionSourceId> {
         self.registrations
             .lock()
             .iter()
-            .map(|registration| registration.binding.clone())
+            .filter(|registration| &registration.binding == binding)
+            .map(|registration| registration.source_id.clone())
             .collect()
     }
 
@@ -359,15 +564,51 @@ impl PerceptionRegistry {
             .any(|registration| &registration.binding == binding)
     }
 
-    /// Whose perception the source bound to this exact version reads through.
-    ///
-    /// `None` means nothing is bound here, so no attribution is claimed.
-    pub fn perspective(&self, binding: &PerceptionBinding) -> Option<PerceptionPerspective> {
+    /// Whether this source id is bound to exactly this installed version.
+    pub fn is_source_bound(
+        &self,
+        binding: &PerceptionBinding,
+        source_id: &PerceptionSourceId,
+    ) -> bool {
         self.registrations
             .lock()
             .iter()
-            .find(|registration| &registration.binding == binding)
-            .map(|registration| registration.perspective.clone())
+            .any(|registration| {
+                &registration.binding == binding && &registration.source_id == source_id
+            })
+    }
+
+    /// Whose perception the bound sources' merged observation was read
+    /// through.
+    ///
+    /// With several sources the attribution is the merged fact's own declared
+    /// perspective, so the disclosure reports the reading that actually
+    /// answered rather than one source's registration. Before any observation
+    /// it is the earliest registration's perspective. `None` means nothing is
+    /// bound here, so no attribution is claimed.
+    pub fn perspective(&self, binding: &PerceptionBinding) -> Option<PerceptionPerspective> {
+        let registrations = self.registrations.lock();
+        let mut candidates: Vec<&Registration> = registrations
+            .iter()
+            .filter(|registration| &registration.binding == binding)
+            .collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        if let PerceptionStatus::Observed { fact } = merge_statuses(
+            candidates
+                .iter()
+                .map(|registration| {
+                    registration
+                        .last
+                        .as_ref()
+                        .map(|status| (&registration.source_id, status))
+                }),
+            Utc::now(),
+        ) {
+            return fact.perspective;
+        }
+        Some(candidates.remove(0).perspective.clone())
     }
 
     /// Retire the shipped sources that no longer speak for an installed
@@ -387,87 +628,219 @@ impl PerceptionRegistry {
         before - registrations.len()
     }
 
-    /// Ask the bound source for a fresh observation.
+    /// Ask the bound sources for a fresh observation.
     ///
-    /// A source that answers with a fact about another revision, or with
-    /// fields the disclosure cannot carry, is reported `unavailable` with the
-    /// contract violation as its reason. Its answer is never repaired into an
-    /// observation it did not make.
+    /// Every source of this binding is asked on its own registration and
+    /// perspective; the answers merge by freshness ([`merge_facts`]) into the
+    /// binding's one status. A source that answers with a fact about another
+    /// revision, or with fields the disclosure cannot carry, is reported
+    /// `unavailable` with the contract violation as its reason. Its answer is
+    /// never repaired into an observation it did not make.
     pub fn observe(&self, binding: &PerceptionBinding) -> PerceptionStatus {
-        let registration = {
+        let candidates = {
             let registrations = self.registrations.lock();
-            match registrations
-                .iter()
-                .find(|registration| &registration.binding == binding)
-            {
-                Some(registration) => {
-                    (Arc::clone(&registration.observer), registration.perspective.clone())
-                }
-                None => {
-                    return PerceptionStatus::Unknown {
+            let candidates: Vec<(EntityId, Arc<dyn PerceptionObserver>, PerceptionPerspective)> =
+                registrations
+                    .iter()
+                    .filter(|registration| &registration.binding == binding)
+                    .map(|registration| {
+                        (
+                            registration.id,
+                            Arc::clone(&registration.observer),
+                            registration.perspective.clone(),
+                        )
+                    })
+                    .collect();
+            if candidates.is_empty() {
+                return PerceptionStatus::Unknown {
+                    reason: truncate_utf8(
+                        "本机没有绑定到该版本的观察源；安装或阅读定义不等于取得现场事实",
+                        MAX_REASON_BYTES,
+                    )
+                    .0,
+                };
+            }
+            candidates
+        };
+        let mut outcomes: Vec<(EntityId, PerceptionStatus)> =
+            Vec::with_capacity(candidates.len());
+        for (id, observer, perspective) in &candidates {
+            let status = match observer.observe() {
+                Ok(fact) => match admit(binding, perspective, fact) {
+                    Ok(fact) => PerceptionStatus::Observed { fact },
+                    Err(error) => PerceptionStatus::Unavailable {
                         reason: truncate_utf8(
-                            "本机没有绑定到该版本的观察源；安装或阅读定义不等于取得现场事实",
+                            &format!("观察源返回的事实不成立于该绑定：{error:#}"),
                             MAX_REASON_BYTES,
                         )
                         .0,
-                    };
-                }
-            }
-        };
-        let (observer, perspective) = registration;
-        let status = match observer.observe() {
-            Ok(fact) => match admit(binding, &perspective, fact) {
-                Ok(fact) => PerceptionStatus::Observed { fact },
-                Err(error) => PerceptionStatus::Unavailable {
-                    reason: truncate_utf8(
-                        &format!("观察源返回的事实不成立于该绑定：{error:#}"),
-                        MAX_REASON_BYTES,
-                    )
-                    .0,
+                    },
                 },
-            },
-            Err(error) => PerceptionStatus::Unavailable {
-                reason: truncate_utf8(&format!("{error:#}"), MAX_REASON_BYTES).0,
-            },
-        };
-        // The registration may have been removed while the source was
-        // answering; the caller still gets the status it asked for, but a
-        // retired registration never comes back to life with a cached fact.
-        if let Some(registration) = self
-            .registrations
-            .lock()
-            .iter_mut()
-            .find(|registration| &registration.binding == binding)
-        {
-            registration.last = Some(status.clone());
+                Err(error) => PerceptionStatus::Unavailable {
+                    reason: truncate_utf8(&format!("{error:#}"), MAX_REASON_BYTES).0,
+                },
+            };
+            outcomes.push((*id, status));
         }
-        status
+        // A registration may have been removed while its source was
+        // answering; the merge below then covers only the registrations that
+        // are still live, so a retired source never comes back to life inside
+        // a cached fact.
+        let mut registrations = self.registrations.lock();
+        for (id, status) in outcomes {
+            if let Some(registration) =
+                registrations.iter_mut().find(|registration| registration.id == id)
+            {
+                registration.last = Some(status);
+            }
+        }
+        merge_statuses(
+            registrations
+                .iter()
+                .filter(|registration| &registration.binding == binding)
+                .map(|registration| {
+                    registration
+                        .last
+                        .as_ref()
+                        .map(|status| (&registration.source_id, status))
+                }),
+            Utc::now(),
+        )
     }
 
-    /// The last status this registry recorded, without asking the source.
+    /// The merged status of what this registry last recorded, without asking
+    /// the sources.
+    ///
+    /// Each source contributes its own last answer, so a source that never
+    /// observed does not downgrade a fresher observation another source made.
     pub fn cached(&self, binding: &PerceptionBinding) -> PerceptionStatus {
         let registrations = self.registrations.lock();
-        match registrations
+        let candidates: Vec<Option<(&PerceptionSourceId, &PerceptionStatus)>> = registrations
             .iter()
-            .find(|registration| &registration.binding == binding)
-        {
-            Some(registration) => registration.last.clone().unwrap_or_else(|| {
-                PerceptionStatus::Unknown {
-                    reason: truncate_utf8(
-                        "观察源已绑定但还没有取得观测；这不是正常状态的证据",
-                        MAX_REASON_BYTES,
-                    )
-                    .0,
-                }
-            }),
-            None => PerceptionStatus::Unknown {
+            .filter(|registration| &registration.binding == binding)
+            .map(|registration| {
+                registration
+                    .last
+                    .as_ref()
+                    .map(|status| (&registration.source_id, status))
+            })
+            .collect();
+        if candidates.is_empty() {
+            return PerceptionStatus::Unknown {
                 reason: truncate_utf8(
                     "本机没有绑定到该版本的观察源；安装或阅读定义不等于取得现场事实",
                     MAX_REASON_BYTES,
                 )
                 .0,
-            },
+            };
         }
+        merge_statuses(candidates.into_iter(), Utc::now())
+    }
+}
+
+/// Merge the candidate facts of one binding into its single observation —
+/// precedence by freshness.
+///
+/// When several sources answered for the same binding, the freshest fact
+/// wins; a fact is never stitched together out of several observations.
+///
+/// The rule, applied against the projection's clock `now`:
+///
+/// 1. a fact whose declared `valid_until` is still ahead wins over a fact
+///    that declares no shelf life and over one whose validity already
+///    elapsed;
+/// 2. a fact that declares no shelf life wins over an expired one — an
+///    expired observation is a stale fact, not a current one;
+/// 3. inside one freshness rank the latest `observed_at` wins;
+/// 4. an exact tie goes to the lexicographically smaller source id, so the
+///    merge never depends on registration order.
+///
+/// Every candidate fact was admitted under the same binding by [`admit`], so
+/// the merge never compares observations across revisions.
+fn merge_facts<'a, I>(candidates: I, now: DateTime<Utc>) -> Option<PerceptionFact>
+where
+    I: Iterator<Item = (&'a PerceptionSourceId, &'a PerceptionFact)>,
+{
+    candidates
+        .max_by(|(left_id, left), (right_id, right)| {
+            (
+                freshness_rank(left, now),
+                observed_time(left),
+                std::cmp::Reverse(*left_id),
+            )
+                .cmp(&(
+                    freshness_rank(right, now),
+                    observed_time(right),
+                    std::cmp::Reverse(*right_id),
+                ))
+        })
+        .map(|(_, fact)| fact.clone())
+}
+
+/// Freshness rank of one admitted fact: 2 = declared and still valid,
+/// 1 = no shelf life declared, 0 = declared validity already elapsed.
+fn freshness_rank(fact: &PerceptionFact, now: DateTime<Utc>) -> u8 {
+    match fact.valid_until.as_deref() {
+        None => 1,
+        Some(raw) => match DateTime::parse_from_rfc3339(raw) {
+            Ok(until) if until.with_timezone(&Utc) > now => 2,
+            // `admit` already refused unparseable times; a defensive parse
+            // failure ranks as expired rather than as current.
+            _ => 0,
+        },
+    }
+}
+
+/// The fact's observation time, when it parses. `admit` already refuses
+/// unparseable times, so `None` here ranks strictly below any real reading.
+fn observed_time(fact: &PerceptionFact) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(&fact.observed_at)
+        .ok()
+        .map(|time| time.with_timezone(&Utc))
+}
+
+/// Merge each live source's last status into the binding's one status.
+///
+/// Any observed fact wins by [`merge_facts`]; an observation another source
+/// made is not downgraded by a source that failed or has not answered yet.
+/// With no fact at all the binding is `unavailable` when at least one source
+/// answered with a failure — the reasons are joined, never dropped — and
+/// `unknown` only when every source is still pending.
+fn merge_statuses<'a, I>(statuses: I, now: DateTime<Utc>) -> PerceptionStatus
+where
+    I: Iterator<Item = Option<(&'a PerceptionSourceId, &'a PerceptionStatus)>>,
+{
+    let mut facts: Vec<(&PerceptionSourceId, &PerceptionFact)> = Vec::new();
+    let mut reasons: Vec<String> = Vec::new();
+    let mut pending = 0_usize;
+    for item in statuses {
+        match item {
+            Some((source_id, PerceptionStatus::Observed { fact })) => {
+                facts.push((source_id, fact));
+            }
+            Some((_, PerceptionStatus::Unavailable { reason })) => reasons.push(reason.clone()),
+            Some((_, PerceptionStatus::Unknown { reason })) => reasons.push(reason.clone()),
+            None => pending += 1,
+        }
+    }
+    if let Some(fact) = merge_facts(facts.into_iter(), now) {
+        return PerceptionStatus::Observed { fact };
+    }
+    if !reasons.is_empty() {
+        let mut reason = reasons.join("；");
+        if pending > 0 {
+            reason.push_str(&format!("；另有 {pending} 个观察源尚未取得观测"));
+        }
+        return PerceptionStatus::Unavailable {
+            reason: truncate_utf8(&reason, MAX_REASON_BYTES).0,
+        };
+    }
+    PerceptionStatus::Unknown {
+        reason: truncate_utf8(
+            "观察源已绑定但还没有取得观测；这不是正常状态的证据",
+            MAX_REASON_BYTES,
+        )
+        .0,
     }
 }
 
@@ -726,15 +1099,19 @@ pub fn reconcile_perception_sources_from(
         .map(|fact| PerceptionBinding::of(*fact))
         .collect();
     registry.retire_builtin_except(&wanted);
+    let builtin_id = PerceptionSourceId::builtin();
     for fact in installed {
         let binding = PerceptionBinding::of(fact);
-        if registry.is_bound(&binding) {
+        // The check is scoped to the built-in source id: a consumer source
+        // bound under its own id answers alongside the shipped one, never
+        // instead of it.
+        if registry.is_source_bound(&binding, &builtin_id) {
             continue;
         }
         if let Some(source) = builtin_source(node, &binding)? {
             // Two projections may discover the same unbound revision at once;
             // the second one observes through the first one's registration.
-            registry.bind_if_absent(binding, source)?;
+            registry.bind_source_if_absent(binding, builtin_id.clone(), source)?;
         }
     }
     Ok(wanted)
@@ -953,5 +1330,262 @@ mod tests {
             panic!("an undeclared attribution must not be assumed: {status:?}")
         };
         assert!(reason.contains("does not declare whose perception"), "{reason}");
+    }
+
+    /// A fact with a chosen source name and observation time.
+    fn sourced_fact(
+        binding: &PerceptionBinding,
+        source: &str,
+        observed_at: &str,
+        valid_until: Option<&str>,
+    ) -> PerceptionFact {
+        PerceptionFact {
+            source: source.into(),
+            observed_at: observed_at.into(),
+            valid_until: valid_until.map(str::to_string),
+            summary: format!("{source} 观察到了目标"),
+            ..fact(binding)
+        }
+    }
+
+    /// Several sources may answer for one binding under distinct ids; a
+    /// second registration under an id that is already live is refused so no
+    /// source ever shadows another.
+    #[test]
+    fn distinct_sources_share_a_binding_but_a_duplicate_source_id_is_refused() {
+        let registry = PerceptionRegistry::new();
+        let binding = binding("0.1.0");
+        let alpha = PerceptionSourceId::named("alpha").unwrap();
+        let beta = PerceptionSourceId::named("beta").unwrap();
+        registry
+            .bind_source(binding.clone(), alpha.clone(), source(&binding))
+            .unwrap();
+        let error = registry
+            .bind_source(binding.clone(), alpha.clone(), source(&binding))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("already has a live observation source") && error.contains("alpha"),
+            "{error}"
+        );
+        // The empty name is not a source id.
+        assert!(PerceptionSourceId::named(" ").is_err());
+        // A different id is a different source; the unnamed slot is still
+        // free, and its own duplicate is still refused.
+        registry
+            .bind_source(binding.clone(), beta.clone(), source(&binding))
+            .unwrap();
+        registry.bind(binding.clone(), source(&binding)).unwrap();
+        assert!(registry
+            .bind(binding.clone(), source(&binding))
+            .unwrap_err()
+            .to_string()
+            .contains("already has a live observation source"));
+        // `bind_if_absent` adopts the live unnamed registration: the new
+        // observer is not installed over it.
+        let again = registry.bind_if_absent(binding.clone(), source(&binding)).unwrap();
+        assert!(registry.unbind(again));
+        assert_eq!(registry.bindings(), vec![binding.clone()]);
+        let mut sources = registry.sources(&binding);
+        sources.sort();
+        assert_eq!(sources, vec![alpha, beta]);
+    }
+
+    /// Distinct perspectives may observe the same binding: the merged answer
+    /// is the freshest fact, and the registry's perspective follows the fact
+    /// that actually answered.
+    #[test]
+    fn the_binding_observation_merges_sources_by_freshness() {
+        let registry = PerceptionRegistry::new();
+        let binding = binding("0.1.0");
+        // The named source saw the target earlier; the unnamed source saw it
+        // later. Same freshness rank, so the later observation wins.
+        let mut earlier = sourced_fact(&binding, "remote:probe", "2026-11-05T08:00:00Z", None);
+        earlier.target = "node:remote".into();
+        let mut later = sourced_fact(&binding, "node:probe", "2026-11-05T10:00:00Z", None);
+        later.target = "node:local".into();
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("remote").unwrap(),
+                Arc::new(Fixed { fact: earlier, calls: AtomicUsize::new(0) }),
+            )
+            .unwrap();
+        registry
+            .bind(binding.clone(), Arc::new(Fixed { fact: later, calls: AtomicUsize::new(0) }))
+            .unwrap();
+        let status = registry.observe(&binding);
+        let PerceptionStatus::Observed { fact } = &status else {
+            panic!("two answering sources still observe: {status:?}")
+        };
+        assert_eq!(fact.source, "node:probe", "the later observation wins: {fact:?}");
+        // The merge is not one-shot: the cached reading is the same fact.
+        let PerceptionStatus::Observed { fact: cached } = registry.cached(&binding) else {
+            panic!("the merged observation is cached")
+        };
+        assert_eq!(cached.source, "node:probe");
+
+        // A fact that declares a still-valid shelf life outranks a fresher
+        // observation that declares none — and outranks an expired one even
+        // when the expired reading was taken later.
+        let registry = PerceptionRegistry::new();
+        let undeclared = sourced_fact(&binding, "fresh:undeclared", "2026-11-07T00:00:00Z", None);
+        let expired = sourced_fact(
+            &binding,
+            "old:expired",
+            "2026-11-08T00:00:00Z",
+            Some("2026-01-01T00:00:00Z"),
+        );
+        let valid = sourced_fact(
+            &binding,
+            "steady:valid",
+            "2026-11-05T00:00:00Z",
+            Some("2999-01-01T00:00:00Z"),
+        );
+        for (id, fact) in [("a", undeclared), ("b", expired), ("c", valid)] {
+            registry
+                .bind_source(
+                    binding.clone(),
+                    PerceptionSourceId::named(id).unwrap(),
+                    Arc::new(Fixed { fact, calls: AtomicUsize::new(0) }),
+                )
+                .unwrap();
+        }
+        let status = registry.observe(&binding);
+        let PerceptionStatus::Observed { fact } = &status else {
+            panic!("three answering sources still observe: {status:?}")
+        };
+        assert_eq!(fact.source, "steady:valid", "the still-valid fact wins: {fact:?}");
+
+        // An exact tie between two current facts resolves deterministically
+        // by source id — never by registration order.
+        let registry = PerceptionRegistry::new();
+        for (id, source) in [("z", "z:probe"), ("a", "a:probe")] {
+            registry
+                .bind_source(
+                    binding.clone(),
+                    PerceptionSourceId::named(id).unwrap(),
+                    Arc::new(Fixed {
+                        fact: sourced_fact(
+                            &binding,
+                            source,
+                            "2026-11-05T00:00:00Z",
+                            Some("2999-01-01T00:00:00Z"),
+                        ),
+                        calls: AtomicUsize::new(0),
+                    }),
+                )
+                .unwrap();
+        }
+        let PerceptionStatus::Observed { fact } = registry.observe(&binding) else {
+            panic!("an exact tie still observes")
+        };
+        assert_eq!(fact.source, "a:probe", "the smaller source id wins a tie: {fact:?}");
+    }
+
+    /// One source's failure or pending state never downgrades the fresher
+    /// fact another source observed; with no fact at all the binding reports
+    /// every source's own reason.
+    #[test]
+    fn a_failing_source_never_downgrades_another_sources_observation() {
+        let registry = PerceptionRegistry::new();
+        let binding = binding("0.1.0");
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("answering").unwrap(),
+                Arc::new(Fixed {
+                    fact: sourced_fact(&binding, "node:probe", "2026-11-05T10:00:00Z", None),
+                    calls: AtomicUsize::new(0),
+                }),
+            )
+            .unwrap();
+        struct Failing;
+        impl PerceptionObserver for Failing {
+            fn observe(&self) -> Result<PerceptionFact> {
+                anyhow::bail!("probe read failed")
+            }
+        }
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("failing").unwrap(),
+                Arc::new(Failing),
+            )
+            .unwrap();
+        let pending = Arc::new(CachedObservationSource::new());
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("pending").unwrap(),
+                pending.clone(),
+            )
+            .unwrap();
+        let PerceptionStatus::Observed { fact } = registry.observe(&binding) else {
+            panic!("a failure and a pending probe do not shadow the observation")
+        };
+        assert_eq!(fact.source, "node:probe");
+
+        // With no fact at all the binding is unavailable once any source
+        // answered with a failure; a source that has not answered keeps its
+        // pending reason in the report rather than disappearing.
+        let registry = PerceptionRegistry::new();
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("failing").unwrap(),
+                Arc::new(Failing),
+            )
+            .unwrap();
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("pending").unwrap(),
+                pending.clone(),
+            )
+            .unwrap();
+        let PerceptionStatus::Unavailable { reason } = registry.observe(&binding) else {
+            panic!("two failed-to-answer sources are unavailable")
+        };
+        assert!(reason.contains("probe read failed"), "{reason}");
+        assert!(reason.contains("not published an observation"), "{reason}");
+        // Only pending sources — none has answered — stay honestly unknown.
+        let registry = PerceptionRegistry::new();
+        registry.bind(binding.clone(), Arc::new(Failing)).unwrap();
+        assert!(matches!(registry.cached(&binding), PerceptionStatus::Unknown { .. }));
+    }
+
+    /// A probe that publishes on its own cadence never blocks `observe`: it
+    /// reports its failure while the fresher fact of another source still
+    /// answers for the binding.
+    #[test]
+    fn a_self_cadenced_source_publishes_without_blocking_the_observation() {
+        let registry = PerceptionRegistry::new();
+        let binding = binding("0.1.0");
+        let cached = Arc::new(CachedObservationSource::new());
+        registry
+            .bind_source(
+                binding.clone(),
+                PerceptionSourceId::named("probe").unwrap(),
+                cached.clone(),
+            )
+            .unwrap();
+        assert!(!cached.is_ready());
+        let PerceptionStatus::Unavailable { reason } = registry.observe(&binding) else {
+            panic!("a probe with no reading yet is unavailable, not blocking")
+        };
+        assert!(reason.contains("not published"), "{reason}");
+        // The probe's own failure is reported as the source's failure.
+        cached.fail("device timeout");
+        let PerceptionStatus::Unavailable { reason } = registry.observe(&binding) else {
+            panic!("the probe failure is the source's status")
+        };
+        assert!(reason.contains("device timeout"), "{reason}");
+        // Once the probe publishes, its fact answers for the binding.
+        cached.publish(sourced_fact(&binding, "probe:device", "2026-11-06T00:00:00Z", None));
+        let PerceptionStatus::Observed { fact } = registry.observe(&binding) else {
+            panic!("the published fact is the binding's observation")
+        };
+        assert_eq!(fact.source, "probe:device");
     }
 }
