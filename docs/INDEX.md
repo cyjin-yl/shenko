@@ -4,9 +4,9 @@
 
 ## 权威关系
 
-现行产品规格只有根目录 [SPEC.md](../SPEC.md)。§1–47 与所有用户原话的字节保持不变。追加部分必须以 §48 标题开头，其后可以有 §49 及以后的章节。认知的现行读法是 [§51](../SPEC.md#51-认知元概念内容态度与理由)、[决策 0002](decisions/0002-cognitive-atoms-2026-11-05.md) 与 [决策 0003](decisions/0003-spec-governance-2026-11-06.md)。与它们冲突的旧句保留原文，按 0003 的读法理解。
+现行产品规格只有根目录 [SPEC.md](../SPEC.md)。§1–47 与所有用户原话的字节保持不变。追加部分必须以 §48 标题开头，其后可以有 §49 及以后的章节。认知的现行读法是 [§51](../SPEC.md#51-认知元概念内容态度与理由)、[决策 0002](decisions/0002-cognitive-atoms-2026-11-05.md) 与 [决策 0003](decisions/0003-spec-governance-2026-11-06.md)。2026-11-09 的架构与 taste 再审见 [§57](../SPEC.md#57-主动个人主体更少的门可修订的-harness界面与-im-精炼claude-fable-51-refine-版本) 与 [决策 0004](decisions/0004-proactive-being-refine-2026-11-09.md)。与它们冲突的旧句保留原文，按 0003 的读法理解。
 
-- [SPEC.md](../SPEC.md) — 产品行为依据：147 项需求、56 组行为、59 条来源、216 条具名验收，保留 U01–U63 用户原话。行号只用于本次导入定位，变更后按标题检索。
+- [SPEC.md](../SPEC.md) — 产品行为依据：165 项需求、62 组行为、59 条来源、235 条具名验收，保留 U01–U63 用户原话（U64 见 §57.0）。行号只用于本次导入定位，变更后按标题检索。
 - [docs/specs/architecture.md](../docs/specs/architecture.md) — 当前功能边界与各层事实归属（父级拥有）。
 - [docs/specs/](specs/) — 各领域的功能合同，由该领域代码拥有者撰写。
 - [WHY.md](../WHY.md) — 设计意图与已确定取舍；AGENTS.md — 开发与协作规则；CONTRIBUTING.md — 贡献约定。
@@ -43,7 +43,7 @@
 | [docs/evidence/](evidence/) | 真实运行证据 | 各切片 | 逐项保存 |
 | [docs/state/coverage.json](state/coverage.json) | 需求级实现与证据状态 | 父级 | 逐项推进 |
 | [docs/development/](development/) | 局部开发合同与验收 recipe | 各切片作者 | 现行 |
-| [docs/decisions/](decisions/) | 已采用的决定记录；认知原子见 [0002](decisions/0002-cognitive-atoms-2026-11-05.md)，2026-11-06 读法治理见 [0003](decisions/0003-spec-governance-2026-11-06.md) | 父级 | 现行 |
+| [docs/decisions/](decisions/) | 已采用的决定记录；认知原子见 [0002](decisions/0002-cognitive-atoms-2026-11-05.md)，2026-11-06 读法治理见 [0003](decisions/0003-spec-governance-2026-11-06.md)，2026-11-09 架构与 taste 再审见 [0004](decisions/0004-proactive-being-refine-2026-11-09.md) | 父级 | 现行 |
 | [scripts/check_docs.py](../scripts/check_docs.py) | 文档与归档完整性检查 | 父级 | 现行 |
 
 ## 领域功能合同（docs/specs/）
@@ -138,6 +138,12 @@
 | [49 第三方生态兼容](../SPEC.md#49-第三方生态兼容可选的-mcp-与-agent-skills-适配器) | 6112 |
 | [50 追加事实](../SPEC.md#50-追加事实) | 6158 |
 | [51 认知元概念：内容、态度与理由](../SPEC.md#51-认知元概念内容态度与理由) | 6189 |
+| [52 通道协议优先级](../SPEC.md#52-通道协议优先级--channel-protocol-priority) | 6334 |
+| [53 子代理命名](../SPEC.md#53-子代理命名--child-agent-naming) | 6375 |
+| [54 自主设计原则](../SPEC.md#54-自主设计原则--autonomous-design-principles) | 6402 |
+| [55 自主能力验收合同](../SPEC.md#55-自主能力验收合同--autonomous-capability-acceptance) | 6453 |
+| [56 验收追踪矩阵](../SPEC.md#56-验收追踪矩阵--acceptance-traceability-matrix) | 6502 |
+| [57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼](../SPEC.md#57-主动个人主体更少的门可修订的-harness界面与-im-精炼claude-fable-51-refine-版本) | 6522 |
 
 ## 历史与归档
 

@@ -38,3 +38,19 @@ pub fn canonical_system_prompt(channels: &shenko_types::channel::ChannelRegistry
     prompt.push_str(&output::output_contract(channels));
     prompt
 }
+
+/// The stable prefix with the subject's own role frame — SPEC §57.1.
+///
+/// The frame replaces only the role text; the output protocol stays the
+/// kernel's, because it is the ABI the control-line parser and the channel
+/// plugins depend on. A frame that wanted a different output protocol would
+/// be a different kernel, not a different frame.
+pub fn subject_prompt_with_frame(
+    frame: &str,
+    channels: &shenko_types::channel::ChannelRegistry,
+) -> String {
+    let mut prompt = String::from(frame);
+    prompt.push_str("\n\n");
+    prompt.push_str(&output::output_contract(channels));
+    prompt
+}

@@ -514,6 +514,60 @@ impl SubjectLoopState {
         self
     }
 
+    /// The subject's own role frame, when exactly one installed unit
+    /// provides `cap.subject-frame` (SPEC §57.1).
+    ///
+    /// Nothing installed → `None`, the compiled contract applies. Two
+    /// distinct units providing it → `None` as well: which frame is in force
+    /// is the subject's decision, so the harness keeps the compiled text and
+    /// reports the ambiguity instead of picking one.
+    pub(super) fn subject_frame(&self) -> Option<String> {
+        let catalog = self.awareness.as_ref()?;
+        match catalog.capability_unit(shenko_awareness_core::cognition::CAP_SUBJECT_FRAME) {
+            Ok(resolution) => {
+                if resolution.is_ambiguous() {
+                    warn!(
+                        capability = shenko_awareness_core::cognition::CAP_SUBJECT_FRAME,
+                        "several units provide the subject frame; the compiled contract stays in force"
+                    );
+                }
+                resolution.body().map(|body| body.to_string())
+            }
+            Err(error) => {
+                warn!(
+                    error = format!("{error:#}"),
+                    "the subject frame could not be resolved; the compiled contract stays in force"
+                );
+                None
+            }
+        }
+    }
+
+    /// What the subject receives when no new external input arrived —
+    /// SPEC §57.2.
+    ///
+    /// The installed unit providing `cap.idle-perception` words it; the
+    /// compiled sentence is the fallback. Idleness is a perception, not a
+    /// command the runtime issues.
+    pub(super) fn idle_perception(&self) -> String {
+        let Some(catalog) = self.awareness.as_ref() else {
+            return crate::context_projection::IDLE_CONTINUATION_PROMPT.to_string();
+        };
+        match catalog.capability_unit(shenko_awareness_core::cognition::CAP_IDLE_PERCEPTION) {
+            Ok(resolution) => resolution
+                .body()
+                .map(|body| body.to_string())
+                .unwrap_or_else(|| crate::context_projection::IDLE_CONTINUATION_PROMPT.to_string()),
+            Err(error) => {
+                warn!(
+                    error = format!("{error:#}"),
+                    "the idle perception could not be resolved; the compiled sentence stays in force"
+                );
+                crate::context_projection::IDLE_CONTINUATION_PROMPT.to_string()
+            }
+        }
+    }
+
     /// Attach the outbound timeline broadcaster — SPEC §5.1, §21.12.
     pub fn with_outbox(mut self, tx: tokio::sync::broadcast::Sender<OutboxMessage>) -> Self {
         self.outbox_tx = Some(tx);
@@ -793,7 +847,16 @@ pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 age
 /// reusable across steps; the context profile digest covers this text, not the
 /// per-step suffix.
 pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
-    let mut prompt = crate::canonical_system_prompt(&state.channels);
+    // The subject's own role frame is content, not a compiled constant:
+    // SPEC §57.1 — the installed unit that provides `cap.subject-frame`
+    // speaks for the subject, and the subject may revise it. The compiled
+    // text stays as the fallback when nothing provides the capability or
+    // when two distinct units both provide it (ambiguity is reported, not
+    // silently resolved).
+    let mut prompt = match state.subject_frame() {
+        Some(frame) => crate::subject_prompt_with_frame(&frame, &state.channels),
+        None => crate::canonical_system_prompt(&state.channels),
+    };
 
     if !state.native_capability_sections.is_empty() {
         prompt.push_str("\n\n当前实际注册的 native definitions：\n");
@@ -2373,3 +2436,7 @@ fn recover_awaiting_model(
 #[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
+
+#[cfg(test)]
+#[path = "frame_tests.rs"]
+mod frame_tests;

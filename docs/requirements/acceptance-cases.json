@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec_version": "0.6.2",
   "spec_path": "SPEC.md",
-  "count": 216,
+  "count": 235,
   "items": [
     {
       "case_id": "UI-S01",
@@ -3789,6 +3789,272 @@
       "source_path": "SPEC.md",
       "source_markdown_line": 5840,
       "source_row": "| PV08 | SDK去除方法/类型、加入未知事件，或仅模拟测试成功且真实凭据尚缺 | 编译/codec、适用schema负例、真实流式/工具/代理路径和行为回归分别记录；unknown可追踪；报告如实区分fixture与真实调用，完整目标按适用义务继续推进 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "AW10",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6652,
+      "source_row": "| AW10 | 安装中恰好一个启用单元提供 `cap.subject-frame` | 该单元当前正文成为主体角色前缀；无提供者时使用编译回退文本；停用单元不参与解析 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "AW11",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6653,
+      "source_row": "| AW11 | 安装中恰好一个启用单元提供 `cap.idle-perception` | 空闲时主体收到的观察取自该单元正文；无提供者时使用编译回退句 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "AW12",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6654,
+      "source_row": "| AW12 | 两个不同单元同时提供同一能力契约 | 报告歧义，harness 不选择其一，编译回退继续生效；歧义对主体可见 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "AW13",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6655,
+      "source_row": "| AW13 | 主体未处置某条输入 | 该输入进入 deferred 并在后续 S0 继续可见，不被自动确认，也不被丢弃 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "AW14",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6656,
+      "source_row": "| AW14 | 主体对某来源声明注意力暂停并给出 review_after | 该来源不进入当前窗口；事实仍在账本；到期复审结果交回主体 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "G57",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6667,
+      "source_row": "| G57 | 主体需要对话、资源政策或运行政策能力 | 接口不再因缺派发器而静默 blocked；缺口以可安装能力的诚实记录出现并可被主体看见 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "G58",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6668,
+      "source_row": "| G58 | 主体修订自己的心智框架或回滚 | 修订留下带理由的态度记录；回滚按只增版本链执行，旧字节不覆盖，外部副作用不撤回 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "G59",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6669,
+      "source_row": "| G59 | 同一能力契约由两个单元提供 | 两者可共存；主体可在运行时切换提供者而不重启，使用方不感知切换 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "G60",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6670,
+      "source_row": "| G60 | 复核本轮全部新增机制 | 没有新增人工审批、产品 allowlist 或静态 hard deny；真实约束按事实记录 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "RT17",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6657,
+      "source_row": "| RT17 | 出站正文含 `@<id>`、`[quote:<id>]` 与 Markdown 标记 | 插件把它们翻译成平台段；正文不再把 `**`、标题符与代码围栏原样发给用户；不翻译时退回单段纯文本 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "RT18",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6658,
+      "source_row": "| RT18 | 平台收到一条撤回或成员变动事件 | 事件作为观察进入主体输入序列，带来源与被撤回消息标识；主体不再引用已不存在的消息 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "RT19",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6659,
+      "source_row": "| RT19 | 某通道声明 edit/retract/typing 能力 | 能力表只列 describe 实际能产出的动作；不可达的动作不计入能力 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "RT20",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6660,
+      "source_row": "| RT20 | 真实流式调用 | chunk 先落盘再广播，控制行不外泄，最终正文与已提交内容一致；未接通生产者时界面诚实报告流式不可用 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "UI-S11",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6663,
+      "source_row": "| UI-S11 | 主体提交一段 `shenko-ui` 动态文档 | 界面按能力渲染真实组件；降级路径保持同一语义与动作身份，不出现 JSON 调试视图 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "UI-S12",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6664,
+      "source_row": "| UI-S12 | 系统偏好浅色 | 首屏不出现暗色闪烁；样式来自单一来源，构建产物与源无偏差 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "UI-S13",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6665,
+      "source_row": "| UI-S13 | 时间线出现新的已提交内容 | 屏幕阅读器得到一次有界宣布，不逐字重读整段回答 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "UI-S14",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6666,
+      "source_row": "| UI-S14 | 时间线同时出现正文、作品与其动作 | 三者保持稳定身份与阅读锚点，展开与更新不互相打断 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "PG06",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6661,
+      "source_row": "| PG06 | 主体经原生任务创建并迭代一件作品 | 作品版本、状态与事件按既有闭包入账，事件进入同一 inbox，回滚保留较新状态 |",
+      "verification_status": "unverified",
+      "implementation_refs": [],
+      "evidence": [],
+      "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "PG07",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6662,
+      "source_row": "| PG07 | 主体或用户在时间线内操作一件作品 | 作品可打开并操作，动作绑定 revision 与请求标识，重复提交不产生第二次效果 |",
       "verification_status": "unverified",
       "implementation_refs": [],
       "evidence": [],

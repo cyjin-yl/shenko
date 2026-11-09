@@ -505,11 +505,101 @@ pub fn seed_packages() -> Result<Vec<CognitionPackage>> {
             "seed-perception/installation-units/PERCEPTION.md",
             include_str!("../seed-perception/installation-units/PERCEPTION.md"),
         ),
+        (
+            "seed-awareness/subject-frame/AWARENESS.md",
+            include_str!("../seed-awareness/subject-frame/AWARENESS.md"),
+        ),
+        (
+            "seed-awareness/idle-perception/AWARENESS.md",
+            include_str!("../seed-awareness/idle-perception/AWARENESS.md"),
+        ),
     ];
     SEEDS
         .iter()
         .map(|(path, content)| parse_cognition_entry(content, Path::new(path)))
         .collect()
+}
+
+// ------------------------------------------------------- capabilities ----
+
+/// The capability contract the subject's own role frame is resolved
+/// against. SPEC §57.1: the frame is a content unit the subject may revise,
+/// so the harness asks for a capability instead of naming a package.
+pub const CAP_SUBJECT_FRAME: &str = "cap.subject-frame";
+
+/// The capability contract for what the subject receives when no new
+/// external input arrived. SPEC §57.2: idleness is a perception, not a
+/// command line.
+pub const CAP_IDLE_PERCEPTION: &str = "cap.idle-perception";
+
+/// The resolution of one capability contract against the installation.
+///
+/// `Absent` means nothing installed provides it and the compiled fallback
+/// applies. `Ambiguous` means two or more DISTINCT units provide it: the
+/// harness does not pick one silently, it keeps the compiled fallback and
+/// tells the subject, because which frame is in force is the subject's own
+/// decision (SPEC §51.8, §57.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CapabilityUnit {
+    /// Exactly one unit provides the capability; this is its current body.
+    Installed {
+        unit_id: String,
+        revision: String,
+        body: String,
+    },
+    /// Nothing installed provides the capability.
+    Absent,
+    /// More than one distinct unit provides the capability.
+    Ambiguous { unit_ids: Vec<String> },
+}
+
+impl CapabilityUnit {
+    /// The installed body, when exactly one unit provides the capability.
+    pub fn body(&self) -> Option<&str> {
+        match self {
+            CapabilityUnit::Installed { body, .. } => Some(body.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Whether the resolution is ambiguous between distinct units.
+    pub fn is_ambiguous(&self) -> bool {
+        matches!(self, CapabilityUnit::Ambiguous { .. })
+    }
+}
+
+impl CognitionCatalog {
+    /// Resolve one capability contract against the installed units.
+    ///
+    /// Only enabled units count: a unit the subject retired is not a
+    /// provider. The current revision of the single providing unit is
+    /// returned; several DISTINCT unit ids are an ambiguity, not a race.
+    pub fn capability_unit(&self, capability: &str) -> Result<CapabilityUnit> {
+        let installed = self.units()?;
+        let mut providers: Vec<&CognitionUnit> = installed
+            .iter()
+            .filter(|unit| unit.enabled && unit.provides.iter().any(|name| name == capability))
+            .collect();
+        providers.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
+        match providers.len() {
+            0 => Ok(CapabilityUnit::Absent),
+            1 => {
+                let unit = providers[0];
+                let read = self.read(&unit.unit_id, &unit.revision)?;
+                Ok(CapabilityUnit::Installed {
+                    unit_id: unit.unit_id.clone(),
+                    revision: unit.revision.clone(),
+                    body: read.body,
+                })
+            }
+            _ => Ok(CapabilityUnit::Ambiguous {
+                unit_ids: providers
+                    .into_iter()
+                    .map(|unit| unit.unit_id.clone())
+                    .collect(),
+            }),
+        }
+    }
 }
 
 // --------------------------------------------------------------- facts ----
