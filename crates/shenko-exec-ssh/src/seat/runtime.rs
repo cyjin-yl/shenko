@@ -29,16 +29,26 @@
 //! The writer authority travels *with* the effect ([`SeatWriteFence`]): the
 //! adapters do not re-check a lease and then write, they carry the epoch the
 //! decision was made under.
+//!
+//! After a process restart, [`SeatRuntime::reattach_active_seats`] rebuilds
+//! this registry from the durable records (R070): transports that outlive
+//! the process (a local tmux pane) are re-discovered under the recorded
+//! writer lease, and `durable_questions` is re-seeded by recomputing each
+//! stored question's semantic id. Managed processes and PTYs die with the
+//! process that spawned them; their records stay durable-only. [`observe`]
+//! additionally adopts a still-open stored question by fingerprint match,
+//! so re-observing one never writes a duplicate record.
 
 use crate::seat::{
-    AnswerConfirmation, PreflightRefusalKind, SeatAdapter, SeatAnswer, SeatHandle, SeatObservation,
-    SeatPreflight, SeatQuestionCandidate, SeatResponse, SeatWriteFence, question_fingerprint,
+    AnswerConfirmation, PreflightRefusalKind, QuestionSourceKind, SeatAdapter, SeatAnswer,
+    SeatHandle, SeatObservation, SeatOption, SeatPreflight, SeatQuestionCandidate, SeatResponse,
+    SeatWriteFence, inferred_question_id, question_fingerprint,
 };
 use anyhow::{Context, Result, ensure};
 use shenko_store::{
     SeatAnswerDecisionRecord, SeatAnswerDecisionState, SeatAnswerFact, SeatAnswerOutcome,
-    SeatConfidenceFact, SeatDecisionExpectation, SeatOptionFact, SeatQuestionFact,
-    SeatQuestionRecord, SeatQuestionState, Store,
+    SeatConfidenceFact, SeatDecisionExpectation, SeatLocation, SeatOptionFact, SeatQuestionFact,
+    SeatQuestionRecord, SeatQuestionState, SeatRecord, SeatStatus, Store,
 };
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
@@ -111,6 +121,20 @@ pub struct SeatRespondOutcome {
     pub refusal: Option<String>,
 }
 
+/// What one startup reattachment pass did — SPEC §17.1, R070.
+#[derive(Debug, Default)]
+pub struct SeatReattachReport {
+    /// Live seats now reachable through the runtime again.
+    pub reattached: Vec<SeatHandle>,
+    /// Seats whose incarnation was bumped before reattach: the pane's
+    /// recorded occupant was provably replaced in place, so every fence
+    /// recorded under the old incarnation now refuses to write.
+    pub incarnation_bumped: Vec<EntityId>,
+    /// Seats that could not be reattached, with the reason. The durable
+    /// records stay readable; nothing was rewritten, retired or re-opened.
+    pub skipped: Vec<(EntityId, String)>,
+}
+
 impl SeatRuntime {
     pub fn new(store: Arc<Store>) -> Self {
         Self { store, seats: Mutex::new(BTreeMap::new()) }
@@ -154,6 +178,148 @@ impl SeatRuntime {
             .collect()
     }
 
+    /// Rebind one task's durable seats to live adapters after a restart —
+    /// SPEC §17.1, R070.
+    ///
+    /// For every *active* seat record of `task_id` the current writer lease
+    /// is reused verbatim (no re-acquisition, so the lease can never displace
+    /// a writer recorded elsewhere), and `durable_questions` is rebuilt from
+    /// the durable question records: the semantic question id is recomputed
+    /// deterministically from the stored fact (see
+    /// [`semantic_question_id_for_fact`]), and [`SeatRuntime::observe`]
+    /// additionally adopts any still-open stored question by fingerprint
+    /// match, so a re-observed question never creates a duplicate durable
+    /// record and `respond` can answer questions recorded before the
+    /// restart.
+    ///
+    /// Only transports that outlive this process can be reattached: a local
+    /// tmux pane. Managed OMP/Claude processes and SSH PTYs die with the
+    /// process that spawned them, so their records stay durable-only and are
+    /// reported as skipped — nothing is fabricated, retired or re-opened.
+    /// When the pane's foreground program provably changed in place the
+    /// seat's incarnation is bumped first, so every fence recorded under the
+    /// old occupant refuses to write before this seat is observable again.
+    pub async fn reattach_from_store(&self, task_id: EntityId) -> Result<SeatReattachReport> {
+        let mut report = SeatReattachReport::default();
+        for record in self.store.seat_task_seats(task_id)? {
+            self.reattach_record(record, &mut report).await;
+        }
+        Ok(report)
+    }
+
+    /// Startup rebuild: reattach every active seat record in the store,
+    /// regardless of which task owns it (R070).
+    pub async fn reattach_active_seats(&self) -> Result<SeatReattachReport> {
+        let mut report = SeatReattachReport::default();
+        for record in self.store.active_seat_records()? {
+            self.reattach_record(record, &mut report).await;
+        }
+        Ok(report)
+    }
+
+    async fn reattach_record(&self, record: SeatRecord, report: &mut SeatReattachReport) {
+        let skip = |report: &mut SeatReattachReport, reason: String| {
+            report.skipped.push((record.seat_id, reason));
+        };
+        if record.status != SeatStatus::Active {
+            return skip(report, format!("seat retired at {}", record.updated_commit.seq.0));
+        }
+        let SeatLocation::Tmux { host, pane_id, current_command, .. } = &record.location else {
+            // The managed process (OMP, Claude) or PTY belonged to the
+            // process that spawned it; the durable record is the authority
+            // and a live transport is never re-opened implicitly.
+            return skip(report, "managed transport died with the previous process; durable record only".into());
+        };
+        if host != "local" {
+            return skip(report, "remote tmux reattach needs an SSH binding the location does not carry".into());
+        }
+        let Some(lease) = (match self.store.seat_current_lease(record.seat_id) {
+            Ok(lease) => lease,
+            Err(error) => return skip(report, format!("lease lookup failed: {error:#}")),
+        }) else {
+            return skip(report, "no current writer lease".into());
+        };
+        if !lease.is_writer_fence() || lease.holder_task_id != record.task_id {
+            return skip(report, "current lease is not a writer fence for this task".into());
+        }
+        let adapter: Arc<dyn SeatAdapter> = Arc::new(crate::seat::tmux::TmuxSeatAdapter::local());
+        let discovered = match adapter.discover().await {
+            Ok(handles) => handles,
+            Err(error) => return skip(report, format!("discover failed: {error:#}")),
+        };
+        let Some(handle) = discovered.into_iter().find(|h| h.location_id == *pane_id) else {
+            return skip(report, format!("pane {pane_id} not found on the local tmux server"));
+        };
+        if handle.current_command.as_deref() != Some(current_command.as_str()) {
+            // The pane id was reused: the recorded occupant is gone, and the
+            // remote program is provably a different one. That is the
+            // in-place location change the incarnation field exists for —
+            // bumping it stales every lease/fence recorded under the old
+            // occupant before this seat becomes reachable again.
+            match self.store.bump_seat_incarnation(record.seat_id) {
+                Ok(_) => report.incarnation_bumped.push(record.seat_id),
+                Err(error) => {
+                    return skip(report, format!("incarnation bump failed: {error:#}"));
+                }
+            }
+        }
+        let mut live_seat = LiveSeat {
+            adapter,
+            attachment: SeatAttachment {
+                task_id: record.task_id,
+                seat_record_id: record.seat_id,
+                lease_id: lease.lease_id,
+            },
+            handle: handle.clone(),
+            durable_questions: Mutex::new(BTreeMap::new()),
+        };
+        self.rebind_durable_questions(&record, &handle, &mut live_seat).await;
+        let mut seats = self.seats.lock().await;
+        if seats.contains_key(&handle.location_id) {
+            return skip(report, format!("location {} already attached", handle.location_id));
+        }
+        seats.insert(handle.location_id.clone(), live_seat);
+        report.reattached.push(handle);
+    }
+
+    /// Rebuild `durable_questions` for a reattached seat from the durable
+    /// question records. The semantic id is recomputed deterministically —
+    /// the fingerprint-level identity is the stored
+    /// `SeatQuestionFact.fingerprint` produced by `question_fingerprint`
+    /// over kind/text/options/request ids, while the semantic id is derived
+    /// by `semantic_question_id_for_fact` (the `inferred_question_id` hash
+    /// for terminal-inferred questions, the adapter's request id for native
+    /// ones). Records whose source never produced a recomputable semantic
+    /// id are left for `observe`'s fingerprint adoption instead of being
+    /// mapped under a fabricated key.
+    async fn rebind_durable_questions(
+        &self,
+        record: &SeatRecord,
+        handle: &SeatHandle,
+        live_seat: &mut LiveSeat,
+    ) {
+        let questions = match self.store.seat_questions(record.seat_id) {
+            Ok(questions) => questions,
+            Err(error) => {
+                tracing::warn!(
+                    seat_id = %record.seat_id,
+                    error = format!("{error:#}"),
+                    "seat reattach: durable questions could not be read"
+                );
+                return;
+            }
+        };
+        let mut durable = live_seat.durable_questions.lock().await;
+        for question in questions {
+            if question.state.is_closed() {
+                continue;
+            }
+            if let Some(semantic_id) = semantic_question_id_for_fact(handle, &question.question) {
+                durable.insert(semantic_id, question.question_id);
+            }
+        }
+    }
+
     async fn live(
         &self,
         location_id: &str,
@@ -185,9 +351,28 @@ impl SeatRuntime {
         for question in &observation.questions {
             let fingerprint = question_fingerprint(question);
             let mut durable = live.durable_questions.lock().await;
-            let existing = durable
+            // The semantic id is a live-adapter key, never a durable fact:
+            // after a restart (or before any rebind ran) the durable map can
+            // be empty even though this exact question is already recorded.
+            // Fingerprint equality — the same `question_fingerprint` the
+            // adapter computes — is the stored identity of the question, so
+            // a still-open durable record with the same fingerprint is this
+            // question and is adopted instead of duplicated.
+            let mut existing = durable
                 .get(&question.question_id)
                 .and_then(|id| self.store.seat_question(*id).ok().flatten());
+            if existing.is_none() {
+                existing = self
+                    .store
+                    .seat_questions(attachment.seat_record_id)?
+                    .into_iter()
+                    .find(|record| {
+                        record.question.fingerprint == fingerprint && !record.state.is_closed()
+                    })
+                    .inspect(|record| {
+                        durable.insert(question.question_id.clone(), record.question_id);
+                    });
+            }
             let mut superseded: Option<(EntityId, RecordRevision)> = None;
             match &existing {
                 Some(record)
@@ -599,15 +784,21 @@ impl SeatRuntime {
         adapter.interrupt(&handle, &fence).await
     }
 
-    /// Detach a seat. PTY seats observe their close-time facts; other
-    /// adapters simply stop being reachable through the runtime.
+    /// Detach a seat. PTY and managed RPC seats observe their close-time
+    /// facts and stop their child process; other adapters simply stop being
+    /// reachable through the runtime.
     pub async fn detach(&self, location_id: &str) -> Result<()> {
         let seat = self.seats.lock().await.remove(location_id);
         if let Some(seat) = seat {
-            if let Some(pty) = (seat.adapter.as_ref() as &dyn std::any::Any)
-                .downcast_ref::<crate::seat::ssh_pty::SshPtySeat>()
-            {
+            let any = seat.adapter.as_ref() as &dyn std::any::Any;
+            if let Some(pty) = any.downcast_ref::<crate::seat::ssh_pty::SshPtySeat>() {
                 pty.close().await;
+            } else if let Some(omp) = any.downcast_ref::<crate::seat::omp_rpc::OmpRpcSeat>() {
+                omp.close().await;
+            } else if let Some(claude) =
+                any.downcast_ref::<crate::seat::claude_sdk::ClaudeSdkSeat>()
+            {
+                claude.close().await;
             }
         }
         Ok(())
@@ -682,4 +873,142 @@ fn candidate_from_fact(
         expires_at_ms: fact.expires_at_ms.map(i64::try_from).transpose()
             .context("seat expiry exceeds adapter timestamp range")?,
     })
+}
+
+/// Recompute the semantic question id one durable fact was observed under.
+///
+/// The reattached runtime needs the live map key, not just the durable id.
+/// Terminal-inferred questions carry their identity in the content itself:
+/// [`inferred_question_id`] hashes the seat identity plus the trimmed text
+/// and option ids, so the same stored fact recomputes the exact id the
+/// adapter assigned. Native-RPC and SDK-callback questions name their
+/// remote request in `native_request_id`; each adapter keys its candidates
+/// with a fixed prefix over that id. A fact that fits neither shape returns
+/// `None` — it is adopted later by fingerprint match on re-observation,
+/// never guessed.
+fn semantic_question_id_for_fact(
+    handle: &SeatHandle,
+    fact: &SeatQuestionFact,
+) -> Option<String> {
+    match QuestionSourceKind::parse(&fact.source_kind) {
+        Some(QuestionSourceKind::TerminalInference) => Some(inferred_question_id(
+            handle,
+            &fact.text,
+            &fact
+                .options
+                .iter()
+                .map(|option| SeatOption {
+                    option_id: option.option_id.clone(),
+                    label: option.label.clone(),
+                    meaning: option.meaning.clone(),
+                    native_value: option.native_value.clone(),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        Some(QuestionSourceKind::NativeRpc) => fact
+            .native_request_id
+            .as_ref()
+            .map(|id| format!("omp-ui:{id}")),
+        Some(QuestionSourceKind::SdkCallback) => fact.native_request_id.as_ref().map(|id| {
+            if fact.title.as_deref() == Some("AskUserQuestion") {
+                format!("claude-ask:{id}")
+            } else {
+                format!("claude-perm:{id}")
+            }
+        }),
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::seat::SeatAdapterId;
+
+    fn handle() -> SeatHandle {
+        SeatHandle {
+            location_id: "%3".into(),
+            adapter: SeatAdapterId::Tmux,
+            adapter_version: "tmux-capture-v1".into(),
+            host: "local".into(),
+            cwd: Some("/project".into()),
+            remote_session_id: None,
+            current_command: Some("omp".into()),
+            process_identity: None,
+        }
+    }
+
+    fn fact(source_kind: &str) -> SeatQuestionFact {
+        SeatQuestionFact {
+            source_kind: source_kind.into(),
+            question_kind: "planning".into(),
+            native_request_id: None,
+            native_tool_use_id: None,
+            native_payload: None,
+            title: None,
+            text: "Continue?".into(),
+            options: vec![SeatOptionFact {
+                option_id: "yes".into(),
+                label: "yes".into(),
+                meaning: None,
+                native_value: None,
+            }],
+            selected_option: None,
+            confidence: SeatConfidenceFact {
+                level: "medium".into(),
+                basis: "observed".into(),
+            },
+            unknown: vec![],
+            observed_screen_revision: 7,
+            expires_at_ms: None,
+            fingerprint: String::new(),
+        }
+    }
+
+    /// The reattach map key must be the same deterministic identity the
+    /// adapter assigned live, so a restarted subject answers the very
+    /// question that was recorded — never a fabricated duplicate.
+    #[test]
+    fn terminal_inference_facts_recompute_their_semantic_id() {
+        let handle = handle();
+        let fact = fact("terminal_inference");
+        let semantic = semantic_question_id_for_fact(&handle, &fact).unwrap();
+        let expected = inferred_question_id(
+            &handle,
+            "Continue?",
+            &[SeatOption {
+                option_id: "yes".into(),
+                label: "yes".into(),
+                meaning: None,
+                native_value: None,
+            }],
+        );
+        assert_eq!(semantic, expected);
+    }
+
+    /// Native request ids rebind under the adapter's own key prefix; a fact
+    /// without a request id is adopted later by fingerprint, never guessed.
+    #[test]
+    fn native_facts_rebind_by_their_request_id() {
+        let handle = handle();
+        let mut native = fact("native_rpc");
+        native.native_request_id = Some("req-9".into());
+        assert_eq!(
+            semantic_question_id_for_fact(&handle, &native).as_deref(),
+            Some("omp-ui:req-9")
+        );
+        let mut callback = fact("sdk_callback");
+        callback.native_request_id = Some("r2".into());
+        assert_eq!(
+            semantic_question_id_for_fact(&handle, &callback).as_deref(),
+            Some("claude-perm:r2")
+        );
+        callback.title = Some("AskUserQuestion".into());
+        assert_eq!(
+            semantic_question_id_for_fact(&handle, &callback).as_deref(),
+            Some("claude-ask:r2")
+        );
+        callback.native_request_id = None;
+        assert_eq!(semantic_question_id_for_fact(&handle, &callback), None);
+    }
 }

@@ -1120,11 +1120,20 @@ async fn install_native_definitions(
         node_sync::open_node(data_dir, store)?,
     )
     .await?;
-    // SSH PTY and seat question/answer operations share one live seat owner.
+    // SSH PTY, managed OMP/Claude seats and seat question/answer operations
+    // share one live seat owner.
     let seat_runtime = Arc::new(shenko_exec_ssh::seat::runtime::SeatRuntime::new(Arc::clone(store)));
-    let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
+    let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 6] = [
         Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
         Arc::new(shenko_exec_ssh::SshPtyHandler::new(
+            Arc::clone(store),
+            Arc::clone(&seat_runtime),
+        )),
+        Arc::new(shenko_exec_ssh::OmpSeatHandler::new(
+            Arc::clone(store),
+            Arc::clone(&seat_runtime),
+        )),
+        Arc::new(shenko_exec_ssh::ClaudeSeatHandler::new(
             Arc::clone(store),
             Arc::clone(&seat_runtime),
         )),
@@ -1141,6 +1150,23 @@ async fn install_native_definitions(
         let _seat_ssh_plugin = supervisor
             .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
             .await?;
+    }
+    // R070: durable seat records outlive this process. Rebind every active
+    // record whose transport survives a restart (a local tmux pane) so the
+    // subject can observe and answer questions recorded before the restart;
+    // managed processes and PTYs stay durable-only. A record the runtime
+    // cannot reach is reported, never fabricated or retired here.
+    match seat_runtime.reattach_active_seats().await {
+        Ok(report) => tracing::info!(
+            reattached = report.reattached.len(),
+            incarnation_bumped = report.incarnation_bumped.len(),
+            skipped = report.skipped.len(),
+            "seat runtime reattached durable seat records"
+        ),
+        Err(error) => tracing::warn!(
+            error = format!("{error:#}"),
+            "seat runtime reattach scan failed; durable seat records remain the authority"
+        ),
     }
     let native_child = supervisor
         .context()
