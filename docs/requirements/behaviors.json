@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec_version": "0.6.2",
   "spec_path": "SPEC.md",
-  "count": 56,
+  "count": 62,
   "items": [
     {
       "id": "B01",
@@ -843,6 +843,60 @@
         "R129",
         "R147"
       ]
+    },
+    {
+      "id": "B57",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "可修订的心智框架",
+      "refs": "U64；REF-USER、REF-DESIGN",
+      "contract": "角色框架与空闲观察由内容单元按能力契约提供；唯一提供者时其正文生效，无提供者时编译回退，多个提供者时报告歧义而不静默选择；主体可经写/试验/采纳路径修订，下一有效边界生效，旧版本保留；输出协议仍是内核 ABI。",
+      "verification": "§57.1/57.2/57.10；AW10–AW12；单元解析、歧义、采纳生效与回退分别可判定。",
+      "requirements": []
+    },
+    {
+      "id": "B58",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "注意力政策与未决输入",
+      "refs": "U64；REF-USER、REF-DESIGN",
+      "contract": "事件预算、空等与来源可见性由主体政策决定，harness 只给上界；未处置输入进入 deferred 并持续可见；注意力暂停期间来源不入窗、事实保留、到期复审。",
+      "verification": "§57.3；AW13–AW14；deferred 可见性、暂停范围与复审分别可判定。",
+      "requirements": []
+    },
+    {
+      "id": "B59",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "通道表面语法与平台事件感知",
+      "refs": "U64；REF-USER、REF-DESIGN",
+      "contract": "内核回复动词不变，插件拥有行内子语法与平台渲染（@、引用、Markdown 降级）；平台事件作为观察进入输入序列并保留来源；能力声明以 describe 可达为准；主动外发不加门。",
+      "verification": "§57.4；RT17–RT19；段翻译、事件可见性与能力可达分别可判定。",
+      "requirements": []
+    },
+    {
+      "id": "B60",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "真实流式与真实组件界面",
+      "refs": "U64；REF-MAGPIE、REF-ALMA、REF-DESIGN",
+      "contract": "流式三器官接通，chunk 先落盘再广播、控制行不外泄、committed-only 不变，无生产者时诚实不可用；rich 文档由真实组件渲染并降级；诚实词汇、阅读锚点、浅色偏好、屏幕阅读器宣布与单一样式来源是正式要求。",
+      "verification": "§57.5/57.6/57.7；RT20/UI-S11–UI-S14；流式语义、组件渲染与界面诚实分别可判定。",
+      "requirements": []
+    },
+    {
+      "id": "B61",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "作品即主体的手",
+      "refs": "U64；REF-USER、REF-DESIGN",
+      "contract": "主体经原生任务创建、迭代、暂存、发布与回滚作品；作品状态与动作按 revision 绑定，事件进入同一 inbox；作品可在时间线内打开并操作。",
+      "verification": "§57.6；PG06–PG07；创建/迭代/回滚与动作绑定分别可判定。",
+      "requirements": []
+    },
+    {
+      "id": "B62",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "自治接口、对齐与能力契约",
+      "refs": "U64；REF-USER、REF-DESIGN",
+      "contract": "三个主体接口不再因缺派发器而静默不可用；自改留带理由态度，回滚只增；能力契约优先于包名、多提供者共存与运行时切换；不新增审批、allowlist 或 hard deny。",
+      "verification": "§57.8/57.9/57.10；G57–G60；接口可用性、态度留痕与契约切换分别可判定。",
+      "requirements": []
     }
   ]
 }

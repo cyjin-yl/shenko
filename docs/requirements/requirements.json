@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec_version": "0.6.2",
   "spec_path": "SPEC.md",
-  "count": 147,
+  "count": 165,
   "items": [
     {
       "id": "R001",
@@ -1606,6 +1606,186 @@
         "B56"
       ],
       "source_row": "| R147 | 智能完全失效时仍以确定性控制记录系统日志，并供持有 credentials 的外部工具提取原始记忆/经历；可从磁盘镜像在其他节点恢复或合并，准确保留解密、介质和未决副作用边界。 | §22.2；§5.4/10/38/44 | U62；B55/B04/B05/B37/B56 |"
+    },
+    {
+      "id": "R148",
+      "description": "主体角色框架由内容单元提供，harness 不再把角色文本写死为编译期常量；主体可按既有内容修订路径提出新版本。",
+      "spec_locations": "§57.1",
+      "user_source": "U64",
+      "behaviors": [
+        "B57"
+      ],
+      "source_row": "| R148 | 主体角色框架由内容单元提供，harness 不再把角色文本写死为编译期常量；主体可按既有内容修订路径提出新版本。 | §57.1 | U64；B57 |"
+    },
+    {
+      "id": "R149",
+      "description": "角色框架按能力契约解析：没有提供者时使用编译回退；两个不同单元同时提供时报告歧义而不替主体选择。",
+      "spec_locations": "§57.1",
+      "user_source": "U64",
+      "behaviors": [
+        "B57"
+      ],
+      "source_row": "| R149 | 角色框架按能力契约解析：没有提供者时使用编译回退；两个不同单元同时提供时报告歧义而不替主体选择。 | §57.1 | U64；B57 |"
+    },
+    {
+      "id": "R150",
+      "description": "空闲是感知而不是运行时命令：没有新外部输入时主体收到一次由内容单元措辞的观察。",
+      "spec_locations": "§57.2",
+      "user_source": "U64",
+      "behaviors": [
+        "B57"
+      ],
+      "source_row": "| R150 | 空闲是感知而不是运行时命令：没有新外部输入时主体收到一次由内容单元措辞的观察。 | §57.2 | U64；B57 |"
+    },
+    {
+      "id": "R151",
+      "description": "注意力预算与可见来源由主体的注意力政策决定；harness 只强制防饿死与批处理上界。",
+      "spec_locations": "§57.3",
+      "user_source": "U64",
+      "behaviors": [
+        "B58"
+      ],
+      "source_row": "| R151 | 注意力预算与可见来源由主体的注意力政策决定；harness 只强制防饿死与批处理上界。 | §57.3 | U64；B58 |"
+    },
+    {
+      "id": "R152",
+      "description": "未被主体处置的输入默认进入 deferred 而不是自动确认，并在后续 S0 持续可见直到被处置或被政策放任。",
+      "spec_locations": "§57.3",
+      "user_source": "U64",
+      "behaviors": [
+        "B58"
+      ],
+      "source_row": "| R152 | 未被主体处置的输入默认进入 deferred 而不是自动确认，并在后续 S0 持续可见直到被处置或被政策放任。 | §57.3 | U64；B58 |"
+    },
+    {
+      "id": "R153",
+      "description": "注意力暂停真正生效：被暂停的来源不进入当前窗口，事实保留，review_after 到期自动复审。",
+      "spec_locations": "§57.3",
+      "user_source": "U64",
+      "behaviors": [
+        "B58"
+      ],
+      "source_row": "| R153 | 注意力暂停真正生效：被暂停的来源不进入当前窗口，事实保留，review_after 到期自动复审。 | §57.3 | U64；B58 |"
+    },
+    {
+      "id": "R154",
+      "description": "通道插件拥有自己的行内表面语法与平台渲染，内核回复动词保持不变。",
+      "spec_locations": "§57.4",
+      "user_source": "U64",
+      "behaviors": [
+        "B59"
+      ],
+      "source_row": "| R154 | 通道插件拥有自己的行内表面语法与平台渲染，内核回复动词保持不变。 | §57.4 | U64；B59 |"
+    },
+    {
+      "id": "R155",
+      "description": "平台事件（撤回、入群、离开、戳一戳）是可感知的观察，进入主体输入序列并保留来源。",
+      "spec_locations": "§57.4",
+      "user_source": "U64",
+      "behaviors": [
+        "B59"
+      ],
+      "source_row": "| R155 | 平台事件（撤回、入群、离开、戳一戳）是可感知的观察，进入主体输入序列并保留来源。 | §57.4 | U64；B59 |"
+    },
+    {
+      "id": "R156",
+      "description": "通道能力声明必须可达：只有 describe 能实际产出的动作才算该通道的能力。",
+      "spec_locations": "§57.4",
+      "user_source": "U64",
+      "behaviors": [
+        "B59"
+      ],
+      "source_row": "| R156 | 通道能力声明必须可达：只有 describe 能实际产出的动作才算该通道的能力。 | §57.4 | U64；B59 |"
+    },
+    {
+      "id": "R157",
+      "description": "真实流式通路接通：chunk 先落盘再广播、控制行不外泄、committed-only 发布不变；没有生产者时诚实报告不可用。",
+      "spec_locations": "§57.5",
+      "user_source": "U64",
+      "behaviors": [
+        "B60"
+      ],
+      "source_row": "| R157 | 真实流式通路接通：chunk 先落盘再广播、控制行不外泄、committed-only 发布不变；没有生产者时诚实报告不可用。 | §57.5 | U64；B60 |"
+    },
+    {
+      "id": "R158",
+      "description": "主体能通过专用原生任务创建、迭代、暂存、发布与回滚作品，作品事件进入同一 inbox。",
+      "spec_locations": "§57.6",
+      "user_source": "U64",
+      "behaviors": [
+        "B61"
+      ],
+      "source_row": "| R158 | 主体能通过专用原生任务创建、迭代、暂存、发布与回滚作品，作品事件进入同一 inbox。 | §57.6 | U64；B61 |"
+    },
+    {
+      "id": "R159",
+      "description": "动态界面文档由真实组件渲染并按能力降级，不以 JSON 调试视图充当界面。",
+      "spec_locations": "§57.6",
+      "user_source": "U64",
+      "behaviors": [
+        "B60"
+      ],
+      "source_row": "| R159 | 动态界面文档由真实组件渲染并按能力降级，不以 JSON 调试视图充当界面。 | §57.6 | U64；B60 |"
+    },
+    {
+      "id": "R160",
+      "description": "界面保留诚实词汇与阅读稳定性；浅色偏好、屏幕阅读器宣布与单一样式来源是正式要求。",
+      "spec_locations": "§57.7",
+      "user_source": "U64",
+      "behaviors": [
+        "B60"
+      ],
+      "source_row": "| R160 | 界面保留诚实词汇与阅读稳定性；浅色偏好、屏幕阅读器宣布与单一样式来源是正式要求。 | §57.7 | U64；B60 |"
+    },
+    {
+      "id": "R161",
+      "description": "主体接口不因缺少派发器而被静默标记为不可用，缺口以可安装能力的诚实记录出现。",
+      "spec_locations": "§57.8",
+      "user_source": "U64",
+      "behaviors": [
+        "B62"
+      ],
+      "source_row": "| R161 | 主体接口不因缺少派发器而被静默标记为不可用，缺口以可安装能力的诚实记录出现。 | §57.8 | U64；B62 |"
+    },
+    {
+      "id": "R162",
+      "description": "自改留下带理由的态度记录，回滚按只增版本链执行，旧字节不覆盖、外部副作用不撤回。",
+      "spec_locations": "§57.9",
+      "user_source": "U64",
+      "behaviors": [
+        "B62"
+      ],
+      "source_row": "| R162 | 自改留下带理由的态度记录，回滚按只增版本链执行，旧字节不覆盖、外部副作用不撤回。 | §57.9 | U64；B62 |"
+    },
+    {
+      "id": "R163",
+      "description": "能力契约优先于包名：多个提供者可共存，运行时切换提供者不需要重启。",
+      "spec_locations": "§57.9/§57.10",
+      "user_source": "U64",
+      "behaviors": [
+        "B62"
+      ],
+      "source_row": "| R163 | 能力契约优先于包名：多个提供者可共存，运行时切换提供者不需要重启。 | §57.9/§57.10 | U64；B62 |"
+    },
+    {
+      "id": "R164",
+      "description": "不新增人工审批、产品 allowlist 或静态 hard deny；真实账号、设备与平台限制按事实记录。",
+      "spec_locations": "§57.9",
+      "user_source": "U64",
+      "behaviors": [
+        "B62"
+      ],
+      "source_row": "| R164 | 不新增人工审批、产品 allowlist 或静态 hard deny；真实账号、设备与平台限制按事实记录。 | §57.9 | U64；B62 |"
+    },
+    {
+      "id": "R165",
+      "description": "主体与 child 使用同一套能力目录与插件体系，child 角色框可由主体修订。",
+      "spec_locations": "§57.10",
+      "user_source": "U64",
+      "behaviors": [
+        "B57"
+      ],
+      "source_row": "| R165 | 主体与 child 使用同一套能力目录与插件体系，child 角色框可由主体修订。 | §57.10 | U64；B57 |"
     }
   ]
 }
