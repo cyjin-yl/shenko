@@ -1,12 +1,14 @@
 //! Installed native task authority for SSH exec/PTY and seat observation —
 //! SPEC §11, §17, §35.5, §41.11.
 //!
-//! Four native children, all wired to the same runtime the binary installs:
+//! Six native children, all wired to the same runtime the binary installs:
 //!
 //! | kind | handler | what it really does |
 //! | --- | --- | --- |
 //! | `ssh.exec` | [`SshExecHandler`] | one exact remote command over the PR127 native transport |
 //! | `ssh.pty` | [`SshPtyHandler`] | opens a live PTY seat, registers it durably, attaches it to the [`SeatRuntime`] |
+//! | `omp.seat` | [`OmpSeatHandler`] | spawns a managed OMP seat, registers it at its session anchor, attaches it to the [`SeatRuntime`] |
+//! | `claude.seat` | [`ClaudeSeatHandler`] | spawns a managed Claude Code seat, registers it at its session anchor, attaches it to the [`SeatRuntime`] |
 //! | `seat.observe` | [`SeatObserveHandler`] | observes one attached seat; questions become durable before the observation returns |
 //! | `seat.respond` | [`SeatRespondHandler`] | answers one durable question with lease preflight + compare-and-swap decision |
 //!
@@ -26,9 +28,9 @@ use crate::native_transport::{
     NativePtyRequest, NativeSshTarget,
 };
 use crate::seat::runtime::{SeatAttachment, SeatRespondRequest, SeatRuntime};
-use crate::seat::{SeatAdapterId, SeatAnswer, SeatHandle};
+use crate::seat::{SeatAdapter, SeatAdapterId, SeatAnswer, SeatHandle};
 use crate::SshBinding;
-use anyhow::{Context as _, Result, ensure};
+use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use shenko_store::{SeatAnswerDecisionState, SeatLeaseRequest, Store};
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
@@ -955,6 +957,558 @@ impl NativeTaskHandler for SeatRespondHandler {
     }
 }
 
+// ---------------------------------------------------------------------------
+// managed agent seats (omp.seat / claude.seat) — SPEC §17.1, §35.5, R069
+// ---------------------------------------------------------------------------
+
+const OMP_SEAT_CONTRACT: &[u8] = b"shenko.omp.seat/v1: one managed OMP JSONL-RPC seat per operation; the durable seat record binds the adapter's session anchor (the exact spawn command line), the v2 writer lease and the runtime attachment are recorded under the trusted operation id; recovery reads the durable seat facts, never re-spawns the process";
+const CLAUDE_SEAT_CONTRACT: &[u8] = b"shenko.claude.seat/v1: one managed Claude Code control-protocol seat per operation; the durable seat record binds the durable session anchor (the caller's resume anchor, the remote-published session id, or the exact spawn command line), the v2 writer lease and the runtime attachment are recorded under the trusted operation id; recovery reads the durable seat facts, never re-spawns the process";
+
+const OMP_SEAT_PLUGIN: &str = "1e5b7d0c-6f2a-4c9e-b4d6-0a5f7c1e3b5d";
+const CLAUDE_SEAT_PLUGIN: &str = "2f6c8e1d-7a3b-4d0f-c5e7-1b6a8d2f4c6e";
+
+/// The fields both managed seat openers take. `deny_unknown_fields` cannot
+/// be combined with serde `flatten`, so each input struct repeats the
+/// fields literally and converts into this shape.
+struct ManagedSeatBase {
+    /// The exact spawn command; argv[0] plus its arguments.
+    command: Vec<String>,
+    cwd: Option<String>,
+    /// The pre-chosen seat record id. Required for a new seat; forbidden
+    /// with `supersedes_seat_id`, which mints the successor record id.
+    seat_id: Option<EntityId>,
+    /// When set, the new record supersedes this predecessor and claims the
+    /// same anchor — the relocate path for a respawned session.
+    supersedes_seat_id: Option<EntityId>,
+    lease_id: EntityId,
+    lease_epoch: u64,
+    fence_capability: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OmpSeatInput {
+    command: Vec<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    seat_id: Option<EntityId>,
+    #[serde(default)]
+    supersedes_seat_id: Option<EntityId>,
+    lease_id: EntityId,
+    lease_epoch: u64,
+    fence_capability: String,
+}
+
+impl OmpSeatInput {
+    fn into_base(self) -> ManagedSeatBase {
+        ManagedSeatBase {
+            command: self.command,
+            cwd: self.cwd,
+            seat_id: self.seat_id,
+            supersedes_seat_id: self.supersedes_seat_id,
+            lease_id: self.lease_id,
+            lease_epoch: self.lease_epoch,
+            fence_capability: self.fence_capability,
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaudeSeatInput {
+    command: Vec<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    seat_id: Option<EntityId>,
+    #[serde(default)]
+    supersedes_seat_id: Option<EntityId>,
+    lease_id: EntityId,
+    lease_epoch: u64,
+    fence_capability: String,
+    /// The durable session anchor to bind: a real remote session id this
+    /// seat resumes. When set and the command does not already carry
+    /// `--resume`/`--session-id`, the handler appends `--resume <id>` so the
+    /// anchor the store binds is the session the remote side re-enters.
+    #[serde(default)]
+    remote_session_id: Option<String>,
+}
+
+impl ClaudeSeatInput {
+    fn into_parts(self) -> (ManagedSeatBase, Option<String>) {
+        let base = ManagedSeatBase {
+            command: self.command,
+            cwd: self.cwd,
+            seat_id: self.seat_id,
+            supersedes_seat_id: self.supersedes_seat_id,
+            lease_id: self.lease_id,
+            lease_epoch: self.lease_epoch,
+            fence_capability: self.fence_capability,
+        };
+        (base, self.remote_session_id)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManagedSeatFrozen {
+    schema_version: u32,
+    command: Vec<String>,
+    cwd: Option<String>,
+    seat_id: Option<EntityId>,
+    supersedes_seat_id: Option<EntityId>,
+    lease_id: EntityId,
+    lease_epoch: u64,
+    fence_capability: String,
+    /// The session anchor the caller named, if any. When absent the record
+    /// binds the command line (OMP) or the remote-published session id with
+    /// the command line as fallback (Claude).
+    remote_session_id: String,
+    /// `remote_session_id` came from the caller, not the command fallback.
+    anchor_named: bool,
+}
+
+fn freeze_managed_seat(
+    base: ManagedSeatBase,
+    remote_session_id: Option<String>,
+) -> Result<ManagedSeatFrozen> {
+    ensure!(
+        !base.command.is_empty()
+            && base.command.iter().all(|arg| !arg.is_empty() && !arg.contains('\0')),
+        "managed seat command must be non-empty argv without NUL bytes"
+    );
+    ensure!(
+        base.command.iter().map(|arg| arg.len()).sum::<usize>() <= 64 * 1024,
+        "managed seat command exceeds 64KiB"
+    );
+    if let Some(cwd) = &base.cwd {
+        ensure!(
+            !cwd.is_empty() && cwd.len() <= 4096 && !cwd.contains('\0'),
+            "managed seat cwd must be non-empty, <= 4KiB, without NUL"
+        );
+    }
+    ensure!(
+        base.seat_id.is_some() != base.supersedes_seat_id.is_some(),
+        "exactly one of seat_id (new seat) or supersedes_seat_id (relocate) is required"
+    );
+    ensure!(base.lease_epoch > 0, "seat lease_epoch must be > 0");
+    ensure!(
+        !base.fence_capability.is_empty() && base.fence_capability.len() <= 256,
+        "seat fence_capability must be non-empty and <= 256 bytes"
+    );
+    let anchor_named = remote_session_id.is_some();
+    let anchor = match remote_session_id {
+        Some(id) => {
+            ensure!(
+                !id.is_empty() && id.len() <= 512 && !id.contains('\0'),
+                "remote_session_id must be non-empty and <= 512 bytes"
+            );
+            id
+        }
+        None => base.command.join(" "),
+    };
+    Ok(ManagedSeatFrozen {
+        schema_version: 1,
+        command: base.command,
+        cwd: base.cwd,
+        seat_id: base.seat_id,
+        supersedes_seat_id: base.supersedes_seat_id,
+        lease_id: base.lease_id,
+        lease_epoch: base.lease_epoch,
+        fence_capability: base.fence_capability,
+        remote_session_id: anchor,
+        anchor_named,
+    })
+}
+
+/// Register (or relocate) the durable seat record + acquire the writer
+/// lease, then attach the live adapter. Shared by both managed adapters;
+/// the only difference is which `SeatLocation` variant the record binds.
+/// Returns the committed seat record id and the attached handle.
+async fn bind_managed_seat(
+    store: &Store,
+    runtime: &SeatRuntime,
+    adapter: Arc<dyn SeatAdapter>,
+    location: shenko_store::SeatLocation,
+    frozen: &ManagedSeatFrozen,
+    task_id: EntityId,
+) -> Result<(EntityId, SeatHandle)> {
+    // Durable bindings first: the seat record and the v2 writer lease
+    // commit before the live adapter may persist any question.
+    let seat_record_id = match (frozen.seat_id, frozen.supersedes_seat_id) {
+        (Some(seat_id), None) => {
+            store.register_seat(
+                seat_id,
+                task_id,
+                adapter.adapter_id().as_str(),
+                adapter.adapter_version(),
+                location.clone(),
+            )?;
+            seat_id
+        }
+        (None, Some(previous)) => {
+            let record = store.relocate_seat(
+                previous,
+                task_id,
+                adapter.adapter_id().as_str(),
+                adapter.adapter_version(),
+                location.clone(),
+            )?;
+            record.seat_id
+        }
+        _ => unreachable!("freeze guarantees exactly one seat identity"),
+    };
+    store.acquire_seat_lease(SeatLeaseRequest {
+        lease_id: frozen.lease_id,
+        seat_id: seat_record_id,
+        holder_task_id: task_id,
+        lease_epoch: frozen.lease_epoch,
+        fence_capability: frozen.fence_capability.clone(),
+    })?;
+    let handle = runtime
+        .attach(
+            adapter,
+            SeatAttachment { task_id, seat_record_id, lease_id: frozen.lease_id },
+        )
+        .await?;
+    Ok((seat_record_id, handle))
+}
+
+/// Installed `omp.seat` authority — one managed OMP seat per operation.
+pub struct OmpSeatHandler {
+    store: Arc<Store>,
+    runtime: Arc<SeatRuntime>,
+}
+
+impl OmpSeatHandler {
+    pub fn new(store: Arc<Store>, runtime: Arc<SeatRuntime>) -> Self {
+        Self { store, runtime }
+    }
+
+    /// Spawn the managed OMP process, then bind it durably and attach it.
+    /// The OMP adapter's session anchor is the exact spawn command line —
+    /// the same value it exposes as `remote_session_id` — so the record
+    /// binds `frozen.remote_session_id` (which `freeze_managed_seat` sets
+    /// to that command line for OMP).
+    async fn open_seat(
+        &self,
+        frozen: &ManagedSeatFrozen,
+        task_id: EntityId,
+    ) -> Result<(EntityId, SeatHandle)> {
+        let seat = crate::seat::omp_rpc::OmpRpcSeat::spawn(
+            frozen.command.clone(),
+            frozen.cwd.clone().map(std::path::PathBuf::from),
+        )
+        .await?;
+        let seat = Arc::new(seat);
+        let result = bind_managed_seat(
+            &self.store,
+            &self.runtime,
+            seat.clone(),
+            shenko_store::SeatLocation::OmpRpc {
+                host: "local".into(),
+                remote_session_id: frozen.remote_session_id.clone(),
+            },
+            frozen,
+            task_id,
+        )
+        .await;
+        if result.is_err() {
+            // Binding failed after the process started: stop our side so a
+            // refused operation never leaves a live agent behind.
+            seat.close().await;
+        }
+        result
+    }
+}
+
+/// Installed `claude.seat` authority — one managed Claude Code seat per
+/// operation.
+pub struct ClaudeSeatHandler {
+    store: Arc<Store>,
+    runtime: Arc<SeatRuntime>,
+}
+
+impl ClaudeSeatHandler {
+    pub fn new(store: Arc<Store>, runtime: Arc<SeatRuntime>) -> Self {
+        Self { store, runtime }
+    }
+
+    /// Spawn the managed Claude process, resolve the durable session anchor,
+    /// then bind it durably and attach it. A caller-named anchor is used
+    /// verbatim; otherwise the anchor is the session id the remote side
+    /// publishes (the adapter's `remote_session_id`) within a bounded wait,
+    /// falling back to the exact spawn command line — the same fallback
+    /// `ClaudeSdkSeat::discover` uses for `location_id`.
+    async fn open_seat(
+        &self,
+        frozen: &ManagedSeatFrozen,
+        task_id: EntityId,
+    ) -> Result<(EntityId, SeatHandle)> {
+        let seat = crate::seat::claude_sdk::ClaudeSdkSeat::spawn(
+            frozen.command.clone(),
+            frozen.cwd.clone().map(std::path::PathBuf::from),
+        )
+        .await?;
+        let anchor = match frozen.anchor_named {
+            true => frozen.remote_session_id.clone(),
+            false => {
+                let deadline = tokio::time::Instant::now() + Duration::from_millis(5_000);
+                let mut anchor = seat.session_id().await;
+                while anchor.is_none() && tokio::time::Instant::now() < deadline {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    anchor = seat.session_id().await;
+                }
+                anchor.unwrap_or_else(|| frozen.remote_session_id.clone())
+            }
+        };
+        let seat = Arc::new(seat);
+        let result = bind_managed_seat(
+            &self.store,
+            &self.runtime,
+            seat.clone(),
+            shenko_store::SeatLocation::ClaudeSdk {
+                host: "local".into(),
+                remote_session_id: anchor,
+            },
+            frozen,
+            task_id,
+        )
+        .await;
+        if result.is_err() {
+            // Binding failed after the process started: stop our side so a
+            // refused operation never leaves a live agent behind.
+            seat.close().await;
+        }
+        result
+    }
+}
+
+#[async_trait]
+impl NativeTaskHandler for OmpSeatHandler {
+    fn descriptor(&self) -> NativeTaskDescriptor {
+        let contract_digest = Digest::blake3(OMP_SEAT_CONTRACT);
+        NativeTaskDescriptor {
+            kind: "omp.seat".into(),
+            definition_version: 1,
+            implementation_ref: ImplementationRef {
+                plugin_id: plugin_id(OMP_SEAT_PLUGIN),
+                artifact_digest: contract_digest,
+                registry_revision: 0,
+            },
+            role_revision: "native-omp-seat/1".into(),
+            authority_refs: vec!["omp.seat.live_seat/v1".into()],
+            prompt_section: Some(
+                "omp.seat/v1 是已安装的托管 OMP seat 开启 child。用 [delegate:omp.seat:1] {\"command\":[\"omp\",\"--mode\",\"rpc\"],\"seat_id\":\"预选的 seat 记录 UUID\",\"lease_id\":\"预选的租约 UUID\",\"lease_epoch\":1,\"fence_capability\":\"omp.rpc:<session-anchor>\"} 启动并挂接一个托管 OMP 会话；用 \"supersedes_seat_id\"（代替 seat_id）在同一锚点上重开以延续前身。seat_id/lease_id 必须在尝试前选好并持久保存：崩溃后按同一身份恢复。持久锚点是 spawn 命令行本身（OMP 暴露的会话标识），同一锚点只允许一个活跃 seat。成功只说明进程已启动且 seat 已挂接；unknown 读取持久 seat 事实，绝不自动重开。"
+                    .into(),
+            ),
+        }
+    }
+
+    async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        support::verify_wiring(&self.store, &invocation, "omp.seat", 1, plugin_id(OMP_SEAT_PLUGIN))?;
+        let task_id = invocation.task.task_id;
+        let input: OmpSeatInput = serde_json::from_value(std::mem::take(&mut invocation.input))?;
+        let frozen = freeze_managed_seat(input.into_base(), None)?;
+        let input_ref = support::seal(&self.store, &frozen, "omp-seat-frozen-input")?;
+        let (mut operation, mut attempt) = support::operation_parts(
+            &self.store,
+            &invocation,
+            plugin_id(OMP_SEAT_PLUGIN),
+            Digest::blake3(OMP_SEAT_CONTRACT),
+            "omp.seat.v1",
+            input_ref,
+            serde_json::json!({
+                "provider": "omp.rpc.v1",
+                "remote_session_id": frozen.remote_session_id,
+                "seat_id": frozen.seat_id,
+                "supersedes_seat_id": frozen.supersedes_seat_id,
+                "lease_id": frozen.lease_id,
+            }),
+            "one managed OMP seat spawned, durably registered at its session anchor and attached to this runtime; complete means the process is observable, not that the agent did any work",
+            "read the durable seat record and lease facts; a managed OMP process is never re-spawned automatically — reopening is a new explicit operation or a supersedes",
+        )?;
+        if let Some(existing) = self
+            .store
+            .arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
+        {
+            return Ok(existing);
+        }
+        let (payload, outcome, effect) = match self.open_seat(&frozen, task_id).await {
+            Ok((seat_record_id, attached)) => (
+                serde_json::json!({
+                    "schema_version": 1,
+                    "status": "attached",
+                    "seat_id": seat_record_id,
+                    "lease_id": frozen.lease_id,
+                    "location_id": attached.location_id,
+                    "remote_session_id": attached.remote_session_id,
+                    "adapter": attached.adapter.as_str(),
+                    "adapter_version": attached.adapter_version,
+                }),
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::Complete,
+            ),
+            Err(error) => (
+                serde_json::json!({
+                    "schema_version": 1,
+                    "status": "refused",
+                    "error": format!("{error:#}"),
+                    "note": "the managed OMP process was not started or not bound; no live seat exists for this operation",
+                }),
+                Some(OperationOutcome::Failed),
+                EffectStatus::None,
+            ),
+        };
+        support::observe_record(&self.store, &operation, &attempt, "omp.seat.v1", &payload, outcome, effect)
+    }
+
+    async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId) -> Result<OperationRecord> {
+        support::reconcile_query_only(
+            &self.store,
+            task,
+            operation_id,
+            "omp.seat",
+            1,
+            plugin_id(OMP_SEAT_PLUGIN),
+            "omp.seat.v1",
+            Digest::blake3(OMP_SEAT_CONTRACT),
+            "omp-seat-recovery",
+            "controller recovered; the durable seat/lease facts are the only authority — a managed process is never re-spawned by reconcile",
+        )
+    }
+}
+
+#[async_trait]
+impl NativeTaskHandler for ClaudeSeatHandler {
+    fn descriptor(&self) -> NativeTaskDescriptor {
+        let contract_digest = Digest::blake3(CLAUDE_SEAT_CONTRACT);
+        NativeTaskDescriptor {
+            kind: "claude.seat".into(),
+            definition_version: 1,
+            implementation_ref: ImplementationRef {
+                plugin_id: plugin_id(CLAUDE_SEAT_PLUGIN),
+                artifact_digest: contract_digest,
+                registry_revision: 0,
+            },
+            role_revision: "native-claude-seat/1".into(),
+            authority_refs: vec!["claude.seat.live_seat/v1".into()],
+            prompt_section: Some(
+                "claude.seat/v1 是已安装的托管 Claude Code seat 开启 child。用 [delegate:claude.seat:1] {\"command\":[\"claude\",\"-p\",\"...\"],\"seat_id\":\"预选的 seat 记录 UUID\",\"lease_id\":\"预选的租约 UUID\",\"lease_epoch\":1,\"fence_capability\":\"claude.control:<session-anchor>\",\"remote_session_id\":\"可选，要续接的会话 id\"} 启动并挂接一个托管 Claude Code 会话；给 remote_session_id 时命令会追加 --resume 续接该会话，持久锚点就是该会话 id；不给则锚定远端发布的 session_id（未发布则退回 spawn 命令行）。用 \"supersedes_seat_id\"（代替 seat_id）在同一锚点上重开以延续前身。seat_id/lease_id 必须在尝试前选好并持久保存。成功只说明进程已启动且 seat 已挂接；unknown 读取持久 seat 事实，绝不自动重开。"
+                    .into(),
+            ),
+        }
+    }
+
+    async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        support::verify_wiring(
+            &self.store,
+            &invocation,
+            "claude.seat",
+            1,
+            plugin_id(CLAUDE_SEAT_PLUGIN),
+        )?;
+        let task_id = invocation.task.task_id;
+        let input: ClaudeSeatInput = serde_json::from_value(std::mem::take(&mut invocation.input))?;
+        let (mut base, remote_session_id) = input.into_parts();
+        // A caller-named anchor is the session to re-enter: inject --resume
+        // unless the command already names one; a command that names a
+        // *different* session contradicts the anchor and is refused.
+        if let Some(resume) = remote_session_id.as_deref() {
+            let session_arg = base
+                .command
+                .windows(2)
+                .find(|w| w[0] == "--resume" || w[0] == "--session-id")
+                .map(|w| w[1].as_str());
+            ensure!(
+                session_arg.is_none() || session_arg == Some(resume),
+                "claude.seat remote_session_id contradicts the command's own --resume/--session-id"
+            );
+            if session_arg.is_none()
+                && !base.command.iter().any(|arg| arg == "--continue")
+            {
+                base.command.push("--resume".into());
+                base.command.push(resume.to_string());
+            }
+        }
+        let frozen = freeze_managed_seat(base, remote_session_id)?;
+        let input_ref = support::seal(&self.store, &frozen, "claude-seat-frozen-input")?;
+        let (mut operation, mut attempt) = support::operation_parts(
+            &self.store,
+            &invocation,
+            plugin_id(CLAUDE_SEAT_PLUGIN),
+            Digest::blake3(CLAUDE_SEAT_CONTRACT),
+            "claude.seat.v1",
+            input_ref,
+            serde_json::json!({
+                "provider": "claude.control.v1",
+                "remote_session_id": frozen.remote_session_id,
+                "seat_id": frozen.seat_id,
+                "supersedes_seat_id": frozen.supersedes_seat_id,
+                "lease_id": frozen.lease_id,
+            }),
+            "one managed Claude Code seat spawned, durably registered at its session anchor and attached to this runtime; complete means the process is observable, not that the agent did any work",
+            "read the durable seat record and lease facts; a managed Claude process is never re-spawned automatically — reopening is a new explicit operation or a supersedes",
+        )?;
+        if let Some(existing) = self
+            .store
+            .arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
+        {
+            return Ok(existing);
+        }
+        let (payload, outcome, effect) = match self.open_seat(&frozen, task_id).await {
+            Ok((seat_record_id, attached)) => (
+                serde_json::json!({
+                    "schema_version": 1,
+                    "status": "attached",
+                    "seat_id": seat_record_id,
+                    "lease_id": frozen.lease_id,
+                    "location_id": attached.location_id,
+                    "remote_session_id": attached.remote_session_id,
+                    "adapter": attached.adapter.as_str(),
+                    "adapter_version": attached.adapter_version,
+                }),
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::Complete,
+            ),
+            Err(error) => (
+                serde_json::json!({
+                    "schema_version": 1,
+                    "status": "refused",
+                    "error": format!("{error:#}"),
+                    "note": "the managed Claude process was not started or not bound; no live seat exists for this operation",
+                }),
+                Some(OperationOutcome::Failed),
+                EffectStatus::None,
+            ),
+        };
+        support::observe_record(
+            &self.store,
+            &operation,
+            &attempt,
+            "claude.seat.v1",
+            &payload,
+            outcome,
+            effect,
+        )
+    }
+
+    async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId) -> Result<OperationRecord> {
+        support::reconcile_query_only(
+            &self.store,
+            task,
+            operation_id,
+            "claude.seat",
+            1,
+            plugin_id(CLAUDE_SEAT_PLUGIN),
+            "claude.seat.v1",
+            Digest::blake3(CLAUDE_SEAT_CONTRACT),
+            "claude-seat-recovery",
+            "controller recovered; the durable seat/lease facts are the only authority — a managed process is never re-spawned by reconcile",
+        )
+    }
+}
 
 #[cfg(test)]
 mod exec_observation_tests {

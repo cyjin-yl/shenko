@@ -66,6 +66,11 @@ struct Inner {
     stdin: Mutex<Option<tokio::process::ChildStdin>>,
     state: Mutex<State>,
     command: Vec<String>,
+    /// The spawned process, kept alive for the seat's lifetime. Dropping
+    /// this `Child` (which was spawned with `kill_on_drop`) terminates the
+    /// managed agent; without it the child is killed as soon as `spawn`
+    /// returns.
+    child: Mutex<tokio::process::Child>,
 }
 
 #[derive(Default)]
@@ -113,6 +118,7 @@ impl ClaudeSdkSeat {
             stdin: Mutex::new(Some(stdin)),
             state: Mutex::new(State::default()),
             command: command.clone(),
+            child: Mutex::new(child),
         });
         let reader_inner = Arc::clone(&inner);
         tokio::spawn(async move {
@@ -141,6 +147,14 @@ impl ClaudeSdkSeat {
         let seat = Self { inner };
         seat.send_initialize().await?;
         Ok(seat)
+    }
+
+    /// The remote-side session identity once the `system`/`init` or a
+    /// `result` frame has published it; `None` while the session has not
+    /// reported one. This is what the adapter exposes as
+    /// `SeatHandle.remote_session_id`.
+    pub async fn session_id(&self) -> Option<String> {
+        self.inner.state.lock().await.session_id.clone()
     }
 
     async fn send_frame(&self, frame: &Value) -> Result<()> {
@@ -648,10 +662,19 @@ fn sub_question_text(question: &SeatQuestionCandidate, option_id: &str) -> Optio
 }
 
 impl ClaudeSdkSeat {
-    /// Close this product's side of the stdio.
+    /// Close this product's side of the stdio and terminate the managed
+    /// process. The seat owns the `Child` (spawned with `kill_on_drop`), so
+    /// the process also dies if the adapter is dropped without `close`.
     pub async fn close(&self) {
-        let mut guard = self.inner.stdin.lock().await;
-        *guard = None;
+        {
+            let mut guard = self.inner.stdin.lock().await;
+            *guard = None;
+        }
+        // Reap the managed process. It was spawned with `kill_on_drop`, so
+        // this is belt-and-suspenders; an explicit kill makes teardown
+        // deterministic rather than relying on `Inner` drop order.
+        let mut child = self.inner.child.lock().await;
+        let _ = child.kill().await;
     }
 }
 

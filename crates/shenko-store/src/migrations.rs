@@ -1,6 +1,6 @@
 //! SQLite migrations for Shenko store.
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Step 1 (v1): base schema, incl. the legacy `memory_entries` table.
@@ -236,6 +236,37 @@ fn migrate_seat_v2(conn: &Connection) -> Result<()> {
           WHERE state='current'
             AND COALESCE(json_extract(data,'$.lease_epoch'),0)=0;",
     )?;
+    // 3. Widen the one-active-seat-per-location index. v1 keyed it on
+    //    `$.location.pane_id`, which only tmux seats carry; managed RPC seats
+    //    anchor on `$.location.remote_session_id` instead. The index is a
+    //    backstop for the in-transaction claim check, which already uses the
+    //    same COALESCE expression; rebuilding it on old stores re-keys every
+    //    existing active seat under the widened rule. Rows that claim no
+    //    location (SSH PTY) still yield a NULL key and stay excluded, and
+    //    the in-transaction claim can never have admitted a conflicting pair,
+    //    so the rebuild cannot fail on legitimately stored data.
+    let index_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master
+              WHERE type='index' AND name='idx_seat_active_location'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(sql) = index_sql {
+        if !sql.contains("remote_session_id") {
+            conn.execute_batch(
+                "BEGIN;
+                 DROP INDEX idx_seat_active_location;
+                 CREATE UNIQUE INDEX idx_seat_active_location ON seat_records(
+                     json_extract(data,'$.location.host'),
+                     COALESCE(json_extract(data,'$.location.pane_id'),
+                              json_extract(data,'$.location.remote_session_id'))
+                 ) WHERE status='active';
+                 COMMIT;",
+            )?;
+        }
+    }
     Ok(())
 }
 

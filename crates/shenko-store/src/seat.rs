@@ -5,8 +5,9 @@
 //! identity. When the same work moves to a different pane/host the old record
 //! keeps its history and the new record names it via `supersedes`; when the
 //! position is gone the record is retired, not rewritten in place.
-//! At most one active record may claim a `(host, pane_id)` location; the
-//! invariant is enforced inside the admitting transaction and backed by a
+//! At most one active record may claim a `(host, location key)` location —
+//! a pane id for tmux seats, a durable session anchor for managed RPC seats;
+//! the invariant is enforced inside the admitting transaction and backed by a
 //! partial unique index.
 //!
 //! `check_seat_write` exposes durable lease/seat facts to trusted executors;
@@ -37,11 +38,14 @@ CREATE TABLE IF NOT EXISTS seat_records(
 );
 CREATE INDEX IF NOT EXISTS idx_seat_task ON seat_records(task_id, updated_commit_seq);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_successor ON seat_records(supersedes) WHERE supersedes IS NOT NULL;
--- A pane id is a physical location, and one location hosts at most one live
--- work position (SPEC §17.1): SQLite enforces it on the stored location facts,
--- so no trusted caller can admit a second active seat for the same pane.
+-- A pane id or session anchor is a physical location, and one location hosts
+-- at most one live work position (SPEC §17.1): SQLite enforces it on the
+-- stored location facts, so no trusted caller can admit a second active seat
+-- for the same location.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_active_location ON seat_records(
-    json_extract(data,'$.location.host'), json_extract(data,'$.location.pane_id')
+    json_extract(data,'$.location.host'),
+    COALESCE(json_extract(data,'$.location.pane_id'),
+             json_extract(data,'$.location.remote_session_id'))
 ) WHERE status='active';
 CREATE TABLE IF NOT EXISTS seat_leases(
     lease_id TEXT PRIMARY KEY,
@@ -94,7 +98,8 @@ CREATE INDEX IF NOT EXISTS idx_seat_decisions_question
 
 /// Current physical reach of a seat — SPEC §17.1 locator fields.
 /// Kept as one sealed shape so future adapters add fields without changing
-/// the records table. A pane id or host string here is evidence, not identity.
+/// the records table. A pane id, a remote session anchor or a host string
+/// here is evidence, not identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SeatLocation {
@@ -119,6 +124,42 @@ pub enum SeatLocation {
         /// The exact PTY program this seat was opened with.
         program_b64: String,
     },
+    /// Managed OMP agent speaking its JSONL RPC protocol (SPEC §35.5).
+    /// `remote_session_id` is the durable session anchor the seat was bound
+    /// to — what the OMP adapter reports as its session identity (the exact
+    /// spawn command line for an unmanaged anchor). One active seat may
+    /// claim a `(host, remote_session_id)` pair, enforced like a pane.
+    OmpRpc {
+        host: String,
+        /// The durable session anchor (`SeatHandle.remote_session_id`).
+        remote_session_id: String,
+    },
+    /// Managed Claude Code agent speaking its control protocol (SPEC §35.5).
+    /// `remote_session_id` is the durable session anchor: the resume anchor
+    /// the caller bound, or the session id the remote side published, or
+    /// the exact spawn command line when the session never reported one.
+    ClaudeSdk {
+        host: String,
+        /// The durable session anchor (`SeatHandle.remote_session_id`).
+        remote_session_id: String,
+    },
+}
+
+impl SeatLocation {
+    /// The `(host, location key)` this location claims for the
+    /// one-active-seat-per-location invariant. tmux seats claim a pane,
+    /// managed RPC seats claim their durable session anchor; SSH PTY seats
+    /// claim no location — their single-writer rule is the lease itself.
+    pub fn claim_key(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Tmux { host, pane_id, .. } => Some((host.as_str(), pane_id.as_str())),
+            Self::OmpRpc { host, remote_session_id }
+            | Self::ClaudeSdk { host, remote_session_id } => {
+                Some((host.as_str(), remote_session_id.as_str()))
+            }
+            Self::SshPty { .. } => None,
+        }
+    }
 }
 
 /// Lifecycle of one seat record. `retired` records keep full history and are
@@ -144,9 +185,11 @@ impl SeatStatus {
 pub struct SeatRecord {
     pub schema_version: u32,
     pub seat_id: EntityId,
-    /// Stable incarnation; bumps whenever the same record's location was
-    /// confirmed to have changed in place (kept for future adapters; this
-    /// slice always moves via supersedes so it stays 0).
+    /// Stable incarnation; bumped by `bump_seat_incarnation` whenever an
+    /// observer confirms the occupant behind this record's stored location
+    /// changed in place. Planned moves still travel via `supersedes` (a new
+    /// record at incarnation 0); a bump is the in-place counterpart that
+    /// makes every lease acquired at an older incarnation stale.
     pub incarnation: SeatIncarnation,
     /// The task this seat serves. Facts only; a seat does not own the task.
     pub task_id: EntityId,
@@ -682,8 +725,8 @@ fn write_lease(tx: &Transaction<'_>, lease: &SeatLease, seq: u64) -> Result<()> 
     Ok(())
 }
 
-fn current_lease(tx: &Transaction<'_>, seat_id: EntityId) -> Result<Option<SeatLease>> {
-    let data: Option<String> = tx
+fn current_lease(conn: &rusqlite::Connection, seat_id: EntityId) -> Result<Option<SeatLease>> {
+    let data: Option<String> = conn
         .query_row(
             "SELECT data FROM seat_leases WHERE seat_id=?1 AND state='current'",
             [seat_id.to_string()],
@@ -693,20 +736,24 @@ fn current_lease(tx: &Transaction<'_>, seat_id: EntityId) -> Result<Option<SeatL
     data.map(|d| serde_json::from_str(&d).map_err(Into::into)).transpose()
 }
 
-/// The single active seat bound to `(host, pane_id)` — the invariant behind
-/// `idx_seat_active_location`, evaluated inside the caller's transaction so a
-/// competing registration can never slip between lookup and insert.
-fn active_seat_at_pane(
+/// The single active seat bound to `(host, location key)` — the invariant
+/// behind `idx_seat_active_location`, evaluated inside the caller's
+/// transaction so a competing registration can never slip between lookup and
+/// insert. The location key is the pane id for tmux seats and the durable
+/// session anchor (`remote_session_id`) for managed RPC seats; it follows
+/// the same `COALESCE` expression the index applies.
+fn active_seat_at_location(
     conn: &rusqlite::Connection,
     host: &str,
-    pane_id: &str,
+    location_key: &str,
 ) -> Result<Option<SeatRecord>> {
     let data: Option<String> = conn
         .query_row(
             "SELECT data FROM seat_records WHERE status='active'
              AND json_extract(data,'$.location.host')=?1
-             AND json_extract(data,'$.location.pane_id')=?2",
-            [host, pane_id],
+             AND COALESCE(json_extract(data,'$.location.pane_id'),
+                          json_extract(data,'$.location.remote_session_id'))=?2",
+            [host, location_key],
             |r| r.get(0),
         )
         .optional()?;
@@ -715,22 +762,24 @@ fn active_seat_at_pane(
 
 /// Refuse to admit a second active seat at `location`. The typed error names
 /// the incumbent so the caller can retire/relocate it or bind to it after
-/// reconciliation — never silently stacked on the same pane. A relocation may
-/// replace its own predecessor at the same physical pane: the predecessor is
-/// retired before the successor is inserted in the same transaction.
+/// reconciliation — never silently stacked on the same location. A
+/// relocation may replace its own predecessor at the same physical location:
+/// the predecessor is retired before the successor is inserted in the same
+/// transaction.
 fn claim_seat_location(
     conn: &rusqlite::Connection,
     location: &SeatLocation,
     replacing: Option<EntityId>,
 ) -> Result<()> {
-    // The pane invariant binds only tmux locations. SSH PTY seats have no
-    // pane: their single-writer rule is the lease itself, verified at
-    // acquisition and re-verified on every write.
-    let (host, pane_id) = match location {
-        SeatLocation::Tmux { host, pane_id, .. } => (host.as_str(), pane_id.as_str()),
-        SeatLocation::SshPty { .. } => return Ok(()),
+    // SSH PTY seats have no location claim: their single-writer rule is the
+    // lease itself, verified at acquisition and re-verified on every write.
+    // Every other location claims `(host, pane_id | remote_session_id)` so a
+    // tmux pane and a managed session anchor get the same one-active-seat
+    // guarantee inside the admitting transaction.
+    let Some((host, location_key)) = location.claim_key() else {
+        return Ok(());
     };
-    if let Some(incumbent) = active_seat_at_pane(conn, host, pane_id)? {
+    if let Some(incumbent) = active_seat_at_location(conn, host, location_key)? {
         if Some(incumbent.seat_id) == replacing {
             return Ok(());
         }
@@ -741,7 +790,7 @@ fn claim_seat_location(
                 "claimant_seat_id": incumbent.seat_id.to_string(),
                 "claimant_task_id": incumbent.task_id.to_string(),
                 "host": host,
-                "pane_id": pane_id,
+                "location_key": location_key,
             }),
         )
         .into());
@@ -1470,11 +1519,86 @@ impl Store {
         }
     }
 
-    /// Find a live seat at a given tmux pane id — the "find the existing
-    /// work position again" lookup. Returns at most one *active* record; a
-    /// retired record at the same locator is not resurrected.
-    pub fn seat_at_pane(&self, host: &str, pane_id: &str) -> Result<Option<SeatRecord>> {
-        active_seat_at_pane(&self.ledger.conn.lock(), host, pane_id)
+    /// Find a live seat at a given location key — the "find the existing
+    /// work position again" lookup. The key is the pane id for tmux seats
+    /// and the durable session anchor (`remote_session_id`) for managed RPC
+    /// seats. Returns at most one *active* record; a retired record at the
+    /// same locator is not resurrected.
+    pub fn seat_at_location(&self, host: &str, location_key: &str) -> Result<Option<SeatRecord>> {
+        active_seat_at_location(&self.ledger.conn.lock(), host, location_key)
+    }
+
+    /// The current writer lease of one seat, if any — the authority a
+    /// restarted runtime needs to rebind live adapters without displacing
+    /// the recorded writer.
+    pub fn seat_current_lease(&self, seat_id: EntityId) -> Result<Option<SeatLease>> {
+        current_lease(&self.ledger.conn.lock(), seat_id)
+    }
+
+    /// Every seat record still marked active, newest first — the restart
+    /// scan that rebuilds the live seat registry. Records the runtime can no
+    /// longer reach (dead managed process, missing pane) are simply left to
+    /// the observers that retire them; this read decides nothing.
+    pub fn active_seat_records(&self) -> Result<Vec<SeatRecord>> {
+        let conn = self.ledger.conn.lock();
+        let mut q = conn.prepare(
+            "SELECT data FROM seat_records WHERE status='active' ORDER BY updated_commit_seq DESC",
+        )?;
+        let rows = q
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.iter()
+            .map(|d| serde_json::from_str(d).map_err(Into::into))
+            .collect()
+    }
+
+    /// Bump the location incarnation of one active seat — SPEC §17.1.
+    ///
+    /// This is the *in-place* change transition, the complement of
+    /// `relocate_seat`/`supersedes`: relocation records a planned move by
+    /// writing a successor record, while a bump records that an observer
+    /// proved the occupant behind this record's stored location changed (a
+    /// reused pane, a replaced session) without any record move. The bump
+    /// exists so the existing fencing already wired into
+    /// `check_seat_write`, `open_seat_question` and the answer-decision CAS
+    /// refuses writes admitted against the old incarnation — every current
+    /// lease was acquired at an incarnation that is now stale, so its holder
+    /// must re-verify the live location and re-acquire before writing.
+    /// Leases are not ended here: ending one fabricates a transition the
+    /// observer did not prove; staleness is enforced by the incarnation
+    /// comparison at every write admission.
+    ///
+    /// The supersedes model is untouched: the record keeps its seat id, its
+    /// task and its supersedes chain; only `incarnation` and the row
+    /// revision move, in one commit. Retired records cannot be bumped —
+    /// their history stays frozen.
+    pub fn bump_seat_incarnation(&self, seat_id: EntityId) -> Result<SeatRecord> {
+        self.ledger.with_mutation(
+            || {
+                let mut c = self.ledger.conn.lock();
+                let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let mut seat = read_seat(&tx, seat_id)?
+                    .ok_or_else(|| ShenkoError::not_found("bump_seat_incarnation: unknown seat"))?;
+                ensure!(
+                    seat.status == SeatStatus::Active,
+                    seat_error(
+                        "seat_retired",
+                        RetryStrategy::NeverAutomatically,
+                        serde_json::json!({"seat_id": seat_id.to_string()}),
+                    )
+                );
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                seat.incarnation = SeatIncarnation(seat.incarnation.0 + 1);
+                seat.record_revision = seat.record_revision.next();
+                seat.updated_commit = commit;
+                write_seat(&tx, &seat, seq.0)?;
+                seat_log(&tx, self, commit, 1)?;
+                tx.commit()?;
+                Ok(seat)
+            },
+            storage_failure,
+        )
     }
 
     /// Persist one observed seat question — SPEC §41.11. Every question is
