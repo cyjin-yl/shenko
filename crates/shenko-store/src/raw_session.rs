@@ -574,13 +574,15 @@ fn stage_input(
     // transaction as the staging link, so a crash can never leave an input
     // staged but still queued for recovery delivery. This does not claim a
     // sealed presentation; selected receipts require sealed InputPlan membership.
-    // Web/Playground/media persist complete input originals. Native observations
-    // and native child T2 use committed S1 dispositions for recovery readiness;
-    // staging must leave a Deferred observation eligible for the next step.
+    // Web/Playground/media persist complete input originals, and the subject's
+    // own "subject" self-wake source shares this lane (SPEC §13.8). Native
+    // observations and native child T2 use committed S1 dispositions for
+    // recovery readiness; staging must leave a Deferred observation eligible
+    // for the next step.
     tx.execute(
         "UPDATE inbox_events SET consumed=1
          WHERE event_id=?1 AND consumed=0
-           AND (source IN (?2, 'playground') OR source LIKE 'media/%')",
+           AND (source IN (?2, 'playground', 'subject') OR source LIKE 'media/%')",
         params![input.event_id.to_string(), crate::web_input::WEB_INPUT_SOURCE],
     )
     .map_err(storage_error)?;
@@ -789,9 +791,9 @@ impl Store {
 
     /// Bounded recovery of complete subject-input originals, read directly by
     /// the normal Planned loop when a volatile wake was lost or backpressured.
-    /// Web, Playground and media ingress share this lane and its staging
-    /// transaction; native-child task_result rows retain their existing T2
-    /// delivery path.
+    /// Web, Playground, media and the subject's own "subject" self-wake
+    /// ingress share this lane and its staging transaction; native-child
+    /// task_result rows retain their existing T2 delivery path.
     ///
     /// Each row carries its stable event identity next to the original bytes:
     /// a caller that cannot decode one admitted input must be able to name the
@@ -815,7 +817,7 @@ impl Store {
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
              WHERE i.agent_id=?1 AND (
-               (i.consumed=0 AND (i.source IN (?2, 'playground') OR i.source LIKE 'media/%'))
+               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject') OR i.source LIKE 'media/%'))
                OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
                     OR json_extract(d.disposition,'$.disposition')='deferred')))
              ORDER BY i.rowid LIMIT ?4",

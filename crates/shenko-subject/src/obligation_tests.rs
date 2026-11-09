@@ -827,3 +827,86 @@ async fn unreadable_unrelated_decision_keeps_degraded_recovery_and_the_dispatche
         .query_row("SELECT migration FROM subject_intent_steps WHERE step_id=?1",
             [unrelated.to_string()], |row| row.get::<_, String>(0)).unwrap(), marker);
 }
+
+/// R071/R072 proactivity: a due obligation is admitted as a deterministic
+/// SelfWake on the "subject" source, the durable row survives a lost volatile
+/// wake through pending_inbox_events, a replayed admission is an exact
+/// replay — never a second row — and the staged-input boundary consumes the
+/// same lane every other complete input uses (SPEC §13.8).
+#[tokio::test]
+async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
+    use shenko_store::InboxAdmission;
+
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(&store, &mut subject, 1, &[],
+        "[obligation] {\"description\":\"wait out the peer partition\",\"resume_condition\":\"the peer partition heals\",\"due_at\":\"2020-01-01T00:00:00Z\"}").await;
+    commit_output(&store, &mut subject, 2, &[],
+        "[obligation] {\"description\":\"a promise without a due time\",\"resume_condition\":\"owner judgment\"}").await;
+    let obligations = store.open_subject_obligations(agent).unwrap();
+    assert_eq!(obligations.len(), 2);
+    let due_obligation = obligations.iter().find(|o| o.due_at.is_some()).unwrap();
+
+    let inbox = Arc::new(Inbox::new(8));
+    let mut sent = std::collections::HashSet::new();
+    crate::dispatch::wake_due_obligations(
+        &store, agent, &inbox.sender(), &mut sent).await.unwrap();
+    assert_eq!(sent.len(), 1, "only the dated obligation wakes; due_at=None stays unscheduled");
+    let delivered = inbox.recv_batch(8, 1_000).await;
+    assert_eq!(delivered.len(), 1, "one volatile wake for the durable admission");
+    let wake = delivered.into_iter().next().unwrap();
+    assert_eq!(wake.kind, crate::inbox::InboxEventKind::SelfWake);
+    assert_eq!(wake.source, crate::inbox::SUBJECT_WAKE_SOURCE);
+    assert_eq!(wake.payload["obligation_id"],
+        serde_json::json!(due_obligation.obligation_id));
+    // created_at is the due fact itself, so a later process reproduces the
+    // identical original instead of a conflicting same-id row.
+    assert_eq!(wake.created_at, due_obligation.due_at.unwrap());
+    assert_eq!(crate::dispatch::self_wake_event(due_obligation).event_id, wake.event_id);
+
+    // The volatile channel above was drained by the test, not by a step: the
+    // durable row is still pending on the shared recovery lane.
+    let pending = store.pending_inbox_events(agent, 64).unwrap();
+    assert!(pending.iter().any(|(event_id, _)| *event_id == wake.event_id),
+        "the admitted wake survives a lost volatile delivery: {pending:?}");
+
+    // Inside one process the sent-set bounds repeated scans; across a
+    // "restart" (fresh set) the deterministic identity admits as an exact
+    // replay instead of a second row or a same-id conflict.
+    let mut replacement = wake.clone();
+    replacement.created_at = chrono::Utc::now();
+    assert!(store.admit_inbox_event(wake.event_id, agent,
+        crate::inbox::SELF_WAKE_KIND, crate::inbox::SUBJECT_WAKE_SOURCE,
+        &serde_json::to_value(&replacement).unwrap()).is_err(),
+        "a same-id row with different facts is a conflict, never a silent dup");
+    crate::dispatch::wake_due_obligations(
+        &store, agent, &inbox.sender(), &mut sent).await.unwrap();
+    assert!(inbox.recv_batch(8, 200).await.is_empty(),
+        "the same due fact never produces a second wake in one process");
+    let mut fresh = std::collections::HashSet::new();
+    crate::dispatch::wake_due_obligations(
+        &store, agent, &inbox.sender(), &mut fresh).await.unwrap();
+    assert_eq!(fresh.len(), 1, "a restarted scanner wakes the still-open fact once");
+    assert_eq!(store.admit_inbox_event(wake.event_id, agent,
+        crate::inbox::SELF_WAKE_KIND, crate::inbox::SUBJECT_WAKE_SOURCE,
+        &serde_json::to_value(&wake).unwrap()).unwrap(), InboxAdmission::Replay);
+    drop(inbox.recv_batch(8, 200).await);
+
+    // Staging the wake into a real step consumes it on the same lane as the
+    // other complete originals; the sealed S0 cites the wake it selected.
+    let commit_seq = subject.step.step_no;
+    commit_output(&store, &mut subject, commit_seq, &[wake.clone()], "I pick the due promise back up.").await;
+    let consumed: i64 = rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .query_row("SELECT consumed FROM inbox_events WHERE event_id=?1",
+            [wake.event_id.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(consumed, 1);
+    assert!(store.pending_inbox_events(agent, 64).unwrap().iter()
+        .all(|(event_id, _)| *event_id != wake.event_id));
+    let committed = store.get_step(&subject.head.branch_id, subject.step.created_by_step_id.unwrap())
+        .unwrap().unwrap();
+    assert!(runner::frozen_input(&store, &committed).unwrap().events.iter()
+        .any(|event| event.event_id == wake.event_id));
+
+    drop((subject, store));
+    std::fs::remove_dir_all(dir).unwrap();
+}
