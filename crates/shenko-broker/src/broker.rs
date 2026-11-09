@@ -450,6 +450,34 @@ impl BrokerHandle {
         )
     }
 
+    /// Submit a streamed controlled call whose result the caller awaits.
+    ///
+    /// Same contract as [`BrokerHandle::submit_stream`], plus the receipt
+    /// owner: the caller receives the terminal result exactly like a
+    /// non-streamed call, so the sealed request, the committed decision and
+    /// the streamed surface stay one dispatch. The stream is an additional
+    /// ordered surface, never a replacement for the result.
+    pub fn submit_stream_recorded(
+        &self,
+        req: InferenceRequest,
+        identity: StreamIdentity,
+        journal: Option<Arc<dyn StreamJournalSink>>,
+        public: Option<Arc<dyn PublicStreamSink>>,
+        sink: Arc<dyn InferenceReceiptSink>,
+    ) -> Result<()> {
+        ensure!(
+            journal.is_some(),
+            "streamed inference needs a durable journal sink; content is never dropped silently"
+        );
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(
+            req,
+            Some(sink),
+            purpose,
+            Some(StreamSubmission { identity, journal, public }),
+        )
+    }
+
     fn submit_inner(
         &self,
         req: InferenceRequest,
@@ -1154,10 +1182,44 @@ mod tests {
 
         async fn stream(
             &self,
-            _request: &InferenceRequest,
-            _publisher: &BoundedStreamPublisher,
+            request: &InferenceRequest,
+            publisher: &BoundedStreamPublisher,
         ) -> Result<crate::stream::StreamOutcome> {
-            Err(anyhow!("the fixture does not stream"))
+            // The fixture really streams: the public text is published in two
+            // deltas, the second one carrying a control line that must never
+            // reach the reader surface.
+            self.starts.send((request.request_id, request.priority)).unwrap();
+            publisher.push(
+                crate::stream::StreamEvent::TextDelta { text: "第一段。".into() },
+                1,
+            )?;
+            publisher.push(
+                crate::stream::StreamEvent::TextDelta {
+                    text: "第二段。\n[reply:private:12345] 不该出现在公开流里\n".into(),
+                },
+                2,
+            )?;
+            publisher.push(
+                crate::stream::StreamEvent::MessageStop { stop_reason: "end_turn".into() },
+                3,
+            )?;
+            Ok(crate::stream::StreamOutcome {
+                response: InferenceResponse {
+                    content: "第一段。\n第二段。\n[reply:private:12345] 不该出现在公开流里\n".into(),
+                    stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
+                    usage: Some(TokenUsage {
+                        input_tokens: Some(1),
+                        output_tokens: Some(4),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }),
+                    ratelimit_headers: Vec::new(),
+                    citations: Vec::new(),
+                },
+                events: 3,
+                batches: 1,
+            })
         }
 
         async fn count_tokens(&self, _request: &InferenceRequest) -> Result<TokenCount> {
@@ -1840,5 +1902,170 @@ mod tests {
         run.abort();
         let _ = run.await;
         assert_eq!(observer.active_count(), 1);
+    }
+    /// The reader surface a test watches.
+    #[derive(Default)]
+    struct RecordingPublic {
+        chunks: Mutex<Vec<crate::stream::PublicTextChunk>>,
+        terminals: Mutex<usize>,
+    }
+
+    impl crate::stream::PublicStreamSink for RecordingPublic {
+        fn publish_text(
+            &self,
+            chunk: &crate::stream::PublicTextChunk,
+        ) -> Result<(), crate::stream::StreamSinkError> {
+            self.chunks.lock().expect("public chunks poisoned").push(chunk.clone());
+            Ok(())
+        }
+
+        fn publish_terminal(
+            &self,
+            _request_id: EntityId,
+            _terminal: &TerminationEvidence,
+        ) -> Result<(), crate::stream::StreamSinkError> {
+            *self.terminals.lock().expect("public terminals poisoned") += 1;
+            Ok(())
+        }
+    }
+
+    /// A receipt owner that only remembers what it was handed.
+    struct RecordingReceipt {
+        request_id: EntityId,
+        binding: ProviderBinding,
+        payload: InferencePayload,
+        results: Mutex<Vec<InferenceResult>>,
+    }
+
+    impl InferenceRecoverySource for RecordingReceipt {
+        fn request_id(&self) -> EntityId {
+            self.request_id
+        }
+
+        fn binding(&self) -> &ProviderBinding {
+            &self.binding
+        }
+
+        fn payload(&self) -> &InferencePayload {
+            &self.payload
+        }
+
+        fn read_terminal_result(&self) -> anyhow::Result<Option<InferenceResult>> {
+            Ok(self.results.lock().expect("receipt results poisoned").last().cloned())
+        }
+    }
+
+    impl InferenceReceiptSink for RecordingReceipt {
+        fn may_dispatch(&self) -> anyhow::Result<DispatchFence> {
+            Ok(DispatchFence::Send)
+        }
+
+        fn record(&self, result: &InferenceResult) -> anyhow::Result<()> {
+            self.results.lock().expect("receipt results poisoned").push(result.clone());
+            Ok(())
+        }
+    }
+
+    /// A streamed call reaches the reader surface AND the receipt owner —
+    /// SPEC §57.5. The stream is an additional ordered surface, never a
+    /// replacement for the recorded result, and a control line never crosses
+    /// into the reader's text.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner() {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .expect("the fixture binds");
+        let binding = handle.binding().clone();
+        let public = Arc::new(RecordingPublic::default());
+        let journal = RecordingJournal::new();
+        let request_id = EntityId::new();
+        let payload = InferencePayload {
+            system_prompt: "fixture system".into(),
+            messages: vec![InferenceMessage::text("user", "fixture input")],
+            max_tokens: Some(16),
+            tools: vec![],
+            native_options: BTreeMap::new(),
+        };
+        let receipt = Arc::new(RecordingReceipt {
+            request_id,
+            binding: binding.clone(),
+            payload: payload.clone(),
+            results: Mutex::new(Vec::new()),
+        });
+        let (result_tx, result_rx) = oneshot::channel();
+        handle
+            .submit_stream_recorded(
+                InferenceRequest {
+                    request_id,
+                    agent_id: EntityId::new(),
+                    conversation_id: EntityId::new(),
+                    provider_binding: binding.clone(),
+                    priority: InferencePriority::Subject,
+                    epoch: ControllerEpoch(1),
+                    payload,
+                    result_tx,
+                },
+                StreamIdentity {
+                    message_id: EntityId::new().to_string(),
+                    part_id: "text/0".into(),
+                    stream_id: request_id,
+                    attempt_id: EntityId::new(),
+                },
+                Some(journal.clone()),
+                Some(public.clone()),
+                receipt.clone(),
+            )
+            .expect("the streamed submission is admitted");
+        let run = tokio::spawn(broker.run());
+        let started = ControlledProvider::next_start(&mut starts).await;
+        assert_eq!(started.0, request_id);
+
+        let result = tokio::time::timeout(Duration::from_secs(3), result_rx)
+            .await
+            .expect("the streamed call answers")
+            .expect("the streamed call delivered its result");
+        assert_eq!(result.request_id, request_id);
+        assert_eq!(result.status, InferenceStatus::Success);
+
+        // The reader surface saw the public text, in order, under the identity
+        // the committed projection also uses.
+        let chunks = public.chunks.lock().expect("public chunks poisoned").clone();
+        assert!(!chunks.is_empty(), "the reader surface received nothing");
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.part_id == "text/0" && chunk.stream_id == request_id),
+            "every chunk carries its part and stream identity"
+        );
+        let text: String = chunks.iter().map(|chunk| chunk.text.as_str()).collect();
+        assert!(text.contains("第一段。"), "public text: {text}");
+        assert!(
+            !text.contains("[reply:private:12345]"),
+            "a control line never reaches the reader surface: {text}"
+        );
+
+        // The durable journal saw the stream: ordered batches and a terminal.
+        let journaled = journal.journaled_events();
+        assert!(
+            journaled.iter().any(|event| matches!(
+                event,
+                crate::stream::StreamEvent::TextDelta { text } if text.contains("第一段。")
+            )),
+            "the journal kept the public text"
+        );
+        assert_eq!(journal.closed.load(Ordering::SeqCst), 1, "the stream was closed");
+
+        // The receipt owner received the terminal result: a streamed call is
+        // still a recorded call.
+        let recorded = receipt.results.lock().expect("receipt results poisoned").clone();
+        assert_eq!(recorded.len(), 1, "the receipt owner recorded the result");
+        assert_eq!(recorded[0].request_id, request_id);
+
+        drop(handle);
+        run.abort();
+        let _ = run.await;
     }
 }

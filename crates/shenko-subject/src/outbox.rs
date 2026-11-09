@@ -4,6 +4,13 @@
 //! (the Web UI, other channels) can render it without reaching into loop state.
 use serde::{Deserialize, Serialize};
 
+/// The text part identity shared by the committed projection and the
+/// streamed surface: `message_id` is the step id, `part_id` names the part
+/// inside it. One identity means a client that watched the stream absorbs
+/// the committed message instead of appending the same text twice
+/// (SPEC §21.8, §21.9, §57.5).
+pub const TEXT_PART_ID: &str = "text/0";
+
 /// One outbound subject message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboxMessage {

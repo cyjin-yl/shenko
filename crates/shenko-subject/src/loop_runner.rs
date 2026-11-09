@@ -351,6 +351,11 @@ pub struct SubjectLoopState {
     pub identity_receipt: Option<IdentityReceipt>,
     pub(super) plugin_context: cordis_core::Context,
     identity_service: Arc<IdentityService>,
+    /// The durable journal of a provider stream, when the installation wired
+    /// one. Without it the subject keeps the ordinary non-streamed path.
+    pub(super) stream_journal: Option<Arc<dyn shenko_broker::stream::StreamJournalSink>>,
+    /// The reader surface of a provider stream, when one is installed.
+    pub(super) stream_public: Option<Arc<dyn shenko_broker::stream::PublicStreamSink>>,
     /// The cognition catalogue available to this subject. It is a READ MODEL
     /// over the Node's unit store: the Node stays the sole install, version,
     /// enable, supersession and provenance authority. The catalogue only
@@ -453,6 +458,8 @@ impl SubjectLoopState {
             identity_receipt,
             plugin_context,
             identity_service,
+            stream_journal: None,
+            stream_public: None,
             awareness: None,
             quota_strategies,
             pending_reminder: None,
@@ -571,6 +578,23 @@ impl SubjectLoopState {
     /// Attach the outbound timeline broadcaster — SPEC §5.1, §21.12.
     pub fn with_outbox(mut self, tx: tokio::sync::broadcast::Sender<OutboxMessage>) -> Self {
         self.outbox_tx = Some(tx);
+        self
+    }
+
+    /// Install the durable journal and the reader surface of a provider
+    /// stream — SPEC §57.5.
+    ///
+    /// The journal is the durable half: without it the subject keeps the
+    /// ordinary path and the installation honestly reports that no stream is
+    /// available. The public surface is optional — a headless node may
+    /// journal a stream nobody is watching.
+    pub fn with_stream_sinks(
+        mut self,
+        journal: Arc<dyn shenko_broker::stream::StreamJournalSink>,
+        public: Option<Arc<dyn shenko_broker::stream::PublicStreamSink>>,
+    ) -> Self {
+        self.stream_journal = Some(journal);
+        self.stream_public = public;
         self
     }
 }
@@ -1422,7 +1446,33 @@ async fn execute_step(
             binding: broker.binding().clone(),
             payload: input.payload.clone(),
         });
-        if let Err(error) = broker.submit_recorded(req, sink) {
+        // The streamed path is an ADDITIONAL ordered surface, never a
+        // replacement: the same sealed request, the same receipt owner and
+        // the same committed decision. Without a durable journal the subject
+        // keeps the ordinary path, byte for byte.
+        let submitted = match (&state.stream_journal, &state.stream_public) {
+            (Some(journal), public) => {
+                let identity = shenko_broker::stream::StreamIdentity {
+                    // The committed projection uses the step id as the message
+                    // identity and `text/0` as the part; a streamed chunk and
+                    // the committed message therefore share one identity and
+                    // the client absorbs instead of appending (§21.8).
+                    message_id: step_id.to_string(),
+                    part_id: crate::outbox::TEXT_PART_ID.to_string(),
+                    stream_id: request_id,
+                    attempt_id: attempt.attempt_id,
+                };
+                broker.submit_stream_recorded(
+                    req,
+                    identity,
+                    Some(Arc::clone(journal)),
+                    public.clone(),
+                    sink,
+                )
+            }
+            (None, _) => broker.submit_recorded(req, sink),
+        };
+        if let Err(error) = submitted {
             // An admission error is not authority to claim the request never
             // left: the broker owns the send boundary. The request stays
             // recoverable debt and the step is reconciled, never replayed

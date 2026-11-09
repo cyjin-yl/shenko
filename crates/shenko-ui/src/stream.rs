@@ -157,3 +157,66 @@ impl StreamSink {
             .output_parts_after(self.subject_id, after_commit_seq, limit)?)
     }
 }
+
+/// The reader surface of a provider stream — SPEC §21.9, §57.5.
+///
+/// The broker publishes the public text of a stream here; every chunk is
+/// written to the store BEFORE it is broadcast, so "durable" always precedes
+/// "visible" and a reconnecting client resumes from a durable cursor instead
+/// of a guessed snapshot.
+///
+/// The part identity is the one the committed projection also uses:
+/// `message_id` is the step id and `part_id` is `text/0`. A client that
+/// watched the stream therefore absorbs the committed message as the S1
+/// binding instead of appending the same text twice (§21.8, §21.9).
+pub struct UiPublicStreamSink {
+    sink: Arc<StreamSink>,
+}
+
+impl UiPublicStreamSink {
+    pub fn new(sink: Arc<StreamSink>) -> Self {
+        Self { sink }
+    }
+}
+
+impl shenko_broker::stream::PublicStreamSink for UiPublicStreamSink {
+    fn publish_text(
+        &self,
+        chunk: &shenko_broker::stream::PublicTextChunk,
+    ) -> Result<(), shenko_broker::stream::StreamSinkError> {
+        let message_id: shenko_types::ids::EntityId = chunk.message_id.parse().map_err(|error| {
+            shenko_broker::stream::StreamSinkError::Publish(format!(
+                "stream chunk names no usable message identity: {error}"
+            ))
+        })?;
+        let part = shenko_store::output_parts::OutputPart {
+            stream_id: chunk.stream_id,
+            request_id: chunk.request_id,
+            attempt_id: chunk.attempt_id,
+            message_id,
+            part_id: chunk.part_id.clone(),
+            part_revision: "r1".to_string(),
+            chunk_seq: chunk.chunk_seq,
+            content: chunk.text.clone(),
+            kind: shenko_store::output_parts::OutputPartKind::PublicText,
+            // The committed decision carries the terminal truth; a streamed
+            // chunk is not the end of the story.
+            terminal: false,
+        };
+        self.sink
+            .publish(&part)
+            .map_err(|error| shenko_broker::stream::StreamSinkError::Publish(format!("{error:#}")))?;
+        Ok(())
+    }
+
+    fn publish_terminal(
+        &self,
+        _request_id: shenko_types::ids::EntityId,
+        _terminal: &shenko_broker::request::TerminationEvidence,
+    ) -> Result<(), shenko_broker::stream::StreamSinkError> {
+        // The terminal evidence belongs to the durable journal; the reader
+        // surface learns that the step was committed from the committed lane,
+        // which is the only place a terminal claim is true.
+        Ok(())
+    }
+}
