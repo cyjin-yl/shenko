@@ -116,6 +116,13 @@ pub struct PublicTextChunk {
     pub message_id: String,
     /// The part identity inside that message.
     pub part_id: String,
+    /// The durable stream the chunk belongs to. SPEC §21.11: the envelope
+    /// carries a stable stream identity through streaming, completion,
+    /// failure, cancellation and reconnect.
+    pub stream_id: EntityId,
+    /// The attempt that owns the request. A new attempt is a new revision,
+    /// never a rewrite of the previous one.
+    pub attempt_id: EntityId,
     /// Contiguous chunk number starting at zero.
     pub chunk_seq: u64,
     pub text: String,
@@ -163,11 +170,20 @@ pub struct StreamIdentity {
     pub message_id: String,
     /// The part identity inside that message.
     pub part_id: String,
+    /// The durable stream the part belongs to.
+    pub stream_id: EntityId,
+    /// The attempt that owns the request.
+    pub attempt_id: EntityId,
 }
 
 impl Default for StreamIdentity {
     fn default() -> Self {
-        Self { message_id: String::new(), part_id: "text/0".into() }
+        Self {
+            message_id: String::new(),
+            part_id: "text/0".into(),
+            stream_id: EntityId::nil(),
+            attempt_id: EntityId::nil(),
+        }
     }
 }
 
@@ -378,6 +394,8 @@ impl BoundedStreamPublisher {
                     request_id: self.request_id,
                     message_id: self.identity.message_id.clone(),
                     part_id: self.identity.part_id.clone(),
+                    stream_id: self.identity.stream_id,
+                    attempt_id: self.identity.attempt_id,
                     chunk_seq: chunk_seq + offset as u64,
                     text: piece,
                 });

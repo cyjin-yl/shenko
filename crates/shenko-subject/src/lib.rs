@@ -13,6 +13,7 @@ mod quota_gate;
 mod subject_receipt;
 pub mod quota_runtime;
 pub mod quota_strategies;
+pub mod stream_journal;
 
 pub use child::*;
 pub use dispatch::*;
@@ -22,6 +23,7 @@ pub use outbox::*;
 pub use model_child::ModelChildHandler;
 pub use intervention::PmaEvaluateHandler;
 pub use quota_strategies::{QuotaStrategyPlugin, QuotaStrategyService};
+pub use stream_journal::SubjectStreamJournal;
 
 pub mod output;
 

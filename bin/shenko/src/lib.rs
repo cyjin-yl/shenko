@@ -2941,6 +2941,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
             // Built after any connector-scoped handler install so the sealed
             // tool contract advertises exactly the installed definitions.
+            // The provider stream: a durable journal for the stream itself
+            // and the reader surface the WebUI watches. The subject keeps the
+            // ordinary path when no journal is wired, and the UI then
+            // honestly reports that streaming is unavailable (§57.5).
+            let stream_sink = shenko_ui::stream::StreamSink::new(
+                Arc::clone(&store),
+                agent_id,
+                256,
+            );
+            let stream_journal = Arc::new(shenko_subject::SubjectStreamJournal::new(
+                Arc::clone(&store),
+                agent_id,
+            ));
+            let stream_public: Arc<dyn shenko_broker::stream::PublicStreamSink> = Arc::new(
+                shenko_ui::stream::UiPublicStreamSink::new(Arc::clone(&stream_sink)),
+            );
             let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
                 agent_id,
                 Arc::clone(&subject_inbox),
@@ -2953,7 +2969,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             .with_native_capabilities(native_child.installed_prompt_sections())
             .with_awareness(cognition)
             .with_hooks(Arc::clone(&hook_registry))
-            .with_outbox(outbox_tx.clone());
+            .with_outbox(outbox_tx.clone())
+            .with_stream_sinks(stream_journal, Some(stream_public));
 
             // Connector/ACK storage failures also stop admission in the subject.
             let connector_failure = cancel.clone();
@@ -2991,6 +3008,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_native(Arc::clone(&native_child))
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
+                .with_stream_sink(Arc::clone(&stream_sink))
                 .with_store(Arc::clone(&store))
                 .with_media_ingress(Arc::clone(&media.ingress))
                 .with_media_runtime(Arc::clone(&media.runtime))

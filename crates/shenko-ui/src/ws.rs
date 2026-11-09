@@ -66,7 +66,7 @@ pub struct TimelineMessage {
 
 /// The text part identity shared by the committed projection and the stream
 /// sink: `message_id` is the step id, `part_id` names the part within it.
-pub const TEXT_PART_ID: &str = "text/0";
+pub use shenko_subject::outbox::TEXT_PART_ID;
 
 fn committed_timeline_message(out: OutboxMessage) -> TimelineMessage {
     let step_id = out.step_id.to_string();

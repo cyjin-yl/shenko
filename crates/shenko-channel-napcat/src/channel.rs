@@ -84,6 +84,120 @@ impl NapCatChannel {
         }
         id.parse::<u64>().ok().filter(|number| *number > 0)
     }
+
+    /// Classify a OneBot notice into the observation it is.
+    ///
+    /// Only the notices that carry a fact about the conversation are
+    /// classified: a recall, a member change, a poke. Everything else stays
+    /// unclassified and keeps the plain-header fallback, so an unknown event
+    /// never invents a meaning.
+    fn classify_notice(&self, raw: &Value) -> Option<ChannelEnvelope> {
+        let notice_type = raw.get("notice_type").and_then(Value::as_str)?;
+        let account = self.config.account_scope();
+        let actor_id = raw
+            .get("user_id")
+            .and_then(platform_id)
+            .or_else(|| raw.get("operator_id").and_then(platform_id));
+        let occurred_at = raw
+            .get("time")
+            .and_then(Value::as_i64)
+            .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0));
+        let stamp = raw
+            .get("time")
+            .and_then(Value::as_i64)
+            .map(|seconds| seconds.to_string())
+            .unwrap_or_default();
+
+        let (text, group_id, peer) = match notice_type {
+            "group_recall" => {
+                let group = raw.get("group_id").and_then(platform_id)?;
+                let recalled = raw.get("message_id").and_then(platform_id)?;
+                (format!("撤回了消息 {recalled}"), Some(group.clone()), Some(group))
+            }
+            "friend_recall" => {
+                let recalled = raw.get("message_id").and_then(platform_id)?;
+                let peer = raw.get("user_id").and_then(platform_id)?;
+                (format!("撤回了消息 {recalled}"), None, Some(peer))
+            }
+            "group_increase" => {
+                let group = raw.get("group_id").and_then(platform_id)?;
+                (format!("加入了群 {group}"), Some(group.clone()), Some(group))
+            }
+            "group_decrease" => {
+                let group = raw.get("group_id").and_then(platform_id)?;
+                (format!("离开了群 {group}"), Some(group.clone()), Some(group))
+            }
+            "poke_notice" => {
+                let peer = raw.get("user_id").and_then(platform_id)?;
+                ("戳了戳这个账号".to_string(), None, Some(peer))
+            }
+            _ => return None,
+        };
+
+        let conversation = group_id.clone().or_else(|| peer.clone());
+        let reply_target = match (&group_id, &peer) {
+            (Some(group), _) => Some(ChannelReplyTarget {
+                kind: "group".to_string(),
+                id: group.clone(),
+                label: format!("群 {group}"),
+                account: account.clone(),
+                tenant: None,
+                conversation: Some(group.clone()),
+            }),
+            (None, Some(peer)) => Some(ChannelReplyTarget {
+                kind: "private".to_string(),
+                id: peer.clone(),
+                label: format!("私聊 QQ {peer}"),
+                account: account.clone(),
+                tenant: None,
+                conversation: Some(peer.clone()),
+            }),
+            (None, None) => None,
+        };
+        let actor = shenko_types::channel::ChannelActor {
+            platform_id: actor_id.clone().unwrap_or_default(),
+            display_name: None,
+            alias: None,
+            person_ref: None,
+            role_grant_ref: actor_id
+                .as_deref()
+                .and_then(NapCatChannel::qq_number)
+                .filter(|number| self.config.is_admin(*number))
+                .map(|number| format!("qq-admin:{number}")),
+            group_role: None,
+        };
+        // The event identity must be stable across a redelivery and distinct
+        // per event: the same recall seen twice is one observation.
+        let message_id = format!(
+            "notice:{notice_type}:{}:{}:{}",
+            actor_id.clone().unwrap_or_default(),
+            group_id.clone().or_else(|| peer.clone()).unwrap_or_default(),
+            stamp
+        );
+        Some(ChannelEnvelope {
+            schema_version: 1,
+            provider: QQ_CHANNEL_ID.to_string(),
+            account,
+            tenant: None,
+            transport_identity_domain: QQ_TRANSPORT_IDENTITY_DOMAIN.to_string(),
+            conversation,
+            thread: None,
+            message_id,
+            source_event_revision: None,
+            occurred_at,
+            received_at: chrono::Utc::now(),
+            actor,
+            content: shenko_types::channel::ChannelContent {
+                text,
+                segments: Vec::new(),
+                mentions: Vec::new(),
+                reply_to: None,
+            },
+            reply_target,
+            attachments: Vec::new(),
+            raw_ref: None,
+        })
+    }
 }
 
 impl ChannelPlugin for NapCatChannel {
@@ -118,6 +232,14 @@ impl ChannelPlugin for NapCatChannel {
             return serde_json::from_value::<ChannelEnvelope>(raw.clone()).ok();
         }
         let post_type = raw.get("post_type").and_then(Value::as_str)?;
+        // A platform notice is an event the account observed, not a message
+        // somebody wrote. It still belongs to the subject: a recall means a
+        // message the subject may have quoted no longer exists, and a member
+        // change is exactly the kind of thing a personal agent is supposed to
+        // notice. SPEC §57.4.
+        if post_type == "notice" {
+            return self.classify_notice(raw);
+        }
         // `message_sent` is the NapCat/go-cqhttp extension that reports the
         // bot's own message, including one sent from another client of the same
         // account. It is a real conversation fact: the account spoke in that
@@ -416,8 +538,14 @@ impl ChannelPlugin for NapCatChannel {
                     detail: "missing durable correlation token".to_string(),
                 })?;
             let mut params = dispatch.params.clone();
+            // The plugin's own surface syntax decides what the wire carries:
+            // a leading mention and a quoted message become real segments,
+            // and Markdown markers are downgraded to plain text a QQ reader
+            // can actually see. A body without markers is sent as the same
+            // single text segment as before.
+            let outbound = crate::outbound::build_outbound(&content);
             if let Some(object) = params.as_object_mut() {
-                object.insert("message".to_string(), Value::String(content.clone()));
+                object.insert("message".to_string(), outbound.wire_message());
             }
             let receipt = match dispatch.platform_action.as_str() {
                 "send_group_msg" => {
