@@ -9,6 +9,7 @@ pub mod channel;
 pub mod client;
 pub mod config;
 pub mod napcat_cli;
+pub mod outbound;
 pub mod spool;
 
 pub use attachments::ParsedMessage;
@@ -23,4 +24,8 @@ pub use client::{
 };
 pub use config::NapCatConfig;
 pub use napcat_cli::{CliSourceError, NapCatCliSource};
+pub use outbound::{OutboundMessage, build_outbound, downgrade_markdown};
 pub use spool::*;
+
+#[cfg(test)]
+mod notice_tests;
