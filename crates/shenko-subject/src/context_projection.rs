@@ -548,6 +548,7 @@ fn project_payload(
     caps: Option<&ModelCaps>,
     max_tokens: u64,
     fresh_ids: &[EntityId],
+    idle_text: &str,
 ) -> Result<(InferencePayload, Option<u32>, Vec<String>), ShenkoError> {
     let mut system_prompt = base_system_prompt;
     let mut messages = Vec::new();
@@ -639,7 +640,7 @@ fn project_payload(
     // user inputs and tool results already end in a user-role turn; historical
     // users elsewhere in the window cannot request this next generation.
     if messages.last().is_none_or(|message| message.role == "assistant") {
-        messages.push(InferenceMessage::text("user", IDLE_CONTINUATION_PROMPT));
+        messages.push(InferenceMessage::text("user", idle_text));
     }
     let payload = InferencePayload { system_prompt, messages, max_tokens: Some(max_tokens),
         tools: Vec::new(), native_options: Default::default() };
@@ -663,12 +664,13 @@ pub(super) fn project_payload_stable(
     caps: Option<&ModelCaps>,
     max_tokens: u64,
     fresh_ids: &[EntityId],
+    idle_text: &str,
 ) -> Result<(InferencePayload, Option<u32>, Vec<String>, u64), ShenkoError> {
     // The revision is acquired BEFORE any execution-status read. Equality
     // after projection is what permits this exact revision to enter the seal.
     let source_commit_seq = store.current_commit_seq()?;
     let (payload, estimate, unfinished) = project_payload(
-        window, history, base_system_prompt, caps, max_tokens, fresh_ids,
+        window, history, base_system_prompt, caps, max_tokens, fresh_ids, idle_text,
     )?;
     if store.current_commit_seq()? != source_commit_seq {
         return Err(ShenkoError::ResnapshotRequired {
@@ -797,8 +799,13 @@ pub(super) fn prepare_context(
     let observed_input_tokens = state.previous_input_tokens.filter(|_|
         binding.is_some() && state.previous_input_binding.as_ref() == binding);
     let previous_anchor = observed_input_tokens.zip(state.previous_estimated_input_tokens);
+    // The idle observation is content too (SPEC §57.2): the installed unit
+    // that provides `cap.idle-perception` words what "no new input" means to
+    // this subject. The compiled sentence stays as the fallback.
+    let idle_text = state.idle_perception();
     let (mut payload, mut estimated_input_tokens, mut unfinished_call_ids, mut source_commit_seq) = project_payload_stable(
         &state.store, &window, &history, system_prompt.clone(), caps.as_ref(), state.max_tokens, &input_raw_event_ids,
+        &idle_text,
     )?;
     let current_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
@@ -883,6 +890,7 @@ pub(super) fn prepare_context(
                         window = adopted;
                         (payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq) = project_payload_stable(
                             &state.store, &window, &history, system_prompt, Some(caps), state.max_tokens, &input_raw_event_ids,
+                            &idle_text,
                         )?;
                         ContextSelection::Compacted { attempts }
                     }
