@@ -110,8 +110,9 @@ owner 要的"更主动、更少 gate、能自我迭代"不需要再加功能面�
 | 打样 | 内容 | 位置 |
 | --- | --- | --- |
 | A 心智 | `cap.subject-frame` / `cap.idle-perception`：主体角色文本与空闲观察来自已启用单元，编译期文本只作回退；种子单元随 `taste` 宏包预装 | `shenko-subject`、`shenko-awareness-core` 种子 |
-| B IM | NapCat 出站 `@<qq>` 与 `[quote:<message_id>]` 翻译为 OneBot 段；入站 `notice.group_recall/friend_recall` 作为感知进入 S0 | `shenko-channel-napcat` |
-| C 界面 | 接通 broker→content_stream→StreamSink 流式；`src/static/app.css` 与源同步；`index.html` 尊重 `prefers-color-scheme` | `shenko-broker`、`shenko-subject`、`shenko-ui`、`bin/shenko` |
+| B IM | NapCat 出站 `@<qq>` 与 `[quote:<message_id>]` 翻译为 OneBot 段，Markdown 降级；入站 `notice.group_recall/friend_recall` 等作为感知进入主体输入序列 | `shenko-channel-napcat/src/outbound.rs`、`channel.rs` |
+| C 流式 | 接通 broker→content_stream→StreamSink：store 支撑的 §12.5 日志、读者表面、带 stream/attempt 身份的 chunk、被记录的流式提交 | `shenko-subject/src/stream_journal.rs`、`shenko-ui/src/stream.rs`、`shenko-broker`、`bin/shenko` |
+| D 界面 | `src/static/app.css` 与 `web/src/app.css` 逐字一致（构建的 copy 步骤）：发布版 CSS 仍指向旧类名，而发布的 JS 输出 `data-pui-style~="shenko-status-*"`，传输芯片与动态文档样式在线上缺失 | `crates/shenko-ui/src/static/app.css` |
 
 ### 5.2 Issue（按 §57 编号）
 

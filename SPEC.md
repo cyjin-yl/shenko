@@ -6673,6 +6673,21 @@ Shenko 的认知架构从人类心智和认知科学出发设计，不从模型�
 
 本章的合同按"已实现 / 已打样 / 待做"分开记账，不把方向写成成就：
 
-- **已打样（本轮亲手完成并验证）**：`cap.subject-frame` 与 `cap.idle-perception` 的能力解析（`shenko-awareness-core/src/cognition.rs` 的 `capability_unit`、`CapabilityUnit`）、主体对 frame 与空闲观察的解析（`shenko-subject/src/loop_runner.rs` 的 `subject_frame`/`idle_perception`、`shenko-subject/src/lib.rs` 的 `subject_prompt_with_frame`）、两个种子单元 `subject.frame` 与 `subject.idle` 随种子安装（`shenko-awareness-core/seed-awareness/`）、四条判定用例（`shenko-subject/src/frame_tests.rs`）。种子正文逐字等于今天的编译文本，因此行为不变；变的是"这些字归谁"。
-- **待做**：`cap.attention-policy` 与 deferred 处置、注意力暂停真正生效、通道行内语法与平台事件感知、能力声明可达化、流式接线、`playground.manage:1`、真实组件渲染、界面诚实词汇修复、三个死接口复活、child 角色框可修订。这些按 §57.13 的编号逐条推进，每条以实现证据判定，不以"代码存在"判定。
+- **已打样（本轮亲手完成并验证）**
+  - **A 心智框架**：`cap.subject-frame` 与 `cap.idle-perception` 的能力解析（`shenko-awareness-core/src/cognition.rs` 的 `capability_unit`、`CapabilityUnit`）、主体对 frame 与空闲观察的解析（`shenko-subject/src/loop_runner.rs` 的 `subject_frame`/`idle_perception`、`shenko-subject/src/lib.rs` 的 `subject_prompt_with_frame`）、两个种子单元 `subject.frame` 与 `subject.idle` 随种子安装（`shenko-awareness-core/seed-awareness/`）、四条判定用例（`shenko-subject/src/frame_tests.rs`）。种子正文逐字等于今天的编译文本，因此行为不变；变的是"这些字归谁"。
+  - **B QQ 表面语法与平台事件**（`crates/shenko-channel-napcat/src/outbound.rs`、`channel.rs` 的 `classify_notice`）：行首 `@<qq>` 与 `[quote:<message_id>]` 翻译为真正的 OneBot 段，Markdown 降级为 QQ 可读文本；没有标记的正文仍是一个纯文本段，与改动前逐字节相同。撤回/入群/离开/戳一戳被分类为观察并进入主体输入序列，重投仍是同一条，未知 notice 仍不分类。十一条新判定用例通过。
+  - **C 流式接线**：`shenko-subject/src/stream_journal.rs`（store 支撑的 §12.5 日志）、`shenko-ui/src/stream.rs`（读者表面）、`shenko-broker` 的 `submit_stream_recorded` 与带 stream/attempt 身份的 chunk、`bin/shenko` 的接线。chunk 先落盘再广播，控制行不外泄，committed-only 发布不变；没有接线时仍诚实报告流式不可用。broker 层判定用例证明读者表面收到的是公开正文、不是控制行，且流式调用仍然是**被记录**的调用。
+  - **界面样式同步**：`crates/shenko-ui/src/static/app.css` 与 `web/src/app.css` 逐字一致（构建脚本的 copy 步骤）。此前发布版仍在用旧的类选择器，而已发布的 `app.js` 输出的是 `data-pui-style~="shenko-status-*"` 属性，传输状态芯片在线上没有样式，动态文档样式整段缺失。
+- **待做**：`cap.attention-policy` 与 deferred 处置、注意力暂停真正生效、通道能力声明可达化（打字/编辑/撤回的实际产出路径）、`playground.manage:1`、真实组件渲染（`rich` 文档目前仍是 JSON 调试视图）、界面诚实词汇的其余修复（浅色不闪暗需要一次真实 web 构建；屏幕阅读宣布；命名与认领入口）、三个死接口复活、child 角色框可修订。这些按 §57.13 的编号逐条推进，每条以实现证据判定，不以"代码存在"判定。
 - **证据边界**：本章的验收项是确定性记账与真实消费者行为（真实 Store、真实安装权威、真实平台段格式、真实浏览器），不是模型效能。模型效能按 §55.4 用真实模型 + 留出场景另测；"框架不再写死主体的话"不等于"主体因此更聪明"，后者需要独立测量。
+
+## 57.15 通道优先级的现行读法（2026-11-09）
+
+来源：owner 2026-11-09 的指示（QQ 群里的公告与讨论）：**SnowLuma 因腾讯方律师函自今日起转为 private，不再 public；取消 SnowLuma 的适配计划，改成 QQ 官方 Bot 接口。** 原文不在 §33（§33 是锁定的历史字节），此处记录现行读法。
+
+- §52 的首批协议排序是 **2026-11-06 的读法**，其历史句子保留原文；现行顺序为：**NapCat（OneBot v11）仍是日常 QQ 主连接 → QQ 官方 Bot API（腾讯开放平台）升到第二位并成为下一条要真正做通的通道 → Discord → 其后 Telegram／Matrix／微信等按同一 `ChannelPlugin` trait 接入**。SnowLuma 从首批里去掉。
+- 这是**开发与验收的优先顺序**，不是路由权重或 fallback 顺序（§52 原文如此规定，仍然有效）。产品运行时仍可同时连接多条协议，由主体决定在哪条通道回复。
+- 仓库里没有 SnowLuma 适配器代码，因此"取消适配计划"不需要删除任何实现；已有代码不动。
+- **§52 印的 `ChannelPlugin` trait 文本已经过时**（SPEC 6334–6375 印的是 `protocol_id`/`start`/`shutdown`/`send`/`on_message`）。现行实现是 `crates/shenko-types/src/channel.rs` 的 `classify`/`staged_text`/`resolve_reply`/`describe`/`dispatch`/`resolve_attachment`，加上 `sources`/`kinds`/`prompt_names`。以代码为准；§52 的 trait 段落按本条理解，不据此另造第二套接口。
+- QQ 官方 Bot 的真实约束（被动回复窗口、群支持范围、卡片与主动触达额度）是平台事实，按实际可达能力记录，不写成产品权限门；能力表只列 `describe` 实际能产出的动作（§57.4、验收 RT19）。
+- §56 追踪矩阵里"SnowLuma/官方 QQ/Discord 适配未全部落地"那一行按本条理解：SnowLuma 一项不再是待做项，官方 QQ 一项升为下一条要真正做通的通道。
