@@ -28,6 +28,7 @@ shenko-kernel = { path = "../../crates/shenko-kernel" }
 shenko-store = { path = "../../crates/shenko-store" }
 shenko-node = { path = "../../crates/shenko-node" }
 shenko-exec-host = { path = "../../crates/shenko-exec-host" }
+shenko-document = { path = "../../crates/shenko-document" }
 shenko-repl = { path = "../../crates/shenko-repl" }
 shenko-exec-ssh = { path = "../../crates/shenko-exec-ssh" }
 shenko-broker = { path = "../../crates/shenko-broker" }

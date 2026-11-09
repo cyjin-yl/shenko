@@ -1044,6 +1044,28 @@ async fn install_native_definitions(
             .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
             .await?;
     }
+    // document.parse — replaceable provider boundary. The OXR provider is
+    // bound from env: SHENKO_OXR_ENGINE (engine binary path) and
+    // SHENKO_OXR_MODEL (model-weights identity) are required for readiness;
+    // SHENKO_OXR_SCOPE optionally binds a permission scope. Unset -> the
+    // provider reports an honest ProviderUnavailable, never a substitute.
+    let document_providers: std::sync::Arc<Vec<std::sync::Arc<dyn shenko_document::DocumentProvider>>> =
+        std::sync::Arc::new(vec![std::sync::Arc::new(shenko_document::OxrProvider::new(
+            std::env::var("SHENKO_OXR_ENGINE").ok().map(std::path::PathBuf::from),
+            std::env::var("SHENKO_OXR_MODEL").ok(),
+            std::env::var("SHENKO_OXR_SCOPE").ok(),
+        ))]);
+    let document_parse_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::DocumentParseHandler::new(
+            Arc::clone(store),
+            document_providers,
+        ));
+    let _document_parse_plugin = supervisor
+        .spawn(
+            shenko_subject::NativeTaskHandlerPlugin,
+            document_parse_handler,
+        )
+        .await?;
     let mobile_bridge: Arc<dyn shenko_mobile::DeviceBridge> = {
         #[cfg(target_os = "android")]
         {

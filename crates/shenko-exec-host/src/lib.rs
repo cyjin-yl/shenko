@@ -45,6 +45,9 @@ pub use cognition_trial::*;
 pub mod awareness_host;
 pub use awareness_host::*;
 
+pub mod document_parse;
+pub use document_parse::DocumentParseHandler;
+
 pub mod wasi_task;
 pub use wasi_task::*;
 

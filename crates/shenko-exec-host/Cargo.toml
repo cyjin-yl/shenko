@@ -18,6 +18,7 @@ shenko-channel-napcat = { path = "../shenko-channel-napcat" }
 shenko-broker = { path = "../shenko-broker" }
 shenko-kernel = { path = "../shenko-kernel" }
 shenko-identity = { path = "../shenko-identity" }
+shenko-document = { path = "../shenko-document" }
 shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
 cordis-core.workspace = true
 blake3 = { workspace = true }
