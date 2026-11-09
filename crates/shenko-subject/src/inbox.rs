@@ -3,6 +3,17 @@ use tokio::sync::{mpsc, Mutex};
 use shenko_types::ids::EntityId;
 use serde::{Deserialize, Serialize};
 
+/// The inbox event kind the subject's own due-obligation wakes arrive under.
+///
+/// The value is the serialized [`InboxEventKind::SelfWake`] name: the durable
+/// admission contract binds the kind argument to the complete original, so
+/// the two spellings can never drift apart.
+pub const SELF_WAKE_KIND: &str = "self_wake";
+
+/// The inbox source the subject's own wakes arrive from (SPEC §13.8; the
+/// subject produces this fact about itself, no external channel does).
+pub const SUBJECT_WAKE_SOURCE: &str = "subject";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InboxEvent {
     pub event_id: EntityId,
@@ -34,6 +45,10 @@ pub enum InboxEventKind {
     /// A media session priority input (barge-in, interjection, stop
     /// playback, urgent message). SPEC §20.
     MediaPriority,
+    /// A durable subject obligation reached its `due_at` time (SPEC §13.8;
+    /// R071/R072 proactive steps). The subject itself produces this fact;
+    /// the obligation row, not this wake, remains the authority.
+    SelfWake,
 }
 
 /// Subject inbox — uses tokio::sync::Mutex so the guard is Send across .await.
