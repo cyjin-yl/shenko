@@ -1007,7 +1007,11 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities.clone()));
     subject.max_tokens = 10;
-    for index in 0..20 {
+    // The fixture's history must fit the window TOGETHER WITH the subject's
+    // own prompt: this test is about a fresh batch surviving a reopen, not
+    // about a particular amount of history. The count is a fixture
+    // parameter; the assertions below are the contract.
+    for index in 0..10 {
         store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
             &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
     }
