@@ -32,6 +32,18 @@ export interface WorkView {
 ///
 /// It carries the work's own revision: an action is bound to the revision
 /// the reader saw, so a work that moved on refuses the stale action.
+/// The ownership facts of this installation (SPEC §44.4).
+///
+/// `claimed` is a fact, not a hope: an unclaimed installation says so, and
+/// the claim capability's own state is reported separately.
+export interface OwnerState {
+  available?: boolean;
+  claimed?: boolean;
+  claim_pending?: boolean;
+  installation_id?: string;
+  error?: string;
+}
+
 export interface OpenedWork {
   artifact_id: string;
   title?: string;
@@ -385,6 +397,12 @@ export interface UiState {
   /** The work the reader opened, and the fact of opening it. */
   work?: OpenedWork;
   work_error?: boolean;
+  /** The ownership facts: whether this installation is claimed (SPEC §44.4). */
+  owner_state?: OwnerState;
+  /** The name the reader is trying to give the instance. */
+  name_draft?: string;
+  /** The claim capability the reader pasted, if any. */
+  claim_draft?: string;
   playground_error: boolean;
   manifest?: BuildManifest;
   display: DisplayState;
@@ -790,6 +808,11 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       ));
     }
   }
+  // The naming and the claim are the reader's own acts (SPEC §21.1, §44.4).
+  const nameDraftRef = addAction(actions, 'identity.name.draft', 'identity.name.draft', 'identity-v1', true);
+  const nameRef = addAction(actions, 'identity.name', 'identity.name', 'identity-v1', state.connection === 'online');
+  const claimDraftRef = addAction(actions, 'owner.claim.draft', 'owner.claim.draft', 'owner-v1', true);
+  const claimRef = addAction(actions, 'owner.claim', 'owner.claim', 'owner-v1', state.connection === 'online');
   const panel = node('context', 'context_panel', {
     open: state.display.panel_open,
     identity: state.identity,
@@ -802,6 +825,13 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     work: state.work,
     work_error: state.work_error === true,
     work_action_refs: workActionRefs,
+    owner_state: state.owner_state,
+    name_draft: state.name_draft,
+    claim_draft: state.claim_draft,
+    identity_name_ref: nameRef,
+    identity_name_draft_ref: nameDraftRef,
+    owner_claim_ref: claimRef,
+    owner_claim_draft_ref: claimDraftRef,
   }, sectionNodes, {
     action_refs: [panelAction],
     a11y: { label: '主体详情', modal: state.display.panel_open },

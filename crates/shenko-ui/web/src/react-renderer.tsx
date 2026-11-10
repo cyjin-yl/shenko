@@ -16,7 +16,7 @@ import {
   shadcnCollapsibleTrigger,
   shadcnCollapsibleContent,
 } from '@proto.ui/prototypes-shadcn/collapsible';
-import type { OpenedWork, WorkView } from './projection';
+import type { OpenedWork, OwnerState, WorkView } from './projection';
 import {
   intentFor,
   partState,
@@ -1265,6 +1265,7 @@ function ContextPanel({ node, projection, emit }: { node: UiNode; projection: Ui
         {(node.props.sections as UiNode[]).map((section) => <PanelSection key={section.node_id} section={section} node={node} emit={emit} />)}
       </div>
       <OpenedWorkPanel node={node} emit={emit} />
+      <IdentityPanel node={node} emit={emit} />
       <footer className="panel-footer">框架 Shenko · 实例身份独立</footer>
     </aside>
   </>;
@@ -1276,6 +1277,65 @@ const SECTION_LABELS: Record<string, string> = { status: '当前状态', activit
 /// (SPEC §57.6). Every action names the revision the reader saw: a work
 /// that moved on refuses the stale action instead of quietly applying to
 /// whatever is there now.
+/// The instance's own name and who owns it (SPEC §21.1, §44.4).
+///
+/// The name is the instance's, not the brand's, and the reader may give it one
+/// — or let the subject name itself. Ownership is reported as the fact it is:
+/// claimed, not claimed, or a claim still pending.
+function IdentityPanel({ node, emit }: { node: UiNode; emit: Emit }) {
+  const owner = node.props.owner_state as OwnerState | undefined;
+  const nameDraft = (node.props.name_draft ?? '') as string;
+  const claimDraft = (node.props.claim_draft ?? '') as string;
+  const nameRef = node.props.identity_name_ref as string | undefined;
+  const claimRef = node.props.owner_claim_ref as string | undefined;
+  return <section className="identity-panel">
+    <h3 className="identity-panel-title">这个实例</h3>
+    <div className="identity-panel-row">
+      <label className="identity-name-field">
+        <span>给它取个名字</span>
+        <input
+          value={nameDraft}
+          onChange={(event) => emit(node.node_id, node.props.identity_name_draft_ref ?? '', { value: event.target.value })}
+          placeholder="留空则让主体自己取名"
+        />
+      </label>
+      <ProtoButton
+        styleProfile="rhea"
+        variant="outline"
+        size="sm"
+        onClick={() => nameRef && emit(node.node_id, nameRef)}
+      >取名</ProtoButton>
+    </div>
+    {owner?.available === false ? (
+      <SurfaceNote text="这台安装还没有装上归属机制" />
+    ) : (
+      <div className="identity-panel-row">
+        <span className="identity-owner-state">
+          {owner?.claimed === true ? '这台安装已经归你' : owner?.claim_pending === true ? '认领在等你完成' : '这台安装还没有被认领'}
+        </span>
+        {!owner?.claimed && (
+          <>
+            <label className="identity-claim-field">
+              <span>认领凭据</span>
+              <input
+                value={claimDraft}
+                onChange={(event) => emit(node.node_id, node.props.owner_claim_draft_ref ?? '', { value: event.target.value })}
+                placeholder="这台安装给出的认领凭据"
+              />
+            </label>
+            <ProtoButton
+              styleProfile="rhea"
+              variant="ghost"
+              size="sm"
+              onClick={() => claimRef && emit(node.node_id, claimRef)}
+            >认领</ProtoButton>
+          </>
+        )}
+      </div>
+    )}
+  </section>;
+}
+
 function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {
   const work = node.props.work as OpenedWork | undefined;
   const refs = (node.props.work_action_refs ?? []) as string[];
