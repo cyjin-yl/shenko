@@ -28,8 +28,8 @@ use crate::common::{ChannelCapabilities, ChannelHealth, HealthState, ReplyContex
 use super::api::{MediaScope, QqApiError, QqOfficialApi};
 use super::config::QqOfficialConfig;
 use super::events::{
-    QQ_OFFICIAL_CHANNEL_ID, QQ_OFFICIAL_KIND_CHANNEL, QQ_OFFICIAL_KIND_GROUP,
-    QQ_OFFICIAL_KIND_PRIVATE, QQ_OFFICIAL_SOURCE,
+    QQ_OFFICIAL_CHANNEL_ID, QQ_OFFICIAL_KIND_CHANNEL, QQ_OFFICIAL_KIND_EDIT, QQ_OFFICIAL_KIND_GROUP,
+    QQ_OFFICIAL_KIND_PRIVATE, QQ_OFFICIAL_KIND_RETRACT, QQ_OFFICIAL_SOURCE,
 };
 
 /// The platform action of a single-chat send.
@@ -81,6 +81,16 @@ pub const QQ_OFFICIAL_REPLY_KINDS: &[ReplyKind] = &[
         id_hint: "频道ID",
         audience: "QQ 频道",
     },
+    ReplyKind {
+        tag: QQ_OFFICIAL_KIND_EDIT,
+        id_hint: "会话ID",
+        audience: "编辑本账号在该会话的最后一条消息",
+    },
+    ReplyKind {
+        tag: QQ_OFFICIAL_KIND_RETRACT,
+        id_hint: "会话ID",
+        audience: "撤回本账号在该会话的最后一条消息",
+    },
 ];
 
 /// The official QQ bot channel plugin.
@@ -89,6 +99,23 @@ pub struct QqOfficialChannel {
     api: QqOfficialApi,
     health: HealthState,
     replies: ReplyContextCache,
+    /// The bot's own last message per conversation: what an edit or a
+    /// retract addresses. The platform edits and retracts by message id, and
+    /// the bot may only touch its own message.
+    own: Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnMessage>>>,
+}
+
+/// The bot's own last message in one conversation.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnMessage {
+    message_id: String,
+    /// "group" or "private": which audience the message belongs to.
+    scope: String,
+    /// The group openid or the user openid the message was sent to.
+    audience: String,
+    /// When the bot sent it. The platform's own windows decide how long an
+    /// edit or a retract can still succeed.
+    at: chrono::DateTime<chrono::Utc>,
 }
 
 impl QqOfficialChannel {
@@ -104,7 +131,65 @@ impl QqOfficialChannel {
             api,
             health,
             replies,
+            own: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Remember the message this bot just sent, so a later edit or retract
+    /// has something real to address.
+    fn remember_own(
+        own: &Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnMessage>>>,
+        window: chrono::Duration,
+        conversation: &str,
+        message_id: &str,
+        scope: &str,
+        audience: &str,
+    ) {
+        if conversation.is_empty() || message_id.is_empty() {
+            return;
+        }
+        let now = chrono::Utc::now();
+        let mut guard = own.lock();
+        guard.insert(
+            conversation.to_string(),
+            OwnMessage {
+                message_id: message_id.to_string(),
+                scope: scope.to_string(),
+                audience: audience.to_string(),
+                at: now,
+            },
+        );
+        // The cache stays as small as the platform's own answer window: an
+        // edit that targets a message from hours ago is not something this
+        // bot can still change, so keeping it would promise something the
+        // platform will refuse.
+        guard.retain(|_, message| now - message.at <= window);
+        while guard.len() > 64 {
+            let oldest = guard
+                .iter()
+                .min_by_key(|(_, own)| own.at)
+                .map(|(key, _)| key.clone());
+            match oldest {
+                Some(key) => {
+                    guard.remove(&key);
+                }
+                None => break,
+            }
+        }
+    }
+
+    /// The cache of the bot's own messages, for this crate's tests.
+    pub(crate) fn own_cache(
+        &self,
+    ) -> &Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnMessage>>> {
+        &self.own
+    }
+
+    /// The bot's own last message in one conversation, if it is still within
+    /// the platform's window.
+    fn own_message(&self, conversation: &str) -> Option<OwnMessage> {
+        let guard = self.own.lock();
+        guard.get(conversation).cloned()
     }
 
     /// The configuration this plugin serves.
@@ -137,10 +222,15 @@ impl QqOfficialChannel {
             attachments: true,
             edit: true,
             retract: true,
-            typing: true,
+            // The platform has a guild-only typing endpoint, and this adapter
+            // can call it — but one reply is one effect, so a typing indicator
+            // could only be sent instead of the answer, or after it (when it
+            // says nothing). The capability table lists what `describe` can
+            // really produce (SPEC §57.4), so typing is not advertised.
+            typing: false,
             proactive: true,
             notes: vec![
-                "typing is a channel-only endpoint; a single chat or group has none".to_string(),
+                "typing is a channel-only endpoint, and one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
                 "the passive reply window and the rate limits belong to the platform".to_string(),
                 "full group traffic needs a platform-side permission; by default only messages that mention the bot arrive".to_string(),
                 "the official platform issues per-application OpenIDs; the numeric QQ number is not available here".to_string(),
@@ -246,6 +336,24 @@ impl ChannelPlugin for QqOfficialChannel {
         }
         let scope = self.config.account_scope();
         let target = match kind {
+            // An edit or a retract names the CONVERSATION; the plugin
+            // addresses the last message it sent there. The platform edits
+            // and retracts by message id, and only the bot's own message can
+            // be touched.
+            QQ_OFFICIAL_KIND_EDIT => PublicationTarget::new(
+                QQ_OFFICIAL_CHANNEL_ID,
+                QQ_OFFICIAL_KIND_EDIT,
+                id.to_string(),
+                self.config.account_scope(),
+            )
+            .with_scope(None, Some(id.to_string())),
+            QQ_OFFICIAL_KIND_RETRACT => PublicationTarget::new(
+                QQ_OFFICIAL_CHANNEL_ID,
+                QQ_OFFICIAL_KIND_RETRACT,
+                id.to_string(),
+                self.config.account_scope(),
+            )
+            .with_scope(None, Some(id.to_string())),
             QQ_OFFICIAL_KIND_GROUP => PublicationTarget::new(
                 QQ_OFFICIAL_CHANNEL_ID,
                 QQ_OFFICIAL_KIND_GROUP,
@@ -298,6 +406,68 @@ impl ChannelPlugin for QqOfficialChannel {
             return Err(ChannelError::UnresolvedReply {
                 channel: target.channel.clone(),
                 id: target.id.clone(),
+            });
+        }
+        if matches!(
+            target.kind.as_str(),
+            QQ_OFFICIAL_KIND_EDIT | QQ_OFFICIAL_KIND_RETRACT
+        ) {
+            let conversation = target
+                .conversation
+                .clone()
+                .unwrap_or_else(|| target.id.clone());
+            let own = self.own_message(&conversation).ok_or_else(|| {
+                // Nothing of the bot's own is addressable there: the
+                // platform's window has passed, or the bot never spoke in
+                // that conversation. Say so instead of pretending.
+                ChannelError::UnresolvedReply {
+                    channel: target.channel.clone(),
+                    id: target.id.clone(),
+                }
+            })?;
+            let params = match target.kind.as_str() {
+                QQ_OFFICIAL_KIND_EDIT => json!({
+                    "message_id": own.message_id,
+                    "msg_seq": 1,
+                }),
+                _ => {
+                    let mut params = json!({
+                        "message_id": own.message_id,
+                        "scope": own.scope,
+                    });
+                    if own.scope == "group" {
+                        params["group_openid"] = Value::String(own.audience.clone());
+                    } else {
+                        params["user_openid"] = Value::String(own.audience.clone());
+                    }
+                    params
+                }
+            };
+            let (action, platform_action, contract) = if target.kind == QQ_OFFICIAL_KIND_EDIT {
+                (
+                    ChannelAction::Edit,
+                    ACTION_EDIT,
+                    QQ_OFFICIAL_EDIT_CONTRACT,
+                )
+            } else {
+                (
+                    ChannelAction::Retract,
+                    ACTION_RETRACT,
+                    QQ_OFFICIAL_RETRACT_CONTRACT,
+                )
+            };
+            return Ok(ChannelDispatch {
+                channel: QQ_OFFICIAL_CHANNEL_ID.to_string(),
+                action,
+                platform_action: platform_action.to_string(),
+                params,
+                account: scope,
+                tenant: None,
+                conversation: Some(conversation),
+                attachments: vec![],
+                contract_digest: Digest::blake3(contract),
+                acceptance_predicate: "qq_official_err_code_zero".to_string(),
+                echo: None,
             });
         }
         let (platform_action, params) = match target.kind.as_str() {
@@ -355,7 +525,14 @@ impl ChannelPlugin for QqOfficialChannel {
         let api = self.api.clone();
         let dispatch = dispatch.clone();
         let content = content.to_string();
+        let own = Arc::clone(&self.own);
+        let own_window = chrono::Duration::seconds(self.config.reply_window_seconds.max(1) as i64);
         Box::pin(async move {
+            // The send path needs the audience and the conversation after the
+            // action was moved out, so they are read first.
+            let send_conversation = dispatch.conversation.clone();
+            let send_action = dispatch.platform_action.clone();
+            let send_params = dispatch.params.clone();
             if dispatch.channel != QQ_OFFICIAL_CHANNEL_ID {
                 return Err(ChannelError::UnsupportedTarget {
                     channel: dispatch.channel.clone(),
@@ -479,7 +656,47 @@ impl ChannelPlugin for QqOfficialChannel {
                         }
                     };
                     let answer = answer.map_err(|error| map_api_error(&dispatch.channel, error))?;
-                    Ok(receipt_of(dispatch, answer))
+                    let receipt = receipt_of(dispatch, answer);
+                    // The bot's own message id is what a later edit or
+                    // retract addresses, so it is remembered with the
+                    // audience it went to.
+                    if let (Some(conversation), Some(message_id)) = (
+                        send_conversation.as_deref(),
+                        receipt.provider_message_id.as_deref(),
+                    ) {
+                        let (scope, audience) = match send_action.as_str() {
+                            ACTION_SEND_GROUP => (
+                                "group",
+                                send_params
+                                    .get("group_openid")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default(),
+                            ),
+                            ACTION_SEND_CHANNEL => (
+                                "channel",
+                                send_params
+                                    .get("channel_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default(),
+                            ),
+                            _ => (
+                                "private",
+                                send_params
+                                    .get("user_openid")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default(),
+                            ),
+                        };
+                        Self::remember_own(
+                            &own,
+                            own_window,
+                            conversation,
+                            message_id,
+                            scope,
+                            audience,
+                        );
+                    }
+                    Ok(receipt)
                 }
                 ChannelAction::Edit => {
                     let message_id = dispatch
@@ -704,3 +921,7 @@ pub fn register(
 pub fn reply_kinds() -> &'static [ReplyKind] {
     QQ_OFFICIAL_REPLY_KINDS
 }
+
+#[cfg(test)]
+#[path = "capability_tests.rs"]
+mod capability_tests;
