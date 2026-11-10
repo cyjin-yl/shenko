@@ -9,7 +9,9 @@ pub mod api;
 pub mod config;
 pub mod events;
 pub mod gateway;
+pub mod outbound;
 pub mod plugin;
 
 pub use config::QqOfficialConfig;
+pub use outbound::{OfficialOutbound, OutboundScope, build_outbound};
 pub use plugin::QqOfficialChannel;
