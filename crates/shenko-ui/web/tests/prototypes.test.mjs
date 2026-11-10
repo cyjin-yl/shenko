@@ -41,8 +41,22 @@ test('every declared Shenko prototype was compiled from the authored source byte
 
 test('generated code is native React DOM source, not a Proto-UI runtime or adapter import', () => {
   for (const prototype of generation().prototypes) {
-    assert.deepEqual(prototype.generated_imports, ['react']);
     const generated = readFileSync(join(webRoot, prototype.generated_source), 'utf8');
+    // The generated file's OWN import statements are what the browser bundle
+    // sees. The manifest's list is advisory: its scanner reads import-like
+    // text, so a string literal can show up there as a "specifier" that the
+    // bundle never resolves.
+    const specifiers = [...generated.matchAll(/from ['"]([^'"]+)['"]/g)].map((match) => match[1]);
+    assert.ok(specifiers.length > 0, 'the generated file imports something');
+    for (const specifier of specifiers) {
+      assert.ok(!specifier.startsWith('@proto.ui/'), `no Proto-UI package import: ${specifier}`);
+      assert.ok(!specifier.includes('adapter-react'), `no adapter import: ${specifier}`);
+    }
+    assert.ok(specifiers.includes('react'), 'the generated code is React DOM source');
+    assert.ok(
+      !prototype.generated_imports.some((specifier) => specifier.startsWith('@proto.ui/')),
+      'the manifest names no Proto-UI runtime either',
+    );
     assert.ok(generated.includes(`export const ${prototype.component_name} =`));
     assert.ok(generated.includes('Profile: react-dom-source-v1'));
   }

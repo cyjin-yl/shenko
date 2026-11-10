@@ -18,7 +18,8 @@ export const SELECTION_KEY = 'shenko.selection.v1';
 export interface PersistedDisplayState {
   /** Only these two readings are a place; a transient selection is not. */
   reading: 'following_latest' | 'reading_history';
-  anchor?: ReadingAnchor;
+  /** `null` means the reader follows the tail again (an explicit choice). */
+  anchor?: ReadingAnchor | null;
   wrap: boolean;
   expanded: Record<string, boolean>;
 }
@@ -109,7 +110,7 @@ export function saveReadingAnchor(
   storage: DisplayStorage | null,
   anchor: ReadingAnchor | null,
 ): PersistedDisplayState {
-  const patch: Partial<PersistedDisplayState> & { anchor?: ReadingAnchor | null } = anchor
+  const patch: Partial<PersistedDisplayState> = anchor
     ? { reading: 'reading_history', anchor }
     : { reading: 'following_latest', anchor: null };
   return writeDisplayState(storage, patch);
