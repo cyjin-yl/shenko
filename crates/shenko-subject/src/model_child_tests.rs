@@ -966,6 +966,23 @@ async fn owner_message_reaches_a_running_child_and_is_settled_once() {
 /// of starting a second child or re-running the first run's steps.
 #[tokio::test]
 async fn a_child_question_is_answered_by_the_same_discussion_after_reopen() {
+    // The suite has to be able to FINISH: this case hangs on main (issue
+    // #266), and one hanging case hides every other result — the harness
+    // waits forever and nobody can tell green from red. A bounded wait turns
+    // the hang into the ordinary red case it actually is, with the same
+    // evidence: the child's question must be answered after a reopen.
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        a_child_question_is_answered_by_the_same_discussion_after_reopen_body(),
+    )
+    .await;
+    assert!(
+        outcome.is_ok(),
+        "the child's question must be answered by the owner after a reopen (issue #266)"
+    );
+}
+
+async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body() {
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
