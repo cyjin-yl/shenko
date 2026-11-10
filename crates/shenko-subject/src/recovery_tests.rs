@@ -3711,10 +3711,18 @@ async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
             roles: vec![],
         })
         .unwrap();
-    assert_eq!(events.len(), 1, "exactly one journaled runtime error");
-    let data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+    // The loop's own stop is one durable runtime_error fact. Other facts may
+    // share the type (an undecodable input is journaled as its own cause,
+    // §41.4 X11), so what is pinned here is the loop's fact, not the total
+    // number of runtime errors in the session.
+    let loop_facts: Vec<serde_json::Value> = events
+        .iter()
+        .filter_map(|event| serde_json::from_str::<serde_json::Value>(&event.data).ok())
+        .filter(|data| data["kind"] == "subject_loop")
+        .collect();
+    assert_eq!(loop_facts.len(), 1, "the loop's stop is journaled once");
+    let data = &loop_facts[0];
     assert_eq!(data["v"], 1);
-    assert_eq!(data["kind"], "subject_loop");
     assert_eq!(data["step_no"], 1);
     assert!(data["message"].as_str().unwrap().contains("subject loop stopped on error"));
     assert_eq!(data["journal_dropped_total"], 0);
@@ -3796,4 +3804,372 @@ async fn undecodable_admitted_input_does_not_block_unrelated_subject_work() {
 
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+
+/// AW13: an input the subject did not decide stays UNDECIDED — the harness
+/// does not settle it for the subject, and the input keeps coming back.
+#[test]
+fn an_unmentioned_input_is_recorded_as_not_acted_on() {
+    let event = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"v": 1, "text": "这条我还没想好"}),
+        source: "napcat".into(),
+        created_at: chrono::Utc::now(),
+    };
+    let other = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        ..event.clone()
+    };
+    let mut authored = std::collections::HashMap::new();
+    authored.insert(
+        other.event_id,
+        EventDisposition {
+            event_id: other.event_id,
+            disposition: Disposition::Acknowledged,
+            reason: None,
+            priority: None,
+            review_after: None,
+        },
+    );
+    let dispositions = crate::loop_runner::dispositions_for_events(&[event.clone(), other.clone()], &mut authored);
+    assert_eq!(dispositions.len(), 2);
+    let undecided = dispositions
+        .iter()
+        .find(|disposition| disposition.event_id == event.event_id)
+        .expect("the unmentioned event is disposed too");
+    assert_eq!(
+        undecided.disposition,
+        Disposition::Ignored,
+        "an input the subject did not mention is recorded as not acted on, \
+         never as acknowledged by the harness"
+    );
+    assert!(
+        undecided.reason.is_some(),
+        "the record says why: the subject did not act on it"
+    );
+    let decided = dispositions
+        .iter()
+        .find(|disposition| disposition.event_id == other.event_id)
+        .expect("the authored event is disposed");
+    assert_eq!(
+        decided.disposition,
+        Disposition::Acknowledged,
+        "the model's own word about an event wins"
+    );
+}
+
+
+/// Commit one real S1 step that carries an attention policy.
+///
+/// The policy is written by the same path production uses: the decision is
+/// committed with the head, and the store writes the policy in that
+/// transaction. A test that reached for a private table would prove nothing
+/// about the contract the subject actually uses.
+async fn commit_attention_policy(
+    subject: &mut SubjectLoopState,
+    event: &crate::inbox::InboxEvent,
+    policy: AttentionPolicy,
+) {
+    commit_step_with_policy(subject, event, policy, vec![]).await
+}
+
+/// Commit one real S1 step carrying an attention policy and any policy
+/// intents the subject asked for.
+async fn commit_step_with_policy(
+    subject: &mut SubjectLoopState,
+    event: &crate::inbox::InboxEvent,
+    attention: AttentionPolicy,
+    policy_intents: Vec<PolicyIntent>,
+) {
+    let store = Arc::clone(&subject.store);
+    let close = tokio_util::sync::CancellationToken::new();
+    close.cancel();
+    execute_step(1, &[event.clone()], subject, &close).await.unwrap();
+    let head = subject.head.clone();
+    let mut step = subject.step.clone();
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    step.record_revision = RecordRevision(2);
+    store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+    // A real `[dnd]` control line: the grammar is one JSON object, and an
+    // `off` decision names the silenced sources and a review time.
+    let raw = format!(
+        "[dnd] {}",
+        serde_json::json!({
+            "state": match attention.state {
+                AttentionState::Off => "off",
+                AttentionState::Active => "active",
+            },
+            "sources": attention.sources,
+            "reason": attention.reason,
+            "review_after": attention.review_after,
+        })
+    );
+    let raw_ref = store
+        .cas
+        .seal_object(raw.as_bytes(), "text/plain", "model_results", "text", 1)
+        .unwrap()
+        .object;
+    step.state = SubjectStepState::ResultRecorded;
+    step.model_result_ref = Some(raw_ref.clone());
+    step.record_revision = RecordRevision(3);
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 2,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: step.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                2,
+            )
+            .unwrap()
+            .object,
+    );
+    store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+    let output = crate::output::parse_output(
+        step.step_id,
+        raw_ref.clone(),
+        &raw,
+        &subject.identity_service,
+        &subject.channels,
+        None,
+    )
+    .unwrap();
+    let next = EntityId::new();
+    let decision = StepDecision {
+        schema_version: 8,
+        step_id: step.step_id,
+        output,
+        identity_intent: None,
+        input_plan_ref: step.input_plan_ref.clone().unwrap(),
+        model_result_ref: step.model_result_ref.clone(),
+        applied_steering_refs: vec![],
+        event_dispositions: vec![],
+        delegated_task_intents: vec![],
+        child_dialogue_intents: vec![],
+        memory_intents: vec![],
+        publication_intents: vec![],
+        pending_obligations: vec![],
+        attention_policy: Some(attention),
+        policy_intents,
+        evidence_refs: vec![],
+        unknown_acknowledgements: vec![],
+        successor_step_id: next,
+    };
+    step.state = SubjectStepState::Committed;
+    step.record_revision = RecordRevision(4);
+    step.decision_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&decision).unwrap(),
+                "application/json",
+                "decisions",
+                "StepDecision",
+                8,
+            )
+            .unwrap()
+            .object,
+    );
+    store
+        .commit_step_and_advance_head(&step, &head, next)
+        .unwrap();
+    subject.head = store.load_subject(subject.agent_id).unwrap().0;
+}
+
+/// AW14: the subject's own attention decision holds a source out of the
+/// window, and the held fact is kept rather than dropped.
+#[tokio::test]
+async fn a_paused_source_is_held_out_of_the_window() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let event = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"v": 1, "text": "群里在叫我"}),
+        source: "napcat".into(),
+        created_at: chrono::Utc::now(),
+    };
+    // No policy yet: the event enters the window.
+    let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
+    assert_eq!(kept.len(), 1, "without a pause the event enters the window");
+    assert!(subject.held_inputs.is_empty());
+
+    // A pause over that source: the event does not enter the window, and the
+    // fact is held instead of dropped.
+    let step_id = subject.step.step_id;
+    commit_attention_policy(
+        &mut subject,
+        &event,
+        AttentionPolicy {
+            intent_id: EntityId::new(),
+            state: AttentionState::Off,
+            sources: vec!["napcat".to_string()],
+            reason: "这一类先放着".into(),
+            review_after: Some(chrono::Utc::now() + chrono::Duration::minutes(10)),
+            created_step_id: step_id,
+        },
+    )
+    .await;
+    let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
+    assert!(kept.is_empty(), "a paused source does not enter the window");
+    assert_eq!(
+        subject.held_inputs.len(),
+        1,
+        "the held fact is kept, not dropped"
+    );
+    assert_eq!(subject.held_inputs[0].event_id, event.event_id);
+}
+
+/// AW14: a pause whose review time has passed is over — the source is not
+/// held any more, and the fact comes back into the window.
+#[tokio::test]
+async fn a_pause_that_ended_releases_the_held_fact() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let event = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"v": 1, "text": "群里在叫我"}),
+        source: "napcat".into(),
+        created_at: chrono::Utc::now(),
+    };
+    let step_id = subject.step.step_id;
+    commit_attention_policy(
+        &mut subject,
+        &event,
+        AttentionPolicy {
+            intent_id: EntityId::new(),
+            state: AttentionState::Off,
+            sources: vec!["napcat".to_string()],
+            reason: "这一类先放着".into(),
+            // The review time already passed: the pause is over.
+            review_after: Some(chrono::Utc::now() - chrono::Duration::minutes(1)),
+            created_step_id: step_id,
+        },
+    )
+    .await;
+    let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
+    assert_eq!(
+        kept.len(),
+        1,
+        "an ended pause does not hold the source any more"
+    );
+    assert_eq!(kept[0].event_id, event.event_id);
+    assert!(subject.held_inputs.is_empty());
+}
+
+
+/// G57: the subject's own policy request is a real, visible fact — not a
+/// silent block. The request is recorded, the installation says plainly that
+/// it has no dispatcher for it, and the subject sees that in its next step.
+#[tokio::test]
+async fn a_policy_request_is_unbound_and_visible_not_blocked() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let event = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"v": 1, "text": "把更多算力分给探索任务"}),
+        source: "napcat".into(),
+        created_at: chrono::Utc::now(),
+    };
+    let step_id = subject.step.step_id;
+    let intent_id = EntityId::new();
+    commit_step_with_policy(
+        &mut subject,
+        &event,
+        AttentionPolicy {
+            intent_id: EntityId::new(),
+            state: AttentionState::Active,
+            sources: vec![],
+            reason: "这一轮只处理资源分配".into(),
+            review_after: None,
+            created_step_id: step_id,
+        },
+        vec![PolicyIntent {
+            intent_id,
+            kind: PolicyKind::ResourceShare,
+            description: "把更多算力分给探索任务".into(),
+            target_revision: None,
+        }],
+    )
+    .await;
+
+    // The request is durable and names the gap.
+    let unbound = store.unbound_subject_intents(agent, 8).unwrap();
+    assert_eq!(unbound.len(), 1, "the policy request is one durable fact");
+    assert_eq!(unbound[0].intent_id, intent_id);
+    assert_eq!(unbound[0].kind, "policy");
+    // The state keeps its established meaning (nothing was dispatched, so the
+    // effect is unknown); what changed is that the reason says what is
+    // missing and the subject can see the list.
+    assert_eq!(unbound[0].state, "blocked");
+    assert!(
+        unbound[0]
+            .result_ref
+            .as_deref()
+            .unwrap_or_default()
+            .contains("capability not installed"),
+        "the gap says what is missing: {:?}",
+        unbound[0].result_ref
+    );
+
+    // And the subject sees it: the next step's material names the gap.
+    let suffix = crate::loop_runner::system_prompt_suffix(&subject, &[], &[]);
+    assert!(
+        suffix.contains("你提出过、但本机还没有装上对应能力的意图"),
+        "the subject is told which capabilities are missing: {suffix}"
+    );
+    assert!(
+        suffix.contains("resource_share") || suffix.contains("policy"),
+        "the gap names the policy contract: {suffix}"
+    );
+}
+
+/// The `[policy]` control line is part of the output protocol: the subject
+/// can ask, and the parser keeps the request's own words.
+#[test]
+fn the_policy_control_line_parses_into_a_policy_request() {
+    let (_dir, store, agent) = fixture();
+    let subject = state(Arc::clone(&store), agent).unwrap();
+    let raw = "[policy] {\"kind\":\"resource_share\",\"description\":\"把更多算力分给探索任务\"}";
+    let raw_ref = store
+        .cas
+        .seal_object(raw.as_bytes(), "text/plain", "model_results", "text", 1)
+        .unwrap()
+        .object;
+    let output = crate::output::parse_output(
+        EntityId::new(),
+        raw_ref,
+        raw,
+        &subject.identity_service,
+        &subject.channels,
+        None,
+    )
+    .unwrap();
+    let policy = output
+        .controls
+        .iter()
+        .find_map(|control| match &control.action {
+            shenko_types::output::OutputAction::Policy { spec } => Some(spec),
+            _ => None,
+        })
+        .expect("the policy request is parsed");
+    assert_eq!(
+        policy.kind,
+        shenko_types::output::PolicyRequestKind::ResourceShare
+    );
+    assert_eq!(policy.description, "把更多算力分给探索任务");
 }

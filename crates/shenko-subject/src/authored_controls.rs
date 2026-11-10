@@ -10,7 +10,13 @@
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::ids::EntityId;
 use shenko_types::output::{
-    AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, ReconcileSpec, SteerSpec,
+    AttentionSpec,
+    DialogueSpec,
+    DispositionSpec,
+    ObligationSpec,
+    PolicySpec,
+    ReconcileSpec,
+    SteerSpec,
 };
 use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};
 fn invalid(line: u64, reason: &str) -> ShenkoError {
@@ -136,6 +142,22 @@ pub(super) fn parse_steer(value: &str, line_no: u64) -> Result<SteerSpec, Shenko
 /// `[reconcile] {...}` — the subject accepts one unknown external effect for
 /// now. It names a case that was carried into this step's S0 and the receipts
 /// its reading rests on; it never claims the effect did not happen.
+/// `[policy] {...}` — the subject's own request about its runtime policy.
+///
+/// The request is durable and visible; whether this installation can serve
+/// it is a fact the subject sees in its next step (SPEC §57.8).
+pub(super) fn parse_policy(value: &str, line_no: u64) -> Result<PolicySpec, ShenkoError> {
+    let spec: PolicySpec = serde_json::from_str(value)
+        .map_err(|_| invalid(line_no, "policy requires one JSON object"))?;
+    if spec.description.trim().is_empty() {
+        return Err(invalid(line_no, "policy request requires a description"));
+    }
+    if spec.description.len() > 4096 {
+        return Err(invalid(line_no, "policy description too large"));
+    }
+    Ok(spec)
+}
+
 pub(super) fn parse_reconcile(value: &str, line_no: u64) -> Result<ReconcileSpec, ShenkoError> {
     let spec: ReconcileSpec = serde_json::from_str(value)
         .map_err(|_| invalid(line_no, "reconcile requires one JSON object"))?;

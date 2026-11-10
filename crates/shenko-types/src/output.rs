@@ -443,6 +443,33 @@ pub struct ReconcileSpec {
     pub remaining_impact: String,
 }
 
+/// One policy request the subject makes of its own runtime.
+///
+/// The kinds here are the ones no dispatcher serves yet: the request is
+/// recorded as an unbound capability gap, never as a refusal, and the subject
+/// can see it in its next step (SPEC §57.8, G57).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicySpec {
+    /// Which policy the subject is asking about.
+    pub kind: PolicyRequestKind,
+    /// What it wants, in its own words.
+    pub description: String,
+}
+
+/// The policy requests a subject may make.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyRequestKind {
+    /// How the subject's own compute is shared between its work and its
+    /// children.
+    ResourceShare,
+    /// Whether and what the subject updates on its own.
+    UpdatePolicy,
+    /// Whether and how the subject reaches the network.
+    NetworkPolicy,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OutputAction {
@@ -492,6 +519,12 @@ pub enum OutputAction {
     /// The subject adopted one live steer carried into this step.
     Steer {
         spec: SteerSpec,
+    },
+    /// The subject asks for a policy of its own: how compute is shared, or
+    /// how updates and networking behave. The request is durable; whether an
+    /// installation can serve it is a fact it can see (SPEC §57.8).
+    Policy {
+        spec: PolicySpec,
     },
     /// The subject accepted one unknown external effect for now.
     Reconcile {
