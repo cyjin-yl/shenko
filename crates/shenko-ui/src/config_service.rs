@@ -651,6 +651,21 @@ impl ConfigService {
     /// Decide one unsettled change. `Kept` means this process must not touch
     /// it: its attempt owner is live, or its liveness cannot be proven.
     fn settle_change(&self, change: &ConfigChange) -> Result<Settle, ConfigError> {
+        // A change that already carries a receipt is settled: the receipt IS
+        // the durable record of the effect, and it is the answer a replay
+        // must give. Settling it again would mint a second receipt for the
+        // same change and lose the first one.
+        //
+        // The attempt ownership is gone by then on purpose (the store clears
+        // it when the change finishes), so this check comes before the
+        // liveness question: an owner-less change that already has a receipt
+        // is NOT an unproven effect.
+        if change.receipt.is_some() {
+            return Ok(Settle::Kept {
+                outcome: "already_settled".into(),
+                detail: "this change already carries a receipt; the replay answers with it".into(),
+            });
+        }
         if let Some(owner) = change.attempt.as_ref() {
             match attempt_liveness(owner) {
                 AttemptLiveness::Gone => {}
