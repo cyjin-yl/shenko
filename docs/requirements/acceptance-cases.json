@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec_version": "0.6.2",
   "spec_path": "SPEC.md",
-  "count": 235,
+  "count": 236,
   "items": [
     {
       "case_id": "UI-S01",
@@ -4059,6 +4059,28 @@
       "implementation_refs": [],
       "evidence": [],
       "applicability": "to_be_resolved_against_full_scope"
+    },
+    {
+      "source_path": "SPEC.md",
+      "case_id": "AW15",
+      "source_heading_path": [
+        "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
+        "57.13 验收"
+      ],
+      "source_markdown_line": 6662,
+      "source_row": "| AW15 | 安装中恰好一个启用单元提供 `cap.child-role-frame` | 该单元当前正文成为 child 角色前缀；无提供者时使用编译回退合同；停用单元不参与解析 |",
+      "verification_status": "verified_real",
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/cognition.rs::CAP_CHILD_ROLE_FRAME",
+        "crates/shenko-subject/src/model_child.rs::ModelChildHandler::role_frame",
+        "crates/shenko-awareness-core/seed-awareness/subject-child-frame/AWARENESS.md"
+      ],
+      "evidence": [
+        "shenko-subject --lib the_childs_role_frame_comes_from_the_installed_unit: 单元正文成为孩子角色前缀，编译合同被替换而非追加；无目录时回退到编译合同",
+        "shenko-subject --lib the_cognition_directory_travels_only_when_it_exists: 目录只在存在时随行，未回归",
+        "shenko-awareness-core: 15 passed"
+      ],
+      "applicability": "child 角色框由内容单元提供；协议边界（工具目录、回复授权、预算）仍由 harness 持有"
     }
   ]
 }

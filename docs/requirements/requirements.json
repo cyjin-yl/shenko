@@ -1783,9 +1783,10 @@
       "spec_locations": "§57.10",
       "user_source": "U64",
       "behaviors": [
-        "B57"
+        "B57",
+        "B63"
       ],
-      "source_row": "| R165 | 主体与 child 使用同一套能力目录与插件体系，child 角色框可由主体修订。 | §57.10 | U64；B57 |"
+      "source_row": "| R165 | 主体与 child 使用同一套能力目录与插件体系，child 角色框可由主体修订。 | §57.10 | U64；B57；B63 |"
     }
   ]
 }
