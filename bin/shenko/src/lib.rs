@@ -780,6 +780,9 @@ struct InstalledDefinitions {
     /// `config.manage` tool share it, so a change made one way is the state
     /// the other observes. SPEC §43.1.
     config_service: Arc<shenko_ui::config_service::ConfigService>,
+    /// The one Playground instance: the subject's `playground.manage` child
+    /// and the Web UI's artifact routes write the same lifecycle (SPEC §57.6).
+    playground_state: Arc<shenko_ui::playground::PlaygroundState>,
 }
 
 /// The media services one process publishes: the typed ingress every provider
@@ -971,6 +974,24 @@ async fn install_native_definitions(
     );
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
+        .await?;
+    // The subject's own hands on its works — SPEC §57.6. One Playground
+    // instance serves the subject and the Web UI, so a version the subject
+    // writes is the version a human sees.
+    let playground_state = Arc::new(
+        shenko_ui::playground::PlaygroundState::open(data_dir.join("playground"), Arc::clone(store))?,
+    );
+    let playground_manage_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+        shenko_ui::playground_manage::PlaygroundManageHandler::new(
+            Arc::clone(store),
+            Arc::clone(&playground_state),
+        ),
+    );
+    let _native_playground_manage_plugin = supervisor
+        .spawn(
+            shenko_subject::NativeTaskHandlerPlugin,
+            playground_manage_handler,
+        )
         .await?;
     // Configuration through conversation — SPEC §43.1, R133. The handler runs
     // the same ConfigService the panel routes expose: one durable change
@@ -1197,6 +1218,7 @@ async fn install_native_definitions(
         handoff_participants,
         artifact_services,
         config_service,
+        playground_state,
     })
 }
 
@@ -3017,6 +3039,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_owner(owner_state)
                 .with_config(config_service)
                 .with_artifact_services(Arc::clone(&installed.artifact_services))
+                .with_playground_state(Arc::clone(&installed.playground_state))
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://{}", ui.bind);
             println!("  Subject task: supervised (durable boundary pause may be active)");

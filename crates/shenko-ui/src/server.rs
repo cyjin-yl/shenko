@@ -22,6 +22,10 @@ pub struct UiServer {
     pub state: WsState,
     /// Root under which Playground artifacts persist (SHENKO_DATA_DIR/playground).
     pub playground_root: PathBuf,
+    /// The shared Playground instance. The subject's own `playground.manage`
+    /// handler and this server must write the SAME lifecycle, so one instance
+    /// is built by the composition root and handed to both (SPEC §57.6).
+    playground_state: Option<Arc<crate::playground::PlaygroundState>>,
     /// Data directory reported by `/api/config`. None = unknown.
     data_dir: Option<PathBuf>,
     /// Durable task/input store. Without it task APIs and Playground writes
@@ -57,6 +61,7 @@ impl UiServer {
             bind: SocketAddr::from(([127, 0, 0, 1], port)),
             state: WsState::new(),
             playground_root: default_playground_root(),
+            playground_state: None,
             data_dir: None,
             store: None,
             native: None,
@@ -87,6 +92,18 @@ impl UiServer {
         let data_dir = data_dir.into();
         self.playground_root = data_dir.join("playground");
         self.data_dir = Some(data_dir);
+        self
+    }
+
+    /// Attach the shared Playground instance. The subject's own
+    /// `playground.manage` handler and this server must write the same
+    /// lifecycle, so the composition root builds one instance and hands it to
+    /// both (SPEC §57.6).
+    pub fn with_playground_state(
+        mut self,
+        playground: Arc<crate::playground::PlaygroundState>,
+    ) -> Self {
+        self.playground_state = Some(playground);
         self
     }
 
@@ -230,12 +247,17 @@ impl UiServer {
         // Playground shares the inbox the WS handler already writes to, so
         // artifact changes are perceived by the same subject loop. SPEC §43.2.
         let playground_root = self.playground_root;
-        let playground_state = if let Some(store) = self.store.clone() {
-            let mut pg = PlaygroundState::open(playground_root.clone(), store)?;
-            if let Some(tx) = self.inbox_tx.clone() { pg = pg.with_inbox(tx); }
-            if let Some(native) = self.native.clone() { pg = pg.with_native(native); }
-            Some(pg)
-        } else { None };
+        let playground_state = match self.playground_state.clone() {
+            Some(shared) => Some(shared),
+            None => {
+                if let Some(store) = self.store.clone() {
+                    let mut pg = PlaygroundState::open(playground_root.clone(), store)?;
+                    if let Some(tx) = self.inbox_tx.clone() { pg = pg.with_inbox(tx); }
+                    if let Some(native) = self.native.clone() { pg = pg.with_native(native); }
+                    Some(Arc::new(pg))
+                } else { None }
+            }
+        };
 
         // Observe the subject outbox independently of any browser client, so
         // `/api/self` knows the last committed thought step and whether the
@@ -283,11 +305,13 @@ impl UiServer {
         }
         // Shared Arc registries: `/api/self` reports the same live objects the
         // Playground routes and WS handler use, not a second copy.
-        if let Some(pg) = playground_state.clone() { api_state = api_state.with_playground(pg); }
+        if let Some(pg) = playground_state.clone() {
+            api_state = api_state.with_playground((*pg).clone());
+        }
         api_state = api_state.with_live(Arc::clone(&state.live));
 
         let playground_routes = match playground_state {
-            Some(pg) => playground::router(pg),
+            Some(pg) => playground::router((*pg).clone()),
             None => Router::new()
                 .route("/playground", axum::routing::any(playground_unavailable))
                 .route("/playground/{*path}", axum::routing::any(playground_unavailable)),
