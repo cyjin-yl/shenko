@@ -49,6 +49,12 @@ pub const QQ_OFFICIAL_KIND_CHANNEL: &str = "qqo-channel";
 /// The platform edits a message by its id, and the bot may only edit its own
 /// message. The subject therefore names the CONVERSATION, and the plugin
 /// addresses the last message it sent there.
+/// The label of the edit kind.
+///
+/// The official platform has NO message-edit endpoint (its API index offers
+/// send, retract and media upload), so this kind is never offered: it is
+/// named here so the capability table can prove that the kind the platform
+/// cannot serve is absent.
 pub const QQ_OFFICIAL_KIND_EDIT: &str = "qqo-edit";
 
 /// The reply kind that retracts the bot's own last message in one

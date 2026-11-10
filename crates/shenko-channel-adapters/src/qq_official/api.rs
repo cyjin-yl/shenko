@@ -185,7 +185,7 @@ impl QqOfficialApi {
     pub async fn send_private(
         &self,
         openid: &str,
-        content: &str,
+        outbound: &crate::qq_official::outbound::OfficialOutbound,
         reply_to: Option<&str>,
         msg_seq: u32,
     ) -> Result<Value, QqApiError> {
@@ -193,14 +193,14 @@ impl QqOfficialApi {
             "{}/v2/users/{openid}/messages",
             self.config.api_base()
         );
-        self.send_message(&url, content, reply_to, msg_seq, None).await
+        self.send_message(&url, outbound, reply_to, msg_seq, None).await
     }
 
     /// Send one message to a group.
     pub async fn send_group(
         &self,
         group_openid: &str,
-        content: &str,
+        outbound: &crate::qq_official::outbound::OfficialOutbound,
         reply_to: Option<&str>,
         msg_seq: u32,
     ) -> Result<Value, QqApiError> {
@@ -208,21 +208,21 @@ impl QqOfficialApi {
             "{}/v2/groups/{group_openid}/messages",
             self.config.api_base()
         );
-        self.send_message(&url, content, reply_to, msg_seq, None).await
+        self.send_message(&url, outbound, reply_to, msg_seq, None).await
     }
 
     /// Send one message to a guild channel.
     pub async fn send_channel(
         &self,
         channel_id: &str,
-        content: &str,
+        outbound: &crate::qq_official::outbound::OfficialOutbound,
         reply_to: Option<&str>,
     ) -> Result<Value, QqApiError> {
         let url = format!(
             "{}/v2/channels/{channel_id}/messages",
             self.config.api_base()
         );
-        self.send_message(&url, content, reply_to, 1, None).await
+        self.send_message(&url, outbound, reply_to, 1, None).await
     }
 
     /// Send one media message; the platform needs the `file_info` of an
@@ -250,12 +250,15 @@ impl QqOfficialApi {
     async fn send_message(
         &self,
         url: &str,
-        content: &str,
+        outbound: &crate::qq_official::outbound::OfficialOutbound,
         reply_to: Option<&str>,
         msg_seq: u32,
         extra: Option<Value>,
     ) -> Result<Value, QqApiError> {
-        let mut body = json!({ "content": content, "msg_type": 0 });
+        // The plugin's own surface syntax already decided the message type,
+        // the content field and the quoted message; the platform refuses a
+        // body that carries both `content` and `markdown`.
+        let mut body = outbound.wire_body();
         if let Some(extra) = extra {
             for (key, value) in extra.as_object().cloned().unwrap_or_default() {
                 body[key] = value;
@@ -268,29 +271,6 @@ impl QqOfficialApi {
         self.post_authorized(url, &body).await
     }
 
-    /// Edit one delivered message.
-    pub async fn edit_message(
-        &self,
-        message_id: &str,
-        content: &str,
-        msg_seq: u32,
-    ) -> Result<Value, QqApiError> {
-        let url = format!("{}/v2/messages/{message_id}", self.config.api_base());
-        let body = json!({ "content": content, "msg_seq": msg_seq });
-        let authorization = self.authorization().await?;
-        let headers = vec![("Authorization".to_string(), authorization)];
-        match self.http.put_json_with_headers(&url, &headers, &body).await {
-            PlatformAnswer::Answered { body, .. } => Ok(body),
-            PlatformAnswer::Rejected { status, code, message, .. } => {
-                Err(QqApiError::Rejected {
-                    status,
-                    code,
-                    message,
-                })
-            }
-            PlatformAnswer::Unknown { detail } => Err(QqApiError::Unknown(detail)),
-        }
-    }
 
     /// Retract one message of a single chat.
     pub async fn retract_private(

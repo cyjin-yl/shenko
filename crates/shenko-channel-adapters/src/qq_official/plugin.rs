@@ -28,7 +28,7 @@ use crate::common::{ChannelCapabilities, ChannelHealth, HealthState, ReplyContex
 use super::api::{MediaScope, QqApiError, QqOfficialApi};
 use super::config::QqOfficialConfig;
 use super::events::{
-    QQ_OFFICIAL_CHANNEL_ID, QQ_OFFICIAL_KIND_CHANNEL, QQ_OFFICIAL_KIND_EDIT, QQ_OFFICIAL_KIND_GROUP,
+    QQ_OFFICIAL_CHANNEL_ID, QQ_OFFICIAL_KIND_CHANNEL, QQ_OFFICIAL_KIND_GROUP,
     QQ_OFFICIAL_KIND_PRIVATE, QQ_OFFICIAL_KIND_RETRACT, QQ_OFFICIAL_SOURCE,
 };
 
@@ -38,8 +38,12 @@ pub const ACTION_SEND_PRIVATE: &str = "send_private_message";
 pub const ACTION_SEND_GROUP: &str = "send_group_message";
 /// The platform action of a channel send.
 pub const ACTION_SEND_CHANNEL: &str = "send_channel_message";
-/// The platform action of an edit.
-pub const ACTION_EDIT: &str = "edit_message";
+/// How long the platform still accepts a retract for a message it sent.
+///
+/// The official docs state it plainly: a bot can retract its own message,
+/// but not one that was sent more than two minutes ago.
+pub const RETRACT_WINDOW: chrono::Duration = chrono::Duration::minutes(2);
+
 /// The platform action of a retract.
 pub const ACTION_RETRACT: &str = "retract_message";
 /// The platform action of a typing indicator.
@@ -51,10 +55,6 @@ pub const ACTION_TYPING: &str = "send_typing";
 /// and a lost answer is reconciled instead of repeated.
 pub const QQ_OFFICIAL_SEND_CONTRACT: &[u8] =
     b"shenko.qq-official/openapi-v2-send/1;no-blind-replay;provider-accepted-not-read";
-
-/// The contract digest of one official QQ edit.
-pub const QQ_OFFICIAL_EDIT_CONTRACT: &[u8] =
-    b"shenko.qq-official/openapi-v2-edit/1;edit-window-is-platform-owned";
 
 /// The contract digest of one official QQ retract.
 pub const QQ_OFFICIAL_RETRACT_CONTRACT: &[u8] =
@@ -80,11 +80,6 @@ pub const QQ_OFFICIAL_REPLY_KINDS: &[ReplyKind] = &[
         tag: QQ_OFFICIAL_KIND_CHANNEL,
         id_hint: "频道ID",
         audience: "QQ 频道",
-    },
-    ReplyKind {
-        tag: QQ_OFFICIAL_KIND_EDIT,
-        id_hint: "会话ID",
-        audience: "编辑本账号在该会话的最后一条消息",
     },
     ReplyKind {
         tag: QQ_OFFICIAL_KIND_RETRACT,
@@ -135,7 +130,7 @@ impl QqOfficialChannel {
         }
     }
 
-    /// Remember the message this bot just sent, so a later edit or retract
+    /// Remember the message this bot just sent, so a later retract
     /// has something real to address.
     fn remember_own(
         own: &Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnMessage>>>,
@@ -145,10 +140,34 @@ impl QqOfficialChannel {
         scope: &str,
         audience: &str,
     ) {
+        Self::remember_own_at(
+            own,
+            window,
+            conversation,
+            message_id,
+            scope,
+            audience,
+            chrono::Utc::now(),
+        );
+    }
+
+    /// Remember a message with the moment it was sent.
+    ///
+    /// The platform's own rules are about AGE ("a message sent more than two
+    /// minutes ago can no longer be retracted"), so the age has to be part of
+    /// what the plugin remembers — and testable without waiting.
+    fn remember_own_at(
+        own: &Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnMessage>>>,
+        window: chrono::Duration,
+        conversation: &str,
+        message_id: &str,
+        scope: &str,
+        audience: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) {
         if conversation.is_empty() || message_id.is_empty() {
             return;
         }
-        let now = chrono::Utc::now();
         let mut guard = own.lock();
         guard.insert(
             conversation.to_string(),
@@ -160,7 +179,7 @@ impl QqOfficialChannel {
             },
         );
         // The cache stays as small as the platform's own answer window: an
-        // edit that targets a message from hours ago is not something this
+        // retract that targets a message from hours ago is not something this
         // bot can still change, so keeping it would promise something the
         // platform will refuse.
         guard.retain(|_, message| now - message.at <= window);
@@ -220,7 +239,12 @@ impl QqOfficialChannel {
             guild_channel: true,
             rich_text: true,
             attachments: true,
-            edit: true,
+            // The official platform has no message-edit endpoint: its API
+            // index offers send, retract and media upload for private and
+            // group chats, and nothing that changes a message that was
+            // already sent. Advertising an edit would promise an ability
+            // the platform does not have (SPEC §57.4, RT19).
+            edit: false,
             retract: true,
             // The platform has a guild-only typing endpoint, and this adapter
             // can call it — but one reply is one effect, so a typing indicator
@@ -231,7 +255,10 @@ impl QqOfficialChannel {
             proactive: true,
             notes: vec![
                 "typing is a channel-only endpoint, and one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
-                "the passive reply window and the rate limits belong to the platform".to_string(),
+                "the platform has no message-edit endpoint: a message that was sent cannot be changed, only retracted".to_string(),
+                "a retract only works within 2 minutes of the message, and only for the bot's own message".to_string(),
+                "the passive reply window belongs to the platform: 60 minutes and 4 replies in a private chat, 5 minutes and 5 replies in a group, 5 minutes in a guild channel".to_string(),
+                "active messages are the platform's business: a user can switch off the bot's active messages, a group owner has to allow the bot to speak in the group first, and the rate limits are 60 per minute per bot (30 unverified), 20 per minute per conversation, 1000 per day per conversation".to_string(),
                 "full group traffic needs a platform-side permission; by default only messages that mention the bot arrive".to_string(),
                 "the official platform issues per-application OpenIDs; the numeric QQ number is not available here".to_string(),
             ],
@@ -336,17 +363,9 @@ impl ChannelPlugin for QqOfficialChannel {
         }
         let scope = self.config.account_scope();
         let target = match kind {
-            // An edit or a retract names the CONVERSATION; the plugin
-            // addresses the last message it sent there. The platform edits
-            // and retracts by message id, and only the bot's own message can
-            // be touched.
-            QQ_OFFICIAL_KIND_EDIT => PublicationTarget::new(
-                QQ_OFFICIAL_CHANNEL_ID,
-                QQ_OFFICIAL_KIND_EDIT,
-                id.to_string(),
-                self.config.account_scope(),
-            )
-            .with_scope(None, Some(id.to_string())),
+            // A retract names the CONVERSATION; the plugin addresses the
+            // last message it sent there. The platform retracts by message
+            // id, and only the bot's own message can be touched.
             QQ_OFFICIAL_KIND_RETRACT => PublicationTarget::new(
                 QQ_OFFICIAL_CHANNEL_ID,
                 QQ_OFFICIAL_KIND_RETRACT,
@@ -408,10 +427,7 @@ impl ChannelPlugin for QqOfficialChannel {
                 id: target.id.clone(),
             });
         }
-        if matches!(
-            target.kind.as_str(),
-            QQ_OFFICIAL_KIND_EDIT | QQ_OFFICIAL_KIND_RETRACT
-        ) {
+        if matches!(target.kind.as_str(), QQ_OFFICIAL_KIND_RETRACT) {
             let conversation = target
                 .conversation
                 .clone()
@@ -425,37 +441,31 @@ impl ChannelPlugin for QqOfficialChannel {
                     id: target.id.clone(),
                 }
             })?;
-            let params = match target.kind.as_str() {
-                QQ_OFFICIAL_KIND_EDIT => json!({
-                    "message_id": own.message_id,
-                    "msg_seq": 1,
-                }),
-                _ => {
-                    let mut params = json!({
-                        "message_id": own.message_id,
-                        "scope": own.scope,
-                    });
-                    if own.scope == "group" {
-                        params["group_openid"] = Value::String(own.audience.clone());
-                    } else {
-                        params["user_openid"] = Value::String(own.audience.clone());
-                    }
-                    params
-                }
-            };
-            let (action, platform_action, contract) = if target.kind == QQ_OFFICIAL_KIND_EDIT {
-                (
-                    ChannelAction::Edit,
-                    ACTION_EDIT,
-                    QQ_OFFICIAL_EDIT_CONTRACT,
-                )
+            // The platform only retracts a message within two minutes of the
+            // send, and only the bot's own message. A retract that is older
+            // than that is refused here, with the platform's own rule as the
+            // reason, instead of a request that could only fail.
+            if chrono::Utc::now() - own.at > RETRACT_WINDOW {
+                return Err(ChannelError::Rejected {
+                    channel: target.channel.clone(),
+                    detail: "the platform only retracts a message within 2 minutes of the send"
+                        .to_string(),
+                });
+            }
+            let mut params = json!({
+                "message_id": own.message_id,
+                "scope": own.scope,
+            });
+            if own.scope == "group" {
+                params["group_openid"] = Value::String(own.audience.clone());
             } else {
-                (
-                    ChannelAction::Retract,
-                    ACTION_RETRACT,
-                    QQ_OFFICIAL_RETRACT_CONTRACT,
-                )
-            };
+                params["user_openid"] = Value::String(own.audience.clone());
+            }
+            let (action, platform_action, contract) = (
+                ChannelAction::Retract,
+                ACTION_RETRACT,
+                QQ_OFFICIAL_RETRACT_CONTRACT,
+            );
             return Ok(ChannelDispatch {
                 channel: QQ_OFFICIAL_CHANNEL_ID.to_string(),
                 action,
@@ -598,6 +608,13 @@ impl ChannelPlugin for QqOfficialChannel {
                             .map_err(|error| map_api_error(&dispatch.channel, error))?;
                         return Ok(receipt_of(dispatch, answer));
                     }
+                    // The plugin's own surface syntax decides what the wire
+                    // carries: a leading mention becomes the platform's
+                    // `<@member_openid>` markup, a quoted message becomes a
+                    // `message_reference`, and Markdown becomes the
+                    // platform's Markdown message type where the platform
+                    // renders it. A body without markers is sent as the same
+                    // plain text message as before.
                     let answer = match dispatch.platform_action.as_str() {
                         ACTION_SEND_PRIVATE => {
                             let openid = dispatch
@@ -605,9 +622,13 @@ impl ChannelPlugin for QqOfficialChannel {
                                 .get("user_openid")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default();
+                            let outbound = crate::qq_official::outbound::build_outbound(
+                                &content,
+                                crate::qq_official::outbound::OutboundScope::Private,
+                            );
                             api.send_private(
                                 openid,
-                                &content,
+                                &outbound,
                                 dispatch.params.get("msg_id").and_then(Value::as_str),
                                 dispatch
                                     .params
@@ -623,9 +644,13 @@ impl ChannelPlugin for QqOfficialChannel {
                                 .get("group_openid")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default();
+                            let outbound = crate::qq_official::outbound::build_outbound(
+                                &content,
+                                crate::qq_official::outbound::OutboundScope::Group,
+                            );
                             api.send_group(
                                 group,
-                                &content,
+                                &outbound,
                                 dispatch.params.get("msg_id").and_then(Value::as_str),
                                 dispatch
                                     .params
@@ -641,9 +666,13 @@ impl ChannelPlugin for QqOfficialChannel {
                                 .get("channel_id")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default();
+                            let outbound = crate::qq_official::outbound::build_outbound(
+                                &content,
+                                crate::qq_official::outbound::OutboundScope::Channel,
+                            );
                             api.send_channel(
                                 channel,
-                                &content,
+                                &outbound,
                                 dispatch.params.get("msg_id").and_then(Value::as_str),
                             )
                             .await
@@ -657,8 +686,8 @@ impl ChannelPlugin for QqOfficialChannel {
                     };
                     let answer = answer.map_err(|error| map_api_error(&dispatch.channel, error))?;
                     let receipt = receipt_of(dispatch, answer);
-                    // The bot's own message id is what a later edit or
-                    // retract addresses, so it is remembered with the
+                    // The bot's own message id is what a later retract
+                    // addresses, so it is remembered with the
                     // audience it went to.
                     if let (Some(conversation), Some(message_id)) = (
                         send_conversation.as_deref(),
@@ -698,26 +727,6 @@ impl ChannelPlugin for QqOfficialChannel {
                     }
                     Ok(receipt)
                 }
-                ChannelAction::Edit => {
-                    let message_id = dispatch
-                        .params
-                        .get("message_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
-                    let answer = api
-                        .edit_message(
-                            message_id,
-                            &content,
-                            dispatch
-                                .params
-                                .get("msg_seq")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(1) as u32,
-                        )
-                        .await
-                        .map_err(|error| map_api_error(&dispatch.channel, error))?;
-                    Ok(receipt_of(dispatch, answer))
-                }
                 ChannelAction::Retract => {
                     let message_id = dispatch
                         .params
@@ -748,6 +757,16 @@ impl ChannelPlugin for QqOfficialChannel {
                         }
                     }.map_err(|error| map_api_error(&dispatch.channel, error))?;
                     Ok(receipt_of(dispatch, answer))
+                }
+                ChannelAction::Edit => {
+                    // The official platform has no message-edit endpoint.
+                    // A dispatch that asks for one is refused with the
+                    // platform's own fact, never faked into a re-send.
+                    Err(ChannelError::Rejected {
+                        channel: dispatch.channel.clone(),
+                        detail: "the official platform has no message-edit endpoint; a sent message can only be retracted"
+                            .to_string(),
+                    })
                 }
                 ChannelAction::Typing => {
                     let channel = dispatch

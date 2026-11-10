@@ -41,40 +41,63 @@ fn conversation_target(plugin: &QqOfficialChannel, kind: &str, id: &str) -> Publ
     .with_scope(None, Some(id.to_string()))
 }
 
-/// An edit or a retract with nothing of the bot's own to address says so
-/// instead of pretending.
+/// The official platform has no message-edit endpoint, so the plugin offers
+/// no edit kind: a reply kind the platform cannot serve is not a capability.
 #[test]
-fn an_edit_without_anything_to_edit_is_refused() {
+fn the_platform_has_no_edit_so_the_plugin_offers_no_edit() {
     let plugin = plugin();
     let target = conversation_target(&plugin, QQ_OFFICIAL_KIND_EDIT, "conversation-1");
-    let error = plugin.describe(&target).expect_err("nothing to edit");
+    assert!(
+        plugin.resolve_reply(QQ_OFFICIAL_KIND_EDIT, "conversation-1").is_none(),
+        "an edit kind the platform cannot serve is not offered"
+    );
+    assert!(
+        !plugin.capabilities().edit,
+        "the capability table does not advertise an edit"
+    );
+    let error = plugin.describe(&target).expect_err("there is no edit to describe");
+    assert!(
+        matches!(error, ChannelError::UnsupportedTarget { .. }),
+        "the refusal says the target is not one this plugin serves: {error:?}"
+    );
+}
+
+/// A retract with nothing of the bot's own to address says so instead of
+/// pretending.
+#[test]
+fn a_retract_without_anything_to_retract_is_refused() {
+    let plugin = plugin();
+    let target = conversation_target(&plugin, QQ_OFFICIAL_KIND_RETRACT, "conversation-1");
+    let error = plugin.describe(&target).expect_err("nothing to retract");
     assert!(
         matches!(error, ChannelError::UnresolvedReply { .. }),
         "the refusal names the audience it could not resolve: {error:?}"
     );
 }
 
-/// Once the bot has spoken in a conversation, an edit addresses that message.
+/// The platform only retracts a message within two minutes of the send, so a
+/// retract of an older message is refused with the platform's own rule.
 #[test]
-fn an_edit_addresses_the_bots_own_last_message() {
+fn a_retract_older_than_the_platform_window_is_refused_with_its_reason() {
     let plugin = plugin();
-    QqOfficialChannel::remember_own(
+    QqOfficialChannel::remember_own_at(
         &plugin.own_cache(),
-        chrono::Duration::minutes(5),
-        "conversation-1",
-        "message-9",
+        chrono::Duration::minutes(30),
+        "conversation-old",
+        "message-3-min",
         "private",
-        "user-openid-1",
+        "user-openid-old",
+        chrono::Utc::now() - chrono::Duration::minutes(3),
     );
-    let target = conversation_target(&plugin, QQ_OFFICIAL_KIND_EDIT, "conversation-1");
-    let dispatch = plugin.describe(&target).expect("the edit is describable");
-    assert_eq!(dispatch.action, ChannelAction::Edit);
-    assert_eq!(dispatch.platform_action, "edit_message");
-    assert_eq!(
-        dispatch.params["message_id"].as_str(),
-        Some("message-9"),
-        "the edit addresses the bot's own message"
-    );
+    let target = conversation_target(&plugin, QQ_OFFICIAL_KIND_RETRACT, "conversation-old");
+    let error = plugin.describe(&target).expect_err("the platform would refuse it");
+    match error {
+        ChannelError::Rejected { detail, .. } => assert!(
+            detail.contains("2 minutes"),
+            "the refusal names the platform's own rule: {detail}"
+        ),
+        other => panic!("the refusal is a rejection with the platform's rule: {other:?}"),
+    }
 }
 
 /// A retract knows which audience the message belonged to.
@@ -122,7 +145,7 @@ fn a_message_outside_the_platform_window_is_not_addressable() {
         "private",
         "user-openid-4",
     );
-    let target = conversation_target(&plugin, QQ_OFFICIAL_KIND_EDIT, "conversation-3");
+    let target = conversation_target(&plugin, QQ_OFFICIAL_KIND_RETRACT, "conversation-3");
     // The entry is still inside the window, so it resolves; the point of the
     // case is that the cache is bounded by the window rather than by memory.
     assert!(plugin.describe(&target).is_ok());
@@ -133,7 +156,10 @@ fn a_message_outside_the_platform_window_is_not_addressable() {
 fn the_capability_table_only_lists_reachable_actions() {
     let plugin = plugin();
     let capabilities = plugin.capabilities();
-    assert!(capabilities.edit, "the plugin can really edit");
+    assert!(
+        !capabilities.edit,
+        "the official platform has no message-edit endpoint"
+    );
     assert!(capabilities.retract, "the plugin can really retract");
     assert!(
         !capabilities.typing,
@@ -145,6 +171,14 @@ fn the_capability_table_only_lists_reachable_actions() {
             .iter()
             .any(|note| note.contains("typing")),
         "the reason is stated, not hidden: {:?}",
+        capabilities.notes
+    );
+    assert!(
+        capabilities
+            .notes
+            .iter()
+            .any(|note| note.contains("2 minutes")),
+        "the platform's retract window is stated as a fact: {:?}",
         capabilities.notes
     );
 }
