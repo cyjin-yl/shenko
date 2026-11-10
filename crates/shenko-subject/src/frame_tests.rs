@@ -89,6 +89,43 @@ fn two_providers_are_an_ambiguity_not_a_silent_pick() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Two providers may coexist, and the subject may switch between them at
+/// runtime: the consumer asks the same question and gets the provider the
+/// subject left in force (SPEC §57.9 / G59).
+///
+/// The switch is a durable fact about the unit, not a restart: the same
+/// catalog, the same call, the other provider's body.
+#[test]
+fn the_subject_switches_between_two_providers_without_a_restart() {
+    let dir = scratch("switch");
+    write_unit(&dir, "test.frame.one", CAP_SUBJECT_FRAME, "第一个。");
+    write_unit(&dir, "test.frame.two", CAP_SUBJECT_FRAME, "第二个。");
+    let installed = catalog(&dir);
+    // Both are installed and enabled: they coexist.
+    assert!(
+        installed.capability_unit(CAP_SUBJECT_FRAME).unwrap().is_ambiguous(),
+        "two distinct providers coexist until the subject decides"
+    );
+    // The subject retires one of them: the ambiguity resolves, and the
+    // consumer's question is unchanged.
+    installed.set_enabled("test.frame.one", false).unwrap();
+    let resolution = installed.capability_unit(CAP_SUBJECT_FRAME).unwrap();
+    assert_eq!(
+        resolution.body(),
+        Some("第二个。"),
+        "the provider the subject left in force speaks for the subject"
+    );
+    // And the retirement is durable: a catalog opened over the same
+    // installation resolves the same way.
+    let reopened = catalog(&dir);
+    assert_eq!(
+        reopened.capability_unit(CAP_SUBJECT_FRAME).unwrap().body(),
+        Some("第二个。"),
+        "the switch survives a reopen: it is a fact, not a process state"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_disabled_unit_is_not_a_provider() {
     let dir = scratch("disabled");
