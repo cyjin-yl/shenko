@@ -10,6 +10,7 @@ pub mod presentation;
 pub mod stream;
 pub mod playground;
 pub mod playground_backend;
+pub mod playground_manage;
 pub mod config_service;
 pub mod config_namespaces;
 pub mod config_task;
