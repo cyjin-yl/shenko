@@ -38,6 +38,8 @@ use super::api::{FeishuApi, FeishuError, ReceiveIdType};
 use super::config::FeishuConfig;
 use super::events::{
     FEISHU_CHANNEL_ID, FEISHU_KIND_CHAT, FEISHU_KIND_THREAD, FEISHU_SOURCE, classify,
+    FEISHU_KIND_EDIT,
+    FEISHU_KIND_RECALL,
 };
 use super::media::{MediaBlock, post_content};
 
@@ -83,6 +85,16 @@ pub const FEISHU_REPLY_KINDS: &[ReplyKind] = &[
         id_hint: "飞书话题消息ID",
         audience: "飞书话题消息ID",
     },
+    ReplyKind {
+        tag: FEISHU_KIND_EDIT,
+        id_hint: "会话ID",
+        audience: "编辑本账号在该会话的最后一条消息",
+    },
+    ReplyKind {
+        tag: FEISHU_KIND_RECALL,
+        id_hint: "会话ID",
+        audience: "撤回本账号在该会话的最后一条消息",
+    },
 ];
 
 /// The Feishu/Lark channel plugin.
@@ -91,6 +103,21 @@ pub struct FeishuChannel {
     api: FeishuApi,
     health: HealthState,
     replies: ReplyContextCache,
+    /// The bot's own last post per chat: what an edit or a recall
+    /// addresses. The platform edits and recalls by message id, and the bot
+    /// may only touch its own post.
+    own: Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnPost>>>,
+}
+
+/// The bot's own last post in one chat.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnPost {
+    message_id: String,
+    /// The chat the post went to.
+    chat_id: String,
+    /// When the bot sent it. The platform's own windows decide how long an
+    /// edit or a recall can still succeed.
+    at: chrono::DateTime<chrono::Utc>,
 }
 
 impl FeishuChannel {
@@ -106,7 +133,61 @@ impl FeishuChannel {
             api,
             health,
             replies,
+            own: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Remember the post this bot just sent, so a later edit or recall has
+    /// something real to address.
+    fn remember_own(
+        own: &Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnPost>>>,
+        window: chrono::Duration,
+        chat_id: &str,
+        message_id: &str,
+    ) {
+        if chat_id.is_empty() || message_id.is_empty() {
+            return;
+        }
+        let now = chrono::Utc::now();
+        let mut guard = own.lock();
+        guard.insert(
+            chat_id.to_string(),
+            OwnPost {
+                message_id: message_id.to_string(),
+                chat_id: chat_id.to_string(),
+                at: now,
+            },
+        );
+        // The cache stays as small as the platform's own window: an edit that
+        // targets a post from hours ago is not something this bot can still
+        // change, so keeping it would promise something the platform refuses.
+        guard.retain(|_, post| now - post.at <= window);
+        while guard.len() > 64 {
+            let oldest = guard
+                .iter()
+                .min_by_key(|(_, post)| post.at)
+                .map(|(key, _)| key.clone());
+            match oldest {
+                Some(key) => {
+                    guard.remove(&key);
+                }
+                None => break,
+            }
+        }
+    }
+
+    /// The bot's own last post in one chat, if it is still within the
+    /// platform's window.
+    fn own_post(&self, chat_id: &str) -> Option<OwnPost> {
+        let guard = self.own.lock();
+        guard.get(chat_id).cloned()
+    }
+
+    /// The cache of the bot's own posts, for this crate's tests.
+    pub(crate) fn own_cache(
+        &self,
+    ) -> &Arc<parking_lot::Mutex<std::collections::HashMap<String, OwnPost>>> {
+        &self.own
     }
 
     /// The configuration this plugin serves.
@@ -130,13 +211,19 @@ impl FeishuChannel {
             attachments: true,
             edit: true,
             retract: true,
-            typing: true,
+            // The platform has a chat-scoped typing endpoint and this
+            // adapter can call it — but one reply is one effect, so the
+            // indicator could only be sent instead of the answer, or after
+            // it (when it says nothing). The capability table lists what
+            // `describe` can really produce (SPEC §57.4), so typing is not
+            // advertised.
+            typing: false,
             proactive: true,
             notes: vec![
                 "a message is a post document of typed blocks, not a plain string".to_string(),
                 "a thread audience is the thread's root message; answering it posts into the thread".to_string(),
                 "an edit replaces the blocks and a recall removes the message; both are message-scoped".to_string(),
-                "the typing indicator is a chat-scoped endpoint of its own".to_string(),
+                "the typing indicator is a chat-scoped endpoint of its own, but one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
             ],
         }
     }
@@ -244,6 +331,23 @@ impl ChannelPlugin for FeishuChannel {
                 scope,
             )
             .with_scope(None, Some(id.to_string())),
+            // An edit or a recall names the CHAT; the plugin addresses the
+            // last post it sent there. The platform edits and recalls by
+            // message id, and only the bot's own post can be touched.
+            FEISHU_KIND_EDIT => PublicationTarget::new(
+                FEISHU_CHANNEL_ID,
+                FEISHU_KIND_EDIT,
+                id,
+                scope,
+            )
+            .with_scope(None, Some(id.to_string())),
+            FEISHU_KIND_RECALL => PublicationTarget::new(
+                FEISHU_CHANNEL_ID,
+                FEISHU_KIND_RECALL,
+                id,
+                scope,
+            )
+            .with_scope(None, Some(id.to_string())),
             _ => return None,
         };
         Some(target)
@@ -273,6 +377,45 @@ impl ChannelPlugin for FeishuChannel {
             return Err(ChannelError::UnresolvedReply {
                 channel: target.channel.clone(),
                 id: target.id.clone(),
+            });
+        }
+        if matches!(
+            target.kind.as_str(),
+            FEISHU_KIND_EDIT | FEISHU_KIND_RECALL
+        ) {
+            let chat_id = target
+                .conversation
+                .clone()
+                .unwrap_or_else(|| target.id.clone());
+            let own = self.own_post(&chat_id).ok_or_else(|| {
+                // Nothing of the bot's own is addressable there: the
+                // platform's window has passed, or the bot never spoke in
+                // that chat. Say so instead of pretending.
+                ChannelError::UnresolvedReply {
+                    channel: target.channel.clone(),
+                    id: target.id.clone(),
+                }
+            })?;
+            let (action, platform_action, contract) = if target.kind == FEISHU_KIND_EDIT {
+                (ChannelAction::Edit, "edit_message", FEISHU_EDIT_CONTRACT)
+            } else {
+                (ChannelAction::Retract, "recall_message", FEISHU_RETRACT_CONTRACT)
+            };
+            return Ok(ChannelDispatch {
+                channel: FEISHU_CHANNEL_ID.to_string(),
+                action,
+                platform_action: platform_action.to_string(),
+                params: json!({
+                    "message_id": own.message_id,
+                    "chat_id": own.chat_id,
+                }),
+                account: scope,
+                tenant: None,
+                conversation: Some(chat_id),
+                attachments: vec![],
+                contract_digest: Digest::blake3(contract),
+                acceptance_predicate: "feishu_code_zero".to_string(),
+                echo: None,
             });
         }
         let (platform_action, params) = match target.kind.as_str() {
@@ -321,6 +464,17 @@ impl ChannelPlugin for FeishuChannel {
         let api = self.api.clone();
         let dispatch = dispatch.clone();
         let content = content.to_string();
+        // The send path needs the chat and the message id after the action was
+        // moved out, so they are read before the closure takes ownership.
+        let send_conversation = dispatch.conversation.clone();
+        let send_chat_id = dispatch
+            .params
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let own = Arc::clone(&self.own);
+        let own_window = chrono::Duration::seconds(self.config.reply_window_seconds.max(1) as i64);
         Box::pin(async move {
             if dispatch.channel != FEISHU_CHANNEL_ID {
                 return Err(ChannelError::UnsupportedTarget {
@@ -376,7 +530,21 @@ impl ChannelPlugin for FeishuChannel {
                         }
                     }
                     .map_err(|error| map_api_error(&dispatch.channel, error))?;
-                    Ok(receipt_of(dispatch, answer))
+                    let receipt = receipt_of(dispatch, answer);
+                    // The bot's own post id is what a later edit or recall
+                    // addresses, so it is remembered with the chat it went to.
+                    if let (Some(conversation), Some(message_id)) = (
+                        send_conversation.as_deref(),
+                        receipt.provider_message_id.as_deref(),
+                    ) {
+                        let chat_id = if send_chat_id.is_empty() {
+                            conversation
+                        } else {
+                            send_chat_id.as_str()
+                        };
+                        Self::remember_own(&own, own_window, chat_id, message_id);
+                    }
+                    Ok(receipt)
                 }
                 ChannelAction::Edit => {
                     let message_id = dispatch
@@ -572,3 +740,7 @@ pub fn register(
 pub fn reply_kinds() -> &'static [ReplyKind] {
     FEISHU_REPLY_KINDS
 }
+
+#[cfg(test)]
+#[path = "capability_tests.rs"]
+mod capability_tests;

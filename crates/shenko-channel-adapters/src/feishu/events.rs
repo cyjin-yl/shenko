@@ -36,6 +36,16 @@ pub const FEISHU_KIND_CHAT: &str = "feishu-chat";
 /// The reply audience kind of a thread inside a chat.
 pub const FEISHU_KIND_THREAD: &str = "feishu-thread";
 
+/// The reply kind that edits the bot's own last message in one chat.
+///
+/// The platform edits a post by its id, and the bot may only edit its own
+/// post. The subject therefore names the CHAT, and the plugin addresses the
+/// last message it sent there.
+pub const FEISHU_KIND_EDIT: &str = "feishu-edit";
+
+/// The reply kind that recalls the bot's own last message in one chat.
+pub const FEISHU_KIND_RECALL: &str = "feishu-recall";
+
 /// The event names this connector classifies.
 pub const FEISHU_EVENTS: &[&str] = &["im.message.receive_v1"];
 
