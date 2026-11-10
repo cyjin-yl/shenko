@@ -405,7 +405,25 @@ impl PlaygroundState {
     /// active one. Staging is durable and replicated; nothing here executes and
     /// nothing is adopted: the candidate is a proposal, not the closure other
     /// nodes must run (SPEC §51.1 "explicit adoption before content joins").
-    pub fn stage_artifact(&self, id: EntityId) -> anyhow::Result<ArtifactRecord> {
+    /// Whether the work is still at the revision an action names.
+    ///
+    /// A work that has moved on refuses the stale action: the action is bound
+    /// to a revision, not to "whatever is there now".
+    pub fn check_revision(&self, id: EntityId, expected: u64) -> anyhow::Result<()> {
+        let current = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+        anyhow::ensure!(
+            current.revision == expected,
+            "this action names revision {expected}, but the work is at revision {}",
+            current.revision
+        );
+        Ok(())
+    }
+
+    pub fn stage_artifact(
+        &self,
+        id: EntityId,
+        request_id: Option<&str>,
+    ) -> anyhow::Result<ArtifactRecord> {
         let version = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
         let (manifest, manifest_ref, _) = self.build_manifest(&version)?;
         self.store.put_artifact_manifest(&manifest)?;
@@ -422,7 +440,7 @@ impl PlaygroundState {
         record.candidate_manifest_refs.push(manifest_ref);
         // Lifecycle is the artifact's declared stage, never a manifest-selection
         // word: staging changes the candidate set only.
-        let event = self.state_event(&record, "stage");
+        let event = self.state_event(&record, "stage", request_id);
         self.commit_record(&record, Some(&event))
     }
 
@@ -434,7 +452,12 @@ impl PlaygroundState {
     /// previous proposal facts remain readable. The published manifest must be
     /// CAS-resolvable right now (digest and length), because it becomes the
     /// closure other nodes verify against.
-    pub fn publish_artifact(&self, id: EntityId, manifest_digest: &Digest) -> anyhow::Result<ArtifactRecord> {
+    pub fn publish_artifact(
+        &self,
+        id: EntityId,
+        manifest_digest: &Digest,
+        request_id: Option<&str>,
+    ) -> anyhow::Result<ArtifactRecord> {
         let mut record = self.store.artifact_record(id)?
             .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
         if record.active_manifest_ref.as_ref().map(|reference| &reference.digest) == Some(manifest_digest) {
@@ -457,7 +480,7 @@ impl PlaygroundState {
             "durable manifest row and its CAS object describe different closures"
         );
         record.active_manifest_ref = Some(published);
-        let event = self.state_event(&record, "publish");
+        let event = self.state_event(&record, "publish", request_id);
         self.commit_record(&record, Some(&event))
     }
 
@@ -469,7 +492,12 @@ impl PlaygroundState {
     /// with it in one transaction, so there is no "recorded but unnotified"
     /// window to retry: the transition and the subject's perception of it are
     /// one durable boundary (SPEC §43.2, §51.1).
-    fn state_event(&self, record: &ArtifactRecord, cause: &str) -> InboxEvent {
+    fn state_event(
+        &self,
+        record: &ArtifactRecord,
+        cause: &str,
+        request_id: Option<&str>,
+    ) -> InboxEvent {
         let active = record
             .active_manifest_ref
             .as_ref()
@@ -497,6 +525,10 @@ impl PlaygroundState {
                 "kind": "artifact.state_changed",
                 "artifact_id": record.artifact_id,
                 "cause": cause,
+                // The request that named this transition rides the durable
+                // fact. It does NOT change the event's identity: the same
+                // resulting state reached by the same cause is the same fact.
+                "request_id": request_id,
                 "lifecycle": &record.lifecycle,
                 "active_manifest_digest": active,
                 "candidate_manifest_digests": candidates,
@@ -712,9 +744,30 @@ pub fn router(state: PlaygroundState) -> Router {
         .with_state(state)
 }
 
-async fn stage_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
-    match pg.stage_artifact(id) {
-        Ok(record) => Json(json!({"ok": true, "record": record})).into_response(),
+/// The action a reader performs on a work.
+///
+/// It names the revision it acts on and the request that named it. The
+/// revision is the durable guard: a work that has moved on refuses the stale
+/// action instead of applying it to whatever is there now. The request id is
+/// the idempotency key — it rides the durable transition, so a repeated
+/// submit is recognisable as the same request rather than a new one.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkAction {
+    revision: u64,
+    request_id: String,
+}
+
+async fn stage_handler(
+    State(pg): State<PlaygroundState>,
+    AxumPath(id): AxumPath<EntityId>,
+    Json(request): Json<WorkAction>,
+) -> Response {
+    if let Err(error) = pg.check_revision(id, request.revision) {
+        return error_response(StatusCode::CONFLICT, &format!("artifact stage refused: {error:#}"));
+    }
+    match pg.stage_artifact(id, Some(&request.request_id)) {
+        Ok(record) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "record": record})).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact stage failed: {e:#}")),
     }
 }
@@ -723,12 +776,17 @@ async fn stage_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath
 #[serde(deny_unknown_fields)]
 struct PublishRequest {
     manifest_digest: Digest,
+    revision: u64,
+    request_id: String,
 }
 
 async fn publish_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
     Json(request): Json<PublishRequest>) -> Response {
-    match pg.publish_artifact(id, &request.manifest_digest) {
-        Ok(record) => Json(json!({"ok": true, "record": record})).into_response(),
+    if let Err(error) = pg.check_revision(id, request.revision) {
+        return error_response(StatusCode::CONFLICT, &format!("artifact publish refused: {error:#}"));
+    }
+    match pg.publish_artifact(id, &request.manifest_digest, Some(&request.request_id)) {
+        Ok(record) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "record": record})).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact publish failed: {e:#}")),
     }
 }
@@ -770,9 +828,21 @@ async fn versions_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumP
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RollbackRequest { revision: u64 }
+struct RollbackRequest {
+    /// The revision the reader returns to.
+    revision: u64,
+    /// The request that named this action.
+    request_id: String,
+}
 async fn rollback_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>, Json(request): Json<RollbackRequest>) -> Response {
-    artifact_response(pg.rollback(id, request.revision))
+    // A rollback APPENDS a new version: the older bytes stay, and the work's
+    // own revision moves on. The named revision is the source, not the
+    // target — that is why a repeated submit cannot produce a second
+    // rollback by accident: the source has already been left behind.
+    match pg.rollback(id, request.revision) {
+        Ok(version) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "version": version})).into_response(),
+        Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact rollback failed: {e:#}")),
+    }
 }
 
 async fn backend_info_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {

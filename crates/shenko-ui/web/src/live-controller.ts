@@ -431,6 +431,8 @@ class LiveController implements ProjectionController {
   /// again for the same value resolves the original change instead of
   /// submitting a second one.
   private configOrigins = new Map<string, string>();
+  /** One stable request id per (work, action, revision). */
+  private workRequests = new Map<string, string>();
   /// Actions whose admission is still open, keyed by the durable submission
   /// ID the Store knows. Restored before the socket connects so a reopen
   /// reconciles the original decision instead of admitting a second one.
@@ -630,6 +632,18 @@ class LiveController implements ProjectionController {
       }
       case 'config.apply':
         void this.applyConfigEntry(action.payload?.namespace, action.payload?.logical_key);
+        break;
+      case 'work.open':
+        void this.openWork(action.payload?.artifact_id);
+        break;
+      case 'work.stage':
+        void this.actOnWork('stage', action.payload?.artifact_id);
+        break;
+      case 'work.publish':
+        void this.actOnWork('publish', action.payload?.artifact_id);
+        break;
+      case 'work.rollback':
+        void this.actOnWork('rollback', action.payload?.artifact_id);
         break;
       case 'composer.append':
         this.sendWithMode('append');
@@ -1853,6 +1867,102 @@ class LiveController implements ProjectionController {
       this.state.memory_error = true;
     }
     if (!this.disposed) this.emit();
+  }
+
+  /// Open one work: the reader sees what the subject made, at the revision
+  /// the work is at now.
+  private async openWork(artifactId: unknown): Promise<void> {
+    if (typeof artifactId !== 'string' || artifactId === '') return;
+    try {
+      const [meta, content] = await Promise.all([
+        this.fetchJson(`/api/playground/${artifactId}/manifest`),
+        this.fetchJson(`/playground/${artifactId}`),
+      ]);
+      if (!isObject(meta)) throw new Error('invalid work manifest');
+      const record = isObject(meta.record) ? meta.record : {};
+      const candidates = Array.isArray(record.candidate_manifest_refs)
+        ? record.candidate_manifest_refs
+          .map((reference) => (isObject(reference) && typeof reference.digest === 'string'
+            ? { digest: reference.digest }
+            : null))
+          .filter((entry): entry is { digest: string } => entry !== null)
+        : [];
+      const versions = await this.fetchJson(`/playground/${artifactId}/versions`)
+        .then((value) => (Array.isArray(value) ? (value as number[]) : []))
+        .catch(() => [] as number[]);
+      this.state.work = {
+        artifact_id: artifactId,
+        title: typeof record.title === 'string' ? record.title : undefined,
+        revision: typeof record.revision === 'number' ? record.revision : undefined,
+        lifecycle: typeof record.lifecycle === 'string' ? record.lifecycle : undefined,
+        content: typeof content === 'string' ? content : undefined,
+        candidates,
+        revisions: versions,
+      };
+      this.state.work_error = false;
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.work = undefined;
+      this.state.work_error = true;
+    }
+    if (!this.disposed) this.emit();
+  }
+
+  /// One action on the opened work.
+  ///
+  /// The action names the revision the reader saw and a request id that is
+  /// stable for that (work, action, revision): a repeated submit is the same
+  /// request, and the server's revision binding is what keeps it from
+  /// producing a second effect.
+  private async actOnWork(op: string, artifactId: unknown): Promise<void> {
+    if (typeof artifactId !== 'string' || artifactId === '') return;
+    const work = this.state.work;
+    if (!work || work.artifact_id !== artifactId) {
+      this.state.display.notice = '先打开这件作品，再对它动手';
+      this.emit();
+      return;
+    }
+    const revision = work.revision ?? 0;
+    const key = `${artifactId}:${op}:${revision}`;
+    if (!this.workRequests.has(key)) {
+      this.workRequests.set(key, `work-${key}-${Date.now().toString(36)}`);
+    }
+    const requestId = this.workRequests.get(key) as string;
+    try {
+      if (op === 'publish') {
+        const candidate = work.candidates?.[0];
+        if (!candidate) {
+          this.state.display.notice = '这件作品还没有可采纳的候选';
+          this.emit();
+          return;
+        }
+        await this.postJson(`/playground/${artifactId}/publish`, {
+          manifest_digest: candidate.digest,
+          revision,
+          request_id: requestId,
+        });
+      } else if (op === 'rollback') {
+        const source = work.revisions?.filter((entry) => entry !== revision).at(-1);
+        if (source === undefined) {
+          this.state.display.notice = '这件作品没有可回到的旧修订';
+          this.emit();
+          return;
+        }
+        await this.postJson(`/playground/${artifactId}/rollback`, {
+          revision: source,
+          request_id: requestId,
+        });
+      } else {
+        await this.postJson(`/playground/${artifactId}/stage`, { revision, request_id: requestId });
+      }
+      this.state.display.notice = '已记录这次动作';
+      await this.openWork(artifactId);
+      void this.loadPlayground();
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.display.notice = `这次动作没有生效：${error instanceof Error ? error.message : String(error)}`;
+      this.emit();
+    }
   }
 
   private async loadPlayground(): Promise<void> {

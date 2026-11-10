@@ -14,6 +14,38 @@ export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config' | 'playground'
 /// The Proto-UI playground surface — SPEC §43.2. Every fact below comes
 /// from the durable records; the view renders them, it does not invent a
 /// second artifact index.
+/// One work of the subject, as the timeline carries it (SPEC §57.6).
+///
+/// The timeline shows the subject's works and lets the reader OPEN one. The
+/// revision is the work's own durable revision: an action is bound to it, so
+/// a work that moved on refuses the stale action.
+export interface WorkView {
+  artifact_id: string;
+  title?: string;
+  mime?: string;
+  revision?: number;
+  lifecycle?: string;
+  updated_at?: string;
+}
+
+/// A work the reader opened (SPEC §57.6).
+///
+/// It carries the work's own revision: an action is bound to the revision
+/// the reader saw, so a work that moved on refuses the stale action.
+export interface OpenedWork {
+  artifact_id: string;
+  title?: string;
+  mime?: string;
+  revision?: number;
+  lifecycle?: string;
+  /** The content as the reader may read it. */
+  content?: string;
+  /** The staged candidates a publish may adopt. */
+  candidates?: { digest: string }[];
+  /** The revisions the work carries. */
+  revisions?: number[];
+}
+
 export interface PlaygroundView {
   available?: boolean;
   roots?: Array<{ artifact_id: string; root: string; identity: string }>;
@@ -350,6 +382,9 @@ export interface UiState {
   memory?: { items?: Array<Record<string, unknown>>; note?: string };
   memory_error: boolean;
   playground?: PlaygroundView;
+  /** The work the reader opened, and the fact of opening it. */
+  work?: OpenedWork;
+  work_error?: boolean;
   playground_error: boolean;
   manifest?: BuildManifest;
   display: DisplayState;
@@ -632,6 +667,28 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   for (const row of surfaceRows) {
     if (!row.placed) timelineChildren.push(row.node);
   }
+  // The subject's works ride the timeline (SPEC §57.6): a reader meets the
+  // work where the subject made it and can open it there. Only the most
+  // recent works are carried — the timeline is the subject's story, not a
+  // work management screen (§43.2).
+  const works = (state.playground?.artifacts ?? []) as WorkView[];
+  for (const work of works.slice(-6)) {
+    const openRef = addAction(
+      actions,
+      `work.open.${work.artifact_id}`,
+      'work.open',
+      `work:${work.artifact_id}`,
+      state.source === 'live' && state.connection === 'online',
+      { artifact_id: work.artifact_id },
+    );
+    timelineChildren.push(node(
+      `work.${work.artifact_id}`,
+      'work',
+      { work },
+      [],
+      { action_refs: [openRef], fallback: 'read_only_list' },
+    ));
+  }
   const timeline = node(
     'timeline',
     'timeline',
@@ -717,6 +774,22 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       open: state.display.open_sections[section] === true,
     }, [], { action_refs: [action] });
   });
+  // The opened work's actions (SPEC §57.6). Each one is bound to the
+  // revision the reader saw, and the request id behind them is stable for
+  // that (work, action, revision) — so a repeated submit is the same request.
+  const workActionRefs: string[] = [];
+  if (state.work) {
+    for (const op of ['stage', 'publish', 'rollback']) {
+      workActionRefs.push(addAction(
+        actions,
+        `work.${op}.${state.work.artifact_id}`,
+        `work.${op}`,
+        `work:${state.work.artifact_id}:r${state.work.revision ?? 0}`,
+        state.connection === 'online',
+        { artifact_id: state.work.artifact_id },
+      ));
+    }
+  }
   const panel = node('context', 'context_panel', {
     open: state.display.panel_open,
     identity: state.identity,
@@ -726,6 +799,9 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     step: state.step,
     sections: sectionNodes,
     timeline: state.timeline,
+    work: state.work,
+    work_error: state.work_error === true,
+    work_action_refs: workActionRefs,
   }, sectionNodes, {
     action_refs: [panelAction],
     a11y: { label: '主体详情', modal: state.display.panel_open },
