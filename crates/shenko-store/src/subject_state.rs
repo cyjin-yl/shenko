@@ -203,7 +203,16 @@ impl Store {
         let bytes = self.obligation_object_bytes(&decision.input_plan_ref)
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         let input: Snapshot = serde_json::from_slice(&bytes)?;
-        if input.schema_version != 12 || input.step_id != decision.step_id {
+        // The obligation snapshot rides the sealed S0 plan. Which plan
+        // schemas this store still reads is decided in one place
+        // (`admitted_input_plan_schema`), because a reader that pins its own
+        // version silently refuses every obligation the subject settled
+        // after the plan schema moved on. 13 adds the reconciliation docket
+        // and leaves the obligation body untouched, so a 13 plan carries the
+        // same obligations a 12 plan did; old bytes keep their old meaning.
+        if !crate::store::admitted_input_plan_schema(Some(u64::from(input.schema_version)))
+            || input.step_id != decision.step_id
+        {
             return Err(ShenkoError::conflict("obligation change is not bound to its actual S0"));
         }
         let obligations = input.obligations;
@@ -346,8 +355,12 @@ impl Store {
                     && migration.value("record_id") == Some(creator_row.key.as_str())
                     && migration.value("from_version").and_then(|version| version.parse::<u32>().ok())
                         == Some(crate::channel::LEGACY_DECISION_SCHEMA_VERSION)
+                    // The rewrite produced decision schema 8 (it added the
+                    // versioned publication target, not an acknowledgement).
+                    // The record must name the version it actually produced,
+                    // not the schema this build writes today.
                     && migration.value("to_version").and_then(|version| version.parse::<u32>().ok())
-                        == Some(crate::channel::DECISION_SCHEMA_VERSION)
+                        == Some(crate::channel::PUBLICATION_TARGET_DECISION_VERSION)
                     && migration.value("source_digest") == Some(decision_ref.digest.0.as_str())
                     && migration.value("target_digest") == Some(current.digest.0.as_str())),
                     "obligation creation has no recorded publication migration");
@@ -414,7 +427,16 @@ impl Store {
             }
             let requests = obligation_requests(&decision)?;
             if requests.is_empty() { continue; }
-            ensure!(decision.schema_version == 8 && decision.output.schema_version == 5
+            // Which decision schemas this build still admits is decided in
+            // one place (`ADMITTED_DECISION_SCHEMA_VERSIONS`): a reader that
+            // pins one version silently refuses every obligation the subject
+            // settled after the decision schema moved on. 9 adds the
+            // subject's acknowledgements of unknown external effects and
+            // leaves the obligation body untouched, so an 8 decision and a 9
+            // decision carry the same obligation requests; old bytes keep
+            // their old meaning.
+            ensure!(crate::channel::ADMITTED_DECISION_SCHEMA_VERSIONS.contains(&decision.schema_version)
+                && decision.output.schema_version == crate::channel::OUTPUT_SCHEMA_VERSION
                 && decision.step_id == step.step_id && decision.output.step_id == step.step_id
                 && step.step_id.to_string() == step_row.key
                 && decision.output.raw_ref == step.model_result_ref.clone().context("terminal step result missing")?

@@ -1232,14 +1232,19 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                        AND json_extract(data,'$.state.status') IS NOT 'terminal'",
                     params![decision_ref.digest.to_string(), serde_json::to_string(&sealed.object)?],
                 )?;
+                // The migration record names what actually happened: the
+                // decision went from the legacy schema to the one this
+                // rewrite produces, and the digests point at the old and the
+                // new object. A record whose columns do not match their
+                // values is worse than no record: the obligation creation
+                // binding reads it back.
                 tx.execute(
                     "INSERT OR REPLACE INTO channel_record_migrations(record_kind,record_id,from_version,to_version,source_digest,target_digest,migrated_seq)
                      VALUES('subject_step',?1,?2,?3,?4,?5,?6)",
                     params![
                         step_id,
-                        PUBLICATION_TARGET_DECISION_VERSION,
                         LEGACY_DECISION_SCHEMA_VERSION,
-                        DECISION_SCHEMA_VERSION,
+                        PUBLICATION_TARGET_DECISION_VERSION,
                         decision_ref.digest.to_string(),
                         sealed.object.digest.to_string(),
                         seq.0 as i64,

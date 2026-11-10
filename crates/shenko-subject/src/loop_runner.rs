@@ -1779,29 +1779,33 @@ async fn execute_step(
         // told and can correct it instead of the whole loop stopping and
         // waiting for a reopen.
         for control in &output.controls {
-            let invalid = match &control.action {
+            // The correction names the event the subject named: a subject
+            // that is told only THAT it named an unselected event still has
+            // to guess which one.
+            let (reason, named_key, named) = match &control.action {
                 OutputAction::Dispose { spec }
                     if !input.events.iter().any(|event| event.event_id == spec.event_id) =>
-                        Some("disposition names an event that was not selected into this step"),
+                    ("disposition names an event that was not selected into this step",
+                     "event_id", serde_json::json!(spec.event_id)),
                 OutputAction::Obligation { spec }
                     if spec.origin_event_id.is_some_and(|origin|
                         !input.events.iter().any(|event| event.event_id == origin)) =>
-                        Some("obligation names an input event that was not selected into this step"),
-                _ => None,
+                    ("obligation names an input event that was not selected into this step",
+                     "origin_event_id", serde_json::json!(spec.origin_event_id)),
+                _ => continue,
             };
-            if let Some(reason) = invalid {
-                return Err(ShenkoError::Protocol(
-                    shenko_types::error::ProtocolError::new(
-                        "CONTROL_PROTOCOL_INVALID",
-                        shenko_types::error::ErrorScope::Request,
-                        shenko_types::error::RetryStrategy::NewRevision,
-                    )
-                    .with_details(serde_json::json!({
-                        "line": control.spans.first().map(|span| span.line),
-                        "reason": reason,
-                    })),
-                ));
-            }
+            let mut details = serde_json::Map::new();
+            details.insert("line".into(), serde_json::json!(control.spans.first().map(|span| span.line)));
+            details.insert("reason".into(), serde_json::json!(reason));
+            details.insert(named_key.into(), named);
+            return Err(ShenkoError::Protocol(
+                shenko_types::error::ProtocolError::new(
+                    "CONTROL_PROTOCOL_INVALID",
+                    shenko_types::error::ErrorScope::Request,
+                    shenko_types::error::RetryStrategy::NewRevision,
+                )
+                .with_details(serde_json::Value::Object(details)),
+            ));
         }
         // Accepting an unknown effect may only name a case this step was
         // actually shown, and may only cite evidence that case carries
@@ -1844,33 +1848,6 @@ async fn execute_step(
                         "reason": "reconcile cites evidence this case does not carry",
                     })),
                 ));
-            }
-        }
-        // A durable obligation may only answer an input this step actually
-        // selected: an origin the subject was never shown cannot become a
-        // frozen fact of its commitment. Naming any other event is a
-        // correctable authored control, exactly like an unselected
-        // disposition, so the loop returns a sourced replacement instead of
-        // rejecting the whole step after its result is already recorded.
-        for control in &output.controls {
-            if let OutputAction::Obligation { spec } = &control.action {
-                let Some(origin) = spec.origin_event_id else {
-                    continue;
-                };
-                if !input.events.iter().any(|event| event.event_id == origin) {
-                    return Err(ShenkoError::Protocol(
-                        shenko_types::error::ProtocolError::new(
-                            "CONTROL_PROTOCOL_INVALID",
-                            shenko_types::error::ErrorScope::Request,
-                            shenko_types::error::RetryStrategy::NewRevision,
-                        )
-                        .with_details(serde_json::json!({
-                            "line": control.spans.first().map(|span| span.line),
-                            "reason": "obligation names an input event that was not selected into this step",
-                            "origin_event_id": origin,
-                        })),
-                    ));
-                }
             }
         }
         let mut delegations = Vec::new();
