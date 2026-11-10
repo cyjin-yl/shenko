@@ -157,6 +157,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/config/preview", post(config_preview_handler))
         .route("/api/config/apply", post(config_apply_handler))
         .route("/api/config/adoptions/{namespace}/{key}", get(config_adoptions_handler))
+        .route("/api/identity/name", post(identity_name_handler))
         .route("/api/owner/state", get(owner_state_handler))
         .route("/api/owner/claim", post(owner_claim_handler))
         .route("/api/playground", get(playground_surface_handler))
@@ -324,6 +325,66 @@ async fn config_adoptions_handler(
 /// `GET /api/owner/state` → whether the installation has an owner and
 /// whether a claim capability is still pending. No credential material is
 /// ever included.
+/// `POST /api/identity/name` — the owner names the instance (SPEC §21.1).
+///
+/// The name is the instance's, not the brand's, and the subject may also
+/// name itself (§21.1: "可由用户取名，或让 Agent 自主取名"). The change goes
+/// through the SAME identity policy the subject's own naming uses, so the
+/// rules about what a name may be are one policy, not two.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IdentityNameRequest {
+    name: String,
+}
+
+async fn identity_name_handler(
+    State(state): State<ApiState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<IdentityNameRequest>,
+) -> Json<Value> {
+    let Some(store) = state.store.as_ref() else {
+        return Json(json!({ "available": false, "error": "IDENTITY_UNAVAILABLE: no store is attached" }));
+    };
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({ "available": true, "accepted": false, "code": "IDENTITY_DENIED",
+            "error": "IDENTITY_DENIED: ownership is not installed, so no name can be authenticated" }));
+    };
+    // The actor is resolved from the request's credentials, never from a body
+    // field: only the authenticated owner may name the instance.
+    let principal_ref = match owner.actor(&headers) {
+        Ok(crate::owner::AuthenticatedActor::Owner { principal_ref }) => principal_ref,
+        Ok(crate::owner::AuthenticatedActor::Participant) =>
+            return Json(json!({ "available": true, "accepted": false, "code": "IDENTITY_DENIED",
+                "error": "IDENTITY_DENIED: naming the instance requires owner authentication" })),
+        Err(error) => return Json(json!({ "available": true, "accepted": false, "code": "IDENTITY_DENIED", "error": error.to_string() })),
+    };
+    let _ = principal_ref;
+    let agent = match store.get_existing_agent_id() {
+        Ok(Some(agent)) => agent,
+        _ => return Json(json!({ "available": true, "accepted": false, "code": "IDENTITY_UNKNOWN",
+            "error": "IDENTITY_UNKNOWN: this installation has no subject to name" })),
+    };
+    let Some(current) = store.latest_identity(agent).ok().flatten() else {
+        return Json(json!({ "available": true, "accepted": false, "code": "IDENTITY_UNKNOWN",
+            "error": "IDENTITY_UNKNOWN: this installation has no identity to name" }));
+    };
+    let change = shenko_types::identity::IdentityChange::Name(request.name);
+    let Some(next) = shenko_identity::DefaultIdentityPolicy::successor(
+        &current,
+        &change,
+        shenko_types::identity::IdentitySource::Operator,
+    ) else {
+        // An empty or unchanged name is not a new revision: the answer is the
+        // name the instance already has.
+        return Json(json!({ "available": true, "accepted": true, "changed": false, "identity": current }));
+    };
+    match store.append_identity(&next, current.revision) {
+        Ok(commit) => Json(json!({ "available": true, "accepted": true, "changed": true,
+            "identity": next, "commit": commit })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": "IDENTITY_CONFLICT", "error": error.to_string() })),
+    }
+}
+
 async fn owner_state_handler(State(state): State<ApiState>) -> Json<Value> {
     let Some(owner) = state.owner.as_ref() else {
         return Json(json!({ "available": false }));
@@ -870,5 +931,189 @@ mod context_tests {
         assert_eq!(report["derivatives"][0]["bytes"], 3);
         assert_eq!(report["derivatives"][0]["blake3"], meta.derivatives[0].blake3);
         assert!(report["derivatives"][0].get("payload").is_none());
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    //! The owner's naming (SPEC §21.1) is a durable identity revision, not a
+    //! label in the browser: the name goes through the same policy the
+    //! subject's own naming uses, and only an authenticated owner may set it.
+
+    use super::*;
+    use shenko_types::ids::EntityId;
+    use shenko_types::object::Digest;
+
+    /// A store with a genesis, a subject head and an unnamed instance: the
+    /// state the naming endpoint acts on.
+    fn store_with_identity(root: &std::path::Path) -> (Arc<Store>, EntityId) {
+        use shenko_types::commit::CommitRef;
+        use shenko_types::ids::*;
+        use shenko_types::ids::LedgerSeq;
+        use shenko_types::subject::*;
+        
+        let store = Arc::new(
+            Store::open(root.join("shenko.db"), root.join("cas")).expect("the store opens"),
+        );
+        let agent = EntityId::new();
+        let branch = BranchId::new();
+        let first = EntityId::new();
+        let genesis_id = EntityId::new();
+        let zero = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
+        let object = store
+            .cas
+            .seal_object(b"seed", "application/json", "fixture", "seed", 1)
+            .expect("the seed is sealed")
+            .object;
+        let genesis = SubjectGenesis {
+            genesis_id,
+            subject_id: agent,
+            bootstrap_id: EntityId::new(),
+            launch_id: EntityId::new(),
+            seed_manifest_ref: object.clone(),
+            initial_profile_ref: object.clone(),
+            home_manifest_ref: object.clone(),
+            bootstrap_event_ref: object,
+            created_commit: zero,
+        };
+        let head = SubjectBranchHead {
+            agent_id: agent,
+            branch_id: branch.clone(),
+            subject_root_task_id: EntityId::new(),
+            controller_epoch: ControllerEpoch(1),
+            software_generation: RuntimeGeneration::default(),
+            genesis_ref: GenesisRef { ledger_id: store.ledger.ledger_id(), genesis_id },
+            committed_step_no: 0,
+            committed_step_id: None,
+            committed_at: zero,
+            next_step_id: first,
+            mode: SubjectMode::Active,
+            mode_reason_ref: None,
+            record_revision: RecordRevision(0),
+        };
+        let step = SubjectStep {
+            step_id: first,
+            branch_id: branch,
+            step_no: 1,
+            expected_parent_commit: zero,
+            controller_epoch: ControllerEpoch(1),
+            software_generation: RuntimeGeneration::default(),
+            state: SubjectStepState::Planned,
+            input_plan_ref: None,
+            context_revision: None,
+            active_request_id: None,
+            active_attempt_id: None,
+            model_result_ref: None,
+            model_outcome_ref: None,
+            decision_ref: None,
+            commit_ref: None,
+            retry_reason_ref: None,
+            record_revision: RecordRevision(0),
+            created_by_step_id: None,
+        };
+        let root_task = shenko_types::task::TaskRecord::subject_root(
+            head.subject_root_task_id,
+            agent,
+            genesis.seed_manifest_ref.clone(),
+            zero,
+        );
+        store
+            .initialize_genesis(&genesis, &head, &step, &root_task)
+            .expect("the genesis is installed");
+        let profile = shenko_identity::DefaultIdentityPolicy::genesis(agent, None);
+        store
+            .initialize_identity(&profile)
+            .expect("the identity is born");
+        (store, agent)
+    }
+
+    /// The installation is claimed by this reader, and the reader's admin
+    /// token is the one the store knows.
+    fn claim(store: &Store, installation_id: EntityId) -> axum::http::HeaderMap {
+        let token = "owner-token-for-the-test";
+        let object = store
+            .cas
+            .seal_object(b"principal", "application/json", "principal", "principal", 1)
+            .expect("the principal is sealed")
+            .object;
+        store
+            .claim_owner(
+                installation_id,
+                EntityId::new(),
+                object.clone(),
+                object,
+                Digest::blake3(token.as_bytes()),
+            )
+            .expect("the installation is claimed");
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "x-shenko-admin",
+            axum::http::HeaderValue::from_static("owner-token-for-the-test"),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn the_owner_names_the_instance_and_the_name_becomes_a_revision() {
+        let root = std::env::temp_dir().join(format!("shenko-naming-{}", EntityId::new()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (store, agent) = store_with_identity(&root);
+        let installation_id = EntityId::new();
+        let state = ApiState::new()
+            .with_store(Arc::clone(&store))
+            .with_owner(crate::owner::OwnerState {
+                store: Arc::clone(&store),
+                installation_id,
+                data_dir: root.clone(),
+            });
+        let headers = claim(&store, installation_id);
+        let answer = identity_name_handler(
+            State(state),
+            headers,
+            Json(IdentityNameRequest { name: "小灯".into() }),
+        )
+        .await
+        .0;
+        assert_eq!(answer["accepted"], serde_json::json!(true));
+        assert_eq!(answer["changed"], serde_json::json!(true));
+        let profile = store.latest_identity(agent).unwrap().unwrap();
+        assert_eq!(profile.display_name.as_deref(), Some("小灯"));
+        assert_eq!(profile.revision, 2, "the name is a new revision");
+        assert_eq!(
+            profile.naming,
+            shenko_types::identity::NamingOrigin::UserGiven,
+            "a user-given name says so"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn a_participant_cannot_name_the_instance() {
+        let root = std::env::temp_dir().join(format!("shenko-naming-{}", EntityId::new()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (store, agent) = store_with_identity(&root);
+        let installation_id = EntityId::new();
+        let state = ApiState::new()
+            .with_store(Arc::clone(&store))
+            .with_owner(crate::owner::OwnerState {
+                store: Arc::clone(&store),
+                installation_id,
+                data_dir: root.clone(),
+            });
+        let answer = identity_name_handler(
+            State(state),
+            axum::http::HeaderMap::new(),
+            Json(IdentityNameRequest { name: "不请自来".into() }),
+        )
+        .await
+        .0;
+        assert_eq!(answer["accepted"], serde_json::json!(false));
+        assert_eq!(answer["code"], serde_json::json!("IDENTITY_DENIED"));
+        let profile = store.latest_identity(agent).unwrap().unwrap();
+        assert!(
+            profile.display_name.is_none(),
+            "the name was refused, so the instance keeps the name it had"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 }

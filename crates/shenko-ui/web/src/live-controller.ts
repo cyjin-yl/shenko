@@ -4,6 +4,7 @@ import {
   buildProjection,
   semanticHash,
   type ActionReceiptView,
+  type OwnerState,
   type BuildManifest,
   type ConfigEntryView,
   type ConnectionState,
@@ -329,6 +330,12 @@ function initialState(): UiState {
     tasks_error: false,
     memory_error: false,
     playground_error: false,
+  /** The ownership facts (SPEC §44.4). */
+  owner_state: undefined as OwnerState | undefined,
+  /** The name the reader is trying to give the instance. */
+  name_draft: '',
+  /** The claim capability the reader pasted, if any. */
+  claim_draft: '',
     display,
   };
 }
@@ -632,6 +639,20 @@ class LiveController implements ProjectionController {
       }
       case 'config.apply':
         void this.applyConfigEntry(action.payload?.namespace, action.payload?.logical_key);
+        break;
+      case 'identity.name.draft':
+        this.state.name_draft = typeof action.payload?.value === 'string' ? action.payload.value : '';
+        this.emit();
+        break;
+      case 'identity.name':
+        void this.nameInstance();
+        break;
+      case 'owner.claim.draft':
+        this.state.claim_draft = typeof action.payload?.value === 'string' ? action.payload.value : '';
+        this.emit();
+        break;
+      case 'owner.claim':
+        void this.claimOwnership();
         break;
       case 'work.open':
         void this.openWork(action.payload?.artifact_id);
@@ -1814,6 +1835,9 @@ class LiveController implements ProjectionController {
       this.ensureIdentityLoaded();
       this.refreshSubmissions();
       this.scheduleReceiptRefresh();
+      // The ownership facts travel with the self view: the reader learns
+      // whether this installation is claimed without a second round trip.
+      void this.loadOwnerState();
     } catch (error) {
       if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
       if (seq < this.selfApplied) return;
@@ -1962,6 +1986,74 @@ class LiveController implements ProjectionController {
       if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
       this.state.display.notice = `这次动作没有生效：${error instanceof Error ? error.message : String(error)}`;
       this.emit();
+    }
+  }
+
+  /// Name the instance (SPEC §21.1: 可由用户取名，或让 Agent 自主取名).
+  ///
+  /// The name goes through the same identity policy the subject's own naming
+  /// uses; the server answers with the new revision or says why not.
+  private async nameInstance(): Promise<void> {
+    const name = this.state.name_draft?.trim() ?? '';
+    if (name === '') {
+      this.state.display.notice = '名字不能为空';
+      this.emit();
+      return;
+    }
+    try {
+      const data = await this.postJson('/api/identity/name', { name });
+      if (!isObject(data) || data.accepted !== true) {
+        const code = isObject(data) && typeof data.code === 'string' ? data.code : '取名被拒绝';
+        this.state.display.notice = `取名：${code}`;
+        this.emit();
+        return;
+      }
+      this.state.display.notice = data.changed === true ? '名字已记下' : '这个名字已经是它的名字';
+      this.state.name_draft = '';
+      await this.loadSelf();
+      this.emit();
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.display.notice = `取名没有生效：${error instanceof Error ? error.message : String(error)}`;
+      this.emit();
+    }
+  }
+
+  /// Claim this installation (SPEC §44.4).
+  ///
+  /// The capability is what the installation issued; the server answers with
+  /// the outcome it really reached.
+  private async claimOwnership(): Promise<void> {
+    const capability = this.state.claim_draft?.trim() ?? '';
+    if (capability === '') {
+      this.state.display.notice = '认领凭据不能为空';
+      this.emit();
+      return;
+    }
+    try {
+      const data = await this.postJson('/api/owner/claim', { capability });
+      const outcome = isObject(data) && typeof data.outcome === 'string' ? data.outcome : '未知';
+      this.state.display.notice = outcome === 'granted' ? '这台安装归你了' : `认领：${outcome}`;
+      this.state.claim_draft = '';
+      await this.loadOwnerState();
+      this.emit();
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.display.notice = `认领没有生效：${error instanceof Error ? error.message : String(error)}`;
+      this.emit();
+    }
+  }
+
+  /// The ownership facts, as the installation reports them.
+  private async loadOwnerState(): Promise<void> {
+    try {
+      const data = await this.fetchJson('/api/owner/state');
+      if (!isObject(data)) throw new Error('invalid owner state');
+      this.state.owner_state = data as OwnerState;
+    } catch {
+      // An installation without ownership reports that, rather than a
+      // fabricated "not claimed".
+      this.state.owner_state = undefined;
     }
   }
 

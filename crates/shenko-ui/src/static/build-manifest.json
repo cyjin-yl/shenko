@@ -103,15 +103,15 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/var/idw/crates/shenko-ui/web",
-  "built_at": "2026-11-10T16:19:19.827Z",
+  "built_at": "2026-11-10T19:30:49.091Z",
   "artifacts": {
     "app.js": {
-      "bytes": 968440,
-      "sha256": "cbe366e7cb4a393aaf525cf6d0b3e0a35e4fe54a530965e039eebabe43b9a076"
+      "bytes": 978112,
+      "sha256": "12486d6a09583de1af6a8a234d58ddc92b8021872eec36643807a95fac68ec70"
     },
     "app.css": {
-      "bytes": 38163,
-      "sha256": "45b651cdd7ae3c13eb42625cf254697ed73ade602cb17828f709ab7f0379b3ea"
+      "bytes": 39845,
+      "sha256": "acbe2fcc31964ea6a9b1cc037fbc6c72da9c99227860184e1ca4dbb8c011f503"
     },
     "proto-ui-style.css": {
       "bytes": 294,
