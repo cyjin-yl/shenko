@@ -44,6 +44,17 @@ pub const QQ_OFFICIAL_KIND_PRIVATE: &str = "qqo-private";
 /// The reply audience kind of a guild channel.
 pub const QQ_OFFICIAL_KIND_CHANNEL: &str = "qqo-channel";
 
+/// The reply kind that edits the bot's own last message in one conversation.
+///
+/// The platform edits a message by its id, and the bot may only edit its own
+/// message. The subject therefore names the CONVERSATION, and the plugin
+/// addresses the last message it sent there.
+pub const QQ_OFFICIAL_KIND_EDIT: &str = "qqo-edit";
+
+/// The reply kind that retracts the bot's own last message in one
+/// conversation.
+pub const QQ_OFFICIAL_KIND_RETRACT: &str = "qqo-retract";
+
 /// The classified view of one official QQ event.
 ///
 /// `None` means the frame is not a message this connector owns; the frame
