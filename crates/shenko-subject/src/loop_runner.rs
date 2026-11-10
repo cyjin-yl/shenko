@@ -654,6 +654,42 @@ impl SubjectLoopState {
         }
     }
 
+    /// The subject's own attention budget: how many inputs one step reads,
+    /// and how long it waits for more (SPEC §57.3).
+    ///
+    /// The numbers come from the installed unit that provides
+    /// `cap.attention-policy`. The harness keeps only the bounds that
+    /// prevent starvation — an upper limit on the batch, and a floor under
+    /// the wait — so a policy can make the subject more or less attentive
+    /// without ever making it deaf.
+    pub(super) fn attention_budget(&self) -> AttentionBudget {
+        let mut budget = AttentionBudget::default();
+        let Some(catalog) = self.awareness.as_ref() else {
+            return budget;
+        };
+        let Ok(resolution) =
+            catalog.capability_unit(shenko_awareness_core::cognition::CAP_ATTENTION_POLICY)
+        else {
+            return budget;
+        };
+        let Some(body) = resolution.body() else {
+            return budget;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(body.trim()) else {
+            // A policy that is prose rather than numbers is still a policy:
+            // the harness keeps its own bounds and says so.
+            return budget;
+        };
+        if let Some(max_events) = value.get("max_events_per_step").and_then(|v| v.as_u64()) {
+            budget.max_events_per_step =
+                (max_events as usize).clamp(1, MAX_STEP_EVENTS_LIMIT);
+        }
+        if let Some(idle_wait_ms) = value.get("idle_wait_ms").and_then(|v| v.as_u64()) {
+            budget.idle_wait_ms = idle_wait_ms.clamp(MIN_IDLE_WAIT_MS, MAX_IDLE_WAIT_MS);
+        }
+        budget
+    }
+
     /// What the subject receives when no new external input arrived —
     /// SPEC §57.2.
     ///
@@ -766,12 +802,18 @@ pub async fn run_subject_loop(
 
         let seq = state.step.step_no;
 
-        // Collect available events — short timeout to stay responsive
+        // Collect available events — the subject's own attention budget
+        // decides how much one step reads and how long it waits for more
+        // (SPEC §57.3); the harness only keeps the bounds.
+        let budget = state.attention_budget();
         let mut events = if state.step.state == SubjectStepState::Planned {
-            // The whole per-step budget (§41.6: at most 64 events) is read
-            // from the wake channel in one drain, so a burst never leaves
-            // the dispatcher blocked on this consumer's bounded buffer.
-            state.inbox.recv_batch(MAX_STEP_EVENTS, 80).await
+            // The whole per-step budget is read from the wake channel in one
+            // drain, so a burst never leaves the dispatcher blocked on this
+            // consumer's bounded buffer.
+            state
+                .inbox
+                .recv_batch(budget.max_events_per_step, budget.idle_wait_ms)
+                .await
         } else {
             // Never consume new input into a recovered, already frozen step.
             vec![]
@@ -781,7 +823,7 @@ pub async fn run_subject_loop(
         if state.step.state == SubjectStepState::Planned {
             // §41.6: at most 64 events are selected into one step; the durable
             // drain only fills the remainder after the live batch.
-            let drain_limit = MAX_STEP_EVENTS.saturating_sub(events.len());
+            let drain_limit = budget.max_events_per_step.saturating_sub(events.len());
             // Rows this process already proved undecodable keep their position
             // in the bounded page; ask past them so they cannot starve readable
             // inputs. The bound keeps one pathological queue from widening the
@@ -803,7 +845,7 @@ pub async fn run_subject_loop(
                     for (event_id, data) in rows {
                         // The widened read exists to see past undecodable rows;
                         // the selection budget itself is unchanged.
-                        if events.len() >= MAX_STEP_EVENTS {
+                        if events.len() >= budget.max_events_per_step {
                             break;
                         }
                         // One admitted row this binary cannot decode — a newer
@@ -967,6 +1009,34 @@ pub async fn run_subject_loop(
 /// The engineering default of §41.6: one subject step selects at most this
 /// many input events (live wake and durable drain together).
 const MAX_STEP_EVENTS: usize = 64;
+
+/// The largest batch a subject's own attention policy may ask for. The bound
+/// is the harness's: a policy can narrow the subject's attention, never widen
+/// it past what one step can carry.
+const MAX_STEP_EVENTS_LIMIT: usize = MAX_STEP_EVENTS * 4;
+
+/// The shortest wait the harness accepts: a step that never waits would spin.
+const MIN_IDLE_WAIT_MS: u64 = 1;
+
+/// The longest wait the harness accepts before it hands the turn back.
+const MAX_IDLE_WAIT_MS: u64 = 5_000;
+
+/// How the subject wants one step to look: how many inputs it reads, and how
+/// long it waits for more (SPEC §57.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct AttentionBudget {
+    pub(super) max_events_per_step: usize,
+    pub(super) idle_wait_ms: u64,
+}
+
+impl Default for AttentionBudget {
+    fn default() -> Self {
+        Self {
+            max_events_per_step: MAX_STEP_EVENTS,
+            idle_wait_ms: 80,
+        }
+    }
+}
 
 /// Role and output contract of the subject. It names the framework, never the
 /// instance, and does not vary with identity revisions (R054). SPEC §5.1, §6.

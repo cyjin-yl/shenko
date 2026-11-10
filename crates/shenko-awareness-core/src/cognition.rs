@@ -513,6 +513,10 @@ pub fn seed_packages() -> Result<Vec<CognitionPackage>> {
             "seed-awareness/idle-perception/AWARENESS.md",
             include_str!("../seed-awareness/idle-perception/AWARENESS.md"),
         ),
+        (
+            "seed-awareness/subject-attention/AWARENESS.md",
+            include_str!("../seed-awareness/subject-attention/AWARENESS.md"),
+        ),
     ];
     SEEDS
         .iter()
@@ -531,6 +535,14 @@ pub const CAP_SUBJECT_FRAME: &str = "cap.subject-frame";
 /// external input arrived. SPEC §57.2: idleness is a perception, not a
 /// command line.
 pub const CAP_IDLE_PERCEPTION: &str = "cap.idle-perception";
+
+/// The capability contract for the subject's own attention budget.
+///
+/// SPEC §57.3: how many inputs one step reads, and how long the subject
+/// waits for more, are the subject's setting — not a constant the harness
+/// picked. The unit that provides this contract states the numbers; the
+/// harness keeps only the bounds that prevent starvation.
+pub const CAP_ATTENTION_POLICY: &str = "cap.attention-policy";
 
 /// The resolution of one capability contract against the installation.
 ///
