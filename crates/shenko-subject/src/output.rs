@@ -38,6 +38,7 @@ child 是多步有界运行：可用所授 tools 调用已注册能力；有 rep
 child 以 needs_decision 交回问题时，用 [delegate] 带上该 task_id 的 continue_task_id 与你自己的 owner_answer 继续同一讨论；这是对已结束 child 说话的唯一路径。\n\
 免打扰用 [dnd] {\"state\":\"off|active\",\"sources\":[\"来源…\"],\"reason\":\"理由\",\"review_after\":\"RFC3339\"}；state=off 必须列出静默的来源并给回顾时间，不是无限期静默开关。\n\
 采用一条实时插入用 [steer] {\"submission_id\":\"提交键\"}；只能采用本轮输入里真实存在的那条插入，其他键会被拒绝。\n\
+对自身的运行政策提出请求用 [policy] {\"kind\":\"resource_share|update_policy|network_policy\",\"description\":\"你想要什么\"}；请求会留档，本机若没有对应的执行能力，你会在下一轮看到这条未绑定的事实，可以装上能力再提或另行处置。\n\
 外部效果仍未知时，接受这份不确定性继续别的工作用 [reconcile] {\"case_id\":\"本轮上下文里真实出现过的 case id\",\"reason_refs\":[\"该 case 已有的 evidence 收据 id\"],\"remaining_impact\":\"剩余影响与还需什么证据\"}；\
 它只记录你的判断，不会把效果改成成功、不会重发，也不删除原始回执；以后收到确定证据会重新评估。没有出现在本轮上下文里的 case 会被拒绝。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
@@ -379,6 +380,11 @@ pub fn parse_output(
                     "[dnd" => {
                         OutputAction::Dnd {
                             spec: crate::authored_controls::parse_dnd(value, line_no)?,
+                        }
+                    }
+                    "[policy" => {
+                        OutputAction::Policy {
+                            spec: crate::authored_controls::parse_policy(value, line_no)?,
                         }
                     }
                     "[steer" => {

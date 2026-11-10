@@ -330,7 +330,13 @@ impl Store {
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
         }
         if !historical {
-            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3,?4)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT,crate::subject_state::OBLIGATION_TERMINAL_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
+            // An intent whose capability is not installed is not SILENTLY
+            // refused: the state keeps its established meaning (nothing was
+            // dispatched, so the effect is unknown and the context policy
+            // surfaces it), while the reason now says plainly that the
+            // capability is missing and that the subject may install it or
+            // carry the intent forward (SPEC §57.8, G57).
+            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='capability not installed: this installation has no dispatcher for the frozen contract; the subject may install it or carry the intent forward' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3,?4)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT,crate::subject_state::OBLIGATION_TERMINAL_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
         }
         // The subject's explicit acceptance of an unknown external effect is
         // committed with the decision itself (SPEC §41.4 X11): it turns the
@@ -684,6 +690,51 @@ impl Store {
             self.intent_log(&tx,CommitRef::new(self.ledger.ledger_id(),seq))?;
             tx.commit()?; Ok(())
         },storage_failure)
+    }
+
+    /// The intents this subject asked for whose capability is not installed.
+    ///
+    /// An unbound intent is not a refusal: the subject asked for something
+    /// this installation cannot serve yet. The list is what makes the gap
+    /// visible to it — the subject can install the capability or carry the
+    /// intent forward (SPEC §57.8, G57).
+    pub fn unbound_subject_intents(
+        &self,
+        agent_id: EntityId,
+        limit: usize,
+    ) -> Result<Vec<CommittedIntent>> {
+        let limit = i64::try_from(limit)
+            .map_err(|_| anyhow::anyhow!("unbound intent limit is too large"))?;
+        let c = self.ledger.conn.lock();
+        let mut q = c.prepare("SELECT intent_id,step_id,kind,contract,payload,state,owner,revision,result_ref FROM subject_intents WHERE agent_id=?1 AND state='blocked' AND kind IN ('dialogue','policy','memory') AND contract NOT IN (?2,?3,?4) ORDER BY created_seq,intent_id LIMIT ?5")?;
+        let rows = q
+            .query_map(params![agent_id.to_string(),
+                crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,
+                crate::child::CHILD_DIALOGUE_CONTRACT,
+                crate::subject_state::OBLIGATION_TERMINAL_CONTRACT,
+                limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, u64>(7)?,
+                    r.get::<_, Option<String>>(8)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(
+                |(id, step, kind, contract, payload, state, owner, revision, result_ref)| {
+                    decode_committed_intent(
+                        id, step, kind, contract, payload, state, owner, revision, result_ref,
+                    )
+                },
+            )
+            .collect()
     }
 
     pub fn committed_intents(

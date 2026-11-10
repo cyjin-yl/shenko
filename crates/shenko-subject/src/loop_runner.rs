@@ -232,6 +232,106 @@ fn validate_resume(
 /// history instead of treating every attempt as a first failure. It is not a
 /// thought tick: nothing is inferred while waiting, and the semantic wait
 /// deadline plays no part here.
+/// The disposition of every selected event.
+///
+/// Every event the step selected is disposed, so the disposition index shows
+/// what the subject did with each input — and what it did NOT do.
+///
+/// An event the model did not mention is recorded as NOT ACTED ON, not as
+/// acknowledged: the harness does not claim the subject handled an input it
+/// never spoke about. The input is still settled (the subject saw it; the
+/// queue advances), and the record says exactly what happened (SPEC §57.3).
+///
+/// A DEFERRED disposition is the SUBJECT's own choice — it keeps that input
+/// pending until the subject acts, which is a different thing from the
+/// harness noticing silence. The two are not the same, and the store keeps
+/// them apart: a deferred disposition is not a settlement.
+///
+/// An authored disposition always wins: the model's own words about an event
+/// are the decision, and only the events it stayed silent about are recorded
+/// as not acted on.
+fn dispositions_for_events(
+    events: &[InboxEvent],
+    authored: &mut std::collections::HashMap<EntityId, EventDisposition>,
+) -> Vec<EventDisposition> {
+    events
+        .iter()
+        .map(|event| {
+            authored
+                .remove(&event.event_id)
+                .unwrap_or(EventDisposition {
+                    event_id: event.event_id.clone(),
+                    disposition: Disposition::Ignored,
+                    reason: Some("主体未在本轮处置".to_string()),
+                    priority: None,
+                    review_after: None,
+                })
+        })
+        .collect()
+}
+
+/// Hold the events of a paused source out of the current step, and release
+/// them again when the pause ends.
+///
+/// The subject's own attention decision (`[dnd]`, SPEC §13.8/§57.3) says
+/// which ingress sources it does not want to look at right now. The harness
+/// keeps that promise in the only way it can: those events do not enter this
+/// window. The facts are not lost — a durable-lane input stays pending in the
+/// store because it was never staged, and a channel input is still unacked
+/// in its own ingress ledger — so the hold is a window decision, not a
+/// deletion.
+///
+/// A pause that names no source covers every source. A pause whose review
+/// time has passed is over, and the held facts are released into the next
+/// step.
+fn hold_paused_sources(
+    state: &mut SubjectLoopState,
+    events: Vec<InboxEvent>,
+) -> Result<Vec<InboxEvent>, ShenkoError> {
+    let policy = state.store.current_subject_attention(state.agent_id)?;
+    let paused_sources: Option<Vec<String>> = match policy.as_ref() {
+        Some(policy) if policy.state == shenko_types::subject::AttentionState::Off => {
+            if policy
+                .review_after
+                .is_some_and(|review_after| review_after <= chrono::Utc::now())
+            {
+                None
+            } else {
+                Some(policy.sources.clone())
+            }
+        }
+        _ => None,
+    };
+    let is_paused = |source: &str| {
+        paused_sources
+            .as_ref()
+            .is_some_and(|sources| sources.is_empty() || sources.iter().any(|held| held == source))
+    };
+
+    // Release what the pause no longer covers.
+    let mut released = Vec::new();
+    let mut still_held = Vec::new();
+    for event in std::mem::take(&mut state.held_inputs) {
+        if is_paused(&event.source) {
+            still_held.push(event);
+        } else {
+            released.push(event);
+        }
+    }
+    state.held_inputs = still_held;
+
+    let mut kept = Vec::with_capacity(events.len() + released.len());
+    kept.extend(released);
+    for event in events {
+        if is_paused(&event.source) {
+            state.held_inputs.push(event);
+        } else {
+            kept.push(event);
+        }
+    }
+    Ok(kept)
+}
+
 fn retry_pacing(attempts: usize) -> std::time::Duration {
     const BASE: std::time::Duration = std::time::Duration::from_millis(500);
     const CAP: std::time::Duration = std::time::Duration::from_secs(30);
@@ -356,6 +456,9 @@ pub struct SubjectLoopState {
     pub(super) stream_journal: Option<Arc<dyn shenko_broker::stream::StreamJournalSink>>,
     /// The reader surface of a provider stream, when one is installed.
     pub(super) stream_public: Option<Arc<dyn shenko_broker::stream::PublicStreamSink>>,
+    /// Inputs the subject's own attention decision holds out of the current
+    /// window. They are released again when the pause ends (SPEC §57.3).
+    pub(super) held_inputs: Vec<InboxEvent>,
     /// The cognition catalogue available to this subject. It is a READ MODEL
     /// over the Node's unit store: the Node stays the sole install, version,
     /// enable, supersession and provenance authority. The catalogue only
@@ -460,6 +563,7 @@ impl SubjectLoopState {
             identity_service,
             stream_journal: None,
             stream_public: None,
+            held_inputs: Vec::new(),
             awareness: None,
             quota_strategies,
             pending_reminder: None,
@@ -762,6 +866,14 @@ pub async fn run_subject_loop(
             Ok(events) => events.into_iter().flatten().collect(),
             Err(error) => break Err(error),
         };
+        // The subject's own attention decision holds a source out of this
+        // window. The facts are not lost: they are held durably and come back
+        // when the pause ends (SPEC §57.3, AW14). The harness does not decide
+        // what the subject does not want to see — it only keeps the fact.
+        events = match hold_paused_sources(&mut state, events) {
+            Ok(events) => events,
+            Err(error) => break Err(error),
+        };
         // Execute one subject step (S0 → AwaitingModel → Committed)
         let retry_seal_at_entry = state.step.retry_reason_ref.clone();
         let outcome = execute_step(seq, &events, &mut state, &cancel).await;
@@ -922,6 +1034,27 @@ pub(super) fn system_prompt_suffix(
         prompt.push_str("\n\n当前仍未结束的持久义务（本轮冻结事实；完成或取消须显式给出终态和理由）：\n");
         prompt.push_str(&serde_json::to_string(obligations).expect("obligation projection serializes"));
         prompt.push(char::from(10));
+    }
+
+    // The capabilities this installation cannot serve yet. The subject asked
+    // for them, so the gap is a fact it must be able to see — it can install
+    // the capability or carry the intent forward (SPEC §57.8, G57).
+    let unbound = state
+        .store
+        .unbound_subject_intents(state.agent_id, 8)
+        .unwrap_or_default();
+    if !unbound.is_empty() {
+        prompt.push_str(
+            "\n\n你提出过、但本机还没有装上对应能力的意图（这些意图从未执行过，所以它们的副作用是未知的；可以装上能力再提，或另行处置）：\n",
+        );
+        for intent in &unbound {
+            prompt.push_str(&format!(
+                "- {} / {}：{}\n",
+                intent.kind,
+                intent.contract,
+                intent.result_ref.as_deref().unwrap_or("capability not installed")
+            ));
+        }
     }
 
     if !state.goals.is_empty() {
@@ -1854,6 +1987,28 @@ async fn execute_step(
             OutputAction::Steer { spec } => {
                 steer_specs.push((control.action_id, spec.clone()));
             }
+            OutputAction::Policy { spec } => {
+                // The subject asks about its own runtime policy. The request is
+                // durable; an installation without that dispatcher records it
+                // as an unbound capability the subject can see (SPEC §57.8).
+                let kind = match spec.kind {
+                    shenko_types::output::PolicyRequestKind::ResourceShare => {
+                        PolicyKind::ResourceShare
+                    }
+                    shenko_types::output::PolicyRequestKind::UpdatePolicy => {
+                        PolicyKind::UpdatePolicy
+                    }
+                    shenko_types::output::PolicyRequestKind::NetworkPolicy => {
+                        PolicyKind::NetworkPolicy
+                    }
+                };
+                policy_intents.push(PolicyIntent {
+                    intent_id: control.action_id,
+                    kind,
+                    description: spec.description.clone(),
+                    target_revision: None,
+                });
+            }
             OutputAction::Reconcile { spec } => {
                 unknown_acknowledgements.push(
                     shenko_types::evidence::ReconciliationAcknowledgement {
@@ -1893,8 +2048,11 @@ async fn execute_step(
     };
 
     // Every selected event is disposed explicitly. An event the model did
-    // not mention is acknowledged, never silently dropped: the disposition
-    // index has to show what the subject did with each input.
+    // not mention stays UNDECIDED, never silently dropped: the disposition
+    // index has to show what the subject did with each input. The harness
+    // does not settle it for the subject either — "我还没想好" is a
+    // legitimate state (SPEC §57.3), and a deferred input keeps coming back
+    // until the subject disposes of it or its attention policy holds it.
     let mut authored: std::collections::HashMap<EntityId, EventDisposition> =
         std::collections::HashMap::new();
     for (_action_id, spec) in &disposition_specs {
@@ -1909,20 +2067,8 @@ async fn execute_step(
             },
         );
     }
-    let event_dispositions: Vec<EventDisposition> = events
-        .iter()
-        .map(|ev| {
-            authored
-                .remove(&ev.event_id)
-                .unwrap_or(EventDisposition {
-                    event_id: ev.event_id.clone(),
-                    disposition: Disposition::Acknowledged,
-                    reason: None,
-                    priority: None,
-                    review_after: None,
-                })
-        })
-        .collect();
+    let event_dispositions: Vec<EventDisposition> =
+        dispositions_for_events(&events, &mut authored);
 
     // The live steers this result actually adopted. Each one is sealed on
     // its own, bound to the admitted submission and to the event that

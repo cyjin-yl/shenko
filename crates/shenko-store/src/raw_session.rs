@@ -803,6 +803,13 @@ impl Store {
     /// native-child T2 results do in their own delivery path. Filter
     /// disposition before LIMIT so acknowledged observations cannot starve
     /// newer input.
+    ///
+    /// A deferred disposition is an honest RECORD that the subject did not
+    /// act on an input; it does not keep that input in the queue forever.
+    /// The queue advances so the subject can reach newer input, and the
+    /// disposition index keeps saying which inputs were left undecided
+    /// (SPEC §57.3). An input the subject's own attention decision holds
+    /// stays out of the window until the pause ends (SPEC §57.3, AW14).
     pub fn pending_inbox_events(
         &self,
         agent_id: EntityId,
