@@ -814,6 +814,41 @@ impl ModelChildHandler {
         Ok(current)
     }
 
+    /// The role frame this child runs under — SPEC §57.10.
+    ///
+    /// The frame is content, not a constant: the unit that provides
+    /// `cap.child-role-frame` speaks for the child, and the subject may write
+    /// a different frame for a different task. The compiled contract stays as
+    /// the fallback when nothing provides the capability, and when two
+    /// distinct units provide it the harness does not pick one.
+    fn role_frame(&self) -> String {
+        let Ok(cognition) = self
+            .plugin_context
+            .try_service::<shenko_awareness_core::CognitionCatalog>()
+        else {
+            return ROLE_CONTRACT.to_string();
+        };
+        match cognition.capability_unit(shenko_awareness_core::cognition::CAP_CHILD_ROLE_FRAME) {
+            Ok(resolution) if resolution.is_ambiguous() => {
+                tracing::debug!(
+                    "several units provide the child's role frame; the compiled contract stays in force"
+                );
+                ROLE_CONTRACT.to_string()
+            }
+            Ok(resolution) => resolution
+                .body()
+                .map(|body| body.trim_end().to_string())
+                .unwrap_or_else(|| ROLE_CONTRACT.to_string()),
+            Err(error) => {
+                tracing::debug!(
+                    %error,
+                    "the child's role frame could not be resolved; the compiled contract stays in force"
+                );
+                ROLE_CONTRACT.to_string()
+            }
+        }
+    }
+
     /// The child's system prompt: the role contract, the authored semantic
     /// prompt, the installed tool catalog and — when the delegation granted
     /// one — the single reply target this child may use.
@@ -821,8 +856,9 @@ impl ModelChildHandler {
         contract: &FrozenModelChild,
         catalog: &[(String, u32, String)],
         cognition: Option<&str>,
+        role_frame: &str,
     ) -> String {
-        let mut prompt = String::from(ROLE_CONTRACT);
+        let mut prompt = String::from(role_frame);
         prompt.push_str("\n\n");
         prompt.push_str(&contract.spec.system_prompt);
         prompt.push_str("\n\n");
@@ -1348,7 +1384,12 @@ impl ModelChildHandler {
                 messages.push(InferenceMessage::text("user", dialogue_turn_text(turn)));
             }
             let payload = InferencePayload {
-                system_prompt: Self::system_prompt(&contract, &catalog, cognition.as_deref()),
+                system_prompt: Self::system_prompt(
+                    &contract,
+                    &catalog,
+                    cognition.as_deref(),
+                    &self.role_frame(),
+                ),
                 messages,
                 max_tokens: Some(contract.max_tokens),
                 // The shared provider wire does not carry provider-native tool
@@ -2935,14 +2976,70 @@ mod grant_account_tests {
     fn the_cognition_directory_travels_only_when_it_exists() {
         let frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
         let index = "- unit@1 [perception] card。正文按需读取：[tool:cognition.unit.read:1] {}";
-        let with_index = ModelChildHandler::system_prompt(&frozen, &[], Some(index));
+        let with_index = ModelChildHandler::system_prompt(&frozen, &[], Some(index), ROLE_CONTRACT);
         assert!(with_index.contains("已安装的认知单元目录"), "{with_index}");
         assert!(with_index.contains(index), "{with_index}");
         // The authored prompt and the tool catalog still lead.
         assert!(with_index.starts_with(ROLE_CONTRACT));
         assert!(with_index.contains("you are the worker"));
-        let without = ModelChildHandler::system_prompt(&frozen, &[], None);
+        let without = ModelChildHandler::system_prompt(&frozen, &[], None, ROLE_CONTRACT);
         assert!(!without.contains("已安装的认知单元目录"), "{without}");
+    }
+
+    /// The child's role frame is content, not a constant — SPEC §57.10.
+    ///
+    /// The unit that provides `cap.child-role-frame` speaks for the child;
+    /// with nothing installed the compiled contract stays in force, and two
+    /// distinct providers are an ambiguity the harness does not resolve.
+    #[test]
+    fn the_childs_role_frame_comes_from_the_installed_unit() {
+        let dir = std::env::temp_dir().join(format!("shenko-child-frame-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let packages = dir.join("frames");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::write(
+            packages.join("frame.md"),
+            "---\nid: test.child-frame\nversion: 1\nkind: awareness\ncapability_card: 角色框架\nprovides: [cap.child-role-frame]\n---\n你是一个只做一件事的 worker。\n",
+        )
+        .unwrap();
+        let node = Arc::new(parking_lot::Mutex::new(
+            shenko_node::Node::open(&dir.join("node")).unwrap(),
+        ));
+        let catalog = Arc::new(shenko_awareness_core::CognitionCatalog::new(node));
+        shenko_awareness_core::install_dir(&catalog, &packages).unwrap();
+
+        let ctx = cordis_core::Context::new();
+        let _published = ctx.provide(Arc::clone(&catalog)).unwrap();
+        let handler = ModelChildHandler::new(
+            Arc::new(
+                shenko_store::Store::open(dir.join("store.db"), dir.join("cas")).unwrap(),
+            ),
+            shenko_broker::broker::Broker::offline().1,
+            ctx.clone(),
+        )
+        .unwrap();
+        let frame = handler.role_frame();
+        assert!(
+            frame.contains("只做一件事的 worker"),
+            "the installed unit speaks for the child: {frame}"
+        );
+        assert!(
+            !frame.contains("第二条无限主动循环"),
+            "the compiled contract is replaced, not appended: {frame}"
+        );
+
+        // With no catalog published, the compiled contract stays in force.
+        let bare = cordis_core::Context::new();
+        let handler = ModelChildHandler::new(
+            Arc::new(
+                shenko_store::Store::open(dir.join("store2.db"), dir.join("cas2")).unwrap(),
+            ),
+            shenko_broker::broker::Broker::offline().1,
+            bare,
+        )
+        .unwrap();
+        assert_eq!(handler.role_frame(), ROLE_CONTRACT);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Only the tools the runtime actually registered and the delegation

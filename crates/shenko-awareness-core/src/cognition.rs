@@ -517,6 +517,10 @@ pub fn seed_packages() -> Result<Vec<CognitionPackage>> {
             "seed-awareness/subject-attention/AWARENESS.md",
             include_str!("../seed-awareness/subject-attention/AWARENESS.md"),
         ),
+        (
+            "seed-awareness/subject-child-frame/AWARENESS.md",
+            include_str!("../seed-awareness/subject-child-frame/AWARENESS.md"),
+        ),
     ];
     SEEDS
         .iter()
@@ -535,6 +539,14 @@ pub const CAP_SUBJECT_FRAME: &str = "cap.subject-frame";
 /// external input arrived. SPEC §57.2: idleness is a perception, not a
 /// command line.
 pub const CAP_IDLE_PERCEPTION: &str = "cap.idle-perception";
+
+/// The capability contract for the role frame a delegated child runs under.
+///
+/// SPEC §57.10: the frame says what kind of worker the child is. It is the
+/// subject's to write — it can give different tasks different children — while
+/// the harness keeps the real protocol boundaries (the tool catalog, the reply
+/// grant, the budget).
+pub const CAP_CHILD_ROLE_FRAME: &str = "cap.child-role-frame";
 
 /// The capability contract for the subject's own attention budget.
 ///

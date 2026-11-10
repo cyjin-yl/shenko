@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec_version": "0.6.2",
   "spec_path": "SPEC.md",
-  "count": 62,
+  "count": 63,
   "items": [
     {
       "id": "B01",
@@ -897,6 +897,19 @@
       "contract": "三个主体接口不再因缺派发器而静默不可用；自改留带理由态度，回滚只增；能力契约优先于包名、多提供者共存与运行时切换；不新增审批、allowlist 或 hard deny。",
       "verification": "§57.8/57.9/57.10；G57–G60；接口可用性、态度留痕与契约切换分别可判定。",
       "requirements": []
+    },
+    {
+      "id": "B63",
+      "status": "已打样；真实消费者与模型行为待另测",
+      "title": "child 的角色框是内容单元提供的可修订文本",
+      "refs": "U64；REF-USER、REF-DESIGN",
+      "contract": "提供 cap.child-role-frame 的单元正文成为 child 的角色前缀；没有提供者时用编译回退合同；两个不同提供者时报告歧义而不替主体选择；协议边界仍在 harness 手里。",
+      "verification": "§57.10；AW15；框架来源、歧义与回退分别可判定。",
+      "requirements": [
+        "R165"
+      ],
+      "source_row": "| B63 child 的角色框是内容单元提供的可修订文本 | U64；REF-USER、REF-DESIGN | 提供 `cap.child-role-frame` 的单元正文成为 child 的角色前缀，主体可以为不同任务给出不同的孩子；没有提供者时用编译回退合同；两个不同提供者时报告歧义而不替主体选择；协议边界（工具目录、回复授权、预算）仍由 harness 持有。 | §57.10；AW15；框架来源、歧义与回退分别可判定。 |",
+      "source_markdown_line": 6653
     }
   ]
 }

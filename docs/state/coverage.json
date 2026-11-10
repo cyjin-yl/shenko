@@ -3203,17 +3203,23 @@
     {
       "requirement_id": "R165",
       "behaviors": [
-        "B57"
+        "B57",
+        "B63"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "implemented",
+        "buildable",
+        "verified_real"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
         "AW12",
         "AW13",
         "AW14",
+        "AW15",
         "G57",
         "G58",
         "G59",
@@ -3227,11 +3233,18 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/model_child.rs::ModelChildHandler::role_frame",
+        "crates/shenko-awareness-core/src/cognition.rs::CAP_CHILD_ROLE_FRAME"
+      ],
+      "evidence_refs": [
+        "shenko-subject --lib the_childs_role_frame_comes_from_the_installed_unit",
+        "shenko-subject --lib the_cognition_directory_travels_only_when_it_exists"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "child 角色框已可修订（PR #261）：提供 cap.child-role-frame 的单元正文成为孩子角色前缀，无提供者时用编译回退合同；同一能力目录的其余部分仍待整体验证，故 satisfied=false。"
     }
-  ]
+  ],
+  "count": 165
 }
