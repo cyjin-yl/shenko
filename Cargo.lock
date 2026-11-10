@@ -4038,6 +4038,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-document"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "serde",
+ "serde_json",
+ "shenko-types",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "shenko-evidence"
 version = "0.1.0"
 dependencies = [
@@ -4063,6 +4076,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "shenko-awareness-core",
  "shenko-broker",
  "shenko-channel-napcat",
@@ -4075,6 +4089,7 @@ dependencies = [
  "shenko-store",
  "shenko-subject",
  "shenko-types",
+ "shenko-update",
  "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
@@ -4369,6 +4384,7 @@ dependencies = [
  "serde_json",
  "shenko-broker",
  "shenko-context-policy",
+ "shenko-identity",
  "shenko-kernel",
  "shenko-media",
  "shenko-store",
