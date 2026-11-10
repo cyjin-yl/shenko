@@ -172,7 +172,14 @@ function storedSubmissions(): Submission[] {
 function initialTheme(): 'dark' | 'light' {
   const query = new URLSearchParams(location.search).get('theme');
   if (query === 'light' || query === 'dark') return query;
-  return storageGet(THEME_KEY) === 'light' ? 'light' : 'dark';
+  const stored = storageGet(THEME_KEY);
+  if (stored === 'light' || stored === 'dark') return stored;
+  // Nothing was chosen yet: the reader's own system preference decides, so
+  // a reader who prefers the light scheme never sees the dark one first.
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  return 'dark';
 }
 
 function initialSections(persisted: PersistedDisplayState): Record<string, boolean> {
@@ -1897,7 +1904,12 @@ class LiveController implements ProjectionController {
     if (this.disposed) return;
     this.disposed = true;
     this.clearReconnectTimers();
-    if (this.receiptTimer !== null) window.clearTimeout(this.receiptTimer);
+    // The timer belongs to the browser's window; a controller disposed after
+    // its environment is gone must still be able to stop its own timer.
+    if (this.receiptTimer !== null) {
+      const clear = typeof window !== 'undefined' ? window.clearTimeout.bind(window) : clearTimeout;
+      clear(this.receiptTimer);
+    }
     this.receiptTimer = null;
     if (this.identityTimer) clearTimeout(this.identityTimer);
     this.identityTimer = null;

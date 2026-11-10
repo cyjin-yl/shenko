@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { RichDocument, type DocumentNodeView } from './document-view';
 import { createRoot, type Root } from 'react-dom/client';
 import { createReactAdapter } from '@proto.ui/adapter-react';
 import { shadcnButton } from '@proto.ui/prototypes-shadcn/button';
@@ -270,7 +271,15 @@ interface TimelineSurfaceProps {
   emit: Emit;
 }
 
-class TimelineSurface extends React.Component<TimelineSurfaceProps> {
+class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string }> {
+  /** The bounded announcement for a screen reader (SPEC §57.7).
+   *
+   * It says that committed content arrived and which round it was — it does
+   * NOT read the answer again: a reader who is listening should not have the
+   * whole answer spoken twice.
+   */
+  state: { announcement: string } = { announcement: '' };
+
   private capture = React.createRef<HTMLDivElement>();
   private scrollElement: HTMLElement | null = null;
   private lastAnchor: AnchorSnapshot | null = null;
@@ -278,6 +287,8 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
   private anchorFrame = 0;
   private selectionTimer: number | undefined;
   private restoredSelection: ReadingSelection | undefined;
+  /** The committed entry this surface already announced. */
+  private announcedEntry: string | undefined;
 
   componentDidMount() {
     this.scrollElement = this.findScrollElement();
@@ -309,6 +320,25 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
     else if (snapshot) this.restoreAnchor(snapshot);
     this.rememberAnchor();
     this.restoreSavedSelection();
+    this.announceCommitted();
+  }
+
+  /// Announce newly committed content once, in bounded words.
+  private announceCommitted() {
+    const entries = (this.props.node.props.entries ?? []) as UiNode[];
+    let newest: { key: string; label: string } | undefined;
+    for (let index = entries.length - 1; index >= 0 && !newest; index -= 1) {
+      const entry = entries[index];
+      if (entry.kind !== 'subject_part') continue;
+      const part = entry.props.part as TimelinePart;
+      if (!partState(part).committed) continue;
+      newest = { key: entry.node_id, label: `第 ${part.step} 轮已提交内容` };
+    }
+    if (!newest || newest.key === this.announcedEntry) return;
+    this.announcedEntry = newest.key;
+    this.setState((previous) => (
+      previous.announcement === newest.label ? previous : { announcement: newest.label }
+    ));
   }
 
   private onResize = () => {
@@ -514,6 +544,9 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
     const entries = node.props.entries as UiNode[];
     return (
       <section className="timeline-surface" hidden={node.props.hidden} aria-label="主体时间线">
+        {/* One bounded announcement per committed round; the answer itself is
+            not read again. */}
+        <span className="sr-only" aria-live="polite">{this.state.announcement}</span>
         <div
           className="timeline-scroll-capture"
           ref={this.capture}
@@ -669,7 +702,13 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
         <div className={`semantic-document is-${document.mode}`}>
           <p className="document-summary">{document.summary}</p>
           {document.mode === 'rich' && Array.isArray(document.nodes) && document.nodes.length > 0 && (
-            <pre className="document-tree">{JSON.stringify(document.nodes, null, 2)}</pre>
+            <RichDocument
+              nodes={document.nodes as DocumentNodeView[]}
+              options={document.options}
+              actionRefs={node.action_refs ?? []}
+              onAction={(actionRef) => emit(node.node_id, actionRef)}
+              renderMarkdown={(markdown) => <Markdown text={markdown} />}
+            />
           )}
           {document.options.length > 0 && (
             <ol className="document-options">

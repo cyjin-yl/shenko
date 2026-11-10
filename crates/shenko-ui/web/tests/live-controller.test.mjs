@@ -156,7 +156,11 @@ test('page reopen reconciles a lost ACK using the persisted original payload and
   assert.equal(newSocket.sent.some((message) => message.type === 'submit'), false);
   // A stale not_admitted belonging to an older send attempt must not restore
   // the draft or demote the retry; retrying keeps the same ID.
-  intent(reopened, `submission.${original.submission_id}`, 'submission.retry',
+  // The action the reader clicks is the submission's own action ref (the
+  // projection keeps one action per submission, so its id carries the
+  // submission id); the intent it produces is still `submission.retry`.
+  intent(reopened, `submission.${original.submission_id}`,
+    `submission.retry.${original.submission_id}`,
     { submission_id: original.submission_id });
   const retry = newSocket.sent.filter((message) => message.type === 'submit');
   assert.equal(retry.length, 1);

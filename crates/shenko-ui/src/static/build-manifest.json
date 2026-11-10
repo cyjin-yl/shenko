@@ -5,13 +5,8 @@
     "commit": "971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e",
     "previous_reviewed_commit": "2962d4ee877f5a3544a13d4deaa09b6a2b038fb7",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/tank/shared/projects/shenko/build/spec-architecture-20261101/ui-pinned-inputs-971cd35-20261102/upstream",
-    "build_receipt": {
-      "script": "scripts/build/public-packages.mjs",
-      "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/shenko/build/spec-architecture-20261101/ui-pinned-inputs-971cd35-20261102/build-selected/public-packages.json",
-      "receipt_sha256": "375079d28822b1cd077877925974d62c6e01b011c3f198037bab5ed4b5f61b1d"
-    }
+    "source_checkout": "/var/proto-ui-pinned/proto-ui-pinned",
+    "build_receipt": null
   },
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.1",
@@ -34,7 +29,9 @@
       "packages/prototypes/shadcn/dist/textarea/index.js",
       "packages/prototypes/shadcn/dist/scroll-area/index.js",
       "packages/prototypes/shadcn/dist/collapsible/index.js",
-      "packages/cli/bin/proto-ui.js"
+      "packages/cli/bin/proto-ui.js",
+      "packages/compiler/package.json",
+      "packages/compiler/src/index.ts"
     ],
     "shadcn_provenance": {
       "rhea_luma": "shadcn-ui/ui@25af02b1b467fcd53b63e0c6d6d324c57c16ef18",
@@ -43,27 +40,78 @@
     }
   },
   "compiler": {
-    "status": "seam_only",
+    "status": "build_time_compiled",
     "runtime_imported": false,
-    "upstream_visibility": "private source package; no published compiler profile"
+    "profile": "react-dom-source-v1",
+    "package": "packages/compiler",
+    "package_sha256": "4d81f10128f809c79a3f7730d1f936171f9bff2713846333c88c56524483258e",
+    "entry": "packages/compiler/src/index.ts",
+    "entry_sha256": "20121a358784ba6a6777a01f54addba823c2b662b68be0f48251e7524338e241",
+    "source_tree_sha256": "499fa3b1984f13948f2d68791570efde76c9490bb6b0d8b0fe2d41cc3cb1c56c",
+    "typescript": "5.9.3",
+    "bundle": {
+      "path": "generated/compiler/proto-ui-compiler.mjs",
+      "sha256": "8f4938fde9373edcf3db0e4669b00fc4fb585c8cefdb60ad98210ade9a9b3a4f",
+      "bytes": 1889205,
+      "format": "esm",
+      "entry": "packages/compiler/src/index.ts",
+      "external": [
+        "typescript"
+      ]
+    },
+    "resolutions": [
+      {
+        "specifier": "@floating-ui/dom",
+        "owner": "packages/modules/positioning",
+        "version": "1.8.0",
+        "package_sha256": "59643af1b1bfc5a80b172c21ccbe21ea56eaa0115378f6077d9934458db25ac1"
+      }
+    ],
+    "public_package_selection": {
+      "script": "scripts/build/public-packages.mjs",
+      "selected_package_count": null,
+      "includes_compiler": false,
+      "note": "The compiler exports TypeScript source only and is private, so it is never one of the built public packages; Shenko compiles it at build time instead."
+    },
+    "prototypes": [
+      {
+        "name": "transport-badge",
+        "entry": "prototypes/transport-badge.proto.ts",
+        "entry_sha256": "e19b9465bbef1099e59145c049089d40702bd81087530c5f18983c499aec36c3",
+        "profile": "react-dom-source-v1",
+        "component_name": "CompiledTransportBadge",
+        "output_directory": "generated/prototypes/transport-badge",
+        "generated_source": "generated/prototypes/transport-badge/Component.tsx",
+        "generated_sha256": "d0ee71033d51f2be9f16a966ee98e99ceb2e1607583bb672f328621299ff6abc",
+        "generated_imports": [
+          " + phase);\n    const previous = phase;\n    phase = ",
+          "react"
+        ],
+        "provenance": "generated/prototypes/transport-badge/provenance.json",
+        "provenance_sha256": "aed48a2c49bf956c69b6063dd02526b2eef4c5ca6fd364791dd04ed300431d2a",
+        "compiler_ir_version": 5,
+        "compiler_backend": "react-dom-source-v1",
+        "compiler_source_sha256": "9bf123c2bbf98a252547c68ae9d15f1608d04f50ca5645feebd170c9bd06025b"
+      }
+    ]
   },
   "toolchain": {
-    "node": "v24.22.1",
+    "node": "v22.23.2",
     "pnpm": "10.32.1",
     "esbuild": "0.25.12",
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/worktrees/architecture-20261101/crates/shenko-ui/web",
-  "built_at": "2026-11-02T00:08:41.447Z",
+  "web_root": "/var/idw/crates/shenko-ui/web",
+  "built_at": "2026-11-10T16:19:19.827Z",
   "artifacts": {
     "app.js": {
-      "bytes": 910558,
-      "sha256": "1950ab8506e170ad760563daa7b83cca14ec4d8711a3ec70d8d8249dd6139330"
+      "bytes": 968440,
+      "sha256": "cbe366e7cb4a393aaf525cf6d0b3e0a35e4fe54a530965e039eebabe43b9a076"
     },
     "app.css": {
-      "bytes": 27877,
-      "sha256": "b6095b7b3d0318cf2405762e9d3ce15db0558aad5156b291168c81cccb62a138"
+      "bytes": 38163,
+      "sha256": "45b651cdd7ae3c13eb42625cf254697ed73ade602cb17828f709ab7f0379b3ea"
     },
     "proto-ui-style.css": {
       "bytes": 294,
