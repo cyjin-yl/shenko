@@ -16,6 +16,7 @@ import {
   shadcnCollapsibleTrigger,
   shadcnCollapsibleContent,
 } from '@proto.ui/prototypes-shadcn/collapsible';
+import type { OpenedWork, WorkView } from './projection';
 import {
   intentFor,
   partState,
@@ -640,7 +641,36 @@ function EntryView({ node, emit }: { node: UiNode; emit: Emit }) {
       ? <SemanticDocumentView node={node} emit={emit} />
       : node.kind === 'document_error'
         ? <DocumentErrorEntry node={node} />
+      : node.kind === 'work'
+        ? <WorkEntry node={node} emit={emit} />
       : <UserSubmission node={node} emit={emit} />;
+}
+
+/// One work of the subject, in the timeline (SPEC §57.6).
+///
+/// It names the work's own revision: what the reader does next is bound to
+/// the revision they saw. Opening the work is the reader's own action.
+function WorkEntry({ node, emit }: { node: UiNode; emit: Emit }) {
+  const work = node.props.work as WorkView;
+  return (
+    <article className="timeline-entry work-entry" data-entry-key={node.node_id} data-artifact-id={work.artifact_id}>
+      <div className="entry-gutter"><span className="step-label">作品</span></div>
+      <div className="entry-content">
+        <div className="work-summary">
+          <strong>{String(work.title ?? work.artifact_id)}</strong>
+          <span>r{String(work.revision ?? '—')}</span>
+          <span>{String(work.lifecycle ?? 'draft')}</span>
+          <span>{String(work.mime ?? '—')}</span>
+        </div>
+        <ProtoButton
+          styleProfile="rhea"
+          variant="outline"
+          size="sm"
+          onClick={() => emit(node.node_id, node.action_refs[0])}
+        >打开作品</ProtoButton>
+      </div>
+    </article>
+  );
 }
 
 // The rich layer is gone; the committed text beside it stays the record and
@@ -1234,12 +1264,57 @@ function ContextPanel({ node, projection, emit }: { node: UiNode; projection: Ui
       <div className="panel-sections">
         {(node.props.sections as UiNode[]).map((section) => <PanelSection key={section.node_id} section={section} node={node} emit={emit} />)}
       </div>
+      <OpenedWorkPanel node={node} emit={emit} />
       <footer className="panel-footer">框架 Shenko · 实例身份独立</footer>
     </aside>
   </>;
 }
 
 const SECTION_LABELS: Record<string, string> = { status: '当前状态', activity: '近期提交', artifacts: '产物', devices: '设备' };
+
+/// The work the reader opened, with the actions bound to its revision
+/// (SPEC §57.6). Every action names the revision the reader saw: a work
+/// that moved on refuses the stale action instead of quietly applying to
+/// whatever is there now.
+function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {
+  const work = node.props.work as OpenedWork | undefined;
+  const refs = (node.props.work_action_refs ?? []) as string[];
+  if (node.props.work_error === true) {
+    return <section className="opened-work"><SurfaceNote text="这件作品现在读不到" tone="error" /></section>;
+  }
+  if (!work) return null;
+  return <section className="opened-work" data-artifact-id={work.artifact_id}>
+    <h3 className="opened-work-title">{String(work.title ?? work.artifact_id)}</h3>
+    <p className="opened-work-facts">
+      <span>r{String(work.revision ?? '—')}</span>
+      <span>{String(work.lifecycle ?? 'draft')}</span>
+      <span>{String(work.mime ?? '—')}</span>
+    </p>
+    {work.content !== undefined && (
+      <pre className="opened-work-content" tabIndex={0}><code>{work.content}</code></pre>
+    )}
+    <div className="opened-work-actions">
+      <ProtoButton
+        styleProfile="rhea"
+        variant="outline"
+        size="sm"
+        onClick={() => refs[0] && emit(node.node_id, refs[0])}
+      >暂存为候选</ProtoButton>
+      <ProtoButton
+        styleProfile="rhea"
+        variant="outline"
+        size="sm"
+        onClick={() => refs[1] && emit(node.node_id, refs[1])}
+      >采纳候选</ProtoButton>
+      <ProtoButton
+        styleProfile="rhea"
+        variant="ghost"
+        size="sm"
+        onClick={() => refs[2] && emit(node.node_id, refs[2])}
+      >回到旧修订</ProtoButton>
+    </div>
+  </section>;
+}
 
 function PanelSection({ section, node, emit }: { section: UiNode; node: UiNode; emit: Emit }) {
   const name = section.props.section as string;

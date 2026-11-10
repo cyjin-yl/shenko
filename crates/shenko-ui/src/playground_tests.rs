@@ -130,6 +130,65 @@ fn interrupted_versions_and_exact_rollback_keep_new_business_data() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A reader's action on a work is bound to the revision they saw and to the
+/// request that named it (SPEC §57.6, acceptance PG07).
+///
+/// A work that moved on refuses the stale action instead of applying it to
+/// whatever is there now; the request id rides the durable transition, so a
+/// repeated submit is recognisable as the same request rather than a new one.
+#[test]
+fn a_readers_action_is_bound_to_a_revision_and_a_request() {
+    let (root, store, _) = fixture("reader-action");
+    let pg_root = root.join("playground");
+    let pg = PlaygroundState::open(pg_root.clone(), store.clone()).unwrap();
+    let id = EntityId::new();
+    pg.put(id, "first".into(), "text/plain".into(), b"first body").unwrap();
+    let first = pg.get(&id).unwrap();
+
+    // The action names the revision the reader saw.
+    assert!(
+        pg.check_revision(id, first.revision).is_ok(),
+        "the action acts on the revision that is current"
+    );
+    pg.put(id, "second".into(), "text/plain".into(), b"second body").unwrap();
+    let stale = first.revision;
+    let refusal = pg.check_revision(id, stale).expect_err("the work moved on");
+    assert!(
+        refusal.to_string().contains("revision"),
+        "the refusal names the revision the action named: {refusal:#}"
+    );
+
+    // A stage with the current revision succeeds, and the durable transition
+    // names the request that asked for it.
+    let request_id = "reader-request-1";
+    pg.stage_artifact(id, Some(request_id)).unwrap();
+    let record = pg.durable_record(id).unwrap().expect("the work has a durable record");
+    let staged = pg.state_event(&record, "stage", Some(request_id));
+    assert_eq!(
+        staged.payload.get("request_id").and_then(|value| value.as_str()),
+        Some(request_id),
+        "the durable transition names the request that asked for it"
+    );
+    // The transition's IDENTITY does not depend on the request: the same
+    // resulting state reached by the same cause is the same fact, so a
+    // repeated submit is the same transition rather than a second one.
+    let repeated = pg.state_event(&record, "stage", Some(request_id));
+    assert_eq!(staged.event_id, repeated.event_id);
+
+    // A repeated submit of the same proposal produces no second transition:
+    // the stage is the same fact, so the durable row is not written again.
+    let before = record.state_revision.clone();
+    pg.stage_artifact(id, Some(request_id)).unwrap();
+    let after = pg.durable_record(id).unwrap().unwrap().state_revision;
+    assert_eq!(
+        before, after,
+        "a repeated submit produces no second effect: the durable row is not written again"
+    );
+    drop(pg);
+    drop(store);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[tokio::test]
 async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     let (root, store, agent) = fixture("http");

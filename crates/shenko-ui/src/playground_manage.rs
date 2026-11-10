@@ -343,7 +343,7 @@ impl PlaygroundManageHandler {
                         EffectStatus::None,
                     );
                 };
-                match self.playground.stage_artifact(id) {
+                match self.playground.stage_artifact(id, None) {
                     Ok(record) => (
                         json!({
                             "schema_version": 1,
@@ -390,7 +390,7 @@ impl PlaygroundManageHandler {
                         EffectStatus::None,
                     );
                 };
-                match self.playground.publish_artifact(id, &candidate.digest) {
+                match self.playground.publish_artifact(id, &candidate.digest, None) {
                     Ok(record) => (
                         json!({
                             "schema_version": 1,
