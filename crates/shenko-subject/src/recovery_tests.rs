@@ -4173,3 +4173,60 @@ fn the_policy_control_line_parses_into_a_policy_request() {
     );
     assert_eq!(policy.description, "把更多算力分给探索任务");
 }
+
+/// AW13 / §57.3: the attention budget is the subject's own setting. The
+/// installed unit that provides `cap.attention-policy` states the numbers;
+/// the harness keeps only the bounds that prevent starvation.
+#[test]
+fn the_attention_budget_comes_from_the_subjects_own_policy() {
+    let (dir, store, agent) = fixture();
+
+    // No catalog: the harness's own bounds apply.
+    let subject = state(Arc::clone(&store), agent).unwrap();
+    let budget = subject.attention_budget();
+    assert_eq!(budget.max_events_per_step, 64, "the compiled default");
+    assert_eq!(budget.idle_wait_ms, 80);
+
+    // With a policy unit, the subject's numbers apply.
+    let packages = dir.join("policy");
+    std::fs::create_dir_all(&packages).unwrap();
+    std::fs::write(
+        packages.join("attention.md"),
+        "---\nid: test.attention\nversion: 1\nkind: awareness\ncapability_card: 注意力\nprovides: [cap.attention-policy]\n---\n{\"max_events_per_step\": 8, \"idle_wait_ms\": 250}\n",
+    )
+    .unwrap();
+    let node = Arc::new(parking_lot::Mutex::new(
+        shenko_node::Node::open(&dir.join("node")).unwrap(),
+    ));
+    let catalog = Arc::new(shenko_awareness_core::CognitionCatalog::new(node));
+    shenko_awareness_core::install_dir(&catalog, &packages).unwrap();
+    let subject = state(Arc::clone(&store), agent)
+        .unwrap()
+        .with_awareness(Arc::clone(&catalog));
+    let budget = subject.attention_budget();
+    assert_eq!(budget.max_events_per_step, 8, "the subject's own budget");
+    assert_eq!(budget.idle_wait_ms, 250);
+
+    // A policy that asks for more than the harness allows is bounded.
+    std::fs::write(
+        packages.join("attention.md"),
+        "---\nid: test.attention\nversion: 2\nkind: awareness\ncapability_card: 注意力\nprovides: [cap.attention-policy]\n---\n{\"max_events_per_step\": 100000, \"idle_wait_ms\": 0}\n",
+    )
+    .unwrap();
+    let node = Arc::new(parking_lot::Mutex::new(
+        shenko_node::Node::open(&dir.join("node2")).unwrap(),
+    ));
+    let catalog = Arc::new(shenko_awareness_core::CognitionCatalog::new(node));
+    shenko_awareness_core::install_dir(&catalog, &packages).unwrap();
+    let subject = state(Arc::clone(&store), agent)
+        .unwrap()
+        .with_awareness(Arc::clone(&catalog));
+    let budget = subject.attention_budget();
+    assert!(
+        budget.max_events_per_step <= 64 * 4,
+        "the harness keeps the bound: {}",
+        budget.max_events_per_step
+    );
+    assert!(budget.idle_wait_ms >= 1, "a step always waits at least a moment");
+    let _ = std::fs::remove_dir_all(&dir);
+}
