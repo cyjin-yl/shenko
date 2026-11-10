@@ -306,17 +306,38 @@ impl AdapterIngress {
                     .to_string(),
             );
         }
+        // Only an AMBIGUOUS write outcome closes the handle: a transaction
+        // that could not be opened, or a commit whose outcome is unknown.
+        // A refusal is a fact about the caller's request (an unknown id, a
+        // duplicate) — the transaction rolls back, nothing was written, and
+        // the ledger stays usable. Closing the handle on a refusal would
+        // turn one bad id into a dead installation.
+        let mut ambiguous = false;
         let output = (|| {
-            let tx = backend
+            let tx = match backend
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(sql)?;
-            let value = operation(&tx)?;
-            tx.commit()
-                .map_err(|error| format!("adapter ingress commit outcome unknown: {error}"))?;
+            {
+                Ok(tx) => tx,
+                Err(error) => {
+                    ambiguous = true;
+                    return Err(sql(error));
+                }
+            };
+            let value = match operation(&tx) {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = tx.rollback();
+                    return Err(error);
+                }
+            };
+            if let Err(error) = tx.commit() {
+                ambiguous = true;
+                return Err(format!("adapter ingress commit outcome unknown: {error}"));
+            }
             Ok(value)
         })();
-        if output.is_err() {
+        if ambiguous {
             backend.failed = true;
         }
         output
@@ -500,19 +521,29 @@ impl AdapterIngress {
                     .to_string(),
             );
         }
-        let body: Option<String> = connection
+        // The delivery and the disposition live in their own columns, so a
+        // read has to merge them back into the stored body — the same merge
+        // `unacked` does. Reading the body alone would report a delivered
+        // event as never delivered.
+        let row: Option<(String, Option<String>, Option<String>)> = connection
             .connection
             .query_row(
-                "SELECT body FROM adapter_ingress WHERE event_id=?1",
+                "SELECT body, delivered_at, disposition_ref FROM adapter_ingress WHERE event_id=?1",
                 [event_id.to_string()],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(sql)?;
-        let Some(body) = body else {
+        let Some((body, delivered_at, disposition_ref)) = row else {
             return Ok(None);
         };
-        let event: StoredAdapterEvent = serde_json::from_str(&body).map_err(codec)?;
+        let mut event: StoredAdapterEvent = serde_json::from_str(&body).map_err(codec)?;
+        event.delivered_at = delivered_at.and_then(|text| {
+            DateTime::parse_from_rfc3339(&text)
+                .ok()
+                .map(|at| at.with_timezone(&Utc))
+        });
+        event.disposition_ref = disposition_ref;
         Ok(Some(event))
     }
 
