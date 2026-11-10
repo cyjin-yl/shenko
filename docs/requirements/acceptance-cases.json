@@ -3843,8 +3843,8 @@
         "57 主动个人主体：更少的门、可修订的 harness、界面与 IM 精炼（Claude Fable 5.1 refine 版本）",
         "57.13 验收"
       ],
-      "source_markdown_line": 6655,
-      "source_row": "| AW13 | 主体未处置某条输入 | 该输入进入 deferred 并在后续 S0 继续可见，不被自动确认，也不被丢弃 |",
+      "source_markdown_line": 6659,
+      "source_row": "| AW13 | 主体未处置某条输入 | 该输入被记为『未处置』（ignored + 理由），不被 harness 记成已处理；主体显式 deferred 的输入继续留在队列里 |",
       "verification_status": "unverified",
       "implementation_refs": [],
       "evidence": [],
