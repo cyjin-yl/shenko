@@ -12,7 +12,7 @@
 - `satisfied` 只有在有真实证据引用时才为真。源码存在、类型齐备、模拟通过都不构成满足。
 - `acceptance_case_ids` 指向 [../requirements/acceptance-cases.json](../requirements/acceptance-cases.json) 中的具名验收场景；需求没有具名 case 时仍需补足验证，条件不适用要保留依据，不能删项提高比例。
 
-历史上的 goal 状态快照（2026-10-27）与旧进度板、22 张社区任务卡已按 §48.5 归档到 [../history/progress-20261101/](../history/progress-20261101/) 与 [../history/task-cards-20261101/](../history/task-cards-20261101/)，只保留来源，不是现行状态。
+历史上的 goal 状态快照（2026-10-27）与旧进度板、22 张社区任务卡已按 [§48.5](../specs/architecture.md#spec-48-5) 归档到 [../history/progress-20261101/](../history/progress-20261101) 与 [../history/task-cards-20261101/](../history/task-cards-20261101)，只保留来源，不是现行状态。
 
 当前源码的接线程度（已接线 / 仅源码 / 未实现）按实现范围记录在 [../IMPLEMENTATION_DOCS_MAP.md](../IMPLEMENTATION_DOCS_MAP.md)；真实运行证据在 [../evidence/](../evidence/README.md)。
 

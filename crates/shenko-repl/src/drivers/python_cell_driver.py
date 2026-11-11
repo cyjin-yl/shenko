@@ -2,7 +2,7 @@
 
 Runs on CPython WASI (preview1) and native CPython 3.11+. The process stays
 alive across cells; variables, functions and imported modules persist in
-interpreter memory for the process lifetime (SPEC §19 live session).
+interpreter memory for the process lifetime (docs/specs/repl.md#spec-19 live session).
 
 Host -> driver framing on stdin (blocking, exact reads):
     [u64be header_len][header JSON][u64be payload_len][cell source bytes]

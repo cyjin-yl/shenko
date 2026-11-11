@@ -1,4 +1,4 @@
-//! Durable web input service — SPEC §41.18 WebInputSubmission contract.
+//! Durable web input service — docs/specs/web-interface.md#spec-41-18 WebInputSubmission contract.
 //!
 //! One service owns admission (append/steer), the reconnect view, withdrawal
 //! and UI-action submission. Transport success is never presented as subject
@@ -7,7 +7,7 @@
 //! Placement honesty: with the current adapter contract (no verified in-request
 //! control capability) the only placement this service produces is
 //! `next_boundary` — the input is durably admitted and the subject's normal S0
-//! selects it at the next admissible boundary (SPEC §21.12 UI02). `live_steer`
+//! selects it at the next admissible boundary (docs/specs/web-interface.md#spec-21-12 UI02). `live_steer`
 //! and `cancel_reseal` exist in the wire contract for the adapter generation
 //! that ArchBroker/ArchSubject land; this service refuses to fabricate them.
 
@@ -43,7 +43,7 @@ pub enum SubmissionStage {
     Unavailable,
 }
 
-/// Where an admitted input is actually handled (§41.18 placement). Only
+/// Where an admitted input is actually handled (docs/specs/web-interface.md#spec-41-18 placement). Only
 /// `NextBoundary` is produced until the adapter publishes a verified
 /// in-request control capability; the other variants are wire contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -94,7 +94,7 @@ pub struct InputReceipt {
     pub detail: String,
 }
 
-/// Durable view of one submission — §41.18 get_web_input. Never invents
+/// Durable view of one submission — docs/specs/web-interface.md#spec-41-18 get_web_input. Never invents
 /// selected/committed/withdrawn facts.
 #[derive(Debug, Clone, Serialize)]
 pub struct SubmissionView {
@@ -304,7 +304,7 @@ impl WebInputService {
 
     /// Resolve placement from durable facts + the adapter capability contract.
     /// Without a verified in-request control capability the honest answer is
-    /// always `next_boundary` (SPEC §21.12 UI02).
+    /// always `next_boundary` (docs/specs/web-interface.md#spec-21-12 UI02).
     fn placement(&self, mode: SubmissionMode) -> Placement {
         let target_request_id = match mode {
             SubmissionMode::Steer => self.bound_request().map(|id| id.to_string()),
@@ -432,7 +432,7 @@ impl WebInputService {
 
     /// Validate one UI action against its committed document binding and
     /// admit it as a durable input. Action authority comes from the subject's
-    /// disposition of that input, never from the click itself (§21.8).
+    /// disposition of that input, never from the click itself (docs/specs/web-interface.md#spec-21-8).
     pub fn submit_action(
         &self,
         action: &ActionSubmission,
@@ -599,7 +599,7 @@ impl WebInputService {
         reply
     }
 
-    /// Withdraw one admitted submission (§41.18). The withdrawal is a durable
+    /// Withdraw one admitted submission (docs/specs/web-interface.md#spec-41-18). The withdrawal is a durable
     /// control record in the same ledger; it never deletes admitted facts and
     /// never claims to undo effects the subject already produced.
     pub fn withdraw(&self, request: &WithdrawRequest) -> SubmissionView {
@@ -731,7 +731,7 @@ impl WebInputService {
         view
     }
 
-    /// Reconnect/replay query — §41.18 get_web_input.
+    /// Reconnect/replay query — docs/specs/web-interface.md#spec-41-18 get_web_input.
     pub fn get(&self, submission_id: &str, subject_id: &str, send_epoch: Option<u64>) -> SubmissionView {
         if self.subject_id.to_string() != subject_id {
             return SubmissionView {

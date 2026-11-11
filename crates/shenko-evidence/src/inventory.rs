@@ -1,4 +1,4 @@
-//! Retained-evidence inventory — SPEC §46.6 (G08 证据与候选绑定).
+//! Retained-evidence inventory — docs/governance/COMPLETION.md#spec-46-6 (G08 证据与候选绑定).
 //!
 //! The repository keeps evidence records from earlier slices. Those records
 //! are real, but each is bound to the candidate it was produced against.

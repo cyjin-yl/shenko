@@ -71,7 +71,7 @@ impl DefaultIdentityPolicy {
         Some(next)
     }
 
-    /// Persona section placed after the role/tool contract. SPEC §6 order.
+    /// Persona section placed after the role/tool contract. docs/specs/subject-runtime.md#spec-6 order.
     pub fn persona_section(current: &IdentityProfile) -> String {
         let mut s = String::from("## 你自己（身份 revision ");
         s.push_str(&current.revision.to_string());

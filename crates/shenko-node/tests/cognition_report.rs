@@ -1,6 +1,6 @@
 //! The installation-to-node cognition report boundary.
 //!
-//! SPEC §51.1: a node keeps one mechanism observation of the installation's own
+//! docs/specs/cognition-units.md#spec-51-1: a node keeps one mechanism observation of the installation's own
 //! Store snapshot — the immutable content digest over a declared scope and the
 //! ledger watermark it covered. It is not cognitive content, not an attitude,
 //! not a knowledge kind and not a confidence; it is also not a liveness,
@@ -202,7 +202,7 @@ fn unchanged_content_is_one_revision_and_a_change_is_a_new_one() -> Result<()> {
     assert_eq!(first.generation, 1);
 
     // Re-observing the same content at a later instant is the same revision:
-    // §51.1 dedups by content, so nothing new is opened and the stored bytes —
+    // docs/specs/cognition-units.md#spec-51-1 dedups by content, so nothing new is opened and the stored bytes —
     // including the instant this content was first observed — stay put.
     let again = publish(&dir, node_id, &observation("snapshot-a", 7, scope(0, true), 60))?;
     assert_eq!(again, first);

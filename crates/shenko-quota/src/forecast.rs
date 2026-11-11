@@ -1,4 +1,4 @@
-//! Rolling planning baseline (§42.5): per window, the budget that can still
+//! Rolling planning baseline (docs/specs/quota-resources.md#spec-42-5): per window, the budget that can still
 //! be planned before its period ends and the steady rate that spends it.
 //! Every quantity stays in its window's unit and account; whatever cannot be
 //! determined makes the result unknown instead of a guessed number.
@@ -165,7 +165,7 @@ pub struct WindowForecast {
     pub planning: Planning,
 }
 
-/// How far the produced plan can be trusted (SPEC §42.3 `confidence`).
+/// How far the produced plan can be trusted (docs/specs/quota-resources.md#spec-42-3 `confidence`).
 ///
 /// It is derived from the recorded reading only — never from the model's own
 /// opinion of the numbers, and never promoted by an attempt to spend more.
@@ -209,13 +209,13 @@ pub struct QuotaForecast {
     #[serde(default)]
     pub options: ForecastOptions,
     /// The forecast strategy that produced these numbers, as `id@version`
-    /// (SPEC §42.3 `cost_model_version`). A forecast recorded before the
+    /// (docs/specs/quota-resources.md#spec-42-3 `cost_model_version`). A forecast recorded before the
     /// replaceable-strategy seam keeps it absent: unknown, never guessed as
     /// the built-in baseline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_model_version: Option<String>,
     /// How far ahead this forecast's own evidence reaches: the nearest period
-    /// end or bucket refill after `computed_at` (SPEC §42.3 `horizon`).
+    /// end or bucket refill after `computed_at` (docs/specs/quota-resources.md#spec-42-3 `horizon`).
     /// `None` when no window states a boundary, which is unknown rather than
     /// infinite.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -267,7 +267,7 @@ pub fn forecast_material(forecast: &QuotaForecast) -> String {
         forecast.confidence,
         // So is a plan produced by a different algorithm, or one that now
         // reaches a different horizon: the same numbers from a changed
-        // strategy are not the same fact (SPEC §42.1, §42.3).
+        // strategy are not the same fact (docs/specs/quota-resources.md#spec-42-1, docs/specs/quota-resources.md#spec-42-3).
         forecast.cost_model_version,
         forecast.horizon,
     )

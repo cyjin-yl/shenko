@@ -1,4 +1,4 @@
-//! Activation record, selector and route authority — SPEC §41.12 (X05/X17).
+//! Activation record, selector and route authority — docs/specs/self-update.md#spec-41-12 (X05/X17).
 //!
 //! These are the cross-module protocol types of the software-generation
 //! hand-over. They describe *what was decided and where it is written*, never
@@ -13,7 +13,7 @@ use crate::ids::{EntityId, RuntimeGeneration};
 use crate::object::{Digest, ObjectRef, SchemaRef, VersionRef};
 use crate::subject::GenesisRef;
 
-/// Phase of one activation — SPEC §41.12 X05.
+/// Phase of one activation — docs/specs/self-update.md#spec-41-12 X05.
 ///
 /// The phase describes this version's hand-over protocol, not a workflow every
 /// configuration change or thought has to pass through.
@@ -53,7 +53,7 @@ impl ActivationPhase {
         matches!(self, Self::Retired | Self::Abandoned)
     }
 
-    /// The forward phase sequence of §41.12 X16/X17.
+    /// The forward phase sequence of docs/specs/self-update.md#spec-41-12 X16/X17.
     pub fn can_advance_to(self, next: ActivationPhase) -> bool {
         use ActivationPhase::*;
         match (self, next) {
@@ -81,7 +81,7 @@ pub enum ActivationOrigin {
     Activation { activation_id: EntityId },
 }
 
-/// The current control authority of one subject — SPEC §41.12 X05.
+/// The current control authority of one subject — docs/specs/self-update.md#spec-41-12 X05.
 ///
 /// The successful conditional update of this record is the linearization
 /// point of an activation. A symlink, a PID, or the version shown in a UI
@@ -103,7 +103,7 @@ pub struct ActivationSelector {
     pub route_authority_ref: ObjectRef,
 }
 
-/// One software-generation hand-over — SPEC §41.12 X05.
+/// One software-generation hand-over — docs/specs/self-update.md#spec-41-12 X05.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActivationRecord {
     pub activation_id: EntityId,
@@ -146,7 +146,7 @@ pub struct ActivationRecord {
     pub expected_primary_claim: Option<PrimaryClaim>,
 }
 
-/// The committed primary claim of the node domain — SPEC §5.4.
+/// The committed primary claim of the node domain — docs/specs/nodes.md#spec-5-4.
 ///
 /// It says *who* is primary. The selector says *which software generation*
 /// is current. The two epochs are separate domains and are never compared

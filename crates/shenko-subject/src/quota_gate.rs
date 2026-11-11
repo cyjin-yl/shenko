@@ -2,7 +2,7 @@
 use shenko_types::{error::ShenkoError, ids::EntityId};
 use tracing::warn;
 
-/// Quota admission gate for one sealed request (SPEC §42.5–42.6).
+/// Quota admission gate for one sealed request (docs/specs/quota-resources.md#spec-42-5–docs/specs/quota-resources.md#spec-42-6).
 ///
 /// With no recorded policy there is no gate at all: the configured or
 /// unconfigured provider keeps dispatching exactly as before. Once a policy
@@ -27,7 +27,7 @@ subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> { use shenko
 let Some(policy) = store.latest_quota_policy()? else {
     return Ok(QuotaGate::Ready(None));
 };
-// Measured useful work of this subject's admitted rounds (SPEC §42.3
+// Measured useful work of this subject's admitted rounds (docs/specs/quota-resources.md#spec-42-3
 // `expected_useful_work`), read from the ledger's own record. Only a caller
 // that IS the subject passes its identity: a finite model child or an
 // intervention worker spends rounds in a different unit, so its expectation
@@ -160,7 +160,7 @@ loop {
                         .map(|entry| (entry.window.window_key.clone(), entry.value))
                         .collect();
                     // The forecast algorithm is a replaceable strategy
-                    // (SPEC §42.1). Its refusal is a reconciliation fact,
+                    // (docs/specs/quota-resources.md#spec-42-1). Its refusal is a reconciliation fact,
                     // never a guessed or empty forecast: nothing about the
                     // account is assumed when the strategy declines.
                     let forecast = strategies

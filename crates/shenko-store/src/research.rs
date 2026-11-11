@@ -1,7 +1,7 @@
 //! Research epochs, the structured intervention bank, bounded reminder
-//! decisions and retention tombstones — SPEC §14.2–§14.5 (research reset and
-//! the active memory worker) with §12.4 (semantic forget / archive_move /
-//! erase / restore) and §10.5 (complete object closure, honest reclaim
+//! decisions and retention tombstones — docs/specs/research-memory.md#spec-14-2–docs/specs/model-children.md#spec-14-5 (research reset and
+//! the active memory worker) with docs/specs/memory.md#spec-12-4 (semantic forget / archive_move /
+//! erase / restore) and docs/specs/memory.md#spec-10-5 (complete object closure, honest reclaim
 //! reporting).
 //!
 //! This is not a second memory store. The searchable personal memory and its
@@ -226,14 +226,14 @@ pub struct ResearchEpoch {
     pub epoch_no: u64,
     pub task_id: Option<EntityId>,
     pub status: ResearchEpochStatus,
-    /// Sealed closure of the still-valid constraints (SPEC §14.2).
+    /// Sealed closure of the still-valid constraints (docs/specs/research-memory.md#spec-14-2).
     pub constraints_ref: Option<ObjectRef>,
-    /// Sealed closure of the budget the worker may spend (SPEC §14.3).
+    /// Sealed closure of the budget the worker may spend (docs/specs/research-memory.md#spec-14-3).
     pub budget_ref: Option<ObjectRef>,
     /// Sealed closure of the external effects that already happened. It is
     /// carried into the next epoch so a reset cannot repeat them.
     pub effects_ref: Option<ObjectRef>,
-    /// Sealed record of the reproducible environment (SPEC §14.3).
+    /// Sealed record of the reproducible environment (docs/specs/research-memory.md#spec-14-3).
     pub environment_ref: Option<ObjectRef>,
     pub best_candidate_id: Option<EntityId>,
     /// Sealed worker brief: what a new worker of this epoch may see.
@@ -359,7 +359,7 @@ pub enum InterventionDecisionKind {
 
 /// The durable record of one intervention decision. A silent decision is
 /// recorded too: a missed reminder is a fact the policy can be evaluated
-/// against (SPEC §14.4).
+/// against (docs/specs/research-memory.md#spec-14-4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InterventionReminder {
     pub reminder_id: EntityId,
@@ -505,7 +505,7 @@ pub struct BestCandidateValidation {
 
 /// One candidate carried into a new epoch. The whole frozen set is carried,
 /// not only the best one: a reset must not collapse a diverse candidate set
-/// into one fragile judge result (SPEC §14.3).
+/// into one fragile judge result (docs/specs/research-memory.md#spec-14-3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CarriedCandidate {
     pub candidate_id: EntityId,
@@ -1490,7 +1490,7 @@ impl Store {
     }
 
     /// Link two retained bank entries as a correction. Both bodies remain
-    /// readable, and the relation is committed atomically (SPEC §12.2).
+    /// readable, and the relation is committed atomically (docs/specs/memory.md#spec-12-2).
     pub fn supersede_bank_entry(
         &self,
         superseded: EntityId,

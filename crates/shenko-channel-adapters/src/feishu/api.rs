@@ -1,4 +1,4 @@
-//! The Feishu/Lark open API — SPEC §16.
+//! The Feishu/Lark open API — docs/specs/channel-adapters.md#spec-16.
 //!
 //! Every egress call is the platform's own: a message is built from typed
 //! blocks and posted to `im/v1/messages`, a reply names the message it

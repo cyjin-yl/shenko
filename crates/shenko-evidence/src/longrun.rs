@@ -1,7 +1,7 @@
-//! Long-run observation admission — S5 and COMPLETION §2「长期性」.
+//! Long-run observation admission — S5 and COMPLETION docs/specs/architecture.md#spec-2「长期性」.
 //!
 //! S5 requires a 7/30-day report formed against a named candidate and
-//! environment, and COMPLETION §4 forbids splicing different candidates or
+//! environment, and COMPLETION docs/specs/subject-runtime.md#spec-4 forbids splicing different candidates or
 //! accelerated runs into a stable 30-day claim. The sampler
 //! (`scripts/observe_longrun.py`) already refuses gapped, unverifiable or
 //! damaged observation bytes; this module is the *consumer* side: it admits a
@@ -48,7 +48,7 @@ const REAL_OBSERVATION: &str = "real_observation";
 const OBSERVED_VERDICT: &str = "all_declared_windows_observed";
 const INCOMPLETE_VERDICT: &str = "incomplete_observation";
 const COMPLETED: &str = "completed";
-/// The two windows SPEC S5 / COMPLETION §2 name as the duration obligation.
+/// The two windows SPEC S5 / COMPLETION docs/specs/architecture.md#spec-2 name as the duration obligation.
 ///
 /// A report may declare its own windows, but naming one of these while
 /// requiring less time would be declaring a different obligation under the

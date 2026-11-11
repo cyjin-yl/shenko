@@ -1,4 +1,4 @@
-//! Committed windows and the commit transaction (§12.3.2).
+//! Committed windows and the commit transaction (docs/specs/context-policies.md#spec-12-3-2).
 //!
 //! A committed window records its decoder (policy id/version), source refs and
 //! derivatives, so it can be materialized without the plugin that produced it.
@@ -518,7 +518,7 @@ fn open_calls(states: &BTreeMap<String, Vec<(u64, CallStatus)>>) -> u32 {
 
 /// One model-visible element of a window, provider-neutral. Mapping these to
 /// a provider's message/part wire format (roles, tool messages, image parts)
-/// belongs to the inference binding (§47), not to the policy.
+/// belongs to the inference binding (docs/specs/inference.md#spec-47), not to the policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Projected {
     /// A raw event, with its kind and ledger status exactly as recorded.

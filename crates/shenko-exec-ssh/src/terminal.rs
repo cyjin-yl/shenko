@@ -1,4 +1,4 @@
-//! Terminal screen state machine for seat observation — SPEC §17.5, §35.5.
+//! Terminal screen state machine for seat observation — docs/specs/remote-seats.md#spec-17-5, docs/specs/remote-seats.md#spec-35-5.
 //!
 //! A seat's screen is not a bag of text. `tmux capture-pane -e` and a real
 //! PTY both deliver a byte stream whose meaning is carried by ANSI/VT

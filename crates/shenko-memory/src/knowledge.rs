@@ -1,4 +1,4 @@
-//! Git text knowledge + object references — SPEC §10.3 and §10.5.
+//! Git text knowledge + object references — docs/specs/memory.md#spec-10-3 and docs/specs/memory.md#spec-10-5.
 //!
 //! The managed memory directory is a real Git repository (the seed
 //! bootstrap initializes `<data_dir>/memory`). Organized knowledge is written
@@ -9,7 +9,7 @@
 //! the object id, byte size, backend namespace and a non-secret key handle.
 //!
 //! SQLite raw events are never committed into this repository — the two
-//! stores reference each other without merging (SPEC §12.1).
+//! stores reference each other without merging (docs/specs/memory.md#spec-12-1).
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -109,7 +109,7 @@ impl GitKnowledgeStore {
         Ok(synced)
     }
 
-    /// Write a versioned object pointer for a binary attachment (SPEC §10.5).
+    /// Write a versioned object pointer for a binary attachment (docs/specs/memory.md#spec-10-5).
     /// The pointer records format version, object id, byte size, backend
     /// namespace and a non-secret key handle; it is deliberately not Git LFS.
     pub fn record_pointer(

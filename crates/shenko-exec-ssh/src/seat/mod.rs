@@ -1,7 +1,7 @@
 //! Seat adapters: one contract over three very different remote agents.
 //!
-//! SPEC §17.1 requires a `RemoteAgentProvider` that speaks to an already
-//! running Claude Code, OMP or tmux pane. SPEC §17.5 and §35.5 name three
+//! docs/specs/remote-seats.md#spec-17-1 requires a `RemoteAgentProvider` that speaks to an already
+//! running Claude Code, OMP or tmux pane. docs/specs/remote-seats.md#spec-17-5 and docs/specs/remote-seats.md#spec-35-5 name three
 //! concrete paths, and this module is the seam between them:
 //!
 //! | path | adapter | how a question arrives | how an answer is delivered |
@@ -74,7 +74,7 @@ impl SeatAdapterId {
     }
 }
 
-/// Where a question came from. This is the distinction SPEC §41.11 draws
+/// Where a question came from. This is the distinction docs/specs/remote-seats.md#spec-41-11 draws
 /// between a native request and a screen we inferred a question from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,7 +106,7 @@ impl QuestionSourceKind {
     }
 }
 
-/// What the remote agent is actually asking for. SPEC §17.2 requires these
+/// What the remote agent is actually asking for. docs/specs/remote-seats.md#spec-17-2 requires these
 /// to stay distinguishable: a planning choice, a request for information, a
 /// tool permission and a genuinely new authority are not the same decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,7 +234,7 @@ pub struct SeatQuestionCandidate {
     pub native_tool_use_id: Option<String>,
     /// The remote agent's own request payload, kept verbatim.
     ///
-    /// SPEC §41.11 requires the original action and parameters to survive:
+    /// docs/specs/remote-seats.md#spec-41-11 requires the original action and parameters to survive:
     /// a native answer has to echo what the remote side asked for, not a
     /// reconstruction of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -407,7 +407,7 @@ pub struct SeatObservation {
     pub raw_evidence: Vec<u8>,
 }
 
-/// The writer authority a write travels with — SPEC §17.1, §35.5, §41.11.
+/// The writer authority a write travels with — docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5, docs/specs/remote-seats.md#spec-41-11.
 ///
 /// The fence is not a local pre-check: it is the authority the adapter
 /// carries into the transport, so the write stays bound to the exact
@@ -437,7 +437,7 @@ pub struct SeatWriteFence {
     pub question_record_revision: RecordRevision,
 }
 
-/// The exact bytes one answer will write — SPEC §41.11 `exact_effect_input_digest`.
+/// The exact bytes one answer will write — docs/specs/remote-seats.md#spec-41-11 `exact_effect_input_digest`.
 ///
 /// The plan is produced *before* the effect is armed, so the durable
 /// decision can name the exact input that was intended.

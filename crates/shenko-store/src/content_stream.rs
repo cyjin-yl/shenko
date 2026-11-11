@@ -1,4 +1,4 @@
-//! Durable source-bound content stream journal — SPEC §12.5 stream journal.
+//! Durable source-bound content stream journal — docs/specs/durable-state.md#content-stream-journal stream journal.
 //!
 //! A streamed response (model output, execution output, seat/channel output)
 //! survives a crash or a UI reconnect: every unit the transport delivered is
@@ -26,7 +26,7 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 
 use crate::store::{Store, storage_error};
 
-/// The durable bound of one streamed chunk unit (SPEC §12.5): a producer
+/// The durable bound of one streamed chunk unit (docs/specs/durable-state.md#content-stream-journal): a producer
 /// flushes at 4 KiB or 100 ms, and the store refuses a chunk unit above the
 /// byte bound, so an unbounded payload can never be admitted as one unit.
 pub const CONTENT_CHUNK_MAX_BYTES: usize = 4096;

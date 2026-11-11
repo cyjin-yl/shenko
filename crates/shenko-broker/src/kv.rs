@@ -1,4 +1,4 @@
-//! Context residency pool and leases — SPEC §13.1–13.3, §13.7.3, §41.10.
+//! Context residency pool and leases — docs/specs/quota-resources.md#spec-13-1–docs/specs/quota-resources.md#spec-13-3, docs/specs/inference.md#spec-13-7-3, docs/specs/inference.md#spec-41-10.
 //!
 //! Compute permits and context residency are two different resources. This
 //! module owns only the second: how much of a backend's context pool a
@@ -100,7 +100,7 @@ pub struct Retention {
     pub reclaim_pending_units: u64,
 }
 
-/// The identity one context handle is only valid under (SPEC §13.5).
+/// The identity one context handle is only valid under (docs/specs/inference.md#spec-13-5).
 ///
 /// A backend restart, a model or tokenizer switch, a template or toolset change
 /// or a different scope invalidates the handle. Every field is optional because
@@ -213,7 +213,7 @@ pub struct ContextLease {
     #[serde(default)]
     pub identity: ResidencyIdentity,
     /// Readers currently using this context. Its units stay charged until they
-    /// drain: a reader still draining is not free space (§13.3 step 6).
+    /// drain: a reader still draining is not free space (docs/specs/quota-resources.md#spec-13-3 step 6).
     #[serde(default)]
     pub readers: u32,
     /// Residency options this context's sealed request named that the backend
@@ -270,7 +270,7 @@ pub struct KvPoolState {
     pub identity: ResidencyIdentity,
     /// Requests whose provider outcome is unknown while their read hold on a
     /// context is still open, keyed by request id and naming the context
-    /// (SPEC §41.9 unknown, §41.10). The units stay charged and the context
+    /// (docs/specs/inference.md#spec-41-9 unknown, docs/specs/inference.md#spec-41-10). The units stay charged and the context
     /// stays off the eviction list until the original terminal evidence
     /// arrives and the hold is drained: a dropped connection, a deadline or a
     /// lost receipt is not proof that the backend stopped reading that context.
@@ -316,7 +316,7 @@ impl KvPoolState {
     /// Units another context cannot use: resident, transferring and
     /// reclaim-pending. Reclaim-pending is counted because the backend has not
     /// confirmed the release yet; a context whose readers are still draining
-    /// stays in the occupied set until they finish (§13.3 step 6).
+    /// stays in the occupied set until they finish (docs/specs/quota-resources.md#spec-13-3 step 6).
     pub fn occupied_units(&self) -> u64 {
         self.leases
             .values()
@@ -340,7 +340,7 @@ impl KvPoolState {
 
     /// Invalidate every handle whose identity this engine/model/template no
     /// longer matches. The records stay: the old fact is kept, it is only no
-    /// longer counted as residency of the current engine (SPEC §13.5).
+    /// longer counted as residency of the current engine (docs/specs/inference.md#spec-13-5).
     pub fn invalidate_stale(&mut self, identity: &ResidencyIdentity) -> usize {
         let mut invalidated = 0;
         for lease in self.leases.values_mut() {
@@ -519,7 +519,7 @@ pub trait KvPolicy: Send + Sync {
 /// split, so two nearly equal costs do not make the pool oscillate. A
 /// materially better split (a side's demand outgrowing its share) switches
 /// immediately, and a changed pool size invalidates the hold — physical safety
-/// is never subject to the benefit threshold (§13.3 step 5).
+/// is never subject to the benefit threshold (docs/specs/quota-resources.md#spec-13-3 step 5).
 pub struct AutomaticKvPolicy {
     /// Minimum time a share is kept before it may drift, in milliseconds.
     pub min_hold_ms: u64,
@@ -802,7 +802,7 @@ impl KvAllocator {
         pool.capabilities = capabilities;
     }
 
-    /// Adopt the backend-level identity one probe established (SPEC §13.5).
+    /// Adopt the backend-level identity one probe established (docs/specs/inference.md#spec-13-5).
     ///
     /// A value the probe did not establish never erases one that was already
     /// known, because an unknown is not evidence of a change. Every handle the
@@ -901,7 +901,7 @@ impl KvAllocator {
     ///
     /// While a reader holds the context its units stay charged and it is not an
     /// eviction candidate, so a concurrent admission cannot take the space a
-    /// running generation is still reading (§13.3 step 6).
+    /// running generation is still reading (docs/specs/quota-resources.md#spec-13-3 step 6).
     ///
     /// A context whose release was already requested but never confirmed is
     /// read again: the pending release is revoked and the context returns to
@@ -941,7 +941,7 @@ impl KvAllocator {
     }
 
     /// Keep one context's read hold open because the request's outcome is
-    /// unknown (SPEC §41.9, §41.10).
+    /// unknown (docs/specs/inference.md#spec-41-9, docs/specs/inference.md#spec-41-10).
     ///
     /// A dropped connection, a deadline or a lost receipt does not prove the
     /// backend stopped reading the context, so its units stay charged and it

@@ -1,4 +1,4 @@
-//! 对象与内容寻址存储引用 — SPEC §41.2.2, §41.3
+//! 对象与内容寻址存储引用 — docs/specs/durable-state.md#spec-41-2-2, docs/specs/durable-state.md#spec-41-3
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -121,7 +121,7 @@ pub trait ContentAddressedStore: Send + Sync {
     fn delete_unpinned(&self, digest: &Digest) -> Result<(), crate::error::ShenkoError>;
 }
 
-/// 闭包验证结果 — SPEC §41.2.2
+/// 闭包验证结果 — docs/specs/durable-state.md#spec-41-2-2
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClosureValidation {
     pub root_revision: RecordRevision,

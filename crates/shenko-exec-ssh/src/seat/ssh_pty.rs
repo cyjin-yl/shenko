@@ -1,4 +1,4 @@
-//! Remote SSH seat adapter over a live PTY — SPEC §17.5.
+//! Remote SSH seat adapter over a live PTY — docs/specs/remote-seats.md#spec-17-5.
 //!
 //! A managed agent running on a remote host has no tmux control mode and no
 //! JSONL RPC. What it has is a terminal. This adapter owns the PTY session

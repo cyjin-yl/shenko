@@ -1,4 +1,4 @@
-//! The WeChat iLink channel plugin — SPEC §15.3, §16.
+//! The WeChat iLink channel plugin — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
 //!
 //! The plugin owns everything iLink-specific: the long-poll ingress, the CDN
 //! media flow, the per-conversation context tokens and the acceptance verdict

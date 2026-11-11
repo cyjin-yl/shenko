@@ -1,6 +1,6 @@
 //! The real broker's unknown-read retention, driven through the actual dispatch
-//! path — SPEC §13.3 (readers stay charged), §41.9/§41.10 (unknown outcomes keep
-//! their charge), §51.5/§51.10 (mechanism facts, no new permission gate).
+//! path — docs/specs/quota-resources.md#spec-13-3 (readers stay charged), docs/specs/inference.md#spec-41-9, docs/specs/inference.md#spec-41-10 (unknown outcomes keep
+//! their charge), docs/specs/cognition-units.md#spec-51-5, docs/specs/cognition-units.md#spec-51-10 (mechanism facts, no new permission gate).
 //!
 //! Every statement below is made about a product seam, never about source text:
 //!

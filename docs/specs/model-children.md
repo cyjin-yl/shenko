@@ -1,15 +1,26 @@
 # 模型 child：有限、多步、可调用真实能力的子 Agent
 
-适用范围：SPEC §5.3（委派与对话）、§5.5（主体—child 双向协作）、§6（child 的独立
-system prompt / 模型 / 上下文 / 工具 / 输出预算）、§14.5（递归收敛：父预算账户、去重）、
-§41.5（有限子任务）、R106/R107。
+
+<a id="why-2"></a>
+<!-- migrated-contract: WHY:2 -->
+## 为什么只有一条主思考流，却鼓励很多孩子
+
+主流承载持续身份和决定顺序；children 承载需要文件、进程、版本分支、研究试探和实际记忆维护的工作。这样可以同时保有连续的人格与廉价、多路线的行动能力。主子可以交谈、共享可发现的能力、使用不同模型和 prompt；角色不同不意味着孩子必须是功能残缺的模型。见 [§5](subject-runtime.md#spec-5)–[§6](subject-runtime.md#spec-6)、[§17](remote-seats.md#spec-17)–[§18](plugins.md#spec-18)。
+
+主流不直接操作任意文件，并非为了让它无能。它通过语义记忆、委派与自解释理解自己，通过 children 完成可跟踪的效果。实际操作属于任务，就能被版本化、核验、恢复和继续。开发 Shenko 的外部 Claude 是开发者角色，不能把产品主流的窄工具约束误套成“开发 Agent 不准改仓库”。
+
+<!-- /migrated-contract: WHY:2 -->
+
+适用范围：[§5.3](model-children.md#spec-5-3)（委派与对话）、[§5.5](model-children.md#spec-5-5)（主体—child 双向协作）、[§6](subject-runtime.md#spec-6)（child 的独立
+system prompt / 模型 / 上下文 / 工具 / 输出预算）、[§14.5](model-children.md#spec-14-5)（递归收敛：父预算账户、去重）、
+[§41.5](subject-runtime.md#spec-41-5)（有限子任务）、R106/R107。
 
 实现位置：`crates/shenko-subject/src/model_child.rs`（运行时）、
 `crates/shenko-subject/src/child.rs`（共享 native runtime 与工具目录）、
 `crates/shenko-store/src/{external,intents,child}.rs`（账本与准入）、
 `crates/shenko-types/src/output.rs`（作者可见的 spec 类型）。
 
-本文描述合同与接口；已执行的机制验证及未通过的边界见 §9。脚本 provider 配合真实
+本文描述合同与接口；已执行的机制验证及未通过的边界见 [§9](self-update.md#spec-9)。脚本 provider 配合真实
 CLI、Store、broker 的验证不等于真实模型行为验收，也不覆盖未执行的恢复场景。
 
 ---
@@ -20,7 +31,7 @@ CLI、Store、broker 的验证不等于真实模型行为验收，也不覆盖�
 
 | 事实 | 归属 | 持久位置 |
 | --- | --- | --- |
-| 冻结的 child 合同（契约 schema 3；历史 schema 2 的读取见 §6） | 委派者写、运行器绑定 | `subject_intents` 的 delegation 行 + CAS 对象 |
+| 冻结的 child 合同（契约 schema 3；历史 schema 2 的读取见 [§6](subject-runtime.md#spec-6)） | 委派者写、运行器绑定 | `subject_intents` 的 delegation 行 + CAS 对象 |
 | 每个模型步（一次真实 generation） | child 自己的 operation/attempt/evidence | `operations` / `attempts` / `evidence_receipts`，operation 名 `model.child.generate.v1` |
 | 每次工具调用 | 一个**真实的** native 子任务 | `tasks`（kind = 工具 kind，owner = child 任务） |
 | 运行结果（transcript、答案、预算、终止原因） | child 的 run operation | operation 名 `model.child.result.v1` + 其 normalized 记录 |
@@ -62,7 +73,7 @@ child 运行永远有界，三条预算同时生效（`ModelChildBudget`）：
 | `context` | 交给 child 的上下文块（`{label, text}`） | 可空 |
 | `budget` | 本运行的有限预算 | 可空；缺省 = 由 `max_tokens` 推导 |
 | `reply_grant` | 外发授权（目标、消息类型、有效期） | 可空；缺省 = 该 child 完全不能外发 |
-| `continue_task_id` | 继续先前某次 child 运行 | 可空；见 §6 |
+| `continue_task_id` | 继续先前某次 child 运行 | 可空；见 [§6](subject-runtime.md#spec-6) |
 | `owner_answer` | owner 对该 child 提问的回答 | 与 `continue_task_id` 同时出现 |
 
 **输出预算不是主体单步上限的函数。** 主体某一步的 `max_tokens`（S0 payload 的
@@ -93,7 +104,7 @@ provider 绑定、决定内容、预算提示一致；不一致即拒绝该委�
 一起移动）。child 合同必须绑定到同一个 plan schema；用旧 plan 封存的 child
 委派会被拒绝，不会被"宽容读取"。
 
-每个模型步另有自己的冻结输入 `FrozenModelChildStep`（当前 step schema 2；历史读取见 §7.1），它携带
+每个模型步另有自己的冻结输入 `FrozenModelChildStep`（当前 step schema 2；历史读取见 [§7.1](plugins.md#spec-7)），它携带
 `contract_digest`（= 冻结合同的 digest）、`request_id`、该步的 `provider_binding`、
 `max_tokens` 和**实际发出的 payload** 与其 `payload_fingerprint`。账本上每个 step
 operation 的 `final_input_ref` 指向它，`input_digest == final_input_ref.digest`。
@@ -133,7 +144,7 @@ attempt、evidence 与 T2，走的是主体委派时完全相同的 handler、au
 自己的模型步、自己的 transcript，并作为外层 child 的持久子任务存在。
 
 * 嵌套 child 只能花费外层 child **剩余**的预算（`budget.max_total_tokens` 不得超过
-  外层剩余额度）。递归**不增加**总预算（SPEC §14.5）。
+  外层剩余额度）。递归**不增加**总预算（[§14.5](model-children.md#spec-14-5)）。
 * 嵌套 child **没有**自己的外发授权：外层 child 持有被授予的 `reply_grant`，
   一个逻辑回复只有一个负责发布者。
 * 嵌套 child 的每步输出预算不因 transport 默认值而缩小，仍受自己的总预算和实际资源约束。
@@ -456,3 +467,78 @@ native input 绑定而失败，修正的是测试初始化，未放宽产品准�
    transcript 与结果。
 
 未验证项不得被当作"已通过"。
+
+<a id="spec-5-3"></a>
+<!-- migrated-contract: SPEC:5.3 -->
+## 5.3 委派与对话
+
+外部消息默认进入主体结构化输入序列，由它决定理解、回复或委派；不能默认跳过主体直接交给另一个长期聊天人格。普通聊天可由有限对话 child 生成并在有效委派内发送。主体选择其角色、完整 system prompt、所用模型与必要的人格上下文；child 可以有不同工作角色，不必机械复制整份主体 system。免打扰/垃圾过滤按 [§13.8](subject-runtime.md#spec-13-8) 进入可追溯的延期或隔离状态，仍可由主体回看。
+
+D2 已裁决：允许有限直接发布。主体在 handoff 时可一次授予 ReplyGrant，绑定 task/generation、目标 provider/account/conversation/thread、所回复事件、可发消息类型、完成/取消条件和必要的有效期。child 在有效委派内可把文本、附件或动态 UI 交给渠道插件直接发送，无需主体逐条再写一次，也无需每条询问人类；研究任务没有该委派时按通常结果路径回传。
+
+一个逻辑回复只登记一个发布责任人。进展、澄清、阶段成果、最终答案和失败分别记录；“收到，正在查”不吞掉最终答案或随后失败。直接发送后，主体消费内容摘要、来源和投递回执，不默认再复述同一答案。peer 广播/自动回传不产生新的外部发言委派，也不形成主子互相自动回复的无限链。
+
+发送前校验当前任务版本与有效委派；取消/改目标后的晚结果不抢发。发件箱持久记录 prepared/dispatched/confirmed/failed/unknown、逻辑 reply ID、结果 revision 和平台消息 ID。内部 Agent 收到、平台接受、人类已读、任务完成是不同状态；发送后断线先核查，平台缺少幂等/查询时如实保留不确定性。消息已经发出后，撤回/编辑是独立操作，不能把 task 取消当消息从未存在。已完成结果的交付不应额外占用推理 slot。
+
+参考 OMP 固定版本的 owner-routed async-result、父消息/有效 steer 驱动的有限跟进、canonical result 接受条件、delivery epoch 与防重复 relay。其 IRC 为 Agent 间 mailbox，主 UI relay 为展示；这不是现成的 QQ/飞书外发能力。本产品在相应思想上增加 durable 渠道发布合同。[OMP 结果接受/回传](https://github.com/can1357/oh-my-pi/blob/0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0/packages/coding-agent/src/task/executor.ts)、[async delivery](https://github.com/can1357/oh-my-pi/blob/0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0/packages/coding-agent/src/session/async-job-delivery.ts)、[IRC bus](https://github.com/can1357/oh-my-pi/blob/0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0/packages/coding-agent/src/irc/bus.ts)。每次完整指定 child system prompt 和不同模型是本产品一级能力，不误称 OMP 普通 task wire 已普遍提供这两个参数。
+
+子 Agent 进度应包含：当前阶段、完成证据、下一阻碍、预算使用、工作分支、待处理外部副作用。主体获得有限结果包，不把每个孩子的全部思考串回自己的 context。记忆读写的确定性步骤可以在 memory worker 内不调用模型；只有语义反思/综合需要推理，避免每次读取强制额外 LLM 回合。
+
+<!-- /migrated-contract: SPEC:5.3 -->
+
+<a id="spec-5-5"></a>
+<!-- migrated-contract: SPEC:5.5 -->
+## 5.5 共享能力全集与主体—child 双向协作
+
+主体和 child 使用同一套 Agent 定义、能力目录、插件实现与版本体系；“主/子”是当前任务与 role 的区别，不是两套互不相通、孩子天然缺能力的框架。任何一方都可认识已安装能力、发现缺口、提出安装或开发意图，并按任务需要请求另一方协助。一个 child 产出的插件经验证与提升后进入共享 registry，主体和其他孩子在后续安全边界即可发现，不要求重新启动或复制整套安装。
+
+当前有效 role 决定本轮直接执行入口：主体继续保留 [§5.2](subject-runtime.md#spec-5-2) 的意图、语义记忆和委派职责；文件、SSH、REPL、安装与版本操作由执行角色的 child 完成。共享能力全集不把主体变成第二个文件操作者，也不要求所有 child 接收全部工具 schema 或所有私密上下文。角色、任务 scope、数据可见性、执行 lease 与资源预算分别表达；切换 role 或提升插件有版本回执，不能借修改角色名字绕过当前有效合同。框架本身和这些角色实现仍可按 [§9](self-update.md#spec-9) 自改。
+
+协作不是只返回一次最终摘要。提供持久的双向 dialogue：主体可追问假设、解释目标、讨论设计、提供来源、请求验证；child 可反问需求、报告观察不足、提出能力方案、请求同伴或反馈冲突。每条消息带 task/conversation、sender/recipient instance、role revision、in-reply-to、来源与附件引用；状态至少区分已收、已投递、已处理、已取代。恢复后续接同一讨论，不重复发起孩子或执行已完成动作。
+
+对话可以异步进行。等待回答、等待工具和等待孩子时释放模型计算许可；每个接收者的对话更新按自己的顺序处理。主体仍只有一条有效决策序列，child 仍有目标与终止条件。主子双方引用同一证据/插件产物，而非在各自 context 中反复复制全部历史。自然任务验收应包含 child 主动指出“现有工具看不到选中项”并与主体共同收敛出修复方案。
+
+<!-- /migrated-contract: SPEC:5.5 -->
+
+<a id="spec-14-5"></a>
+<!-- migrated-contract: SPEC:14.5 -->
+## 14.5 递归收敛
+
+子任务形成 DAG，有父预算账户和唯一语义指纹；相同查询/来源/实验去重。spawn 只分配已有预算，不凭递归增加总预算；为最终比较、复核和交付预留份额。工具 IO 可并行，推理 admission 与 KV 驻留独立调度。
+
+研究阶段先扩展假设，再围绕证据缺口收敛；达到阶段验收、边际收益下降或本阶段资源需要调整时，保存当前结论、证据、未知点和继续成本。D9 允许兴趣长期续开，不能把阶段结束、暂时没有用户用途或一次预算耗尽当作必须永久停止的理由。主体可自主分配下一阶段，也可选择改变/放弃兴趣；阶段产物便于连续性，不是必须定期向人交作业。
+
+验证采用相同总资源预算比较：保留全部上下文、summary、reset、selective reminders、reset+reminders；计入主体/子 Agent/记忆/judge 的全部推理与冷 prefill。任务正确率、证据覆盖、重复错误、延迟、资源消耗共同评估，避免只追 cache hit 或多开孩子数量。
+
+<!-- /migrated-contract: SPEC:14.5 -->
+
+<a id="spec-53"></a>
+<!-- migrated-contract: SPEC:53 -->
+# 53 子代理命名 / Child Agent Naming
+
+来源：用户指示 2026-11-06；与 [§1](architecture.md#spec-1)「框架／产品名与每个 Agent 的姓名分开，实例初始化时由用户命名或让 Agent 自己命名」一致。
+
+Shenko 的子代理（child agents, `ChildIdentity`）由主体自主命名，而非使用随机 UUID 或数字序号。命名规则：
+
+- **有意义**（meaningful）：名字反映任务性质、角色或个性特征，使人和主体在日志、对话和 journal 中能直觉识别。
+- **可记忆**（memorable）：名字简短、可发音，适合在对话和消息中引用。不使用 `child-3f8a-b2c1` 这类标识。
+- **反映任务或个性**（task- or personality-reflective）：执行编码任务的子代理、执行研究的子代理、执行通讯的子代理各有不同名字风格，主体可按自己的 awareness 和 taste 决定命名方案。
+
+```rust
+/// 子代理身份。名字由主体选择，不随机生成。
+/// Child agent identity. Name chosen by the subject, never randomly generated.
+pub struct ChildIdentity {
+    /// 人类可读名字，例如 "Kael"、"笔砚"、"Scout"。
+    pub name: String,
+    /// 可选的角色或任务描述。
+    pub role: Option<String>,
+    /// 内部唯一标识，仍由 CAS 或序列生成，不暴露给用户。
+    pub internal_id: ChildId,
+}
+```
+
+命名不是装饰。`ChildIdentity.name` 出现在 journal 条目、outbox 消息署名、日志输出和主体对话引用中。主体可以修改已有子代理的名字（作为该 identity 的一次 revision），旧名字保留在 journal 历史中。
+
+当用户在实例初始化时选择让 Shenko 命名自己的子代理时，主体按自身 awareness 和 personality 选名，不请求人类逐个批准。如果用户希望自行命名某个子代理，这是一条普通指令，主体执行即可。
+
+<!-- /migrated-contract: SPEC:53 -->

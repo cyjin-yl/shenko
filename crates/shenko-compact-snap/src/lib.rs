@@ -1,4 +1,4 @@
-//! Snapcompact — an independently installable ContextPolicy plugin (§12.3.1).
+//! Snapcompact — an independently installable ContextPolicy plugin (docs/specs/context-policies.md#spec-12-3-1).
 //!
 //! Follows OMP `0b5c27a` snapcompact 18.12.6: bounded, normalized archive text
 //! (tool output/arguments truncated, `truncated_chars` recorded) is rendered

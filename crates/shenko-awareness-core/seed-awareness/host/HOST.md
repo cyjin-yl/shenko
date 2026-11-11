@@ -8,7 +8,7 @@ why: 觉察是一种能力，不是一篇读过去就能稳定遵守的文档。
 cues: ["想确认这台机器现在有没有觉察能力", "准备按某条注意材料行事之前", "怀疑某条 notice 到底来自已采纳的材料还是凭空想起"]
 negative_cues: ["只是要读某则材料正文", "需要的是某次真实观测而不是注意材料"]
 provides: [cap.awareness.host/1]
-provenance: [SPEC §51.2, §51.3, §51.8]
+provenance: ["docs/specs/cognition-units.md#spec-51-2", "docs/specs/cognition-units.md#spec-51-3", "docs/specs/cognition-units.md#spec-51-8"]
 ---
 
 这个单元声明的是「本机拥有觉察能力」这件事，不声明任何一条具体的注意。具体的注意写成独立的原子材料，可以单独安装、替换、修订和采纳。

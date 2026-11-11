@@ -1,4 +1,4 @@
-//! Open provider profiles and wire contracts — SPEC §13.7, §41.10, §47.
+//! Open provider profiles and wire contracts — docs/specs/inference.md#spec-13-7, docs/specs/inference.md#spec-41-10, docs/specs/inference.md#spec-47.
 //!
 //! A profile is the non-secret, versioned description of one provider
 //! binding: backend family, transport, endpoint origin, model, API version,
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::request::{ProviderBinding, TokenUsage};
 
 /// Native extension namespaces kept distinct from the OpenAI-compatible
-/// minimum common denominator (SPEC §13.7).
+/// minimum common denominator (docs/specs/inference.md#spec-13-7).
 pub const NATIVE_NAMESPACE_NINFER: &str = "native.ninfer";
 pub const NATIVE_NAMESPACE_STRATA: &str = "native.strata";
 pub const NATIVE_NAMESPACE_VLLM: &str = "native.vllm";

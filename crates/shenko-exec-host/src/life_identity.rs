@@ -1,4 +1,4 @@
-//! Life identity adapter — SPEC §15.2.1, R102.
+//! Life identity adapter — docs/specs/contacts.md#spec-15-2-1, R102.
 //!
 //! Reuses the *actual* schemas of the private `cyjin-yl/life` project
 //! (pinned by SPEC at `618f0dcb`) instead of inventing a parallel numbering:
@@ -335,7 +335,7 @@ impl LifeIdentityAdapter {
 
     /// Import voiceprint rank records. Each keeps its recording scope and
     /// model revision; candidates become candidate links, and only an
-    /// explicit confirmation produces a confirmed link (§15.2.1).
+    /// explicit confirmation produces a confirmed link (docs/specs/contacts.md#spec-15-2-1).
     pub fn import_ranks(
         &self,
         agent_id: shenko_types::ids::EntityId,

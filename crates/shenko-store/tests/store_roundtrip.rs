@@ -1,5 +1,5 @@
 //! S1 验证：SQLite WAL store round-trip + CAS seal/read
-//! 验证 §41.2: 单 mutation line, CAS object seal/read, FTS5 detection
+//! 验证 docs/specs/durable-state.md#spec-41-2: 单 mutation line, CAS object seal/read, FTS5 detection
 
 use shenko_store::store::Store;
 use shenko_types::store::WriteBatch;
@@ -1362,7 +1362,7 @@ fn native_recovery_rolls_back_all_pages_when_later_identity_is_corrupt() {
 
 // ---------------------------------------------------------------------------
 // Subject outbox: one atomic T1, and a dispatch loop that committed facts can
-// never poison. SPEC §41.4 X07/X11, §41.6.
+// never poison. docs/specs/durable-state.md#spec-41-4 X07/X11, docs/specs/channels.md#spec-41-6.
 // ---------------------------------------------------------------------------
 
 /// The outbox intent one committed subject step authors.

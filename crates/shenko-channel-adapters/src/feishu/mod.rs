@@ -1,4 +1,4 @@
-//! The Feishu/Lark open-platform channel adapter — SPEC §15.3, §16, §35.6.
+//! The Feishu/Lark open-platform channel adapter — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6.
 //!
 //! The platform speaks a WebSocket event dispatcher (`wss://…/callback/ws`)
 //! for ingress and an HTTPS open API for egress, authenticated with an

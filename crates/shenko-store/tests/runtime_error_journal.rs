@@ -1,4 +1,4 @@
-//! Durable runtime-error journal — SPEC §45.14. Local SQLite/CAS only; no
+//! Durable runtime-error journal — docs/specs/cognition-units.md#spec-45-14. Local SQLite/CAS only; no
 //! provider or deployment evidence is claimed here.
 use shenko_store::{RUNTIME_ERROR_EVENT_TYPE, RuntimeErrorContext, Store};
 use shenko_types::commit::CommitRef;

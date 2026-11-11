@@ -1,4 +1,4 @@
-//! Cognition recovery replication — SPEC §5.4, §36.5, §41.2, R113/R145/R147.
+//! Cognition recovery replication — docs/specs/nodes.md#spec-5-4, docs/specs/durable-state.md#spec-36-5, docs/specs/durable-state.md#spec-41-2, R113/R145/R147.
 //!
 //! A store can hand another node the facts a recovering self needs: identity
 //! and soul, raw history, subject decisions, goals, intents, tasks,
@@ -457,7 +457,7 @@ enum RowKind {
     Monotonic,
     /// A fact carrying its own explicit revision. The peer wins only with a
     /// strictly greater revision — the record's own order decides, never
-    /// which peer happened to answer first (SPEC §41.2: no last-writer-wins
+    /// which peer happened to answer first (docs/specs/durable-state.md#spec-41-2: no last-writer-wins
     /// on a durable record).
     Revisioned,
     /// A fact with a monotone state ladder. The peer may move the row
@@ -1000,7 +1000,7 @@ const TABLES: &[TableSpec] = &[
         local_seq: None,
         kind: RowKind::Verbatim,
     },
-    // Durable browser submissions (SPEC §41.18): the submission binding,
+    // Durable browser submissions (docs/specs/web-interface.md#spec-41-18): the submission binding,
     // its durable event identity and the admitted payload are one immutable
     // fact. The admission sequence is the receiving store's own, never the
     // peer's — the binding, not the sequence, is the replicated fact.
@@ -1039,7 +1039,7 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // Durable seats (SPEC §17.1): a seat record, its leases, its durable
+    // Durable seats (docs/specs/remote-seats.md#spec-17-1): a seat record, its leases, its durable
     // questions and the answer decisions on them form ONE conflict unit
     // (`seat/…`). A diverged peer can never graft a foreign lease or
     // decision onto a local seat.
@@ -1074,7 +1074,7 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // Provider quota facts (SPEC §42.5): the admission facts are replicated,
+    // Provider quota facts (docs/specs/quota-resources.md#spec-42-5): the admission facts are replicated,
     // the local admission SEQUENCE is not — the receiving store records its
     // own, so "the newest snapshot/decision" stays meaningful locally.
     // Requests and their sends group as `quota_request/…` units.
@@ -1350,7 +1350,7 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // The durable stream journal (SPEC §12.5): stream registration plus all
+    // The durable stream journal (docs/specs/durable-state.md#content-stream-journal): stream registration plus all
     // of its journaled units form ONE conflict unit (`stream/…`). Whole
     // units and chunks stay distinct shapes; the closing facts are part of
     // the unit, never rewritten.
@@ -1412,7 +1412,7 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_seq"),
         kind: RowKind::Revisioned,
     },
-    // Cognitive atoms (SPEC §51.1): the canonical content registry, the
+    // Cognitive atoms (docs/specs/cognition-units.md#spec-51-1): the canonical content registry, the
     // append-only attitude ledger, and the insert-only mapping that points at
     // a legacy row's original bytes. Contents come first, because the rows
     // after them reference a digest. `created_commit_seq` on an attitude is
@@ -3758,7 +3758,7 @@ const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
     // A cognitive attitude exists only about a registered version of content,
     // and a legacy mapping only about the bytes it points at. Shipping either
     // without its content registration would hand over an attitude that names
-    // a revision the receiver can never read (SPEC §51.1).
+    // a revision the receiver can never read (docs/specs/cognition-units.md#spec-51-1).
     ("cognition_attitudes", "cognition_contents", "digest", "digest"),
     ("cognition_legacy_content", "cognition_contents", "content_digest", "digest"),
 ];
@@ -3796,7 +3796,7 @@ fn archive_membership_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     }
     // A revision names the version it supersedes. Dropping that version would
     // silently turn a revision into an unrelated first version, so the parent
-    // content has to travel too (SPEC §51.4: the chain only grows).
+    // content has to travel too (docs/specs/cognition-units.md#spec-51-4: the chain only grows).
     let archived_contents: HashSet<&str> = rows
         .iter()
         .filter(|row| row.table == "cognition_contents")
@@ -4468,7 +4468,7 @@ fn apply_memory_pairs(
                 (None, None) => {
                     // The dedicated subject representation keeps no binding
                     // sidecar; compare the content-addressed locator tail,
-                    // never the node-local path (SPEC §12.2: a locator may
+                    // never the node-local path (docs/specs/memory.md#spec-12-2: a locator may
                     // change while the content identity stays).
                     compatible &= match (local_locator, parent.value("content_ref")) {
                         (None, None) => true,
@@ -6285,7 +6285,7 @@ mod archive_admission_tests {
         assert!(receiver.list_memory(10).unwrap().is_empty());
     }
 
-    /// Cognitive atoms are REQUIRED archive facts (SPEC §51.1). They travel
+    /// Cognitive atoms are REQUIRED archive facts (docs/specs/cognition-units.md#spec-51-1). They travel
     /// with the content they name, a receiver restores the exact attitude
     /// identity/commit/confidence, an archive that names an attitude without
     /// its content version is refused whole, and a reader that declares a

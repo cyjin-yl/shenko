@@ -1,4 +1,4 @@
-//! The Feishu/Lark message builder — SPEC §16.
+//! The Feishu/Lark message builder — docs/specs/channel-adapters.md#spec-16.
 //!
 //! A Feishu message is not a plain string: it is a `post` document of typed
 //! blocks. A text paragraph is one block, an image is an `img` block naming

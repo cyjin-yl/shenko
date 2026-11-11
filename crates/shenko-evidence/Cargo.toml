@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "SPEC obligation, acceptance-case and evidence mapping — SPEC §23/§29/§40/§46, C19"
+description = "SPEC obligation, acceptance-case and evidence mapping — docs/specs/verification.md#spec-23, docs/specs/verification.md#spec-29, docs/governance/development-contract.md#spec-40, docs/governance/COMPLETION.md#spec-46, C19"
 
 [dependencies]
 serde_json = { workspace = true }

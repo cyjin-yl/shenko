@@ -1,4 +1,4 @@
-//! Anthropic Claude API provider — SPEC §47 PV01–PV06, §13.7.
+//! Anthropic Claude API provider — docs/specs/inference.md#spec-47 PV01–PV06, docs/specs/inference.md#spec-13-7.
 //!
 //! The wire contract is the Anthropic Messages API. The rules of the bound
 //! API version — the forbidden sampling keys, the role and citation limits —

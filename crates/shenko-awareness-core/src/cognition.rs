@@ -1,4 +1,4 @@
-//! Installable cognition units — SPEC §45.1–45.10.
+//! Installable cognition units — docs/specs/cognition-units.md#spec-45-1–docs/specs/cognition-units.md#spec-45-10.
 //!
 //! Perception, awareness, Skill and code are one kind of installable unit.
 //! They share one installation authority: the Node's unit store. This module
@@ -61,7 +61,7 @@ pub const TOOL_VERSION: u32 = 1;
 /// calls the native tool its own delegation granted. The index itself is the
 /// same installed catalogue either way — main and children share every
 /// discoverable unit, while the role and the grant decide what each of them
-/// can execute (SPEC §45.4).
+/// can execute (docs/specs/cognition-units.md#spec-45-4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CognitionCall {
     /// The subject's own delegation syntax.
@@ -301,7 +301,7 @@ pub struct CognitionMetadata {
 
 /// One authored cognition unit, before it is installed.
 ///
-/// The authored form is the minimal package of SPEC §45.2: an entry file with
+/// The authored form is the minimal package of docs/specs/cognition-units.md#spec-45-2: an entry file with
 /// a small frontmatter and a body. The body is the material the model reads;
 /// the frontmatter carries the identity, the card and the provenance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -399,7 +399,7 @@ impl CognitionPackage {
 
 /// Parse one authored cognition entry.
 ///
-/// The frontmatter is the minimal form of SPEC §45.2: `key: value` or
+/// The frontmatter is the minimal form of docs/specs/cognition-units.md#spec-45-2: `key: value` or
 /// `key: [a, b]` lines between `---` markers. Everything after the closing
 /// marker is the body.
 pub fn parse_cognition_entry(content: &str, entry_path: &Path) -> Result<CognitionPackage> {
@@ -531,18 +531,18 @@ pub fn seed_packages() -> Result<Vec<CognitionPackage>> {
 // ------------------------------------------------------- capabilities ----
 
 /// The capability contract the subject's own role frame is resolved
-/// against. SPEC §57.1: the frame is a content unit the subject may revise,
+/// against. docs/specs/subject-runtime.md#spec-57-1: the frame is a content unit the subject may revise,
 /// so the harness asks for a capability instead of naming a package.
 pub const CAP_SUBJECT_FRAME: &str = "cap.subject-frame";
 
 /// The capability contract for what the subject receives when no new
-/// external input arrived. SPEC §57.2: idleness is a perception, not a
+/// external input arrived. docs/specs/subject-runtime.md#spec-57-2: idleness is a perception, not a
 /// command line.
 pub const CAP_IDLE_PERCEPTION: &str = "cap.idle-perception";
 
 /// The capability contract for the role frame a delegated child runs under.
 ///
-/// SPEC §57.10: the frame says what kind of worker the child is. It is the
+/// docs/specs/self-update.md#spec-57-10: the frame says what kind of worker the child is. It is the
 /// subject's to write — it can give different tasks different children — while
 /// the harness keeps the real protocol boundaries (the tool catalog, the reply
 /// grant, the budget).
@@ -550,7 +550,7 @@ pub const CAP_CHILD_ROLE_FRAME: &str = "cap.child-role-frame";
 
 /// The capability contract for the subject's own attention budget.
 ///
-/// SPEC §57.3: how many inputs one step reads, and how long the subject
+/// docs/specs/subject-runtime.md#spec-57-3: how many inputs one step reads, and how long the subject
 /// waits for more, are the subject's setting — not a constant the harness
 /// picked. The unit that provides this contract states the numbers; the
 /// harness keeps only the bounds that prevent starvation.
@@ -562,7 +562,7 @@ pub const CAP_ATTENTION_POLICY: &str = "cap.attention-policy";
 /// applies. `Ambiguous` means two or more DISTINCT units provide it: the
 /// harness does not pick one silently, it keeps the compiled fallback and
 /// tells the subject, because which frame is in force is the subject's own
-/// decision (SPEC §51.8, §57.1).
+/// decision (docs/specs/cognition-units.md#spec-51-8, docs/specs/subject-runtime.md#spec-57-1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CapabilityUnit {
     /// Exactly one unit provides the capability; this is its current body.

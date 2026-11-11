@@ -1,4 +1,4 @@
-//! The official QQ bot OpenAPI client — SPEC §16, §15.3.
+//! The official QQ bot OpenAPI client — docs/specs/channel-adapters.md#spec-16, docs/specs/channel-adapters.md#spec-15-3.
 //!
 //! Every call in this module is a real, named endpoint of the official
 //! platform:

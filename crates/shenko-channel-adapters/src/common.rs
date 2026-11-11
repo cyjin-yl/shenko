@@ -1,7 +1,7 @@
 //! Facts every adapter shares: how healthy the connector is, and the small
 //! amount of HTTP/token plumbing that must behave identically everywhere.
 //!
-//! SPEC §15.3 requires capability discovery, authentication/renewal and health
+//! docs/specs/channel-adapters.md#spec-15-3 requires capability discovery, authentication/renewal and health
 //! status to be *real* platform facts. The capability table itself belongs to
 //! the plugin contract (`shenko_types::capabilities::ChannelCapabilities`),
 //! so every installed channel — the three adapters here and the QQ plugin
@@ -574,7 +574,7 @@ pub async fn read_attachment_bytes(
 }
 
 // ---------------------------------------------------------------------------
-// Inbound attachment resolution — SPEC §15.1, §35.6
+// Inbound attachment resolution — docs/specs/channels.md#spec-15-1, docs/specs/channels.md#spec-35-6
 // ---------------------------------------------------------------------------
 
 /// How much of a refusal body is kept as the platform's own statement.

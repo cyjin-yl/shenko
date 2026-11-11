@@ -1,4 +1,4 @@
-//! QQ/NapCat channel plugin — SPEC §16, §35.6, §41.6.
+//! QQ/NapCat channel plugin — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6, docs/specs/channels.md#spec-41-6.
 //!
 //! The plugin owns everything QQ-specific: the OneBot v11 wire protocol, the
 //! numeric account ids, the reply audience kinds, the attachment segments and

@@ -1,4 +1,4 @@
-//! What a channel platform can really do — SPEC §15.3, §57.4.
+//! What a channel platform can really do — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4.
 //!
 //! One installed plugin declares this table once, at the boundary it owns.
 //! The runtime advertises exactly this set, so a platform is never described

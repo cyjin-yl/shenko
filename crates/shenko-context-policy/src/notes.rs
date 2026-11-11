@@ -1,4 +1,4 @@
-//! Branch-journaled working notes for notes-backed context windows — SPEC §12.3.1.
+//! Branch-journaled working notes for notes-backed context windows — docs/specs/context-policies.md#spec-12-3-1.
 //!
 //! The notebook is not a second transcript: it is a small, model-authored
 //! working state. Each replacement is a journal revision of one branch scope,
@@ -136,7 +136,7 @@ pub trait NotesJournal: Send + Sync {
             .find(|note| note.revision == revision))
     }
 
-    /// The content reference of one retained revision (SPEC §51.1: content is
+    /// The content reference of one retained revision (docs/specs/cognition-units.md#spec-51-1: content is
     /// immutable and addressed by digest).
     ///
     /// A store-backed journal seals the retained bytes into the content store

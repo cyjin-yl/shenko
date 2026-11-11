@@ -1,4 +1,4 @@
-//! Real macOS desktop provider (SPEC §24.1, §24.3).
+//! Real macOS desktop provider (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3).
 //!
 //! Hand-rolled FFI against the CoreGraphics/ApplicationServices frameworks
 //! — no external objc2/core-graphics crates — so the implementation stays

@@ -1,4 +1,4 @@
-//! 证据收据与对账案例 — SPEC §41.4 X04
+//! 证据收据与对账案例 — docs/specs/durable-state.md#spec-41-4 X04
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ pub enum ObservationLevel {
     PostconditionVerified,
 }
 
-/// EvidenceReceipt — SPEC §41.4 X04
+/// EvidenceReceipt — docs/specs/durable-state.md#spec-41-4 X04
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceReceipt {
     pub record_schema_version: u32,
@@ -48,7 +48,7 @@ pub enum DecodeStatus {
 impl EvidenceReceipt {
     /// The source scope a stable event key deduplicates inside: source,
     /// source instance and the producer's own event key (SPEC X04,
-    /// §41.7.3). Without a stable key there is nothing to deduplicate
+    /// docs/specs/plugins.md#spec-41-7-3). Without a stable key there is nothing to deduplicate
     /// against, and equal content alone is not proof that two external
     /// events are the same event.
     pub fn source_scope(&self) -> Option<(&str, &str, &str)> {
@@ -139,7 +139,7 @@ impl EvidenceReceipt {
     }
 }
 
-/// One preserved `RECEIPT_KEY_CONFLICT` (SPEC X04, §41.7.3).
+/// One preserved `RECEIPT_KEY_CONFLICT` (SPEC X04, docs/specs/plugins.md#spec-41-7-3).
 ///
 /// The first receipt of a source scope keeps its identity unchanged; a
 /// divergent original that arrives under the same scope (or under an
@@ -175,7 +175,7 @@ pub enum EvidenceConflictKind {
     SourceEventKey,
 }
 
-/// 对账案例 — SPEC §41.4 X04
+/// 对账案例 — docs/specs/durable-state.md#spec-41-4 X04
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReconciliationCase {
     pub case_id: EntityId,
@@ -200,7 +200,7 @@ pub enum ReconciliationState {
     AcknowledgedUnknown,
 }
 
-/// 主体对一笔“效果未知”的对账案例所作出的显式决定 — SPEC §41.4 X11。
+/// 主体对一笔“效果未知”的对账案例所作出的显式决定 — docs/specs/durable-state.md#spec-41-4 X11。
 ///
 /// 它是 S1 决定里的一个意图，不是调用方的自述：真正的 actor、provenance
 /// 和决定原文由提交这一步的 Store 冻结在那个 sealed `StepDecision`
@@ -214,7 +214,7 @@ pub struct ReconciliationAcknowledgement {
     /// 覆盖前一笔已经提交的原文。
     pub acknowledgement_id: EntityId,
     /// 这笔读法的理由停在哪里：该 case 已挂上的原始证据收据身份
-    /// （观察/回执是合法的理由根，SPEC §51.1）。S1 会核对它确实是这个
+    /// （观察/回执是合法的理由根，docs/specs/cognition-units.md#spec-51-1）。S1 会核对它确实是这个
     /// case 当时携带的收据，不会接受编造的引用。
     pub reason_refs: Vec<EntityId>,
     /// 剩余影响：为什么此刻可以带着这份未消除的不确定性继续别的

@@ -1,4 +1,4 @@
-//! Authored notebook recovery — SPEC §12.3.1, §5.4.
+//! Authored notebook recovery — docs/specs/context-policies.md#spec-12-3-1, docs/specs/nodes.md#spec-5-4.
 //!
 //! The working-note journal and the scope's rollover request are authored
 //! facts, not transient material: a declared recovery must preserve the exact
@@ -139,7 +139,7 @@ fn authored_notes_clear_and_fork_survive_peer_recovery_and_reopen() {
     let _ = std::fs::remove_dir_all(&receiver_dir);
 }
 
-/// Authored note bytes are immutable content (SPEC §51.1, §51.4): recovery
+/// Authored note bytes are immutable content (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-4): recovery
 /// copies them exactly — multibyte text at the journal bound and a body that
 /// merely looks like a digest reference — and a digest-looking body is a
 /// non-blocking external-digest reading, never a reason to drop or rewrite

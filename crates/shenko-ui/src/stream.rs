@@ -1,4 +1,4 @@
-//! Durable stream sink — SPEC §21.11 流数据与显示状态, §21.9.
+//! Durable stream sink — docs/specs/web-interface.md#spec-21-11 流数据与显示状态, docs/specs/web-interface.md#spec-21-9.
 //!
 //! Real streaming starts at the provider stream (ArchBroker), is redacted to
 //! public text by the subject (`public_text_prefix`), and lands here. Each
@@ -146,7 +146,7 @@ impl StreamSink {
     /// Durable resume for a reconnecting client. `after_commit_seq` is the
     /// last commit the client durably applied (0 = from the beginning).
     /// Holes in chunk_seq are returned as-is; the client buffers and waits
-    /// for the missing seq instead of patching text (§21.11).
+    /// for the missing seq instead of patching text (docs/specs/web-interface.md#spec-21-11).
     pub fn parts_after(
         &self,
         after_commit_seq: u64,
@@ -158,7 +158,7 @@ impl StreamSink {
     }
 }
 
-/// The reader surface of a provider stream — SPEC §21.9, §57.5.
+/// The reader surface of a provider stream — docs/specs/web-interface.md#spec-21-9, docs/specs/web-interface.md#spec-57-5.
 ///
 /// The broker publishes the public text of a stream here; every chunk is
 /// written to the store BEFORE it is broadcast, so "durable" always precedes
@@ -168,7 +168,7 @@ impl StreamSink {
 /// The part identity is the one the committed projection also uses:
 /// `message_id` is the step id and `part_id` is `text/0`. A client that
 /// watched the stream therefore absorbs the committed message as the S1
-/// binding instead of appending the same text twice (§21.8, §21.9).
+/// binding instead of appending the same text twice (docs/specs/web-interface.md#spec-21-8, docs/specs/web-interface.md#spec-21-9).
 pub struct UiPublicStreamSink {
     sink: Arc<StreamSink>,
 }

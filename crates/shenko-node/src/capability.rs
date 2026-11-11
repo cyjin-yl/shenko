@@ -365,7 +365,7 @@ impl Node {
     ///
     /// This is *not* an election: no member configuration, no quorum, no
     /// fencing and no liveness probe is implied. A partitioned component must
-    /// still run the §5.4.1 election protocol before any takeover; this
+    /// still run the docs/specs/nodes.md#spec-5-4-1 election protocol before any takeover; this
     /// ordering only supplies the evidence the SPEC says candidacy may
     /// consider (versioned capability facts and actual evidence, not names or
     /// static claims).

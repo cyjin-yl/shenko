@@ -1,6 +1,6 @@
 /**
  * Taste revision disclosure — the *server's* projection of one unit's revision
- * chain (SPEC §51.1/§51.4). Producer:
+ * chain (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-4). Producer:
  * `shenko_context_policy::taste::Disclosure::project_json()`, whose flat JSON is
  *
  *   family, selected, content_digest, written_at_ms, older_versions,

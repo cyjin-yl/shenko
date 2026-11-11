@@ -1,4 +1,4 @@
-//! Ledger — single mutation line per local store. SPEC §41.2.1
+//! Ledger — single mutation line per local store. docs/specs/durable-state.md#spec-41-2-1
 use anyhow::Result;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -161,7 +161,7 @@ impl Ledger {
         // A record-revision row admits only the successor of the stored
         // revision: the caller builds its update on the revision it read, so
         // anything else is a stale or foreign writer — a typed conflict,
-        // never a silent overwrite (SPEC §41.2 generic write path).
+        // never a silent overwrite (docs/specs/durable-state.md#spec-41-2 generic write path).
         for task in &batch.task_upserts {
             let json =
                 serde_json::to_string(task).map_err(|e| ShenkoError::storage(e.to_string()))?;
@@ -260,7 +260,7 @@ impl Ledger {
                 Some((stored_revision, stored_json)) => {
                     // An operation whose effect outcome is already recorded
                     // is terminal: never rewritten, even by a successor
-                    // revision (SPEC §41.4: the recorded effect is final).
+                    // revision (docs/specs/durable-state.md#spec-41-4: the recorded effect is final).
                     let stored_resolved = serde_json::from_str::<
                         shenko_types::operation::OperationRecord,
                     >(&stored_json)
@@ -338,7 +338,7 @@ impl Ledger {
         for ev in &batch.evidence_upserts {
             let json =
                 serde_json::to_string(ev).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            // Receipt admission (SPEC X04, §41.7.3): one fact per receipt
+            // Receipt admission (SPEC X04, docs/specs/plugins.md#spec-41-7-3): one fact per receipt
             // identity and per producer-declared source event scope. An
             // identical replay binds to the first durable receipt, never a
             // competing fact; a different original under either identity is

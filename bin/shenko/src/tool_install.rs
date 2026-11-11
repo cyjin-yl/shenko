@@ -69,7 +69,7 @@ pub struct InstallRequest {
     pub sha256: Option<String>,
     /// Host path of the artifact.
     pub path: PathBuf,
-    /// The capability requirements the package author declares — SPEC §9
+    /// The capability requirements the package author declares — docs/specs/self-update.md#spec-9
     /// "权限需求". They are requirements, never grants: the executor admits
     /// them against the real mount closure and invocation environment, and an
     /// `unrecorded` declaration stays exactly that.

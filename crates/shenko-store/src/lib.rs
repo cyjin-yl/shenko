@@ -1,4 +1,4 @@
-//! Shenko persistent store — SQLite WAL, SPEC §41.2
+//! Shenko persistent store — SQLite WAL, docs/specs/durable-state.md#spec-41-2
 //! One mutation line, one current writer incarnation per local ledger.
 //! Configures: journal_mode=WAL, synchronous=FULL, foreign_keys=ON
 pub mod migrations;
@@ -25,9 +25,9 @@ pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
 pub mod cognitive_root;
-/// Durable reconciliation cases for unknown external effects — SPEC §41.4 X11.
+/// Durable reconciliation cases for unknown external effects — docs/specs/durable-state.md#spec-41-4 X11.
 pub mod reconcile;
-/// Cognitive atoms: content registration, attitudes, reason pointers — SPEC §51.1, §51.3.
+/// Cognitive atoms: content registration, attitudes, reason pointers — docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3.
 pub use reconcile::{ReconciliationDocketEntry, REASON_EFFECT_UNKNOWN};pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };
@@ -57,7 +57,7 @@ pub use artifacts::*;
 pub mod external;
 pub use external::{InboxAdmission, TaskInvocation};
 
-/// Receipt admission identity and source-event dedup — SPEC X04, §41.7.3.
+/// Receipt admission identity and source-event dedup — SPEC X04, docs/specs/plugins.md#spec-41-7-3.
 pub mod receipt_admission;
 pub use receipt_admission::{ConflictIdentity, EvidenceReceiptConflict};
 
@@ -67,14 +67,14 @@ pub use child::{NativeTaskClaim, TaskCancellation};
 pub mod intents;
 
 /// Channel publication facts, the shared channel operation ledger and the
-/// explicit publication-target migration. SPEC §15.3, §35.6, §41.6.
+/// explicit publication-target migration. docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-35-6, docs/specs/channels.md#spec-41-6.
 pub mod channel;
 pub use channel::{ArmedPublication, ChannelFact, NewChannelFact};
 
 pub mod media;
 pub mod quota;
 
-/// Durable source-bound content stream journal — SPEC §12.5.
+/// Durable source-bound content stream journal — docs/specs/durable-state.md#content-stream-journal.
 pub mod content_stream;
 pub use content_stream::{
     CONTENT_CHUNK_MAX_BYTES, CONTENT_FLUSH_MAX_MILLIS, CONTENT_WHOLE_MAX_BYTES,

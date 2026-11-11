@@ -1,6 +1,6 @@
 # 自主决定与工程约定
 
-本规则服务于完整实现与少打扰人类。朋友的 Agent 以 `--dangerously-skip-permissions` 在自己的 fork 自主开发、合并、配置工具/CI 和持续交付。Why 见根 [WHY.md](../../WHY.md)，实际产品合同见 [SPEC](../../SPEC.md) §40/46。
+本规则服务于完整实现与少打扰人类。朋友的 Agent 以 `--dangerously-skip-permissions` 在自己的 fork 自主开发、合并、配置工具/CI 和持续交付。Why 见[开发自主与证据理由](../specs/documentation.md#why-11)，实际产品合同见 [SPEC](../INDEX.md) [§40](development-contract.md#spec-40)、[§46](COMPLETION.md#spec-46)。
 
 所有开发者先完整读 [shenko-dev](../../.agents/skills/shenko-dev/SKILL.md)。禁止添加设计、阶段、测试方案、PR 或日常继续工作的人工 gate。既有真实授权内直接完成工作；原子开发 Skills 自由组合，不是必须走完的流程。
 
@@ -27,7 +27,7 @@
 
 ## 完整度的收敛
 
-定期从需求端检查已标完成的功能：实际用户能否完成旅程？错误/恢复是否真实？是否只有 UI、trait 或 stub？发现遗漏形成有来源的新任务，补齐完整用户要求。现行 147 项 R 和 216 条 case 是可查基线，无编号的正式义务也应补到验收中；已有场景和证据优先复用。
+定期从需求端检查已标完成的功能：实际用户能否完成旅程？错误/恢复是否真实？是否只有 UI、trait 或 stub？发现遗漏形成有来源的新任务，补齐完整用户要求。现行 165 项 R 和 236 条 case 是可查基线，无编号的正式义务也应补到验收中；已有场景和证据优先复用。
 
 ## 流程的分寸
 

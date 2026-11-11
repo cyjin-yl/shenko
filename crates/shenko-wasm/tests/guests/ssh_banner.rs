@@ -4,7 +4,7 @@
 //! `SHENKO_NET_0=<fd>,<host>,<port>,<ops>`, then runs the SSH binary protocol
 //! INSIDE the module: it reads the server's `SSH-2.0-...` version banner,
 //! sends its own client banner, sends a correctly-framed SSH_MSG_KEXINIT
-//! packet (RFC4253 §6 framing), and reads the server's KEXINIT reply.
+//! packet (RFC4253 docs/specs/subject-runtime.md#spec-6 framing), and reads the server's KEXINIT reply.
 //!
 //! The SSH bytes are produced and consumed by this module, not by a host ssh
 //! — that is the entire point of the artifact: the protocol runs in WASM,

@@ -1059,7 +1059,7 @@ impl Store {
     ///
     /// The row identity travels with the original bytes so a consumer that
     /// cannot decode one row can name it, leave the durable fact untouched and
-    /// keep delivering the rest (SPEC §41.4 X11).
+    /// keep delivering the rest (docs/specs/durable-state.md#spec-41-4 X11).
     pub fn ready_native_result_rows(
         &self,
         agent_id: EntityId,

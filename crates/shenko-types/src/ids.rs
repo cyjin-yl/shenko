@@ -1,4 +1,4 @@
-//! 全局唯一标识类型 — SPEC §41.3
+//! 全局唯一标识类型 — docs/specs/durable-state.md#spec-41-3
 //! ID 不可复用；uint64/bigint 在 JSON 中编码为十进制字符串。
 
 use serde::{Deserialize, Serialize};

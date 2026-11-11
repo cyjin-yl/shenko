@@ -131,7 +131,7 @@ fn interrupted_versions_and_exact_rollback_keep_new_business_data() {
 }
 
 /// A reader's action on a work is bound to the revision they saw and to the
-/// request that named it (SPEC §57.6, acceptance PG07).
+/// request that named it (docs/specs/configuration-playground.md#spec-57-6, acceptance PG07).
 ///
 /// A work that moved on refuses the stale action instead of applying it to
 /// whatever is there now; the request id rides the durable transition, so a

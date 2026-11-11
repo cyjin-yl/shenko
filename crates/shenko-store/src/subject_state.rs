@@ -1,4 +1,4 @@
-//! Durable commitments the subject made about itself — SPEC §13.8/§41.5.
+//! Durable commitments the subject made about itself — docs/specs/subject-runtime.md#spec-13-8, docs/specs/subject-runtime.md#spec-41-5.
 //!
 //! Two facts live here, both written in the SAME transaction as the S1
 //! decision that authored them:

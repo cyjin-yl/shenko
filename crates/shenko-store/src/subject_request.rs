@@ -1,4 +1,4 @@
-//! Durable main-request receipts — SPEC §41.5/§41.4 (X03/X11/X12).
+//! Durable main-request receipts — docs/specs/subject-runtime.md#spec-41-5, docs/specs/durable-state.md#spec-41-4 (X03/X11/X12).
 //!
 //! The subject's own finite model generation uses the same durable
 //! task/operation/attempt discipline as a child: before any wire send, the

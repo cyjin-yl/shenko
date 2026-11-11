@@ -1,4 +1,4 @@
-//! Classification of Feishu/Lark events — SPEC §15.1, §15.3, §16.
+//! Classification of Feishu/Lark events — docs/specs/channels.md#spec-15-1, docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
 //!
 //! The event dispatcher pushes one frame per event. The frame the adapter
 //! uses carries `header.event_id`, `header.create_time` and

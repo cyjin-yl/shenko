@@ -1,4 +1,4 @@
-//! Durable ordered public-text output parts — SPEC §21.11 流数据与显示状态.
+//! Durable ordered public-text output parts — docs/specs/web-interface.md#spec-21-11 流数据与显示状态.
 //!
 //! Real streaming starts at the provider stream (ArchBroker), is redacted to
 //! public text by the subject (`public_text_prefix` in shenko-subject), and is

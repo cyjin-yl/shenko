@@ -1,4 +1,4 @@
-//! The official QQ bot gateway session — SPEC §16, §15.3, §35.6.
+//! The official QQ bot gateway session — docs/specs/channel-adapters.md#spec-16, docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-35-6.
 //!
 //! The official platform pushes events over a WebSocket that behaves like a
 //! versioned session:

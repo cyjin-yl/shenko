@@ -1,4 +1,4 @@
-//! Declared-mount admission failures (SPEC §8.3, C05).
+//! Declared-mount admission failures (docs/specs/wasm-home.md#spec-8-3, C05).
 //!
 //! A declared mount either resolves to a directory this process can enter, or
 //! admission fails with the cause preserved. Missing, inaccessible,

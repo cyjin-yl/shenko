@@ -9,7 +9,7 @@ license.workspace = true
 cordis-core.workspace = true
 shenko-types = { path = "../shenko-types" }
 shenko-store = { path = "../shenko-store" }
-# The canonical context-contribution contract (SPEC §14.4 transient reminder).
+# The canonical context-contribution contract (docs/specs/research-memory.md#spec-14-4 transient reminder).
 shenko-context-policy = { path = "../shenko-context-policy" }
 parking_lot = { workspace = true }
 serde = { workspace = true }

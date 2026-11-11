@@ -1,6 +1,6 @@
 //! Durable configuration, owner claim and Playground business state.
-//! SPEC §43.1 (one configuration service), §43.2 (Playground works and their
-//! business state), §44.4 (the first owner claim).
+//! docs/specs/configuration-playground.md#spec-43-1 (one configuration service), docs/specs/configuration-playground.md#spec-43-2 (Playground works and their
+//! business state), docs/specs/plugins.md#spec-44-4 (the first owner claim).
 //!
 //! These are ordinary rows in the same SQLite database as tasks, operations
 //! and evidence. Every write goes through the ledger's single mutation line,
@@ -90,7 +90,7 @@ pub fn ensure_config_schema(conn: &Connection) -> Result<()> {
 /// key" (only legal when both filters are `None`).
 pub type OptionalKeyName<'a> = Option<&'a str>;
 
-/// The installation-scoped owner grant — SPEC §44.4.
+/// The installation-scoped owner grant — docs/specs/plugins.md#spec-44-4.
 ///
 /// The grant records WHO was recognized as the installer. It never carries a
 /// credential: the bearer secret lives in `owner_admin_tokens`, which is
@@ -158,7 +158,7 @@ pub struct ConfigReceipt {
     pub recorded_at: CommitRef,
 }
 
-/// The process incarnation that owns one apply attempt — SPEC §43.1 (CFG02).
+/// The process incarnation that owns one apply attempt — docs/specs/configuration-playground.md#spec-43-1 (CFG02).
 ///
 /// The attempt owner is committed in the SAME transaction as the change, so
 /// "an apply was started for this intent" is a durable fact rather than an
@@ -180,7 +180,7 @@ pub struct ConfigAttemptOwner {
     pub started_at: DateTime<Utc>,
 }
 
-/// One durable configuration change — SPEC §43.1.
+/// One durable configuration change — docs/specs/configuration-playground.md#spec-43-1.
 ///
 /// A change is a fact about an intent and its result, not a phase machine:
 /// `state` is `recorded` until an apply attempt produces a receipt, and a
@@ -283,7 +283,7 @@ impl ConfigChange {
 }
 
 impl Store {
-    /// Recognize the first owner of this installation — SPEC §44.4.
+    /// Recognize the first owner of this installation — docs/specs/plugins.md#spec-44-4.
     ///
     /// The write is conditional on the installation having no grant: a second
     /// browser receives `AlreadyClaimed` and no authority. The same claim
@@ -508,7 +508,7 @@ impl Store {
     }
 
     /// Every committed configuration change of one key (or of the whole
-    /// installation) that has no receipt yet, newest first — SPEC §43.1
+    /// installation) that has no receipt yet, newest first — docs/specs/configuration-playground.md#spec-43-1
     /// (CFG02 recovery).
     ///
     /// `state` is part of the row's JSON, not a column, so the filter runs

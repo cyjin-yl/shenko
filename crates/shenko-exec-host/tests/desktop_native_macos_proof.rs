@@ -1,5 +1,5 @@
 //! Actual-target native proof producer for the macOS desktop provider
-//! (SPEC §24.1/§24.3, read under §51.5/§51.10).
+//! (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3, read under docs/specs/cognition-units.md#spec-51-5, docs/specs/cognition-units.md#spec-51-10).
 //!
 //! This file is a *consumer*: it drives the real `MacOsDesktopProvider`
 //! through the public `DesktopProvider` trait and then checks the effect with
@@ -22,7 +22,7 @@
 //!   console and is always reported `NATIVE-UNOBSERVED`; nothing here forces a
 //!   pass.
 //!
-//! Real OS limits stay facts (SPEC §51.10), not approval gates: a missing
+//! Real OS limits stay facts (docs/specs/cognition-units.md#spec-51-10), not approval gates: a missing
 //! Screen Recording grant or an untrusted Accessibility client is recorded with
 //! the exact typed reason the provider returns, and the proof stops there
 //! instead of substituting a synthetic surface.

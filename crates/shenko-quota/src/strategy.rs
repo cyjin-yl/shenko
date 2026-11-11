@@ -1,6 +1,6 @@
-//! The replaceable-strategy seam — SPEC §42.1, §42.5, §42.6.
+//! The replaceable-strategy seam — docs/specs/quota-resources.md#spec-42-1, docs/specs/quota-resources.md#spec-42-5, docs/specs/quota-resources.md#spec-42-6.
 //!
-//! §42.1 names four replaceable quota plugins: the observer, the forecaster,
+//! docs/specs/quota-resources.md#spec-42-1 names four replaceable quota plugins: the observer, the forecaster,
 //! the policy and the provider adapters. [`crate::plugin`] is the observer
 //! half. This module is the other half: a forecaster, a router (the policy
 //! that picks profile, effort and admission rate) and an admission cadence
@@ -45,7 +45,7 @@ use crate::policy::{decide_with, BackendState, PolicyDecision, QuotaPolicy, Work
 /// interpreted with the wrong input or output meaning.
 pub const QUOTA_STRATEGY_PROTOCOL_VERSION: u32 = 1;
 
-/// The stable identifier of the built-in rolling planning baseline (§42.5).
+/// The stable identifier of the built-in rolling planning baseline (docs/specs/quota-resources.md#spec-42-5).
 pub const BASELINE_STRATEGY_ID: &str = "shenko.quota.rolling_baseline";
 
 /// The algorithm version of the built-in baseline. It is recorded in every
@@ -67,12 +67,12 @@ pub const MAX_STRATEGY_REASON: usize = 512;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StrategyKind {
-    /// Turns one recorded reading into a bounded forecast (§42.5).
+    /// Turns one recorded reading into a bounded forecast (docs/specs/quota-resources.md#spec-42-5).
     Forecast,
     /// Chooses profile, effort budget and admission rate for the next
-    /// request under the recorded policy (§42.5).
+    /// request under the recorded policy (docs/specs/quota-resources.md#spec-42-5).
     Route,
-    /// May withhold a fresh admission the durable state would grant (§42.5).
+    /// May withhold a fresh admission the durable state would grant (docs/specs/quota-resources.md#spec-42-5).
     Cadence,
 }
 
@@ -257,7 +257,7 @@ pub trait QuotaCadence: Send + Sync {
     fn plan(&self, request: CadenceRequest<'_>) -> Result<CadencePlan, StrategyError>;
 }
 
-/// The replayable rolling planning baseline of §42.5. It is the default for
+/// The replayable rolling planning baseline of docs/specs/quota-resources.md#spec-42-5. It is the default for
 /// every kind, and its identifier is reserved: an alternative algorithm must
 /// declare its own name so old and new records stay distinguishable.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

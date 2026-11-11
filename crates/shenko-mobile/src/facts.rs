@@ -1,4 +1,4 @@
-//! Capability/authority facts and the §24.5.1 database snapshot-dimension
+//! Capability/authority facts and the docs/specs/mobile-runtime.md#spec-24-5-1 database snapshot-dimension
 //! model.
 //!
 //! These types are the durable vocabulary every mobile observation uses.
@@ -7,7 +7,7 @@
 //! facts vs format facts; bridge reachability vs actual OS grant; a raw
 //! recovered copy vs a point-in-time consistent snapshot.
 //!
-//! §51.9 reading: [`SnapshotDimension`] and [`DbSnapshot`] record whether the
+//! docs/specs/cognition-units.md#spec-51-9 reading: [`SnapshotDimension`] and [`DbSnapshot`] record whether the
 //! *dimensions of one snapshot* were reached — they are not cognitive facts.
 //! They carry no content revision, no attitude, no reason pointer and no
 //! confidence, and nothing here may be presented as understanding the
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 /// The variants are parallel and combinable, never a privilege ladder:
 /// `NormalPerm` does not "upgrade into" `Accessibility`, `ShizukuBinder`,
 /// `DhizukuOwner` or `RootSu`, and gaining root does not make every encrypted
-/// library, hardware-bound key or app format parseable (SPEC §24.5).
+/// library, hardware-bound key or app format parseable (docs/specs/mobile-runtime.md#spec-24-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MobileAuthorityKind {
@@ -108,7 +108,7 @@ pub enum KeyMaterialState {
 }
 
 /// Whether one dimension of a database snapshot was reached, and what proved
-/// it (§51.9: `SnapshotDimension`, *not* a cognitive fact).
+/// it (docs/specs/cognition-units.md#spec-51-9: `SnapshotDimension`, *not* a cognitive fact).
 ///
 /// A reached dimension is evidence about our own copy, never about the whole
 /// database: it says nothing about plaintext, schema or meaning on its own.
@@ -143,7 +143,7 @@ impl SnapshotDimension {
     }
 }
 
-/// §24.5.1 dimension separation for one app-database snapshot (§51.9:
+/// docs/specs/mobile-runtime.md#spec-24-5-1 dimension separation for one app-database snapshot (docs/specs/cognition-units.md#spec-51-9:
 /// `DbSnapshot`, a snapshot result — not a cognitive fact).
 ///
 /// No total order is implied: `plaintext_verified` and

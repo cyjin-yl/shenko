@@ -1,4 +1,4 @@
-//! Bounded, content-addressed tool artifacts — SPEC §8.2/§9/§18.8, R008/R101.
+//! Bounded, content-addressed tool artifacts — docs/specs/wasm-tools.md#spec-8-2, docs/specs/self-update.md#spec-9, docs/specs/wasm-tools.md#spec-18-8, R008/R101.
 //!
 //! A tool artifact is a real upstream WASM module. Two facts about it are
 //! kept apart on purpose:

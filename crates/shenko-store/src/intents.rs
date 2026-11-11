@@ -132,7 +132,7 @@ impl Store {
                 // 'save', the knowledge kind is the open 'note' vocabulary,
                 // and there is intentionally no library binding sidecar —
                 // the subject settles its own memory in one ledger
-                // transaction (SPEC §12.2 dedicated representation).
+                // transaction (docs/specs/memory.md#spec-12-2 dedicated representation).
                 tx.execute("INSERT INTO memory_intents(intent_id,agent_id,kind,knowledge_kind,scope,content,content_ref,entry_id,state,created_at_ms,updated_at_ms) VALUES(?1,?2,'save','note',?3,?4,?5,?1,'accepted',?6,?6)",
                     params![intent.intent_id.to_string(),head.agent_id.to_string(),intent.scope,content,object.locator,chrono::Utc::now().timestamp_millis()]).map_err(|e|ShenkoError::storage(e.to_string()))?;
             }
@@ -335,11 +335,11 @@ impl Store {
             // dispatched, so the effect is unknown and the context policy
             // surfaces it), while the reason now says plainly that the
             // capability is missing and that the subject may install it or
-            // carry the intent forward (SPEC §57.8, G57).
+            // carry the intent forward (docs/specs/subject-runtime.md#spec-57-8, G57).
             tx.execute("UPDATE subject_intents SET state='blocked',result_ref='capability not installed: this installation has no dispatcher for the frozen contract; the subject may install it or carry the intent forward' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3,?4)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT,crate::subject_state::OBLIGATION_TERMINAL_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
         }
         // The subject's explicit acceptance of an unknown external effect is
-        // committed with the decision itself (SPEC §41.4 X11): it turns the
+        // committed with the decision itself (docs/specs/durable-state.md#spec-41-4 X11): it turns the
         // durable case to `acknowledged_unknown` and points it at THIS
         // sealed decision, so the actor, the reading and its reason pointers
         // are one immutable fact. It never marks the operation resolved, and
@@ -697,7 +697,7 @@ impl Store {
     /// An unbound intent is not a refusal: the subject asked for something
     /// this installation cannot serve yet. The list is what makes the gap
     /// visible to it — the subject can install the capability or carry the
-    /// intent forward (SPEC §57.8, G57).
+    /// intent forward (docs/specs/subject-runtime.md#spec-57-8, G57).
     pub fn unbound_subject_intents(
         &self,
         agent_id: EntityId,

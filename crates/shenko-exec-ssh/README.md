@@ -54,7 +54,7 @@ assert!(result.success());
 
 Unix 为每次调用创建独立进程组，超时或 future drop 时向该组发送 SIGKILL；直接子进程使用 `kill_on_drop(true)`，超时路径实际 `wait`。future 被取消后由 Tokio 尽力回收，不能把 drop 冒称持久取消已完成；runtime 已终止时也不承诺执行异步清理。非 Unix 仅有直接子进程终止/回收，不承诺进程树终止。逃逸进程、先前文件/网络效果、远端进程不受本地组的停止证明覆盖。
 
-`execution_id` 是本次本地调用的关联 ID，**不是远端 operation handle，不保证幂等，也不内建持久查询服务**。整合者须在外层 §41 的 T1 中先持久保存 operation/attempt 和目标，再调用执行器；T2 保存完整结果，按 operation/attempt 关联此 ID。unknown 进入 reconciliation，按原 seat/任务、进程或可验证后置条件查询现场；没有明确证据前不能自动重发。调用 future 被 drop 时没有返回结果，外层持久 supervisor 须依据已 armed attempt 保持 unknown，而不是记录取消成功。
+`execution_id` 是本次本地调用的关联 ID，**不是远端 operation handle，不保证幂等，也不内建持久查询服务**。整合者须在外层 [§41](../../docs/specs/architecture.md#spec-41) 的 T1 中先持久保存 operation/attempt 和目标，再调用执行器；T2 保存完整结果，按 operation/attempt 关联此 ID。unknown 进入 reconciliation，按原 seat/任务、进程或可验证后置条件查询现场；没有明确证据前不能自动重发。调用 future 被 drop 时没有返回结果，外层持久 supervisor 须依据已 armed attempt 保持 unknown，而不是记录取消成功。
 
 ## tmux seat 发现与受守卫的写入（C07 / #12 切片）
 
@@ -83,8 +83,8 @@ CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
 - R019/A09：WASM SSH/keygen/transfer、托管签名桥；本 provider 不能抵扣这些目标。
 - R016/R017：密钥创建、轮换/撤销与公钥 UI。
 - R041：stat/read/write/hash patch、SFTP、stdin、stream/poll/cancel API、输出截断及有界 spool；本轮只提供有界 stdin/输出、1MiB upload/download；完整文件 API、流式 spool 与远端取消仍未交付。
-- §17.1/§17.5/§35.5：持久 seat/lease 记录、版本化问题协议、高亮/grid 状态机、真实 Claude/OMP journey 仍未交付。本轮补上了进程子树 seat 识别与受守卫写入，但既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
-- §36/§41、RT09/P41-03：本轮有 task-bound T1/E1 和远端 receipt 的原生适配；完整调度器 T2、祖先取消、授权 registry、writer/node fencing、残余 supervisor 与真实部署验收仍未接全。不保证 arbitrary shell 的业务效果已完成或可撤销。
+- [§17.1](../../docs/specs/remote-seats.md#spec-17-1)、[§17.5](../../docs/specs/remote-seats.md#spec-17-5)、[§35.5](../../docs/specs/remote-seats.md#spec-35-5)：持久 seat/lease 记录、版本化问题协议、高亮/grid 状态机、真实 Claude/OMP journey 仍未交付。本轮补上了进程子树 seat 识别与受守卫写入，但既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
+- [§36](../../docs/specs/durable-state.md#spec-36)、[§41](../../docs/specs/architecture.md#spec-41)、RT09/P41-03：本轮有 task-bound T1/E1 和远端 receipt 的原生适配；完整调度器 T2、祖先取消、授权 registry、writer/node fencing、残余 supervisor 与真实部署验收仍未接全。不保证 arbitrary shell 的业务效果已完成或可撤销。
 
 这些是已有 SPEC 范围，不因本轮实现或测试通过而标记 satisfied。
 

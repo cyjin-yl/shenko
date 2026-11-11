@@ -1,4 +1,4 @@
-//! Original LayerFS on a qualified Linux VM (SPEC §10.2.1, §34).
+//! Original LayerFS on a qualified Linux VM (docs/specs/durable-state.md#spec-10-2-1, docs/specs/desktop-runtime.md#spec-34).
 //!
 //! This crate never re-implements the LayerFS Store. Every Store / branch /
 //! workspace operation is executed by the pinned original LayerFS SDK
@@ -77,7 +77,7 @@ pub struct LayerFsVmState {
     pub display: Option<String>,
     /// Host-forwarded SSH port into the guest, when the provider offers one.
     pub ssh_port: Option<u16>,
-    /// layerfs_committed vs product_durable stay distinct (SPEC §10.2.1):
+    /// layerfs_committed vs product_durable stay distinct (docs/specs/durable-state.md#spec-10-2-1):
     /// this flag is the upstream Store's own commit receipt only.
     pub layerfs_committed: bool,
     /// Guest capability facts the companion really probed over the VM's own
@@ -91,7 +91,7 @@ pub struct LayerFsVmState {
     pub detail: serde_json::Value,
 }
 
-/// Guest requirements for the FULL LayerFS workspace path (SPEC §10.2.1):
+/// Guest requirements for the FULL LayerFS workspace path (docs/specs/durable-state.md#spec-10-2-1):
 /// Docker Engine, FUSE, devices/mount privileges, a matching runtime image
 /// and a plain local named volume. The companion probes what the provider
 /// can actually prove; every unprobed requirement stays unprobed here and
@@ -485,7 +485,7 @@ impl LayerFsAdapter {
     }
 
     /// Ask the guest's original SDK for its own commit receipt. This is
-    /// `layerfs_committed` only — never `product_durable` (SPEC §10.2.1).
+    /// `layerfs_committed` only — never `product_durable` (docs/specs/durable-state.md#spec-10-2-1).
     pub fn commit_receipt(&self, name: &str) -> Result<serde_json::Value, DesktopError> {
         let companion = self.companion(name)?;
         companion.request(

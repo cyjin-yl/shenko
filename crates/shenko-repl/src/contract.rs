@@ -1,4 +1,4 @@
-//! The §19/§19.1 REPL contract shared by every kernel backend.
+//! The docs/specs/repl.md#spec-19, docs/specs/repl.md#spec-19-1 REPL contract shared by every kernel backend.
 //!
 //! Two real session models exist behind one contract:
 //!
@@ -15,7 +15,7 @@
 //!   between cells; recovery replays journaled `Pure` cells to rebuild the
 //!   declared state file. This is an R0 work record, labeled as such.
 //!
-//! Recovery levels stay the §19 ladder and are claimed per kernel, never per
+//! Recovery levels stay the docs/specs/repl.md#spec-19 ladder and are claimed per kernel, never per
 //! wish: R0 work record, R1 explicitly serialized objects (driver state
 //! file), R2 full resumable VM state (not implemented by any kernel here).
 
@@ -24,7 +24,7 @@ use shenko_types::ids::{EntityId, RuntimeGeneration};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// Actual interpreter/runtime family a kernel runs on (SPEC §19.1: report the
+/// Actual interpreter/runtime family a kernel runs on (docs/specs/repl.md#spec-19-1: report the
 /// real language/runtime/ABI; QuickJS is not Node, a JS engine is not Bun).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,7 +75,7 @@ pub enum SessionModel {
     LiveProcess,
 }
 
-/// Recovery level a backend actually guarantees for a session (§19 R0–R2).
+/// Recovery level a backend actually guarantees for a session (docs/specs/repl.md#spec-19 R0–R2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecoveryLevel {
@@ -90,7 +90,7 @@ pub enum RecoveryLevel {
     R2VmState,
 }
 
-/// Caller-declared replay boundary of a cell (§19: replaying code to rebuild
+/// Caller-declared replay boundary of a cell (docs/specs/repl.md#spec-19: replaying code to rebuild
 /// state must never re-execute an external effect that already happened).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -141,7 +141,7 @@ impl ResourceLimits {
     }
 }
 
-/// Binding of a session to its delegating context (§19: each REPL binds a
+/// Binding of a session to its delegating context (docs/specs/repl.md#spec-19: each REPL binds a
 /// task, worker and scope; free-form fields keep this adapter-neutral).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -434,7 +434,7 @@ pub struct CreateSession {
     pub preview_bytes: usize,
 }
 
-/// Provider contract (§19). `restore`/`fork` return boxed sessions so a
+/// Provider contract (docs/specs/repl.md#spec-19). `restore`/`fork` return boxed sessions so a
 /// recovered session can come back through any conforming backend.
 pub trait ReplProvider {
     type Session: ReplSession;
@@ -459,7 +459,7 @@ pub trait ReplSession {
     /// Pure cells into a fresh owned process (LiveProcess) or fresh one-shot
     /// runs (OneShot). Declared-effect cells keep their durable record as
     /// the receipt; Unknown cells are reconciliation gaps. External effects
-    /// are never re-executed (§19 replay boundary, A15). Rebuild starts from
+    /// are never re-executed (docs/specs/repl.md#spec-19 replay boundary, A15). Rebuild starts from
     /// the session's immutable baseline (empty after reset), not surviving
     /// state.
     fn restore(&mut self) -> anyhow::Result<RecoverReport>;

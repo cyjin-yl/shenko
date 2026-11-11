@@ -1,5 +1,5 @@
 //! The live session engine: one real long-lived interpreter process per
-//! session (SPEC §19 "有状态会话在进程存活时保留变量").
+//! session (docs/specs/repl.md#spec-19 "有状态会话在进程存活时保留变量").
 //!
 //! The host owns the process; cells travel to it over a framed stdin
 //! protocol while per-cell streams and the structured driver report land in

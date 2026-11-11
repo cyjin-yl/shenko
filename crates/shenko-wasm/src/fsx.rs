@@ -2,7 +2,7 @@
 //!
 //! Every guest-visible filesystem operation in this crate is expressed as an
 //! operation on an already-admitted directory handle (`cap_std::fs::Dir`),
-//! never as a re-resolution of a host pathname (SPEC §8.3, A08). This module
+//! never as a re-resolution of a host pathname (docs/specs/wasm-home.md#spec-8-3, A08). This module
 //! holds the two primitives the rest of the crate needs:
 //!
 //! * [`open_component`] opens exactly one path component relative to a

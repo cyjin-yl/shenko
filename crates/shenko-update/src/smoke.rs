@@ -1,4 +1,4 @@
-//! Candidate smoke launch — SPEC §9.5 (smoke), §35.7.
+//! Candidate smoke launch — docs/specs/self-update.md#spec-9-5 (smoke), docs/specs/self-update.md#spec-35-7.
 //!
 //! The smoke step starts the candidate program against its own state copy
 //! and checks that it can actually read that state. It never sends a real

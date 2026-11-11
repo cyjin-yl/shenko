@@ -1,4 +1,4 @@
-//! Subject outbox — the outbound half of the subject timeline. SPEC §5.1, §21.12
+//! Subject outbox — the outbound half of the subject timeline. docs/specs/subject-runtime.md#spec-5-1, docs/specs/web-interface.md#spec-21-12
 //!
 //! The subject loop publishes each completed model output here so transports
 //! (the Web UI, other channels) can render it without reaching into loop state.
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// streamed surface: `message_id` is the step id, `part_id` names the part
 /// inside it. One identity means a client that watched the stream absorbs
 /// the committed message instead of appending the same text twice
-/// (SPEC §21.8, §21.9, §57.5).
+/// (docs/specs/web-interface.md#spec-21-8, docs/specs/web-interface.md#spec-21-9, docs/specs/web-interface.md#spec-57-5).
 pub const TEXT_PART_ID: &str = "text/0";
 
 /// One outbound subject message.
@@ -28,7 +28,7 @@ pub struct OutboxMessage {
     pub text: String,
     /// Already validated and committed publication actions; never reparse text.
     pub publications: Vec<shenko_types::subject::PublicationIntent>,
-    /// Identity revision in effect after this step (SPEC §6), so transports
+    /// Identity revision in effect after this step (docs/specs/subject-runtime.md#spec-6), so transports
     /// can refresh the displayed name/soul when it changes.
     pub identity_revision: Option<u64>,
 }

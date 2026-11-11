@@ -19,7 +19,7 @@ const EXIT_PANE_DEAD: i32 = 67;
 const EXIT_PROGRAM_CHANGED: i32 = 68;
 const EXIT_PANE_REPLACED: i32 = 69;
 
-/// Tmux pane identity — needed for seat discovery. SPEC §35.5
+/// Tmux pane identity — needed for seat discovery. docs/specs/remote-seats.md#spec-35-5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxPane {
     pub session: String,
@@ -60,7 +60,7 @@ fn parse_pane_line(line: &str) -> Option<TmuxPane> {
     })
 }
 
-/// 已知 agent seat 类型；对端程序名按进程子树 argv 识别。SPEC §17.1
+/// 已知 agent seat 类型；对端程序名按进程子树 argv 识别。docs/specs/remote-seats.md#spec-17-1
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SeatKind {
@@ -71,7 +71,7 @@ pub enum SeatKind {
     Other(String),
 }
 
-/// 发现到的 agent seat：pane 身份 + 进程子树证据 + 识别出的 adapter。SPEC §17.1
+/// 发现到的 agent seat：pane 身份 + 进程子树证据 + 识别出的 adapter。docs/specs/remote-seats.md#spec-17-1
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSeat {
     pub pane: TmuxPane,
@@ -84,7 +84,7 @@ pub struct AgentSeat {
 }
 
 /// seat 写入被守卫拒绝：pane 消失、pane_dead 或前台程序已变化（如退回 shell）。
-/// 与传输层 ExecFailure 区分；调用方据此记录 seat 现状而非盲发。SPEC §17.1/§17.5
+/// 与传输层 ExecFailure 区分；调用方据此记录 seat 现状而非盲发。docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-17-5
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeatRefusal {
     PaneMissing,
@@ -278,7 +278,7 @@ fn refusal_or_success(result: &ExecResult) -> Result<()> {
     }
 }
 
-/// Tmux observation — screen capture preserving attributes. SPEC §35.5
+/// Tmux observation — screen capture preserving attributes. docs/specs/remote-seats.md#spec-35-5
 /// Uses `tmux capture-pane -e` for attribute preservation (color/highlight).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxObservation {
@@ -291,7 +291,7 @@ pub struct TmuxObservation {
     pub captured_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Structured seat observation returned by TmuxSeat::capture_pane. SPEC §17.5, §35.5
+/// Structured seat observation returned by TmuxSeat::capture_pane. docs/specs/remote-seats.md#spec-17-5, docs/specs/remote-seats.md#spec-35-5
 /// Carries raw ANSI output, plain-stripped text, detected question/prompt lines,
 /// and a monotonic revision counter for change detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,7 +312,7 @@ pub struct SeatObservation {
     pub captured_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Strip ANSI/VT100 escape sequences from raw terminal output. SPEC §17.5
+/// Strip ANSI/VT100 escape sequences from raw terminal output. docs/specs/remote-seats.md#spec-17-5
 ///
 /// Handles CSI sequences (`ESC [ ... letter`), OSC sequences (`ESC ] ... BEL/ST`),
 /// two-char ESC sequences, and charset designations. Preserves newlines and
@@ -367,7 +367,7 @@ pub fn parse_ansi_to_plain(raw: &str) -> String {
     out
 }
 
-/// Return lines from plain text that look like interactive prompts. SPEC §17.5
+/// Return lines from plain text that look like interactive prompts. docs/specs/remote-seats.md#spec-17-5
 ///
 /// A line qualifies if it ends with '?' (after trimming) or contains any of
 /// the standard confirmation/prompt patterns used by CLI tools.
@@ -397,7 +397,7 @@ pub fn extract_question_lines(plain: &str) -> Vec<String> {
         .collect()
 }
 
-/// Tmux seat adapter — discovers and controls tmux panes. SPEC §35.5
+/// Tmux seat adapter — discovers and controls tmux panes. docs/specs/remote-seats.md#spec-35-5
 /// This is the first required seat path: "已存在的 tmux 前台 TUI"
 pub struct TmuxSeat {
     executor: SshExecutor,
@@ -432,7 +432,7 @@ impl TmuxSeat {
         Ok(out.stdout.lines().filter_map(parse_pane_line).collect())
     }
 
-    /// Discover agent seats by the pane's foreground process group. SPEC §17.1
+    /// Discover agent seats by the pane's foreground process group. docs/specs/remote-seats.md#spec-17-1
     ///
     /// Walks `ps` from each pane's pane_pid, collecting the process subtree in
     /// deterministic order (BFS, siblings by pid), then keeps only members of
@@ -471,7 +471,7 @@ impl TmuxSeat {
             .collect())
     }
 
-    /// Capture a pane preserving ANSI/attributes (capture-pane -e). SPEC §17.5, §35.5
+    /// Capture a pane preserving ANSI/attributes (capture-pane -e). docs/specs/remote-seats.md#spec-17-5, docs/specs/remote-seats.md#spec-35-5
     /// Returns a SeatObservation with raw ANSI output, plain-stripped text,
     /// and any detected question/prompt lines.
     pub async fn capture_pane(&self, pane_id: &str) -> Result<SeatObservation> {
@@ -530,7 +530,7 @@ impl TmuxSeat {
         })
     }
 
-    /// 发送按键前，调用方须先持久提交 intent。此适配器本身没有账本。SPEC §35.5/§36.5
+    /// 发送按键前，调用方须先持久提交 intent。此适配器本身没有账本。docs/specs/remote-seats.md#spec-35-5, docs/specs/durable-state.md#spec-36-5
     /// WARNING: tmux send-keys has no atomic "check then send" — race with human input.
     /// Caller must verify pane state is as expected before sending.
     /// Prefer `send_keys_verified`/`send_input_verified`, which re-check pane
@@ -552,7 +552,7 @@ impl TmuxSeat {
 
     /// Verified send-keys: refuses unless the pane still exists, is not
     /// pane_dead, and its foreground program still equals `expected_command`.
-    /// SPEC §17.1/§17.5 — 退回 shell 或旧 pane_id 不得接收为 seat 准备的输入。
+    /// docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-17-5 — 退回 shell 或旧 pane_id 不得接收为 seat 准备的输入。
     ///
     /// `expected_command` should come from a fresh SeatObservation /
     /// discover_agent_seats `pane.current_command`. Refusal is a typed

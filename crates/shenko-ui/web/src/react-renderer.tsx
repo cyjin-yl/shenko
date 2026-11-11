@@ -273,7 +273,7 @@ interface TimelineSurfaceProps {
 }
 
 class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string }> {
-  /** The bounded announcement for a screen reader (SPEC §57.7).
+  /** The bounded announcement for a screen reader (docs/specs/web-interface.md#spec-57-7).
    *
    * It says that committed content arrived and which round it was — it does
    * NOT read the answer again: a reader who is listening should not have the
@@ -470,7 +470,7 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
       if (!startEntry || startEntry !== endEntry) return;
       // Selecting committed text is interaction, not "follow the tail": new
       // content must not scroll the reader away from the span they are
-      // holding (§21.11).
+      // holding (docs/specs/web-interface.md#spec-21-11).
       this.props.emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
       const entryKey = startEntry.dataset.entryKey;
       if (!entryKey) return;
@@ -646,7 +646,7 @@ function EntryView({ node, emit }: { node: UiNode; emit: Emit }) {
       : <UserSubmission node={node} emit={emit} />;
 }
 
-/// One work of the subject, in the timeline (SPEC §57.6).
+/// One work of the subject, in the timeline (docs/specs/configuration-playground.md#spec-57-6).
 ///
 /// It names the work's own revision: what the reader does next is bound to
 /// the revision they saw. Opening the work is the reader's own action.
@@ -674,7 +674,7 @@ function WorkEntry({ node, emit }: { node: UiNode; emit: Emit }) {
 }
 
 // The rich layer is gone; the committed text beside it stays the record and
-// the reason is readable instead of only flashing as a notice (§3).
+// the reason is readable instead of only flashing as a notice (docs/research/product-positioning.md#spec-3).
 function DocumentErrorEntry({ node }: { node: UiNode }) {
   const error = node.props.error as DocumentErrorView;
   return (
@@ -697,7 +697,7 @@ function DocumentErrorEntry({ node }: { node: UiNode }) {
 }
 
 // A degraded semantic document: the mode decides how much structure renders,
-// but the numbered options are always the same action identities (§21.8).
+// but the numbered options are always the same action identities (docs/specs/web-interface.md#spec-21-8).
 // Execution authority comes from the subject's disposition of the admitted
 // input; this view only submits that input.
 const ACTION_STAGE_LABELS: Record<ActionReceiptView['stage'], string> = {
@@ -776,7 +776,7 @@ function SubjectPart({ node, emit }: { node: UiNode; emit: Emit }) {
   const state = partState(part);
   // Only committed text carries a step number. A durable streamed prefix is
   // real ledger content, but labelling it "第 N 轮" would claim an S1 step the
-  // part does not have yet (§21.11).
+  // part does not have yet (docs/specs/web-interface.md#spec-21-11).
   const gutterLabel = state.committed
     ? `第 ${part.step} 轮`
     : part.terminal
@@ -1100,7 +1100,7 @@ function MemorySurface({ node }: { node?: UiNode }) {
 /**
  * Renders the server's taste disclosure verbatim: retained-version count and
  * latest modification by default, full text only when the request asked for a
- * specific revision. A missing projection stays missing (§51.1/§51.4).
+ * specific revision. A missing projection stays missing (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-4).
  */
 function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure | null }) {
   if (!disclosure) return null;
@@ -1274,10 +1274,10 @@ function ContextPanel({ node, projection, emit }: { node: UiNode; projection: Ui
 const SECTION_LABELS: Record<string, string> = { status: '当前状态', activity: '近期提交', artifacts: '产物', devices: '设备' };
 
 /// The work the reader opened, with the actions bound to its revision
-/// (SPEC §57.6). Every action names the revision the reader saw: a work
+/// (docs/specs/configuration-playground.md#spec-57-6). Every action names the revision the reader saw: a work
 /// that moved on refuses the stale action instead of quietly applying to
 /// whatever is there now.
-/// The instance's own name and who owns it (SPEC §21.1, §44.4).
+/// The instance's own name and who owns it (docs/specs/web-interface.md#spec-21-1, docs/specs/plugins.md#spec-44-4).
 ///
 /// The name is the instance's, not the brand's, and the reader may give it one
 /// — or let the subject name itself. Ownership is reported as the fact it is:

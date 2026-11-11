@@ -1,4 +1,4 @@
-//! 协议错误 — SPEC §41.3
+//! 协议错误 — docs/specs/durable-state.md#spec-41-3
 //! ProtocolError 携带 code、scope、retry 策略和 details。
 
 use serde::{Deserialize, Serialize};

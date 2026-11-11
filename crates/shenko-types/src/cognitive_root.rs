@@ -1,6 +1,6 @@
-//! 自有版本化根 — SPEC §51.4、§10.1、§10.2.1
+//! 自有版本化根 — docs/specs/cognition-units.md#spec-51-4, docs/specs/durable-state.md#spec-10-1, docs/specs/durable-state.md#spec-10-2-1
 //!
-//! §51.4：认知回滚不是把分支指针倒回旧提交。它在版本链**尾追加一个新节点**，
+//! docs/specs/cognition-units.md#spec-51-4：认知回滚不是把分支指针倒回旧提交。它在版本链**尾追加一个新节点**，
 //! 其内容与某个历史节点完全相同，并按内容寻址复用已有对象；链和日志只增不减。
 //!
 //! 本模块定义那个「一份 manifest 引用三者」的根：一份根内容同时指名
@@ -11,7 +11,7 @@
 //! * `runtime` — WASM 线性内存、执行栈与解释器对象图（[`WasmStateRef`]）。
 //!
 //! 根**不**包含也不撤销的东西：原始经历、日志、外部效应回执与债务。外部副作用
-//! 只能对账并如实记为无法撤回（§10.1）；回滚后 `agent_id` 保持切换前的值。
+//! 只能对账并如实记为无法撤回（docs/specs/durable-state.md#spec-10-1）；回滚后 `agent_id` 保持切换前的值。
 //!
 //! 顺序与当前的权威节点保存在账本里（`shenko-store` 的 `cognitive_root_nodes`），
 //! 内容与态度行复用唯一的认知储存：根内容是一版内容，指向它的是一条态度。
@@ -75,7 +75,7 @@ pub struct CognitionSelectorRef {
 /// 运行状态的两种如实记录。
 ///
 /// 捕获不到就写 [`RuntimeStateParticipant::NotCaptured`]：这是**公开缺口**，
-/// 不是把执行状态留在根外的许可（§51.4）。
+/// 不是把执行状态留在根外的许可（docs/specs/cognition-units.md#spec-51-4）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeStateParticipant {
@@ -176,7 +176,7 @@ impl CognitiveRootContent {
         serde_json::to_vec(self).map_err(|error| ShenkoError::storage(error.to_string()))
     }
 
-    /// 内容身份。字节没变就是同一版，不另开一版（§51.1）。
+    /// 内容身份。字节没变就是同一版，不另开一版（docs/specs/cognition-units.md#spec-51-1）。
     pub fn content_digest(&self) -> Result<Digest, ShenkoError> {
         Ok(Digest::blake3(&self.canonical_bytes()?))
     }
@@ -241,7 +241,7 @@ impl RootRequestKind {
 }
 
 /// 一次根写入的稳定身份。重试同一个 `request_id` 只返回原来那条；
-/// 换了内容再用同一个身份写就被拒绝（§41.6 的不确定提交读法）。
+/// 换了内容再用同一个身份写就被拒绝（docs/specs/channels.md#spec-41-6 的不确定提交读法）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CognitiveRootRequest {
@@ -285,7 +285,7 @@ pub struct CognitiveRootReinstatement {
     pub effects: Vec<ExternalEffectDisposition>,
 }
 
-/// 外部效应的处置。**没有**「撤回」这一可能取值：§10.1 的外部副作用只能
+/// 外部效应的处置。**没有**「撤回」这一可能取值：docs/specs/durable-state.md#spec-10-1 的外部副作用只能
 /// 对账，不能因为一次文件/内容回滚而消失。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -340,7 +340,7 @@ impl CognitiveRootNode {
 /// 当前的权威根：链尾节点，加上只增链的事实。
 ///
 /// 这里不做「旧版本只露出数量与时间」的投影——那是已安装 `taste` 宏包的规则，
-/// 内核只给出事实（§51.1、§51.3）。
+/// 内核只给出事实（docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CognitiveRootHead {

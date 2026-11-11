@@ -1,4 +1,4 @@
-//! Native children for installable cognition units — SPEC §45.1–45.7.
+//! Native children for installable cognition units — docs/specs/cognition-units.md#spec-45-1–docs/specs/cognition-units.md#spec-45-7.
 //!
 //! `cognition.unit.read:1` reads one unit's content at one exact version.
 //! `cognition.unit.write:1` writes a unit down from what the subject actually

@@ -94,7 +94,7 @@ impl NativeSshInstallation {
     }
 }
 
-/// Explicit compatibility mode from SPEC§11. Contains a key LOCATION and
+/// Explicit compatibility mode from docs/specs/remote-seats.md#spec-11. Contains a key LOCATION and
 /// expected PUBLIC identity, never a serialized private key/passphrase.
 /// Managed/hardware signers use NativeSessionOpener without this file adapter.
 #[derive(Deserialize)]

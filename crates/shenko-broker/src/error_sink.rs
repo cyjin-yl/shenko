@@ -1,4 +1,4 @@
-//! The runtime error sink of the broker — SPEC §41.14, §45.14.
+//! The runtime error sink of the broker — docs/specs/durable-state.md#spec-41-14, docs/specs/cognition-units.md#spec-45-14.
 //!
 //! A broker failure that cannot continue, or that forces a degradation, is a
 //! fact about the owning subject. It belongs in the same durable runtime

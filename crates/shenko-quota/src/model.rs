@@ -1,4 +1,4 @@
-//! Normative quota types (§42.3). Identifiers are stable within an account
+//! Normative quota types (docs/specs/quota-resources.md#spec-42-3). Identifiers are stable within an account
 //! namespace; `account_scope_ref` names a secret, it never holds one.
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-//! Full-stack Playground — SPEC §43.2.
+//! Full-stack Playground — docs/specs/configuration-playground.md#spec-43-2.
 //!
 //! An artifact is a long-lived work with source, build lock, optional
 //! frontend bundle, an executable backend bound to a registered runtime,
@@ -206,7 +206,7 @@ impl PlaygroundState {
     }
 
     /// The enumerable roots this installation selected for its artifacts —
-    /// SPEC §43.2. Roots come from the durable records, not from listing the
+    /// docs/specs/configuration-playground.md#spec-43-2. Roots come from the durable records, not from listing the
     /// playground directory, so a stray directory is never mistaken for an
     /// artifact.
     pub fn roots(&self) -> Vec<(EntityId, PathBuf, Digest)> {
@@ -404,7 +404,7 @@ impl PlaygroundState {
     /// Stage the current head as a candidate manifest without changing the
     /// active one. Staging is durable and replicated; nothing here executes and
     /// nothing is adopted: the candidate is a proposal, not the closure other
-    /// nodes must run (SPEC §51.1 "explicit adoption before content joins").
+    /// nodes must run (docs/specs/cognition-units.md#spec-51-1 "explicit adoption before content joins").
     /// Whether the work is still at the revision an action names.
     ///
     /// A work that has moved on refuses the stale action: the action is bound
@@ -445,7 +445,7 @@ impl PlaygroundState {
     }
 
     /// Publish one staged candidate as the active manifest — the explicit
-    /// adoption attitude for this content (SPEC §51.1, §43.2).
+    /// adoption attitude for this content (docs/specs/cognition-units.md#spec-51-1, docs/specs/configuration-playground.md#spec-43-2).
     ///
     /// The candidate refs are NOT erased: a published manifest stays a recorded
     /// candidate and `active_manifest_ref` says which one is in force, so the
@@ -485,13 +485,13 @@ impl PlaygroundState {
     }
 
     /// A lifecycle/manifest transition of an artifact is a business fact the
-    /// subject must be able to perceive — SPEC §43.2 (`artifact.state_changed`
+    /// subject must be able to perceive — docs/specs/configuration-playground.md#spec-43-2 (`artifact.state_changed`
     /// enters the same subject inbox as actions and content revisions).
     ///
     /// The announcing fact is built BEFORE the record is written and committed
     /// with it in one transaction, so there is no "recorded but unnotified"
     /// window to retry: the transition and the subject's perception of it are
-    /// one durable boundary (SPEC §43.2, §51.1).
+    /// one durable boundary (docs/specs/configuration-playground.md#spec-43-2, docs/specs/cognition-units.md#spec-51-1).
     fn state_event(
         &self,
         record: &ArtifactRecord,
@@ -590,7 +590,7 @@ impl PlaygroundState {
                 // version record and its content digest, and the subject can
                 // cite either instead of a paraphrase. No confidence value and
                 // no knowledge kind are attached — mechanism facts do not
-                // pretend to be judged attitudes (SPEC §51.1).
+                // pretend to be judged attitudes (docs/specs/cognition-units.md#spec-51-1).
                 "explanation": format!("Artifact '{}' committed revision {} ({} bytes, {}). Exact content and executable references are attached; binary content is not treated as text.",
                     record.title, record.revision, record.content_ref.bytes, record.mime),
             }),
@@ -731,7 +731,7 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 pub fn router(state: PlaygroundState) -> Router {
     Router::new()
         // The one served UI is the Proto-UI app; the Playground is a view of
-        // it, not a second hand-written page (SPEC §21, §43.2).
+        // it, not a second hand-written page (docs/specs/web-interface.md#spec-21, docs/specs/configuration-playground.md#spec-43-2).
         .route("/playground", get(list_handler))
         .route("/playground/{id}", get(get_handler).put(put_handler))
         .route("/playground/{id}/versions", get(versions_handler))

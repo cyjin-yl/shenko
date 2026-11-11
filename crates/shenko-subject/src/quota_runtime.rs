@@ -1,4 +1,4 @@
-//! Runtime quota observation and notification — SPEC §42.2, §42.4, §42.6.
+//! Runtime quota observation and notification — docs/specs/quota-resources.md#spec-42-2, docs/specs/quota-resources.md#spec-42-4, docs/specs/quota-resources.md#spec-42-6.
 //!
 //! This is the runtime half of the quota plugin family. The observers
 //! themselves live in [`shenko_quota`] and never perform I/O; this module
@@ -638,11 +638,11 @@ impl QuotaRuntime {
             };
             view = view.with_selection(profile, model, Some(choice_reason(&decision.choice)));
             // Which replaceable routing strategy produced this decision
-            // (SPEC §42.1, §42.6): the subject reads it as a fact about the
+            // (docs/specs/quota-resources.md#spec-42-1, docs/specs/quota-resources.md#spec-42-6): the subject reads it as a fact about the
             // numbers it is looking at, not as a second policy source.
             view = view.with_strategy(decision.strategy.clone());
             // The effort level the decision selected, when the policy
-            // supports more than the implicit one (SPEC §42.3).
+            // supports more than the implicit one (docs/specs/quota-resources.md#spec-42-3).
             let effort = match &decision.choice {
                 Choice::Cloud { effort, .. } => effort.clone(),
                 _ => None,
@@ -650,7 +650,7 @@ impl QuotaRuntime {
             view = view.with_effort(effort);
         }
         // The recorded forecast the decision was planned from: its strategy,
-        // horizon, confidence and per-window planning (SPEC §42.3, §42.6).
+        // horizon, confidence and per-window planning (docs/specs/quota-resources.md#spec-42-3, docs/specs/quota-resources.md#spec-42-6).
         // Projected read-only; the decision itself is never recomputed here.
         if let Some(forecast) = self
             .store
@@ -691,7 +691,7 @@ impl QuotaRuntime {
     ///
     /// Quota observation is an optional connector: a failed pass never
     /// stops this consumer and never fails the primary. The failure is
-    /// still a fact the subject can read (SPEC §45.14), journaled at this
+    /// still a fact the subject can read (docs/specs/cognition-units.md#spec-45-14), journaled at this
     /// consumer's own callsite.
     fn journal_failure(&self, kind: &str, error: &QuotaRuntimeError) {
         warn!(kind, %error, "quota pass failed");

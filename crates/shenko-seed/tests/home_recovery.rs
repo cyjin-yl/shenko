@@ -1,4 +1,4 @@
-//! Recoverable first start and persistent-home loss (SPEC §8.3, §10.4, C05).
+//! Recoverable first start and persistent-home loss (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-10-4, C05).
 //!
 //! These cases run the real seed bootstrap: the sealed preview1 probe module
 //! is compiled and executed against the declared preopens, host Git memory is

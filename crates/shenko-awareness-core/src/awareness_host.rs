@@ -1,4 +1,4 @@
-//! The installable awareness capability host — SPEC §51.2, §51.3, §51.8.
+//! The installable awareness capability host — docs/specs/cognition-units.md#spec-51-2, docs/specs/cognition-units.md#spec-51-3, docs/specs/cognition-units.md#spec-51-8.
 //!
 //! awareness is a capability, not a document the model can be assumed to
 //! follow. This module owns the installable half: a host that is resident only
@@ -160,7 +160,7 @@ pub struct HostState {
     pub reason: String,
 }
 
-/// Where a notice's reading stops — SPEC §51.1.
+/// Where a notice's reading stops — docs/specs/cognition-units.md#spec-51-1.
 ///
 /// A reading that stops at an observation of this installation reads like a
 /// fact; a reading that stops at installed authored content reads like a

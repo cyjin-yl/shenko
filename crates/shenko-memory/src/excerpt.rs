@@ -1,4 +1,4 @@
-//! Match-centred excerpts for recall results — SPEC §12.3.
+//! Match-centred excerpts for recall results — docs/specs/context-policies.md#spec-12-3.
 //!
 //! A recall hit must show the actual match position in the original text,
 //! not a blind prefix: the caller reads a bounded window centred on the
@@ -27,7 +27,7 @@ pub struct MatchExcerpt {
 /// Center a bounded excerpt on the first literal occurrence of `query`.
 ///
 /// * CJK and mixed text match literally (`str::find`), because substring
-///   semantics are what Chinese retrieval needs (SPEC §12.3).
+///   semantics are what Chinese retrieval needs (docs/specs/context-policies.md#spec-12-3).
 /// * ASCII queries also try a case-insensitive linear scan: the FTS index
 ///   can serve matches whose case differs from the stored text.
 pub fn excerpt_for(text: &str, query: &str) -> MatchExcerpt {

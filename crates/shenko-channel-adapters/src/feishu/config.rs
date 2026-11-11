@@ -1,4 +1,4 @@
-//! Configuration of the Feishu/Lark connector — SPEC §16.
+//! Configuration of the Feishu/Lark connector — docs/specs/channel-adapters.md#spec-16.
 //!
 //! Feishu/Lark is an open platform: the account is an *app* identified by an
 //! `app_id` and an `app_secret`. The secret is exchanged for a tenant ticket,

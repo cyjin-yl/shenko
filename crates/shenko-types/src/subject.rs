@@ -1,4 +1,4 @@
-//! Subject step types — SPEC §5.1, §41.3
+//! Subject step types — docs/specs/subject-runtime.md#spec-5-1, docs/specs/durable-state.md#spec-41-3
 //! S0: fix input plan + context version.
 //! S1: commit decision, event disposition, delegation intent, unique successor.
 use crate::commit::CommitRef;
@@ -20,7 +20,7 @@ pub struct EventDisposition {
     pub reason: Option<String>,
     /// Authored attention priority of this input. It changes selection order
     /// only: a message body never raises trusted priority, admin status or
-    /// tool authority by itself. SPEC §41.6.
+    /// tool authority by itself. docs/specs/channels.md#spec-41-6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<EventPriority>,
     /// When a deferred input may be selected again. `None` means the subject
@@ -104,7 +104,7 @@ pub enum MemoryIntentKind {
 }
 
 /// Semantic wait — the subject voluntarily waits on a condition it named.
-/// SPEC §5.1, §41.5, R143: one wait lasts at most 600 seconds and keeps
+/// docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-41-5, R143: one wait lasts at most 600 seconds and keeps
 /// polling the same model with prior and new context. The Store owns the
 /// deadline; this type only carries the durable fact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,7 +194,7 @@ pub struct SemanticWaitReceipt {
     pub committed_at: CommitRef,
 }
 
-/// Subject branch head — tracks the continuous subject loop state. SPEC §41.5
+/// Subject branch head — tracks the continuous subject loop state. docs/specs/subject-runtime.md#spec-41-5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubjectBranchHead {
     pub agent_id: EntityId,
@@ -222,7 +222,7 @@ pub enum SubjectMode {
     RecoveryBlocked,
 }
 
-/// Persistent genesis record — the immutable birth of a subject instance. SPEC §44.6
+/// Persistent genesis record — the immutable birth of a subject instance. docs/specs/plugins.md#spec-44-6
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubjectGenesis {
     pub genesis_id: EntityId,
@@ -242,7 +242,7 @@ pub struct GenesisRef {
     pub genesis_id: EntityId,
 }
 
-/// SubjectStep state machine per SPEC §41.5
+/// SubjectStep state machine per docs/specs/subject-runtime.md#spec-41-5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubjectStep {
     pub step_id: EntityId,
@@ -349,7 +349,7 @@ impl SubjectRetryEvidence {
     }
 }
 
-/// TaskWait — child wait record. SPEC §41.5
+/// TaskWait — child wait record. docs/specs/subject-runtime.md#spec-41-5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskWait {
     pub waiting_task_id: EntityId,
@@ -360,7 +360,7 @@ pub struct TaskWait {
     pub created_commit: CommitRef,
 }
 
-/// StepDecision — the committed decision for one subject step. SPEC §41.5
+/// StepDecision — the committed decision for one subject step. docs/specs/subject-runtime.md#spec-41-5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepDecision {
     pub schema_version: u32,
@@ -378,12 +378,12 @@ pub struct StepDecision {
     pub publication_intents: Vec<PublicationIntent>,
     pub pending_obligations: Vec<PendingObligation>,
     /// The subject's explicit decisions about external effects whose
-    /// outcome is unknown (SPEC §41.4 X11). Each one names a case that was
+    /// outcome is unknown (docs/specs/durable-state.md#spec-41-4 X11). Each one names a case that was
     /// carried into this step's S0; the Store refuses a case the step never
     /// saw. Absent in decisions committed before schema 9.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown_acknowledgements: Vec<crate::evidence::ReconciliationAcknowledgement>,
-    /// The subject's own attention decision (免打扰). SPEC §13.8: off →
+    /// The subject's own attention decision (免打扰). docs/specs/subject-runtime.md#spec-13-8: off →
     /// active → off, with the applicable sources and the end/review
     /// condition kept durable. It changes selection, not history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -412,7 +412,7 @@ pub struct DialogueIntent {
     pub direction: DialogueDirection,
 }
 
-/// The subject's own attention decision. SPEC §13.8.
+/// The subject's own attention decision. docs/specs/subject-runtime.md#spec-13-8.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttentionPolicy {
     pub intent_id: EntityId,
@@ -437,7 +437,7 @@ pub enum AttentionState {
 /// The sealed per-steer record behind one entry of `applied_steering_refs`.
 /// Each applied steer is sealed as its own object so S1 can verify, per
 /// steer, that the decision cites a real admitted steer submission and the
-/// event that carried it was actually selected into this step's S0. SPEC §41.
+/// event that carried it was actually selected into this step's S0. docs/specs/architecture.md#spec-41.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppliedSteeringRecord {
     pub schema_version: u32,

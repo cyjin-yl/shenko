@@ -1,4 +1,4 @@
-//! The subject-readable quota view — SPEC §42.6.
+//! The subject-readable quota view — docs/specs/quota-resources.md#spec-42-6.
 //!
 //! The subject reads quota facts the same way it reads any other durable
 //! fact: as bounded text that names its source. The view shows what is left
@@ -48,7 +48,7 @@ pub struct QuotaWindowPlanView {
     pub planning: Planning,
 }
 
-/// The recorded forecast one decision was planned from — SPEC §42.3
+/// The recorded forecast one decision was planned from — docs/specs/quota-resources.md#spec-42-3
 /// `cost_model_version`, `horizon`, `confidence` and `per_window`.
 ///
 /// This is a read projection of a recorded fact. Reading it never recomputes,
@@ -183,12 +183,12 @@ pub struct QuotaScopeView {
     /// Why the decision selected it.
     pub selection_reason: Option<String>,
     /// The replaceable routing strategy that produced the current decision,
-    /// as `id@version` (SPEC §42.1). Absent when no decision is recorded or
+    /// as `id@version` (docs/specs/quota-resources.md#spec-42-1). Absent when no decision is recorded or
     /// the decision predates the strategy seam: unknown, never assumed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_strategy: Option<String>,
     /// The effort level the current decision selected for that profile
-    /// (SPEC §42.3). Absent means the implicit level of a pre-effort policy.
+    /// (docs/specs/quota-resources.md#spec-42-3). Absent means the implicit level of a pre-effort policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_effort: Option<String>,
     /// The recorded forecast the decision was planned from, with its

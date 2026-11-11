@@ -1,5 +1,5 @@
 //! Inference broker — fair asynchronous dispatch over one physical resource
-//! domain. SPEC §13, §22.1, §41.8–41.10, §47.
+//! domain. docs/specs/inference.md#spec-13, docs/specs/nodes.md#spec-22-1, docs/specs/context-policies.md#spec-41-8–docs/specs/inference.md#spec-41-10, docs/specs/inference.md#spec-47.
 //!
 //! Every controlled call — the subject, a child, memory work, compaction,
 //! diagnostics — enters this broker. The provider is resolved from the open
@@ -302,7 +302,7 @@ impl BrokerHandle {
             self.domain.reconcile_debt(request_id);
             // The original terminal evidence ends the context read hold the
             // unknown outcome kept charged; the context may now be reclaimed
-            // at the next safe boundary (§41.10).
+            // at the next safe boundary (docs/specs/inference.md#spec-41-10).
             self.kv
                 .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
             self.accounting_changed.notify_one();
@@ -967,7 +967,7 @@ impl Broker {
 fn env_runtime() -> Result<Arc<dyn ProviderRuntime>> {
     if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
         let provider = crate::local_provider::LocalModelProvider::from_env()?;
-        info!(model=%provider.model, "local model provider selected (§22.1)");
+        info!(model=%provider.model, "local model provider selected (docs/specs/nodes.md#spec-22-1)");
         return Ok(Arc::new(provider));
     }
     if let Some(provider) = crate::provider::AnthropicProvider::from_env() {
@@ -1974,7 +1974,7 @@ mod tests {
     }
 
     /// A streamed call reaches the reader surface AND the receipt owner —
-    /// SPEC §57.5. The stream is an additional ordered surface, never a
+    /// docs/specs/web-interface.md#spec-57-5. The stream is an additional ordered surface, never a
     /// replacement for the recorded result, and a control line never crosses
     /// into the reader's text.
     #[tokio::test(flavor = "current_thread")]

@@ -1,4 +1,4 @@
-//! Replaceable ContextPolicy contract — SPEC §12.3.1–12.3.2.
+//! Replaceable ContextPolicy contract — docs/specs/context-policies.md#spec-12-3-1–docs/specs/context-policies.md#spec-12-3-2.
 //!
 //! Strategies (budget compact, snapcompact, others) live in their own plugins
 //! and only implement [`ContextPolicy`]. This crate owns what they share: stable

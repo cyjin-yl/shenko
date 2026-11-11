@@ -1,4 +1,4 @@
-//! The activation coordinator — SPEC §9.5, §35.7, §41.12.
+//! The activation coordinator — docs/specs/self-update.md#spec-9-5, docs/specs/self-update.md#spec-35-7, docs/specs/self-update.md#spec-41-12.
 //!
 //! One `UpdateService` owns the hand-over state machine of one subject:
 //!
@@ -308,7 +308,7 @@ pub struct UpdateService {
     builder: Arc<dyn BuildProvider>,
     /// The node-committed primary claim, re-read before the swap.
     claim_source: Option<Arc<dyn PrimaryClaimSource>>,
-    /// The subject's owned versioned-root chain (SPEC §51.4). The controller
+    /// The subject's owned versioned-root chain (docs/specs/cognition-units.md#spec-51-4). The controller
     /// owns its manifest and storage; an installation without the controller
     /// contract cannot roll the state root back and says so instead of
     /// pretending a file copy is one.
@@ -376,7 +376,7 @@ impl UpdateService {
         self
     }
 
-    /// Bind the subject's versioned-root chain (SPEC §51.4).
+    /// Bind the subject's versioned-root chain (docs/specs/cognition-units.md#spec-51-4).
     ///
     /// The chain is the controller's, not this crate's: nothing here defines a
     /// root manifest, selector or node layout. Wiring is additive, so an
@@ -408,7 +408,7 @@ impl UpdateService {
         &self.store
     }
 
-    /// SPEC §51.4 append-node rollback of the owned versioned root.
+    /// docs/specs/cognition-units.md#spec-51-4 append-node rollback of the owned versioned root.
     ///
     /// This appends a new node whose content equals the selected historical
     /// node; it never rewinds, truncates or deletes the chain or the ledger
@@ -424,7 +424,7 @@ impl UpdateService {
     ) -> UpdateResult<crate::rollback::RollbackOutcome> {
         let chain = self.root_chain.as_ref().ok_or_else(|| {
             anyhow!(
-                "ROOT_CHAIN_UNAVAILABLE: §51.4 state-root rollback needs the owned versioned-root \
+                "ROOT_CHAIN_UNAVAILABLE: docs/specs/cognition-units.md#spec-51-4 state-root rollback needs the owned versioned-root \
                  controller contract (node select + append-node over one manifest covering home \
                  files, software slots, cognition selectors, WASM linear memory, execution stack \
                  and interpreter object graph); no chain is bound to this installation"

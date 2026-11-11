@@ -1,4 +1,4 @@
-//! The WeChat iLink bot channel adapter — SPEC §15.3, §16, §35.6.
+//! The WeChat iLink bot channel adapter — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6.
 //!
 //! The protocol is a long-poll `getupdates` ingress with a per-conversation
 //! `context_token`, and a CDN that stores media encrypted with AES-128-ECB.

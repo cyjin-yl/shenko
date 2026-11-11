@@ -1,5 +1,5 @@
 //! Persistent `/home` + `/memory` byte closure: capture, verify and restore
-//! (SPEC §8.3, §10.1–§10.5, C05).
+//! (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-10-1–docs/specs/memory.md#spec-10-5, C05).
 //!
 //! This module implements the `FilesAndMetadata` recovery level: every regular
 //! file's bytes are sealed into the installation's content-addressed store,
@@ -10,7 +10,7 @@
 //! sent stays sent, a remote write stays written. Restoring file bytes is not
 //! a rollback of anything that already left the sandbox.
 //!
-//! Publication follows the durable order from SPEC §10.5: every file object is
+//! Publication follows the durable order from docs/specs/memory.md#spec-10-5: every file object is
 //! sealed and verified first, then the manifest object, then the append-only
 //! journal line, and only then is the `head` pointer replaced — under an
 //! expected-old-value check, so a concurrent publication is refused instead of

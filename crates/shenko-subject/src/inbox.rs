@@ -1,4 +1,4 @@
-//! Persistent subject inbox — SPEC §5.1
+//! Persistent subject inbox — docs/specs/subject-runtime.md#spec-5-1
 use tokio::sync::{mpsc, Mutex};
 use shenko_types::ids::EntityId;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// the two spellings can never drift apart.
 pub const SELF_WAKE_KIND: &str = "self_wake";
 
-/// The inbox source the subject's own wakes arrive from (SPEC §13.8; the
+/// The inbox source the subject's own wakes arrive from (docs/specs/subject-runtime.md#spec-13-8; the
 /// subject produces this fact about itself, no external channel does).
 pub const SUBJECT_WAKE_SOURCE: &str = "subject";
 
@@ -31,21 +31,21 @@ pub enum InboxEventKind {
     MemoryResult,
     SemanticWaitCheck,
     SystemEvent,
-    /// A Playground artifact changed (PUT or backend action). SPEC §43.2.
+    /// A Playground artifact changed (PUT or backend action). docs/specs/configuration-playground.md#spec-43-2.
     ArtifactChanged,
     /// A durable transcript revision of one continuous-media stream segment
-    /// (partial, final, superseded or final-correction). SPEC §15.2, §20.
+    /// (partial, final, superseded or final-correction). docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
     MediaRevision,
     /// A media stream opened or reached a terminal state (cancelled,
-    /// disconnected, ended). SPEC §20.
+    /// disconnected, ended). docs/specs/media.md#spec-20.
     MediaStream,
     /// An admitted recording control (start/stop) with the recording's
-    /// projection state. SPEC §20.
+    /// projection state. docs/specs/media.md#spec-20.
     MediaRecording,
     /// A media session priority input (barge-in, interjection, stop
-    /// playback, urgent message). SPEC §20.
+    /// playback, urgent message). docs/specs/media.md#spec-20.
     MediaPriority,
-    /// A durable subject obligation reached its `due_at` time (SPEC §13.8;
+    /// A durable subject obligation reached its `due_at` time (docs/specs/subject-runtime.md#spec-13-8;
     /// R071/R072 proactive steps). The subject itself produces this fact;
     /// the obligation row, not this wake, remains the authority.
     SelfWake,

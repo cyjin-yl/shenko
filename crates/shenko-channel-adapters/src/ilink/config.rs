@@ -1,4 +1,4 @@
-//! Configuration of the WeChat iLink connector — SPEC §16.
+//! Configuration of the WeChat iLink connector — docs/specs/channel-adapters.md#spec-16.
 //!
 //! The iLink provider is reached with a *bot token* that a human obtains by
 //! scanning a QR code. The credentials therefore have a lifecycle the other

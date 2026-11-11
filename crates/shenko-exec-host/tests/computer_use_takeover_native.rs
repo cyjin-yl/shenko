@@ -1,6 +1,6 @@
 //! Native Linux proof path: a real non-XTEST input device revokes an active
 //! Computer Use write lease and releases machine-held input
-//! (SPEC §24.1/§24.3).
+//! (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3).
 //!
 //! # What actually runs
 //!
@@ -95,7 +95,7 @@
 //! A missing prerequisite or a lost capability fails RED with
 //! `INCONCLUSIVE (no pass)` and a retained `receipt.json`; it can never
 //! return success. The evidence root defaults to
-//! `<project>/build/computer-use-takeover-native`, resolved by the `SPEC.md`
+//! `<project>/build/computer-use-takeover-native`, resolved by the `docs/contracts.json`
 //! marker (so it never lands inside the source worktree);
 //! `SHENKO_TAKEOVER_EVIDENCE_DIR` overrides it. Each run retains its own
 //! directory with `receipt.json`, the observation CAS (`store/`) and the
@@ -456,7 +456,7 @@ fn evidence_root() -> PathBuf {
     if let Ok(dir) = std::env::var("SHENKO_TAKEOVER_EVIDENCE_DIR") {
         return PathBuf::from(dir);
     }
-    // Resolve the project root by the SPEC.md marker, not by a fixed number
+    // Resolve the project root by the docs/contracts.json marker, not by a fixed number
     // of `..` steps: the crate is built both inside `worktrees/<name>` and in
     // a plain clone. Evidence stays outside the source tree either way.
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -465,7 +465,7 @@ fn evidence_root() -> PathBuf {
         for _ in 0..depth {
             root.pop();
         }
-        if root.join("SPEC.md").is_file() {
+        if root.join("docs/contracts.json").is_file() {
             return root.join("build/computer-use-takeover-native");
         }
     }

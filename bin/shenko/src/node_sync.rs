@@ -214,7 +214,7 @@ fn open_node_inner(
     Ok(node)
 }
 
-/// The installation-level half of `adopt_identity` (SPEC §5.4): the node may
+/// The installation-level half of `adopt_identity` (docs/specs/nodes.md#spec-5-4): the node may
 /// adopt the trusted identity only when the store's subject binding stays
 /// coherent with it — either no local subject is bound yet (the node carries
 /// the adopted self until the subject's retained facts arrive; the binding
@@ -290,7 +290,7 @@ pub fn cognition_report_options(data_dir: &Path) -> CognitionSnapshotOptions {
 /// of the peer-visible cognition report. It states a snapshot and the ledger
 /// watermark it covered; it is not a liveness, capacity or recoverability
 /// claim, and no peer reads it as one. It is a mechanism observation, not
-/// cognitive content, an attitude or a confidence (SPEC §51.1).
+/// cognitive content, an attitude or a confidence (docs/specs/cognition-units.md#spec-51-1).
 ///
 /// Unchanged content publishes nothing new: the Node keeps one revision per
 /// observed content digest, so a tick that observes the same bytes returns the
@@ -795,7 +795,7 @@ fn replicate_committed_claim(node: &mut Node, cancel: &CancellationToken) -> Res
 ///
 /// When no reachable quorum exists this opens an explicit availability
 /// branch and returns `None`: the caller keeps its own subject available
-/// without claiming to be the domain's primary (SPEC §5.4.1).
+/// without claiming to be the domain's primary (docs/specs/nodes.md#spec-5-4-1).
 pub fn establish_primary(
     data_dir: &Path,
     store: &Store,
@@ -1272,7 +1272,7 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
     // always one this installation actually computed from its Store.
     // A publication failure is reported, never silently replaced by an older
     // report: a peer then keeps reading the last real observation it has. An
-    // unchanged snapshot publishes nothing new (§51.1 dedup), so a steady tick
+    // unchanged snapshot publishes nothing new (docs/specs/cognition-units.md#spec-51-1 dedup), so a steady tick
     // is a read, not a new revision.
     let cognition = publish_cognition_report(store, &mut node, data_dir);
     if let Err(error) = &cognition {
@@ -1359,7 +1359,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             // the report a peer reads from the node route is whatever this
             // installation last published, so it is produced from the Store
             // here instead of only by the background replication tick. An
-            // unchanged Store keeps the published revision (§51.1 dedup).
+            // unchanged Store keeps the published revision (docs/specs/cognition-units.md#spec-51-1 dedup).
             let published = publish_cognition_report(&store, &mut node, &data_dir);
             if let Err(error) = &published {
                 tracing::warn!(error=%error, "cognition report not published; the route keeps the last real report");
@@ -1657,7 +1657,7 @@ pub fn spawn_runtime(
 /// only with the committed election's fencing token; `None` records an honest
 /// executor/recovery/replica observation with no domain-primary claim —
 /// e.g. a deterministic bootstrap or an availability branch after a
-/// partition (SPEC §5.4.3).
+/// partition (docs/specs/nodes.md#spec-5-4-3).
 pub fn observe(
     data_dir: &Path,
     store: &Store,

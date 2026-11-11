@@ -1,4 +1,4 @@
-//! Contact / person directory protocol types — SPEC §15.2, §15.2.1, §16, §20.
+//! Contact / person directory protocol types — docs/specs/contacts.md#spec-15-2, docs/specs/contacts.md#spec-15-2-1, docs/specs/channel-adapters.md#spec-16, docs/specs/media.md#spec-20.
 //!
 //! Requirements carried here: R059 (stable person ids, aliases, cross-platform
 //! mapping), R060 (voiceprint is an optional identity *clue* that keeps
@@ -19,11 +19,11 @@
 //!    points at a person. The person id is the stable internal identity; it is
 //!    never a nickname, a provider id or a display name.
 //! 3. **Recording-local ids are not person ids.** Life's `rank_id` and
-//!    `cluster_id` are scoped to one recording (§15.2.1) and never identify a
+//!    `cluster_id` are scoped to one recording (docs/specs/contacts.md#spec-15-2-1) and never identify a
 //!    person on their own; only an explicit confirmation links them.
 //! 4. **Scope is provenance, not an audience filter.** [`ClaimScope`] records
 //!    *where* a fact was learned. It never hides the fact from the subject
-//!    (§6 D1); what the subject says to whom stays the subject's judgement.
+//!    (docs/specs/subject-runtime.md#spec-6 D1); what the subject says to whom stays the subject's judgement.
 //!
 //! The admin fact is deliberately *not* a claim: it is a separate, explicitly
 //! human-set record ([`AdminFact`]) so that no familiarity score, group
@@ -43,7 +43,7 @@ pub const CONTACTS_KEY_SEPARATOR: char = '\u{1f}';
 /// person id is *current* without rewriting the original attribution.
 pub type PersonId = EntityId;
 
-/// A platform account coordinate (§15.1: provider account/tenant plus the
+/// A platform account coordinate (docs/specs/channels.md#spec-15-1: provider account/tenant plus the
 /// platform's own stable user id). Accounts are opaque strings; a QQ number,
 /// an OpenID or a Feishu chat id are never forced into an integer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,14 +98,14 @@ pub enum ClaimSource {
         revision: Option<String>,
     },
     /// The Life adapter (`cyjin-yl/life` people catalog / voiceprint
-    /// registry), §15.2.1.
+    /// registry), docs/specs/contacts.md#spec-15-2-1.
     LifeAdapter {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         life_person_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model_revision: Option<String>,
     },
-    /// A media provider's speaker claim (§15.2, §20).
+    /// A media provider's speaker claim (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20).
     MediaProvider {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -147,7 +147,7 @@ pub enum ConfidenceBasis {
 }
 
 /// Confidence of one claim. `value` is a model/provider signal in `[0, 1]`,
-/// not a real-world probability of identity (§20).
+/// not a real-world probability of identity (docs/specs/media.md#spec-20).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Confidence {
@@ -191,9 +191,9 @@ pub enum PersonClaimKind {
     PlatformAccount,
     /// A relationship to the owner (role, kind, note).
     Relationship,
-    /// A speaker/voiceprint observation. A clue only (§15.2, R060).
+    /// A speaker/voiceprint observation. A clue only (docs/specs/contacts.md#spec-15-2, R060).
     SpeakerObservation,
-    /// A Life voiceprint rank record linked to this person (§15.2.1).
+    /// A Life voiceprint rank record linked to this person (docs/specs/contacts.md#spec-15-2-1).
     LifeIdentity,
     /// A stable id owned by another system (for example a Life person slug).
     ExternalIdentity,
@@ -248,7 +248,7 @@ impl PersonClaimState {
 }
 
 /// Where a fact was learned. This is provenance metadata, never an access
-/// control: the subject's personal knowledge is not audience-filtered (§6).
+/// control: the subject's personal knowledge is not audience-filtered (docs/specs/subject-runtime.md#spec-6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaimScopeKind {
@@ -351,7 +351,7 @@ pub enum PersonIdentityEventKind {
 
 /// An append-only identity event. Merge and split never rewrite the claims
 /// they touch: the current owner of a fact is the replay of these events over
-/// the original attribution (§15.2 "错误合并可拆分，历史来源不被改写").
+/// the original attribution (docs/specs/contacts.md#spec-15-2 "错误合并可拆分，历史来源不被改写").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonIdentityEvent {
     pub event_id: EntityId,
@@ -386,7 +386,7 @@ pub enum AdminSubjectKind {
 ///
 /// It is never derived from familiarity, group status, a platform role, a
 /// voiceprint match or an inference, and it is never a chat admission
-/// condition: ordinary users can talk (§16). Only the owner sets it.
+/// condition: ordinary users can talk (docs/specs/channel-adapters.md#spec-16). Only the owner sets it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdminFact {
     pub agent_id: EntityId,
@@ -431,7 +431,7 @@ pub struct PersonView {
     pub admin: Option<AdminFact>,
 }
 
-/// Candidate status of one Life voiceprint candidate (§15.2.1).
+/// Candidate status of one Life voiceprint candidate (docs/specs/contacts.md#spec-15-2-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LifeCandidateStatus {
@@ -463,7 +463,7 @@ pub struct LifeRankCandidate {
     pub score: Option<f64>,
 }
 
-/// One Life voiceprint rank record (§15.2.1).
+/// One Life voiceprint rank record (docs/specs/contacts.md#spec-15-2-1).
 ///
 /// `rank_id` tracks a candidate speaker across recordings; `cluster_id` is
 /// the recording-local automatic clustering number and may change on a
@@ -500,7 +500,7 @@ pub struct LifeRankReceipt {
     pub commit_ref: CommitRef,
 }
 
-/// One entry of the Life people catalog (§15.2.1). The catalog keeps the
+/// One entry of the Life people catalog (docs/specs/contacts.md#spec-15-2-1). The catalog keeps the
 /// stable id in front matter and never uses a real name as the key.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

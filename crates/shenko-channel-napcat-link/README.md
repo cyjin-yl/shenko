@@ -1,6 +1,6 @@
 # shenko-channel-napcat-link
 
-Optional NapCatQQ transport backend for Shenko (SPEC §18.1, ecosystem
+Optional NapCatQQ transport backend for Shenko ([§18.1](../../docs/specs/plugins.md#spec-18-1), ecosystem
 compatibility), implemented on the [`napcat-link`](https://crates.io/crates/napcat-link)
 SDK. It is an alternative to the hand-rolled WebSocket client in
 `shenko-channel-napcat` and is **not** wired into the binary by default.

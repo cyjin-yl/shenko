@@ -1,4 +1,4 @@
-//! The local meter of Shenko's own quota consumption — SPEC §42.3/§42.4.
+//! The local meter of Shenko's own quota consumption — docs/specs/quota-resources.md#spec-42-3, docs/specs/quota-resources.md#spec-42-4.
 //!
 //! The meter measures what *this* node spent, from the durable attempt rows
 //! of the ledger. It is the only producer of a coverage proof: the meter's

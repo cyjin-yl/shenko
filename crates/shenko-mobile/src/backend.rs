@@ -1,7 +1,7 @@
 //! Shared live backend for the six Android native kinds.
 //!
 //! Mirrors the desktop Computer Use backend shape (one Cordis-registered kind
-//! per handler over one shared `AndroidBackend`) with the §24.3 display
+//! per handler over one shared `AndroidBackend`) with the docs/specs/desktop-runtime.md#spec-24-3 display
 //! write-lease semantics: one physical device screen is one display domain
 //! with at most one live writer epoch; takeover revokes the old epoch so
 //! late machine input is rejected; read-only observation never needs a
@@ -446,7 +446,7 @@ impl AndroidBackend {
             for (kind, value) in caps {
                 // An authority whose state vocabulary this node does not know
                 // is undetermined, never absent: dropping it would let a
-                // caller read "not reported" as "not granted" (§24.5 keeps
+                // caller read "not reported" as "not granted" (docs/specs/mobile-runtime.md#spec-24-5 keeps
                 // available/unknown/failed separate, with revalidation terms).
                 let parsed = serde_json::from_value::<CapabilityState>(value.clone())
                     .unwrap_or_else(|error| CapabilityState::Unknown {
@@ -658,7 +658,7 @@ impl AndroidBackend {
         )
     }
 
-    /// §24.3 lease semantics: one display domain, one live writer epoch.
+    /// docs/specs/desktop-runtime.md#spec-24-3 lease semantics: one display domain, one live writer epoch.
     /// Takeover revokes the previous epoch; late machine input carrying the
     /// old token or an older epoch is rejected before any event is sent.
     pub(crate) fn lease_op(
@@ -1131,7 +1131,7 @@ impl AndroidBackend {
     // Input
     // ------------------------------------------------------------------
 
-    /// §24.3: every event is delivered only after the bound observation
+    /// docs/specs/desktop-runtime.md#spec-24-3: every event is delivered only after the bound observation
     /// re-verifies, the lease epoch is live, and no external takeover
     /// revoked it. Unverified delivery is never claimed complete.
     pub(crate) fn inject(
@@ -1350,7 +1350,7 @@ impl AndroidBackend {
         });
         if all_acked {
             // Transport-level completion; app-level effects of the input are
-            // Unknown until observed (§24.4).
+            // Unknown until observed (docs/specs/desktop-runtime.md#spec-24-4).
             DriveOutcome::done(EffectStatus::Unknown, ObservationLevel::TransportWritten, normalized)
         } else {
             // Some events reached the device and the rest did not: a partial

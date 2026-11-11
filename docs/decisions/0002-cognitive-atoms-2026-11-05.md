@@ -1,8 +1,8 @@
 # 0002 认知元概念：内容、态度与理由
 
 状态：2026-11-05 用户确认的概念合同。不是运行时已经实现的声明。
-现行条文在 [SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由)。2026-11-06 的全文读法治理见 [0003](0003-spec-governance-2026-11-06.md)。
-§1–47 的用户原话字节未改；与本节冲突的是那些章节的**设计读法**。
+现行条文在 [51 认知元概念：内容、态度与理由](../specs/cognition-units.md#spec-51)。2026-11-06 的全文读法治理见 [0003](0003-spec-governance-2026-11-06.md)。
+[§1](../specs/architecture.md#spec-1)–[§47](../specs/inference.md#spec-47) 的用户原话字节未改；与本节冲突的是那些章节的**设计读法**。
 
 ## 决定
 
@@ -21,7 +21,7 @@
 - 设计必须通用。任何人的具体记录、目录或维护清单都不是需求。个人仓库只用来检验通用性；任何私人仓库里的内容不得进入 Shenko 仓库。
 - perception 是教主体如何观察的无状态单元。观察事件属于原始经历。观察得到的结果是 fact，理由停在那次观察上。不同主体（人类、Shenko、不同的 Shenko）有不同的 perception。用他人的 perception 解释同一段经验，就是换位思考。
 - 能力一律是可安装插件，不进内核。这包括时间感知、世界感知、预测、awareness 宿主、perception、换位思考和维护习惯。发行版由 `humanlike-mind` 等宏包预装其中一些。账本可以记录一条经历是何时写入的；那是记录的机制字段，不是时间感知能力。
-- **两种可更改。** awareness、fact、conclusion、attitude 等元定义，以及插件里的这类内容，可以在线学习修订。修订是带理由的内容。旧版本保留；默认只显示数量和最新修改时间；旧内容按最新定义重新理解。core 运行时不在线学习。core 和有实现的插件通过「编写新版本 → 整体替换 → 可回滚」更改。新版本是不可变对象，旧版本保留。主体自主替换与回滚，说明风险与收益，不新增人工审批或权限禁止。要一起回滚的是 core、有实现的插件、perception、awareness 等内容单元，以及 WASM 线性内存、执行栈和解释器对象图。只有外部副作用不能撤回，并先对账、记为无法撤回（§10.1）。回滚不是把指针倒回去。它在版本链尾追加一个新节点，内容与该历史节点相同，对象按摘要复用。链和日志只增不减。回滚用自有的版本化根，沿用 §10.2.1 已写的 WASM 状态原则：内容寻址、不可变对象、原子根引用、持久提交。提议把家园文件提交、core/插件软件槽和 `unit_current`（awareness、perception 的当前版本）收进同一个根：一份 manifest 引用三者。整体回滚就是链尾追加一个根与旧节点相同的新节点。`crates/shenko-wasm/src/cow.rs` 的 `discard_abs` 会删除 `commits.jsonl` 和 `head`，与只增日志冲突，这是实现缺口。WASM 线性内存、执行栈和解释器对象图都纳入该根。今天的 `HomeCheckpoint` 只有 `FilesAndMetadata`，三者都不在里面，这是实现缺口。换 core 前的具体验证步骤由实现者自主设计，不设人工审批。回滚后 `agent_id` 保持切换前的值：主体没变，只是故障切换。DeepSeek Harness 的自修改只在进程内存；Shenko 的版本节点要持久化。参照见 SPEC §51.4。
+- **两种可更改。** awareness、fact、conclusion、attitude 等元定义，以及插件里的这类内容，可以在线学习修订。修订是带理由的内容。旧版本保留；默认只显示数量和最新修改时间；旧内容按最新定义重新理解。core 运行时不在线学习。core 和有实现的插件通过「编写新版本 → 整体替换 → 可回滚」更改。新版本是不可变对象，旧版本保留。主体自主替换与回滚，说明风险与收益，不新增人工审批或权限禁止。要一起回滚的是 core、有实现的插件、perception、awareness 等内容单元，以及 WASM 线性内存、执行栈和解释器对象图。只有外部副作用不能撤回，并先对账、记为无法撤回（[§10.1](../specs/durable-state.md#spec-10-1)）。回滚不是把指针倒回去。它在版本链尾追加一个新节点，内容与该历史节点相同，对象按摘要复用。链和日志只增不减。回滚用自有的版本化根，沿用 [§10.2.1](../specs/durable-state.md#spec-10-2-1) 已写的 WASM 状态原则：内容寻址、不可变对象、原子根引用、持久提交。提议把家园文件提交、core/插件软件槽和 `unit_current`（awareness、perception 的当前版本）收进同一个根：一份 manifest 引用三者。整体回滚就是链尾追加一个根与旧节点相同的新节点。`crates/shenko-wasm/src/cow.rs` 的 `discard_abs` 会删除 `commits.jsonl` 和 `head`，与只增日志冲突，这是实现缺口。WASM 线性内存、执行栈和解释器对象图都纳入该根。今天的 `HomeCheckpoint` 只有 `FilesAndMetadata`，三者都不在里面，这是实现缺口。换 core 前的具体验证步骤由实现者自主设计，不设人工审批。回滚后 `agent_id` 保持切换前的值：主体没变，只是故障切换。DeepSeek Harness 的自修改只在进程内存；Shenko 的版本节点要持久化。参照见 [§51.4](../specs/cognition-units.md#spec-51-4)。
 - **awareness 拆到原子。** 一则 awareness 只承担一个可单独安装、替换和学习的注意，不做打包式的大 awareness。同一则可以被多个状态或插件复用。
 
 ## 留给实现 Agent：时间、世界与预测的拆法
@@ -46,17 +46,17 @@
 
 ## 按能力依赖，不钉死具体包
 
-原则已确认：依赖写能力，不写死具体包。`humanlike-mind` 需要「能遗忘」，不是包 `forgetting`。能力契约前缀用 `cap.`，这是助手代定、用户授权。沿用 SPEC §45.10，不另造解析器。强度是 `required` / `recommended`。匹配是抽象能力或主题，或精确单元、合同与版本。代码边仍要版本；awareness、fact 等内容边可笼统或精确（R138）。相似度不能当成已满足。改声明是新 revision，不改写旧解析的历史。
+原则已确认：依赖写能力，不写死具体包。`humanlike-mind` 需要「能遗忘」，不是包 `forgetting`。能力契约前缀用 `cap.`，这是助手代定、用户授权。沿用 [§45.10](../specs/cognition-units.md#spec-45-10)，不另造解析器。强度是 `required` / `recommended`。匹配是抽象能力或主题，或精确单元、合同与版本。代码边仍要版本；awareness、fact 等内容边可笼统或精确（R138）。相似度不能当成已满足。改声明是新 revision，不改写旧解析的历史。
 
 能力契约和单元 id 必须是两种标识。预装宏包可以叫 `forgetting`，它 `provides` 能力契约 `cap.forgetting` 第 1 版。`humanlike-mind` 依赖 `cap.forgetting`，不依赖单元 `forgetting`。能提供该契约的别的包同样满足。它的其他依赖也按这个口径：默认抽象能力，不写死实现包。发行版设计上依赖的仍是宏包 `humanlike-mind`；另有一张可修订的预装表，写明每个能力契约最初由哪个单元提供。
 
-`humanlike-mind` 对 `cap.forgetting` 用 `recommended`。缺了就记录省略或未解析，说明风险，不把边报成就绪，也不因此禁止主体去试（#71 第 3 点）。试完以真实结果记账。无关能力继续工作（§45.10）。
+`humanlike-mind` 对 `cap.forgetting` 用 `recommended`。缺了就记录省略或未解析，说明风险，不把边报成就绪，也不因此禁止主体去试（#71 第 3 点）。试完以真实结果记账。无关能力继续工作（[§45.10](../specs/cognition-units.md#spec-45-10)）。
 
 多个提供者可同时安装，并在所用原子能力不冲突时同时启用。不在包级声明互斥，也不新造 Conflicts。冲突按实际使用的原子能力判断。旧包、旧内容单元、原始经历都不覆盖；已写下的态度仍指向当时的 digest。跨节点只带走声明与 provides；每个节点单独记录已满足、已省略或未解析，以及所选提供者在本地是否启用、是否真能跑。
 
 模型修订依赖声明，是该单元的新版本加理由，旧声明按 taste 保留。core 运行时不因此变成可在线学习。
 
-取舍：Debian 的虚拟包、Provides 和 Recommends 适合「依赖能力、预装一个实现、可以换」。包级 Conflicts 不采用。Nix 把依赖钉成存储路径，适合再现，不适合「能遗忘就行」。Cargo features 仍点名具体 crate，只表达可选，不表达替换实现。OSGi 用服务接口对上多个实现，最接近能力契约；不必引入它的服务等级，选择记在现有解析记录里。Rust trait 说明依赖行为而非具体类型，但是编译期规则，不是安装解析。所以包的自身版本可以变；能力契约的主版本变了，才算这条边对不上。代码边继续按 §45.10 钉版本。
+取舍：Debian 的虚拟包、Provides 和 Recommends 适合「依赖能力、预装一个实现、可以换」。包级 Conflicts 不采用。Nix 把依赖钉成存储路径，适合再现，不适合「能遗忘就行」。Cargo features 仍点名具体 crate，只表达可选，不表达替换实现。OSGi 用服务接口对上多个实现，最接近能力契约；不必引入它的服务等级，选择记在现有解析记录里。Rust trait 说明依赖行为而非具体类型，但是编译期规则，不是安装解析。所以包的自身版本可以变；能力契约的主版本变了，才算这条边对不上。代码边继续按 [§45.10](../specs/cognition-units.md#spec-45-10) 钉版本。
 
 ## 留给实现 Agent：换位思考的字段
 
@@ -71,7 +71,7 @@
 
 | 旧读法 | 出现在 | 为何不再作为现行概念 |
 | --- | --- | --- |
-| awareness 是模型读过就能遵守的直觉文档，与 perception 同为一种文本单元 | SPEC §45.1、§48.3；[architecture.md](../specs/architecture.md)；[cognition-units.md](../specs/cognition-units.md)；[awareness-first-plugins.md](../development/awareness-first-plugins.md)；WHY 中「每个 awareness 应是具体、可安装的意识」若被读成文档即能力 | 用户明确：awareness 是能力；文档是当前 harness；外部 notice 提供模拟的 awareness |
+| awareness 是模型读过就能遵守的直觉文档，与 perception 同为一种文本单元 | [§45.1](../specs/cognition-units.md#spec-45-1)、[§48.3](../specs/architecture.md#spec-48-3)；[architecture.md](../specs/architecture.md)；[cognition-units.md](../specs/cognition-units.md)；[awareness-first-plugins.md](../development/awareness-first-plugins.md)；WHY 中「每个 awareness 应是具体、可安装的意识」若被读成文档即能力 | 用户明确：awareness 是能力；文档是当前 harness；外部 notice 提供模拟的 awareness |
 | fact 与 conclusion 是两种储存或两种知识 kind | 讨论中的候选，以及把「已观察事实 / 推断 / 结论」读成三种记录 | 同一种内容，差别只在理由停在何处 |
 | 定义修订后，旧内容仍按写下时的定义作为默认解释 | 2026-11-05 调查中的备选之一 | 用户选择按新定义重新理解；旧定义版本仍保留，供特意回看 |
 | taste 是与 perception 并列的原子单元 | 同一次讨论的前一稿 | 用户更正：taste 是宏包；修订展示只是其中一项内容 |
@@ -83,9 +83,9 @@
 | 把时间感、世界模型或预测误差写成内核原子 | 调查中的方案 C 若被当成唯一原子 | 用户把这三项定为插件能力。内部分解留给实现 Agent |
 | 插件、宏包或元定义一旦发行就不可由模型改 | 若把预装读成冻结合同 | 内容与元定义可在线修订。有实现的程序不在运行中学习，而整版替换并可回滚 |
 | core 在线学习自己的运行时 | 曾列为待决 | 用户决定 core 不在线学习；更改靠新版本替换，或在版本链尾追加与历史节点内容相同的新节点 |
-| 回滚等于把分支指针倒回旧提交并丢掉其后的日志 | §51.4 的前一稿 | 用户决定日志只增不减；回滚是尾部新节点，内容按摘要复用历史对象 |
-| 现有 WASM COW 已经能把 core、插件和内容单元一次回滚 | §51.4 曾把 §10.2 写成该机制 | 核对代码后不成立。回滚改为自有版本化根 |
-| 用 LayerFS 实现这次认知状态回滚 | §51.4 的前两稿曾把它当实现或备选 | 用户决定这次完全不考虑。回滚只保留自有版本化根 |
+| 回滚等于把分支指针倒回旧提交并丢掉其后的日志 | [§51.4](../specs/cognition-units.md#spec-51-4) 的前一稿 | 用户决定日志只增不减；回滚是尾部新节点，内容按摘要复用历史对象 |
+| 现有 WASM COW 已经能把 core、插件和内容单元一次回滚 | [§51.4](../specs/cognition-units.md#spec-51-4) 曾把 [§10.2](../specs/durable-state.md#spec-10-2) 写成该机制 | 核对代码后不成立。回滚改为自有版本化根 |
+| 用 LayerFS 实现这次认知状态回滚 | [§51.4](../specs/cognition-units.md#spec-51-4) 的前两稿曾把它当实现或备选 | 用户决定这次完全不考虑。回滚只保留自有版本化根 |
 | WASM 线性内存留在版本化根之外 | 曾列为待决 | 用户决定纳入。当前 `HomeCheckpoint` 只到文件与元数据，是实现缺口 |
 | 执行栈和解释器对象图留在版本化根外 | 上一稿仍标待决 | 用户决定与线性内存一起纳入。`HomeCheckpoint` 目前也不含它们 |
 | 依赖按能力只是未决提议，原则本身也可以不采用 | 0002 曾把整节标成提议，依赖节还写 core 是否可学习仍不决定 | 原则已确认：依赖能力，不钉死包。前缀定为 `cap.`。core 不在线学习 |
@@ -135,10 +135,10 @@
 | memory entry / `knowledge_kind` | 最接近「内容 + 可取代态度」的现有行。kind 默认 `note`，保留为可学习的自由标签，只作提示 | core 储存 | 默认检索直接隐藏旧行，还没有「数量 + 时间」投影：实现缺口 |
 | 记忆 Git 目录 | 账本的可读投影，不是权威 | core 旁的投影 | 一致 |
 | identity / soul / personality | 同一 `agent_id` 的修订，不携带工具，也不是 fact | core | 一致 |
-| 安装单元（perception / awareness / skill / code） | 无状态包与依赖。perception 是教如何观察的单元。awareness 文本是 harness，不是能力 | core 机制；正文是插件 | awareness 旧读法已由 §51 取代。主体归属字段留给实现 Agent |
+| 安装单元（perception / awareness / skill / code） | 无状态包与依赖。perception 是教如何观察的单元。awareness 文本是 harness，不是能力 | core 机制；正文是插件 | awareness 旧读法已由 [§51](../specs/cognition-units.md#spec-51) 取代。主体归属字段留给实现 Agent |
 | skill | 做法，不是注意能力 | 插件 | 一致 |
 | code | 真实效果；回执可作理由根 | 插件 | 一致 |
-| awareness 能力 / watcher | 尚未作为独立宿主实现。目标是可安装能力 | 插件 | 与「只装文档即拥有 awareness」矛盾；以 §51 为准 |
+| awareness 能力 / watcher | 尚未作为独立宿主实现。目标是可安装能力 | 插件 | 与「只装文档即拥有 awareness」矛盾；以 [§51](../specs/cognition-units.md#spec-51) 为准 |
 | 时间感知、世界感知、预测、awareness 宿主、perception、换位思考、维护习惯 | 全部是可安装插件。发行由 `humanlike-mind` 等宏包预装 | 插件 | 一致。间隔、世界模型、预测误差和主体归属字段留给实现 Agent |
 | `ContributionKind::Fact` | 上下文槽上的带来源材料。已决改名为 `SourcedContent` | core 协议枚举 | 运行代码仍叫 `Fact`：实现缺口 |
 | 移动端 `Fact` / `DbFacts` | 快照维度是否达到。已决改名为 `SnapshotDimension` / `DbSnapshot` | 插件内类型 | 运行代码尚未改名：实现缺口 |
@@ -154,7 +154,7 @@
 
 ## 实现边界
 
-本节不修改运行代码。现有卡片披露、`knowledge_kind` 默认 `note`、以及默认检索直接隐藏被取代记忆，都还不是 §51 的投影。
+本节不修改运行代码。现有卡片披露、`knowledge_kind` 默认 `note`、以及默认检索直接隐藏被取代记忆，都还不是 [§51](../specs/cognition-units.md#spec-51) 的投影。
 
 ## 应对齐但未能改写的 issue
 
@@ -162,4 +162,4 @@
 
 - [#15](https://github.com/cyjin-yl/shenko/issues/15) 正文应写：awareness 是能力，文档加 watcher 是会变薄的 harness；perception 教如何观察；用他人的 perception 解释经验就是换位思考；字段留给实现 Agent。进入宏包前要有单独的采纳态度。态度从第一版带置信，未知不填默认数字。
 - [#14](https://github.com/cyjin-yl/shenko/issues/14)（已关闭，仍被 #15 引用）应写：记忆行是态度；`knowledge_kind` 只是可学习的提示，不是种类边界。遗忘六阶段目前按主体相对运行时间累积顺序走；遗忘一项技能只退出默认回忆。空间压力只能促使归档或长期存储，不能单独决定删除原始字节。`environment_fact` 改为态度。压缩服从 taste。
-- [#71](https://github.com/cyjin-yl/shenko/issues/71)（已关闭，SPEC §5.4.4 仍引用）应写：回滚后 `agent_id` 不变，主体没变。依赖用 `cap.` 前缀，不在包级声明 Conflicts；原子能力不冲突就可以并存。`ContributionKind::Fact` 改名为 `SourcedContent`，移动端 `Fact` / `DbFacts` 改名为 `SnapshotDimension` / `DbSnapshot`。`PendingObligation` 并进「尚未完成」的态度。
+- [#71](https://github.com/cyjin-yl/shenko/issues/71)（已关闭，[§5.4.4](../specs/nodes.md#spec-5-4-4) 仍引用）应写：回滚后 `agent_id` 不变，主体没变。依赖用 `cap.` 前缀，不在包级声明 Conflicts；原子能力不冲突就可以并存。`ContributionKind::Fact` 改名为 `SourcedContent`，移动端 `Fact` / `DbFacts` 改名为 `SnapshotDimension` / `DbSnapshot`。`PendingObligation` 并进「尚未完成」的态度。

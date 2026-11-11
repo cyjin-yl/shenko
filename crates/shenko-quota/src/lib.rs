@@ -1,4 +1,4 @@
-//! Provider quota observation and forecasting — SPEC §42.2–42.6 (R130, B42).
+//! Provider quota observation and forecasting — docs/specs/quota-resources.md#spec-42-2–docs/specs/quota-resources.md#spec-42-6 (R130, B42).
 //!
 //! Observers turn what a provider actually exposes into [`QuotaSnapshot`]s
 //! without calling any model; the forecaster derives planning budgets from
@@ -15,11 +15,11 @@
 //! real source payload. [`scope`] names the real account a reading belongs
 //! to — an organization, a workspace, the Default Workspace, one API key or a
 //! consumer subscription — and keeps credentials on the node, out of the
-//! ledger. [`event`] carries the durable events of §42.6.
+//! ledger. [`event`] carries the durable events of docs/specs/quota-resources.md#spec-42-6.
 //!
-//! [`strategy`] is the other half of §42.1: the forecaster, the router and
+//! [`strategy`] is the other half of docs/specs/quota-resources.md#spec-42-1: the forecaster, the router and
 //! the admission cadence are replaceable, versioned strategies. The built-in
-//! [`strategy::RollingBaseline`] is the replayable planning baseline of §42.5
+//! [`strategy::RollingBaseline`] is the replayable planning baseline of docs/specs/quota-resources.md#spec-42-5
 //! and stays the default; a produced forecast and decision name the strategy
 //! that computed them, and a cadence may only withhold a fresh admission —
 //! never grant, release or downgrade one.

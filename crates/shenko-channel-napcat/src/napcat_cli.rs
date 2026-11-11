@@ -1,4 +1,4 @@
-//! napcat-cli as a SOURCE of the same QQ channel plugin — SPEC §16.
+//! napcat-cli as a SOURCE of the same QQ channel plugin — docs/specs/channel-adapters.md#spec-16.
 //!
 //! [`NapCatCliSource`] polls the event feed of an external napcat-cli daemon
 //! and ingests every event into the SAME durable ingress spool the WebSocket
@@ -10,7 +10,7 @@
 //! The wire shape is the documented one — `GET {base}/events?after=<seq>&limit=<n>`
 //! answering `{"events": [{"seq": <n>, "event": {<OneBot v11 message>}}]}` with
 //! monotonically increasing `seq` — and MUST be verified against the pinned
-//! upstream napcat-cli (SPEC §15.4) before this source is enabled against a
+//! upstream napcat-cli (docs/specs/channels.md#spec-35-6) before this source is enabled against a
 //! real daemon. A shape mismatch is a typed [`CliSourceError`], never a
 //! guessed parse.
 use std::sync::Arc;

@@ -334,9 +334,9 @@ fn evidence_root() -> PathBuf {
         return PathBuf::from(dir);
     }
     let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // Walk up to find SPEC.md
+    // Walk up to find docs/contracts.json
     for _ in 0..5 {
-        if dir.join("SPEC.md").exists() {
+        if dir.join("docs/contracts.json").exists() {
             return dir.join("build/computer-use-takeover-cli");
         }
         if !dir.pop() {

@@ -1,4 +1,4 @@
-//! Classification of official QQ bot events — SPEC §15.1, §15.3, §16.
+//! Classification of official QQ bot events — docs/specs/channels.md#spec-15-1, docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
 //!
 //! The platform pushes one gateway frame per event. The frame is
 //! `{"id":…,"op":0,"d":{…},"s":42,"t":"EVENT_NAME"}`. The raw frame is the

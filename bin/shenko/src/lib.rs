@@ -1,4 +1,4 @@
-//! Shared Shenko runtime and owned host entrypoints — SPEC §24.5, §44.
+//! Shared Shenko runtime and owned host entrypoints — docs/specs/mobile-runtime.md#spec-24-5, docs/specs/plugins.md#spec-44.
 //! CLI and embedded hosts execute this same composed implementation.
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -96,7 +96,7 @@ pub enum Command {
         #[arg(long)]
         ssh_targets: Option<PathBuf>,
     },
-    /// Show or edit the instance's name, soul and personality — SPEC §6.
+    /// Show or edit the instance's name, soul and personality — docs/specs/subject-runtime.md#spec-6.
     /// Every edit is a new revision of the same agent; history is kept.
     Identity {
         #[arg(long)]
@@ -124,14 +124,14 @@ pub enum Command {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
-    /// Manage named WASM tools in the seed's managed tool store — SPEC §8.2.
+    /// Manage named WASM tools in the seed's managed tool store — docs/specs/wasm-tools.md#spec-8-2.
     /// Artifacts are real upstream WASI binaries; declared targets with no
     /// verified artifact are reported unresolved, never faked.
     Tool {
         #[command(subcommand)]
         command: ToolCommand,
     },
-    /// Show what this installation actually offers right now — SPEC §18.
+    /// Show what this installation actually offers right now — docs/specs/plugins.md#spec-18.
     ///
     /// The runtime installs its real native definitions and answers from the
     /// live registry, so the printed providers, capabilities, effect contracts
@@ -144,19 +144,19 @@ pub enum Command {
         #[command(subcommand)]
         command: CompatCommand,
     },
-    /// Inspect and manage the installed context strategies — SPEC §12.3.1.
+    /// Inspect and manage the installed context strategies — docs/specs/context-policies.md#spec-12-3-1.
     Context {
         #[command(subcommand)]
         command: ContextCommand,
     },
-    /// Owner-set admin facts — SPEC §16. Admin is a human decision only:
+    /// Owner-set admin facts — docs/specs/channel-adapters.md#spec-16. Admin is a human decision only:
     /// it never follows familiarity, group status, platform roles or
     /// voiceprints, and ordinary users can talk without one.
     Admin {
         #[command(subcommand)]
         command: AdminCommand,
     },
-    /// Contact/person directory — SPEC §15.2, §15.2.1. Local owner path to
+    /// Contact/person directory — docs/specs/contacts.md#spec-15-2, docs/specs/contacts.md#spec-15-2-1. Local owner path to
     /// inspect people and import the owner's own Life identity material;
     /// the running subject reaches the same store through the
     /// person.directory native child.
@@ -177,7 +177,7 @@ pub enum Command {
         #[arg(long)]
         file: Option<PathBuf>,
     },
-    /// Software-generation activation — SPEC §9/§10/§44. Build a candidate
+    /// Software-generation activation — docs/specs/self-update.md#spec-9, docs/specs/durable-state.md#spec-10, docs/specs/plugins.md#spec-44. Build a candidate
     /// on a separate copy, smoke-launch it, swap through the durable
     /// selector, roll back while retaining new facts. Every step is
     /// deterministic and recoverable without a model.
@@ -185,7 +185,7 @@ pub enum Command {
         #[command(subcommand)]
         command: UpdateCli,
     },
-    /// Cognitive root version chain — SPEC §51.4. Capture, reinstate,
+    /// Cognitive root version chain — docs/specs/cognition-units.md#spec-51-4. Capture, reinstate,
     /// inspect the owned versioned root.
     Root {
         #[command(subcommand)]
@@ -308,7 +308,7 @@ pub enum UpdateCli {
     /// publication, takes back an interrupted hand-over boundary when this
     /// process owns the installation, and reports what it found.
     Recover,
-    /// §51.4 append-node rollback: restore the subject's state root to a
+    /// docs/specs/cognition-units.md#spec-51-4 append-node rollback: restore the subject's state root to a
     /// historical node. This appends a new node, never rewinding or
     /// truncating the chain. Distinct from `rollback` which switches the
     /// software generation.
@@ -778,10 +778,10 @@ struct InstalledDefinitions {
     artifact_services: Arc<shenko_ui::playground_backend::ArtifactServiceController>,
     /// The one configuration service: the panel routes and the subject's
     /// `config.manage` tool share it, so a change made one way is the state
-    /// the other observes. SPEC §43.1.
+    /// the other observes. docs/specs/configuration-playground.md#spec-43-1.
     config_service: Arc<shenko_ui::config_service::ConfigService>,
     /// The one Playground instance: the subject's `playground.manage` child
-    /// and the Web UI's artifact routes write the same lifecycle (SPEC §57.6).
+    /// and the Web UI's artifact routes write the same lifecycle (docs/specs/configuration-playground.md#spec-57-6).
     playground_state: Arc<shenko_ui::playground::PlaygroundState>,
 }
 
@@ -794,7 +794,7 @@ struct MediaServices {
 }
 
 /// Construct and publish the real media services on the shared Cordis root —
-/// SPEC §15.2, §20.
+/// docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
 ///
 /// This is the single construction path, and it runs before the native
 /// definitions that bind to it. The running agent passes its live subject
@@ -899,7 +899,7 @@ async fn install_native_definitions(
     for handler in shenko_exec_host::research_handlers(Arc::clone(store)) {
         supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
     }
-    // Runtime-error awareness — SPEC §45.14: errors.read exposes the
+    // Runtime-error awareness — docs/specs/cognition-units.md#spec-45-14: errors.read exposes the
     // subject's own committed runtime_error facts; issue.submit writes
     // subject-authored drafts into the local issues outbox only.
     let errors_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
@@ -940,7 +940,7 @@ async fn install_native_definitions(
     let _media_identify_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, media_identify_handler)
         .await?;
-    // Built-in, replaceable self-explanation — SPEC §38, R124. The
+    // Built-in, replaceable self-explanation — docs/specs/cognition-units.md#spec-38, R124. The
     // provider is seeded from compiled-in material now; the real
     // `self://runtime/capabilities` snapshot is installed below once
     // the native and awareness registries are populated.
@@ -975,7 +975,7 @@ async fn install_native_definitions(
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
         .await?;
-    // The subject's own hands on its works — SPEC §57.6. One Playground
+    // The subject's own hands on its works — docs/specs/configuration-playground.md#spec-57-6. One Playground
     // instance serves the subject and the Web UI, so a version the subject
     // writes is the version a human sees.
     let playground_state = Arc::new(
@@ -993,7 +993,7 @@ async fn install_native_definitions(
             playground_manage_handler,
         )
         .await?;
-    // Configuration through conversation — SPEC §43.1, R133. The handler runs
+    // Configuration through conversation — docs/specs/configuration-playground.md#spec-43-1, R133. The handler runs
     // the same ConfigService the panel routes expose: one durable change
     // ledger, one set of consumer adoptions, no approval gate and no second
     // configuration store. Its built-in namespaces are registered by the
@@ -1340,10 +1340,10 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         .await?;
     let identity_context = supervisor.context().clone();
     let identity_service = identity_context.try_service::<IdentityService>()?;
-    // Replaceable quota strategies (SPEC §42.1): the runtime publishes the
+    // Replaceable quota strategies (docs/specs/quota-resources.md#spec-42-1): the runtime publishes the
     // installed forecaster/router/cadence set so the subject, its finite
     // model children and the intervention worker all decide with one set.
-    // The configured default is the replayable §42.5 baseline; installing
+    // The configured default is the replayable docs/specs/quota-resources.md#spec-42-5 baseline; installing
     // another strategy is a library/assembly decision and is reported here
     // rather than silently assumed.
     let quota_strategies = shenko_quota::QuotaStrategies::baseline();
@@ -1796,7 +1796,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 tracing::warn!(%recovery, "completed home recovery");
             }
 
-            // 2. Bootstrap genesis if first run — SPEC §44.6. The genesis
+            // 2. Bootstrap genesis if first run — docs/specs/plugins.md#spec-44-6. The genesis
             // closure references the actual home manifest and guest artifact.
             let agent_id = bootstrap_genesis(
                 &store,
@@ -1804,7 +1804,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &prepared_home.manifest,
                 &model_profile,
             )?;
-            // §45.14: kernel cordis-lifecycle and hook-graph failures journal
+            // docs/specs/cognition-units.md#spec-45-14: kernel cordis-lifecycle and hook-graph failures journal
             // into the SAME subject store journal. Genesis is the earliest
             // truthful attach point — before it no branch exists, and the
             // kernel keeps its stderr+counter record instead of manufacturing
@@ -1858,7 +1858,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // behind the reserved slots (realtime sessions against configured
             // engine bindings in data_dir/media/providers.json, recording
             // capture with CAS closure, barge-in, speech playback and speaker
-            // identification). SPEC §15.2, §20. They are published before the
+            // identification). docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20. They are published before the
             // native definitions that bind to them, and the /api/media routes
             // share the same instances. No engine configured stays honest: the
             // ingress path still admits external provider facts, and an engine
@@ -1904,7 +1904,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 cancel.clone(),
             )
             .await?;
-            // Resident memory worker — SPEC §12.2: accepted ≠ remembered.
+            // Resident memory worker — docs/specs/memory.md#spec-12-2: accepted ≠ remembered.
             // It drains the durable memory intent queue and keeps the Git
             // text knowledge repository (data_dir/memory) in sync. The
             // repository is initialized here when the seed bootstrap has
@@ -1924,7 +1924,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .await?;
             // Cognition units are installed capability, not kernel business
             // logic: perception, awareness, Skill and code share one
-            // installation authority — the Node's unit store (SPEC §45). The
+            // installation authority — the Node's unit store (docs/specs/cognition-units.md#spec-45). The
             // catalog is a read model over it; the shipped seeds plus any
             // authored packages under data_dir/cognition install through it.
             // Nothing here dispatches on keywords; every installed unit's
@@ -2082,7 +2082,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // a product list. Providers that register later (e.g. the broker)
             // refresh the view with a second, idempotent call below.
             self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
-            // SPEC §38.6: the build manifest and the source index are runtime
+            // docs/specs/cognition-units.md#spec-38-6: the build manifest and the source index are runtime
             // facts of this artifact, not of the repository's main branch.
             self_knowledge.install_manifest_resource();
             if let Ok(source_root) = std::env::var("SHENKO_SOURCE_ROOT") {
@@ -2247,7 +2247,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
             inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(&store));
             handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
-            // Optional quota policy install (SPEC §42): the file holds one
+            // Optional quota policy install (docs/specs/quota-resources.md#spec-42): the file holds one
             // serialized QuotaPolicy; a recorded policy makes every inference
             // request pass durable admission before dispatch. Unreadable or
             // invalid content fails startup loudly rather than silently
@@ -2261,7 +2261,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 info!(policy_id=%policy.policy_id, revision=policy.revision,
                     commit=%receipt.commit_ref, "quota policy recorded");
             }
-            // Provider quota observers (SPEC §42.2/§42.6): the local
+            // Provider quota observers (docs/specs/quota-resources.md#spec-42-2, docs/specs/quota-resources.md#spec-42-6): the local
             // account configuration names the providers this node observes,
             // the real scope of each account and where its sources are read.
             // Each named provider installs its own observers; the runtime
@@ -2328,7 +2328,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // every plugin resolve the same live registry, so a handler a
             // plugin registered is visible to the subject's next step.
             let hook_registry = Arc::clone(&supervisor.hooks);
-            // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
+            // Outbound path: subject model output → UI timeline. docs/specs/subject-runtime.md#spec-5-1, docs/specs/web-interface.md#spec-21-12
             let (outbox_tx, _outbox_rx) =
                 tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
             // The contacts query handler is only real while its connector is
@@ -2342,7 +2342,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // register into this registry once their connector exists.
             let mut channel_registry = shenko_types::channel::ChannelRegistry::new();
 
-            // 5. Start NapCat if configured — SPEC §16, §35.6
+            // 5. Start NapCat if configured — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6
             if napcat.is_some() || napcat_cli_url.is_some() {
                 let napcat_config = shenko_channel_napcat::config::NapCatConfig {
                     ws_url: napcat.clone().unwrap_or_default(),
@@ -2671,7 +2671,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // registered, not advertised in the reply grammar and never
             // contacted. Capability discovery and health are recorded as
             // subject-readable facts, and administration stays an owner-set
-            // fact per platform. SPEC §15.3, §16.
+            // fact per platform. docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
             if let Some(config_path) = channels_config.clone() {
                 let file = shenko_channel_adapters::AdapterConfigFile::load(&config_path)
                     .map_err(|error| anyhow::anyhow!(error))?;
@@ -2831,7 +2831,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
             // Every installed channel declares what its platform can really
             // do, and the runtime records that declaration as a durable fact
-            // the subject can read (SPEC §15.3, §57.4, RT19). The table comes
+            // the subject can read (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4, RT19). The table comes
             // from the plugin contract, so the QQ plugin is described the
             // same way as the adapters: a capability nobody can reach is not
             // advertised, and an advertised one is reachable.
@@ -2847,8 +2847,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             }
             // The same declaration reaches the subject's own self-knowledge
             // surface, so it can read what each installed channel really
-            // offers before it promises a reply or an action (SPEC §15.3,
-            // §38.3, §57.4).
+            // offers before it promises a reply or an action (docs/specs/channel-adapters.md#spec-15-3,
+            // docs/specs/cognition-units.md#spec-38-3, docs/specs/channels.md#spec-57-4).
             self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
 
             // Outbound publications across every registered channel: the
@@ -2858,7 +2858,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // provider's answer is E1 evidence. A target no installed
             // plugin serves is refused as never dispatched — durable,
             // effect none, and it never cancels the runtime.
-            // SPEC §35.6, §41.4 X03, §41.6.
+            // docs/specs/channels.md#spec-35-6, docs/specs/durable-state.md#spec-41-4 X03, docs/specs/channels.md#spec-41-6.
             let reply_registry = channel_registry.clone();
             let reply_store = Arc::clone(&store);
             let reply_agent = agent_id;
@@ -2984,7 +2984,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // The provider stream: a durable journal for the stream itself
             // and the reader surface the WebUI watches. The subject keeps the
             // ordinary path when no journal is wired, and the UI then
-            // honestly reports that streaming is unavailable (§57.5).
+            // honestly reports that streaming is unavailable (docs/specs/web-interface.md#spec-57-5).
             let stream_sink = shenko_ui::stream::StreamSink::new(
                 Arc::clone(&store),
                 agent_id,
@@ -3928,7 +3928,7 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
     Ok(())
 }
 
-/// Cognitive root CLI commands — SPEC §51.4.
+/// Cognitive root CLI commands — docs/specs/cognition-units.md#spec-51-4.
 fn root_command(data_dir: &Path, command: RootCli) -> Result<()> {
     let store = open_installation_store(data_dir)?;
     let agent_id = store
@@ -4395,7 +4395,7 @@ fn project_never_dispatched_publication(
 }
 
 /// Journal one channel-runtime error as a durable fact of the subject's
-/// history (SPEC §45.14). The journal entry is NOT a delivery receipt: it
+/// history (docs/specs/cognition-units.md#spec-45-14). The journal entry is NOT a delivery receipt: it
 /// never retries the operation and never opens an issue by itself.
 /// Independent operation unknown/conflict receipts stay on the operation
 /// ledger; this only makes the unable-to-continue boundary readable.
@@ -4421,7 +4421,7 @@ fn journal_channel_error(
 }
 
 /// Make sure the agent has an identity revision, and apply a user-given
-/// `--name` only for initialization. Existing edits require an explicit CAS. SPEC §6, R117.
+/// `--name` only for initialization. Existing edits require an explicit CAS. docs/specs/subject-runtime.md#spec-6, R117.
 fn adopt_identity(
     store: &shenko_store::store::Store,
     agent_id: shenko_types::ids::EntityId,
@@ -4438,7 +4438,7 @@ fn adopt_identity(
     Ok(current)
 }
 
-/// §45.14 store-backed kernel error sink: plugin-runtime failures observed
+/// docs/specs/cognition-units.md#spec-45-14 store-backed kernel error sink: plugin-runtime failures observed
 /// at kernel boundaries (Cordis lifecycle incidents, hook-graph admission
 /// refusals, publish revision conflicts) journal into the SAME subject store
 /// as every other runtime-error fact — no second DB, no autonomous action.
@@ -4536,7 +4536,7 @@ mod data_directory_tests {
     }
 }
 
-/// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6.
+/// Ensure genesis exists for this installation. Returns agent_id. docs/specs/plugins.md#spec-44-6.
 /// New geneses bind the real prepared home. Existing geneses are immutable and
 /// are never replaced merely to upgrade their manifest representation.
 fn bootstrap_genesis(
@@ -4734,7 +4734,7 @@ fn bootstrap_genesis(
         created_by_step_id: None,
     };
 
-    // The initial control authority — SPEC §41.12 X05. The first selector
+    // The initial control authority — docs/specs/self-update.md#spec-41-12 X05. The first selector
     // is created with the genesis inside the same transaction; a launch
     // never invents one, and a generation swap is the only other writer.
     use shenko_types::activation::{ActivationOrigin, ActivationSelector, RouteAuthority};
@@ -7180,7 +7180,7 @@ mod recovery_integration_tests {
         assert_eq!(late.effect_status, EffectStatus::None);
     }
 
-    /// SPEC §5.4: adoption retires the node's independent self while its
+    /// docs/specs/nodes.md#spec-5-4: adoption retires the node's independent self while its
     /// retained experience survives as a recorded branch — but the node
     /// identity and the store's derived subject binding are one installation
     /// fact. An adoption that cannot move them together must refuse before

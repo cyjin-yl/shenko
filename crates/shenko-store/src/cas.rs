@@ -1,4 +1,4 @@
-//! Content-addressed object store. SPEC §41.2.2
+//! Content-addressed object store. docs/specs/durable-state.md#spec-41-2-2
 //! Objects are immutable; locators may change.
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};

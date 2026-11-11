@@ -1,6 +1,17 @@
 # WASM 家园、挂载与恢复合同
 
-本文对应 [SPEC](../../SPEC.md) §8–10、§41.3、§44 与 C05。家园是主体实际使用、可持久保存与恢复的运行环境，不是把宿主目录或宿主命令重新标成 WASM。本文规定功能与接口边界，不宣称某个候选已经通过运行验收。
+
+<a id="why-4"></a>
+<!-- migrated-contract: WHY:4 -->
+## 为什么坚持 WASM 家园，又接入真实操作系统
+
+可移植、持续存在的 WASM 家园让主体拥有统一的工具与文件视图。但 WASI 不自动提供 Linux ELF、原生扩展、完整进程或任意 npm 包。兼容性必须具体到目标、ABI、依赖和执行路径。具名 WASM 目标应真实移植；宿主代理可以帮助开发，不能在最终验收中冒充。见 [§8](wasm-home.md#spec-8)、[§11](remote-seats.md#spec-11)、[§19](repl.md#spec-19)。
+
+完整 Linux VM、BoxLite、SSH、Windows/macOS/Linux computer use 是可安装的执行环境。LayerFS 原版放在适合它的真实 Linux 环境里；WASM 状态层按自己的持久合同实现。这样保留各环境真实能力，避免为了一个抽象接口虚构不存在的共同保证。见 [§10](durable-state.md#spec-10)、[§22](nodes.md#spec-22)、[§24](desktop-runtime.md#spec-24)、[§34](desktop-runtime.md#spec-34)。
+
+<!-- /migrated-contract: WHY:4 -->
+
+本文对应 [SPEC](../INDEX.md) [§8](wasm-home.md#spec-8)–[§10](durable-state.md#spec-10)、[§41.3](durable-state.md#spec-41-3)、[§44](plugins.md#spec-44) 与 C05。家园是主体实际使用、可持久保存与恢复的运行环境，不是把宿主目录或宿主命令重新标成 WASM。本文规定功能与接口边界，不宣称某个候选已经通过运行验收。
 
 ## 组成与权威
 
@@ -79,7 +90,7 @@ seed 的 `copy_on_write_mounts` 能力声明对应已有的受管 COW 实现，�
 成功后持久更新该声明，保留安装身份、挂载、创建时间与已有文件。其他能力表差异仍须显式迁移，
 拒绝时保留原 manifest 和数据；能力声明本身不代替具体分支的运行验证。
 
-`HomeCheckpoint::FilesAndMetadata` 表示今天已经做到的文件与元数据层恢复，不承诺 WASM 线性内存、执行栈、解释器对象图或进程恢复。更高恢复等级必须由对应运行时及 [REPL 合同](repl.md) 的实际机制和证据支持。现行目标见 [SPEC §51.4](../../SPEC.md#514-可学习)：这三项纳入自有版本化根；本检查点尚未保存它们，是实现缺口，不是把它们留在回滚目标之外。回滚是在链尾追加一个内容相同的新节点，日志只增不减，不把 `head` 倒回去并删掉 `commits.jsonl`。外部效果仍不撤回。`agent_id` 保持切换前的值。
+`HomeCheckpoint::FilesAndMetadata` 表示今天已经做到的文件与元数据层恢复，不承诺 WASM 线性内存、执行栈、解释器对象图或进程恢复。更高恢复等级必须由对应运行时及 [REPL 合同](repl.md) 的实际机制和证据支持。现行目标见 [51.4 可学习](cognition-units.md#spec-51-4)：这三项纳入自有版本化根；本检查点尚未保存它们，是实现缺口，不是把它们留在回滚目标之外。回滚是在链尾追加一个内容相同的新节点，日志只增不减，不把 `head` 倒回去并删掉 `commits.jsonl`。外部效果仍不撤回。`agent_id` 保持切换前的值。
 
 恢复要保持以下区分：
 
@@ -101,3 +112,53 @@ seed 的 `copy_on_write_mounts` 能力声明对应已有的受管 COW 实现，�
 以 [验证与证据合同](verification.md) 的候选绑定为准，至少覆盖真实 guest 持久写入与重启读取、只读拒绝、COW 基底不变与分支隔离、不同挂载不别名、目录祖先交换、取消后 owned worker 退出、损坏/缺失闭包下的恢复，以及代际切换后的实际 home/memory 绑定。
 
 单元测试可以约束局部规则；编译成功、manifest 能解析、探针模块存在、宿主目录检查或旧候选的成功记录，都不能代替这些真实场景。本文保留完整功能要求；缺失实现或证据仍是未达验收，不因文档已经登记而完成。
+
+<a id="spec-8"></a>
+<!-- migrated-contract: SPEC:8 -->
+# 8 WASM 家园与工具兼容
+
+<!-- /migrated-contract: SPEC:8 -->
+
+<a id="spec-8-1"></a>
+<!-- migrated-contract: SPEC:8.1 -->
+## 8.1 Runtime 选择与兼容等级
+
+截至研究日，候选包括 Wasmtime 50.0.0、Wasmer 7.5.0、WAMR 2.4.5。Wasmtime 已提供 aarch64-android 产物；Wasmer/WASIX 更值得验证 shell/process 工具环境；WAMR 值得评估受限设备 profile。不能把某 runtime 的最小 VM 数字当作完整 Bot 的内存占用，也不预先假设同一份包可跨不同 WASI/WASIX import 集运行。[Wasmtime release](https://github.com/bytecodealliance/wasmtime/releases/tag/v50.0.0)、[Wasmer release](https://github.com/wasmerio/wasmer/releases/tag/v7.5.0)、[WAMR](https://github.com/wasm-micro-runtime/wasm-micro-runtime)、[WASIX 功能](https://www.wasix.org/docs/explanation/features/)
+
+BoxLite 作为完整 Linux microVM 的可选 RuntimeProvider 候选列入 [§34](desktop-runtime.md#spec-34)。它可在具备 KVM/HVF 的本机或自有节点承载 native 工具、REPL、构建与桌面；其本地/远端挂载、磁盘快照和资源要求分别协商，不替代本节 WASM 兼容目标。
+
+建议以 RuntimeProvider 隔离引擎选择：正式工具执行 profile 必须经过组合验收再选主引擎；标准 component 插件和 POSIX userland 可有不同 adapter，但共享资源必须通过正式 VFS/服务协议，不假装不同 runtime 自动共享进程命名空间。最小硬件 profile 可裁剪功能，UI 与包解析器必须说明不兼容项。
+
+| 等级 | 含义 | 能否算作真实 WASM 工具 |
+| --- | --- | --- |
+| W0 标准组件 | 使用明确版本的 WASI/WIT 导入 | 可以，按声明接口运行 |
+| W1 扩展 POSIX userland | 使用固定 WASIX/兼容 sysroot、进程/网络等扩展 | 可以，需标注 runtime profile |
+| W2 专用 host imports | 主要工具逻辑在 WASM，宿主提供所需系统能力 | 可以，但必须公开 import 与宿主依赖 |
+| H 宿主适配 | 通过 API 调用 native SSH、Git 或其他程序 | 仅为可选适配，不称为对应 CLI 的 WASM 移植 |
+| R 远端环境 | 通过 SSH/节点/容器运行不兼容的软件 | 完整能力的补足路径，不称为本地 WASM 兼容 |
+
+<!-- /migrated-contract: SPEC:8.1 -->
+
+<a id="spec-8-3"></a>
+<!-- migrated-contract: SPEC:8.3 -->
+## 8.3 执行和挂载合同
+
+每个 worker 可拥有独立 cwd、环境变量、stdin/stdout/stderr、argv、退出状态、资源限制与取消句柄。结构化 argv 执行和显式 shell 字符串分开，不能依赖 JSON 字符串转义作为 shell escaping。长输出保留完整对象并返回有限预览及读取 URI。
+
+支持任意宿主可访问路径映射到任意合理 guest 路径，不限制为固定 workspace。每项 mount 明确：来源路径、guest 路径、读写模式、是否持久、是否受版本管理、可见 worker 和撤销行为。路径解析抵御 symlink/rename 越界；不会绕过宿主 OS 权限。特殊文件、设备、proc/socket 等应单独声明兼容能力，不承诺 Linux 特殊文件语义全部可用。
+
+挂载模式必须同时存在：只读；直接读写；受管理 COW。直接读写用于真实主机文件协作，COW 用于分支试验。解除挂载后的已有 handle 行为有明确规则；撤销后新操作被拒，进行中的 IO 尽力终止并记录结果。Agent 能否自主增加新 host mount 由已授能力决定，不能通过初始任意挂载支持自动获得整个主机。
+
+<!-- /migrated-contract: SPEC:8.3 -->
+
+<a id="spec-35-2"></a>
+<!-- migrated-contract: SPEC:35.2 -->
+## 35.2 开发者机器与 WASM 家园的关系
+
+首版采用真正运行、可恢复的 WASM 家园和默认宿主挂载 Git 记忆；工作区、原始 session、任务与事实账本按 [§10](durable-state.md#spec-10) 分域。开发机已有的 Claude Code、OMP、tmux、Rust 工具链与其他编译器可以经 HostExecution／BuildProvider／AgentSeat 插件使用，也可以连接已授权 SSH 节点。无需把全部宿主 CLI 先移植到 WASM 才允许自开发。
+
+“使用宿主能力”必须展示实际执行位置与 [§36](durable-state.md#spec-36) 恢复边界，不能把 host wrapper 标成 WASM 原生实现。真实 WASM SSH、认证 Git、包管理与 REPL 目标继续推进；是否已移植、可运行或已实测分别记录。路由器可委派其他节点构建；开发者发行不要求每台最小设备都安装 LLVM。
+
+首个完整闭环建议在具备 tmux 与构建工具的 64 位 Linux 开发环境验证。macOS、Windows／WSL、Android 与路由器使用各自 profile，不因同一接口存在而宣称同时通过。QQ 账户登录和机器权限按实际已有配置接入；本规格不授权本轮连接、安装或修改开发者机器。
+
+<!-- /migrated-contract: SPEC:35.2 -->

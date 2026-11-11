@@ -1,4 +1,4 @@
-//! Coverage and obligation mapping — SPEC §23/§29/§40/§46, C19.
+//! Coverage and obligation mapping — docs/specs/verification.md#spec-23, docs/specs/verification.md#spec-29, docs/governance/development-contract.md#spec-40, docs/governance/COMPLETION.md#spec-46, C19.
 //!
 //! This module turns the parsed SPEC index into a machine-readable statement
 //! of what is still owed. It never decides that an obligation is met by
@@ -10,7 +10,7 @@
 //! actually distinguish:
 //!
 //! * `failure` — the case's pass condition is about a fault, crash, kill,
-//!   timeout or otherwise broken state (SPEC §41.16 fault matrix, §36
+//!   timeout or otherwise broken state (docs/specs/verification.md#spec-41-16 fault matrix, docs/specs/durable-state.md#spec-36
 //!   recovery boundaries, A-cases about crash/recovery).
 //! * `recovery` — the case's pass condition is about returning to a working
 //!   state after such a fault.

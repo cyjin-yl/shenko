@@ -1,4 +1,4 @@
-//! Shenko WebUI — axum server. SPEC §21, §43.
+//! Shenko WebUI — axum server. docs/specs/web-interface.md#spec-21, docs/specs/configuration-playground.md#spec-43.
 //! Single subject timeline, streaming output, configuration panel.
 pub mod server;
 pub mod routes;

@@ -1,4 +1,4 @@
-//! Read-only access to committed raw session events — SPEC §12.1, §12.3.
+//! Read-only access to committed raw session events — docs/specs/memory.md#spec-12-1, docs/specs/context-policies.md#spec-12-3.
 //! Writes stay on the ledger commit path; this adds no schema or writer.
 use rusqlite::{OptionalExtension, Row, params};
 

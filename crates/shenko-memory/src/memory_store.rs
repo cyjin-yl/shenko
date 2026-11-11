@@ -1,10 +1,10 @@
-//! Memory acceptance and persistence — SPEC §12.2 (intent → committed).
+//! Memory acceptance and persistence — docs/specs/memory.md#spec-12-2 (intent → committed).
 //!
 //! An intent is accepted immediately and made durable as an `accepted` row in
 //! `memory_intents`. Processing an intent turns it into a searchable memory
 //! entry and marks the intent `committed`, or marks it `failed`/`conflicted`
 //! with a reason. A `forget` intent is bound to the entry it retires:
-//! processing marks that entry deleted (semantic forget, SPEC §12.4) in one
+//! processing marks that entry deleted (semantic forget, docs/specs/memory.md#spec-12-4) in one
 //! ledger transaction. The original text stays durable and readable through
 //! [`MemoryStore::read`]; search and list simply stop surfacing it.
 //!
@@ -56,7 +56,7 @@ pub enum ProcessOutcome {
     /// The intent became a persisted memory entry.
     Committed(MemoryEntry),
     /// The request conflicts with the current fact; both sides are kept and
-    /// the durable intent ends `conflicted` (SPEC §12.2).
+    /// the durable intent ends `conflicted` (docs/specs/memory.md#spec-12-2).
     Conflicted { reason: String, current_revision: u64 },
     /// Persistence was refused; the durable intent row records the reason.
     Failed(String),
@@ -66,7 +66,7 @@ pub enum ProcessOutcome {
     NotFound,
 }
 
-/// Acceptance and processing surface for memory intents (SPEC §12.2).
+/// Acceptance and processing surface for memory intents (docs/specs/memory.md#spec-12-2).
 pub struct MemoryStore {
     agent_id: EntityId,
     store: Option<Arc<Store>>,
@@ -495,7 +495,7 @@ impl MemoryStore {
         Ok(committed)
     }
 
-    /// Search persisted memory (SPEC §12.3). Delegates to the store, which
+    /// Search persisted memory (docs/specs/context-policies.md#spec-12-3). Delegates to the store, which
     /// selects FTS5 or a LIKE substring scan. Live facts only.
     pub fn search(
         &self,
@@ -525,7 +525,7 @@ impl MemoryStore {
     }
 
     /// Read one entry by id, including semantically forgotten rows. This is
-    /// the read-back channel SPEC §12.4 requires: forget hides the entry
+    /// the read-back channel docs/specs/memory.md#spec-12-4 requires: forget hides the entry
     /// from `search`/`list` but never erases the original text.
     pub fn read(&self, entry_id: EntityId) -> Result<Option<MemoryEntry>, anyhow::Error> {
         let store = self.store.as_ref().ok_or_else(|| {
@@ -538,7 +538,7 @@ impl MemoryStore {
 
     /// Recall with match-centred excerpts. There is no audience ACL: the
     /// subject's own knowledge is never hidden from the subject by the
-    /// current chat audience (SPEC §6).
+    /// current chat audience (docs/specs/subject-runtime.md#spec-6).
     pub fn recall(&self, query: &RecallQuery) -> Result<Vec<MemoryHit>, anyhow::Error> {
         let store = self.store.as_ref().ok_or_else(|| {
             anyhow::anyhow!("memory store has no persistence backend; use with_store()")
@@ -563,7 +563,7 @@ impl MemoryStore {
             entries.retain(|entry| query.scopes.iter().any(|scope| scope == &entry.scope));
         }
         // Recall is over this backend's own memory: another agent's entries
-        // are never surfaced through this surface (SPEC §12.1 scope).
+        // are never surfaced through this surface (docs/specs/memory.md#spec-12-1 scope).
         entries.retain(|entry| entry.agent_id == self.agent_id);
         let hits = entries
             .into_iter()

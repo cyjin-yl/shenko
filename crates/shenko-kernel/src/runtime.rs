@@ -1,4 +1,4 @@
-//! Live plugin runtime registry — SPEC §18, §36, §37.10, §41.7.
+//! Live plugin runtime registry — docs/specs/plugins.md#spec-18, docs/specs/durable-state.md#spec-36, docs/specs/context-policies.md#spec-37-10, docs/specs/plugins.md#spec-41-7.
 //!
 //! One registry owns the *current* view of what is installed: which
 //! providers exist, which capabilities they offer, what each operation's
@@ -50,7 +50,7 @@ pub struct ProviderRegistration {
     pub implementation: VersionedRef,
     /// One line describing what the provider does.
     pub description: String,
-    /// The operations of this provider with their §36 effect contracts.
+    /// The operations of this provider with their docs/specs/durable-state.md#spec-36 effect contracts.
     pub operations: Vec<OperationEffectView>,
     /// The capability ids this provider offers.
     pub capabilities: Vec<String>,
@@ -70,7 +70,7 @@ pub struct CapabilityRegistration {
     pub enabled: bool,
 }
 
-/// A help document — SPEC §18.2 usability package.
+/// A help document — docs/specs/plugins.md#spec-18-2 usability package.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelpRegistration {
     pub capability_id: String,

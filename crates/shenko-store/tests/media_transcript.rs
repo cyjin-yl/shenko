@@ -1,4 +1,4 @@
-//! Durable transcript revision ingress — SPEC §15.2, §20.
+//! Durable transcript revision ingress — docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
 //! Ten independent scenarios, registered in nine tests: atomic admission;
 //! conflicting revision identity; partial→final; final correction;
 //! disconnect→end preserving terminal receipts; open replay after end;

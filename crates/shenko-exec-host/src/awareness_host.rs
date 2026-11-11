@@ -1,7 +1,7 @@
 //! `awareness.notice:1` — read the bounded notice material of the installed
 //! awareness capability.
 //!
-//! SPEC §51.2/§51.3: awareness is a capability, and the harness gives the
+//! docs/specs/cognition-units.md#spec-51-2, docs/specs/cognition-units.md#spec-51-3: awareness is a capability, and the harness gives the
 //! subject a bounded notice instead of an order. This child is the caller of
 //! that host: it reads the host's own residency and notice projection and
 //! returns them as an observation. It grants nothing, dispatches nothing and

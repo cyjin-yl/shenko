@@ -1,6 +1,6 @@
 //! # shenko-channel-napcat-link
 //!
-//! Optional NapCatQQ transport backend for Shenko (SPEC §18.1 ecosystem
+//! Optional NapCatQQ transport backend for Shenko (docs/specs/plugins.md#spec-18-1 ecosystem
 //! compatibility), implemented on top of the [`napcat-link`] crate — a modern
 //! Rust SDK for NapCatQQ's OneBot 11 WebSocket protocol.
 //!

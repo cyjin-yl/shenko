@@ -655,7 +655,7 @@ impl Store {
         // reconciliation case: the uncertainty is a fact with its own
         // supervisor and evidence, not a property of the caller's timeout.
         // Nothing is resent; the case is what a later receipt or an explicit
-        // subject decision acts on (SPEC §41.4 X11).
+        // subject decision acts on (docs/specs/durable-state.md#spec-41-4 X11).
         if op.state == OperationState::Reconciling {
             let reason = if op.outcome_conflict {
                 crate::reconcile::REASON_CONTRADICTORY_EVIDENCE

@@ -1,4 +1,4 @@
-//! Continuous-media / transcript revision ingress types — SPEC §15.2, §20.
+//! Continuous-media / transcript revision ingress types — docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
 //!
 //! A transcript provider (call audio, LAN realtime speech, classroom
 //! listening, recording review, speaker-identity pipeline) reports one typed
@@ -23,7 +23,7 @@ use crate::object::ObjectRef;
 /// identity fields; admission rejects it so keys stay unambiguous.
 pub const MEDIA_KEY_SEPARATOR: char = '\u{1f}';
 
-/// Identity of one continuous-media provider stream (§15.1 provider/plugin,
+/// Identity of one continuous-media provider stream (docs/specs/channels.md#spec-15-1 provider/plugin,
 /// account/tenant, conversation scope). `(provider, account, stream_id)` is
 /// the durable stream identity; a terminal stream's identity is never reused.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +31,7 @@ pub const MEDIA_KEY_SEPARATOR: char = '\u{1f}';
 pub struct MediaStreamDescriptor {
     /// Provider/plugin identity, e.g. "phone-sip", "lan-voice", "classroom-asr".
     pub provider: String,
-    /// Provider account/tenant the stream was captured under (§15.1).
+    /// Provider account/tenant the stream was captured under (docs/specs/channels.md#spec-15-1).
     pub account: String,
     /// Provider-scoped stream/session identity; unique per provider stream.
     pub stream_id: String,
@@ -69,21 +69,21 @@ pub struct ProviderObjectRef {
     pub media_type: Option<String>,
 }
 
-/// Audio provenance behind one transcript revision (§20 转写/原音频引用).
+/// Audio provenance behind one transcript revision (docs/specs/media.md#spec-20 转写/原音频引用).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MediaAudioRef {
     /// Bytes already sealed in this ledger's CAS. Admission verifies the
     /// canonical supported digest before lookup, then verifies the actual
     /// confined CAS bytes against digest and length BEFORE the metadata
-    /// commit (§41.2.2: object first, reference second).
+    /// commit (docs/specs/durable-state.md#spec-41-2-2: object first, reference second).
     Sealed { object: ObjectRef },
     /// Provider-local handle; recorded verbatim and never treated as an
     /// archived object of this ledger.
     Provider(ProviderObjectRef),
 }
 
-/// Optional speaker claim (§15.2 声纹/说话人识别).
+/// Optional speaker claim (docs/specs/contacts.md#spec-15-2 声纹/说话人识别).
 ///
 /// A claim is provider/model output kept with confidence, correction and
 /// unknown semantics. It is recorded for context suggestion only: it never
@@ -108,12 +108,12 @@ pub struct MediaSpeakerClaim {
     #[serde(default)]
     pub corrected: bool,
     /// The recognizer/speaker-model identity and revision that produced the
-    /// claim, so later model swaps stay auditable (§15.2 model_revision).
+    /// claim, so later model swaps stay auditable (docs/specs/contacts.md#spec-15-2 model_revision).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 
-/// The instrument that produced one observation result — SPEC §51.2
+/// The instrument that produced one observation result — docs/specs/cognition-units.md#spec-51-2
 /// 「记录谁的 perception」.
 ///
 /// A media observation is never the subject's own unaided reading: an ASR or
@@ -122,7 +122,7 @@ pub struct MediaSpeakerClaim {
 /// perception, so a later reader can tell Shenko's own configured instrument
 /// apart from another party's engine and can see exactly which model produced
 /// a claim. It stays provenance: a perception that a voice belongs to someone
-/// never becomes an identity binding (§15.2, §51.2).
+/// never becomes an identity binding (docs/specs/contacts.md#spec-15-2, docs/specs/cognition-units.md#spec-51-2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MediaPerceptionRef {
@@ -141,7 +141,7 @@ pub struct MediaPerceptionRef {
 }
 
 /// Immutable, content-addressed bytes of ONE identification observation
-/// (SPEC §51.1 内容不可变，按内容寻址保存；§51.2 结果的理由停在那次观察上).
+/// (docs/specs/cognition-units.md#spec-51-1 内容不可变，按内容寻址保存；docs/specs/cognition-units.md#spec-51-2 结果的理由停在那次观察上).
 ///
 /// This is the observation result as content: the engine's claim, the sealed
 /// original audio it listened to (the experience), the revision that sealed
@@ -217,7 +217,7 @@ pub struct MediaRevisionInput {
     /// here as one typed value — the speaker-identity pipeline writes
     /// [`MediaIdentification`] under `identification`, naming the perception,
     /// the sealed observation it reasons from and the claim's content object
-    /// (§51.2). The revision row stays a mechanism record: it is not a
+    /// (docs/specs/cognition-units.md#spec-51-2). The revision row stays a mechanism record: it is not a
     /// cognition content/attitude row.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub provider_facts: serde_json::Map<String, serde_json::Value>,
@@ -272,7 +272,7 @@ pub struct StoredMediaRevision {
     pub admitted_commit: CommitRef,
 }
 
-/// Durable stream state (§20 session scope and media cancellation/disconnect).
+/// Durable stream state (docs/specs/media.md#spec-20 session scope and media cancellation/disconnect).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaStreamState {
@@ -345,7 +345,7 @@ pub struct MediaStream {
     pub commit_seq: u64,
 }
 
-/// One immutable terminal notice as admitted (§20 cancellation/disconnect/
+/// One immutable terminal notice as admitted (docs/specs/media.md#spec-20 cancellation/disconnect/
 /// end). Keyed by `end_id`, it is never overwritten when a later terminal
 /// fact settles the stream state: a replay of the original `end_id` returns
 /// this record's own event id and commit, not the stream's latest values.
@@ -397,7 +397,7 @@ pub enum MediaIngressEvent {
         /// Number of segments holding at least one admitted revision.
         segments: u64,
     },
-    /// A recording started or stopped (§20 录音状态、正在存储的范围和停止
+    /// A recording started or stopped (docs/specs/media.md#spec-20 录音状态、正在存储的范围和停止
     /// 控制必须真实可见). The row states what is actually stored, so the
     /// subject sees the scope instead of guessing it.
     Recording {
@@ -407,7 +407,7 @@ pub enum MediaIngressEvent {
         action: MediaRecordingAction,
     },
     /// A priority input of the media session: barge-in, interjection, stop
-    /// playback or an urgent message (§20 打断、插话、停止播音与紧急消息是
+    /// playback or an urgent message (docs/specs/media.md#spec-20 打断、插话、停止播音与紧急消息是
     /// 同一事件模型中的优先输入). It is an ordinary durable input of the
     /// same subject, never a second main loop.
     Priority {
@@ -451,7 +451,7 @@ impl MediaIngressEvent {
     }
 }
 
-/// Durable receipt of one revision admission (§41.3 CommitReceipt shape:
+/// Durable receipt of one revision admission (docs/specs/durable-state.md#spec-41-3 CommitReceipt shape:
 /// commit ref plus the bound event identity).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaRevisionReceipt {

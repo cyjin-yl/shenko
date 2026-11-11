@@ -1,4 +1,4 @@
-//! App authentication of the Feishu/Lark connector — SPEC §16.
+//! App authentication of the Feishu/Lark connector — docs/specs/channel-adapters.md#spec-16.
 //!
 //! The account is an app, so the credential is an *app ticket*. The secret is
 //! exchanged for a `tenant_access_token` at the token endpoint and the token

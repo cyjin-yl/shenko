@@ -1,4 +1,4 @@
-//! Anthropic 2026-10-21 message rules, scoped per binding — SPEC §47.3–47.5.
+//! Anthropic 2026-10-21 message rules, scoped per binding — docs/specs/inference.md#spec-47-3–docs/specs/inference.md#spec-47-5.
 //!
 //! The rules are version scoped: a binding that still uses an older API
 //! version keeps the older rules, and a binding that uses the current version

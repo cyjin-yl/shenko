@@ -1,4 +1,4 @@
-//! SPEC §6 R117：身份 revision 持久、只追加，重开后可读，改名不换 agent_id。
+//! docs/specs/subject-runtime.md#spec-6 R117：身份 revision 持久、只追加，重开后可读，改名不换 agent_id。
 use shenko_identity::DefaultIdentityPolicy;
 use shenko_store::store::Store;
 use shenko_types::identity::{IdentityChange, IdentitySource, NamingOrigin};

@@ -1,5 +1,5 @@
-//! The subject's mind-shape is content, not a compiled constant — SPEC §57.1,
-//! §57.2.
+//! The subject's mind-shape is content, not a compiled constant — docs/specs/subject-runtime.md#spec-57-1,
+//! docs/specs/subject-runtime.md#spec-57-2.
 //!
 //! These cases prove the mechanism with a real Node installation authority:
 //! the unit that provides `cap.subject-frame` speaks for the subject, the
@@ -91,7 +91,7 @@ fn two_providers_are_an_ambiguity_not_a_silent_pick() {
 
 /// Two providers may coexist, and the subject may switch between them at
 /// runtime: the consumer asks the same question and gets the provider the
-/// subject left in force (SPEC §57.9 / G59).
+/// subject left in force (docs/specs/cognition-units.md#spec-57-9 / G59).
 ///
 /// The switch is a durable fact about the unit, not a restart: the same
 /// catalog, the same call, the other provider's body.

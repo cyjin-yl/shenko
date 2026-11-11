@@ -1,4 +1,4 @@
-//! Shenko-owned WASI preview1 host boundary (SPEC §8.3, A08).
+//! Shenko-owned WASI preview1 host boundary (docs/specs/wasm-home.md#spec-8-3, A08).
 //!
 //! Wasmtime-wasi 45 can only preopen directories by pathname
 //! (`WasiCtxBuilder::preopened_dir`), which re-resolves the path at run time;

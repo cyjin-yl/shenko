@@ -1,4 +1,4 @@
-//! Runtime-error awareness natives — SPEC §45.14.
+//! Runtime-error awareness natives — docs/specs/cognition-units.md#spec-45-14.
 //!
 //! `errors.read` is a read-only view over the committed `runtime_error` raw
 //! facts of the caller's own subject session. `issue.submit` is an armed

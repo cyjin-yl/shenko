@@ -26,7 +26,7 @@
 //! commit acknowledges it, so a crash between reception and admission neither
 //! loses the message nor admits it twice.
 //!
-//! SPEC §15.3 (channel adapter boundary), §16 (platform account model), §35.6
+//! docs/specs/channel-adapters.md#spec-15-3 (channel adapter boundary), docs/specs/channel-adapters.md#spec-16 (platform account model), docs/specs/channels.md#spec-35-6
 //! (channel plugin seam).
 
 pub mod aes;
@@ -47,5 +47,5 @@ pub use runtime::{
 };
 // The capability table is part of the plugin contract, so it is re-exported
 // from there rather than owned by this adapter family: the QQ plugin declares
-// its own table the same way (SPEC §15.3, §57.4).
+// its own table the same way (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4).
 pub use shenko_types::capabilities::ChannelCapabilities;

@@ -1,10 +1,10 @@
-//! Real NapCat/OneBot v11 WebSocket client — SPEC §16, §35.6
+//! Real NapCat/OneBot v11 WebSocket client — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6
 //! Connects to NapCat WS endpoint, receives CQ events, sends messages.
 //!
 //! Outbound calls are correlated by `echo` so a caller learns the provider's
 //! actual status/retcode. A missing response is an *unknown* outcome: the
 //! request may or may not have been executed, so callers must reconcile
-//! instead of blindly resending (SPEC §35.6, §41.4 X03).
+//! instead of blindly resending (docs/specs/channels.md#spec-35-6, docs/specs/durable-state.md#spec-41-4 X03).
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use crate::spool::{IngressSpool, SpooledEvent};
 use shenko_types::ids::EntityId;
 
 /// How long an outbound action waits for its `echo` response before the
-/// outcome is declared unknown. SPEC §35.6.
+/// outcome is declared unknown. docs/specs/channels.md#spec-35-6.
 pub const SEND_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Credential-free endpoint provenance: scheme, host and port only.
@@ -132,7 +132,7 @@ impl SendReceipt {
     }
 }
 
-/// Read-only OneBot v11 query actions — SPEC §15.2, §16.
+/// Read-only OneBot v11 query actions — docs/specs/contacts.md#spec-15-2, docs/specs/channel-adapters.md#spec-16.
 ///
 /// This is the *only* wire surface admitted for contact/identity reads. A
 /// caller cannot name an arbitrary action: the allowlist is the type itself,
@@ -419,7 +419,7 @@ impl NapCatClient {
         .await
     }
 
-    /// Enqueue one action and await its correlated response. SPEC §35.6.
+    /// Enqueue one action and await its correlated response. docs/specs/channels.md#spec-35-6.
     ///
     /// The action name and parameters are the caller's; the plugin layer
     /// decides which platform action a publication becomes.
@@ -491,7 +491,7 @@ impl NapCatClient {
     }
 
     /// Run one read-only contact/identity query over the same connection and
-    /// echo protocol as outbound sends — SPEC §15.2, §16.
+    /// echo protocol as outbound sends — docs/specs/contacts.md#spec-15-2, docs/specs/channel-adapters.md#spec-16.
     ///
     /// The wire surface is fixed by `ContactQuery`; this method cannot send
     /// messages or perform any mutating action. The returned receipt carries
@@ -689,7 +689,7 @@ impl NapCatClient {
                     // them sit until timeout. Actions still sitting in the
                     // queue were never written; discard them so they are not
                     // silently transmitted on the next connection while their
-                    // callers were told "unknown". SPEC §35.6: reconcile, no
+                    // callers were told "unknown". docs/specs/channels.md#spec-35-6: reconcile, no
                     // implicit retry.
                     while action_rx.try_recv().is_ok() {}
                     pending_actions.lock().clear();

@@ -1,5 +1,5 @@
 //! Honest read-only JSON endpoints behind the WebUI 任务 / 记忆 / 配置 / 自身状态 pages.
-//! SPEC §21 (single subject timeline / UI), §43 (playground & configuration).
+//! docs/specs/web-interface.md#spec-21 (single subject timeline / UI), docs/specs/configuration-playground.md#spec-43 (playground & configuration).
 //!
 //! These handlers only report state that actually exists on this node. When the
 //! store handle has not been wired (main.rs still calls `UiServer::new`), the
@@ -165,7 +165,7 @@ pub fn router(state: ApiState) -> Router {
 }
 
 // ---------------------------------------------------------------------------
-// Configuration and ownership — SPEC §43.1, §44.4.
+// Configuration and ownership — docs/specs/configuration-playground.md#spec-43-1, docs/specs/plugins.md#spec-44-4.
 //
 // Discover/read are open to every session. Preview is open: looking at a
 // change is never privileged. Apply requires an authenticated actor; whether
@@ -325,10 +325,10 @@ async fn config_adoptions_handler(
 /// `GET /api/owner/state` → whether the installation has an owner and
 /// whether a claim capability is still pending. No credential material is
 /// ever included.
-/// `POST /api/identity/name` — the owner names the instance (SPEC §21.1).
+/// `POST /api/identity/name` — the owner names the instance (docs/specs/web-interface.md#spec-21-1).
 ///
 /// The name is the instance's, not the brand's, and the subject may also
-/// name itself (§21.1: "可由用户取名，或让 Agent 自主取名"). The change goes
+/// name itself (docs/specs/web-interface.md#spec-21-1: "可由用户取名，或让 Agent 自主取名"). The change goes
 /// through the SAME identity policy the subject's own naming uses, so the
 /// rules about what a name may be are one policy, not two.
 #[derive(Deserialize)]
@@ -437,7 +437,7 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
     };
     let artifacts: Vec<Value> = playground.list().into_iter().map(|version| {
         let durable = playground.durable_record(version.artifact_id).ok().flatten();
-        // SPEC §51.1: the default projection of a revision chain is a fact
+        // docs/specs/cognition-units.md#spec-51-1: the default projection of a revision chain is a fact
         // pair — how many committed versions exist and when the newest was
         // written. How many *older* versions the default view shows is the
         // installed taste macro's decision, so this surface does not derive
@@ -470,7 +470,7 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
     // The playground surface also lists the registered configuration
     // namespaces: an artifact's settings are managed through the same
     // configuration service as every other setting, not through a private
-    // per-artifact panel. SPEC §43.2.
+    // per-artifact panel. docs/specs/configuration-playground.md#spec-43-2.
     let namespaces = state
         .config
         .as_ref()
@@ -622,7 +622,7 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         None => Vec::new(),
     };
 
-    // Instance identity (SPEC §6): the name is the instance's, not the brand.
+    // Instance identity (docs/specs/subject-runtime.md#spec-6): the name is the instance's, not the brand.
     let subject_id = state
         .store
         .as_ref()
@@ -712,7 +712,7 @@ fn context_window_json(meta: &shenko_context_policy::CommittedWindowMeta) -> Val
             }))
             .collect::<Vec<_>>(),
         // Reported cost, including the conservative reusable-prefix bound;
-        // never a backend KV cache-hit claim (SPEC §12.3.2).
+        // never a backend KV cache-hit claim (docs/specs/context-policies.md#spec-12-3-2).
         "cost": window.cost,
     })
 }
@@ -936,7 +936,7 @@ mod context_tests {
 
 #[cfg(test)]
 mod naming_tests {
-    //! The owner's naming (SPEC §21.1) is a durable identity revision, not a
+    //! The owner's naming (docs/specs/web-interface.md#spec-21-1) is a durable identity revision, not a
     //! label in the browser: the name goes through the same policy the
     //! subject's own naming uses, and only an authenticated owner may set it.
 

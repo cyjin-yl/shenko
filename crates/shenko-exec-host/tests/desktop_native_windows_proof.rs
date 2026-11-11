@@ -1,5 +1,5 @@
 //! Actual-target native proof producer for the Windows desktop provider
-//! (SPEC §24.1/§24.3, read under §51.5/§51.10).
+//! (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3, read under docs/specs/cognition-units.md#spec-51-5, docs/specs/cognition-units.md#spec-51-10).
 //!
 //! This file is a *consumer*: it drives the real `WindowsDesktopProvider`
 //! through the public `DesktopProvider` trait and then checks the result with
@@ -21,7 +21,7 @@
 //!   `NATIVE-UNOBSERVED` with its reason; no synthetic event is ever called
 //!   physical-human proof and no case is forced to pass.
 //!
-//! Real OS limits stay facts (SPEC §51.10), not approval gates: a hook that
+//! Real OS limits stay facts (docs/specs/cognition-units.md#spec-51-10), not approval gates: a hook that
 //! cannot install, a desktop that cannot be captured, or a proof that needs a
 //! human are recorded as they are.
 //!

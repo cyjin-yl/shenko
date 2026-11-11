@@ -1,4 +1,4 @@
-# Shenko REPL (SPEC §19/§19.1)
+# Shenko REPL ([§19](repl.md#spec-19)、[§19.1](repl.md#spec-19-1))
 
 `crates/shenko-repl` implements stateful REPL sessions behind one contract,
 with two **honest session models**:
@@ -192,3 +192,52 @@ Both scripts refuse a different source commit or existing output directory;
 neither has been executed in this source-only phase. Obtain the pinned
 upstream checkout before the serialized build; no interpreter artifact or
 successful state/package/cancellation proof is claimed by these recipes.
+
+<a id="spec-19"></a>
+<!-- migrated-contract: SPEC:19 -->
+# 19 有状态 REPL 插件
+
+REPLProvider 提供 create/execute/inspect/checkpoint/restore/fork/install_dependencies/cancel/dispose。每个 REPL 绑定 task、worker、scope、runtime/ABI、环境 generation、依赖锁、工作目录和资源限制。主体只委派计算任务，不能以 REPL 绕过禁止直接执行代码/写文件的约束。
+
+| 目标 | 当前可用研究路线 | 兼容表述 |
+| --- | --- | --- |
+| Python in WASM | CPython WASI、Pyodide 各自有实际实现 | 前者面向 WASI；后者依赖 Emscripten/JS host，需独立 profile |
+| JS in WASM | 可评估 Javy/ComponentizeJS 等解释器路线 | 这是 JS backend，不等于完整 Node/Bun |
+| Node in WASM | 本轮未核验可直接使用的上游完整 WASM target | 保留移植/兼容目标；native/SSH Node 插件另列 |
+| Bun in WASM | 本轮未核验完整 Bun WASM target | Bun 能执行 WebAssembly 不等于 Bun 本体运行于 WASM |
+
+完整 Linux REPL 可使用 [§34](desktop-runtime.md#spec-34) 的 BoxLite adapter 作为候选环境，支持的原生依赖按实际 image/架构验证。这是独立 native runtime 路线；BoxLite 当前磁盘快照不等于活 REPL 的内存对象或外部句柄恢复。
+
+依据：[CPython WASI 平台](https://github.com/python/cpython/tree/main/Platforms/WASI)、[Pyodide 包加载](https://pyodide.org/en/stable/usage/loading-packages.html)、[Javy](https://github.com/bytecodealliance/javy)、[ComponentizeJS](https://github.com/bytecodealliance/ComponentizeJS)、[Node 构建目标](https://github.com/nodejs/node/blob/main/BUILDING.md)、[Bun](https://github.com/oven-sh/bun)。不能用 QuickJS 兼容接口或宿主 Node 悄悄勾选“Node/Bun WASM 完成”。
+
+动态装包通过 PackageProvider 接入锁定依赖与版本 generation。Python 可装兼容纯 Python wheel 与对应 WASM ABI 的二进制 wheel；Pyodide 不是只能装纯 Python，但普通 Linux wheel 仍不能直接用。npm 包要区分纯 JS、Node/Bun 内建 API、native addon、FFI、postinstall 和平台二进制。未知包可以在试验分支验证，失败不会污染当前可用 REPL。
+
+恢复能力分级并对每个 backend 明示：
+
+| 级别 | 保证内容 | 限制 |
+| --- | --- | --- |
+| R0 工作记录 | cell 源码、输出、异常、文件、依赖锁与执行顺序持久 | 不声称变量还在内存里 |
+| R1 对象恢复 | 支持显式可序列化对象/数据集/数组的 checkpoint | 函数闭包、打开文件、socket、线程与 native handle 未必可恢复 |
+| R2 VM 状态 | 特定引擎/模块/ABI 下的完整可恢复执行状态 | 必须实现对应外部资源重绑定与版本校验，不能由复制 linear memory 自动获得 |
+
+R0 是所有 backend 的最低保证；有状态会话在进程存活时保留变量，重启后按 R1/R2 能力恢复。需要重放 cell 才恢复时，区分纯计算与有副作用代码。已发送消息、远端写入、付款/提交等不能因 notebook replay 重复执行；保存 operation receipt，重放使用结果替身或重新核验。随机数、时间、网络响应和输入文件版本纳入可复现记录。
+
+REPL 僵死可单独终止并恢复，不拖垮主体。输出包含结构化错误、stdout/stderr、表格/图像/文件引用与截断标记；大对象按需读取，防止塞满模型 context。插件关闭时不占常驻解释器内存，热实例数量受设备 profile 控制。
+
+<!-- /migrated-contract: SPEC:19 -->
+
+<a id="spec-19-1"></a>
+<!-- migrated-contract: SPEC:19.1 -->
+## 19.1 多 kernel 与统一会话生命周期
+
+2026-10-26 用户补充：需要 Python、Node、Bun、QuickJS 等各种 REPL kernel，并明确要求提交设计。它们是独立可替换的 kernel 插件，共用能力发现、任务绑定和会话生命周期，继续沿用本章 REPLProvider 与 [§41](architecture.md#spec-41) 的执行/恢复合同；不新增一套主体，也不把解释器嵌成不可替换的核心。
+
+统一的是语义接口，不是运行时兼容性。Python、Node、Bun、QuickJS 分别报告实际语言/runtime/ABI、模块与包能力、原生扩展、异步机制、网络和文件能力。JavaScript 不等于 Node API，QuickJS 不冒充 Node/Bun；native、SSH 与 WASM 后端分别标识，不能默认全部 kernel 在 WASM 内或拥有同一种沙箱。包安装与环境变更仍复用既有 PackageProvider/generation，不扩大底座或修改现有安全模型。
+
+除一次性执行外，可选择保留变量和对象的长寿 session；允许多个相互隔离的 session。会话、cell/执行与异步输出分别有稳定标识和归属，统一提供执行、检查、中断、重置、关闭语义：沿用 create/execute/inspect/cancel/dispose，interrupt/reset/close 等前端名称由 adapter 映射，不声称当前已有新的可调用 API。中断请求、任务取消、执行已停止、外部效果已确认与结果未知分别报告；不能用 interrupt 的成功返回证明所有工作都已停止。并发 cell、后台任务和迟到输出按 session/执行身份归属，不串入另一会话；adapter 明示其串行/并行能力。
+
+重置或关闭会话时说明哪些变量、对象和后台任务会失去或仍未决，保留既有工作记录和效果责任。checkpoint/restore/fork 按本章 R0/R1/R2 的实际能力报告；活内存对象不会因统一接口自动跨 runtime 或节点迁移。跨节点接续须显式绑定目标环境、可用 checkpoint、依赖及外部资源恢复条件；仅重放代码不冒称恢复了原内存状态。
+
+主体与 worker 的工具职责不变：主体发现能力、理解结果并委派，worker 通过相应 kernel 执行。浏览器可在合适的 Eval/REPL facade 中自然调用（[§24.6](browser.md#spec-24-6)），但 facade 不给主体新增绕开委派直接执行代码的路径，也不要求每个 kernel 支持相同宿主 API。
+
+<!-- /migrated-contract: SPEC:19.1 -->

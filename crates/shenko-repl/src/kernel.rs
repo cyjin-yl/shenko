@@ -1,5 +1,5 @@
 //! Kernel profiles: what binds a real interpreter module to a backend and
-//! how the named §19.1 runtimes report their actual availability.
+//! how the named docs/specs/repl.md#spec-19-1 runtimes report their actual availability.
 
 use crate::contract::{BackendKind, ReplRuntime, RecoveryLevel};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub enum ModuleSource {
     ModulePath(PathBuf),
 }
 
-/// Guest-side persistence convention (§19.1 cell-model adapter).
+/// Guest-side persistence convention (docs/specs/repl.md#spec-19-1 cell-model adapter).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StatePersistence {
@@ -158,7 +158,7 @@ impl KernelProfile {
     }
 }
 
-/// Availability of a named runtime target (§19.1 capability discovery).
+/// Availability of a named runtime target (docs/specs/repl.md#spec-19-1 capability discovery).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KernelAvailability {
@@ -180,7 +180,7 @@ pub struct KernelTarget {
     pub note: String,
 }
 
-/// The named §19.1 targets with their real binding state in this build.
+/// The named docs/specs/repl.md#spec-19-1 targets with their real binding state in this build.
 /// WASM targets stay the obligation: python-wasi and quickjs-wasm are
 /// bindable to a real interpreter module, node-wasm/bun-wasm stay
 /// named-but-unavailable (no verified upstream Node/Bun-on-WASM target),
@@ -195,14 +195,14 @@ pub fn named_targets() -> Vec<KernelTarget> {
             availability: KernelAvailability::Bindable {
                 via: BackendKind::WasiPreview1,
             },
-            note: "CPython WASI route (§19/R079); bind a real `python.wasm` module path; live session via embedded python-cell-driver".into(),
+            note: "CPython WASI route (docs/specs/repl.md#spec-19/R079); bind a real `python.wasm` module path; live session via embedded python-cell-driver".into(),
         },
         KernelTarget {
             name: "pyodide".into(),
             runtime: ReplRuntime::Pyodide,
             abi: "emscripten-js-host".into(),
             availability: KernelAvailability::Unavailable {
-                reason: "Pyodide needs an Emscripten/JS-host route the WASI backend does not provide (§19 profile split)".into(),
+                reason: "Pyodide needs an Emscripten/JS-host route the WASI backend does not provide (docs/specs/repl.md#spec-19 profile split)".into(),
             },
             note: "separate profile, not interchangeable with the WASI route".into(),
         },
@@ -220,7 +220,7 @@ pub fn named_targets() -> Vec<KernelTarget> {
             runtime: ReplRuntime::NodeWasm,
             abi: "unverified".into(),
             availability: KernelAvailability::Unavailable {
-                reason: "no verified upstream Node WASM target; Node executing WASM is not Node running on WASM (§19/R081)".into(),
+                reason: "no verified upstream Node WASM target; Node executing WASM is not Node running on WASM (docs/specs/repl.md#spec-19/R081)".into(),
             },
             note: "native host Node kernel is a separate additional route".into(),
         },
@@ -229,7 +229,7 @@ pub fn named_targets() -> Vec<KernelTarget> {
             runtime: ReplRuntime::BunWasm,
             abi: "unverified".into(),
             availability: KernelAvailability::Unavailable {
-                reason: "no verified Bun WASM target; Bun executing WASM is not Bun running on WASM (§19/R080)".into(),
+                reason: "no verified Bun WASM target; Bun executing WASM is not Bun running on WASM (docs/specs/repl.md#spec-19/R080)".into(),
             },
             note: "native host Bun kernel is a separate additional route".into(),
         },

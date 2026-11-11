@@ -1,5 +1,5 @@
 /**
- * Shenko's stable application-semantic UI boundary (SPEC §21.2).
+ * Shenko's stable application-semantic UI boundary (docs/specs/web-interface.md#spec-21-2).
  *
  * This is deliberately not Proto-UI's private PrototypeIR and is not accepted
  * by upstream compilePrototype: the build-time compiler (web/compiler.mjs)
@@ -11,10 +11,10 @@ export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
 
 export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config' | 'playground';
 
-/// The Proto-UI playground surface — SPEC §43.2. Every fact below comes
+/// The Proto-UI playground surface — docs/specs/configuration-playground.md#spec-43-2. Every fact below comes
 /// from the durable records; the view renders them, it does not invent a
 /// second artifact index.
-/// One work of the subject, as the timeline carries it (SPEC §57.6).
+/// One work of the subject, as the timeline carries it (docs/specs/configuration-playground.md#spec-57-6).
 ///
 /// The timeline shows the subject's works and lets the reader OPEN one. The
 /// revision is the work's own durable revision: an action is bound to it, so
@@ -28,11 +28,11 @@ export interface WorkView {
   updated_at?: string;
 }
 
-/// A work the reader opened (SPEC §57.6).
+/// A work the reader opened (docs/specs/configuration-playground.md#spec-57-6).
 ///
 /// It carries the work's own revision: an action is bound to the revision
 /// the reader saw, so a work that moved on refuses the stale action.
-/// The ownership facts of this installation (SPEC §44.4).
+/// The ownership facts of this installation (docs/specs/plugins.md#spec-44-4).
 ///
 /// `claimed` is a fact, not a hope: an unclaimed installation says so, and
 /// the claim capability's own state is reported separately.
@@ -76,7 +76,7 @@ export interface PlaygroundView {
 }
 export type ReadingState = 'following_latest' | 'reading_history' | 'selecting_or_interacting';
 export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
-// Durable admission stages — SPEC §41.18: accepted/selected/committed are
+// Durable admission stages — docs/specs/web-interface.md#spec-41-18: accepted/selected/committed are
 // separate fact receipts, never a single progress bar.
 export type ReceiptState =
   | 'sending'
@@ -100,7 +100,7 @@ export interface TimelinePart {
   /** A committed message bound this part to an S1 step (either it carried the
    *  full committed text, or a streamed prefix was absorbed by it). A part
    *  without this binding is durable ledger content but not a committed step:
-   *  the view never prints a step number or "已提交" for it (§21.11). */
+   *  the view never prints a step number or "已提交" for it (docs/specs/web-interface.md#spec-21-11). */
   committed: boolean;
   step: number;
   step_id: string;
@@ -113,7 +113,7 @@ export interface TimelinePart {
 }
 
 /**
- * A reading place keyed by a stable rendered entry identity (§21.11), never by
+ * A reading place keyed by a stable rendered entry identity (docs/specs/web-interface.md#spec-21-11), never by
  * scroll offset alone. `offset` is the anchor entry's top relative to the
  * viewport top, so history backfilled above it does not move the reader.
  */
@@ -141,7 +141,7 @@ export interface ReadingSelection {
 /**
  * The visible outcome of one semantic-document action attempt. Acceptance is
  * durable admission of an input, not execution; execution is the subject's
- * disposition of that input (§21.8).
+ * disposition of that input (docs/specs/web-interface.md#spec-21-8).
  */
 export interface ActionReceiptView {
   submission_id: string;
@@ -174,14 +174,14 @@ export interface SubmissionPayload {
   observed_step_id?: string;
 }
 
-/** Where an admitted input is actually handled (§41.18 placement). */
+/** Where an admitted input is actually handled (docs/specs/web-interface.md#spec-41-18 placement). */
 export interface SubmissionPlacement {
   requested: 'append' | 'steer';
   actual: 'pending' | 'next_boundary' | 'live_steer' | 'cancel_reseal';
   target_request_id?: string;
 }
 
-/** Durable withdrawal record (§41.18); never deletes the admitted fact. */
+/** Durable withdrawal record (docs/specs/web-interface.md#spec-41-18); never deletes the admitted fact. */
 export interface WithdrawalView {
   cancel_id: string;
   commit_ref: string;
@@ -204,7 +204,7 @@ export interface Submission {
   send_epoch: number;
 }
 
-// §21.8: numbered options preserve action identity across degradation.
+// docs/specs/web-interface.md#spec-21-8: numbered options preserve action identity across degradation.
 export interface ActionOption {
   index: number;
   action_id: string;
@@ -219,7 +219,7 @@ export interface ActionOption {
 
 export type DegradedMode = 'rich' | 'card' | 'text';
 
-/** A validated semantic document degraded to this surface's facts (§21.7). */
+/** A validated semantic document degraded to this surface's facts (docs/specs/web-interface.md#spec-21-7). */
 export interface DegradedDocument {
   mode: DegradedMode;
   document_id: string;
@@ -397,7 +397,7 @@ export interface UiState {
   /** The work the reader opened, and the fact of opening it. */
   work?: OpenedWork;
   work_error?: boolean;
-  /** The ownership facts: whether this installation is claimed (SPEC §44.4). */
+  /** The ownership facts: whether this installation is claimed (docs/specs/plugins.md#spec-44-4). */
   owner_state?: OwnerState;
   /** The name the reader is trying to give the instance. */
   name_draft?: string;
@@ -515,7 +515,7 @@ export function semanticHash(text: string): string {
 }
 
 /**
- * What the view may claim about one entry (§21.11): committed text carries an
+ * What the view may claim about one entry (docs/specs/web-interface.md#spec-21-11): committed text carries an
  * S1 step, a durable streamed prefix does not, and a chunk gap means the text
  * on screen is provably incomplete.
  */
@@ -619,7 +619,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     });
   });
   // Degraded semantic documents ride the timeline as their own nodes; the
-  // numbered options keep actions completable at every rung (§21.7/§21.8).
+  // numbered options keep actions completable at every rung (docs/specs/web-interface.md#spec-21-7, docs/specs/web-interface.md#spec-21-8).
   // A surface belongs to the committed step that carried it, so it renders
   // next to that step instead of drifting to the end of history.
   const documentRows = state.documents.map((document) => {
@@ -648,7 +648,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   });
   const timelineChildren: UiNode[] = [];
   // A rejected document keeps its raw text visible and its reason readable
-  // (§3): the failure rides the same step as the surface it could not become.
+  // (docs/research/product-positioning.md#spec-3): the failure rides the same step as the surface it could not become.
   const errorRows = state.document_errors.map((error) => ({
     placed: false,
     source_step_id: error.source_step_id,
@@ -685,10 +685,10 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   for (const row of surfaceRows) {
     if (!row.placed) timelineChildren.push(row.node);
   }
-  // The subject's works ride the timeline (SPEC §57.6): a reader meets the
+  // The subject's works ride the timeline (docs/specs/configuration-playground.md#spec-57-6): a reader meets the
   // work where the subject made it and can open it there. Only the most
   // recent works are carried — the timeline is the subject's story, not a
-  // work management screen (§43.2).
+  // work management screen (docs/specs/configuration-playground.md#spec-43-2).
   const works = (state.playground?.artifacts ?? []) as WorkView[];
   for (const work of works.slice(-6)) {
     const openRef = addAction(
@@ -792,7 +792,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       open: state.display.open_sections[section] === true,
     }, [], { action_refs: [action] });
   });
-  // The opened work's actions (SPEC §57.6). Each one is bound to the
+  // The opened work's actions (docs/specs/configuration-playground.md#spec-57-6). Each one is bound to the
   // revision the reader saw, and the request id behind them is stable for
   // that (work, action, revision) — so a repeated submit is the same request.
   const workActionRefs: string[] = [];
@@ -808,7 +808,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       ));
     }
   }
-  // The naming and the claim are the reader's own acts (SPEC §21.1, §44.4).
+  // The naming and the claim are the reader's own acts (docs/specs/web-interface.md#spec-21-1, docs/specs/plugins.md#spec-44-4).
   const nameDraftRef = addAction(actions, 'identity.name.draft', 'identity.name.draft', 'identity-v1', true);
   const nameRef = addAction(actions, 'identity.name', 'identity.name', 'identity-v1', state.connection === 'online');
   const claimDraftRef = addAction(actions, 'owner.claim.draft', 'owner.claim.draft', 'owner-v1', true);

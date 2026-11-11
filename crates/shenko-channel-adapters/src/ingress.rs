@@ -1,4 +1,4 @@
-//! Durable ingress ledger of one adapter account — SPEC §15.3, §35.6.
+//! Durable ingress ledger of one adapter account — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-35-6.
 //!
 //! Every adapter monitor writes the classified event here **before** it
 //! advances the platform cursor, and the row stays replayable until the

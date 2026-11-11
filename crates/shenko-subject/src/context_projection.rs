@@ -312,7 +312,7 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
         }
     };
     // Every staged input cites the durable event identity it came from, so a
-    // control or reply can bind to the exact fact (SPEC §41.5) and two
+    // control or reply can bind to the exact fact (docs/specs/subject-runtime.md#spec-41-5) and two
     // same-source deliveries can be told apart in the model history.
     let text = data["text"].as_str().unwrap_or_default().to_owned();
     data["text"] = serde_json::Value::String(format!("[event {}] {text}", event.event_id));
@@ -428,7 +428,7 @@ fn staged_media_text(payload: &serde_json::Value) -> Result<String, ShenkoError>
             }
         }
         // ArchMedia: recording controls and priority inputs render as
-        // ordinary durable facts of the same event model (§20). ArchSubject
+        // ordinary durable facts of the same event model (docs/specs/media.md#spec-20). ArchSubject
         // owns this file; these arms are additive and mirror the style above.
         shenko_types::media::MediaIngressEvent::Recording {
             stream, recording, action, ..
@@ -799,7 +799,7 @@ pub(super) fn prepare_context(
     let observed_input_tokens = state.previous_input_tokens.filter(|_|
         binding.is_some() && state.previous_input_binding.as_ref() == binding);
     let previous_anchor = observed_input_tokens.zip(state.previous_estimated_input_tokens);
-    // The idle observation is content too (SPEC §57.2): the installed unit
+    // The idle observation is content too (docs/specs/subject-runtime.md#spec-57-2): the installed unit
     // that provides `cap.idle-perception` words what "no new input" means to
     // this subject. The compiled sentence stays as the fallback.
     let idle_text = state.idle_perception();
@@ -922,7 +922,7 @@ pub(super) fn prepare_context(
         .ok_or_else(|| ShenkoError::conflict("selected projection has no trustworthy token estimate"))?;
     // The prepared contributions are collected BEFORE the final budget
     // check, so their cost is charged together with the context and the
-    // tool cost (SPEC §37.7) and can never be added after the check.
+    // tool cost (docs/specs/context-policies.md#spec-37-7) and can never be added after the check.
     let collected = collect_contributions(
         &state.store, state.contribution_registry.as_deref(),
         &shenko_context_policy::contribution::scope_wide(scope_id),

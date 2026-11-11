@@ -1,4 +1,4 @@
-//! The Anthropic quota observer plugin — SPEC §42.2, §47.5.
+//! The Anthropic quota observer plugin — docs/specs/quota-resources.md#spec-42-2, docs/specs/inference.md#spec-47-5.
 //!
 //! Four real observation surfaces, each with its own source contract:
 //!
@@ -97,7 +97,7 @@ impl QuotaObserver for AnthropicObserver {
                 // The scope identity stays what the source named. A failed
                 // read named nothing, so it does not become the bound
                 // account's identity either: a missing field is not a
-                // default identity (§47.5).
+                // default identity (docs/specs/inference.md#spec-47-5).
                 Ok(snapshot)
             }
             ObservationInput::StatuslineJson { json, first_response_seen } => {

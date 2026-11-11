@@ -1,4 +1,4 @@
-//! `config.manage` — configuration through conversation (SPEC §43.1, R133).
+//! `config.manage` — configuration through conversation (docs/specs/configuration-playground.md#spec-43-1, R133).
 //!
 //! The subject changes its own configuration the same way the panel does:
 //! through the one [`ConfigService`], over the same durable change ledger, with
@@ -588,7 +588,7 @@ impl NativeTaskHandler for ConfigHandler {
         }
     }
 
-    /// §36 effect contract of `config.manage.v1`.
+    /// docs/specs/durable-state.md#spec-36 effect contract of `config.manage.v1`.
     ///
     /// The only write is the installation's own configuration ledger, which
     /// replicates with cognition facts. Idempotency is strict for the origin

@@ -1,4 +1,4 @@
-//! The configuration service — SPEC §43.1.
+//! The configuration service — docs/specs/configuration-playground.md#spec-43-1.
 //!
 //! One service owns configuration: the human panel, the subject's own
 //! configuration intents and every plugin that registers a namespace all go
@@ -32,7 +32,7 @@ use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionedR
 
 use crate::playground::stable_id;
 
-/// How a namespace's changes take effect — SPEC §43.1.
+/// How a namespace's changes take effect — docs/specs/configuration-playground.md#spec-43-1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigApplication {
@@ -51,7 +51,7 @@ impl ConfigApplication {
     }
 }
 
-/// One registered configuration namespace — SPEC §43.1.
+/// One registered configuration namespace — docs/specs/configuration-playground.md#spec-43-1.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigNamespace {
@@ -199,7 +199,7 @@ pub struct ConfigApplyResult {
 }
 
 /// What happened to one committed-but-unsettled configuration change when the
-/// service looked at it — SPEC §43.1 (CFG02).
+/// service looked at it — docs/specs/configuration-playground.md#spec-43-1 (CFG02).
 ///
 /// `settled` is true only when a durable receipt was recorded. The outcome
 /// never claims an effect that was not observed: a dead attempt owner leaves
@@ -414,7 +414,7 @@ impl ConfigService {
 
     /// Apply one configuration value.
     ///
-    /// The order is deliberate and is the one SPEC §43.1 asks for: a repeated
+    /// The order is deliberate and is the one docs/specs/configuration-playground.md#spec-43-1 asks for: a repeated
     /// intent is answered from the durable change record **before** any
     /// revision check or handler call, the desired revision and its change
     /// record are then committed first, the namespace's own apply contract
@@ -430,7 +430,7 @@ impl ConfigService {
         // The recorded actor is a provenance fact, so the service re-checks it
         // instead of trusting whatever its caller constructed.
         self.verify_actor(&request.actor)?;
-        // §43.1(1): dedupe on (origin, logical key) comes before the current
+        // docs/specs/configuration-playground.md#spec-43-1(1): dedupe on (origin, logical key) comes before the current
         // revision check, and the answer is the durable original, not a
         // recomputed intent. A different payload never reuses the same key.
         if let Some(existing) = self
@@ -579,7 +579,7 @@ impl ConfigService {
         Ok(self.store.config_adoptions(namespace, logical_key)?)
     }
 
-    /// Reconcile one key's interrupted apply, if any — SPEC §43.1 (CFG02).
+    /// Reconcile one key's interrupted apply, if any — docs/specs/configuration-playground.md#spec-43-1 (CFG02).
     ///
     /// The rule is evidence, not optimism: only the change's recorded attempt
     /// owner can say whether the apply is still in someone's hands, and only a

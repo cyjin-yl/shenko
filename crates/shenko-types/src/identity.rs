@@ -1,4 +1,4 @@
-//! Versioned instance identity — SPEC §6, R053/R054/R104/R105/R117.
+//! Versioned instance identity — docs/specs/subject-runtime.md#spec-6, R053/R054/R104/R105/R117.
 //!
 //! The framework is Shenko; an instance has its own display name, soul and
 //! personality. All three are revisions of one profile bound to the stable
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::EntityId;
 
-/// Who chose the current display name. SPEC §6: user naming and self naming
+/// Who chose the current display name. docs/specs/subject-runtime.md#spec-6: user naming and self naming
 /// are both first-class initialisation paths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

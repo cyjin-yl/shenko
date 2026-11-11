@@ -32,7 +32,7 @@ impl CallStatus {
         matches!(self, Self::Executed { .. } | Self::Cancelled)
     }
 
-    /// Status as the execution ledger records it (SPEC §41.4 X03), which
+    /// Status as the execution ledger records it (docs/specs/durable-state.md#spec-41-4 X03), which
     /// overrides whatever a session event claims. Only a resolved operation
     /// without contradictory evidence is Executed or Cancelled; an operation
     /// being reconciled, interrupted, resolved without outcome, or failed with

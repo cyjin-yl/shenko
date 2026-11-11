@@ -1,4 +1,4 @@
-//! Prepared transient context contributions — SPEC §37.7, §41.8.1.
+//! Prepared transient context contributions — docs/specs/context-policies.md#spec-37-7, docs/specs/context-policies.md#spec-41-8-1.
 //!
 //! A contribution is material a plugin prepared *before* the request that
 //! uses it: a transient memory reminder, an awareness perspective, a task

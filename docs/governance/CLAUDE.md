@@ -12,11 +12,11 @@
 claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions
 ```
 
-进入后按 [AGENTS.md](../../AGENTS.md) 与 [docs/INDEX.md](../INDEX.md) 读当前合同：规格是 [SPEC.md](../../SPEC.md)，功能合同在 [docs/specs/](../specs/)。2026-11-01 起根目录不再有任务交接入口；[归档的 GOAL.md](../history/entrypoints-20261101/GOAL.md) 只作为历史来源保留，不是现行指令。一次 headless 启动也支持：
+进入后按 [AGENTS.md](../../AGENTS.md) 与 [docs/INDEX.md](../INDEX.md) 读当前合同：从[索引](../INDEX.md)进入 [docs/specs/](../specs) 的具体规格及 Why。2026-11-01 起根目录不再有任务交接入口；[归档的 GOAL.md](../history/entrypoints-20261101/GOAL.md) 只作为历史来源保留，不是现行指令。一次 headless 启动也支持：
 
 ```bash
 claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions \
-  -p '/goal 按本仓库 SPEC.md、AGENTS.md、WHY.md 与 docs/specs/，在自己的 fork 自主并行开发完整 SPEC 的全部正式范围，持续更新 upstream PR；以 COMPLETION 合同要求的真实验收和完整证据结束，每个重要轮次展示候选、覆盖、验证和 PR 状态。' \
+  -p '/goal 按本仓库 AGENTS.md、docs/INDEX.md 与相关领域合同和 Why，在自己的 fork 自主并行开发完整 SPEC 的全部正式范围，持续更新 upstream PR；以 COMPLETION 合同要求的真实验收和完整证据结束，每个重要轮次展示候选、覆盖、验证和 PR 状态。' \
   --output-format stream-json --verbose
 ```
 
@@ -36,7 +36,7 @@ headless恢复：
 ```bash
 claude --resume '<session-id>' --model claude-opus-5-5 \
   --effort ultracode --dangerously-skip-permissions \
-  -p '读取 SPEC.md、AGENTS.md、docs/specs/ 与持久检查点，核对实际 fork、PR、任务和证据后继续完整开发；确认原 goal 当前状态，必要时恢复同一目标。' \
+  -p '读取 AGENTS.md、docs/INDEX.md、相关领域合同和 Why 与持久检查点，核对实际 fork、PR、任务和证据后继续完整开发；确认原 goal 当前状态，必要时恢复同一目标。' \
   --output-format stream-json --verbose
 ```
 

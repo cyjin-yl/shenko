@@ -1,4 +1,4 @@
-//! 任务记录 — SPEC §41.4 X02
+//! 任务记录 — docs/specs/durable-state.md#spec-41-4 X02
 //! TaskRecord 含完整可恢复状态。
 
 use serde::{Deserialize, Serialize};
@@ -89,7 +89,7 @@ pub enum DispatchEligibility {
     },
 }
 
-/// 任务状态，SPEC §41.4 X02
+/// 任务状态，docs/specs/durable-state.md#spec-41-4 X02
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "status")]
 pub enum TaskState {
@@ -137,7 +137,7 @@ pub enum WaitJoinPolicy {
     AllSettled,
 }
 
-/// 完整 TaskRecord — SPEC §41.4 X02
+/// 完整 TaskRecord — docs/specs/durable-state.md#spec-41-4 X02
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRecord {
     pub record_schema_version: u32,
@@ -175,7 +175,7 @@ pub struct TaskRecord {
 impl TaskRecord {
     /// The subject's own root task: self-owned, never dispatched by the
     /// scheduler, created atomically with subject genesis so the launch
-    /// binding is part of the birth transaction (SPEC §41.5/§44.6).
+    /// binding is part of the birth transaction (docs/specs/subject-runtime.md#spec-41-5, docs/specs/plugins.md#spec-44-6).
     pub fn subject_root(
         task_id: EntityId,
         agent_id: EntityId,

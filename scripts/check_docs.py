@@ -9,7 +9,8 @@ import hashlib
 import json
 import re
 import sys
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
+import html
 
 ROOT = Path(__file__).resolve().parents[1]
 errors = []
@@ -34,8 +35,103 @@ def outside_fences(text):
         if fence is None:
             yield number, line
 
-spec = (ROOT / 'SPEC.md').read_text()
-spec_bytes = (ROOT / 'SPEC.md').read_bytes()
+# Root SPEC/WHY are navigation only. This migration ledger audits original
+# preservation; the separate live inventory below defines the current input.
+migration = read_json('docs/contract-migration.json')
+check(migration.get('schema_version') == 1, 'Unsupported contract migration schema')
+originals = {}
+for original in migration['originals']:
+    name = original['name']
+    check(name not in originals, f'Duplicate migration original: {name}')
+    archive = ROOT / original['archived_path']
+    data = archive.read_bytes()
+    check(len(data) == original['bytes'], f'Migration archive size changed: {name}')
+    check(hashlib.sha256(data).hexdigest() == original['sha256'],
+          f'Migration archive changed: {name}')
+    check(original.get('lines') == len(data.splitlines()), f'Migration archive line count changed: {name}')
+    originals[name] = data
+check(set(originals) == {'SPEC.md', 'WHY.md'}, 'Migration must preserve both source documents')
+
+# One-time migration proof is opt-in; ordinary checks permit contract evolution.
+verify_migration = '--verify-migration' in sys.argv[1:]
+chunk_ids = set()
+contract_texts = {}
+contract_chunks = {}
+historical_lines = {}
+for chunk in migration['chunks']:
+    cid = chunk['id']
+    check(cid not in chunk_ids, f'Duplicate migration chunk: {cid}')
+    chunk_ids.add(cid)
+    original = chunk['original']
+    check(original in originals, f'Unknown migration original: {original}')
+    relative = Path(chunk['path'])
+    check(relative.parts[:1] == ('docs',) and '..' not in relative.parts,
+          f'Migrated contract outside docs: {relative}')
+    source_lines = originals[original].splitlines(keepends=True)
+    start, end = chunk['start_line'], chunk['end_line']
+    check(1 <= start <= end <= len(source_lines), f'Invalid source extent: {cid}')
+    source_bytes = b''.join(source_lines[start - 1:end])
+    check(hashlib.sha256(source_bytes).hexdigest() == chunk['source_sha256'],
+          f'Migration source checksum mismatch: {cid}')
+    contract_texts.setdefault(original, []).append((start, end, source_bytes))
+    # Only the migration checkpoint verifies current markers/hashes. The one
+    # immutable user-quotation block is preserved separately from live clauses.
+    if not verify_migration and cid != 'SPEC:33':
+        continue
+    path = ROOT / relative
+    text = path.read_text()
+    matches = list(re.finditer(
+        rf'^<!-- migrated-contract: {re.escape(cid)} -->\n(.*?)'
+        rf'^<!-- /migrated-contract: {re.escape(cid)} -->$', text,
+        re.MULTILINE | re.DOTALL))
+    check(len(matches) == 1, f'Migration chunk missing or repeated: {cid}')
+    if len(matches) != 1:
+        continue
+    match = matches[0]
+    body = match.group(1)
+    if verify_migration:
+        check(hashlib.sha256(body.encode()).hexdigest() == chunk['migrated_sha256'],
+              f'Migrated contract checksum mismatch: {cid}')
+    contract_chunks[cid] = body
+    # User utterances retain their original bytes, including historical links.
+    if cid == 'SPEC:33':
+        check(body.encode() == source_bytes, 'Original user utterances changed during migration')
+        first = text[:match.start(1)].count('\n') + 1
+        historical_lines.setdefault(relative.as_posix(), set()).update(
+            range(first, first + len(body.splitlines())))
+
+for name, data in originals.items():
+    chunks = sorted(contract_texts.get(name, []))
+    cursor = 1
+    for start, end, _ in chunks:
+        check(start == cursor, f'Migration coverage gap/overlap in {name}: expected {cursor}, got {start}')
+        cursor = end + 1
+    check(cursor == len(data.splitlines()) + 1, f'Migration does not cover all of {name}')
+
+# Current definitions come from complete live documents, never migration slices.
+inventory = read_json('docs/contracts.json')
+check(inventory.get('schema_version') == 1, 'Unsupported current contract inventory')
+documents = inventory.get('documents', [])
+check(bool(documents) and len(documents) == len(set(documents)), 'Empty/duplicate current contracts')
+current_texts = []
+for document in documents:
+    if not isinstance(document, str):
+        check(False, 'Non-string current contract document')
+        continue
+    path = ROOT / document
+    valid = (isinstance(document, str) and document.startswith('docs/')
+             and '..' not in Path(document).parts and path.is_file()
+             and path.resolve().is_relative_to((ROOT / 'docs').resolve())
+             and not path.resolve().is_relative_to((ROOT / 'docs/history').resolve())
+             and not path.resolve().is_relative_to((ROOT / 'docs/research/archive').resolve()))
+    check(valid, f'Invalid current contract document: {document}')
+    if valid:
+        current_texts.append(path.read_text())
+if verify_migration:
+    check({chunk['path'] for chunk in migration['chunks']} <= set(documents),
+          'Current inventory drops a migrated document')
+spec = '\n\n'.join(current_texts)
+spec_bytes = originals['SPEC.md']
 rows = list(outside_fences(spec))
 requirements = read_json('docs/requirements/requirements.json')
 behaviors = read_json('docs/requirements/behaviors.json')
@@ -43,6 +139,45 @@ sources = read_json('docs/requirements/sources.json')
 cases = read_json('docs/requirements/acceptance-cases.json')
 coverage = read_json('docs/state/coverage.json')
 manifest = read_json('docs/history/manifest.json')
+
+# Each machine-readable item points to a current document and exact source row.
+# Keeping the old location as provenance does not make it a current authority.
+for label, index in (('requirements', requirements), ('behaviors', behaviors),
+                     ('sources', sources), ('cases', cases)):
+    check(index.get('schema_version') == 2, f'{label}: index schema not migrated')
+    check(index.get('spec_path') == 'docs/INDEX.md', f'{label}: obsolete root authority')
+    check(index.get('contract_manifest') == 'docs/contracts.json',
+          f'{label}: contract manifest missing')
+    for item in index['items']:
+        identity = item.get('id', item.get('case_id'))
+        source = item.get('source_path', '')
+        number = item.get('source_markdown_line')
+        source_path = ROOT / source
+        check(source in documents and source_path.is_file(),
+              f'{identity}: current source document missing')
+        if not source_path.is_file():
+            continue
+        lines = source_path.read_text().splitlines()
+        valid_line = isinstance(number, int) and 1 <= number <= len(lines)
+        check(valid_line, f'{identity}: invalid source line')
+        if valid_line:
+            check(lines[number - 1] == item.get('source_row'),
+                  f'{identity}: source row does not match current document')
+        prior = item.get('migration_source')
+        # New domain-native obligations need no fabricated migration provenance.
+        check(prior is None or isinstance(prior, dict), f'{identity}: invalid provenance')
+        if isinstance(prior, dict):
+            old_path = prior.get('source_path', prior.get('path'))
+            old_line = prior.get('source_markdown_line', prior.get('line'))
+            old_row = prior.get('source_row', prior.get('row'))
+            check(old_path in originals, f'{identity}: unknown original source')
+            if old_path in originals and old_line is not None:
+                old_lines = originals[old_path].decode().splitlines()
+                valid_old = isinstance(old_line, int) and 1 <= old_line <= len(old_lines)
+                check(valid_old, f'{identity}: invalid original source line')
+                if valid_old and old_row is not None:
+                    check(old_lines[old_line - 1] == old_row,
+                          f'{identity}: original source row changed')
 
 def ids(index, key='id'):
     values = [item[key] for item in index['items']]
@@ -93,7 +228,13 @@ check(len(manifest['files']) == manifest['archived_file_count'], 'Archive count 
 
 old = snapshot.read_text()
 old_originals = old.split('# 33 用户需求原文与追加澄清', 1)[1].split('# 34 BoxLite', 1)[0].strip()
-new_originals = spec.split('# 33 用户需求原文与追加澄清', 1)[1].split('# 34 BoxLite', 1)[0].strip()
+new_originals = contract_chunks.get('SPEC:33', '')
+check(bool(new_originals), 'User source contract missing')
+# U64 was appended outside the original-user chapter; preserve its verbatim
+# quotations as well rather than assuming every source lives in one section.
+u64_source = originals['SPEC.md'].decode().split('# 57 ', 1)[1].split('## 57.0 ', 1)[0]
+for quotation in (line for line in u64_source.splitlines() if line.startswith('>')):
+    check(quotation in spec.splitlines(), 'U64 original quotation no longer preserved verbatim')
 check(old_originals in new_originals, 'Original U01–U49 archive no longer preserved verbatim')
 check('## U50 文档仓库与完整开发交接' in new_originals, 'U50 missing')
 check('## U51 fork 内自主开发与权限模式澄清' in new_originals, 'U51 missing')
@@ -105,23 +246,22 @@ for number in range(54, 64):
 original_case_ids = {item['case_id'] for item in read_json('docs/history/acceptance-source-v0.5.1.json')['cases']}
 check(original_case_ids <= cids, 'Original acceptance obligations dropped')
 
-# --- SPEC §48 immutability -----------------------------------------------------
-# §1–47 and every original user utterance are immutable bytes. §48 is the only
-# permitted append, so the original prefix is verified byte-for-byte and any
-# appended text must start with the §48 heading.
+# --- historical prefix immutability --------------------------------------------
+# The original prefix remains byte-exact in the archived input. Current contracts
+# can evolve in docs without reviving root SPEC as the source of truth.
 spec_integrity = read_json('docs/history/spec-integrity.json')
 prefix_bytes = spec_integrity['original_prefix_bytes']
 prefix_sha = spec_integrity['original_prefix_sha256']
 check(len(spec_bytes) >= prefix_bytes,
-      f'SPEC.md is shorter than the immutable original prefix ({len(spec_bytes)} < {prefix_bytes} bytes)')
+      f'Archived SPEC is shorter than the immutable original prefix ({len(spec_bytes)} < {prefix_bytes} bytes)')
 if len(spec_bytes) >= prefix_bytes:
     actual_prefix = hashlib.sha256(spec_bytes[:prefix_bytes]).hexdigest()
     check(actual_prefix == prefix_sha,
-          f'SPEC.md original prefix changed: {actual_prefix} != {prefix_sha}')
+          f'Archived SPEC original prefix changed: {actual_prefix} != {prefix_sha}')
     appended = spec_bytes[prefix_bytes:].decode('utf-8', errors='replace')
     if appended:
         check(appended.lstrip('\n').startswith(spec_integrity['appended_section_heading']),
-              'SPEC.md may only be extended by the documented §48 appendix')
+              'Archived SPEC appendix no longer begins at its original boundary')
 
 # --- 2026-11-01 archive ---------------------------------------------------------
 archives = read_json('docs/history/archives-20261101.json')
@@ -193,46 +333,62 @@ for name, directory in skill_dirs.items():
 check('.agents/skills/shenko-dev/SKILL.md' in (ROOT / 'AGENTS.md').read_text(),
       'AGENTS.md does not identify the mandatory philosophy Skill')
 
-# --- local links ----------------------------------------------------------------
-# Historical material keeps its original layout. A link inside SPEC.md to a
-# retired root entrypoint is explained by §48.5 and is therefore resolved
-# against the archive manifest instead of being reported as broken.
-def archived_for(original_path):
-    for item in archives['files']:
-        if item['original_path'] == original_path:
-            return item
-    return None
+# --- current local links and retired-root references ----------------------------
+def anchors(text):
+    result = set()
+    occurrences = {}
+    for _, line in outside_fences(text):
+        result.update(re.findall(r'<(?:a|span)\s+(?:id|name)=["\']([^"\']+)["\']', line))
+        heading = re.match(r'^#{1,6}\s+(.+?)(?:\s+#+)?$', line)
+        if heading:
+            value = re.sub(r'<[^>]+>', '', heading.group(1))
+            value = re.sub(r'\[([^]]+)\]\([^)]*\)', r'\1', value)
+            value = html.unescape(value).lower()
+            slug = re.sub(r'[^\w\- ]', '', value).replace(' ', '-')
+            count = occurrences.get(slug, 0)
+            occurrences[slug] = count + 1
+            result.add(slug if count == 0 else f'{slug}-{count}')
+    return result
+
+anchor_cache = {}
+for chunk in migration['chunks']:
+    path = ROOT / chunk['path']
+    known = anchor_cache.setdefault(path, anchors(path.read_text()))
+    check(chunk['anchor'] in known, f"Migration target anchor missing: {chunk['id']}")
 
 for path in ROOT.rglob('*.md'):
-    rel = path.relative_to(ROOT)
-    if rel.parts[:2] == ('docs','history') or rel.parts[:3] == ('docs','research','archive'):
+    if path.is_symlink():
         continue
-    for _, line in outside_fences(path.read_text()):
+    rel = path.relative_to(ROOT)
+    if rel.parts[:2] == ('docs', 'history') or rel.parts[:3] == ('docs', 'research', 'archive'):
+        continue
+    for number, line in outside_fences(path.read_text()):
+        if number in historical_lines.get(rel.as_posix(), set()):
+            continue
         for target in re.findall(r'\]\(([^\s)]+)(?:\s+"[^"]*")?\)', line):
-            if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target) or target.startswith('#'):
+            parsed = urlparse(target)
+            if parsed.scheme:
+                # Links to this repository's moving root document are stale too;
+                # fixed-commit provenance links remain valid historical evidence.
+                if parsed.netloc == 'github.com' and re.match(
+                        r'^/cyjin-yl/shenko/blob/(main|master)/(SPEC|WHY)\.md$', parsed.path):
+                    check(not parsed.fragment, f'Obsolete root content link in {rel}: {target}')
                 continue
-            local = unquote(target.split('#',1)[0])
-            if not local:
+            local, _, fragment = target.partition('#')
+            resolved = (path.parent / unquote(local)).resolve() if local else path.resolve()
+            check(resolved.exists(), f'Broken local link in {rel}: {target}')
+            if not resolved.exists():
                 continue
-            if (path.parent / local).exists():
-                continue
-            # A domain spec that another writer still owes is tracked, not broken.
-            resolved = (path.parent / local).resolve()
-            if resolved.is_relative_to(ROOT):
-                relative = resolved.relative_to(ROOT).as_posix()
-                if relative in registered:
-                    continue
-            # SPEC §1–47 keeps its original links; §48.5 explains them.
-            if rel == Path('SPEC.md'):
-                archived = archived_for(resolved.relative_to(ROOT).as_posix()) \
-                    if resolved.is_relative_to(ROOT) else None
-                if archived is not None and (ROOT / archived['archived_path']).exists():
-                    continue
-            check(False, f'Broken local link in {rel}: {target}')
+            if resolved in (ROOT / 'SPEC.md', ROOT / 'WHY.md') and fragment:
+                check(False, f'Obsolete root content link in {rel}: {target}')
+            if fragment and resolved.is_file() and resolved.suffix == '.md':
+                known = anchor_cache.setdefault(resolved, anchors(resolved.read_text()))
+                check(unquote(fragment) in known, f'Broken local anchor in {rel}: {target}')
 
 result = {
     'kind': 'documentation_integrity_only',
     'product_tested': False,
+    'migrated_contract_chunks': len(chunk_ids),
     'requirements': len(rids),
     'behaviors': len(bids),
     'source_records': len(refids),

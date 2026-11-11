@@ -1,12 +1,11 @@
-//! SPEC §32/§39 index parsing — the real requirement and acceptance-case
+//! docs/requirements/traceability.md#spec-32, docs/requirements/design-provenance.md#spec-39 index parsing — the real requirement and acceptance-case
 //! universe, read from the actual SPEC table rows.
 //!
 //! The coverage ledger in `docs/state/coverage.json` is *not* the authority
 //! for which requirements or acceptance cases exist: it is a hand-maintained
 //! view that can drift. This module parses the SPEC's own tables so the
-//! denominator is always 147 requirements / 216 acceptance cases / 56
-//! behaviors / 59 sources as the SPEC defines them, and so a stale coverage
-//! ID can never silently drop an obligation.
+//! denominator comes from current contract definitions rather than frozen counts;
+//! a stale coverage ID cannot silently drop an obligation.
 
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,18 +21,19 @@ pub struct AcceptanceCase {
     /// True when the SPEC row merges scenario and pass condition into one
     /// cell, so no separate pass condition can be read from the table.
     pub merged_row: bool,
-    /// Markdown line of the row in SPEC.md (1-based).
+    /// Line in the parsed contract text (1-based). Inventory reports also carry
+    /// the actual document path and Markdown line.
     pub spec_line: usize,
     /// The verbatim SPEC row.
     pub source_row: String,
 }
 
-/// One requirement row from SPEC §32.
+/// One requirement row from docs/requirements/traceability.md#spec-32.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirement {
     pub id: String,
     pub summary: String,
-    /// `§`-references from the SPEC row, e.g. "§1、§4、§15–16".
+    /// `§`-references from the SPEC row, e.g. "docs/specs/architecture.md#spec-1, docs/specs/subject-runtime.md#spec-4, docs/specs/channels.md#spec-15–docs/specs/channel-adapters.md#spec-16".
     pub spec_locations: String,
     /// The `U`/`B` reference cell, e.g. "U01；B01/B22".
     pub user_source: String,
@@ -43,7 +43,7 @@ pub struct Requirement {
     pub source_row: String,
 }
 
-/// One behavior row from SPEC §39.
+/// One behavior row from docs/requirements/design-provenance.md#spec-39.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Behavior {
     pub id: String,
@@ -79,7 +79,8 @@ pub struct IndexCounts {
 impl SpecIndex {
     /// Parse the SPEC markdown text.
     ///
-    /// `spec_text` is the whole SPEC.md content. Rows are recognised by their
+    /// `spec_text` contains current contract tables (one document or complete
+    /// documents composed in inventory order). Rows are recognised by their
     /// leading ID cell, so the parser follows the SPEC's own table structure
     /// instead of a fixed list of IDs.
     pub fn parse(spec_text: &str) -> Result<SpecIndex, IndexError> {
@@ -370,7 +371,7 @@ fn behavior_refs(cell: &str) -> Vec<String> {
 
 /// Acceptance case IDs named in a behavior's verification cell.
 ///
-/// The cell mixes section references (`§29、39–40、41`), explicit case IDs
+/// The cell mixes section references (`docs/specs/verification.md#spec-29, docs/requirements/design-provenance.md#spec-39–docs/governance/development-contract.md#spec-40, docs/specs/architecture.md#spec-41`), explicit case IDs
 /// (`A24`), ID lists (`A01/A02/A03/A31/A36/A37`) and ranges (`E01–E10`,
 /// `UI-S01–10/UI01–04`, `V1-01–V1-15`, `AW01–09`). Ranges are expanded
 /// against the universe of case IDs the SPEC actually defines, so a range

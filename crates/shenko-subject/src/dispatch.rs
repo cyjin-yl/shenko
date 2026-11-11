@@ -30,7 +30,7 @@ pub async fn run_committed_dispatcher(
             _=cancel.cancelled()=>return Ok(()),
             _=tick.tick()=>{
                 // One dispatcher pass: every failure is a durable runtime
-                // fact the subject can read (SPEC §45.14), then propagates.
+                // fact the subject can read (docs/specs/cognition-units.md#spec-45-14), then propagates.
                 let pass: anyhow::Result<()> = async {
                     store.settle_subject_memory()?;
                     store.reconcile_subject_publications()?;
@@ -170,7 +170,7 @@ async fn deliver_native_result(
 }
 
 /// Scan the durable obligation ledger once per dispatcher pass and admit a
-/// self-wake for every open obligation whose `due_at` has passed (SPEC §13.8;
+/// self-wake for every open obligation whose `due_at` has passed (docs/specs/subject-runtime.md#spec-13-8;
 /// R071/R072). An obligation row is not a scheduler: this scanner is the
 /// mechanism that turns the subject's own recorded promise into its own next
 /// input, through the same durable inbox admission + sealed-step path every

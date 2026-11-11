@@ -1,4 +1,4 @@
-//! Durable admission and replay of browser input submissions — SPEC §41.18.
+//! Durable admission and replay of browser input submissions — docs/specs/web-interface.md#spec-41-18.
 //!
 //! A submission is deduplicated by (agent_id, submission_id): a replay of the
 //! same payload returns the original event and admission commit, and the same
@@ -71,7 +71,7 @@ pub enum WebAdmission {
     Conflict,
 }
 
-/// The settled result of one withdrawal control (SPEC §41.18 撤回).
+/// The settled result of one withdrawal control (docs/specs/web-interface.md#spec-41-18 撤回).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WebWithdrawResultKind {
@@ -85,7 +85,7 @@ pub enum WebWithdrawResultKind {
     WithdrawalQueued,
 }
 
-/// One durable withdrawal control record (SPEC §41.18).
+/// One durable withdrawal control record (docs/specs/web-interface.md#spec-41-18).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WebWithdrawalRecord {
     /// the submission this withdrawal targets
@@ -196,7 +196,7 @@ impl Store {
     }
 
     /// Record one withdrawal control for an admitted browser input — the
-    /// durable half of SPEC §41.18 撤回, classified in ONE Immediate
+    /// durable half of docs/specs/web-interface.md#spec-41-18 撤回, classified in ONE Immediate
     /// transaction against the durable facts that decide it:
     /// `withdrawal_queued` when (a) an S1 disposition already consumed the
     /// event, (b) the event is staged into a step that left `Planned` (a
@@ -338,7 +338,7 @@ impl Store {
     }
 
     /// The latest withdrawal recorded for one submission — the durable value
-    /// behind the §41.18 `WebInputView.withdrawal` field.
+    /// behind the docs/specs/web-interface.md#spec-41-18 `WebInputView.withdrawal` field.
     pub fn web_input_withdrawal(
         &self,
         agent_id: EntityId,

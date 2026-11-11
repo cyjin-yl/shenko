@@ -1,4 +1,4 @@
-//! Real desktop Computer Use backend (SPEC §24.1/§24.3/§24.4, A22/A23).
+//! Real desktop Computer Use backend (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3, docs/specs/desktop-runtime.md#spec-24-4, A22/A23).
 //!
 //! Real mechanisms only. The product layer (`ComputerUseBackend`) owns the
 //! operation ledger, the durable observation record and the input writer
@@ -503,7 +503,7 @@ struct X11State {
     domains: BTreeMap<String, Arc<Mutex<DomainState>>>,
 }
 
-/// The real X11 desktop provider (SPEC §24.1, §24.3): a genuine X11
+/// The real X11 desktop provider (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3): a genuine X11
 /// connection, genuine GetImage observation and genuine XTEST input.
 pub struct X11Provider {
     state: Mutex<X11State>,
@@ -520,15 +520,15 @@ struct DesktopSessionEntry {
 
 /// Shared live state behind the Cordis-registered handler kinds, so lease
 /// authority and session identity are one truth across task kinds AND
-/// across platforms (SPEC §24.3).
+/// across platforms (docs/specs/desktop-runtime.md#spec-24-3).
 pub struct ComputerUseBackend {
     store: Arc<Store>,
     providers: BTreeMap<String, Arc<dyn DesktopProvider>>,
     sessions: Mutex<BTreeMap<EntityId, DesktopSessionEntry>>,
     /// Human-input observations from display domains dispatch here (SPEC
-    /// §24.3/§24.6.2); the browser provider registers its observer.
+    /// docs/specs/desktop-runtime.md#spec-24-3, docs/specs/browser.md#spec-24-6-2); the browser provider registers its observer.
     human_input: Arc<HumanInputFanout>,
-    /// Original LayerFS on a qualified Linux VM (SPEC §10.2.1): every
+    /// Original LayerFS on a qualified Linux VM (docs/specs/durable-state.md#spec-10-2-1): every
     /// Store operation runs through the pinned original SDK inside the
     /// guest; this adapter only drives the VM lifecycle.
     layerfs: Arc<crate::layerfs::LayerFsAdapter>,
@@ -551,7 +551,7 @@ struct DriveCtx {
     /// lease holding bind this, not a finite task id.
     caller: EntityId,
     /// The durable task this operation belongs to; a committed cancel
-    /// intent on it stops further input (SPEC §10.6).
+    /// intent on it stops further input (docs/specs/durable-state.md#spec-10-6).
     task_id: EntityId,
 }
 
@@ -678,7 +678,7 @@ impl ComputerUseBackend {
     }
 
     /// Real, probed capabilities of every registered provider — the
-    /// user-facing discovery surface (SPEC §24.1).
+    /// user-facing discovery surface (docs/specs/desktop-runtime.md#spec-24-1).
     fn provider_capabilities(&self) -> Vec<serde_json::Value> {
         self.providers
             .values()
@@ -691,7 +691,7 @@ impl ComputerUseBackend {
             .collect()
     }
 
-    /// Capability discovery answer (SPEC §24.1/§24.2/§10.2.1): the desktop
+    /// Capability discovery answer (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-2, docs/specs/durable-state.md#spec-10-2-1): the desktop
     /// providers this build really contains, the platform default for
     /// "auto", and the original-LayerFS VM path's own readiness. It never
     /// starts a VM, connects to a display or spawns the companion.
@@ -1699,7 +1699,7 @@ impl X11Provider {
             // Text — so a takeover or external input revokes between any
             // two atomic send units, never only between actions.
             if (request.checkpoint)().is_err() {
-                // Durable cancel intent committed by the caller (SPEC §10.6):
+                // Durable cancel intent committed by the caller (docs/specs/durable-state.md#spec-10-6):
                 // stop the batch, release nothing here — the lease guard in
                 // the in-flight action still fences against a takeover.
                 cancelled = true;
@@ -1748,7 +1748,7 @@ impl X11Provider {
             .and_then(|c| c.reply().ok())
             .map(|p| [p.root_x, p.root_y]);
         if cancelled {
-            // SPEC §24.3: on cancellation the plugin releases every key and
+            // docs/specs/desktop-runtime.md#spec-24-3: on cancellation the plugin releases every key and
             // button it still holds so no modifier stays pressed.
             if let Ok(mut domain) = session.domain_locked() {
                 Self::release_provider_state(&session, &mut domain);
@@ -3059,7 +3059,7 @@ impl ComputerUseBackend {
                 }
                 if let Some(reason) = outcome.stopped_reason {
                     if cancelled {
-                        // SPEC §10.6: the cancel intent stops new input; the
+                        // docs/specs/durable-state.md#spec-10-6: the cancel intent stops new input; the
                         // events already delivered stay a partial fact.
                         normalized["result"] = serde_json::json!("cancelled");
                         normalized["reason"] = serde_json::json!("durable_cancel");
@@ -3135,7 +3135,7 @@ const OBSERVE_PROMPT: &str = "computer.use.observe captures a real framebuffer r
 const INPUT_PROMPT: &str = "computer.use.input injects through the session's real provider transport (X11 XTEST, Win32 SendInput, or CGEventPost) {\"session_id\":uuid,\"lease_token\":uuid,\"observation_id\":\"blake3:…\",\"actions\":[pointer_move|button|key|text],\"require_pixel_fresh\":bool?}. The observation re-verifies and the lease epoch must be live before every atomic send unit; transport ACK is recorded separately from observed effects, dropped delivery stays unknown, nothing replays.";
 const LEASE_PROMPT: &str = "computer.use.lease manages the single write lease of one shared display domain {\"session_id\":uuid,\"op\":\"acquire\"|\"release\"|\"takeover\",\"lease_token\":uuid?}. One domain has one writer; takeover revokes the old epoch so late machine input is rejected and held keys/buttons are released. Read-only observation never needs a lease.";
 const CAPABILITIES_PROMPT: &str = "computer.use.capabilities reports the real desktop providers compiled into this build, their declared capability facts, and the original-LayerFS VM path's configuration readiness {\"backend\":\"x11\"|\"windows\"|\"macos\"|\"auto\"|null}. Declared provider facts are probed live per session at open; the VM path reports its pinned SDK/provider/companion prerequisites without starting anything. A provider absent from this build is named unavailable, never silently replaced.";
-const VM_PROMPT: &str = "computer.use.vm drives the ORIGINAL LayerFS SDK v1.0.0 pinned at 2aaf2552 inside a qualified Linux VM (BoxLite optional; SPEC §10.2.1) {\"op\":\"start\"|\"stop\"|\"state\"|\"commit_receipt\",\"name\":\"vm-name\"}. Never re-implements the Store: every Store/branch/workspace operation runs the upstream SDK in the guest via the companion. start/state return the guest capability facts the companion really probed (docker, /dev/fuse, /proc/mounts) and the bound SDK export surface; unprobed requirements stay unprobed. layerfs_committed is the upstream commit receipt only, never product_durable. A missing SDK path or VM provider is typed-unavailable evidence, not completion.";
+const VM_PROMPT: &str = "computer.use.vm drives the ORIGINAL LayerFS SDK v1.0.0 pinned at 2aaf2552 inside a qualified Linux VM (BoxLite optional; docs/specs/durable-state.md#spec-10-2-1) {\"op\":\"start\"|\"stop\"|\"state\"|\"commit_receipt\",\"name\":\"vm-name\"}. Never re-implements the Store: every Store/branch/workspace operation runs the upstream SDK in the guest via the companion. start/state return the guest capability facts the companion really probed (docker, /dev/fuse, /proc/mounts) and the bound SDK export surface; unprobed requirements stay unprobed. layerfs_committed is the upstream commit receipt only, never product_durable. A missing SDK path or VM provider is typed-unavailable evidence, not completion.";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

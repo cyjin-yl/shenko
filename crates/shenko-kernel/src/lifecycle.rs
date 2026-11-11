@@ -1,4 +1,4 @@
-//! Plugin lifecycle management — SPEC §7
+//! Plugin lifecycle management — docs/specs/plugins.md#spec-7
 //! generation boundary, epoch tracking, cancellation.
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

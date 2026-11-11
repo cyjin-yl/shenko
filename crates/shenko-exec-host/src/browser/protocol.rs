@@ -2,12 +2,12 @@
 //! and WebDriver BiDi (Firefox family), both spoken over a real WebSocket
 //! connection to a real running browser process.
 //!
-//! SPEC §24.6/§19.1/§41. The adapter layer is deliberately thin and honest:
+//! docs/specs/browser.md#spec-24-6, docs/specs/repl.md#spec-19-1, docs/specs/architecture.md#spec-41. The adapter layer is deliberately thin and honest:
 //! it speaks the engine's own protocol and reports what actually came back.
 //! There is no "simulated page" and no DOM fixture here — a page that cannot
 //! be reached is an error, not an empty success.
 //!
-//! Two rules from SPEC §24.6.1 are encoded structurally:
+//! Two rules from docs/specs/browser.md#spec-24-6-1 are encoded structurally:
 //! - A persistent profile directory is real profile state (cookies,
 //!   localStorage, cache). It is NOT live page state: tabs, in-memory form
 //!   state and open WebSockets are never restored by reopening a profile.
@@ -88,7 +88,7 @@ pub struct Cookie {
 }
 
 /// What a reopened profile actually restores, and what it never restores.
-/// SPEC §24.6.1: storageState is not live page continuity.
+/// docs/specs/browser.md#spec-24-6-1: storageState is not live page continuity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreCoverage {
     /// Cookies / localStorage / cache written by the real profile directory.

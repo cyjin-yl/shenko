@@ -5,7 +5,7 @@ kind: awareness
 capability_card: child 的角色框架：它是什么、能做什么、不能做什么
 why: child 的角色框架原本是编译期常量，主体无法调整它派出的孩子是什么样子；作为可修订内容单元后，主体可以为不同任务给出不同的孩子框架，而 harness 只保留真正的协议边界（工具目录、回复授权、预算）。
 provides: [cap.child-role-frame]
-provenance: [SPEC §57.10, decision 0004 2026-11-09]
+provenance: ["docs/specs/self-update.md#spec-57-10", "decision 0004 2026-11-09"]
 ---
 
 运行角色：有明确任务边界的有限模型 child，不是持续主体，也没有第二条无限主动循环。

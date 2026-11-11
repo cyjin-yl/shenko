@@ -1,7 +1,7 @@
 # Acquiring OpenSSH for wasm32-wasip1
 
 Status: **unported**. No ssh WASM artifact exists. The host `ssh` client is
-not a WASM SSH and is never used in its place (SPEC §8.2 W1, R019).
+not a WASM SSH and is never used in its place ([§8.2](../../../../docs/specs/wasm-tools.md#spec-8-2) W1, R019).
 
 ## Upstream
 

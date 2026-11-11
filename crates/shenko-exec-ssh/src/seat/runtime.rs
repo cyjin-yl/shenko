@@ -1,12 +1,12 @@
 //! The live seat registry — the only path between durable seat records and
-//! live adapters. SPEC §17.1, §35.5, §41.11.
+//! live adapters. docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5, docs/specs/remote-seats.md#spec-41-11.
 //!
 //! Every observation flows through here so that question persistence is not
 //! optional: a question a model could answer is durably recorded *before*
 //! any answer path can see it, bound to the lease, seat incarnation and task
 //! revision that observed it.
 //!
-//! Every answer flows through here in the order SPEC §41.11 requires:
+//! Every answer flows through here in the order docs/specs/remote-seats.md#spec-41-11 requires:
 //!
 //! 1. **commit the decision** — a compare-and-swap on the question revision,
 //!    the seat incarnation, the task revision and the writer epoch the
@@ -131,7 +131,7 @@ pub struct SeatRespondOutcome {
     pub refusal: Option<String>,
 }
 
-/// What one startup reattachment pass did — SPEC §17.1, R070.
+/// What one startup reattachment pass did — docs/specs/remote-seats.md#spec-17-1, R070.
 #[derive(Debug, Default)]
 pub struct SeatReattachReport {
     /// Live seats now reachable through the runtime again.
@@ -218,7 +218,7 @@ impl SeatRuntime {
     }
 
     /// Rebind one task's durable seats to live adapters after a restart —
-    /// SPEC §17.1, R070.
+    /// docs/specs/remote-seats.md#spec-17-1, R070.
     ///
     /// For every *active* seat record of `task_id` the current writer lease
     /// is reused verbatim (no re-acquisition, so the lease can never displace
@@ -475,7 +475,7 @@ impl SeatRuntime {
 
     /// Answer one open question on one seat.
     ///
-    /// The order is the SPEC §41.11 order, and it is what makes the answer
+    /// The order is the docs/specs/remote-seats.md#spec-41-11 order, and it is what makes the answer
     /// safe: the durable decision is committed *before* any input reaches
     /// the remote side, the live state is re-checked immediately before the
     /// write, the exact effect is armed with its digest, and the transport

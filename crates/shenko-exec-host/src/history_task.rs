@@ -457,7 +457,7 @@ impl NativeTaskHandler for HistoryHandler {
         }
     }
 
-    /// §36 effect contract of `history.query.v1`.
+    /// docs/specs/durable-state.md#spec-36 effect contract of `history.query.v1`.
     ///
     /// The definition only reads the caller's own committed raw session. It
     /// has no external effect, so none of the five actions applies: a read is

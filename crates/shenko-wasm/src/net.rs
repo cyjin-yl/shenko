@@ -22,7 +22,7 @@
 //! [`crate::runtime::WasmRuntime::run_wasi_module`] refuses an unbounded
 //! networked run instead of trusting the peer to respond.
 //!
-//! Restore boundary (SPEC §51.4, §10.1 via §51.10): the guest's own linear
+//! Restore boundary (docs/specs/cognition-units.md#spec-51-4, docs/specs/durable-state.md#spec-10-1 via docs/specs/cognition-units.md#spec-51-10): the guest's own linear
 //! memory, execution stack and interpreter object graph belong to its owned
 //! versioned root like any other guest state — networking does not take them
 //! out. What no root can capture is the *peer*: a socket is a host OS resource

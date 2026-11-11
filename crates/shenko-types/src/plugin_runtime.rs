@@ -1,4 +1,4 @@
-//! Shared protocol types for the live plugin runtime — SPEC §18, §36, §37, §41.7, §41.8.
+//! Shared protocol types for the live plugin runtime — docs/specs/plugins.md#spec-18, docs/specs/durable-state.md#spec-36, docs/specs/context-policies.md#spec-37, docs/specs/plugins.md#spec-41-7, docs/specs/context-policies.md#spec-41-8.
 //!
 //! These are plain data only (serde in/out), no behaviour and no dependency on
 //! the kernel. They exist so the kernel's live registry, the subject's sealed
@@ -6,16 +6,16 @@
 //! same objects without one of them depending on another's crate:
 //!
 //! * `HookGraphBinding` — the durable identity of the hook graph bound to one
-//!   request (SPEC §41.8.4). A retained call receipt must be able to say which
+//!   request (docs/specs/context-policies.md#spec-41-8-4). A retained call receipt must be able to say which
 //!   graph and which handler artifacts produced it.
 //! * `ContextContribution` and friends — one canonical contribution contract
-//!   (SPEC §41.8.1) carrying slot, source, scope, expiry and budget so the
+//!   (docs/specs/context-policies.md#spec-41-8-1) carrying slot, source, scope, expiry and budget so the
 //!   provenance of transient context reaches the raw call evidence.
 //! * `RuntimeView` — the read model of the live provider/capability/help
-//!   registry, including its monotonic revision (SPEC §18.2 install receipts
+//!   registry, including its monotonic revision (docs/specs/plugins.md#spec-18-2 install receipts
 //!   name the capability registry revision).
 //!
-//! §41.3 keeps shared protocol types in this layer; behaviour lives in
+//! docs/specs/durable-state.md#spec-41-3 keeps shared protocol types in this layer; behaviour lives in
 //! `shenko-kernel` and in the owning domain crates.
 
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::EntityId;
 use crate::object::{DataRef, Digest, ObjectRef, VersionedRef};
 
-/// Where a context contribution is rendered — SPEC §37.7.
+/// Where a context contribution is rendered — docs/specs/context-policies.md#spec-37-7.
 ///
 /// The wire arrangement is the provider template adapter's business; the slot
 /// only says which semantic region the material belongs to.
@@ -64,11 +64,11 @@ impl ContributionSlot {
     }
 }
 
-/// What kind of thing produced a contribution — SPEC §45.1, §51.1, §51.9.
+/// What kind of thing produced a contribution — docs/specs/cognition-units.md#spec-45-1, docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-9.
 ///
 /// This is a producer hint, not a storage or knowledge classification: fact
 /// and conclusion are readings of where a reason terminates, not two kinds
-/// (§51.1). `SourcedContent` therefore names material that carries its source,
+/// (docs/specs/cognition-units.md#spec-51-1). `SourcedContent` therefore names material that carries its source,
 /// whatever that reading turns out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,7 +85,7 @@ pub enum ContributionKind {
     Code,
     /// A transient nudge prepared for one request.
     Reminder,
-    /// Content that carries its source and revision — SPEC §51.9.
+    /// Content that carries its source and revision — docs/specs/cognition-units.md#spec-51-9.
     ///
     /// A record sealed before this cutover spells this kind `fact` in its
     /// immutable bytes; readers of those records run
@@ -108,10 +108,10 @@ pub struct ContributionSource {
 }
 
 /// The serde label [`ContributionKind::SourcedContent`] carried in records
-/// sealed before the SPEC §51.9 cutover.
+/// sealed before the docs/specs/cognition-units.md#spec-51-9 cutover.
 pub const LEGACY_SOURCED_CONTENT_LABEL: &str = "fact";
 
-/// Migration reader for immutable records sealed before §51.9.
+/// Migration reader for immutable records sealed before docs/specs/cognition-units.md#spec-51-9.
 ///
 /// Writers only ever emit `sourced_content`, and [`ContributionKind`] has no
 /// legacy alias: a record that still says `fact` fails to decode rather than
@@ -157,7 +157,7 @@ pub struct ContributionScope {
     pub task_id: Option<EntityId>,
 }
 
-/// How long a prepared contribution stays usable — SPEC §41.8.1 `lifetime`.
+/// How long a prepared contribution stays usable — docs/specs/context-policies.md#spec-41-8-1 `lifetime`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum ContributionLifetime {
@@ -198,7 +198,7 @@ impl ContributionLifetime {
     }
 }
 
-/// SPEC §41.8.1 `ContextContribution` — the one canonical definition.
+/// docs/specs/context-policies.md#spec-41-8-1 `ContextContribution` — the one canonical definition.
 ///
 /// A contribution is *prepared* material with a source, an applicable scope, an
 /// expiry and a token budget. It is not a hook result: a hook returns
@@ -252,7 +252,7 @@ pub struct ContributionOmission {
     pub reason: String,
 }
 
-/// Exact per-request usage evidence — SPEC §37.7, §41.8.
+/// Exact per-request usage evidence — docs/specs/context-policies.md#spec-37-7, docs/specs/context-policies.md#spec-41-8.
 ///
 /// This is the record that lets the subject (and the raw call evidence) say
 /// which transient material actually reached the model.
@@ -269,7 +269,7 @@ pub struct ContributionUsage {
     pub total_tokens: u64,
 }
 
-/// Durable identity of the hook graph bound to one request — SPEC §41.8.4.
+/// Durable identity of the hook graph bound to one request — docs/specs/context-policies.md#spec-41-8-4.
 ///
 /// `graph_digest` is a content digest over the admitted point contracts and
 /// the ordered member specifications (each including its implementation
@@ -289,7 +289,7 @@ pub struct HookGraphBinding {
     pub lease_epoch: u64,
 }
 
-/// Health of one registered provider — SPEC §18.2.
+/// Health of one registered provider — docs/specs/plugins.md#spec-18-2.
 ///
 /// Installed, healthy, discoverable, verified-for-model and degraded are
 /// distinct facts; a successful load is not completion.
@@ -306,7 +306,7 @@ pub enum ProviderHealth {
     Unavailable,
 }
 
-/// One operation of a provider with its §36 effect contract.
+/// One operation of a provider with its docs/specs/durable-state.md#spec-36 effect contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperationEffectView {
     pub operation_name: String,
@@ -355,7 +355,7 @@ pub struct NativeCapabilityDeclaration {
     pub usage: Option<String>,
 }
 
-/// One registered help document — SPEC §18.2 usability package.
+/// One registered help document — docs/specs/plugins.md#spec-18-2 usability package.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelpView {
     pub capability_id: String,

@@ -1,4 +1,4 @@
-//! SelfKnowledgeProvider — SPEC §38
+//! SelfKnowledgeProvider — docs/specs/cognition-units.md#spec-38
 //! Built-in, replaceable self-explanation plugin.
 //! Provides self:// resources: runtime, docs, source, design.
 //! Binds running artifact → source revision → docs → design philosophy.
@@ -9,7 +9,8 @@ use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::ids::EntityId;
 use shenko_types::agent::AgentCapability;
 use chrono::{DateTime, Utc};
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Component, Path};
 
 /// Maximum number of files the source index covers.
 const MAX_INDEXED_FILES: usize = 160;
@@ -106,7 +107,7 @@ pub struct BuildManifest {
     pub generation: String,           // RuntimeGeneration
     pub source_revision: String,      // git SHA
     pub artifact_digest: String,      // build artifact digest
-    pub spec_version: String,         // SPEC.md version
+    pub spec_version: String,         // version of the domain contracts
     pub plugin_lock: Vec<PluginLockEntry>,
     pub data_schema_version: u32,
     pub created_at: DateTime<Utc>,
@@ -145,7 +146,7 @@ impl SelfKnowledgeProvider {
         provider
     }
 
-    /// Seed default self-knowledge resources. SPEC §38.3
+    /// Seed default self-knowledge resources. docs/specs/cognition-units.md#spec-38-3
     fn seed_default_resources(&self) {
         let now = Utc::now();
         let revision = self.build_manifest.read().source_revision.clone();
@@ -172,7 +173,7 @@ impl SelfKnowledgeProvider {
                 uri: "self://docs/plugin-dev".into(),
                 title: "插件开发指南".into(),
                 content: "插件通过 cordis-rs backbone 注册。实现 Plugin trait (meta/start/stop)。\
-                         提供 capability 声明。effect 合同按 §36 声明：\
+                         提供 capability 声明。effect 合同按 docs/specs/durable-state.md#spec-36 声明：\
                          reset/restore/replay/cancel/compensate 五种区分。".into(),
                 source_revision: Some(revision.clone()),
                 artifact_digest: None,
@@ -209,7 +210,7 @@ impl SelfKnowledgeProvider {
         info!("self-knowledge provider seeded with {} resources", count);
     }
 
-    /// Query self-knowledge by URI or keyword. SPEC §38.1
+    /// Query self-knowledge by URI or keyword. docs/specs/cognition-units.md#spec-38-1
     pub fn query(&self, query: &str) -> Vec<SelfResource> {
         let resources = self.resources.read();
         let q = query.to_lowercase();
@@ -230,7 +231,7 @@ impl SelfKnowledgeProvider {
         self.resources.read().iter().filter(|r| r.kind == kind).cloned().collect()
     }
 
-    /// Install or update a resource. SPEC §38.6
+    /// Install or update a resource. docs/specs/cognition-units.md#spec-38-6
     pub fn install_resource(&self, resource: SelfResource) {
         let mut resources = self.resources.write();
         // Replace if same URI exists
@@ -241,7 +242,7 @@ impl SelfKnowledgeProvider {
         }
     }
 
-    /// Record what this instance actually installed — SPEC §38.3, R124.
+    /// Record what this instance actually installed — docs/specs/cognition-units.md#spec-38-3, R124.
     ///
     /// `self://runtime/capabilities` is built from the real registries at
     /// startup, not from a template: `native_definitions` are the registered
@@ -262,7 +263,7 @@ impl SelfKnowledgeProvider {
         self.render_runtime_capabilities();
     }
 
-    /// Record the live agent-visible capability catalog — SPEC §38.3.
+    /// Record the live agent-visible capability catalog — docs/specs/cognition-units.md#spec-38-3.
     ///
     /// This is the runtime registry's own snapshot of what this agent can
     /// actually use right now: the capability ids it advertises, their
@@ -285,7 +286,7 @@ impl SelfKnowledgeProvider {
         self.render_runtime_capabilities();
     }
 
-    /// Record what every installed channel can really do — SPEC §15.3, §57.4.
+    /// Record what every installed channel can really do — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4.
     ///
     /// This is the same kind of registry snapshot as the sections above: the
     /// table each installed plugin declared, with the account it serves. A
@@ -407,7 +408,7 @@ impl SelfKnowledgeProvider {
         });
     }
 
-    /// Invalidate cached resources when generation changes. SPEC §38.6
+    /// Invalidate cached resources when generation changes. docs/specs/cognition-units.md#spec-38-6
     pub fn invalidate_on_generation_change(&self, new_generation: &str) {
         let mut resources = self.resources.write();
         for r in resources.iter_mut() {
@@ -452,6 +453,14 @@ impl SelfKnowledgeProvider {
     /// index says exactly that instead of describing a repository that is
     /// not here.
     pub fn install_source_index(&self, root: &Path, revision: &str) -> anyhow::Result<usize> {
+        // Resolve the current documentation before replacing the old index.
+        // An unreadable or invalid inventory is not evidence that the old root
+        // documents still describe the running tree.
+        let mut entries = if root.is_dir() {
+            collect_current_documents(root)?
+        } else {
+            Vec::new()
+        };
         let mut resources = self.resources.write();
         // A re-index replaces the previous file resources instead of keeping
         // a second copy of the same tree.
@@ -477,18 +486,15 @@ impl SelfKnowledgeProvider {
             });
             return Ok(0);
         }
-        let mut entries: Vec<(String, SelfResourceKind, String)> = Vec::new();
-        for name in ["SPEC.md", "WHY.md", "GOAL.md", "AGENTS.md", "README.md"] {
-            let path = root.join(name);
-            if path.is_file() {
-                entries.push((name.to_string(), SelfResourceKind::Design, path.to_string_lossy().into_owned()));
-            }
-        }
         collect_indexed(root, &root.join("docs"), &mut entries);
         collect_indexed(root, &root.join(".agents").join("skills"), &mut entries);
         collect_crate_entries(root, &mut entries);
         let mut indexed = 0usize;
+        let mut seen = HashSet::new();
         for (relative, kind, absolute) in entries {
+            if !seen.insert(relative.clone()) {
+                continue;
+            }
             if indexed >= MAX_INDEXED_FILES {
                 break;
             }
@@ -549,7 +555,61 @@ impl SelfKnowledgeProvider {
     }
 }
 
-/// Collect the indexable documents under one directory.
+/// The current contract inventory identifies live domain documents. Discovery
+/// does not depend on the historical migration ledger or its archived sources.
+#[derive(Deserialize)]
+struct ContractDocuments {
+    schema_version: u32,
+    documents: Vec<String>,
+}
+
+fn historical_document(path: &Path) -> bool {
+    path.starts_with("docs/history") || path.starts_with("docs/research/archive")
+}
+
+/// Put current contracts before supplementary documents so historical files
+/// cannot consume the bounded index before the design material is reached.
+fn collect_current_documents(
+    root: &Path,
+) -> anyhow::Result<Vec<(String, SelfResourceKind, String)>> {
+    use anyhow::Context;
+
+    let inventory_path = root.join("docs/contracts.json");
+    let bytes = std::fs::read(&inventory_path)
+        .with_context(|| format!("cannot read current contract inventory {}", inventory_path.display()))?;
+    let inventory: ContractDocuments = serde_json::from_slice(&bytes)
+        .context("invalid current contract inventory")?;
+    anyhow::ensure!(inventory.schema_version == 1, "unsupported current contract inventory schema");
+    anyhow::ensure!(!inventory.documents.is_empty(), "current contract inventory has no document targets");
+
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+    for name in ["AGENTS.md", "README.md", "docs/INDEX.md"] {
+        let path = root.join(name);
+        if path.is_file() {
+            seen.insert(name.to_string());
+            entries.push((name.to_string(), SelfResourceKind::Docs, path.to_string_lossy().into_owned()));
+        }
+    }
+    for document in inventory.documents {
+        let relative = Path::new(&document);
+        anyhow::ensure!(
+            relative.starts_with("docs")
+                && relative.components().all(|component| matches!(component, Component::Normal(_)))
+                && relative.extension().is_some_and(|extension| extension == "md")
+                && !historical_document(relative),
+            "invalid current contract target: {}", document
+        );
+        if seen.insert(document.clone()) {
+            let path = root.join(relative);
+            entries.push((document, SelfResourceKind::Design, path.to_string_lossy().into_owned()));
+        }
+    }
+    Ok(entries)
+}
+
+/// Collect supplementary documents, excluding historical material that must
+/// not be presented as the current design of the running artifact.
 fn collect_indexed(
     root: &Path,
     dir: &Path,
@@ -566,6 +626,9 @@ fn collect_indexed(
         };
         for entry in read.filter_map(|entry| entry.ok()) {
             let path = entry.path();
+            if path.strip_prefix(root).is_ok_and(historical_document) {
+                continue;
+            }
             if path.is_dir() {
                 stack.push(path);
                 continue;

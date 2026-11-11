@@ -38,23 +38,23 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(scope, created_at_ms);",
     )?;
 
-    // Versioned instance identity (SPEC §6): additive, never rewrites rows.
+    // Versioned instance identity (docs/specs/subject-runtime.md#spec-6): additive, never rewrites rows.
     conn.execute_batch(crate::identity::IDENTITY_SCHEMA)?;
 
-    // Configuration, owner claim and Playground business state (SPEC §43.1,
-    // §43.2, §44.4): additive, own tables only. These rows are ordinary
+    // Configuration, owner claim and Playground business state (docs/specs/configuration-playground.md#spec-43-1,
+    // docs/specs/configuration-playground.md#spec-43-2, docs/specs/plugins.md#spec-44-4): additive, own tables only. These rows are ordinary
     // ledger facts; nothing here rewrites an existing installation.
     crate::config::ensure_config_schema(conn)?;
     crate::artifacts::ensure_artifact_schema(conn)?;
 
-    // Committed context windows (SPEC §12.3): additive, own tables only.
+    // Committed context windows (docs/specs/context-policies.md#spec-12-3): additive, own tables only.
     conn.execute_batch(crate::context_windows::CONTEXT_WINDOWS_SCHEMA)?;
     ensure_column(conn, "context_window_scopes", "profile_digest", "TEXT")?;
-    // Branch-journaled working notes (SPEC §12.3.1): additive revision log.
+    // Branch-journaled working notes (docs/specs/context-policies.md#spec-12-3-1): additive revision log.
     // Clearing is a revision, never a delete, so a reset stays recorded.
     conn.execute_batch(crate::context_notes::CONTEXT_NOTES_SCHEMA)?;
 
-    // Subject raw input links (SPEC §12.1): additive index over the raw
+    // Subject raw input links (docs/specs/memory.md#spec-12-1): additive index over the raw
     // session events, never a second truth store.
     conn.execute_batch(crate::raw_session::RAW_SESSION_SCHEMA)?;
 
@@ -73,25 +73,25 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(crate::intents::SCHEMA)?;
     // Step 4 (memory v3): open knowledge kinds separate from the operation
     // kind, provenance/applicability/confidence, supersession, Git knowledge
-    // refs and the full request envelope (SPEC §12.2, §45.12, §10.3/10.5).
+    // refs and the full request envelope (docs/specs/memory.md#spec-12-2, docs/specs/memory.md#spec-45-12, docs/specs/memory.md#spec-10-3, docs/specs/memory.md#spec-10-5).
     // This runs after the subject intent schema because the subject memory
     // migration reads subject_intents.
     ensure_memory_knowledge_columns(conn)?;
     ensure_memory_intent_envelope(conn)?;
     conn.execute_batch(crate::child::SCHEMA)?;
     conn.execute_batch(crate::runtime_boundary::SCHEMA)?;
-    // Semantic waits (SPEC §5.1, R143): additive, own tables only. The wait
+    // Semantic waits (docs/specs/subject-runtime.md#spec-5-1, R143): additive, own tables only. The wait
     // history and its per step receipts are never rewritten by a migration.
     conn.execute_batch(crate::semantic_wait::SEMANTIC_WAIT_SCHEMA)?;
-    // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
+    // Cognition replication bookkeeping (docs/specs/nodes.md#spec-5-4). It is local state, not
     // a replicated fact, so it never enters a snapshot fingerprint.
     conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;
-    // Cognitive atoms (SPEC §51.1): one canonical content registry and one
+    // Cognitive atoms (docs/specs/cognition-units.md#spec-51-1): one canonical content registry and one
     // append-only attitude ledger, plus the insert-only mapping that points
     // at a legacy row's original bytes. Additive: no existing table gains a
     // column and no historical row is rewritten or backfilled here.
     conn.execute_batch(crate::atoms::COGNITION_ATOMS_SCHEMA)?;
-    // Continuous-media transcript ingress (SPEC §15.2, §20): additive raw
+    // Continuous-media transcript ingress (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20): additive raw
     // revision facts plus effective-observation links; rows are never
     // rewritten or backfilled by this step.
     conn.execute_batch(crate::media::MEDIA_SCHEMA)?;
@@ -100,34 +100,34 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // missing original receipt/delivery bindings instead of acknowledging them.
     ensure_column(conn, "media_streams", "open_commit_ref", "TEXT")?;
     ensure_column(conn, "media_segment_revisions", "admitted_commit_ref", "TEXT")?;
-    // Durable provider-quota state (SPEC §42.5): snapshots, forecasts,
+    // Durable provider-quota state (docs/specs/quota-resources.md#spec-42-5): snapshots, forecasts,
     // policies, decisions, the single-writer pacer and attempt ledger. All
     // writes happen inside the shared IMMEDIATE mutation line.
     conn.execute_batch(crate::quota::QUOTA_SCHEMA)?;
-    // Durable browser input submission bindings (SPEC §41.18). Additive,
+    // Durable browser input submission bindings (docs/specs/web-interface.md#spec-41-18). Additive,
     // never rewrites the original event or its admission fact.
     conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
-    // Durable main-request receipts (SPEC §41.5/§41.4): the subject's own
+    // Durable main-request receipts (docs/specs/subject-runtime.md#spec-41-5, docs/specs/durable-state.md#spec-41-4): the subject's own
     // generation arms an attempt before any wire send and records terminal
     // evidence independently of the caller. Additive, own table only.
     conn.execute_batch(crate::subject_request::SCHEMA)?;
-    // Durable commitments the subject made about itself (SPEC §13.8): the
+    // Durable commitments the subject made about itself (docs/specs/subject-runtime.md#spec-13-8): the
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
-    // Durable reconciliation cases for unknown external effects (SPEC §41.4
+    // Durable reconciliation cases for unknown external effects (docs/specs/durable-state.md#spec-41-4
     // X11). Additive, own table only: it records which immutable receipts a
     // reconciling operation already has and which explicit S1 decision (if
     // any) accepted the remaining uncertainty. No operation, attempt or
     // receipt row is rewritten by it.
     conn.execute_batch(crate::reconcile::SCHEMA)?;
-    // Cognitive atoms: immutable content + append-only attitudes (SPEC §51.1).
+    // Cognitive atoms: immutable content + append-only attitudes (docs/specs/cognition-units.md#spec-51-1).
     conn.execute_batch(crate::atoms::COGNITION_ATOMS_SCHEMA)?;
-    // Durable ordered public-text output parts (SPEC §21.11). Append-only;
+    // Durable ordered public-text output parts (docs/specs/web-interface.md#spec-21-11). Append-only;
     // no row is ever updated or deleted by a migration.
     conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
     // Refused receipt facts and the source-event scope lookup (SPEC X04,
-    // §41.7.3). Additive, own table only: the index over the existing
+    // docs/specs/plugins.md#spec-41-7-3). Additive, own table only: the index over the existing
     // receipts is not unique, because a store written before the admission
     // rule can already hold several receipts for one scope and no migration
     // may re-key or delete a durable receipt.
@@ -139,10 +139,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "state",
         "TEXT NOT NULL DEFAULT 'present'",
     )?;
-    // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
+    // Durable seat records and single-writer leases (docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5):
     // additive, own tables only; location history is never rewritten.
     conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
-    // Durable stream journal (SPEC §12.5): whole units and chunks of every
+    // Durable stream journal (docs/specs/durable-state.md#content-stream-journal): whole units and chunks of every
     // source-bound stream, journaled with their delivery identity.
     conn.execute_batch(crate::content_stream::CONTENT_STREAM_SCHEMA)?;
     // Aggregate domain schemas (research, seats v2, contacts, config and
@@ -153,7 +153,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(AGGREGATE_DOMAIN_SCHEMA)?;
     conn.execute_batch(crate::activation::SCHEMA)?;
     conn.execute_batch(crate::cognitive_root::COGNITIVE_ROOT_SCHEMA)?;
-    // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
+    // Seat schema v1 → v2 cutover (docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-41-11): ONE explicit step.
     //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
     //     forbids a second decision for the same question even when the
     //     earlier one ended `not_sent` — a refusal the remote provably
@@ -372,7 +372,7 @@ CREATE TABLE IF NOT EXISTS archive_moves (
     local_release_note TEXT,
     created_at_ms INTEGER NOT NULL
 );
--- Durable seat questions and answer decisions (seat.rs SPEC §41.11).
+-- Durable seat questions and answer decisions (seat.rs docs/specs/remote-seats.md#spec-41-11).
 CREATE TABLE IF NOT EXISTS seat_questions(
     question_id TEXT PRIMARY KEY,
     seat_id TEXT NOT NULL,
@@ -981,7 +981,7 @@ CREATE TABLE IF NOT EXISTS inbox_events (
 CREATE INDEX IF NOT EXISTS idx_inbox_agent ON inbox_events(agent_id, consumed, created_at);
 "#;
 
-/// Memory-v2 tables: durable intent queue (§12.2) and supporting indexes.
+/// Memory-v2 tables: durable intent queue (docs/specs/memory.md#spec-12-2) and supporting indexes.
 /// Never contains FTS statements, so this step always succeeds.
 const MEMORY_INTENTS_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS memory_intents (

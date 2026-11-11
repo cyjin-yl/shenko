@@ -24,7 +24,7 @@ pub struct UiServer {
     pub playground_root: PathBuf,
     /// The shared Playground instance. The subject's own `playground.manage`
     /// handler and this server must write the SAME lifecycle, so one instance
-    /// is built by the composition root and handed to both (SPEC §57.6).
+    /// is built by the composition root and handed to both (docs/specs/configuration-playground.md#spec-57-6).
     playground_state: Option<Arc<crate::playground::PlaygroundState>>,
     /// Data directory reported by `/api/config`. None = unknown.
     data_dir: Option<PathBuf>,
@@ -87,7 +87,7 @@ impl UiServer {
         self
     }
 
-    /// Point the persistent Playground at `<data_dir>/playground`. SPEC §43.2.
+    /// Point the persistent Playground at `<data_dir>/playground`. docs/specs/configuration-playground.md#spec-43-2.
     pub fn with_data_dir(mut self, data_dir: impl Into<PathBuf>) -> Self {
         let data_dir = data_dir.into();
         self.playground_root = data_dir.join("playground");
@@ -98,7 +98,7 @@ impl UiServer {
     /// Attach the shared Playground instance. The subject's own
     /// `playground.manage` handler and this server must write the same
     /// lifecycle, so the composition root builds one instance and hands it to
-    /// both (SPEC §57.6).
+    /// both (docs/specs/configuration-playground.md#spec-57-6).
     pub fn with_playground_state(
         mut self,
         playground: Arc<crate::playground::PlaygroundState>,
@@ -141,7 +141,7 @@ impl UiServer {
         self
     }
 
-    /// Wire the subject inbox so UI messages reach the loop. SPEC §5.1.
+    /// Wire the subject inbox so UI messages reach the loop. docs/specs/subject-runtime.md#spec-5-1.
     pub fn with_inbox(
         mut self,
         inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
@@ -164,7 +164,7 @@ impl UiServer {
         self
     }
 
-    /// Attach the live media ingress service behind `/api/media/*`. SPEC §20.
+    /// Attach the live media ingress service behind `/api/media/*`. docs/specs/media.md#spec-20.
     pub fn with_media_ingress(
         mut self,
         ingress: std::sync::Arc<shenko_media::MediaIngress>,
@@ -174,7 +174,7 @@ impl UiServer {
     }
 
     /// Attach the media runtime (realtime sessions, recording, barge-in,
-    /// speech playback) behind `/api/media/*`. SPEC §20.
+    /// speech playback) behind `/api/media/*`. docs/specs/media.md#spec-20.
     pub fn with_media_runtime(
         mut self,
         runtime: std::sync::Arc<shenko_media::runtime::MediaRuntime>,
@@ -183,7 +183,7 @@ impl UiServer {
         self
     }
 
-    /// Wire the subject outbox so model output reaches the timeline. SPEC §21.12.
+    /// Wire the subject outbox so model output reaches the timeline. docs/specs/web-interface.md#spec-21-12.
     pub fn with_outbox(
         mut self,
         outbox_tx: tokio::sync::broadcast::Sender<shenko_subject::outbox::OutboxMessage>,
@@ -216,7 +216,7 @@ impl UiServer {
     pub async fn run(self) -> Result<()> {
         let mut state = self.state;
         // Build the durable input service when the real store, genesis
-        // subject, and live inbox are all present (§41.18). Without all
+        // subject, and live inbox are all present (docs/specs/web-interface.md#spec-41-18). Without all
         // three the UI honestly reports input:false instead of faking
         // acceptance. Presentation defaults to server facts when the caller
         // did not inject one.
@@ -245,7 +245,7 @@ impl UiServer {
         state.stream = state.stream.or_else(|| self.stream_sink.clone());
 
         // Playground shares the inbox the WS handler already writes to, so
-        // artifact changes are perceived by the same subject loop. SPEC §43.2.
+        // artifact changes are perceived by the same subject loop. docs/specs/configuration-playground.md#spec-43-2.
         let playground_root = self.playground_root;
         let playground_state = match self.playground_state.clone() {
             Some(shared) => Some(shared),
@@ -262,7 +262,7 @@ impl UiServer {
         // Observe the subject outbox independently of any browser client, so
         // `/api/self` knows the last committed thought step and whether the
         // loop is active. A broadcast subscriber never consumes messages meant
-        // for WS clients. SPEC §21.12.
+        // for WS clients. docs/specs/web-interface.md#spec-21-12.
         if let Some(outbox_tx) = state.outbox_tx.as_ref() {
             state.live.set_wired(true);
             let live = Arc::clone(&state.live);
