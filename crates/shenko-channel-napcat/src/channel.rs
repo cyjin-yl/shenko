@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::channel::{
     AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
     ChannelError, ChannelPlugin, ChannelReceipt, ChannelReplyTarget, ChannelRegistry, ReplyKind,
@@ -67,11 +68,6 @@ impl NapCatChannel {
             config: Arc::new(config),
             client,
         }
-    }
-
-    /// The account namespace this connector's conversations belong to.
-    pub fn account_scope(&self) -> String {
-        self.config.account_scope()
     }
 
     /// The QQ number of a platform id, when it is one.
@@ -203,6 +199,44 @@ impl NapCatChannel {
 impl ChannelPlugin for NapCatChannel {
     fn channel_id(&self) -> &str {
         QQ_CHANNEL_ID
+    }
+
+    fn account_scope(&self) -> String {
+        self.config.account_scope()
+    }
+
+    /// What the NapCat (OneBot v11) platform really does for this bot.
+    ///
+    /// The table lists what `describe` can really produce, and a field that
+    /// is `false` is a promise NOT to attempt the action (SPEC §57.4, RT19).
+    ///
+    /// This plugin calls exactly two OneBot actions — `send_group_msg` and
+    /// `send_private_msg` — so it offers neither editing nor retracting: a
+    /// capability the plugin cannot produce must not be advertised.
+    fn capabilities(&self) -> ChannelCapabilities {
+        ChannelCapabilities {
+            direct: true,
+            group: true,
+            thread: false,
+            guild_channel: false,
+            // QQ renders no markup: the body is plain text, and this plugin
+            // downgrades Markdown markers before sending because the platform
+            // would show them literally. A mention and a quote travel as their
+            // own segments, which is structure, not styled text.
+            rich_text: false,
+            attachments: true,
+            edit: false,
+            retract: false,
+            typing: false,
+            proactive: true,
+            notes: vec![
+                "this plugin calls only send_group_msg and send_private_msg: it offers neither editing nor retracting, because it cannot produce either".to_string(),
+                "there is no typing action in the OneBot actions this plugin calls, and one reply is one effect".to_string(),
+                "QQ renders no markup: the body is plain text and Markdown markers are downgraded before the send; a mention and a quote travel as their own segments".to_string(),
+                "the account scope is this bot's own QQ number: the platform addresses messages by number, and the plugin only ever acts as itself".to_string(),
+                "QQ groups and private chats are the two scopes; there are no threads and no guild channels here".to_string(),
+            ],
+        }
     }
 
     fn sources(&self) -> &[String] {

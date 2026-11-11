@@ -42,7 +42,12 @@ pub fn parse_message(message: &Value, config: &NapCatConfig) -> ParsedMessage {
             for part in split_cq_codes(text) {
                 let (kind, data) = part;
                 if kind == "image" || kind == "record" || kind == "video" || kind == "file" {
-                    let value = serde_json::json!({ "data": cq_data(&data) });
+                    // A CQ code carries its fields directly
+                    // (`file=`, `url=`), the same shape the array form
+                    // delivers. Wrapping them one level deeper would hide
+                    // the file handle from the locator, and the media would
+                    // never reach the subject as an attachment.
+                    let value = serde_json::Value::Object(cq_data(&data));
                     if let Some(attachment) =
                         attachment_for(&kind, &value, parsed.attachments.len(), config)
                     {
@@ -286,7 +291,10 @@ fn split_cq_codes(text: &str) -> Vec<(String, String)> {
             parts.push(("text".to_string(), tail.to_string()));
             return parts;
         };
-        let code = &tail[3..end];
+        // `[CQ:` is four bytes, so the code starts after all four. Slicing
+        // from three would leave the colon on the kind (`:image`), and the
+        // media would never be recognised as media at all.
+        let code = &tail[4..end];
         let mut kind = "unknown".to_string();
         let mut data = String::new();
         for (index, piece) in code.split(',').enumerate() {
@@ -349,7 +357,20 @@ fn attachment_for(
             url: Some(url.to_string()),
             params,
         },
-        (None, None) => return None,
+        (None, None) => {
+            // The platform handed us a file handle even though this host
+            // cannot reach the bytes by path. The handle is still an address
+            // on the NapCat host, and the connector's own media action
+            // resolves it there — so the attachment stays a fact instead of
+            // disappearing from the message.
+            AttachmentLocator {
+                kind: "platform_handle".to_string(),
+                host: Some(config.file_host().to_string()),
+                path: None,
+                url: None,
+                params,
+            }
+        }
     };
     let name = file
         .rsplit(['/', '\\'])

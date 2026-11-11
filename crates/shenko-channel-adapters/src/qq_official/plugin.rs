@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::channel::{
     AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
     ChannelError, ChannelPlugin, ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
@@ -23,7 +24,7 @@ use shenko_types::channel::{
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
 
-use crate::common::{ChannelCapabilities, ChannelHealth, HealthState, ReplyContextCache};
+use crate::common::{ChannelHealth, HealthState, ReplyContextCache};
 
 use super::api::{MediaScope, QqApiError, QqOfficialApi};
 use super::config::QqOfficialConfig;
@@ -221,50 +222,6 @@ impl QqOfficialChannel {
         &self.api
     }
 
-    /// What the official platform can really do for this bot.
-    ///
-    /// The differences are platform facts, not preferences:
-    ///
-    /// * typing exists only in a guild channel;
-    /// * a group send answers with a message id that covers the whole group
-    ///   audience, while a single chat answers for one person;
-    /// * the passive reply window belongs to the platform and expires;
-    /// * whether every group message arrives (not only the ones that mention
-    ///   the bot) depends on a platform-side permission.
-    pub fn capabilities(&self) -> ChannelCapabilities {
-        ChannelCapabilities {
-            direct: true,
-            group: true,
-            thread: false,
-            guild_channel: true,
-            rich_text: true,
-            attachments: true,
-            // The official platform has no message-edit endpoint: its API
-            // index offers send, retract and media upload for private and
-            // group chats, and nothing that changes a message that was
-            // already sent. Advertising an edit would promise an ability
-            // the platform does not have (SPEC §57.4, RT19).
-            edit: false,
-            retract: true,
-            // The platform has a guild-only typing endpoint, and this adapter
-            // can call it — but one reply is one effect, so a typing indicator
-            // could only be sent instead of the answer, or after it (when it
-            // says nothing). The capability table lists what `describe` can
-            // really produce (SPEC §57.4), so typing is not advertised.
-            typing: false,
-            proactive: true,
-            notes: vec![
-                "typing is a channel-only endpoint, and one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
-                "the platform has no message-edit endpoint: a message that was sent cannot be changed, only retracted".to_string(),
-                "a retract only works within 2 minutes of the message, and only for the bot's own message".to_string(),
-                "the passive reply window belongs to the platform: 60 minutes and 4 replies in a private chat, 5 minutes and 5 replies in a group, 5 minutes in a guild channel".to_string(),
-                "active messages are the platform's business: a user can switch off the bot's active messages, a group owner has to allow the bot to speak in the group first, and the rate limits are 60 per minute per bot (30 unverified), 20 per minute per conversation, 1000 per day per conversation".to_string(),
-                "full group traffic needs a platform-side permission; by default only messages that mention the bot arrive".to_string(),
-                "the official platform issues per-application OpenIDs; the numeric QQ number is not available here".to_string(),
-            ],
-        }
-    }
-
     /// The current health of this connector.
     pub async fn health(&self) -> ChannelHealth {
         self.health.snapshot().await
@@ -297,6 +254,54 @@ fn owned_sources() -> Vec<String> {
 impl ChannelPlugin for QqOfficialChannel {
     fn channel_id(&self) -> &str {
         QQ_OFFICIAL_CHANNEL_ID
+    }
+
+    fn account_scope(&self) -> String {
+        self.config.account_scope()
+    }
+
+    /// What the official platform can really do for this bot.
+    ///
+    /// The differences are platform facts, not preferences:
+    ///
+    /// * typing exists only in a guild channel;
+    /// * a group send answers with a message id that covers the whole group
+    ///   audience, while a single chat answers for one person;
+    /// * the passive reply window belongs to the platform and expires;
+    /// * whether every group message arrives (not only the ones that mention
+    ///   the bot) depends on a platform-side permission.
+    fn capabilities(&self) -> ChannelCapabilities {
+        ChannelCapabilities {
+            direct: true,
+            group: true,
+            thread: false,
+            guild_channel: true,
+            rich_text: true,
+            attachments: true,
+            // The official platform has no message-edit endpoint: its API
+            // index offers send, retract and media upload for private and
+            // group chats, and nothing that changes a message that was
+            // already sent. Advertising an edit would promise an ability
+            // the platform does not have (SPEC §57.4, RT19).
+            edit: false,
+            retract: true,
+            // The platform has a guild-only typing endpoint, and this adapter
+            // can call it — but one reply is one effect, so a typing indicator
+            // could only be sent instead of the answer, or after it (when it
+            // says nothing). The capability table lists what `describe` can
+            // really produce (SPEC §57.4), so typing is not advertised.
+            typing: false,
+            proactive: true,
+            notes: vec![
+                "typing is a channel-only endpoint, and one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
+                "the platform has no message-edit endpoint: a message that was sent cannot be changed, only retracted".to_string(),
+                "a retract only works within 2 minutes of the message, and only for the bot's own message".to_string(),
+                "the passive reply window belongs to the platform: 60 minutes and 4 replies in a private chat, 5 minutes and 5 replies in a group, 5 minutes in a guild channel".to_string(),
+                "active messages are the platform's business: a user can switch off the bot's active messages, a group owner has to allow the bot to speak in the group first, and the rate limits are 60 per minute per bot (30 unverified), 20 per minute per conversation, 1000 per day per conversation".to_string(),
+                "full group traffic needs a platform-side permission; by default only messages that mention the bot arrive".to_string(),
+                "the official platform issues per-application OpenIDs; the numeric QQ number is not available here".to_string(),
+            ],
+        }
     }
 
     fn sources(&self) -> &[String] {

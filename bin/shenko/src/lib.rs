@@ -2677,14 +2677,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 )
                 .map_err(|error| anyhow::anyhow!(error))?;
                 for observation in adapters.observations() {
-                    store.record_channel_fact(&shenko_store::channel::NewChannelFact {
-                        channel: observation.channel.clone(),
-                        account: observation.account.clone(),
-                        kind: "capabilities".to_string(),
-                        state: "declared".to_string(),
-                        subject_ref: None,
-                        detail: serde_json::to_value(&observation.capabilities)?,
-                    })?;
                     let health = observation.health.snapshot().await;
                     store.record_channel_fact(&shenko_store::channel::NewChannelFact {
                         channel: observation.channel.clone(),
@@ -2832,6 +2824,28 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     "channel adapters installed"
                 );
             }
+
+            // Every installed channel declares what its platform can really
+            // do, and the runtime records that declaration as a durable fact
+            // the subject can read (SPEC §15.3, §57.4, RT19). The table comes
+            // from the plugin contract, so the QQ plugin is described the
+            // same way as the adapters: a capability nobody can reach is not
+            // advertised, and an advertised one is reachable.
+            for (channel, account, capabilities) in channel_registry.capability_tables() {
+                store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                    channel,
+                    account,
+                    kind: "capabilities".to_string(),
+                    state: "declared".to_string(),
+                    subject_ref: None,
+                    detail: serde_json::to_value(&capabilities)?,
+                })?;
+            }
+            // The same declaration reaches the subject's own self-knowledge
+            // surface, so it can read what each installed channel really
+            // offers before it promises a reply or an action (SPEC §15.3,
+            // §38.3, §57.4).
+            self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
 
             // Outbound publications across every registered channel: the
             // model emits an explicit target so we never guess who to

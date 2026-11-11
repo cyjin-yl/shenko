@@ -38,10 +38,14 @@ pub mod qq_official;
 pub mod runtime;
 
 pub use common::{
-    ChannelCapabilities, ChannelHealth, HealthState, PlatformAnswer, PlatformHttp, ReplyContext,
-    ReplyContextCache, redact_transport_error,
+    ChannelHealth, HealthState, PlatformAnswer, PlatformHttp, ReplyContext, ReplyContextCache,
+    redact_transport_error,
 };
 pub use ingress::{AdapterIngress, Recorded, SharedAdapterIngress, StoredAdapterEvent};
 pub use runtime::{
     AdapterConfigFile, AdapterDeps, AdapterObservation, Adapters, register_adapters,
 };
+// The capability table is part of the plugin contract, so it is re-exported
+// from there rather than owned by this adapter family: the QQ plugin declares
+// its own table the same way (SPEC §15.3, §57.4).
+pub use shenko_types::capabilities::ChannelCapabilities;

@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::channel::{
     AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
     ChannelError, ChannelPlugin, ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
@@ -30,9 +31,7 @@ use shenko_types::channel::{
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
 
-use crate::common::{
-    ChannelCapabilities, ChannelHealth, HealthState, ReplyContextCache, text_field,
-};
+use crate::common::{ChannelHealth, HealthState, ReplyContextCache, text_field};
 
 use super::api::{FeishuApi, FeishuError, ReceiveIdType};
 use super::config::FeishuConfig;
@@ -200,34 +199,6 @@ impl FeishuChannel {
         &self.api
     }
 
-    /// What the Feishu platform can really do for this bot.
-    pub fn capabilities(&self) -> ChannelCapabilities {
-        ChannelCapabilities {
-            direct: true,
-            group: true,
-            thread: true,
-            guild_channel: false,
-            rich_text: true,
-            attachments: true,
-            edit: true,
-            retract: true,
-            // The platform has a chat-scoped typing endpoint and this
-            // adapter can call it — but one reply is one effect, so the
-            // indicator could only be sent instead of the answer, or after
-            // it (when it says nothing). The capability table lists what
-            // `describe` can really produce (SPEC §57.4), so typing is not
-            // advertised.
-            typing: false,
-            proactive: true,
-            notes: vec![
-                "a message is a post document of typed blocks, not a plain string".to_string(),
-                "a thread audience is the thread's root message; answering it posts into the thread".to_string(),
-                "an edit replaces the blocks and a recall removes the message; both are message-scoped".to_string(),
-                "the typing indicator is a chat-scoped endpoint of its own, but one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
-            ],
-        }
-    }
-
     /// The current health of this connector.
     pub async fn health(&self) -> ChannelHealth {
         self.health.snapshot().await
@@ -252,6 +223,38 @@ fn owned_sources() -> Vec<String> {
 impl ChannelPlugin for FeishuChannel {
     fn channel_id(&self) -> &str {
         FEISHU_CHANNEL_ID
+    }
+
+    fn account_scope(&self) -> String {
+        self.config.account_scope()
+    }
+
+    /// What the Feishu platform can really do for this bot.
+    fn capabilities(&self) -> ChannelCapabilities {
+        ChannelCapabilities {
+            direct: true,
+            group: true,
+            thread: true,
+            guild_channel: false,
+            rich_text: true,
+            attachments: true,
+            edit: true,
+            retract: true,
+            // The platform has a chat-scoped typing endpoint and this
+            // adapter can call it — but one reply is one effect, so the
+            // indicator could only be sent instead of the answer, or after
+            // it (when it says nothing). The capability table lists what
+            // `describe` can really produce (SPEC §57.4), so typing is not
+            // advertised.
+            typing: false,
+            proactive: true,
+            notes: vec![
+                "a message is a post document of typed blocks, not a plain string".to_string(),
+                "a thread audience is the thread's root message; answering it posts into the thread".to_string(),
+                "an edit replaces the blocks and a recall removes the message; both are message-scoped".to_string(),
+                "the typing indicator is a chat-scoped endpoint of its own, but one reply is one effect: the indicator would arrive after the answer, so it is not offered as a capability".to_string(),
+            ],
+        }
     }
 
     fn sources(&self) -> &[String] {

@@ -5,6 +5,7 @@
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::{info, debug};
+use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::ids::EntityId;
 use shenko_types::agent::AgentCapability;
 use chrono::{DateTime, Utc};
@@ -94,6 +95,8 @@ pub struct SelfKnowledgeProvider {
     cognition_units: RwLock<Vec<crate::cognition::CognitionUnit>>,
     /// The live agent-visible capability catalog of the runtime registry.
     agent_capabilities: RwLock<Vec<AgentCapability>>,
+    /// What every installed channel can really do, as its plugin declared it.
+    channel_capabilities: RwLock<Vec<(String, String, ChannelCapabilities)>>,
 }
 
 /// Build manifest — binds running artifact to source/docs/design
@@ -136,6 +139,7 @@ impl SelfKnowledgeProvider {
             native_definitions: RwLock::new(vec![]),
             cognition_units: RwLock::new(vec![]),
             agent_capabilities: RwLock::new(vec![]),
+            channel_capabilities: RwLock::new(vec![]),
         };
         provider.seed_default_resources();
         provider
@@ -281,6 +285,21 @@ impl SelfKnowledgeProvider {
         self.render_runtime_capabilities();
     }
 
+    /// Record what every installed channel can really do — SPEC §15.3, §57.4.
+    ///
+    /// This is the same kind of registry snapshot as the sections above: the
+    /// table each installed plugin declared, with the account it serves. A
+    /// channel absent from this list is not installed, and a field that is
+    /// `false` is a promise the platform does not keep — so the subject can
+    /// read what it may actually attempt before it promises something.
+    pub fn install_channel_capabilities(
+        &self,
+        capabilities: &[(String, String, ChannelCapabilities)],
+    ) {
+        *self.channel_capabilities.write() = capabilities.to_vec();
+        self.render_runtime_capabilities();
+    }
+
     /// Rebuild `self://runtime/capabilities` from the recorded registries.
     ///
     /// Every section is a registry snapshot of this instance, never a static
@@ -290,6 +309,7 @@ impl SelfKnowledgeProvider {
         let native_definitions = self.native_definitions.read().clone();
         let cognition_units = self.cognition_units.read().clone();
         let agent_capabilities = self.agent_capabilities.read().clone();
+        let channel_capabilities = self.channel_capabilities.read().clone();
         let mut content = String::from(
             "本实例启动时实际注册的能力（注册表快照；不是产品全量功能清单，\
             未列出的能力不存在于当前实例）。\n\n\
@@ -322,6 +342,54 @@ impl SelfKnowledgeProvider {
                 "\n- {}@{}（{state}）— {}",
                 capability.capability_id, capability.version, capability.description
             ));
+        }
+        content.push_str("\n\n已安装通道的真实能力（插件自己的声明；false 表示不承诺该动作，不是平台也许接受）：");
+        if channel_capabilities.is_empty() {
+            content.push_str("\n- （无）");
+        }
+        for (channel, account, capabilities) in &channel_capabilities {
+            let mut offered: Vec<&str> = Vec::new();
+            if capabilities.direct {
+                offered.push("单聊");
+            }
+            if capabilities.group {
+                offered.push("群聊");
+            }
+            if capabilities.thread {
+                offered.push("话题");
+            }
+            if capabilities.guild_channel {
+                offered.push("频道");
+            }
+            if capabilities.rich_text {
+                offered.push("富文本");
+            }
+            if capabilities.attachments {
+                offered.push("附件");
+            }
+            if capabilities.edit {
+                offered.push("编辑");
+            }
+            if capabilities.retract {
+                offered.push("撤回");
+            }
+            if capabilities.typing {
+                offered.push("正在输入");
+            }
+            if capabilities.proactive {
+                offered.push("主动投递");
+            }
+            content.push_str(&format!(
+                "\n- {channel}（{account}）：{}",
+                if offered.is_empty() {
+                    "无可承诺的动作".to_string()
+                } else {
+                    offered.join("、")
+                }
+            ));
+            for note in &capabilities.notes {
+                content.push_str(&format!("\n    - {note}"));
+            }
         }
         let revision = self.build_manifest.read().source_revision.clone();
         self.install_resource(SelfResource {

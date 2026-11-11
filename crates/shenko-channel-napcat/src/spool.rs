@@ -1043,10 +1043,14 @@ mod tests {
         assert_eq!(observed.len(), 4);
         assert_eq!(observed[3].meta_event_type, "lifecycle");
         assert_eq!(observed[3].sub_type.as_deref(), Some("connect"));
+        // The newest frame is the one that arrived last — the lifecycle
+        // event, which carries no interval. The heartbeat's own fields stay
+        // in the retained evidence behind it.
         assert_eq!(
-            spool.last_meta().unwrap().unwrap().raw["interval"],
-            json!(5000)
+            spool.last_meta().unwrap().unwrap().meta_event_type,
+            "lifecycle"
         );
+        assert_eq!(observed[0].raw["interval"], json!(5000));
         // A real message still takes the ordinary path afterwards.
         let message = spool.ingest(message()).unwrap().event().unwrap();
         assert_eq!(message.seq, 1);
