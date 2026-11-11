@@ -48,7 +48,7 @@ use anyhow::{Context, Result, ensure};
 use shenko_store::{
     SeatAnswerDecisionRecord, SeatAnswerDecisionState, SeatAnswerFact, SeatAnswerOutcome,
     SeatConfidenceFact, SeatDecisionExpectation, SeatLocation, SeatOptionFact, SeatQuestionFact,
-    SeatQuestionRecord, SeatQuestionState, SeatRecord, SeatStatus, Store,
+    SeatQuestionRecord, SeatQuestionState, SeatRecord, SeatStatus, SeatFleetEntry, Store,
 };
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
@@ -80,6 +80,16 @@ struct LiveSeat {
 pub struct SeatRuntime {
     store: Arc<Store>,
     seats: Mutex<BTreeMap<String, LiveSeat>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SeatFleetView {
+    #[serde(flatten)]
+    pub seat: SeatFleetEntry,
+    /// None means an attached transport could not be checked. Presence in the
+    /// runtime registry alone never justifies a claim that it is alive.
+    pub transport_live: Option<bool>,
+    pub durable_only: bool,
 }
 
 /// One answer request, with the authority the decider acted under.
@@ -168,14 +178,43 @@ impl SeatRuntime {
         Ok(handle)
     }
 
-    /// Handles of every attached seat.
-    pub async fn handles(&self) -> Vec<SeatHandle> {
-        self.seats
-            .lock()
-            .await
-            .values()
-            .map(|seat| seat.handle.clone())
-            .collect()
+    /// Read durable task seats and observe the transports already attached to
+    /// this runtime. No attach, lease acquisition, input or question mutation.
+    pub async fn fleet_view(&self, task_id: Option<EntityId>) -> Result<(Vec<SeatFleetView>, bool)> {
+        let mut durable = self.store.seat_fleet_summary(task_id)?;
+        let truncated = durable.len() > shenko_store::SEAT_FLEET_LIMIT;
+        durable.truncate(shenko_store::SEAT_FLEET_LIMIT);
+        let attached: BTreeMap<_, _> = self.seats.lock().await.values()
+            .filter(|live| durable.iter().any(|seat| seat.seat_id == live.attachment.seat_record_id))
+            .map(|live| (live.attachment.seat_record_id,
+                (Arc::clone(&live.adapter), live.handle.clone())))
+            .collect();
+        let mut views = Vec::with_capacity(durable.len());
+        for mut seat in durable {
+            let transport_live = match attached.get(&seat.seat_id) {
+                None => Some(false),
+                Some((adapter, handle)) => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(500),
+                        adapter.transport_live(handle),
+                    ).await {
+                        Ok(Ok(live)) => {
+                            seat.last_observed_at = Some(chrono::Utc::now());
+                            Some(live)
+                        }
+                        // A failed/deadline-limited observation is unknown,
+                        // not evidence that a remote process stopped.
+                        Ok(Err(_)) | Err(_) => None,
+                    }
+                }
+            };
+            views.push(SeatFleetView {
+                seat,
+                transport_live,
+                durable_only: transport_live != Some(true),
+            });
+        }
+        Ok((views, truncated))
     }
 
     /// Rebind one task's durable seats to live adapters after a restart —
@@ -1010,5 +1049,67 @@ mod tests {
         );
         callback.native_request_id = None;
         assert_eq!(semantic_question_id_for_fact(&handle, &callback), None);
+    }
+
+    #[tokio::test]
+    async fn fleet_distinguishes_durable_attached_and_exited_seats_without_a_writer() {
+        let dir = std::env::temp_dir().join(format!("shenko-fleet-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+        let task_id = EntityId::new();
+        let record = store.register_seat(
+            EntityId::new(), task_id, "omp_rpc", "omp-rpc-v1",
+            SeatLocation::OmpRpc {
+                host: "local".into(),
+                remote_session_id: "private-command --secret=must-not-be-disclosed".into(),
+            },
+        ).unwrap();
+        let other = store.register_seat(
+            EntityId::new(), EntityId::new(), "omp_rpc", "omp-rpc-v1",
+            SeatLocation::OmpRpc { host: "local".into(), remote_session_id: "other".into() },
+        ).unwrap();
+        let runtime = SeatRuntime::new(Arc::clone(&store));
+        let (all, all_truncated) = runtime.fleet_view(None).await.unwrap();
+        assert!(!all_truncated);
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().any(|view| view.seat.task_id == other.task_id));
+        let (durable, truncated) = runtime.fleet_view(Some(task_id)).await.unwrap();
+        assert!(!truncated);
+        assert_eq!(durable.len(), 1);
+        assert_eq!(durable[0].seat.seat_id, record.seat_id);
+        assert_ne!(durable[0].seat.seat_id, other.seat_id);
+        assert_eq!(durable[0].transport_live, Some(false));
+        assert!(durable[0].durable_only);
+        assert_eq!(durable[0].seat.last_observed_at, None);
+        assert!(!serde_json::to_string(&durable).unwrap().contains("must-not-be-disclosed"));
+
+        // A real owned child, not a protocol-readiness or model fixture.
+        let adapter = Arc::new(crate::seat::omp_rpc::OmpRpcSeat::spawn(
+            vec!["sh".into(), "-c".into(), "cat >/dev/null".into()], None,
+        ).await.unwrap());
+        runtime.attach(adapter.clone(), SeatAttachment {
+            task_id, seat_record_id: record.seat_id, lease_id: EntityId::nil(),
+        }).await.unwrap();
+        let (attached, _) = runtime.fleet_view(Some(task_id)).await.unwrap();
+        assert_eq!(attached[0].transport_live, Some(true));
+        assert!(!attached[0].durable_only);
+        assert!(attached[0].seat.last_observed_at.is_some());
+        assert!(store.seat_current_lease(record.seat_id).unwrap().is_none());
+
+        adapter.close().await;
+        let (ended, _) = runtime.fleet_view(Some(task_id)).await.unwrap();
+        assert_eq!(ended[0].transport_live, Some(false), "a retained handle is not a live process");
+        assert!(ended[0].durable_only);
+        assert_eq!(store.seat(record.seat_id).unwrap().unwrap().record_revision, record.record_revision);
+        assert!(store.seat_current_lease(record.seat_id).unwrap().is_none());
+        drop(runtime);
+        drop(adapter);
+        drop(store);
+        let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+        let restarted = SeatRuntime::new(reopened);
+        let (view, _) = restarted.fleet_view(Some(task_id)).await.unwrap();
+        assert_eq!(view[0].seat.seat_id, record.seat_id);
+        assert!(view[0].durable_only);
+        assert_eq!(view[0].seat.last_observed_at, None, "no observation time is invented on reopen");
     }
 }

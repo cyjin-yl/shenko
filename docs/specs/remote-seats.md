@@ -10,19 +10,49 @@ A `TaskSeat` is a stable product identity for one remote-agent work position
 *location*, never its identity. When work moves, the old record is retired
 and a new record names it via `supersedes`; history is never rewritten.
 
-## The four installed native children
+## Installed native children
 
 | kind | effect | durable facts |
 | --- | --- | --- |
 | `ssh.exec` v1 | one exact remote command over the PR127 transport (`native_transport::execute`) | frozen input, observation receipt (stdout/stderr/exit/interruption) |
 | `ssh.pty` v1 | one live PTY seat: register seat, acquire v2 lease, attach adapter to `SeatRuntime` | seat record, v2 lease, attach receipt |
+| `omp.seat` v1 | launch and attach one managed OMP RPC seat | seat record, v2 lease, attach receipt |
+| `claude.seat` v1 | launch and attach one managed Claude Code control-protocol seat | seat record, v2 lease, attach receipt |
 | `seat.observe` v1 | one observation of an attached seat | every reported question is a `seat_questions` row before the observation returns; `durable_only` status when no live seat is attached |
 | `seat.respond` v1 | one answer to one open durable question | one `seat_answer_decisions` row per decision attempt, the exact effect digest, and the closing evidence |
+| `seat.fleet` v1 | bounded read-only inventory, optionally filtered by task | original operation and CAS receipt of the durable records plus current transport observations |
 
-All four follow the product's at-most-once contract: freeze the input to CAS,
+All seven follow the product's at-most-once contract: freeze the input to CAS,
 arm the exact operation id (`arm_external_operation`), effect once, observe
 with evidence. Reconcile is query-only; a crash after T1 never re-sends a
 command, re-opens a PTY or re-answers a question.
+
+### Fleet observations
+
+`seat.fleet` takes `{}` to discover the registered seats, or
+`{"task_id":"<uuid>"}` to filter by owning task. It returns at most 32 newest
+seats in deterministic order, with `truncated` when more records exist. The
+query selects its bounded page before counting questions, and the runtime
+probes only the returned seats, not the truncation witness. Each entry
+contains its durable `seat_id`, owning `task_id`, adapter name/version, credential-free location
+summary, status and open-question count. Retired and superseded records remain
+visible; inventory does not silently drop history. Managed-process arguments
+and session anchors are excluded from the location summary.
+
+The runtime observes only transports already attached to it. `transport_live`
+is `true` or `false` after a successful adapter check, and `null` when that check
+fails or reaches its 500 ms deadline. An unattached record has
+`transport_live: false` and `durable_only: true`; this says no local transport
+is attached, not that a remote process is dead. `last_observed_at` is set only
+after a successful current transport check. A durable record alone carries no
+observation timestamp. `durable_only` is also true when a probe is unknown:
+only `transport_live: true` contributes a confirmed live transport fact.
+
+The inventory never attaches a transport, starts an agent, acquires a writer
+lease, sends input or records a new question. Its native operation has
+`EffectStatus::None`. Reconciliation returns the original settled receipt;
+an unfinished read may take another snapshot using the original sealed task
+selector, without creating transport effects.
 
 ## Writer lease v2 (SPEC §17.1 单写者)
 
@@ -132,8 +162,9 @@ as `superseded` and keeps its history.
   question's `native_payload`) and keys its `answers` mapping by the
   sub-question the chosen option belongs to.
 
-`SeatRuntime` (seat/runtime.rs) is the only registry; `seat.observe` /
-`seat.respond` handlers call it, and it performs question persistence, the
+`SeatRuntime` (seat/runtime.rs) is the only live registry; `seat.fleet`,
+`seat.observe` and `seat.respond` handlers share it. Fleet reads durable rows
+from Store and probes attached transports. The other handlers perform question persistence, the
 durable claim, the live preflight, the arm and the closing evidence.
 
 ## Native SSH transport additions (PR127 preserved)

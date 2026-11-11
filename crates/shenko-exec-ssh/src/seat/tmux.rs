@@ -108,6 +108,10 @@ impl SeatAdapter for TmuxSeatAdapter {
             .collect())
     }
 
+    async fn transport_live(&self, seat: &SeatHandle) -> Result<bool> {
+        Ok(self.discover().await?.iter().any(|current| current.location_id == seat.location_id))
+    }
+
     async fn observe(&self, seat: &SeatHandle) -> Result<SeatObservation> {
         let capture = self.seat.capture_pane(&seat.location_id).await?;
         let mut screen = TerminalScreen::new(

@@ -1,7 +1,7 @@
 //! Installed native task authority for SSH exec/PTY and seat observation —
 //! SPEC §11, §17, §35.5, §41.11.
 //!
-//! Six native children, all wired to the same runtime the binary installs:
+//! Seven native children, all wired to the same runtime the binary installs:
 //!
 //! | kind | handler | what it really does |
 //! | --- | --- | --- |
@@ -11,6 +11,7 @@
 //! | `claude.seat` | [`ClaudeSeatHandler`] | spawns a managed Claude Code seat, registers it at its session anchor, attaches it to the [`SeatRuntime`] |
 //! | `seat.observe` | [`SeatObserveHandler`] | observes one attached seat; questions become durable before the observation returns |
 //! | `seat.respond` | [`SeatRespondHandler`] | answers one durable question with lease preflight + compare-and-swap decision |
+//! | `seat.fleet` | [`SeatFleetHandler`] | bounded read-only inventory of durable seats and observed transports |
 //!
 //! Every handler follows the same at-most-once contract as the other native
 //! children: freeze the input to CAS, arm the exact operation id, perform
@@ -47,6 +48,7 @@ mod support;
 const EXEC_CONTRACT: &[u8] = b"shenko.ssh.exec/v1: one exact remote command over the registered-CAS trust binding and an owned stream; the installer resolves the exact selected key locally; remote exit255 is a real status here; recovery queries only the original observation, never resends";
 const PTY_CONTRACT: &[u8] = b"shenko.ssh.pty/v1: one live PTY seat over the registered-CAS trust binding; the seat record, the v2 writer lease and the runtime attachment are recorded under the trusted operation id; recovery reads the durable seat facts, never re-opens the PTY";
 const OBSERVE_CONTRACT: &[u8] = b"shenko.seat.observe/v1: one observation of an attached seat; every reported question is durable before the observation returns; recovery re-observes live seats or reads durable question facts only";
+const FLEET_CONTRACT: &[u8] = b"shenko.seat.fleet/v1: at most 32 seats with owning task identities and an optional task filter plus an explicit truncation flag; durable records and open-question counts share one query; transport liveness is observed without attach or writer leases; unknown is distinct from stopped; recovery may repeat this read-only observation";
 const RESPOND_CONTRACT: &[u8] = b"shenko.seat.respond/v2: one durable answer decision for one open seat question, in the SPEC 41.11 order: the decision is committed first as a compare-and-swap on the observed question revision, seat incarnation, task revision and writer epoch; the exact effect bytes are planned and re-checked against the live state; the effect is armed with its digest before anything is written; the transport runs outside any transaction; the closing evidence decides answered, answer_unknown, not_sent or withdrawn. A refused or stale decision never writes, and an unknown effect is never replayed";
 
 fn plugin_id(constant: &str) -> EntityId {
@@ -56,6 +58,7 @@ fn plugin_id(constant: &str) -> EntityId {
 const EXEC_PLUGIN: &str = "7a1d3f6e-2b8c-4e5a-9d0f-6c1b3e5a7d9f";
 const PTY_PLUGIN: &str = "8b2e4a7f-3c9d-4f6b-8e1a-7d2c4f6b8e1a";
 const OBSERVE_PLUGIN: &str = "9c3f5b8a-4d0e-4a7c-9f2b-8e3d5a7c9f2b";
+const FLEET_PLUGIN: &str = "7db78fa0-4919-40f2-90a6-097c8b79c349";
 const RESPOND_PLUGIN: &str = "0d4a6c9b-5e1f-4b8d-8a3c-9f4e6b8d0a3c";
 
 // ---------------------------------------------------------------------------
@@ -737,6 +740,110 @@ impl NativeTaskHandler for SeatObserveHandler {
             "seat-observe-recovery",
             "controller recovered; re-observation is a new explicit operation, recovery only re-reads the original receipt",
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// seat.fleet
+// ---------------------------------------------------------------------------
+
+/// Installed read-only inventory; never creates or attaches a remote seat.
+pub struct SeatFleetHandler {
+    store: Arc<Store>,
+    runtime: Arc<SeatRuntime>,
+}
+
+impl SeatFleetHandler {
+    pub fn new(store: Arc<Store>, runtime: Arc<SeatRuntime>) -> Self {
+        Self { store, runtime }
+    }
+
+    async fn record_snapshot(
+        &self,
+        operation: &OperationRecord,
+        attempt: &shenko_types::operation::AttemptRecord,
+        input: &FleetInput,
+    ) -> Result<OperationRecord> {
+        let (seats, truncated) = self.runtime.fleet_view(input.task_id).await?;
+        support::observe_record(
+            &self.store, operation, attempt, "seat.fleet.v1",
+            &serde_json::json!({
+                "schema_version": 1,
+                "task_id": input.task_id,
+                "seats": seats,
+                "truncated": truncated,
+            }),
+            Some(OperationOutcome::Succeeded), EffectStatus::None,
+        )
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FleetInput {
+    #[serde(default)]
+    task_id: Option<EntityId>,
+}
+
+#[async_trait]
+impl NativeTaskHandler for SeatFleetHandler {
+    fn descriptor(&self) -> NativeTaskDescriptor {
+        NativeTaskDescriptor {
+            kind: "seat.fleet".into(),
+            definition_version: 1,
+            implementation_ref: ImplementationRef {
+                plugin_id: plugin_id(FLEET_PLUGIN),
+                artifact_digest: Digest::blake3(FLEET_CONTRACT),
+                registry_revision: 0,
+            },
+            role_revision: "native-seat-fleet/1".into(),
+            authority_refs: vec!["seat.fleet.read_only/v1".into()],
+            prompt_section: Some(
+                "seat.fleet/v1 只读查看已登记的外部 Agent 工作位及其所属任务、传输状态、待决定问题数。用 [delegate:seat.fleet:1] {} 发现工作位；已知任务时可传 {\"task_id\":\"任务 UUID\"} 筛选。最多 32 条，truncated 明示剩余。transport_live 为 null 表示无法确认，false 表示本地没有活传输，不证明远端进程死亡；不新建、不挂接、不获取写租约。进程活着不代表协议已就绪或任务完成。".into(),
+            ),
+        }
+    }
+
+    async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        support::verify_wiring(&self.store, &invocation, "seat.fleet", 1, plugin_id(FLEET_PLUGIN))?;
+        let input: FleetInput = serde_json::from_value(std::mem::take(&mut invocation.input))?;
+        let input_ref = support::seal(&self.store, &input, "seat-fleet-frozen-input")?;
+        let (mut operation, mut attempt) = support::operation_parts(
+            &self.store, &invocation, plugin_id(FLEET_PLUGIN), Digest::blake3(FLEET_CONTRACT),
+            "seat.fleet.v1", input_ref,
+            serde_json::json!({"task_id": input.task_id, "provider": "seat.runtime.v1"}),
+            "one bounded read-only inventory with transport uncertainty retained",
+            "read again from the original frozen task selector; never attach or write to a seat",
+        )?;
+        if let Some(existing) = self.store.arm_external_operation(
+            &invocation.task_invocation, &mut operation, &mut attempt,
+        )? {
+            return Ok(existing);
+        }
+        self.record_snapshot(&operation, &attempt, &input).await
+    }
+
+    async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId) -> Result<OperationRecord> {
+        let operation = self.store.external_operation(operation_id)?;
+        ensure!(
+            operation.task_id == task.task_id && task.kind == "seat.fleet"
+                && task.definition_version == 1 && operation.operation_name == "seat.fleet.v1"
+                && operation.contract_ref.plugin_id == plugin_id(FLEET_PLUGIN)
+                && operation.contract_ref.contract_digest == Digest::blake3(FLEET_CONTRACT),
+            "original_operation_contract_mismatch"
+        );
+        if operation.state == shenko_types::operation::OperationState::Resolved || operation.outcome_conflict {
+            return Ok(operation);
+        }
+        if !matches!(operation.state,
+            shenko_types::operation::OperationState::InFlight
+                | shenko_types::operation::OperationState::Reconciling)
+        {
+            return Ok(operation);
+        }
+        let input = support::frozen_read(&self.store, &operation, "seat-fleet-frozen-input")?;
+        let attempt = self.store.external_operation_attempt(operation_id)?;
+        self.record_snapshot(&operation, &attempt, &input).await
     }
 }
 

@@ -472,6 +472,10 @@ impl SeatAdapter for OmpRpcSeat {
         }])
     }
 
+    async fn transport_live(&self, _seat: &SeatHandle) -> Result<bool> {
+        Ok(self.inner.child.lock().await.try_wait()?.is_none())
+    }
+
     async fn observe(&self, _seat: &SeatHandle) -> Result<SeatObservation> {
         let state = self.inner.state.lock().await;
         let questions: Vec<SeatQuestionCandidate> = state
