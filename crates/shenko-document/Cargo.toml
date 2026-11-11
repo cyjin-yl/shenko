@@ -12,6 +12,12 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+# The OXR provider is a real HTTP client; same pin and feature shape as the
+# channel adapters (rustls, no system TLS, no default features).
+reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls"], default-features = false }
 shenko-types = { path = "../shenko-types" }
 
 [lints.rust]
