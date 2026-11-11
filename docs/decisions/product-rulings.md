@@ -27,3 +27,10 @@ D1/D2/D3/D7/D8/D9/D11/D12 已收到用户答案并落实正文；四流 128K 与
 技术上的未决问题还包括：guest 内完整 Nix 与 Nix-like 是否都必须；toybox 指定 applets；gcc-wasm 的 hosted/target 需求；gh/Gitea WASM 上游 port 的产品化投入；多租户是否属于首发范围。这些都已保留目标，不用未答问题为删需求找理由。
 
 <!-- /migrated-contract: SPEC:28 -->
+
+<a id="input-disposition-definition-conflict-20261112"></a>
+## 未处置输入的定义冲突（2026-11-12，未解决）
+
+[R152](../requirements/traceability.md) 要求未被主体处置的输入默认进入 `deferred`，在后续 S0 持续可见；[领域正文 §57.3](../specs/subject-runtime.md#spec-57-3)、[B58 的原文](../requirements/design-provenance.md) 与 [AW13](../specs/verification.md#spec-57-13) 则规定：未处置输入记为 `ignored` 并附理由，显式 `deferred` 的输入才继续留队。这是两份现存定义的差异，不能以证据索引的转述消除。
+
+当前 `dispositions_for_events()` 采用 `ignored` 与“主体未在本轮处置”理由。证据账本保留 R152、B58、AW13 的逐字来源与迁移来源，B58 的派生 `contract`、`verification` 字段恢复为其自身原表的语义；R152 的实现状态记为 `partial`，冲突列入 blocker，仍为 `satisfied=false`。本记录不选择新的默认行为，不改变原规范，也不把尚未运行的 AW13 判为通过；其余已获授权的开发与验证继续执行。
