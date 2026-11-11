@@ -3804,8 +3804,12 @@
       "source_markdown_line": 6652,
       "source_row": "| AW10 | 安装中恰好一个启用单元提供 `cap.subject-frame` | 该单元当前正文成为主体角色前缀；无提供者时使用编译回退文本；停用单元不参与解析 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/frame_tests.rs:60"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib exactly_one_provider_speaks_for_the_subject 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3818,8 +3822,12 @@
       "source_markdown_line": 6653,
       "source_row": "| AW11 | 安装中恰好一个启用单元提供 `cap.idle-perception` | 空闲时主体收到的观察取自该单元正文；无提供者时使用编译回退句 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/frame_tests.rs:130"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib a_disabled_unit_is_not_a_provider 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3832,8 +3840,12 @@
       "source_markdown_line": 6654,
       "source_row": "| AW12 | 两个不同单元同时提供同一能力契约 | 报告歧义，harness 不选择其一，编译回退继续生效；歧义对主体可见 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/frame_tests.rs:78"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib two_providers_are_an_ambiguity_not_a_silent_pick 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3846,8 +3858,12 @@
       "source_markdown_line": 6659,
       "source_row": "| AW13 | 主体未处置某条输入 | 该输入被记为『未处置』（ignored + 理由），不被 harness 记成已处理；主体显式 deferred 的输入继续留在队列里 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/recovery_tests.rs:3848"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib 验证未处置输入记为 Ignored 的用例判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3860,8 +3876,13 @@
       "source_markdown_line": 6656,
       "source_row": "| AW14 | 主体对某来源声明注意力暂停并给出 review_after | 该来源不进入当前窗口；事实仍在账本；到期复审结果交回主体 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/recovery_tests.rs:4032",
+        "crates/shenko-subject/src/recovery_tests.rs:4074"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib a_paused_source_is_held_out_of_the_window 和 a_pause_that_ended_releases_the_held_fact 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3874,8 +3895,13 @@
       "source_markdown_line": 6667,
       "source_row": "| G57 | 主体需要对话、资源政策或运行政策能力 | 接口不再因缺派发器而静默 blocked；缺口以可安装能力的诚实记录出现并可被主体看见 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/recovery_tests.rs:4084",
+        "crates/shenko-subject/src/recovery_tests.rs:4115"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib a_policy_request_is_unbound_and_visible_not_blocked 和 the_policy_control_line_parses_into_a_policy_request 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3888,8 +3914,13 @@
       "source_markdown_line": 6668,
       "source_row": "| G58 | 主体修订自己的心智框架或回滚 | 修订留下带理由的态度记录；回滚按只增版本链执行，旧字节不覆盖，外部副作用不撤回 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/playground_manage_tests.rs:99",
+        "crates/shenko-ui/src/playground_tests.rs:99"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work 和 interrupted_versions_and_exact_rollback_keep_new_business_data 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3902,8 +3933,12 @@
       "source_markdown_line": 6669,
       "source_row": "| G59 | 同一能力契约由两个单元提供 | 两者可共存；主体可在运行时切换提供者而不重启，使用方不感知切换 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/frame_tests.rs:99"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-subject --lib the_subject_switches_between_two_providers_without_a_restart 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3916,8 +3951,19 @@
       "source_markdown_line": 6670,
       "source_row": "| G60 | 复核本轮全部新增机制 | 没有新增人工审批、产品 allowlist 或静态 hard deny；真实约束按事实记录 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-node/src/units.rs:4879",
+        "crates/shenko-ui/src/config_service.rs:5",
+        "crates/shenko-ui/src/config_task.rs:43",
+        "crates/shenko-ui/src/api.rs:173",
+        "crates/shenko-exec-host/tests/desktop_native_macos_proof.rs:25",
+        "crates/shenko-exec-host/tests/desktop_native_windows_proof.rs:24",
+        "crates/shenko-exec-host/src/contact_task.rs:7",
+        "crates/shenko-awareness-core/src/cognition_self_learning/facts.rs:11"
+      ],
+      "evidence": [
+        "负面元要求：全仓 grep 只命中\"明确声明不使用 approval gate / allowlist / hard deny\"的上下文，无正面源码。待主控复核 grep 结果确认无新增人工审批门。"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3930,8 +3976,21 @@
       "source_markdown_line": 6657,
       "source_row": "| RT17 | 出站正文含 `@<id>`、`[quote:<id>]` 与 Markdown 标记 | 插件把它们翻译成平台段；正文不再把 `**`、标题符与代码围栏原样发给用户；不翻译时退回单段纯文本 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-channel-napcat/src/outbound.rs:197",
+        "crates/shenko-channel-napcat/src/outbound.rs:204",
+        "crates/shenko-channel-napcat/src/outbound.rs:216",
+        "crates/shenko-channel-napcat/src/outbound.rs:223",
+        "crates/shenko-channel-napcat/src/outbound.rs:233",
+        "crates/shenko-channel-napcat/src/outbound.rs:243",
+        "crates/shenko-channel-napcat/src/outbound.rs:252",
+        "crates/shenko-channel-napcat/src/outbound.rs:258",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:93",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:108"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-channel-napcat --lib outbound_tests 判定（8 条 outbound 用例）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3944,8 +4003,14 @@
       "source_markdown_line": 6658,
       "source_row": "| RT18 | 平台收到一条撤回或成员变动事件 | 事件作为观察进入主体输入序列，带来源与被撤回消息标识；主体不再引用已不存在的消息 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-channel-napcat/src/notice_tests.rs:47",
+        "crates/shenko-channel-napcat/src/notice_tests.rs:79",
+        "crates/shenko-channel-napcat/src/notice_tests.rs:109"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-channel-napcat --lib notice_tests 判定（3 条 notice 用例）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3958,8 +4023,13 @@
       "source_markdown_line": 6659,
       "source_row": "| RT19 | 某通道声明 edit/retract/typing 能力 | 能力表只列 describe 实际能产出的动作；不可达的动作不计入能力 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs:46",
+        "crates/shenko-channel-adapters/src/feishu/capability_tests.rs:45"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-channel-adapters --lib capability_tests 判定（qq_official 7 条 + feishu 5 条）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3972,8 +4042,12 @@
       "source_markdown_line": 6660,
       "source_row": "| RT20 | 真实流式调用 | chunk 先落盘再广播，控制行不外泄，最终正文与已提交内容一致；未接通生产者时界面诚实报告流式不可用 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-broker/src/broker.rs:1974"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -3986,8 +4060,16 @@
       "source_markdown_line": 6663,
       "source_row": "| UI-S11 | 主体提交一段 `shenko-ui` 动态文档 | 界面按能力渲染真实组件；降级路径保持同一语义与动作身份，不出现 JSON 调试视图 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/web/tests/rich-document.test.mjs:51",
+        "crates/shenko-ui/web/tests/rich-document.test.mjs:76",
+        "crates/shenko-ui/web/tests/rich-document.test.mjs:84",
+        "crates/shenko-ui/web/tests/rich-document.test.mjs:92",
+        "crates/shenko-ui/web/tests/rich-document.test.mjs:101"
+      ],
+      "evidence": [
+        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/rich-document.test.mjs 判定（5 条 web 用例）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -4000,8 +4082,14 @@
       "source_markdown_line": 6664,
       "source_row": "| UI-S12 | 系统偏好浅色 | 首屏不出现暗色闪烁；样式来自单一来源，构建产物与源无偏差 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/index.html:18",
+        "crates/shenko-ui/src/static/app.css:48",
+        "crates/shenko-ui/web/tests/prototypes.test.mjs:30"
+      ],
+      "evidence": [
+        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/prototypes.test.mjs 判定（构建产物与源无偏差、编译器溯源 4 条）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -4014,8 +4102,14 @@
       "source_markdown_line": 6665,
       "source_row": "| UI-S13 | 时间线出现新的已提交内容 | 屏幕阅读器得到一次有界宣布，不逐字重读整段回答 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/web/src/react-renderer.tsx:275",
+        "crates/shenko-ui/web/src/react-renderer.tsx:550",
+        "crates/shenko-ui/web/tests/live-controller.test.mjs:457"
+      ],
+      "evidence": [
+        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/live-controller.test.mjs 判定（流式 prefix 不标 committed、block 保留原因等用例）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -4028,8 +4122,17 @@
       "source_markdown_line": 6666,
       "source_row": "| UI-S14 | 时间线同时出现正文、作品与其动作 | 三者保持稳定身份与阅读锚点，展开与更新不互相打断 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/web/src/react-renderer.tsx:328",
+        "crates/shenko-ui/web/src/react-renderer.tsx:336",
+        "crates/shenko-ui/web/tests/timeline-state.test.mjs:55",
+        "crates/shenko-ui/web/tests/timeline-state.test.mjs:70",
+        "crates/shenko-ui/web/tests/live-controller.test.mjs:233",
+        "crates/shenko-ui/web/tests/live-controller.test.mjs:257"
+      ],
+      "evidence": [
+        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/timeline-state.test.mjs crates/shenko-ui/web/tests/live-controller.test.mjs 判定（阅读锚点、动作绑定、重复提交幂等等用例）"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -4042,8 +4145,12 @@
       "source_markdown_line": 6661,
       "source_row": "| PG06 | 主体经原生任务创建并迭代一件作品 | 作品版本、状态与事件按既有闭包入账，事件进入同一 inbox，回滚保留较新状态 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/playground_manage_tests.rs:99"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {
@@ -4056,8 +4163,12 @@
       "source_markdown_line": 6662,
       "source_row": "| PG07 | 主体或用户在时间线内操作一件作品 | 作品可打开并操作，动作绑定 revision 与请求标识，重复提交不产生第二次效果 |",
       "verification_status": "unverified",
-      "implementation_refs": [],
-      "evidence": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/playground_tests.rs:140"
+      ],
+      "evidence": [
+        "待主控在容器内跑 cargo test -p shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request 判定"
+      ],
       "applicability": "to_be_resolved_against_full_scope"
     },
     {

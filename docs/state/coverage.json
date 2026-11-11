@@ -2645,8 +2645,10 @@
         "B57"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2666,11 +2668,17 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/cognition.rs:536",
+        "crates/shenko-awareness-core/src/cognition.rs:601",
+        "crates/shenko-subject/src/loop_runner.rs:635",
+        "crates/shenko-subject/src/lib.rs:50",
+        "crates/shenko-awareness-core/seed-awareness/subject-frame/AWARENESS.md"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "主体角色框机制完整：CAP_SUBJECT_FRAME 常量定义、capability_unit 解析（Absent/Installed/Ambiguous）、subject_frame() 消费者、subject_prompt_with_frame() 组装、种子单元均已落地。无独立运行证据文件；确定性记账与真实消费者行为 ≠ 模型效能，satisfied=false。"
     },
     {
       "requirement_id": "R149",
@@ -2678,8 +2686,10 @@
         "B57"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2699,11 +2709,14 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/cognition.rs:609",
+        "crates/shenko-awareness-core/src/cognition.rs:619"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "Absent/Ambiguous 双分支在 capability_unit() 中实现，歧义不静默选择而是报告。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R150",
@@ -2711,8 +2724,10 @@
         "B57"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2732,11 +2747,15 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/cognition.rs:541",
+        "crates/shenko-subject/src/loop_runner.rs:699",
+        "crates/shenko-awareness-core/seed-awareness/idle-perception/AWARENESS.md"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "CAP_IDLE_PERCEPTION 常量定义、idle_perception() 消费者（无提供者时回退 IDLE_CONTINUATION_PROMPT）、种子单元均已落地。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R151",
@@ -2744,8 +2763,10 @@
         "B58"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2765,11 +2786,17 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/cognition.rs:557",
+        "crates/shenko-subject/src/loop_runner.rs:665",
+        "crates/shenko-subject/src/loop_runner.rs:671",
+        "crates/shenko-subject/src/loop_runner.rs:808",
+        "crates/shenko-awareness-core/seed-awareness/subject-attention/AWARENESS.md"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "CAP_ATTENTION_POLICY 常量定义、attention_budget() 解析（max_events_per_step/idle_wait_ms 带 clamp 上界）、step 中 recv_batch 消费、种子单元均已落地。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R152",
@@ -2777,8 +2804,10 @@
         "B58"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2798,11 +2827,14 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/loop_runner.rs:264",
+        "crates/shenko-subject/src/loop_runner.rs:461"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "Ignored disposition + \"主体未在本轮处置\" reason 在 dispositions_for_events() 中实现；held_inputs 字段在 SubjectLoopState 中定义。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R153",
@@ -2810,8 +2842,10 @@
         "B58"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2831,11 +2865,16 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/loop_runner.rs:294",
+        "crates/shenko-subject/src/loop_runner.rs:314",
+        "crates/shenko-subject/src/loop_runner.rs:321",
+        "crates/shenko-subject/src/authored_controls.rs:118"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "hold_paused_sources() 实现 review_after 到期检查、held release/pause 逻辑；parse_dnd() 强制 state=off 时需要 sources 和 review_after。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R154",
@@ -2843,8 +2882,10 @@
         "B59"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2864,11 +2905,23 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-channel-napcat/src/outbound.rs:61",
+        "crates/shenko-channel-napcat/src/outbound.rs:72",
+        "crates/shenko-channel-napcat/src/outbound.rs:85",
+        "crates/shenko-channel-napcat/src/outbound.rs:105",
+        "crates/shenko-channel-napcat/src/outbound.rs:147",
+        "crates/shenko-channel-napcat/src/channel.rs:94",
+        "crates/shenko-channel-napcat/src/channel.rs:309",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:8",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:93",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:108",
+        "crates/shenko-channel-adapters/src/qq_official/plugin.rs:625"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "NapCat outbound: @mention→at segment, [quote:]→reply segment, markdown 降级（围栏/标题/强调/链接），8 条 outbound 测试；qq_official outbound: @openid→platform markup, [quote:]→message_reference, markdown msg_type=2。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R155",
@@ -2876,8 +2929,10 @@
         "B59"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2897,11 +2952,16 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-channel-napcat/src/channel.rs:94",
+        "crates/shenko-channel-napcat/src/notice_tests.rs:47",
+        "crates/shenko-channel-napcat/src/notice_tests.rs:79",
+        "crates/shenko-channel-napcat/src/notice_tests.rs:109"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "classify_notice() 处理 group_recall/member_change/poke，未知 notice 保持 unclassified；3 条 notice 测试覆盖撤回、成员变动、普通消息。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R156",
@@ -2909,8 +2969,10 @@
         "B59"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2930,11 +2992,21 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-channel-adapters/src/qq_official/plugin.rs:240",
+        "crates/shenko-channel-adapters/src/qq_official/plugin.rs:762",
+        "crates/shenko-channel-adapters/src/feishu/plugin.rs:51",
+        "crates/shenko-channel-adapters/src/feishu/plugin.rs:53",
+        "crates/shenko-channel-adapters/src/feishu/plugin.rs:399",
+        "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs",
+        "crates/shenko-channel-adapters/src/feishu/capability_tests.rs"
+      ],
+      "evidence_refs": [
+        "docs/evidence/qq-official-capability-audit-20261110.md"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "qq_official capabilities() 表只列 describe 可达动作（edit=false, typing=false），Edit dispatch 被显式拒绝；feishu 动作常量与 dispatch 映射；qq_official 7 条 + feishu 5 条 capability 测试。有现存证据文件 docs/evidence/qq-official-capability-audit-20261110.md；satisfied=false（确定性记账 ≠ 模型效能）。"
     },
     {
       "requirement_id": "R157",
@@ -2942,8 +3014,10 @@
         "B60"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2963,11 +3037,22 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/stream_journal.rs",
+        "crates/shenko-ui/src/stream.rs:77",
+        "crates/shenko-ui/src/stream.rs:97",
+        "crates/shenko-ui/src/stream.rs:172",
+        "crates/shenko-ui/src/stream.rs:183",
+        "crates/shenko-broker/src/broker.rs:460",
+        "crates/shenko-broker/src/stream.rs:266",
+        "crates/shenko-broker/src/stream.rs:277",
+        "crates/shenko-subject/src/loop_runner.rs:1656",
+        "crates/shenko-subject/src/loop_runner.rs:1668"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "流式三器官：StreamJournalSink 持久 journal、StreamSink publish（先落盘再广播）、ControlGate 控制行过滤（is_control_line）、broker submit_stream_recorded（journal 必须存在）、subject 按 stream_journal/stream_public 组装。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R158",
@@ -2975,8 +3060,10 @@
         "B61"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -2996,11 +3083,20 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/playground_manage.rs:41",
+        "crates/shenko-ui/src/playground_manage.rs:44",
+        "crates/shenko-ui/src/playground_manage.rs:573",
+        "crates/shenko-ui/src/playground.rs:61",
+        "crates/shenko-ui/web/src/react-renderer.tsx:656",
+        "crates/shenko-ui/web/src/react-renderer.tsx:670",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1276",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1346"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "PlaygroundManageHandler（playground.manage/v1 contract）实现 create/put/stage/publish/rollback/list；PlaygroundState native dispatcher 共享；react-renderer WorkEntry/OpenedWorkPanel 渲染作品并绑定 action_refs 到 revision。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R159",
@@ -3008,8 +3104,10 @@
         "B60"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -3029,11 +3127,27 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-ui/web/src/document-view.tsx:207",
+        "crates/shenko-ui/web/src/document-view.tsx:258",
+        "crates/shenko-ui/web/src/document-view.tsx:265",
+        "crates/shenko-ui/web/src/document-view.tsx:269",
+        "crates/shenko-ui/web/src/document-view.tsx:273",
+        "crates/shenko-ui/web/src/document-view.tsx:280",
+        "crates/shenko-ui/web/src/document-view.tsx:299",
+        "crates/shenko-ui/web/src/document-view.tsx:313",
+        "crates/shenko-ui/web/src/document-view.tsx:334",
+        "crates/shenko-ui/web/src/document-view.tsx:360",
+        "crates/shenko-ui/web/src/document-view.tsx:377",
+        "crates/shenko-ui/web/src/document-view.tsx:388",
+        "crates/shenko-ui/web/src/document-view.tsx:404",
+        "crates/shenko-ui/src/presentation.rs:222",
+        "crates/shenko-ui/src/presentation.rs:480"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "RichDocument 渲染所有 kind（section/text/markdown/code/table/compare/select/form/chart/media/actions），unknown kind 显示名称而非 JSON dump；validate_document + degrade 降级阶梯。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R160",
@@ -3041,8 +3155,10 @@
         "B60"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -3062,11 +3178,22 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/index.html:2",
+        "crates/shenko-ui/src/index.html:18",
+        "crates/shenko-ui/src/index.html:23",
+        "crates/shenko-ui/src/static/app.css:48",
+        "crates/shenko-ui/src/static/app.css:164",
+        "crates/shenko-ui/src/static/app.css:265",
+        "crates/shenko-ui/web/src/react-renderer.tsx:275",
+        "crates/shenko-ui/web/src/react-renderer.tsx:328",
+        "crates/shenko-ui/web/src/react-renderer.tsx:336",
+        "crates/shenko-ui/web/src/react-renderer.tsx:550"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "index.html 首帧前决定主题（query→stored→prefers-color-scheme），无暗色闪烁；app.css :root[data-theme=light] 单一样式来源；react-renderer TimelineSurface 有界宣布（announceCommitted 不逐字重读）、阅读锚点保持。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R161",
@@ -3074,8 +3201,10 @@
         "B62"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -3095,11 +3224,15 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/output.rs:41",
+        "crates/shenko-subject/src/loop_runner.rs:1114",
+        "crates/shenko-subject/src/loop_runner.rs:2041"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "output.rs 输出协议含 [policy] 控制行（resource_share/update_policy/network_policy）；loop_runner.rs 中 unbound_subject_intents 查询并注入提示、PolicyIntent 记录为 durable 事实。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R162",
@@ -3107,8 +3240,10 @@
         "B62"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -3128,11 +3263,15 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/loop_runner.rs:2025",
+        "crates/shenko-ui/src/playground_manage.rs:574",
+        "crates/shenko-awareness-core/src/cognition.rs:611"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "loop_runner OutputAction::Dnd 记录 AttentionPolicy（durable，带 review_after）；playground_manage descriptor role_revision/authority_refs 留痕；cognition.rs Ambiguous 分支不替主体选择。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R163",
@@ -3140,8 +3279,10 @@
         "B62"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -3161,11 +3302,15 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/frame_tests.rs:99",
+        "crates/shenko-awareness-core/src/cognition.rs:601",
+        "crates/shenko-awareness-core/src/cognition.rs:619"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "frame_tests.rs 验证两个提供者共存→歧义、停用一个→另一个生效、reopen 持久；cognition.rs capability_unit() 三分支（Absent/Installed/Ambiguous）。无独立运行证据文件；satisfied=false。"
     },
     {
       "requirement_id": "R164",
@@ -3173,8 +3318,10 @@
         "B62"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_started",
-      "evidence_state": [],
+      "implementation_state": "implemented",
+      "evidence_state": [
+        "implemented"
+      ],
       "acceptance_case_ids": [
         "AW10",
         "AW11",
@@ -3194,11 +3341,20 @@
         "UI-S13",
         "UI-S14"
       ],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-node/src/units.rs:4879",
+        "crates/shenko-ui/src/config_service.rs:5",
+        "crates/shenko-ui/src/config_task.rs:43",
+        "crates/shenko-ui/src/api.rs:173",
+        "crates/shenko-exec-host/tests/desktop_native_macos_proof.rs:25",
+        "crates/shenko-exec-host/tests/desktop_native_windows_proof.rs:24",
+        "crates/shenko-exec-host/src/contact_task.rs:7",
+        "crates/shenko-awareness-core/src/cognition_self_learning/facts.rs:11"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SPEC §57（Claude Fable 5.1 refine 版本）新增合同；见 docs/decisions/0004-proactive-being-refine-2026-11-09.md"
+      "note": "负面元要求：全仓 grep approval.?gate|allowlist|hard.?deny|manual.?approval 只命中\"明确声明不使用\"的上下文。所有命中点都是显式否定（\"no approval gate\"、\"not approval gates\"、\"allowlist is the type itself\" 等），无新增人工审批门、产品 allowlist 或静态 hard deny。无正面源码（这是负面要求）；satisfied=false。"
     },
     {
       "requirement_id": "R165",
