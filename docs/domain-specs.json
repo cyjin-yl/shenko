@@ -69,6 +69,12 @@
       "sections": "§10/12/36/41.1/41.4; C01/C17/C21"
     },
     {
+      "file": "docs/specs/ecosystem-adapters.md",
+      "owner": "ArchEcosystem",
+      "current_agent": "ArchEcosystem",
+      "sections": "§49（新增章节）；复用 §7/§18/§36/§45 的安装、任务效果与认知单元机制"
+    },
+    {
       "file": "docs/specs/inference.md",
       "owner": "ArchBroker",
       "current_agent": "ArchBrokerNext",
@@ -97,6 +103,12 @@
       "owner": "ArchModelChildren",
       "current_agent": "ArchModelChildrenNext",
       "sections": "§5.3/5.5/6/14.5/41.5; R106/R107"
+    },
+    {
+      "file": "docs/specs/network-observation.md",
+      "owner": "ArchNetwork",
+      "current_agent": "ArchNetwork",
+      "sections": "§9.4/§18.7/§45；net.probe（native 定义版本 1）"
     },
     {
       "file": "docs/specs/nodes.md",
