@@ -136,8 +136,11 @@ impl UiServer {
         mut self,
         registry: std::sync::Arc<shenko_context_policy::PolicyRegistry>,
         capabilities: Option<shenko_broker::request::ProviderCapabilities>,
+        reserved_output_tokens: u64,
     ) -> Self {
-        self.context = Some(api::ContextFacts { registry: Some(registry), capabilities });
+        self.context = Some(api::ContextFacts {
+            registry: Some(registry), capabilities, reserved_output_tokens,
+        });
         self
     }
 
