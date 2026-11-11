@@ -26,10 +26,11 @@ use shenko_types::channel::{
     ChannelError, ChannelPlugin, ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
     ResolvedAttachment,
 };
+use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
 
-use crate::common::{ChannelCapabilities, ChannelHealth, HealthState, ReplyContextCache};
+use crate::common::{ChannelHealth, HealthState, ReplyContextCache};
 
 use super::api::{ILinkApi, ILinkError, MediaKind};
 use super::config::ILinkConfig;
@@ -87,29 +88,6 @@ impl ILinkChannel {
         &self.api
     }
 
-    /// What the iLink protocol can really do for this bot.
-    pub fn capabilities(&self) -> ChannelCapabilities {
-        ChannelCapabilities {
-            direct: true,
-            group: false,
-            thread: false,
-            guild_channel: false,
-            rich_text: false,
-            attachments: true,
-            edit: false,
-            retract: false,
-            typing: false,
-            proactive: true,
-            notes: vec![
-                "the protocol has no edit endpoint and no retract endpoint".to_string(),
-                "the protocol has no typing indicator".to_string(),
-                "a group send does not exist; only a direct conversation is served".to_string(),
-                "a reply must carry the conversation's own context_token".to_string(),
-                "media is stored on the provider CDN encrypted with AES-128-ECB".to_string(),
-            ],
-        }
-    }
-
     /// The current health of this connector.
     pub async fn health(&self) -> ChannelHealth {
         self.health.snapshot().await
@@ -134,6 +112,33 @@ fn owned_sources() -> Vec<String> {
 impl ChannelPlugin for ILinkChannel {
     fn channel_id(&self) -> &str {
         ILINK_CHANNEL_ID
+    }
+
+    fn account_scope(&self) -> String {
+        self.config.account_scope()
+    }
+
+    /// What the iLink protocol can really do for this bot.
+    fn capabilities(&self) -> ChannelCapabilities {
+        ChannelCapabilities {
+            direct: true,
+            group: false,
+            thread: false,
+            guild_channel: false,
+            rich_text: false,
+            attachments: true,
+            edit: false,
+            retract: false,
+            typing: false,
+            proactive: true,
+            notes: vec![
+                "the protocol has no edit endpoint and no retract endpoint".to_string(),
+                "the protocol has no typing indicator".to_string(),
+                "a group send does not exist; only a direct conversation is served".to_string(),
+                "a reply must carry the conversation's own context_token".to_string(),
+                "media is stored on the provider CDN encrypted with AES-128-ECB".to_string(),
+            ],
+        }
     }
 
     fn sources(&self) -> &[String] {

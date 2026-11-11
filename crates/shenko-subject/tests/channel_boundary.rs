@@ -60,6 +60,26 @@ impl ChannelPlugin for StubChannel {
         &self.channel
     }
 
+    fn account_scope(&self) -> String {
+        "relay:local".to_string()
+    }
+
+    fn capabilities(&self) -> shenko_types::capabilities::ChannelCapabilities {
+        shenko_types::capabilities::ChannelCapabilities {
+            direct: false,
+            group: true,
+            thread: false,
+            guild_channel: false,
+            rich_text: false,
+            attachments: false,
+            edit: false,
+            retract: false,
+            typing: false,
+            proactive: false,
+            notes: vec!["a test stub that serves one room audience".to_string()],
+        }
+    }
+
     fn sources(&self) -> &[String] {
         std::slice::from_ref(&self.source)
     }

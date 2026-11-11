@@ -3,6 +3,7 @@
 
 pub mod agent;
 pub mod activation;
+pub mod capabilities;
 pub mod channel;
 pub mod cognitive_root;
 pub mod commit;
@@ -24,6 +25,7 @@ pub mod wasm_state;
 
 pub use agent::*;
 pub use activation::*;
+pub use capabilities::*;
 pub use commit::*;
 pub use cognition::*;
 pub use effect::*;

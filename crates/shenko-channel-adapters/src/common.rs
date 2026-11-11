@@ -1,13 +1,14 @@
-//! Facts every adapter shares: what the platform can really do, how healthy
-//! the connector is, and the small amount of HTTP/token plumbing that must
-//! behave identically everywhere.
+//! Facts every adapter shares: how healthy the connector is, and the small
+//! amount of HTTP/token plumbing that must behave identically everywhere.
 //!
 //! SPEC §15.3 requires capability discovery, authentication/renewal and health
-//! status to be *real* platform facts. Nothing here may promise a capability
-//! the platform does not have: the three adapters fill these structures from
-//! their own protocol documents, and the difference between QQ official
-//! (guild-only typing, group-wide receipt scope) and Feishu (no typing
-//! indicator at all) stays visible instead of being smoothed over.
+//! status to be *real* platform facts. The capability table itself belongs to
+//! the plugin contract (`shenko_types::capabilities::ChannelCapabilities`),
+//! so every installed channel — the three adapters here and the QQ plugin
+//! elsewhere — declares what its platform can really do in one place, and
+//! the difference between QQ official (guild-only typing, group-wide receipt
+//! scope) and Feishu (no typing indicator at all) stays visible instead of
+//! being smoothed over.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,58 +28,6 @@ use shenko_types::channel::{
 /// Bumped only when the meaning of an envelope field changes. The core reads
 /// the version, so an older sealed envelope is still recognisable.
 pub const ADAPTER_ENVELOPE_SCHEMA_VERSION: u32 = 1;
-
-/// What one platform can actually do.
-///
-/// The model grammar and the runtime advertise exactly this set. A field that
-/// is `false` is a promise NOT to attempt the action, not a promise that the
-/// platform might accept it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChannelCapabilities {
-    /// One-to-one conversations with a person.
-    pub direct: bool,
-    /// Group conversations.
-    pub group: bool,
-    /// Thread/topic conversations.
-    pub thread: bool,
-    /// Guild/channel conversations (QQ official channels).
-    pub guild_channel: bool,
-    /// Structured rich text beyond plain text.
-    pub rich_text: bool,
-    /// Attachments (images, files, voice, video).
-    pub attachments: bool,
-    /// Editing a delivered message.
-    pub edit: bool,
-    /// Retracting a delivered message.
-    pub retract: bool,
-    /// Publishing a typing indicator.
-    pub typing: bool,
-    /// Sending without an inbound message (proactive delivery).
-    pub proactive: bool,
-    /// Human-readable notes about the real limits of the above.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notes: Vec<String>,
-}
-
-impl ChannelCapabilities {
-    /// The capability set of a platform that has no channel features at all.
-    pub fn none() -> Self {
-        Self {
-            direct: false,
-            group: false,
-            thread: false,
-            guild_channel: false,
-            rich_text: false,
-            attachments: false,
-            edit: false,
-            retract: false,
-            typing: false,
-            proactive: false,
-            notes: vec![],
-        }
-    }
-}
 
 /// The connector's health, as observed by this runtime.
 ///

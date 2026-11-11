@@ -28,4 +28,6 @@ pub use outbound::{OutboundMessage, build_outbound, downgrade_markdown};
 pub use spool::*;
 
 #[cfg(test)]
+mod capability_tests;
+#[cfg(test)]
 mod notice_tests;

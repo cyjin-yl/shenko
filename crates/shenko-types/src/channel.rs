@@ -33,6 +33,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::capabilities::ChannelCapabilities;
 use crate::object::Digest;
 use crate::output::PublicationTarget;
 
@@ -527,9 +528,29 @@ pub enum ChannelError {
 /// Implementations own their transport, their credentials and their own
 /// runtime lifecycle. They never own a second operation ledger: the durable
 /// intent, attempt and receipt are recorded by the shared Store path.
+///
+/// The plugin also states what its platform can really do
+/// ([`ChannelCapabilities`]) and whose account it serves
+/// ([`ChannelPlugin::account_scope`]), so the runtime never has to know a
+/// platform by name in order to advertise it honestly (SPEC §15.3, §57.4).
 pub trait ChannelPlugin: Send + Sync {
     /// The stable channel id, e.g. `qq`.
     fn channel_id(&self) -> &str;
+
+    /// The account namespace this connector's conversations belong to.
+    ///
+    /// The platform addresses people by its own ids, so this namespace is
+    /// the plugin's own account fact — never derived from a group role or a
+    /// transport token.
+    fn account_scope(&self) -> String;
+
+    /// What this platform can really do.
+    ///
+    /// A field that is `false` is a promise NOT to attempt the action, not a
+    /// promise that the platform might accept it. The table is the plugin's
+    /// own declaration: the runtime advertises exactly what a plugin says it
+    /// can produce (SPEC §15.3, §57.4, RT19).
+    fn capabilities(&self) -> ChannelCapabilities;
 
     /// The `InboxEvent.source` labels this plugin produces. At most one plugin
     /// may claim a given label.
@@ -706,6 +727,25 @@ impl ChannelRegistry {
     /// All registered plugins, in registration order.
     pub fn plugins(&self) -> impl Iterator<Item = &Arc<dyn ChannelPlugin>> {
         self.plugins.iter()
+    }
+
+    /// What every registered channel can really do, in registration order.
+    ///
+    /// The runtime advertises this table instead of a hand-written list per
+    /// platform: a channel that is installed declares its own capabilities,
+    /// so a new plugin is described the same way as the shipped ones
+    /// (SPEC §15.3, §57.4).
+    pub fn capability_tables(&self) -> Vec<(String, String, ChannelCapabilities)> {
+        self.plugins
+            .iter()
+            .map(|plugin| {
+                (
+                    plugin.channel_id().to_string(),
+                    plugin.account_scope(),
+                    plugin.capabilities(),
+                )
+            })
+            .collect()
     }
 
     /// Resolve a `[reply:<tag>:<id>]` audience kind to its channel.

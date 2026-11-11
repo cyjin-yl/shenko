@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use shenko_types::channel::{ChannelPlugin, ChannelRegistry, ChannelRegistryError};
 
-use crate::common::{ChannelCapabilities, ChannelHealth, HealthState, PlatformHttp, ReplyContextCache};
+use crate::common::{ChannelHealth, HealthState, PlatformHttp, ReplyContextCache};
 use crate::feishu::api::FeishuApi;
 use crate::feishu::auth::TenantAuth;
 use crate::feishu::events::FEISHU_CHANNEL_ID;
@@ -166,8 +166,6 @@ pub struct AdapterObservation {
     pub source: String,
     /// The live health observation.
     pub health: HealthState,
-    /// What this platform can actually do.
-    pub capabilities: ChannelCapabilities,
 }
 
 impl std::fmt::Debug for AdapterObservation {
@@ -234,7 +232,6 @@ impl Adapters {
                 account: account.clone(),
                 source: plugin.sources()[0].clone(),
                 health: health.clone(),
-                capabilities: plugin.capabilities(),
             });
             ledgers.push(ledger.clone());
             let cursor = qq_cursor_path(&deps.data_dir, &account);
@@ -270,7 +267,6 @@ impl Adapters {
                 account: account.clone(),
                 source: plugin.sources()[0].clone(),
                 health: health.clone(),
-                capabilities: plugin.capabilities(),
             });
             ledgers.push(ledger.clone());
             let cursor = ilink_cursor_path(&deps.data_dir, &account);
@@ -307,7 +303,6 @@ impl Adapters {
                 account: account.clone(),
                 source: plugin.sources()[0].clone(),
                 health: health.clone(),
-                capabilities: plugin.capabilities(),
             });
             ledgers.push(ledger.clone());
             ingress.push(Ingress::Feishu(Arc::new(FeishuMonitor::new(
