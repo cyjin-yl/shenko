@@ -41,6 +41,14 @@ CREATE TABLE node_reconciliations(seq INTEGER PRIMARY KEY AUTOINCREMENT,data TEX
 CREATE TABLE node_assignment_fences(task TEXT NOT NULL,epoch TEXT NOT NULL,election_term TEXT NOT NULL,election_epoch TEXT NOT NULL,PRIMARY KEY(task,epoch));
 CREATE TABLE node_observation_fences(observation_id TEXT PRIMARY KEY,data TEXT NOT NULL);";
 
+/// Additive node storage schema 8: the divergent control-log entries a
+/// follower refused, kept side by side as evidence. Each refused append
+/// records two rows under one conflict identity: the record this node
+/// committed (`committed`) and the record the leader offered for the same
+/// index (`offered`). Neither side is ever deleted or overwritten.
+pub(crate) const CONTROL_CONFLICT_SCHEMA: &str = "
+CREATE TABLE node_control_log_conflicts(seq INTEGER PRIMARY KEY AUTOINCREMENT,conflict_id TEXT NOT NULL,idx INTEGER NOT NULL,side TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(conflict_id,side));";
+
 /// Wire schema of the election control plane. Independent of the closure
 /// replication framing: a vote is a control fact, not a memory transfer.
 pub const ELECTION_WIRE_SCHEMA: u32 = 1;
@@ -201,7 +209,7 @@ pub struct ConfigurationEntry {
     pub proposal_new: Vec<VoterId>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ControlEntry {
     pub index: u64,
@@ -289,6 +297,31 @@ pub struct AppendOutcome {
     pub accepted: usize,
     pub commit_index: u64,
     pub reason: String,
+}
+
+/// Which side of a control-log divergence one evidence row retains.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlConflictSide {
+    /// The record this node committed at the index.
+    Committed,
+    /// The record a leader offered for the same index.
+    Offered,
+}
+
+/// One retained side of a control-log divergence: an offered entry that
+/// names an index this node already committed with a different term or a
+/// different decision. Both sides of a divergence are kept so the fact is
+/// diagnosable later; the committed record is never deleted or overwritten.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ControlLogConflict {
+    /// Content-derived identity shared by both sides of one divergence.
+    pub conflict_id: Digest,
+    pub index: u64,
+    pub side: ControlConflictSide,
+    pub entry: ControlEntry,
+    pub detected_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -711,8 +744,8 @@ impl Node {
     }
 
     pub fn election_role(&self) -> Result<ElectionRole> {
-        Ok(match get_state::<String>(&self.conn, "role")? {
-            Some(role) => serde_json::from_str(&role)?,
+        Ok(match get_state::<ElectionRole>(&self.conn, "role")? {
+            Some(role) => role,
             None => ElectionRole::Follower,
         })
     }
@@ -848,7 +881,18 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(existing) = Self::committed_config(&tx)? {
+        let first = entries.first().context("pushed control log must contain the full committed prefix")?;
+        ensure!(first.index == 1, "pushed control log must start at index 1");
+        ensure!(entries.windows(2).all(|pair| pair[0].index.checked_add(1) == Some(pair[1].index)),
+            "pushed control log is not continuous");
+        let end = entries.last().unwrap().index;
+        let commit_index = state_number(&tx, "commit_index")?;
+        let (last_index, _) = Self::last_log_position(&tx)?;
+        ensure!(end >= commit_index && end >= last_index,
+            "pushed control log does not cover the retained prefix; histories must be reconciled");
+        let prior_config = Self::committed_config(&tx)?;
+        let learns_configuration = prior_config.as_ref().is_none_or(|existing| existing.revision < config.revision);
+        if let Some(existing) = prior_config {
             ensure!(
                 existing.revision <= config.revision,
                 "pushed member configuration is older than the committed one"
@@ -858,12 +902,17 @@ impl Node {
                     existing.digest == config.digest,
                     "pushed member configuration conflicts with the committed one"
                 );
-                tx.commit()?;
-                return Ok(existing);
             }
         }
+        let mut configuration_in_log = false;
+        let mut pushed_term = 0;
         for entry in entries {
-            Self::verify_control_entry(entry)?;
+            ensure!(entry.term >= pushed_term, "pushed control log terms are not monotonic");
+            pushed_term = entry.term;
+            if let Some(payload) = Self::verify_control_entry(entry)? {
+                configuration_in_log |= payload.revision == config.revision
+                    && payload.digest == config.digest && entry.term == config.term;
+            }
             // An index this node already committed carries one decision. A
             // different entry at the same index is a diverged branch, not a
             // newer fact: it is refused instead of silently replacing what
@@ -876,54 +925,56 @@ impl Node {
                     "control log entry {} differs from the entry this node committed; the branches must be reconciled, not overwritten",
                     entry.index
                 );
+            } else {
+                ensure!(entry.index > commit_index,
+                    "the retained committed prefix has a missing entry; histories must be reconciled");
             }
-            tx.execute(
-                "INSERT OR REPLACE INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
-                params![
-                    i64::try_from(entry.index)?,
-                    i64::try_from(entry.term)?,
-                    control_kind_name(entry.kind),
-                    text(entry)?
-                ],
-            )?;
-            // The pushed decisions are verified quorum decisions, so the
-            // adopter really learns them: a configuration push that carried a
-            // primary claim must not leave the adopter on an older authority.
-            Self::apply_control_entry(&tx, entry)?;
         }
-        tx.execute(
-            "INSERT OR REPLACE INTO node_member_configs(revision,term,data) VALUES(?1,?2,?3)",
-            params![
-                i64::try_from(config.revision)?,
-                i64::try_from(config.term)?,
-                text(config)?
-            ],
-        )?;
-        // The pushed log must commit the configuration that was pushed: a log
-        // whose newest configuration row is another one leaves the adopter on
-        // an authority it never verified.
-        let landed = Self::committed_config(&tx)?;
+        ensure!(configuration_in_log,
+            "the pushed control log does not commit the advertised configuration");
+        {
+            let mut insert = tx.prepare(
+                "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4) ON CONFLICT(idx) DO NOTHING",
+            )?;
+            for entry in entries {
+                if entry.index <= commit_index {
+                    continue;
+                }
+                if insert.execute(params![i64::try_from(entry.index)?, i64::try_from(entry.term)?,
+                    control_kind_name(entry.kind), text(entry)?])? == 1
+                {
+                    Self::apply_control_entry(&tx, entry)?;
+                }
+            }
+        }
+        // Only verified log entries can create configuration facts. Inserting
+        // the advertised config first would make this check vacuous.
+        let mut landed = Self::committed_config(&tx)?.context("pushed log has no committed configuration")?;
         ensure!(
-            landed.is_some_and(|committed| committed.digest == config.digest),
+            landed.revision == config.revision && landed.term == config.term && landed.digest == config.digest,
             "the pushed control log commits a different configuration than the one pushed"
         );
-        let commit_index = entries
-            .iter()
-            .map(|entry| entry.index)
-            .max()
-            .unwrap_or(config.revision);
-        set_state(&tx, "commit_index", &commit_index.to_string())?;
-        if config.term > state_number(&tx, "term")? {
-            set_state(&tx, "term", &config.term.to_string())?;
+        if learns_configuration {
+            // Preserve the originating commit time only after the log has
+            // authenticated the new revision. This row is new in this
+            // transaction; previously retained metadata is never rewritten.
+            tx.execute("UPDATE node_member_configs SET data=?2 WHERE revision=?1",
+                params![i64::try_from(config.revision)?, text(config)?])?;
+            landed.committed_at = config.committed_at;
+        }
+        set_state(&tx, "commit_index", &end.to_string())?;
+        if pushed_term > state_number(&tx, "term")? {
+            set_state(&tx, "term", &pushed_term.to_string())?;
         }
         tx.commit()?;
-        Ok(config.clone())
+        Ok(landed)
     }
 
-    fn verify_control_entry(entry: &ControlEntry) -> Result<()> {
+    /// Return already-verified configuration data when this entry commits one.
+    fn verify_control_entry(entry: &ControlEntry) -> Result<Option<ConfigurationEntry>> {
         match entry.kind {
             ControlKind::Primary => {
-                let payload: PrimaryEntry = serde_json::from_value(entry.payload.clone())?;
+                let payload = PrimaryEntry::deserialize(&entry.payload)?;
                 let members: BTreeSet<VoterId> = payload.members.iter().copied().collect();
                 let voters: BTreeSet<VoterId> = payload.certificate.voters.iter().copied().collect();
                 for voter in &payload.certificate.voters {
@@ -936,10 +987,10 @@ impl Node {
                     counted(&payload.members, &voters) >= majority(&payload.members),
                     "primary entry does not carry a quorum certificate"
                 );
-                Ok(())
+                Ok(None)
             }
             ControlKind::MemberConfiguration => {
-                let payload: ConfigurationEntry = serde_json::from_value(entry.payload.clone())?;
+                let payload = ConfigurationEntry::deserialize(&entry.payload)?;
                 let voters: BTreeSet<VoterId> = payload.certificate.voters.iter().copied().collect();
                 ensure!(
                     counted(&payload.proposal_old, &voters) >= majority(&payload.proposal_old)
@@ -952,7 +1003,7 @@ impl Node {
                     expected == payload.digest,
                     "member configuration entry digest does not match its content"
                 );
-                Ok(())
+                Ok(Some(payload))
             }
         }
     }
@@ -1375,7 +1426,7 @@ impl Node {
             kind: ControlKind::Primary,
             payload: serde_json::to_value(&payload)?,
         };
-        Self::verify_control_entry(&entry)?;
+        let _ = Self::verify_control_entry(&entry)?;
         tx.execute(
             "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
             params![
@@ -1403,6 +1454,26 @@ impl Node {
     ///
     /// The follower verifies the quorum certificate itself: it does not trust
     /// the leader's word that a decision was committed.
+    ///
+    /// The request is accepted as a whole or refused as a whole. Three
+    /// relations must hold before anything is applied:
+    ///
+    /// - the committed prefix: `prev_index`/`prev_term` must name an entry
+    ///   this node already committed;
+    /// - the input suffix: its first entry must continue the predecessor
+    ///   (`prev_index + 1`) and every later entry must continue the one
+    ///   before it — no index may be skipped;
+    /// - each offered entry either extends the committed prefix by exactly
+    ///   one or replays an already-committed entry with identical content.
+    ///
+    /// A suffix that skips an index is a `log_mismatch`: nothing is applied,
+    /// the commit index does not move, and no primary or configuration fact
+    /// changes. An entry that names an index this node already committed
+    /// with a different term or a different decision is a conflict: both the
+    /// committed record and the offered record are retained as evidence, and
+    /// the committed record is never overwritten. An offered entry that is
+    /// identical to the committed one is an idempotent replay, not a
+    /// conflict.
     pub fn append_control_entries(&mut self, request: &AppendRequest) -> Result<AppendOutcome> {
         ensure!(
             request.schema == ELECTION_WIRE_SCHEMA,
@@ -1412,45 +1483,107 @@ impl Node {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         Self::stored_node_id(&tx)?.context("node not initialized")?;
-        let mut commit_index = state_number(&tx, "commit_index")?;
+        let commit_index = state_number(&tx, "commit_index")?;
+        let node_term = state_number(&tx, "term")?;
+        macro_rules! refuse {
+            ($reason:expr) => {{
+                return Ok(AppendOutcome {
+                    accepted: 0,
+                    commit_index,
+                    reason: $reason.into(),
+                });
+            }};
+        }
         if request.prev_index > 0 {
             let previous = Self::control_entry(&tx, request.prev_index)?;
             let Some(previous) = previous else {
-                tx.commit()?;
-                return Ok(AppendOutcome {
-                    accepted: 0,
-                    commit_index,
-                    reason: "log_mismatch: predecessor entry is missing".into(),
-                });
+                refuse!("log_mismatch: predecessor entry is missing");
             };
             if previous.term != request.prev_term {
+                refuse!("log_mismatch: predecessor term differs");
+            }
+            if request.prev_index > commit_index {
+                refuse!("log_mismatch: the predecessor is beyond the committed prefix");
+            }
+        }
+        // The input suffix must continue the predecessor without a gap: the
+        // first entry is exactly `prev_index + 1` and every later entry is
+        // exactly one more than the one before it.
+        let Some(expected_first) = request.prev_index.checked_add(1) else {
+            refuse!("log_mismatch: the predecessor index is exhausted");
+        };
+        if let Some(first) = request.entries.first() {
+            if first.index != expected_first {
+                refuse!("log_mismatch: the first entry does not continue the predecessor");
+            }
+            for pair in request.entries.windows(2) {
+                if Some(pair[1].index) != pair[0].index.checked_add(1) {
+                    refuse!("log_mismatch: the appended entries are not continuous");
+                }
+            }
+        }
+        // Nothing is applied until the whole suffix has been checked. A stale
+        // term or an unverified certificate refuses the request as a whole.
+        let mut batch_term = node_term;
+        for entry in &request.entries {
+            if entry.term < batch_term {
+                refuse!("stale_term: entry predates the current term");
+            }
+            if let Err(error) = Self::verify_control_entry(entry) {
+                refuse!(format!("unverified_entry: {error:#}"));
+            }
+            batch_term = batch_term.max(entry.term);
+            // An index this node already committed carries one decision. The
+            // offered entry must be exactly that decision; a divergence is a
+            // conflict and both records are retained as evidence.
+            let Some(existing) = Self::control_entry(&tx, entry.index)? else {
+                continue;
+            };
+            let differs = existing != *entry;
+            if entry.index > commit_index && differs {
+                refuse!("log_mismatch: a divergent stored record is beyond the committed prefix");
+            }
+            if existing.term != entry.term {
+                Self::record_control_conflict(&tx, entry.index, &existing, entry)?;
                 tx.commit()?;
                 return Ok(AppendOutcome {
                     accepted: 0,
                     commit_index,
-                    reason: "log_mismatch: predecessor term differs".into(),
+                    reason: format!(
+                        "log_conflict: the entry at index {} carries a different term",
+                        entry.index
+                    ),
+                });
+            }
+            if differs {
+                Self::record_control_conflict(&tx, entry.index, &existing, entry)?;
+                tx.commit()?;
+                return Ok(AppendOutcome {
+                    accepted: 0,
+                    commit_index,
+                    reason: format!(
+                        "log_conflict: the entry at index {} carries a different decision",
+                        entry.index
+                    ),
                 });
             }
         }
-        let mut current_term = state_number(&tx, "term")?;
+        // Apply the suffix: a new entry must extend the contiguous committed
+        // prefix by exactly one; an identical entry is an idempotent replay.
+        // Physical presence above the recorded commit frontier is not proof
+        // of commitment. Legacy configuration pushes could leave such rows;
+        // a replay must not silently promote them or report an index that was
+        // never written back to state. Inconsistent histories need explicit
+        // reconciliation, not implicit backfill of already-applied decisions.
+        let mut end = commit_index;
+        let mut next = end.checked_add(1).context("control log index exhausted")?;
         let mut accepted = 0usize;
-        let mut reason = "accepted".to_string();
         for entry in &request.entries {
-            if entry.term < current_term {
-                reason = "stale_term: entry predates the current term".into();
-                break;
-            }
-            if let Err(error) = Self::verify_control_entry(entry) {
-                reason = format!("unverified_entry: {error:#}");
-                break;
-            }
-            let existing = Self::control_entry(&tx, entry.index)?;
-            if let Some(existing) = existing {
-                if existing.term != entry.term {
-                    reason = "log_mismatch: entry at this index has another term".into();
-                    break;
-                }
+            if Self::control_entry(&tx, entry.index)?.is_some() {
                 continue;
+            }
+            if entry.index != next {
+                refuse!("log_mismatch: the appended entries do not extend the committed prefix");
             }
             tx.execute(
                 "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
@@ -1461,21 +1594,56 @@ impl Node {
                     text(entry)?
                 ],
             )?;
-            accepted += 1;
             Self::apply_control_entry(&tx, entry)?;
-            commit_index = commit_index.max(entry.index);
-            current_term = current_term.max(entry.term);
+            accepted += 1;
+            end = entry.index;
+            next = end.checked_add(1).context("control log index exhausted")?;
         }
         if accepted > 0 {
-            set_state(&tx, "commit_index", &commit_index.to_string())?;
-            set_state(&tx, "term", &current_term.to_string())?;
+            set_state(&tx, "commit_index", &end.to_string())?;
+            set_state(&tx, "term", &batch_term.to_string())?;
         }
         tx.commit()?;
         Ok(AppendOutcome {
             accepted,
-            commit_index,
-            reason,
+            commit_index: end,
+            reason: "accepted".into(),
         })
+    }
+
+    /// Retain both sides of a control-log divergence under one content-derived
+    /// conflict identity. The committed record is read back unchanged; the
+    /// offered record is the one the leader sent. Re-observing the same
+    /// divergence reuses the identity, so the evidence is recorded once.
+    fn record_control_conflict(
+        tx: &Transaction<'_>,
+        index: u64,
+        committed: &ControlEntry,
+        offered: &ControlEntry,
+    ) -> Result<Digest> {
+        let conflict_id = digest(&(index, committed, offered))?;
+        for (side, entry) in [
+            (ControlConflictSide::Committed, committed),
+            (ControlConflictSide::Offered, offered),
+        ] {
+            let record = ControlLogConflict {
+                conflict_id: conflict_id.clone(),
+                index,
+                side,
+                entry: entry.clone(),
+                detected_at: chrono::Utc::now(),
+            };
+            tx.execute(
+                "INSERT OR IGNORE INTO node_control_log_conflicts(conflict_id,idx,side,data) VALUES(?1,?2,?3,?4)",
+                params![
+                    conflict_id.0,
+                    i64::try_from(index).context("control log index out of range")?,
+                    side_name(side),
+                    text(&record)?
+                ],
+            )?;
+        }
+        Ok(conflict_id)
     }
 
     fn apply_control_entry(tx: &Transaction<'_>, entry: &ControlEntry) -> Result<()> {
@@ -1757,7 +1925,7 @@ impl Node {
             kind: ControlKind::MemberConfiguration,
             payload: serde_json::to_value(&payload)?,
         };
-        Self::verify_control_entry(&entry)?;
+        let _ = Self::verify_control_entry(&entry)?;
         tx.execute(
             "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
             params![
@@ -2276,6 +2444,21 @@ impl Node {
         Ok(entries)
     }
 
+    /// The control-log divergences this node refused and retained as
+    /// evidence: one `committed` row (the record this node committed) and
+    /// one `offered` row (the record a leader sent) per divergence.
+    pub fn control_log_conflicts(&self) -> Result<Vec<ControlLogConflict>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT data FROM node_control_log_conflicts ORDER BY seq")?;
+        let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(serde_json::from_str(&row?)?);
+        }
+        Ok(records)
+    }
+
     /// The election, membership and authority facts of this node.
     pub fn election_status(&self) -> Result<Value> {
         let config = self.member_configuration()?;
@@ -2309,6 +2492,11 @@ impl Node {
         let parallel_facts: i64 =
             self.conn
                 .query_row("SELECT count(*) FROM conflicts", [], |r| r.get(0))?;
+        let retained_conflicts: i64 = self.conn.query_row(
+            "SELECT count(*) FROM node_control_log_conflicts",
+            [],
+            |r| r.get(0),
+        )?;
         Ok(json!({
             "node_id": self.local_node_id()?,
             "term": term.to_string(),
@@ -2321,6 +2509,8 @@ impl Node {
             "recorded_election_votes": votes,
             "branches": branches,
             "parallel_facts_retained": parallel_facts.to_string(),
+            "control_log_conflicts_retained": retained_conflicts.to_string(),
+            "control_log_conflicts_are_evidence": true,
             "parallel_facts_are_evidence": true,
             "is_election": true,
             "quorum_basis": "committed_member_configuration",
@@ -2336,5 +2526,260 @@ fn control_kind_name(kind: ControlKind) -> &'static str {
     match kind {
         ControlKind::Primary => "primary",
         ControlKind::MemberConfiguration => "member_configuration",
+    }
+}
+
+fn side_name(side: ControlConflictSide) -> &'static str {
+    match side {
+        ControlConflictSide::Committed => "committed",
+        ControlConflictSide::Offered => "offered",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Request;
+
+    /// A private node fixture: no network, no credentials, no peer route. All
+    /// facts are read back from the node's own durable store.
+    fn node(dir: &std::path::Path) -> Node {
+        let mut node = Node::open(dir).unwrap();
+        node.handle(Request::Initialize {
+            node_id: EntityId::new(),
+            identity: None,
+        })
+        .unwrap();
+        node
+    }
+
+    fn node_id(node: &Node) -> EntityId {
+        node.local_node_id().unwrap().unwrap()
+    }
+
+    /// A real, independently verifiable primary entry: the certificate's
+    /// voters are drawn from the members it names, so a one-voter fixture
+    /// carries a real quorum certificate.
+    fn primary_entry(node: &Node, index: u64, term: u64, epoch: u64) -> ControlEntry {
+        let id = node_id(node);
+        let config = node.member_configuration().unwrap().unwrap();
+        ControlEntry {
+            index,
+            term,
+            kind: ControlKind::Primary,
+            payload: serde_json::to_value(PrimaryEntry {
+                leader_id: id,
+                epoch,
+                config_revision: config.revision,
+                config_digest: config.digest.clone(),
+                members: vec![id],
+                certificate: QuorumCertificate {
+                    term,
+                    voters: vec![id],
+                },
+            })
+            .unwrap(),
+        }
+    }
+
+    fn append(node: &mut Node, prev_index: u64, prev_term: u64, entries: Vec<ControlEntry>) -> AppendOutcome {
+        node.append_control_entries(&AppendRequest {
+            schema: ELECTION_WIRE_SCHEMA,
+            leader_id: node_id(node),
+            prev_index,
+            prev_term,
+            entries,
+            proposal: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn an_append_that_skips_the_predecessor_is_a_log_mismatch_and_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut node = node(&dir.path().join("node"));
+        node.ensure_member_configuration().unwrap();
+
+        let skipped = primary_entry(&node, 3, 1, 1);
+        let outcome = append(&mut node, 1, 1, vec![skipped]);
+        assert_eq!(outcome.accepted, 0);
+        assert!(outcome.reason.starts_with("log_mismatch"), "{}", outcome.reason);
+        assert_eq!(outcome.commit_index, 1);
+
+        // Nothing was applied: no hole was crossed, no fact was advanced.
+        assert_eq!(Node::control_entry(&node.conn, 3).unwrap(), None);
+        assert_eq!(node.control_log().unwrap().len(), 1);
+        assert_eq!(node.committed_primary_claim().unwrap(), None);
+        assert_eq!(node.current_term().unwrap(), 1);
+        assert!(node.control_log_conflicts().unwrap().is_empty());
+        let status = node.election_status().unwrap();
+        assert_eq!(status["this_node_is_primary"], json!(false));
+        assert_eq!(status["member_configuration"]["revision"], json!(1));
+    }
+
+    #[test]
+    fn a_divergent_entry_is_refused_and_both_records_are_retained() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut node = node(&dir.path().join("node"));
+        node.ensure_member_configuration().unwrap();
+
+        let committed = primary_entry(&node, 2, 1, 1);
+        let first = append(&mut node, 1, 1, vec![committed.clone()]);
+        assert_eq!(first.accepted, 1);
+
+        // The same index and term but a different decision is a conflict, not
+        // a silent no-op.
+        let divergent = primary_entry(&node, 2, 1, 9);
+        let outcome = append(&mut node, 1, 1, vec![divergent.clone()]);
+        assert_eq!(outcome.accepted, 0);
+        assert!(outcome.reason.starts_with("log_conflict"), "{}", outcome.reason);
+        assert_eq!(outcome.commit_index, 2);
+
+        // The committed decision was not deleted or overwritten.
+        assert_eq!(Node::control_entry(&node.conn, 2).unwrap().unwrap(), committed);
+        assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 1);
+        assert_eq!(node.control_log().unwrap().len(), 2);
+
+        // Both sides of the divergence are retained as durable evidence.
+        let conflicts = node.control_log_conflicts().unwrap();
+        assert_eq!(conflicts.len(), 2);
+        let committed_record = conflicts
+            .iter()
+            .find(|record| record.side == ControlConflictSide::Committed)
+            .unwrap();
+        let offered_record = conflicts
+            .iter()
+            .find(|record| record.side == ControlConflictSide::Offered)
+            .unwrap();
+        assert_eq!(committed_record.entry, committed);
+        assert_eq!(offered_record.entry, divergent);
+        assert_eq!(committed_record.conflict_id, offered_record.conflict_id);
+
+        // Replaying the same divergent request does not duplicate evidence.
+        let replay = append(&mut node, 1, 1, vec![divergent]);
+        assert_eq!(replay.accepted, 0);
+        assert_eq!(node.control_log_conflicts().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_identical_replay_is_idempotent_not_a_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut node = node(&dir.path().join("node"));
+        node.ensure_member_configuration().unwrap();
+
+        let entry = primary_entry(&node, 2, 1, 1);
+        let first = append(&mut node, 1, 1, vec![entry.clone()]);
+        assert_eq!(first.accepted, 1);
+        assert_eq!(first.commit_index, 2);
+
+        let replay = append(&mut node, 1, 1, vec![entry]);
+        assert_eq!(replay.accepted, 0);
+        assert_eq!(replay.reason, "accepted");
+        assert_eq!(replay.commit_index, 2);
+        assert_eq!(node.control_log().unwrap().len(), 2);
+        assert!(node.control_log_conflicts().unwrap().is_empty());
+        assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 1);
+    }
+
+    #[test]
+    fn a_replay_does_not_promote_rows_above_the_recorded_commit_frontier() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut node = node(&dir.path().join("node"));
+        node.ensure_member_configuration().unwrap();
+        let entry = primary_entry(&node, 2, 1, 1);
+        assert_eq!(append(&mut node, 1, 1, vec![entry.clone()]).commit_index, 2);
+        // A legacy PushConfig can regress this field while leaving rows in
+        // place. Presence alone cannot certify those rows as committed.
+        let tx = node.conn.transaction().unwrap();
+        set_state(&tx, "commit_index", &1u64.to_string()).unwrap();
+        tx.commit().unwrap();
+        let replay = append(&mut node, 1, 1, vec![entry.clone()]);
+        assert_eq!(replay.accepted, 0);
+        assert_eq!(replay.commit_index, 1);
+        assert_eq!(state_number(&node.conn, "commit_index").unwrap(), 1);
+        let third = primary_entry(&node, 3, 1, 2);
+        let refused = append(&mut node, 2, 1, vec![third]);
+        assert!(refused.reason.starts_with("log_mismatch"));
+        assert_eq!(refused.commit_index, 1);
+        assert!(Node::control_entry(&node.conn, 3).unwrap().is_none());
+        let tail = primary_entry(&node, 3, 1, 2);
+        let covered = append(&mut node, 1, 1, vec![entry, tail]);
+        assert!(covered.reason.starts_with("log_mismatch"));
+        assert_eq!(covered.commit_index, 1);
+        assert_eq!(node.control_log().unwrap().len(), 2);
+        assert!(Node::control_entry(&node.conn, 3).unwrap().is_none());
+        assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 1);
+    }
+
+    #[test]
+    fn a_configuration_push_cannot_certify_a_gapped_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut source = node(&dir.path().join("source"));
+        let config = source.ensure_member_configuration().unwrap();
+        let mut target = node(&dir.path().join("target"));
+        let skipped = primary_entry(&source, 2, 2, 1);
+        assert!(target.adopt_member_configuration(&config, &[skipped]).is_err());
+        assert!(target.control_log().unwrap().is_empty());
+        assert!(target.member_configuration().unwrap().is_none());
+        assert!(target.committed_primary_claim().unwrap().is_none());
+        assert_eq!(state_number(&target.conn, "commit_index").unwrap(), 0);
+        assert_eq!(target.current_term().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_configuration_push_requires_its_configuration_to_be_committed_in_the_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut source = node(&dir.path().join("source"));
+        let mut advertised = source.ensure_member_configuration().unwrap();
+        advertised.revision += 1;
+        let mut entries = source.control_log().unwrap();
+        entries.push(primary_entry(&source, 2, 2, 1));
+        let mut target = node(&dir.path().join("target"));
+        assert!(target.adopt_member_configuration(&advertised, &entries).is_err());
+        assert!(target.control_log().unwrap().is_empty());
+        assert!(target.member_configuration().unwrap().is_none());
+        assert!(target.committed_primary_claim().unwrap().is_none());
+        assert_eq!(state_number(&target.conn, "commit_index").unwrap(), 0);
+    }
+
+    #[test]
+    fn a_full_configuration_push_catches_up_without_replaying_or_rewinding_the_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut source = node(&dir.path().join("source"));
+        let config = source.ensure_member_configuration().unwrap();
+        let prefix = source.control_log().unwrap();
+        let mut target = node(&dir.path().join("target"));
+        target.adopt_member_configuration(&config, &prefix).unwrap();
+        assert_eq!(target.member_configuration().unwrap().unwrap().committed_at, config.committed_at);
+        let mut full = prefix.clone();
+        full.push(primary_entry(&source, 2, 3, 7));
+        // Equal configuration revision does not mean an equal committed log.
+        target.adopt_member_configuration(&config, &full).unwrap();
+        let claim = target.committed_primary_claim().unwrap().unwrap();
+        assert_eq!(claim.epoch, 7);
+        assert_eq!(target.current_term().unwrap(), 3);
+        assert_eq!(state_number(&target.conn, "commit_index").unwrap(), 2);
+        target.adopt_member_configuration(&config, &full).unwrap();
+        assert_eq!(target.committed_primary_claim().unwrap().unwrap().committed_at, claim.committed_at);
+        assert!(target.adopt_member_configuration(&config, &prefix).is_err());
+        assert_eq!(target.control_log().unwrap(), full);
+        assert_eq!(state_number(&target.conn, "commit_index").unwrap(), 2);
+        assert_eq!(target.current_term().unwrap(), 3);
+        assert_eq!(target.committed_primary_claim().unwrap().unwrap().epoch, 7);
+    }
+
+    #[test]
+    fn a_contiguous_suffix_is_accepted_and_the_commit_index_advances() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut node = node(&dir.path().join("node"));
+        node.ensure_member_configuration().unwrap();
+
+        let second = primary_entry(&node, 2, 1, 1);
+        let third = primary_entry(&node, 3, 1, 2);
+        let outcome = append(&mut node, 1, 1, vec![second, third]);
+        assert_eq!(outcome.accepted, 2);
+        assert_eq!(outcome.commit_index, 3);
+        assert_eq!(node.control_log().unwrap().len(), 3);
+        assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 2);
     }
 }
