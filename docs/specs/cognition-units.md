@@ -1272,3 +1272,13 @@ WASM 线性内存、执行栈和解释器对象图都在这个版本化根里。
 ## 默认元感知与元 awareness 的接续
 
 [接续合同](../decisions/0006-meta-perception-continuation-2026-11-11.md)将本主体的原任务、真实行动结果、失败与成本作为普通认知能力可以观察的对象。默认组合可替换；有限自用、带证据的补缺与可恢复修剪沿用本领域的单元、态度和版本权威，不新增高权限元层。安装事实、模型实际使用及效果分别验收。该合同明确区分 Issue #279 的作者摘要与尚未取得的用户原话，不回填来源编号或历史迁移标记。
+
+## Native query input and frozen state
+
+The native task kind selects the query. `cognition.unit.list:1` accepts the
+object `{start, count, catalog_revision?}`; `cognition.unit.evidence:1` accepts
+`{unit_id}`. These public inputs do not contain an `op` field or fields belonging
+to another query kind. The operation's sealed input and result may still carry
+`op`: that tag identifies the durable query representation, not an additional
+argument the caller must guess. Reconciliation reads the original sealed query
+under the existing operation and attempt; the frozen codec remains unchanged.
