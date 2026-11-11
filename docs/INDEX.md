@@ -15,6 +15,7 @@
 - [用户原话](requirements/user-sources.md)、[裁决记录](decisions/product-rulings.md)、[追踪矩阵](requirements/traceability.md)、[设计来源](requirements/design-provenance.md)。
 - [覆盖账本](state/coverage.json)与[运行证据](evidence/)：候选及验证状态。
 - [历史归档](history/)：不可用旧方法覆盖新的明确决定。
+- [默认元感知与元 awareness 接续](decisions/0006-meta-perception-continuation-2026-11-11.md)：Issue #279 摘要的工程合同；原始用户决定全文尚未取得，实现与模型效果仍需各自验收。
 
 ## 领域合同
 
