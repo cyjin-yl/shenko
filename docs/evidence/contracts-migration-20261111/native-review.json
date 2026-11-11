@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "kind": "contract-migration-native-validation",
+  "date": "2026-11-11",
+  "implementation_commit": "8eea220fc2b0dbbe20267de127e49ba053b06e4c",
+  "environment": "persistent Shenko development container; worktree-specific Cargo target; offline locked dependencies; two build jobs",
+  "documentation": {
+    "command": "python3 scripts/check_docs.py --verify-migration",
+    "exit_code": 0,
+    "migration_chunks": 365,
+    "requirements": 165,
+    "behaviors": 63,
+    "source_records": 59,
+    "acceptance_definitions": 236,
+    "errors": [],
+    "retained_log": "build/docs-283-verify-20261111/retained-r1-docs/docs.log",
+    "log_sha256": "deeb661cf970835c5d76de604e0b218cd47994a53883737684514f118aa41ab5",
+    "receipt_sha256": "f03523e484930707214d5ce652f4d28ca8fa0e82e98715f496ad8c80f7e6f627"
+  },
+  "evidence_consumer": {
+    "test_command": "cargo test --offline --locked -p shenko-evidence -j2 -- --nocapture",
+    "tests_passed": 26,
+    "test_log_sha256": "dd60a2cdf54d73061426ce0541bf8d3fbfb7ce939251ba9f11118d33b18b9845",
+    "cli_input": "docs/contracts.json",
+    "cli_exit_code": 0,
+    "requirements_with_current_source_locations": 165,
+    "behaviors_with_current_source_locations": 63,
+    "acceptance_cases_with_current_source_locations": 236,
+    "report_sha256": "6e8d7e332df468c4de4cbc8152f351a9f13e418cb61be5c53f17034647fb30c3",
+    "cli_log_sha256": "38626eeeaedfaf9577ea195e43a5bdcaaaac3d5d25a295784f6dde100826903b"
+  },
+  "self_knowledge_consumer": {
+    "method": "one-off native Rust caller of SelfKnowledgeProvider::install_source_index and get over the actual proposed source tree; no mocked catalogue",
+    "exit_code": 0,
+    "indexed_files": 123,
+    "current_contract_resources_visible": 39,
+    "why_target_anchors_visible": 13,
+    "retained_probe": "build/docs-283-verify-20261111/retained-source-index-smoke.rs",
+    "log_sha256": "47f7241bf28768e8a8d2e2e76cd22c2e9d7387650be41f1680582d88a5f5e590",
+    "truncated_at_existing_64_kib_bound": [
+      "docs/requirements/design-provenance.md",
+      "docs/specs/cognition-units.md",
+      "docs/specs/durable-state.md",
+      "docs/specs/inference.md",
+      "docs/specs/plugins.md",
+      "docs/specs/verification.md"
+    ]
+  },
+  "consumer_receipts": {
+    "path": "build/docs-283-verify-20261111/retained-r2-consumers/receipt.json",
+    "sha256": "c0ca4275a3f9197cfd88db9566f57a193a7f57dde51590e4dae679635bfa5ed7",
+    "tracked_source_paths": 1070,
+    "additional_probe_recorded": true,
+    "before_after_source_hashes_equal": true
+  },
+  "earlier_filter_mistake_retained": {
+    "awareness_core_self_knowledge_filter": {"compiled": true, "tests_run": 0, "log_sha256": "974b29fd6f82adbab20b8bad6441290d16107a370b3043b7e3c2e80ffd4fbc59"},
+    "bin_node_cognition_report_tests_filter": {"compiled": true, "tests_run": 0, "log_sha256": "7e669e5038a04794daa6d8a4b44f343c872054e49a6f222871f383ca016b0fb0"},
+    "interpretation": "These commands prove test-target compilation only. They are not counted among the 26 exercised tests. The actual CLI and source-index consumers were run afterward."
+  },
+  "boundary": "Contract relocation integrity, obligation inventory and bounded native source visibility only. This is not real-model efficacy, complete source reading past 64 KiB, full product acceptance, S1-S5 closure or completion of Issue #279. Original static-review.json remains a historical source-only record."
+}

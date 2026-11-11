@@ -1,6 +1,6 @@
 # Continuous-media transcript revision ingress
 
-SPEC: [§15.2](../specs/contacts.md#spec-15-2)、[§20](../specs/media.md#spec-20)、[§41.2](../specs/durable-state.md#spec-41-2)、[§41.3](../specs/durable-state.md#spec-41-3). Work package C16 / issue #21, case A16.
+Domain contracts: [§15.2](../specs/contacts.md#spec-15-2)、[§20](../specs/media.md#spec-20)、[§41.2](../specs/durable-state.md#spec-41-2)、[§41.3](../specs/durable-state.md#spec-41-3). Work package C16 / issue #21, case A16.
 
 This document describes the durable ingress contract **for real transcript
 providers**. It is not an ASR implementation and does not claim one exists:

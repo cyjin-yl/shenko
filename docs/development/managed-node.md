@@ -350,8 +350,9 @@ Objects are bounded and stored in the **same SQLite transaction** as references,
 so this adapter has no separate filesystem CAS publication window. Assignments,
 original work receipts, source events and conflict observations are retained.
 The experimental profile uses DELETE journal and read-back FULL/foreign_keys;
-it claims process-crash continuity only. It does not claim the SPEC default
-WAL/power-loss profile or upgrade the baseline SQLite 3.46.0 WAL guarantees.
+it claims process-crash continuity only. It does not claim the default
+WAL/power-loss profile in the [persistent-state contract](../specs/durable-state.md#spec-10)
+or upgrade the baseline SQLite 3.46.0 WAL guarantees.
 
 ## SSH deployment / 部署与断线恢复
 

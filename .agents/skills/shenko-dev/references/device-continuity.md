@@ -1,6 +1,6 @@
 # 多设备、分区与无模型恢复
 
-这些是同一自我的连续性与实际行动能力。当前产品合同见仓库 `SPEC.md` [§5.4](../../../../docs/specs/nodes.md#spec-5-4)、[§10](../../../../docs/specs/durable-state.md#spec-10)–[§11](../../../../docs/specs/remote-seats.md#spec-11)、[§22](../../../../docs/specs/nodes.md#spec-22)、[§24](../../../../docs/specs/desktop-runtime.md#spec-24)、[§38](../../../../docs/specs/cognition-units.md#spec-38)、[§41](../../../../docs/specs/architecture.md#spec-41) 及本轮原话 U57、U60–U62。实现应复用现有持久事实、身份、节点和执行协议，不为每项说明另建一个平台。
+这些是同一自我的连续性与实际行动能力。当前产品合同由 [现行文档索引](../../../../docs/INDEX.md) 导航至 [§5.4](../../../../docs/specs/nodes.md#spec-5-4)、[§10](../../../../docs/specs/durable-state.md#spec-10)–[§11](../../../../docs/specs/remote-seats.md#spec-11)、[§22](../../../../docs/specs/nodes.md#spec-22)、[§24](../../../../docs/specs/desktop-runtime.md#spec-24)、[§38](../../../../docs/specs/cognition-units.md#spec-38)、[§41](../../../../docs/specs/architecture.md#spec-41)；原话见 [用户来源](../../../../docs/requirements/user-sources.md) U57、U60–U62。实现应复用现有持久事实、身份、节点和执行协议，不为每项说明另建一个平台。
 
 ## 区分自我、主节点与能力
 
