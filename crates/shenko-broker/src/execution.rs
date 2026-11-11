@@ -1,4 +1,4 @@
-//! The execution of one admitted request — SPEC §41.9.
+//! The execution of one admitted request — docs/specs/inference.md#spec-41-9.
 //!
 //! The dispatch fence is checked at the send boundary, the provider runtime
 //! is resolved from the sealed binding, and the terminal result is produced
@@ -42,7 +42,7 @@ pub(crate) async fn execute_request(
 ) -> InferenceResult {
     // A running request is a real reader of its context's residency. While it
     // runs the context is not an eviction candidate, and a release requested in
-    // the meantime stays pending until this read ends (§13.3 step 6). A first
+    // the meantime stays pending until this read ends (docs/specs/quota-resources.md#spec-13-3 step 6). A first
     // request for a context has no lease yet, so there is nothing to hold.
     let context_id = residency_context(request);
     let reading = {
@@ -67,7 +67,7 @@ pub(crate) async fn execute_request(
             // connection, a deadline or an unknown dispatch fence is not proof
             // that it stopped. The read hold stays charged and off the
             // eviction list until the original terminal evidence arrives and
-            // the reconciliation path drains it (§13.3 step 6, §41.9).
+            // the reconciliation path drains it (docs/specs/quota-resources.md#spec-13-3 step 6, docs/specs/inference.md#spec-41-9).
             kv.hold_unknown_read(&mut pool, &request.request_id.to_string(), &context_id);
         } else {
             let _ = kv.end_read(&mut pool, &context_id);

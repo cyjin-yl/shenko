@@ -1,5 +1,5 @@
 //! Channel publication facts and the shared channel operation ledger.
-//! SPEC §15.3, §16, §35.6, §41.6.
+//! docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6, docs/specs/channels.md#spec-41-6.
 //!
 //! The Store owns the GENERIC facts of a channel publication: the intent, the
 //! operation, the attempt, the receipt and the subject-readable summary of
@@ -38,9 +38,9 @@ pub const PUBLICATION_TARGET_VERSION: u32 = 2;
 /// The version of the sealed decision record this Store WRITES.
 ///
 /// 9 adds the subject's acknowledgements of unknown external effects
-/// (SPEC §41.4 X11). Decisions sealed at 8 are still admitted verbatim: they
+/// (docs/specs/durable-state.md#spec-41-4 X11). Decisions sealed at 8 are still admitted verbatim: they
 /// simply could not carry an acknowledgement, and their meaning does not
-/// change (SPEC §51.1: old bytes are not rewritten, old readings stay).
+/// change (docs/specs/cognition-units.md#spec-51-1: old bytes are not rewritten, old readings stay).
 pub const DECISION_SCHEMA_VERSION: u32 = 9;
 
 /// Every committed decision schema this build still admits as a decision.
@@ -287,7 +287,7 @@ impl Store {
     /// T1: claim the publication intent and arm its operation and attempt.
     ///
     /// The intent claim, the armed operation/attempt and the task projection
-    /// commit in ONE transaction (SPEC §41.4 X07). A crash can therefore never
+    /// commit in ONE transaction (docs/specs/durable-state.md#spec-41-4 X07). A crash can therefore never
     /// leave an intent claimed without the attempt that approves a send, so
     /// the outbox has no durable state that is neither dispatchable nor
     /// reconcilable. A repeated admission — or any intent that is not `ready`

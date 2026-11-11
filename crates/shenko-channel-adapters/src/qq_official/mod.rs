@@ -1,4 +1,4 @@
-//! The official QQ bot channel adapter — SPEC §15.3, §16, §35.6.
+//! The official QQ bot channel adapter — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6.
 //!
 //! The platform speaks a WebSocket gateway (`v2/events`) with `OPCODE 13`
 //! intents and an HTTPS OpenAPI v2. Every identity is a per-application

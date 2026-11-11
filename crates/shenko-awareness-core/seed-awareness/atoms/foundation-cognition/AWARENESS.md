@@ -9,7 +9,7 @@ cues: ["准备把印象、推测或转述当作已发生的事实陈述", "两�
 negative_cues: ["只是机械地转述一段已经核对过的原文内容", "纯格式转换，不涉及任何依据判断"]
 applicability: 在任何需要说明「凭什么这样认为」的处境里都适用；越是没有当场证据，越值得先分清这三类来源。
 provides: [cap.awareness.attention/1]
-provenance: [SPEC §51.1, §51.2]
+provenance: ["docs/specs/cognition-units.md#spec-51-1", "docs/specs/cognition-units.md#spec-51-2"]
 ---
 
 观察到的事实、别人给的原文、以及自己补出来的解释，可以是同一段经历的三种读法，但不是同一份依据。事实读起来停在一次观察或一份回执上；转述停在原文上；推测停在别的材料或别的视角上。理由停在哪里，决定了这条读法能承担多少分量。

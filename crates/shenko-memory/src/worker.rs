@@ -1,11 +1,11 @@
 //! The memory worker — a real resident service that drains the durable
 //! memory intent queue and keeps the Git knowledge repository in sync.
 //!
-//! SPEC §12.2: accepted ≠ remembered. Acceptance makes the request durable;
+//! docs/specs/memory.md#spec-12-2: accepted ≠ remembered. Acceptance makes the request durable;
 //! this worker turns accepted requests into committed memory entries and
 //! records the outcome. It is a bounded background worker: it never runs
 //! under the ledger mutation line, never blocks the subject loop, and its
-//! shutdown is owned by the Cordis lifecycle (SPEC §45, Cordis shutdown
+//! shutdown is owned by the Cordis lifecycle (docs/specs/cognition-units.md#spec-45, Cordis shutdown
 //! barrier).
 use std::sync::Arc;
 use std::time::Duration;
@@ -76,7 +76,7 @@ impl MemoryWorker {
         }
     }
 
-    /// Cancel the resident drain loop. The Cordis shutdown barrier (SPEC §45)
+    /// Cancel the resident drain loop. The Cordis shutdown barrier (docs/specs/cognition-units.md#spec-45)
     /// owns when this fires; the loop exits at its next tick boundary.
     pub fn shutdown(&self) {
         self.stop.cancel();

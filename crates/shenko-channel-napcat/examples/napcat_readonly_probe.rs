@@ -1,4 +1,4 @@
-//! Operator-driven read-only probe against a real NapCat — SPEC §15.2, §16,
+//! Operator-driven read-only probe against a real NapCat — docs/specs/contacts.md#spec-15-2, docs/specs/channel-adapters.md#spec-16,
 //! §35.6. Not a test and not a fixture: it issues *read-only* `get_*` actions
 //! only — never sends messages, never contacts people — and prints the typed
 //! outcome of each read so an operator can verify the identity binding is

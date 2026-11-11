@@ -1,6 +1,6 @@
 //! Engine discovery and process launch for the native browser provider.
 //!
-//! SPEC §24.6: the browser is a real, installed engine. This module never
+//! docs/specs/browser.md#spec-24-6: the browser is a real, installed engine. This module never
 //! downloads an engine and never fabricates one: it looks for an already
 //! installed browser at a pinned set of locations, probes the real binary,
 //! and reports a typed-unavailable result naming exactly what is missing.

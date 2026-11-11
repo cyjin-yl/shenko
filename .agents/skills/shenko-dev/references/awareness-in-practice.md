@@ -1,6 +1,6 @@
 # 察觉如何进入持续的主体
 
-本文件展开 `shenko-dev` 的自然情境。它指导实现与判断，不是一张必须全部安装的插件清单，也不是固定状态机。正式产品合同与原话见当前仓库 `SPEC.md` §§5、11、22、24、38、41、45 及 U54–U62。
+本文件展开 `shenko-dev` 的自然情境。它指导实现与判断，不是一张必须全部安装的插件清单，也不是固定状态机。正式产品合同与原话见当前仓库 `SPEC.md` [§5](../../../../docs/specs/subject-runtime.md#spec-5)、[§11](../../../../docs/specs/remote-seats.md#spec-11)、[§22](../../../../docs/specs/nodes.md#spec-22)、[§24](../../../../docs/specs/desktop-runtime.md#spec-24)、[§38](../../../../docs/specs/cognition-units.md#spec-38)、[§41](../../../../docs/specs/architecture.md#spec-41)、[§45](../../../../docs/specs/cognition-units.md#spec-45) 及 U54–U62。
 
 ## 已有事实怎样变得值得关注
 

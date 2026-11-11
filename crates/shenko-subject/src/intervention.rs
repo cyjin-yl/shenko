@@ -1,5 +1,5 @@
 //! The bounded memory-intervention worker as a native child task.
-//! SPEC §14.4 (主动记忆 worker), §14.2 (四种状态不同处理).
+//! docs/specs/research-memory.md#spec-14-4 (主动记忆 worker), docs/specs/research-memory.md#spec-14-2 (四种状态不同处理).
 //!
 //! The worker is one finite task. It reads the structured bank of one
 //! research epoch, asks the installed [`MemoryInterventionPolicy`] what to
@@ -209,9 +209,9 @@ pub struct PmaEvaluateHandler {
     broker: BrokerHandle,
     policy: Arc<MemoryInterventionRegistry>,
     publisher: Option<Arc<dyn ReminderPublisher>>,
-    /// Installed quota strategies (SPEC §42.1): the intervention's own model
+    /// Installed quota strategies (docs/specs/quota-resources.md#spec-42-1): the intervention's own model
     /// request is admitted under the same set as the subject, never a second
-    /// policy source. An absent publication is the §42.5 baseline.
+    /// policy source. An absent publication is the docs/specs/quota-resources.md#spec-42-5 baseline.
     quota_strategies: shenko_quota::QuotaStrategies,
 }
 
@@ -239,7 +239,7 @@ impl PmaEvaluateHandler {
     }
 
     /// Use the runtime's installed quota strategy set for this handler's own
-    /// admission; without it the §42.5 baseline applies.
+    /// admission; without it the docs/specs/quota-resources.md#spec-42-5 baseline applies.
     pub fn with_quota_strategies(
         mut self,
         strategies: shenko_quota::QuotaStrategies,

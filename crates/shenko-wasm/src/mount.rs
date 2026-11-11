@@ -1,4 +1,4 @@
-//! Host-to-guest mount policy and owned-handle admission (SPEC §8.3, A08).
+//! Host-to-guest mount policy and owned-handle admission (docs/specs/wasm-home.md#spec-8-3, A08).
 //!
 //! Every mount declares its source path, guest path and mode. Admission is
 //! the A08 boundary: each mount is opened ONCE into an owned directory
@@ -6,7 +6,7 @@
 //! path operation re-resolves a host pathname after validation, so an
 //! ancestor swap between validation and use cannot redirect a preopen.
 //!
-//! COW mounts (SPEC §41.3) are real managed copy-on-write: `source` stays a
+//! COW mounts (docs/specs/durable-state.md#spec-41-3) are real managed copy-on-write: `source` stays a
 //! readonly base on disk, guest writes copy up into a per-branch overlay
 //! under the Shenko home workspace store, and removals are recorded as
 //! tombstones. COW is never relabelled as direct RW.
@@ -21,7 +21,7 @@ use std::sync::Arc;
 use crate::fsx;
 use crate::cow::{self, BranchStore};
 
-/// Explicit host-to-guest mount semantics (SPEC §8.3).
+/// Explicit host-to-guest mount semantics (docs/specs/wasm-home.md#spec-8-3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MountMode {
@@ -59,7 +59,7 @@ pub struct MountSpec {
 pub const DEFAULT_WORKSPACE: &str = "main";
 pub const DEFAULT_BRANCH: &str = "main";
 
-/// Read-only classification of a declared mount source (SPEC §8.3).
+/// Read-only classification of a declared mount source (docs/specs/wasm-home.md#spec-8-3).
 ///
 /// A missing directory, a directory this process may not enter, a symbolic
 /// link and a non-directory entry need different actions and produce
@@ -400,7 +400,7 @@ impl OwnedDir {
     }
 }
 
-/// One host-side admission failure, classified by cause (SPEC §8.3).
+/// One host-side admission failure, classified by cause (docs/specs/wasm-home.md#spec-8-3).
 ///
 /// A component that does not exist, a component this process may not enter,
 /// a symbolic link and an entry swapped between inspection and open need

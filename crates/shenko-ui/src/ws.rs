@@ -1,11 +1,11 @@
 //! WebSocket handler — versioned UI DTOs over the real subject inbox/outbox.
-//! SPEC §21: one subject timeline; transport admission is not durable acceptance.
+//! docs/specs/web-interface.md#spec-21: one subject timeline; transport admission is not durable acceptance.
 //!
 //! One socket serves four durable lanes, all cursor-replayable from the
 //! ledger: committed timeline parts (post-S1), public-text stream parts
 //! (pre-S1, only when a real producer is wired — never faked), validated
 //! semantic documents derived from committed text, and web input
-//! receipts/views (§41.18). Capability facts are negotiated per connection.
+//! receipts/views (docs/specs/web-interface.md#spec-41-18). Capability facts are negotiated per connection.
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 
@@ -267,7 +267,7 @@ pub struct WsState {
     /// Real genesis subject identity shared with `/api/self`; never a browser-
     /// supplied actor or a hard-coded "primary" alias.
     pub subject_id: Option<EntityId>,
-    /// Durable web input service (§41.18). Present iff store + subject are.
+    /// Durable web input service (docs/specs/web-interface.md#spec-41-18). Present iff store + subject are.
     pub input: Option<Arc<WebInputService>>,
     /// Rich presentation service: document validation, degradation, caps.
     pub presentation: Option<Arc<PresentationService>>,

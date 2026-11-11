@@ -1,4 +1,4 @@
-//! A/B slots: self-contained generation directories — SPEC §9.5, §35.7.
+//! A/B slots: self-contained generation directories — docs/specs/self-update.md#spec-9-5, docs/specs/self-update.md#spec-35-7.
 //!
 //! A slot is a complete installation copy: the ledger database, the content
 //! store, the managed home and the memory repository. The live generation is

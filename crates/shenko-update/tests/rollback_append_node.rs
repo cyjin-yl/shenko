@@ -1,4 +1,4 @@
-//! §51.4 append-node rollback: the verified mechanics of
+//! docs/specs/cognition-units.md#spec-51-4 append-node rollback: the verified mechanics of
 //! [`shenko_update::rollback::append_rollback`].
 //!
 //! These tests exercise the verification contract of the append-node path

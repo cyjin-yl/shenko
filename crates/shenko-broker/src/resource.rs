@@ -1,4 +1,4 @@
-//! Physical resource domains — SPEC §13.1, §13.7.3, §41.9.
+//! Physical resource domains — docs/specs/quota-resources.md#spec-13-1, docs/specs/inference.md#spec-13-7-3, docs/specs/inference.md#spec-41-9.
 //!
 //! A resource domain is one physical engine/device pool. It owns the compute
 //! budget C, the context residency pool K and the quarantined debt of requests
@@ -120,7 +120,7 @@ impl ResourceDomain {
         self.kv.write()
     }
 
-    /// Adopt one discovered residency pool size (SPEC §13.3).
+    /// Adopt one discovered residency pool size (docs/specs/quota-resources.md#spec-13-3).
     ///
     /// A probe that reported nothing leaves the pool unknown instead of erasing
     /// a healthy observation, and a weaker provenance never overwrites a

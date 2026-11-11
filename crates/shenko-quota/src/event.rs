@@ -1,4 +1,4 @@
-//! The durable quota events of SPEC §42.6.
+//! The durable quota events of docs/specs/quota-resources.md#spec-42-6.
 //!
 //! A quota change is a fact the subject can read and act on: an
 //! observation arrived, a reading went stale, a forecast moved, a window
@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
-/// The event kinds SPEC §42.6 names.
+/// The event kinds docs/specs/quota-resources.md#spec-42-6 names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuotaEventKind {

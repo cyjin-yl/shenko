@@ -1,4 +1,4 @@
-//! Stateful REPL contract plus the WASI preview1 kernel backend — SPEC §19/§19.1.
+//! Stateful REPL contract plus the WASI preview1 kernel backend — docs/specs/repl.md#spec-19, docs/specs/repl.md#spec-19-1.
 //!
 //! The contract distinguishes the named kernel runtimes (CPython-WASI,
 //! Pyodide, Node-WASM, Bun-WASM, QuickJS-style JS-in-WASM) by their actual
@@ -9,7 +9,7 @@
 //! every cell for R0 recovery, and reports — never performs — interrupt,
 //! dependency installation and in-VM state persistence it cannot implement.
 //!
-//! [`entry`] is the durable *binding* half of §19.1's replaceable kernel
+//! [`entry`] is the durable *binding* half of docs/specs/repl.md#spec-19-1's replaceable kernel
 //! plugins: a named entry pins one real interpreter artifact (and its
 //! standard library, where the route has one) by digest, so a caller — or a
 //! restarted node — can list what this installation actually has and create a

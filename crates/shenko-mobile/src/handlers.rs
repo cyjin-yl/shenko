@@ -589,7 +589,7 @@ impl NativeTaskHandler for AndroidShellExecHandler {
 }
 
 // ---------------------------------------------------------------------------
-// android.appdb.snapshot — §24.5.1
+// android.appdb.snapshot — docs/specs/mobile-runtime.md#spec-24-5-1
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -706,7 +706,7 @@ fn appdb_work(
             format!("package {package} is not installed on this device"),
         );
     }
-    // A snapshot's dimensions, not cognitive facts (§51.9): the payload keeps
+    // A snapshot's dimensions, not cognitive facts (docs/specs/cognition-units.md#spec-51-9): the payload keeps
     // its historical `facts` field name so already sealed records stay
     // readable, while the Rust type is `DbSnapshot`/`SnapshotDimension`.
     let mut facts = DbSnapshot::none();
@@ -731,7 +731,7 @@ fn appdb_work(
     }
 
     // Preferred path: the source is directly readable by this uid, so the
-    // node itself runs the SQLite Online Backup API (§24.5.1) into a fresh
+    // node itself runs the SQLite Online Backup API (docs/specs/mobile-runtime.md#spec-24-5-1) into a fresh
     // local file — that is a real point-in-time consistent snapshot.
     let direct_readable = result
         .get("direct_readable_path")

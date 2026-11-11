@@ -6,7 +6,7 @@
 
 朋友使用自己的 Claude 与 GitHub 身份，在**自己的 Shenko fork** 中使用 `--dangerously-skip-permissions` 自主开发。Agent 可以创建和合并分支、重构任何组件、调整开发方法、安装工具、运行实验、配置自己可管理的权限与 CI、调配子 Agent，并将完整结果通过持续更新的 upstream PR 交付。分支布局、内部合并方式和 PR 拆分由开发者按实际工作决定；review 等待不暂停开发。
 
-完整任务包含 SPEC 的全部正式 S1–S5。自开发首版、某个可运行切片和第一个 PR 都是中间成果。`GOAL.md` 定义完整交付条件，`AGENTS.md` 与 `WHY.md` 提供执行原则，当前 SPEC 与需求/上游行为对照表提供产品真相。接手者依据最新用户决定自主推进，并维护真实证据与剩余任务。
+完整任务包含 SPEC 的全部正式 S1–S5。自开发首版、某个可运行切片和第一个 PR 都是中间成果。`docs/governance/COMPLETION.md` 定义完整交付条件，`AGENTS.md` 与领域合同内的 Why 提供执行原则，当前领域合同与需求/上游行为对照表提供产品依据。接手者依据最新用户决定自主推进，并维护真实证据与剩余任务。
 
 这是 U51 的工作方式；此前推荐的 auto mode、上游 collaborator 分支路线以及额外的逐操作审批约束均已由本修订替换。GitHub 的实际仓库权限决定可执行的远端操作，项目文档不虚构权限。
 
@@ -66,7 +66,7 @@ claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions
 
 ```bash
 claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions \
-  -p '/goal 读取 GOAL.md、AGENTS.md、WHY.md 和引用的完整规范，在自己的 fork 自主并行实现 Shenko 全部正式 S1–S5。自主合并、重构、装工具、配置开发权限与 CI，持续更新 upstream PR。以完整交付合同的真实证据完成，每个重要轮次展示候选、覆盖、验证、PR 与剩余任务。' \
+  -p '/goal 读取 AGENTS.md、docs/INDEX.md、docs/governance/COMPLETION.md 与相关领域合同及 Why，在自己的 fork 自主并行实现 Shenko 全部正式 S1–S5。自主合并、重构、装工具、配置开发权限与 CI，持续更新 upstream PR。以完整交付合同的真实证据完成，每个重要轮次展示候选、覆盖、验证、PR 与剩余任务。' \
   --output-format stream-json --verbose
 ```
 

@@ -1,4 +1,4 @@
-# Mobile runtime — SPEC §24.5 / §24.5.1 / §5.4 (C15 mobile half)
+# Mobile runtime — [§24.5](mobile-runtime.md#spec-24-5)、[§24.5.1](mobile-runtime.md#spec-24-5-1)、[§5.4](nodes.md#spec-5-4) (C15 mobile half)
 
 This document is the implementation contract for the Android half of C15:
 mobile OS perception and execution are **plugins, not core business**, and the
@@ -32,14 +32,14 @@ APK is **only a distribution bundle**. Bundled ≠ available ≠ OS-authorized.
   desktop; the APK always uses filesDir.
 - `mobile/apk/bundle.json` pins artifacts, licenses, units, Rust targets.
 
-## 2. Node portability (SPEC §5.4)
+## 2. Node portability ([§5.4](nodes.md#spec-5-4))
 
 The node core never gains OS gates: `shenko-node` uses only `cfg(unix)`
 APIs, `dirs_next` falls back cleanly, and mobile-only behavior lives entirely
 in `shenko-mobile` behind the `DeviceBridge` seam. On non-Android hosts the
 spawned handlers receive `UnavailableBridge`, so every mobile execution
 returns the **typed unavailable fact** naming the exact missing mechanism —
-a desktop node can never pretend to hold this phone's OS grants (§5.4.4: a
+a desktop node can never pretend to hold this phone's OS grants ([§5.4.4](nodes.md#spec-5-4-4): a
 copied conclusion is not the receiver's capability). Mobile handler kinds are
 advertised through the bundled unit's `provides` list
 (`mobile/apk/bundle.json`); no `units.rs` change is needed.
@@ -110,13 +110,13 @@ remains separate.
 | `mobile.control.lease/v1` | Per-display-domain leases with epoch + takeover detection; epoch revocation invalidates queued input. |
 | `mobile.control.input/v1` | Executes against a live, unrevoked lease; re-verifies grant; binds to a prior sealed observation by content digest. |
 | `mobile.shell.exec/v1` | Frozen argv verbatim (no shell string), bounded output, timeout → `Interrupted`/Unknown effect. |
-| `mobile.appdb.snapshot/v1` | §24.5.1 fact ladder (below). |
+| `mobile.appdb.snapshot/v1` | [§24.5.1](mobile-runtime.md#spec-24-5-1) fact ladder (below). |
 
 `drive()` is mirrored on the desktop computer-use backend: arm → execute →
 T1 (evidence)/E1 (typed failure)/T2 (stale lease) recording via
 `close_external_writer`, so partial failures keep their evidence path.
 
-## 6. App-database facts (§24.5.1)
+## 6. App-database facts ([§24.5.1](mobile-runtime.md#spec-24-5-1))
 
 Separate, never merged: `file_located / file_readable / snapshot_recovered_copy
 / snapshot_consistent / plaintext_verified / structure_interpretable /
@@ -140,7 +140,7 @@ fact about material, independent of ciphertext readability).
   frame/process-capture implementation on a native JVM. They do not exercise
   the Android service, the full APK build, Binder grants or a real device.
   The development container currently lacks the Android SDK/NDK and Gradle;
-  the proof recipe in §8 remains required before claiming on-device support.
+  the proof recipe in [§8](wasm-home.md#spec-8) remains required before claiming on-device support.
 - `MediaProjection` pixel capture and app-supported export adapters are not
   bundled; without a shell-grade authority, `screen_capture` reports
   `typed_unavailable` rather than synthesizing pixels, and `app_export`
@@ -170,3 +170,36 @@ fact about material, independent of ciphertext readability).
    `external_takeover_revoked_lease`; db snapshot of an app whose db is not
    directly readable → `snapshot_recovered_copy` with uncertainty, never
    `snapshot_consistent`.
+
+<a id="spec-24-5"></a>
+<!-- migrated-contract: SPEC:24.5 -->
+## 24.5 移动 OS 感知与执行均为插件，APK 是发行组合
+
+2026-10-26 用户要求：“这种都是以插件形式实现的要。但是打包 apk 版的时候可以自动 bundle 上这些插件而已”。这是尚待实现和验证的设计，不声称当前 APK 或任何手机已经具备这些能力。
+
+Android/iOS 权限感知、无障碍、通知与应用适配、文件/数据库观察、root 执行、Shizuku、Dhizuku 接入全部通过可安装、替换、停用和更新的插件实现；不为平台另造主体或将这些后端硬编码进核心。APK 可以默认 bundle 一组 Android 插件作为发行组合，仍保留单元身份和版本：**已 bundle ≠ 当前可用 ≠ 已获 OS 授权**。iOS 使用其真实开放的接口与权限，不能把 Android 的无障碍、通知、root 或管理接口直接视为 iOS 的等价能力。
+
+Root 是用户偏好的可选增强，不是 Shenko 启动、加入或提供智能能力的前提。无 root 时继续使用实际可得的普通系统权限、应用接口、无障碍或其他适配；缺少某一路径不把整个 Node 判为不可用。插件观察当前 OS/应用版本、服务状态、实际身份和返回结果，记录可用、未知、失败及重新验证的条件。未知允许调查和尝试，不凭设备标签硬拒绝，也不声称真实系统限制已经消失。
+
+| 接入插件 | 上游机制与本产品拟用范围 | 必须保持的区别 |
+| --- | --- | --- |
+| Shizuku adapter | 通过由 ADB 或 root 启动的服务，借 Binder 代理访问相应系统 API | ADB 与 root 身份能力不同，随系统版本和实际服务状态验证；不是所有应用数据的通行证 |
+| Dhizuku adapter | 通过其 API 代理/共享 DeviceOwner 能力，用于实际支持的设备管理操作 | DeviceOwner 不是 root，也不等于 ADB；管理能力不自动带来任意应用私有数据明文读取 |
+| Root / native execution adapter | 使用该节点实际存在的 root 能力进行观察和执行 | 获得 root 不证明每个加密库、硬件绑定数据或应用格式都能解析 |
+| 普通权限、无障碍、通知及应用 adapter | 在对应 OS 实际提供的接口中取得观察或完成操作 | 各路径并列可组合，不假设层层升级即可得到全部能力 |
+
+Shizuku 与 Dhizuku 不是“普通权限 → Shizuku → Dhizuku → root”的权限阶梯。具体接入、启动与授权状态由插件如实发现；可利用的机制与它们实际能做的事分别说明。上游机制静态核查于 2026-10-26：[Shizuku README](https://github.com/RikkaApps/Shizuku/blob/b844bc491f1790c72328e1a8e5b2349f8978f0ea/README.md)、[Dhizuku README](https://github.com/iamr0s/Dhizuku/blob/ac783ee7a5cfe4b87c1c07747c13b012c0f5822a/docs/README.md)。这些资料不是 Shenko 已完成集成的证据。
+
+<!-- /migrated-contract: SPEC:24.5 -->
+
+<a id="spec-24-5-1"></a>
+<!-- migrated-contract: SPEC:24.5.1 -->
+### 24.5.1 自有应用 SQLite 观察与自主风险判断
+
+用户希望在自己的手机上尽可能读取应用数据，包括微信、QQ 等应用的 SQLite 数据库。将其保留为应用适配插件的设计目标；针对具体 OS、应用/数据库版本、进程身份、实际权限、加密与密钥可得性、文件可达性和解析能力逐项验证，不能承诺任意应用数据库均能明文读取。文件可读、可解密、结构可解释、语义完整是不同结果；没有取得正文时不伪报已经理解数据库内容。
+
+适配器优先考虑低副作用的一致性只读快照或应用支持的导出，再在副本上分析；识别 SQLite WAL/并发写入等一致性因素，不能把随手拷贝一个活跃主库文件当作完整快照。可行时复用 [SQLite Online Backup API](https://www.sqlite.org/backup.html) 等一致性机制，方法仍须适配实际格式和可用连接。这是让主体按风险、收益、资源成本与后果自主选择的工程建议，不是禁止探索其他方法或新增人类审批的硬 gate。
+
+观察保留采集时间、应用/格式版本、方法、缺失与不确定性，支持后续撤回误判和重新分析。可信本地节点可依既有同步合同共享认知，但复制数据或结论不证明接收端已经获得该手机的 OS 权限。此次设计修订没有读取私人数据库、提取密钥、安装插件或变更任何设备权限。
+
+<!-- /migrated-contract: SPEC:24.5.1 -->

@@ -1,4 +1,4 @@
-//! Recording audio capture with exact CAS closure — SPEC §20.
+//! Recording audio capture with exact CAS closure — docs/specs/media.md#spec-20.
 //!
 //! [`MediaAudioRecorder`] accumulates the mono PCM16 little-endian frames a
 //! session receives while a recording is `Recording`, wraps each segment in a

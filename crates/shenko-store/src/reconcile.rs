@@ -1,4 +1,4 @@
-//! 效果未知的对账案例 — SPEC §41.4 X11（X04/X06/U/X07 的交叉义务）。
+//! 效果未知的对账案例 — docs/specs/durable-state.md#spec-41-4 X11（X04/X06/U/X07 的交叉义务）。
 //!
 //! 一笔 operation 一旦进入 `reconciling`，它的外部效果就可能已经发生、
 //! 也可能没有发生；恢复器从不猜测，也从不自动重发。真正需要一条持久
@@ -185,7 +185,7 @@ impl Store {
     ///
     /// 尚未被主体判断过的案例（open/working/waiting）就在本行上走到
     /// `resolved`：它没有可供保留的决定，只是得到了答案。已经被主体
-    /// 显式接受为未知、或已经 resolved 的案例**不被改写**（SPEC §51.1
+    /// 显式接受为未知、或已经 resolved 的案例**不被改写**（docs/specs/cognition-units.md#spec-51-1
     /// 旧读法不覆盖）；确定证据为它们追加一行新的 resolved 案例，
     /// 说明“答案后来到了”。原始 receipt 一行都不删。
     pub(crate) fn resolve_unknown_effect_cases(
@@ -281,7 +281,7 @@ impl Store {
         Ok(0)
     }
 
-    /// 主体显式接受一份未知效果 — SPEC §41.4 X11。
+    /// 主体显式接受一份未知效果 — docs/specs/durable-state.md#spec-41-4 X11。
     ///
     /// 决定是一次已提交的 S1：`decision_ref` 就是那个 sealed 决定对象，
     /// 其中 `unknown_acknowledgements` 的那一项带着 `acknowledgement_id`
@@ -473,7 +473,7 @@ pub const REASON_EFFECT_UNKNOWN: &str = "external_effect_unknown";
 pub const REASON_CONTRADICTORY_EVIDENCE: &str = "contradictory_terminal_evidence";
 pub const REASON_DEFINITE_EVIDENCE: &str = "definite_evidence_after_unknown";
 
-/// 把主体的接受写成规范账本里的 attitude（PR180 §51.1）。
+/// 把主体的接受写成规范账本里的 attitude（PR180 docs/specs/cognition-units.md#spec-51-1）。
 ///
 /// 这是本片唯一的 canonical 写入点，也是与 Core 的唯一接缝：
 ///
@@ -685,7 +685,7 @@ mod tests {
 
     /// Full lifecycle: open case → acknowledge → attitude written → definite evidence resolves.
     ///
-    /// Exercises the SPEC §41.4 X11 + §51.1 attitude seam:
+    /// Exercises the docs/specs/durable-state.md#spec-41-4 X11 + docs/specs/cognition-units.md#spec-51-1 attitude seam:
     /// - Case opens via `ensure_unknown_effect_case`.
     /// - Docket shows the open case.
     /// - `acknowledge_unknown_effect` writes case + attitude atomically.

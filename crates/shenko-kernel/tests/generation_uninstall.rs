@@ -1,4 +1,4 @@
-//! Ordered uninstall of one installed plugin generation — SPEC §41.8.4/A18.
+//! Ordered uninstall of one installed plugin generation — docs/specs/context-policies.md#spec-41-8-4/A18.
 //!
 //! The real Cordis Fiber, the real hook registry and the real live registry
 //! are torn down in the documented order: hooks leave new-request discovery,

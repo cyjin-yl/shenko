@@ -1,4 +1,4 @@
-//! WASM 运行状态引用 — SPEC §51.4、§10.2.1
+//! WASM 运行状态引用 — docs/specs/cognition-units.md#spec-51-4, docs/specs/durable-state.md#spec-10-2-1
 //!
 //! 认知状态回滚要把**执行中的内部状态**一起带回某个历史内容：线性内存、
 //! 执行栈与解释器对象图。这些不是「进程内存」这种不可保存的东西，而是可以被

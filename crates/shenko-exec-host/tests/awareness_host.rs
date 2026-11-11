@@ -1,6 +1,6 @@
 //! Real native consumer for the installable awareness capability host.
 //!
-//! SPEC §51.2/§51.3/§51.8. This case installs the shipped awareness material
+//! docs/specs/cognition-units.md#spec-51-2, docs/specs/cognition-units.md#spec-51-3, docs/specs/cognition-units.md#spec-51-8. This case installs the shipped awareness material
 //! into a real Node authority, publishes the real `AwarenessHostPlugin` on a
 //! real Cordis supervisor, runs `awareness.notice:1` as a real native task
 //! against the real Store, and reads the durable result back.

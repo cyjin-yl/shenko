@@ -1,4 +1,4 @@
-//! Shenko 核心协议类型 — 对应 SPEC §41.3
+//! Shenko 核心协议类型 — 对应 docs/specs/durable-state.md#spec-41-3
 //! 所有跨模块协议类型定义于此，无业务逻辑。
 
 pub mod agent;

@@ -1,4 +1,4 @@
-//! The subject's own hands on its works — SPEC §57.6, acceptance PG06/PG07.
+//! The subject's own hands on its works — docs/specs/configuration-playground.md#spec-57-6, acceptance PG06/PG07.
 //!
 //! These cases run the real artifact lifecycle against a real store: a work
 //! the subject creates is a durable record, its content is content addressed,

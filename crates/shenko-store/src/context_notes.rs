@@ -1,4 +1,4 @@
-//! Branch-journaled working notes for notes-backed context windows — SPEC §12.3.1.
+//! Branch-journaled working notes for notes-backed context windows — docs/specs/context-policies.md#spec-12-3-1.
 //!
 //! A note revision is an append-only journal entry of one branch scope. Only
 //! the newest revision may enter a model context; a clearing revision is kept

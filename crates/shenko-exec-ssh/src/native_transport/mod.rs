@@ -9,7 +9,7 @@ mod stream;
 mod trust;
 pub use trust::NativeSshTarget;
 
-/// Interactive PTY channel for seat observation (SPEC §17.5).
+/// Interactive PTY channel for seat observation (docs/specs/remote-seats.md#spec-17-5).
 mod pty;
 pub use pty::*;
 

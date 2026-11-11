@@ -1,4 +1,4 @@
-//! Durable transcript revision ingress for continuous media — SPEC §15.2, §20.
+//! Durable transcript revision ingress for continuous media — docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
 //!
 //! One typed admission records the raw provider revision AND the segment's
 //! latest effective observation in a single ledger commit. Idempotent replays
@@ -12,7 +12,7 @@
 //! The store never produces transcript text: only real provider output is
 //! admitted, and a caller-supplied `Sealed` audio object must already exist in
 //! CAS and verify to its declared digest (object first, metadata second —
-//! §41.2.2). Speaker claims are stored verbatim with
+//! docs/specs/durable-state.md#spec-41-2-2). Speaker claims are stored verbatim with
 //! confidence/correction/unknown and carry no identity authority.
 
 use std::collections::HashMap;
@@ -248,7 +248,7 @@ fn stream_state_name(state: MediaStreamState) -> &'static str {
 }
 
 /// Verify a caller-supplied `Sealed` audio reference BEFORE the metadata
-/// commit (§41.2.2): the digest must be a canonical supported one, the
+/// commit (docs/specs/durable-state.md#spec-41-2-2): the digest must be a canonical supported one, the
 /// object must resolve inside this CAS, and its bytes must hash to the
 /// declared digest at the declared length. Same-length corrupted or
 /// algorithm-rewritten content is never admitted as sealed audio.
@@ -1122,7 +1122,7 @@ impl Store {
         ).optional().map_err(storage_error)
     }
 
-    /// Admit one typed transcript revision (§15.2, §20).
+    /// Admit one typed transcript revision (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20).
     ///
     /// Atomically commits the raw revision row and the segment's latest
     /// effective observation plus the durable `inbox_events` original of the
@@ -1393,7 +1393,7 @@ impl Store {
         })
     }
 
-    /// Admit an explicit stream open (§20 session scope). Replays return the
+    /// Admit an explicit stream open (docs/specs/media.md#spec-20 session scope). Replays return the
     /// original open receipt with the same bound event id; opening over a
     /// different identity fact or a terminal stream is a typed conflict.
     /// The first real descriptor may upgrade a row created implicitly by an
@@ -1547,7 +1547,7 @@ impl Store {
         })
     }
 
-    /// Admit a terminal stream state (§20 cancellation/disconnect/end).
+    /// Admit a terminal stream state (docs/specs/media.md#spec-20 cancellation/disconnect/end).
     ///
     /// Committed segments and their effective text are preserved untouched;
     /// the gap list in `media_transcript` stays honest. An end notice for a

@@ -1,4 +1,4 @@
-//! The iLink long-poll monitor — SPEC §16, §15.3, §35.6.
+//! The iLink long-poll monitor — docs/specs/channel-adapters.md#spec-16, docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-35-6.
 //!
 //! Inbound messages are pulled with `POST /ilink/bot/getupdates`. The cursor
 //! is the provider's own `get_updates_buf`; it is handed back unchanged and

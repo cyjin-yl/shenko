@@ -1,6 +1,6 @@
 # Claude API 2026-10-21：迁移核验与 Shenko 采用方式
 
-核验日期：2026-10-22。用户来源 U53；产品合同为 SPEC §47、R142、B50、PV01–PV08。本文使用官方资料，区分 API 版本、SDK major、模型与平台；本轮没有发送真实 API 请求，未实测具体账户、代理或服务端错误 body。
+核验日期：2026-10-22。用户来源 U53；产品合同为 [§47](../specs/inference.md#spec-47)、R142、B50、PV01–PV08。本文使用官方资料，区分 API 版本、SDK major、模型与平台；本轮没有发送真实 API 请求，未实测具体账户、代理或服务端错误 body。
 
 ## 1. 核验来源
 
@@ -37,7 +37,7 @@
 
 新 key scope 中，Default Workspace 使用其真实 ID；all-workspaces key 是 organization scope，省略 workspace_id。查询参数是另一层：rate-limit 列表的 group_type 参数、API-key 列表的 workspace_id filter 并未随对应响应字段一起删除。[版本历史](https://platform.claude.com/docs/en/api/versioning)、[迁移指南](https://platform.claude.com/docs/en/api/migration-2026-10-21)
 
-Shenko 的 §42 解析器据此保存实际版本和数据来源。字段不适配时产生 unknown/incompatible；不会把旧字段读不到解释为无限额度、零成本、已授权全部 workspace 或默认管理员。
+Shenko 的 [§42](../specs/quota-resources.md#spec-42) 解析器据此保存实际版本和数据来源。字段不适配时产生 unknown/incompatible；不会把旧字段读不到解释为无限额度、零成本、已授权全部 workspace 或默认管理员。
 
 ## 4. SDK 升级是独立维度
 
@@ -65,4 +65,4 @@ Shenko 的 §42 解析器据此保存实际版本和数据来源。字段不适�
 5. **认知依赖原子化。** Provider 依赖协议感知、协议漂移 awareness、诊断 Skill 与执行代码，各自可查、可替换；主体按真实状态自主决定升级、保留或修复。
 6. **真实兼容证据。** 正负 fixture、编译/序列化、实际代理、流式/工具与真实账户结果分别记录。schema 400、鉴权失败、权限不足、限流或未知原因各自处理，避免机械重试同一个错误 payload。
 
-具体数据形状、恢复交错与八个验收场景见 [SPEC.md](../../SPEC.md) §47。开发目标保留本地优先；云特有能力按其阶段推进，但公共 provider 绑定/请求封口应从一开始容纳这些真实差异。
+具体数据形状、恢复交错与八个验收场景见 [领域规格索引](../INDEX.md) [§47](../specs/inference.md#spec-47)。开发目标保留本地优先；云特有能力按其阶段推进，但公共 provider 绑定/请求封口应从一开始容纳这些真实差异。

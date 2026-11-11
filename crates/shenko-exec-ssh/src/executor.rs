@@ -1,5 +1,5 @@
 //! 宿主 OpenSSH 执行器；不是 WASM SSH，也没有使用 russh。
-//! 外部效果不提供自动重放或远端已停止的虚假保证。SPEC §11、§36、§41。
+//! 外部效果不提供自动重放或远端已停止的虚假保证。docs/specs/remote-seats.md#spec-11, docs/specs/durable-state.md#spec-36, docs/specs/architecture.md#spec-41。
 use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

@@ -5,7 +5,7 @@
 //! itself in cleanup, so install/update/uninstall/replace are ordinary Cordis
 //! lifecycle operations on that plugin alone. The registry holds no strategy.
 //!
-//! The preparation path is split in two on purpose (SPEC §12.3.2):
+//! The preparation path is split in two on purpose (docs/specs/context-policies.md#spec-12-3-2):
 //!
 //! * [`PolicyRegistry::prepare_candidate`] does the slow work — reading the
 //!   raw history and rendering the new representation. It runs off the

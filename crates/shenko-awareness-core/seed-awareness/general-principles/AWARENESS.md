@@ -2,7 +2,7 @@
 id: awareness.general-principles
 version: 0.1.0
 capability_card: 觉察 规则 文字的通用性直觉
-provenance: [SPEC §45, owner 2026-10-27]
+provenance: ["docs/specs/cognition-units.md#spec-45", "owner 2026-10-27"]
 dependencies: []
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Original LayerFS on a qualified Linux VM — companion process.
 //
-// SPEC §10.2.1: this script binds the PINNED ORIGINAL LayerFS SDK
+// docs/specs/durable-state.md#spec-10-2-1: this script binds the PINNED ORIGINAL LayerFS SDK
 // v1.0.0 (2aaf2552ce21154928b9f9c83582e41a637f5910) and drives it inside a
 // qualified Linux VM. Nothing here re-implements the LayerFS Store: every
 // Store/branch/workspace operation executes the upstream SDK code in the
@@ -103,7 +103,7 @@ async function loadPinnedSdk(sdkPath) {
 
 // ---------------------------------------------------------------------------
 // Qualified Linux VM provider. BoxLite is the optional first candidate
-// (SPEC §34); any provider exposing this minimal real seam can be plugged
+// (docs/specs/desktop-runtime.md#spec-34); any provider exposing this minimal real seam can be plugged
 // in. No provider installed => typed-unavailable evidence, never a fake.
 // ---------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ async function loadVmProvider(providerId) {
   );
 }
 
-// Guest requirements for the FULL workspace path (SPEC §10.2.1): Docker
+// Guest requirements for the FULL workspace path (docs/specs/durable-state.md#spec-10-2-1): Docker
 // Engine, FUSE, devices/mount privileges, matching runtime image, plain
 // local named volume. The companion checks what the provider can prove
 // and reports the rest as unverified, never assumed.
@@ -270,7 +270,7 @@ async function main() {
     },
 
     // The upstream Store's own commit receipt (layerfs_committed ONLY —
-    // never product_durable, SPEC §10.2.1). Executed by the ORIGINAL SDK
+    // never product_durable, docs/specs/durable-state.md#spec-10-2-1). Executed by the ORIGINAL SDK
     // inside the guest via the provider's exec channel.
     async commit_receipt(seq, args) {
       await ensureVm();

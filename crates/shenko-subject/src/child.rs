@@ -233,7 +233,7 @@ impl ChildToolRuntime for NativeToolRuntime {
 pub trait NativeTaskHandler: Send + Sync + 'static {
     fn descriptor(&self) -> NativeTaskDescriptor;
 
-    /// The §36 effect contract of this definition's operations.
+    /// The docs/specs/durable-state.md#spec-36 effect contract of this definition's operations.
     ///
     /// A declaration is bound to the implementation that produced it, so the
     /// recovery planner reads the real boundary of the operation it is about
@@ -690,7 +690,7 @@ impl NativeChildService {
         }
     }
 
-    /// Upgrade handoff quiesce — SPEC §45 upgrade seam: close admission and
+    /// Upgrade handoff quiesce — docs/specs/cognition-units.md#spec-45 upgrade seam: close admission and
     /// drain every managed execution EXCEPT the excluded orchestration
     /// workers (the caller runs inside one of them and must not join
     /// itself). Admission stays closed until `resume_after_handoff_abort`
@@ -785,7 +785,7 @@ impl NativeChildService {
 
     /// The registered `(kind, definition_version)` pairs, ordered. This is the
     /// same registry the prompt sections come from, surfaced so self-knowledge
-    /// can report what this instance can actually execute — SPEC §38.
+    /// can report what this instance can actually execute — docs/specs/cognition-units.md#spec-38.
     pub fn installed_definitions(&self) -> Vec<(String, u32)> {
         self.registry
             .read()
@@ -1366,7 +1366,7 @@ async fn drive_execution(
             let operation = match registered.handler.execute(invocation).await {
                 Ok(operation) => operation,
                 Err(error) => {
-                    // SPEC §45.14: the handler failure is also a runtime fact
+                    // docs/specs/cognition-units.md#spec-45-14: the handler failure is also a runtime fact
                     // the owning subject can read; journaling is fail-soft.
                     store.journal_runtime_error(
                         agent_id,
@@ -1676,9 +1676,9 @@ impl Plugin for NativeTaskHandlerPlugin {
 
 /// Publish one installed native definition in the live runtime registry.
 ///
-/// The provider view names the exact implementation, the §36 effect
+/// The provider view names the exact implementation, the docs/specs/durable-state.md#spec-36 effect
 /// contracts of the definition's operations, the capabilities it offers and
-/// the §18.2 usability package of every capability. Everything registered
+/// the docs/specs/plugins.md#spec-18-2 usability package of every capability. Everything registered
 /// here is withdrawn in the same generation teardown, so an uninstall cannot
 /// leave a stale provider, capability or help document behind.
 fn register_native_definition(
@@ -1742,7 +1742,7 @@ fn register_native_definition(
             })
             .map_err(std::io::Error::other)?;
         capability_handles.push(handle);
-        // §18.2 usability package: what the capability is for, when it
+        // docs/specs/plugins.md#spec-18-2 usability package: what the capability is for, when it
         // applies and where its own limits are. The text comes from the
         // installed implementation, not from a product feature list.
         let help = runtime

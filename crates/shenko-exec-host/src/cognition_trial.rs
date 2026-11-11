@@ -1,6 +1,6 @@
 //! A finite sandbox comparison of one candidate cognition unit.
 //!
-//! This is the measurement path of SPEC §45.5 and §45.9: a unit is only
+//! This is the measurement path of docs/specs/cognition-units.md#spec-45-5 and docs/specs/cognition-units.md#spec-45-9: a unit is only
 //! useful if it changes what the model actually decides, and the only honest
 //! way to know is to compare fresh installations with and without the exact
 //! authored candidate and observe what the model did.

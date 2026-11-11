@@ -1,5 +1,5 @@
 //! Native browser provider: real engines, real persistent identities, real
-//! live sessions (SPEC §24.6, §19.1, §41).
+//! live sessions (docs/specs/browser.md#spec-24-6, docs/specs/repl.md#spec-19-1, docs/specs/architecture.md#spec-41).
 //!
 //! What this module is:
 //! - A real browser process (an installed Chromium-family or Firefox-family

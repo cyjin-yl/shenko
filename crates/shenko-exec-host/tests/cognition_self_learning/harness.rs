@@ -49,7 +49,9 @@ pub const BOUND_SOURCES: &[&str] = &[
 /// are recorded so the receipt names the contract it was written against
 /// (PR180 merge `2cb17172cfd65291997df5953f54d0ab5abe4c38`).
 pub const CONTRACT_SOURCES: &[&str] = &[
-    "SPEC.md",
+    "docs/contract-migration.json",
+    "docs/specs/cognition-units.md",
+    "docs/specs/verification.md",
     "docs/decisions/0002-cognitive-atoms-2026-11-05.md",
     "docs/decisions/0003-spec-governance-2026-11-06.md",
 ];

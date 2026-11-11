@@ -1,4 +1,4 @@
-//! Continuous subject loop — SPEC §5.1, §41.5
+//! Continuous subject loop — docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-41-5
 //! Real S0/S1 step state machine. Never terminates on empty inbox.
 //! Semantic wait hard-max 600s. Yields inference slot after each step.
 //! A recorded provider-resource wait (capacity wait, 429) schedules a NEW
@@ -45,7 +45,7 @@ struct FrozenStepInput {
     identity: Option<IdentityProfile>,
     identity_provider_revision: String,
     /// The wire request identity of this step's FIRST attempt. It is sealed
-    /// before any send (SPEC §41.5 S0), so a resumed step reuses the sealed
+    /// before any send (docs/specs/subject-runtime.md#spec-41-5 S0), so a resumed step reuses the sealed
     /// identity instead of minting a fresh one for the same sealed request.
     request_id: EntityId,
     /// The hook graph this step's dispatch is bound to. Without a sealed
@@ -70,7 +70,7 @@ struct FrozenStepInput {
     /// back into every later S0 until they are completed or cancelled.
     obligations: Vec<PendingObligation>,
     /// External effects whose outcome is still unknown, each with the case
-    /// the subject may explicitly accept for now (SPEC §41.4 X11).
+    /// the subject may explicitly accept for now (docs/specs/durable-state.md#spec-41-4 X11).
     ///
     /// It is read at S0 and sealed with the request, so an acknowledgement at
     /// S1 can only name a case this step was actually shown. Absent in
@@ -162,7 +162,7 @@ fn frozen_input(
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
     // 13 adds the reconciliation docket. A schema-12 plan is still the same
     // sealed request; it simply carried no case the subject could accept, so
-    // an acknowledgement naming a case at 12 is refused (SPEC §51.1: old
+    // an acknowledgement naming a case at 12 is refused (docs/specs/cognition-units.md#spec-51-1: old
     // bytes keep their old meaning).
     if !matches!(input.schema_version, 12 | 13)
         || input.step_id != step.step_id
@@ -222,8 +222,8 @@ fn validate_resume(
     frozen_input(store, step).map(Some)
 }
 
-/// The bounded pacing of one new attempt of a retry-pending step. SPEC §5.1,
-/// §41.5.
+/// The bounded pacing of one new attempt of a retry-pending step. docs/specs/subject-runtime.md#spec-5-1,
+/// docs/specs/subject-runtime.md#spec-41-5.
 ///
 /// A recorded retry is a real resource wait: the successor is still the same
 /// sealed step and no model output exists, so the wait must be visible and
@@ -240,7 +240,7 @@ fn validate_resume(
 /// An event the model did not mention is recorded as NOT ACTED ON, not as
 /// acknowledged: the harness does not claim the subject handled an input it
 /// never spoke about. The input is still settled (the subject saw it; the
-/// queue advances), and the record says exactly what happened (SPEC §57.3).
+/// queue advances), and the record says exactly what happened (docs/specs/subject-runtime.md#spec-57-3).
 ///
 /// A DEFERRED disposition is the SUBJECT's own choice — it keeps that input
 /// pending until the subject acts, which is a different thing from the
@@ -273,7 +273,7 @@ fn dispositions_for_events(
 /// Hold the events of a paused source out of the current step, and release
 /// them again when the pause ends.
 ///
-/// The subject's own attention decision (`[dnd]`, SPEC §13.8/§57.3) says
+/// The subject's own attention decision (`[dnd]`, docs/specs/subject-runtime.md#spec-13-8, docs/specs/subject-runtime.md#spec-57-3) says
 /// which ingress sources it does not want to look at right now. The harness
 /// keeps that promise in the only way it can: those events do not enter this
 /// window. The facts are not lost — a durable-lane input stays pending in the
@@ -388,8 +388,8 @@ fn retry_continuation(
     // Only an explicitly exhausted provider is a resource wait the live loop
     // may pace and repeat. A lost dispatch is unknown debt and an admission
     // refusal is a runtime-lifecycle fault: both still stop for explicit
-    // reconciliation instead of being replayed here (SPEC §5.4.2, §10.6,
-    // §41.4 X03).
+    // reconciliation instead of being replayed here (docs/specs/nodes.md#spec-5-4-2, docs/specs/durable-state.md#spec-10-6,
+    // docs/specs/durable-state.md#spec-41-4 X03).
     let provider_resource_wait = matches!(
         evidence.fact,
         InferenceRetryFact::NeverDispatched
@@ -441,11 +441,11 @@ pub struct SubjectLoopState {
     pub goals: Vec<String>,
     /// External effects whose outcome is still unknown, as read at this
     /// step's S0. They are shown to the model and sealed with the request;
-    /// nothing here resolves an effect or resends one (SPEC §41.4 X11).
+    /// nothing here resolves an effect or resends one (docs/specs/durable-state.md#spec-41-4 X11).
     pub reconciliation_docket: Vec<shenko_store::ReconciliationDocketEntry>,
-    /// Outbound path for completed model output — SPEC §5.1, §21.12.
+    /// Outbound path for completed model output — docs/specs/subject-runtime.md#spec-5-1, docs/specs/web-interface.md#spec-21-12.
     pub outbox_tx: Option<tokio::sync::broadcast::Sender<OutboxMessage>>,
-    /// Identity revision fixed for the current step — SPEC §6. Reloaded only
+    /// Identity revision fixed for the current step — docs/specs/subject-runtime.md#spec-6. Reloaded only
     /// at the S0 boundary, so a change applies from the next step on.
     pub identity: Option<IdentityProfile>,
     pub identity_receipt: Option<IdentityReceipt>,
@@ -457,7 +457,7 @@ pub struct SubjectLoopState {
     /// The reader surface of a provider stream, when one is installed.
     pub(super) stream_public: Option<Arc<dyn shenko_broker::stream::PublicStreamSink>>,
     /// Inputs the subject's own attention decision holds out of the current
-    /// window. They are released again when the pause ends (SPEC §57.3).
+    /// window. They are released again when the pause ends (docs/specs/subject-runtime.md#spec-57-3).
     pub(super) held_inputs: Vec<InboxEvent>,
     /// The cognition catalogue available to this subject. It is a READ MODEL
     /// over the Node's unit store: the Node stays the sole install, version,
@@ -465,7 +465,7 @@ pub struct SubjectLoopState {
     /// discloses; its bodies are advisory material for the model, never a
     /// dispatch table.
     pub(super) awareness: Option<Arc<shenko_awareness_core::CognitionCatalog>>,
-    /// The installed quota strategy set (SPEC §42.1).
+    /// The installed quota strategy set (docs/specs/quota-resources.md#spec-42-1).
     pub(super) quota_strategies: shenko_quota::QuotaStrategies,
     /// The notebook reminder this step's assembled request carries.
     pub(super) pending_reminder: Option<shenko_context_policy::RolloverReminder>,
@@ -626,7 +626,7 @@ impl SubjectLoopState {
     }
 
     /// The subject's own role frame, when exactly one installed unit
-    /// provides `cap.subject-frame` (SPEC §57.1).
+    /// provides `cap.subject-frame` (docs/specs/subject-runtime.md#spec-57-1).
     ///
     /// Nothing installed → `None`, the compiled contract applies. Two
     /// distinct units providing it → `None` as well: which frame is in force
@@ -655,7 +655,7 @@ impl SubjectLoopState {
     }
 
     /// The subject's own attention budget: how many inputs one step reads,
-    /// and how long it waits for more (SPEC §57.3).
+    /// and how long it waits for more (docs/specs/subject-runtime.md#spec-57-3).
     ///
     /// The numbers come from the installed unit that provides
     /// `cap.attention-policy`. The harness keeps only the bounds that
@@ -691,7 +691,7 @@ impl SubjectLoopState {
     }
 
     /// What the subject receives when no new external input arrived —
-    /// SPEC §57.2.
+    /// docs/specs/subject-runtime.md#spec-57-2.
     ///
     /// The installed unit providing `cap.idle-perception` words it; the
     /// compiled sentence is the fallback. Idleness is a perception, not a
@@ -715,14 +715,14 @@ impl SubjectLoopState {
         }
     }
 
-    /// Attach the outbound timeline broadcaster — SPEC §5.1, §21.12.
+    /// Attach the outbound timeline broadcaster — docs/specs/subject-runtime.md#spec-5-1, docs/specs/web-interface.md#spec-21-12.
     pub fn with_outbox(mut self, tx: tokio::sync::broadcast::Sender<OutboxMessage>) -> Self {
         self.outbox_tx = Some(tx);
         self
     }
 
     /// Install the durable journal and the reader surface of a provider
-    /// stream — SPEC §57.5.
+    /// stream — docs/specs/web-interface.md#spec-57-5.
     ///
     /// The journal is the durable half: without it the subject keeps the
     /// ordinary path and the installation honestly reports that no stream is
@@ -739,7 +739,7 @@ impl SubjectLoopState {
     }
 }
 
-/// Run the continuous subject loop. SPEC §5.1, §41.5.
+/// Run the continuous subject loop. docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-41-5.
 /// - Never stops for empty inbox
 /// - S0: seal SubjectStep as Planned → Preparing
 /// - AwaitingModel: real inference via broker
@@ -804,7 +804,7 @@ pub async fn run_subject_loop(
 
         // Collect available events — the subject's own attention budget
         // decides how much one step reads and how long it waits for more
-        // (SPEC §57.3); the harness only keeps the bounds.
+        // (docs/specs/subject-runtime.md#spec-57-3); the harness only keeps the bounds.
         let budget = state.attention_budget();
         let mut events = if state.step.state == SubjectStepState::Planned {
             // The whole per-step budget is read from the wake channel in one
@@ -821,7 +821,7 @@ pub async fn run_subject_loop(
         // Drain durable input without sending into this consumer's own bounded
         // channel. A backlog larger than inbox capacity must not block recovery.
         if state.step.state == SubjectStepState::Planned {
-            // §41.6: at most 64 events are selected into one step; the durable
+            // docs/specs/channels.md#spec-41-6: at most 64 events are selected into one step; the durable
             // drain only fills the remainder after the live batch.
             let drain_limit = budget.max_events_per_step.saturating_sub(events.len());
             // Rows this process already proved undecodable keep their position
@@ -851,7 +851,7 @@ pub async fn run_subject_loop(
                         // One admitted row this binary cannot decode — a newer
                         // event kind after a downgrade, or a damaged payload —
                         // is an undecodable FACT, not a licence to stop the
-                        // subject (SPEC §41.4 X11). The original bytes stay
+                        // subject (docs/specs/durable-state.md#spec-41-4 X11). The original bytes stay
                         // durable and unconsumed, the skip is journaled as a
                         // bounded runtime fact, and unrelated work continues; a
                         // repaired reader picks the row up after the next open.
@@ -910,7 +910,7 @@ pub async fn run_subject_loop(
         };
         // The subject's own attention decision holds a source out of this
         // window. The facts are not lost: they are held durably and come back
-        // when the pause ends (SPEC §57.3, AW14). The harness does not decide
+        // when the pause ends (docs/specs/subject-runtime.md#spec-57-3, AW14). The harness does not decide
         // what the subject does not want to see — it only keeps the fact.
         events = match hold_paused_sources(&mut state, events) {
             Ok(events) => events,
@@ -980,12 +980,12 @@ pub async fn run_subject_loop(
             break Err(error);
         }
 
-        // Yield inference slot to children — cooperative multitasking. SPEC §5.1
+        // Yield inference slot to children — cooperative multitasking. docs/specs/subject-runtime.md#spec-5-1
         tokio::task::yield_now().await;
     };
 
     // Every error that stops the loop is a durable runtime fact the subject
-    // can later read through errors.read — SPEC §45.14. The journal write is
+    // can later read through errors.read — docs/specs/cognition-units.md#spec-45-14. The journal write is
     // fail-soft: it never masks or replaces the original error.
     if let Err(error) = &result {
         state.store.journal_runtime_error(
@@ -1006,7 +1006,7 @@ pub async fn run_subject_loop(
     result
 }
 
-/// The engineering default of §41.6: one subject step selects at most this
+/// The engineering default of docs/specs/channels.md#spec-41-6: one subject step selects at most this
 /// many input events (live wake and durable drain together).
 const MAX_STEP_EVENTS: usize = 64;
 
@@ -1022,7 +1022,7 @@ const MIN_IDLE_WAIT_MS: u64 = 1;
 const MAX_IDLE_WAIT_MS: u64 = 5_000;
 
 /// How the subject wants one step to look: how many inputs it reads, and how
-/// long it waits for more (SPEC §57.3).
+/// long it waits for more (docs/specs/subject-runtime.md#spec-57-3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct AttentionBudget {
     pub(super) max_events_per_step: usize,
@@ -1039,7 +1039,7 @@ impl Default for AttentionBudget {
 }
 
 /// Role and output contract of the subject. It names the framework, never the
-/// instance, and does not vary with identity revisions (R054). SPEC §5.1, §6.
+/// instance, and does not vary with identity revisions (R054). docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-6.
 pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行在 Shenko 框架上。\n\
      你有持续的内心生活：关注、兴趣、承诺、疑问。\n\
      你在没有外部消息时也继续思考——空闲不是停止的理由。\n\
@@ -1047,14 +1047,14 @@ pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 age
      普通正文是自己的想法，可显示在系统时间线，但不会作为外部消息发送。要让对方收到的话，必须通过回复控制行发送。";
 
 /// System prompt for the continuous subject: contract → persona → per-step
-/// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
+/// suffix. docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-6 ordering; docs/specs/inference.md#spec-13-5 keeps the stable part first.
 /// Stable prefix: role contract, the installed native definitions and the
-/// persona. SPEC §13.5 keeps it first so the model/template binding stays
+/// persona. docs/specs/inference.md#spec-13-5 keeps it first so the model/template binding stays
 /// reusable across steps; the context profile digest covers this text, not the
 /// per-step suffix.
 pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
     // The subject's own role frame is content, not a compiled constant:
-    // SPEC §57.1 — the installed unit that provides `cap.subject-frame`
+    // docs/specs/subject-runtime.md#spec-57-1 — the installed unit that provides `cap.subject-frame`
     // speaks for the subject, and the subject may revise it. The compiled
     // text stays as the fallback when nothing provides the capability or
     // when two distinct units both provide it (ambiguity is reported, not
@@ -1108,7 +1108,7 @@ pub(super) fn system_prompt_suffix(
 
     // The capabilities this installation cannot serve yet. The subject asked
     // for them, so the gap is a fact it must be able to see — it can install
-    // the capability or carry the intent forward (SPEC §57.8, G57).
+    // the capability or carry the intent forward (docs/specs/subject-runtime.md#spec-57-8, G57).
     let unbound = state
         .store
         .unbound_subject_intents(state.agent_id, 8)
@@ -1280,7 +1280,7 @@ fn sealed_previous_projection(
 }
 
 
-/// CAS 失败直接返回，绝不制造空 locator 后继续提交。§41.2.2
+/// CAS 失败直接返回，绝不制造空 locator 后继续提交。docs/specs/durable-state.md#spec-41-2-2
 fn seal_step_object(
     store: &shenko_store::store::Store,
     _seq: u64,
@@ -1659,7 +1659,7 @@ async fn execute_step(
                     // The committed projection uses the step id as the message
                     // identity and `text/0` as the part; a streamed chunk and
                     // the committed message therefore share one identity and
-                    // the client absorbs instead of appending (§21.8).
+                    // the client absorbs instead of appending (docs/specs/web-interface.md#spec-21-8).
                     message_id: step_id.to_string(),
                     part_id: crate::outbox::TEXT_PART_ID.to_string(),
                     stream_id: request_id,
@@ -1706,7 +1706,7 @@ async fn execute_step(
         (Some(output), stop_reason)
     };
 
-    // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
+    // Hook: PostModel — docs/specs/context-policies.md#spec-37. Fires after inference completes, before S1 commit.
     if let Some(reg) = &hooks_ref {
         let dispatch = reg
             .dispatch(&HookPayload::AfterInference {
@@ -1726,7 +1726,7 @@ async fn execute_step(
         }
     }
 
-    // S1 decision — SPEC §41.5: commit decision + event disposition +
+    // S1 decision — docs/specs/subject-runtime.md#spec-41-5: commit decision + event disposition +
     // delegation intent + unique successor before the ledger write.
     let complete = matches!(stop_reason.as_str(), "stop" | "end_turn" | "stop_sequence");
     let output = if complete {
@@ -1809,7 +1809,7 @@ async fn execute_step(
         }
         // Accepting an unknown effect may only name a case this step was
         // actually shown, and may only cite evidence that case carries
-        // (SPEC §41.4 X11, §51.1). Anything else is an invalid control, not a
+        // (docs/specs/durable-state.md#spec-41-4 X11, docs/specs/cognition-units.md#spec-51-1). Anything else is an invalid control, not a
         // runtime failure.
         for control in &output.controls {
             let OutputAction::Reconcile { spec } = &control.action else {
@@ -1917,7 +1917,7 @@ async fn execute_step(
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
 
-    // Hook: PreEffect — SPEC §37. Fires before S1 commit is written to the ledger.
+    // Hook: PreEffect — docs/specs/context-policies.md#spec-37. Fires before S1 commit is written to the ledger.
     if let Some(reg) = &hooks_ref {
         let dispatch = reg
             .dispatch(&HookPayload::BeforeOperation {
@@ -2037,7 +2037,7 @@ async fn execute_step(
             OutputAction::Policy { spec } => {
                 // The subject asks about its own runtime policy. The request is
                 // durable; an installation without that dispatcher records it
-                // as an unbound capability the subject can see (SPEC §57.8).
+                // as an unbound capability the subject can see (docs/specs/subject-runtime.md#spec-57-8).
                 let kind = match spec.kind {
                     shenko_types::output::PolicyRequestKind::ResourceShare => {
                         PolicyKind::ResourceShare
@@ -2098,7 +2098,7 @@ async fn execute_step(
     // not mention stays UNDECIDED, never silently dropped: the disposition
     // index has to show what the subject did with each input. The harness
     // does not settle it for the subject either — "我还没想好" is a
-    // legitimate state (SPEC §57.3), and a deferred input keeps coming back
+    // legitimate state (docs/specs/subject-runtime.md#spec-57-3), and a deferred input keeps coming back
     // until the subject disposes of it or its attention policy holds it.
     let mut authored: std::collections::HashMap<EntityId, EventDisposition> =
         std::collections::HashMap::new();
@@ -2162,7 +2162,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     // schema_version 9: the sealed decision can also carry the subject's
-    // explicit acceptance of an unknown external effect (SPEC §41.4 X11).
+    // explicit acceptance of an unknown external effect (docs/specs/durable-state.md#spec-41-4 X11).
     // Schema 8 (versioned PublicationTarget only) is still admitted by the
     // Store, so already sealed decisions keep their meaning. See
     // shenko_store::channel::DECISION_SCHEMA_VERSION.
@@ -2233,7 +2233,7 @@ async fn execute_step(
             state.identity_receipt = Some(identity_receipt);
 
             // Outbound path — publish ONLY after the S1 commit succeeded.
-            // SPEC §41.2.3 committed-only publication: never show a thought
+            // docs/specs/durable-state.md#spec-41-2-3 committed-only publication: never show a thought
             // that is not durably recorded, or a retried step could show a
             // different one.
             if model_output.is_some() {
@@ -2262,7 +2262,7 @@ async fn execute_step(
                 );
             }
 
-            // Hook: PostEffect — SPEC §37. Fires after S1 is durably committed.
+            // Hook: PostEffect — docs/specs/context-policies.md#spec-37. Fires after S1 is durably committed.
             if let Some(reg) = &hooks_ref {
                 let dispatch = reg
                     .dispatch(&HookPayload::AfterOperation {
@@ -2481,7 +2481,7 @@ fn contribution_usage(
     input: &FrozenStepInput,
     seal: &ObjectRef,
 ) -> Result<Option<shenko_context_policy::ContributionUsage>, ShenkoError> {
-    // Records sealed before the SPEC §51.9 cutover spell the sourced-content
+    // Records sealed before the docs/specs/cognition-units.md#spec-51-9 cutover spell the sourced-content
     // kind `fact`. The sealed bytes stay exactly as they were; this reader
     // migrates its own parsed copy through the one named migration.
     let read = |value: &serde_json::Value| {

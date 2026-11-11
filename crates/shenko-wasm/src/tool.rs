@@ -1,4 +1,4 @@
-//! Named WASM tool installation and execution — SPEC §8.2/§8.3/§18.8/R008/R101.
+//! Named WASM tool installation and execution — docs/specs/wasm-tools.md#spec-8-2, docs/specs/wasm-home.md#spec-8-3, docs/specs/wasm-tools.md#spec-18-8/R008/R101.
 //!
 //! A tool is a real upstream artifact (WASI command module bytes) with a
 //! declared name, version, ABI, source and content digest. Installation
@@ -63,7 +63,7 @@ impl ToolMountProfile {
                 // the mount: a managed COW mount must keep showing the
                 // branch's overlay over its base, so a read-only profile is
                 // a read-only *view of the branch*, not a direct mount over
-                // the base (SPEC §8.3 / A08).
+                // the base (docs/specs/wasm-home.md#spec-8-3 / A08).
                 actual.withdraw_write();
             }
             actual
@@ -156,7 +156,7 @@ pub struct ToolDescriptor {
     /// by definition.
     #[serde(default)]
     pub artifact: Option<crate::artifact::ToolArtifactRef>,
-    /// The capability requirements this package declares — SPEC §9
+    /// The capability requirements this package declares — docs/specs/self-update.md#spec-9
     /// "权限需求". They are requirements, never grants: they are admitted
     /// against what the executor actually hands the guest (the frozen mount
     /// closure and the explicit invocation environment), and a version
@@ -309,7 +309,7 @@ pub fn inspect_module(artifact: &[u8]) -> Result<ModuleInspection> {
 }
 
 /// A declared named product target and its real state. This is the honest
-/// §8.2 list in code: status reflects whether a verified runnable artifact is
+/// docs/specs/wasm-tools.md#spec-8-2 list in code: status reflects whether a verified runnable artifact is
 /// installed *right now*, not whether the name is "supported" on paper.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedToolTarget {
@@ -320,7 +320,7 @@ pub struct NamedToolTarget {
     pub upstream: &'static str,
     /// SPDX license of that upstream project. An installed tool keeps it.
     pub license: &'static str,
-    /// The SPEC §8.2 compatibility class the target really has: W0 standard
+    /// The docs/specs/wasm-tools.md#spec-8-2 compatibility class the target really has: W0 standard
     /// component, W1 extended POSIX userland, W2 dedicated host imports, H
     /// host adaptation, R remote environment.
     pub compatibility: &'static str,
@@ -352,7 +352,7 @@ impl TargetMatch {
     }
 }
 
-/// Declared named targets. Order is the SPEC §8.2 order.
+/// Declared named targets. Order is the docs/specs/wasm-tools.md#spec-8-2 order.
 pub const NAMED_TARGETS: &[NamedToolTarget] = &[
     NamedToolTarget {
         name: "toybox",
@@ -378,7 +378,7 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         unresolved_reason: Some(
             "no verified WASM-hosted compiler artifact exists yet; the \
              retained wasi-sdk toolchain runs on the host and *produces* \
-             wasm32-wasip1 modules, which is the target side of SPEC §8.2, \
+             wasm32-wasip1 modules, which is the target side of docs/specs/wasm-tools.md#spec-8-2, \
              not a compiler that runs inside WASM. This target stays open \
              until a real artifact exists",
         ),
@@ -452,7 +452,7 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         unresolved_reason: Some(
             "no wasm32-wasip1 OpenSSH artifact exists yet. The WASIX ports \
              need a WASIX-capable engine, and this runtime is wasmtime-45 \
-             preview1 (SPEC §8.2 W1, R019); the host ssh client is not a WASM \
+             preview1 (docs/specs/wasm-tools.md#spec-8-2 W1, R019); the host ssh client is not a WASM \
              SSH. A real SSH client must run the protocol and authentication \
              inside the module with the host supplying only admitted sockets, \
              getrandom entropy and clock_time_get — all three exist now — so \
@@ -611,7 +611,7 @@ pub struct NamedTargetStatus {
     pub name: String,
     pub upstream: String,
     pub license: String,
-    /// The SPEC §8.2 compatibility class the target really has.
+    /// The docs/specs/wasm-tools.md#spec-8-2 compatibility class the target really has.
     pub compatibility: String,
     /// Host imports or runtime features needed beyond WASI preview1.
     pub required_capabilities: Vec<String>,

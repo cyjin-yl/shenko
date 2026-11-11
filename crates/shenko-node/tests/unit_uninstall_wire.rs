@@ -1,4 +1,4 @@
-//! Unit uninstall through the real node JSON wire — SPEC §45.10 lifecycle.
+//! Unit uninstall through the real node JSON wire — docs/specs/cognition-units.md#spec-45-10 lifecycle.
 //!
 //! The caller is a JSON producer, not this crate's own API: the request is
 //! deserialized from `Request { command: "units", request: { command:

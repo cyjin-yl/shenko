@@ -1,5 +1,5 @@
 //! Receipt admission: one fact per identity and per stable source event.
-//! SPEC X04, §41.7.3.
+//! SPEC X04, docs/specs/plugins.md#spec-41-7-3.
 //!
 //! A receipt is admitted at most once. Its identity is the receipt id the
 //! producer assigned, and — when the producer declares one — the stable source
@@ -65,7 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_evidence_source_scope ON evidence_receipts(
     json_extract(data,'$.source_event_key'));
 "#;
 
-/// The protocol code of a refused receipt (SPEC §41.3, §41.7.3).
+/// The protocol code of a refused receipt (docs/specs/durable-state.md#spec-41-3, docs/specs/plugins.md#spec-41-7-3).
 pub(crate) const RECEIPT_KEY_CONFLICT: &str = "RECEIPT_KEY_CONFLICT";
 
 /// Which identity an incoming receipt collided with.

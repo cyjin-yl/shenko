@@ -1,5 +1,5 @@
-//! Provider-neutral desktop / VM computer-use contract — SPEC §24.1, §24.3,
-//! §24.4, §34.4.
+//! Provider-neutral desktop / VM computer-use contract — docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3,
+//! docs/specs/desktop-runtime.md#spec-24-4, docs/specs/desktop-runtime.md#spec-34-4.
 //!
 //! One display domain has one write lease; observation identity, revision,
 //! DPI and coordinate transform are provider-independent facts; a provider
@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::{ids::EntityId, object::ObjectRef};
 use std::sync::Arc;
 
-/// A real sub-capability a desktop provider may declare (SPEC §24.1).
+/// A real sub-capability a desktop provider may declare (docs/specs/desktop-runtime.md#spec-24-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DesktopCapability {
@@ -245,7 +245,7 @@ pub struct DesktopObservation {
     pub png_preview_ref: ObjectRef,
 }
 
-/// One atomic input intent (SPEC §24.1 "input").
+/// One atomic input intent (docs/specs/desktop-runtime.md#spec-24-1 "input").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DesktopAction {
@@ -348,7 +348,7 @@ pub struct DesktopLeaseOutcome {
     pub revoked: bool,
 }
 
-/// The single lease algorithm shared by every provider (SPEC §24.3).
+/// The single lease algorithm shared by every provider (docs/specs/desktop-runtime.md#spec-24-3).
 ///
 /// The caller MUST hold the provider's domain lock while calling this, so
 /// the epoch bump and the release of machine-held input stay atomic
@@ -640,7 +640,7 @@ pub fn platform_default_provider() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-provider human-input observation (SPEC §24.3 / §24.6.2)
+// Cross-provider human-input observation (docs/specs/desktop-runtime.md#spec-24-3, docs/specs/browser.md#spec-24-6-2)
 // ---------------------------------------------------------------------------
 
 /// Implemented by any provider that must react when a human takes over a

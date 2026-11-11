@@ -1,4 +1,4 @@
-//! The runtime's own services — SPEC §7, §37.
+//! The runtime's own services — docs/specs/plugins.md#spec-7, docs/specs/context-policies.md#spec-37.
 //!
 //! The assembly root owns two live registries: the hook graph and the plugin
 //! runtime registry. Both are published on the runtime's root context as

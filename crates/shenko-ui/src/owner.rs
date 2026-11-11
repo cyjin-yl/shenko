@@ -1,4 +1,4 @@
-//! The first owner claim and the authenticated actor — SPEC §44.4, §43.1.
+//! The first owner claim and the authenticated actor — docs/specs/plugins.md#spec-44-4, docs/specs/configuration-playground.md#spec-43-1.
 //!
 //! The installation ships with an installation-scoped, one-time claim
 //! capability. It is provided through the install control channel (the data
@@ -181,7 +181,7 @@ fn principal_ref_for(store: &Store, installation_id: EntityId) -> Result<shenko_
     Ok(grant.human_principal_ref)
 }
 
-/// Result of a claim attempt — SPEC §44.4 error contract.
+/// Result of a claim attempt — docs/specs/plugins.md#spec-44-4 error contract.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimResponse {

@@ -1,5 +1,5 @@
 //! QQ channel plugin — inbound classification, envelope projection and
-//! outbound description/execution. SPEC §15–16, §35.6, §41.6.
+//! outbound description/execution. docs/specs/channels.md#spec-15–docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6, docs/specs/channels.md#spec-41-6.
 //!
 //! Everything QQ-specific lives here: the OneBot v11 payload shape, the
 //! numeric account ids, the reply audience kinds (`group`/`private`), the
@@ -208,7 +208,7 @@ impl ChannelPlugin for NapCatChannel {
     /// What the NapCat (OneBot v11) platform really does for this bot.
     ///
     /// The table lists what `describe` can really produce, and a field that
-    /// is `false` is a promise NOT to attempt the action (SPEC §57.4, RT19).
+    /// is `false` is a promise NOT to attempt the action (docs/specs/channels.md#spec-57-4, RT19).
     ///
     /// This plugin calls exactly two OneBot actions — `send_group_msg` and
     /// `send_private_msg` — so it offers neither editing nor retracting: a
@@ -270,7 +270,7 @@ impl ChannelPlugin for NapCatChannel {
         // somebody wrote. It still belongs to the subject: a recall means a
         // message the subject may have quoted no longer exists, and a member
         // change is exactly the kind of thing a personal agent is supposed to
-        // notice. SPEC §57.4.
+        // notice. docs/specs/channels.md#spec-57-4.
         if post_type == "notice" {
             return self.classify_notice(raw);
         }

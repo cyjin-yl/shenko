@@ -1,4 +1,4 @@
-//! The subject's judgement of one installed cognition unit — SPEC §45.7.
+//! The subject's judgement of one installed cognition unit — docs/specs/cognition-units.md#spec-45-7.
 //!
 //! `cognition.unit.judge:1` records how the subject judged **one exact
 //! installed version**, together with the facts it cites. It never authors,

@@ -1,4 +1,4 @@
-//! Local model provider — OpenAI-compatible /v1/chat/completions. SPEC §22.1
+//! Local model provider — OpenAI-compatible /v1/chat/completions. docs/specs/nodes.md#spec-22-1
 //!
 //! Native local sampling options remain intact; Claude-only API restrictions
 //! do not leak into this binding. The endpoint, model and credential are read
@@ -213,7 +213,7 @@ impl LocalModelProvider {
             // shape). Both become cache_read; absent/invalid fields stay
             // unknown rather than 0, and a backend with no reporting keeps
             // `None`. This is a hit observation only — never a residency
-            // guarantee (§13.6, §13.7).
+            // guarantee (docs/specs/inference.md#spec-13-6, docs/specs/inference.md#spec-13-7).
             cache_read_tokens: u
                 .get("prompt_tokens_details")
                 .and_then(|details| details.get("cached_tokens"))

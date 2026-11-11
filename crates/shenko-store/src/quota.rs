@@ -1,4 +1,4 @@
-//! Durable provider-quota state on the single mutation line (SPEC §42.5).
+//! Durable provider-quota state on the single mutation line (docs/specs/quota-resources.md#spec-42-5).
 //!
 //! Every quota write — observation snapshot, forecast, policy, sealed
 //! decision, admission/pacer state and attempt ledger rows — commits inside
@@ -489,11 +489,11 @@ impl Store {
                                 "freshness": forecast.freshness,
                                 "source_validity": forecast.source_validity,
                                 // Which replaceable forecast strategy produced
-                                // the new plan (SPEC §42.1). Absent on legacy
+                                // the new plan (docs/specs/quota-resources.md#spec-42-1). Absent on legacy
                                 // records: unknown, never assumed.
                                 "cost_model_version": forecast.cost_model_version.clone(),
                                 // How far the plan reaches and how much it can
-                                // be trusted (SPEC §42.3).
+                                // be trusted (docs/specs/quota-resources.md#spec-42-3).
                                 "horizon": forecast.horizon,
                                 "confidence": forecast.confidence,
                                 "windows": forecast.windows.iter().map(|window| serde_json::json!({
@@ -945,7 +945,7 @@ impl Store {
     }
 
     /// Measured useful work of one subject's admitted rounds, read from the
-    /// ledger's own record (SPEC §42.3 `expected_useful_work`).
+    /// ledger's own record (docs/specs/quota-resources.md#spec-42-3 `expected_useful_work`).
     ///
     /// Rounds are the subject's own request attempts that reached terminal
     /// provider evidence; useful outcomes are the steps among them whose S1
@@ -996,7 +996,7 @@ impl Store {
         }))
     }
 
-    /// Record one durable quota event (SPEC §42.6). Re-recording the
+    /// Record one durable quota event (docs/specs/quota-resources.md#spec-42-6). Re-recording the
     /// identical event is idempotent; the same id with different bytes is a
     /// conflict.
     pub fn record_quota_event(&self, event: &QuotaEvent) -> Result<CommitReceipt, ShenkoError> {
@@ -1063,7 +1063,7 @@ impl Store {
 
     /// Durable quota events after a commit position, oldest first, each with
     /// the commit position it was written at. This is the subject-readable
-    /// stream of quota facts (SPEC §42.6).
+    /// stream of quota facts (docs/specs/quota-resources.md#spec-42-6).
     pub fn quota_events_since(
         &self,
         after_commit_seq: u64,
@@ -1193,8 +1193,8 @@ impl Store {
     /// unfindable. An existing lineage row must bind the identical request;
     /// the policy and decision must be the recorded rows verbatim.
     ///
-    /// `strategies` supplies the replaceable admission cadence (SPEC §42.1,
-    /// §42.5). The cadence is consulted inside this same transaction and may
+    /// `strategies` supplies the replaceable admission cadence (docs/specs/quota-resources.md#spec-42-1,
+    /// docs/specs/quota-resources.md#spec-42-5). The cadence is consulted inside this same transaction and may
     /// only withhold a fresh admission: the pacer, the preserved armed
     /// history and every refusal stay the library's own transition, so a
     /// strategy cannot grant budget the portfolio does not have. A refusing

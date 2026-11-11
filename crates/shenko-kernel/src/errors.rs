@@ -1,4 +1,4 @@
-//! Scoped error observation for plugin-runtime failures (SPEC §45.14).
+//! Scoped error observation for plugin-runtime failures (docs/specs/cognition-units.md#spec-45-14).
 //!
 //! The kernel cannot journal runtime failures itself: it has no subject
 //! store, and before genesis no branch exists. The assembly root attaches
@@ -43,7 +43,7 @@ impl ErrorSite {
 
 /// The scoped sink the assembly root attaches after the subject store
 /// exists. The implementation journals into the SAME subject store journal
-/// as every other runtime-error fact (§45.14) and must never re-enter this
+/// as every other runtime-error fact (docs/specs/cognition-units.md#spec-45-14) and must never re-enter this
 /// observation path on journal failure — `journal_runtime_error` already
 /// counts instead of propagating.
 pub trait ErrorSink: Send + Sync + 'static {

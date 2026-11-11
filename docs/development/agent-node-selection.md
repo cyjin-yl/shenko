@@ -534,7 +534,7 @@ resolver, real model/remote execution or full distributed completion is claimed.
 The owner's 2026-10-29 clarification: expose distributed capabilities to the
 central thinking subject, or a scheduling agent it delegates to; do not replace
 their choice with a mechanical capability router. This slice follows SPEC
-§5.4, §11, §38, §40 and the existing #114 advertisements. It does not implement
+[§5.4](../specs/nodes.md#spec-5-4)、[§11](../specs/remote-seats.md#spec-11)、[§38](../specs/cognition-units.md#spec-38)、[§40](../governance/development-contract.md#spec-40) and the existing #114 advertisements. It does not implement
 an election, a sleeping subject, or an Infinity-style durable runtime.
 
 **Status: fixed candidate `ca6dcd9a` built and passed 18 node tests, including

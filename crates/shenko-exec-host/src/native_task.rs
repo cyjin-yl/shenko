@@ -314,7 +314,7 @@ impl NativeTaskHandler for HostPrintfHandler {
         }
     }
 
-    /// §36 effect contract of `host.printf.v1`.
+    /// docs/specs/durable-state.md#spec-36 effect contract of `host.printf.v1`.
     ///
     /// The definition runs one host process whose stdout becomes evidence.
     /// There is no reset and no restore (the process left nothing durable),

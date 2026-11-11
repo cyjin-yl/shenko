@@ -1,7 +1,7 @@
 //! Immutable WASM runtime state: linear memory, the guest's own continuation,
-//! and the interpreter object graph (SPEC §10.2, §51.4).
+//! and the interpreter object graph (docs/specs/durable-state.md#spec-10-2, docs/specs/cognition-units.md#spec-51-4).
 //!
-//! §51.4 requires one owned versioned root to include the home files, the
+//! docs/specs/cognition-units.md#spec-51-4 requires one owned versioned root to include the home files, the
 //! core/plugin slots, the awareness/perception selections *and* the WASM
 //! linear memory, execution stack and interpreter object graph. The file layer
 //! already exists ([`crate::checkpoint`], [`crate::cow`]); this module is the
@@ -52,7 +52,7 @@
 //!   [`WasmStateLevel::MemoryWithoutResume`] or lower, never "restored", and
 //!   bytes already sent are never replayed automatically.
 //! * Restoring files or memory never undoes an external effect that already
-//!   happened (SPEC §10.1, §51.4).
+//!   happened (docs/specs/durable-state.md#spec-10-1, docs/specs/cognition-units.md#spec-51-4).
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -273,7 +273,7 @@ impl WasmStateManifest {
     }
 }
 
-/// How much of the §51.4 state this manifest actually carries.
+/// How much of the docs/specs/cognition-units.md#spec-51-4 state this manifest actually carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmStateLevel {
     /// Linear memory only; the execution stack and interpreter graph were not
@@ -1346,7 +1346,7 @@ impl crate::gc::CasRootProducer for WasmStateProducer<'_> {
                 // state is captured-without-resume. Reclamation is still safe
                 // (all its objects are pinned), and the gap is reported.
                 roots.blockers.push(format!(
-                    "state {} carries no captured continuation; §51.4 full runtime state is an open gap for this instance",
+                    "state {} carries no captured continuation; docs/specs/cognition-units.md#spec-51-4 full runtime state is an open gap for this instance",
                     reference.manifest
                 ));
             }

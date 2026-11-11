@@ -1,4 +1,4 @@
-//! Authored notebook recovery producer/consumer — SPEC §12.3.1, §5.4.
+//! Authored notebook recovery producer/consumer — docs/specs/context-policies.md#spec-12-3-1, docs/specs/nodes.md#spec-5-4.
 //!
 //! Two real programs, not a fixture: `write` authors a notebook journal
 //! (replacement, clear, fork copy) and a pending rollover request in a real

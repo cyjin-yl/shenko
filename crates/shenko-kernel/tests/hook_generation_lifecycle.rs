@@ -1,4 +1,4 @@
-//! Hook generation install/upgrade/uninstall boundaries — SPEC §41.8.4.
+//! Hook generation install/upgrade/uninstall boundaries — docs/specs/context-policies.md#spec-41-8-4.
 //!
 //! These cases exercise the real registry, not a mock: an upgrade is one
 //! atomic publication, a leased snapshot keeps dispatching the generation it

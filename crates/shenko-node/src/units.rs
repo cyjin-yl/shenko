@@ -1,7 +1,7 @@
 //! Installation units: cross-node package transfer, per-node installation
 //! facts, and real component trials.
 //!
-//! SPEC §45.10 shapes the unit itself (identity, kind, revision, artifact,
+//! docs/specs/cognition-units.md#spec-45-10 shapes the unit itself (identity, kind, revision, artifact,
 //! dependencies, config, applicability). The rules this module keeps:
 //!
 //! * Copying a package never makes a unit ready *here*. Only a locally
@@ -152,7 +152,7 @@ pub fn b64_decode(text: &str) -> Result<Vec<u8>> {
 
 // ------------------------------------------------------------ unit shape ---
 
-/// The four independently installable unit kinds of SPEC §45.10.
+/// The four independently installable unit kinds of docs/specs/cognition-units.md#spec-45-10.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum UnitKind {
@@ -179,7 +179,7 @@ impl UnitKind {
     /// Whether this kind is cognitive *content*.
     ///
     /// Content joins a metapackage only with a separate adoption attitude
-    /// (SPEC §51.1/.3); a code plugin is installed, not adopted, and a
+    /// (docs/specs/cognition-units.md#spec-51-1/.3); a code plugin is installed, not adopted, and a
     /// sub-metapackage is judged by the attitudes of its own content members.
     pub fn is_content(&self) -> bool {
         matches!(
@@ -214,7 +214,7 @@ pub enum DependencySelector {
         revision_requirement: Option<String>,
         artifact_digest: Option<Digest>,
         /// The versioned contract the selected provider must declare, for an
-        /// edge that also pins a service ABI or a code contract (SPEC §45.10).
+        /// edge that also pins a service ABI or a code contract (docs/specs/cognition-units.md#spec-45-10).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         contract_requirement: Option<CapabilityContract>,
     },
@@ -264,7 +264,7 @@ impl UnitDescriptor {
     ///
     /// `provides` keeps its historical string shape so every retained package
     /// still reads. An entry that begins with [`CAPABILITY_CONTRACT_PREFIX`] is
-    /// a versioned capability contract (`cap.<name>/<major>`, SPEC §51.8) and
+    /// a versioned capability contract (`cap.<name>/<major>`, docs/specs/cognition-units.md#spec-51-8) and
     /// is parsed here; every other entry is an opaque topic or capability name
     /// that can satisfy a content dependency only. A malformed contract refuses
     /// the version instead of quietly becoming a topic.
@@ -385,7 +385,7 @@ pub struct ResolvedDependency {
     pub selected_contract: Option<CapabilityContract>,
     /// Other installed providers of the same abstract capability that coexist
     /// with the selection, when their actually used atomic capabilities do not
-    /// conflict (SPEC §51.8). They are enabled facts on this node, never a
+    /// conflict (docs/specs/cognition-units.md#spec-51-8). They are enabled facts on this node, never a
     /// promise that they run here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coexisting_providers: Vec<ProviderSelection>,
@@ -1417,7 +1417,7 @@ fn environment_activation_key(revision: u64) -> String {
 
 // ------------------------------------------------- package declarations ---
 
-/// One guest-visible filesystem requirement of a package — SPEC §9
+/// One guest-visible filesystem requirement of a package — docs/specs/self-update.md#spec-9
 /// "权限需求": a guest path the executor must preopen, and whether the
 /// package writes under it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -1504,7 +1504,7 @@ pub struct PackageCapabilities {
     ///
     /// They are what coexistence is judged on: providers may be installed and
     /// enabled together unless both need the same atom exclusively (SPEC
-    /// §51.8). There is deliberately no package-level `conflicts` field.
+    /// docs/specs/cognition-units.md#spec-51-8). There is deliberately no package-level `conflicts` field.
     #[serde(default)]
     pub atoms: Vec<AtomicCapability>,
 }
@@ -1725,13 +1725,13 @@ fn validate_guest_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------ capability contracts (SPEC §51.8) ---
+// ------------------------------------ capability contracts (docs/specs/cognition-units.md#spec-51-8) ---
 
 /// Reserved prefix of a capability contract identifier.
 ///
 /// A capability contract and a unit id are two identifier spaces: a unit id may
 /// never begin with this prefix, and a dependency written on a contract is
-/// satisfied by whichever installed unit declares providing it (SPEC §51.8).
+/// satisfied by whichever installed unit declares providing it (docs/specs/cognition-units.md#spec-51-8).
 pub const CAPABILITY_CONTRACT_PREFIX: &str = "cap.";
 
 /// Bounds on one metapackage or distribution declaration. They bound the
@@ -1768,7 +1768,7 @@ fn validate_dotted_name(name: &str, what: &str) -> Result<()> {
 ///
 /// The contract identity is the pair (name, major): a provider's own package
 /// version may change freely, and only a different contract major version makes
-/// a dependency unsatisfied (SPEC §51.8). The value serializes as its text form,
+/// a dependency unsatisfied (docs/specs/cognition-units.md#spec-51-8). The value serializes as its text form,
 /// so an author writes one string and no field can drift from it.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CapabilityContract {
@@ -1876,7 +1876,7 @@ pub enum CapabilityExclusivity {
 /// One atomic capability a code version actually exercises at run time: a hook
 /// point, an event subscription, a singleton service.
 ///
-/// Coexistence is judged here, on what is actually used (SPEC §51.8). Packages
+/// Coexistence is judged here, on what is actually used (docs/specs/cognition-units.md#spec-51-8). Packages
 /// carry no `conflicts` field and there is no package-level exclusivity.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
@@ -2042,7 +2042,7 @@ pub fn declared_metapackage(descriptor: &UnitDescriptor) -> Result<Option<Metapa
 /// What the installation's distribution declares about one named target's
 /// expected access.
 ///
-/// It is installable content (SPEC §51.3), not a kernel constant: the kernel
+/// It is installable content (docs/specs/cognition-units.md#spec-51-3), not a kernel constant: the kernel
 /// never decides which access a deployment expects for a target. `expected`
 /// uses the same typed requirement shape a package declares for itself, so an
 /// expectation is compared with a real grant instead of matched as a keyword.
@@ -2064,7 +2064,7 @@ pub struct TargetAccessExpectation {
 #[serde(deny_unknown_fields)]
 pub struct PreinstalledMacro {
     pub unit_id: String,
-    /// Parallel macros are peers; none contains another (SPEC §51.3).
+    /// Parallel macros are peers; none contains another (docs/specs/cognition-units.md#spec-51-3).
     #[serde(default)]
     pub parallel: bool,
     /// The distribution is designed to depend on this macro. It records a
@@ -2682,7 +2682,7 @@ fn selection_of(edge: Option<&ResolvedDependency>) -> Option<(String, String, Di
 /// package description that travels with it.
 ///
 /// A code package carries its description under `config.tool`; the
-/// `capabilities` object there is the declaration SPEC §9 requires every
+/// `capabilities` object there is the declaration docs/specs/self-update.md#spec-9 requires every
 /// package description to record. A version without that object records no
 /// declaration: that is [`PackageDeclaration::unrecorded`], which the runtime
 /// reports as such — never a fabricated empty declaration (which would claim
@@ -3974,7 +3974,7 @@ impl Node {
     ///
     /// A member that is content (perception, awareness, skill) **must** carry
     /// an authenticated adoption attitude whose evidence verifies locally
-    /// (SPEC §51.1, §51.3, §51.8). Code members need installation only.
+    /// (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3, docs/specs/cognition-units.md#spec-51-8). Code members need installation only.
     /// A member installed on a peer never joins locally: declarations crossing
     /// nodes never imply local readiness.
     fn query_metapackage(&self, unit_id: &str) -> Result<Value> {
@@ -4213,7 +4213,7 @@ impl Node {
     /// Build a named contract slot from the collected providers.
     ///
     /// Multiple admitted providers coexist when their actually used atomic
-    /// capabilities do not conflict (SPEC §51.8). Selection: the first
+    /// capabilities do not conflict (docs/specs/cognition-units.md#spec-51-8). Selection: the first
     /// admitted and enabled provider is the selected one; a slot where no
     /// provider is admitted stays unselected, and a consumer reports that
     /// omission rather than claiming a rule was applied.
@@ -4299,7 +4299,7 @@ impl Node {
     /// Walk a distribution's declarations and return the complete projection.
     ///
     /// Target-access expectations replace the kernel's `NAMED_TARGETS` const
-    /// table (SPEC §51.3). Preinstalled macros name the metapackages the
+    /// table (docs/specs/cognition-units.md#spec-51-3). Preinstalled macros name the metapackages the
     /// distribution ships by design. Capability-provider defaults name the
     /// replaceable provider selections. All are declarations — facts about the
     /// distribution version, never grants of local readiness.

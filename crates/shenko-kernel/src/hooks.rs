@@ -1,4 +1,4 @@
-//! Hook API — SPEC §37, §41.8.
+//! Hook API — docs/specs/context-policies.md#spec-37, docs/specs/context-policies.md#spec-41-8.
 //!
 //! The registry owns a *named, versioned* set of hook points. A point declares
 //! its contract (major version, input/output schema, mode, writable fields,
@@ -7,7 +7,7 @@
 //! instead of being reinterpreted, and a leased snapshot keeps dispatching
 //! under the contract it took.
 //!
-//! Every mode of §41.8.2 is implemented with its own output synthesis:
+//! Every mode of docs/specs/context-policies.md#spec-41-8-2 is implemented with its own output synthesis:
 //!
 //! | mode | legal outputs | synthesis |
 //! | --- | --- | --- |
@@ -64,7 +64,7 @@ pub const HOOK_SCHEMA_VERSION: u32 = 2;
 /// refused at admission instead of being interpreted against a newer contract.
 pub const STANDARD_HOOK_POINT_MAJOR: u32 = 1;
 
-/// Per-handler budget of the standard install profile. SPEC §41.8 gives
+/// Per-handler budget of the standard install profile. docs/specs/context-policies.md#spec-41-8 gives
 /// optional contributions a bounded local preparation budget; an observer
 /// hook that does not answer inside it is diagnosed, never awaited forever.
 pub const STANDARD_HOOK_TIMEOUT_MS: u64 = 250;
@@ -102,7 +102,7 @@ impl HookPointId {
     /// The runtime's generation handoff point.
     pub const RUNTIME_GENERATION_HANDOFF: HookPointId =
         HookPointId::from_static("runtime.generation_handoff");
-    /// The context collection point of SPEC §41.8's stage table
+    /// The context collection point of docs/specs/context-policies.md#spec-41-8's stage table
     /// ("context collect"). A plugin that prepared material for this request
     /// contributes it here; the merged set is what the context policy
     /// assembles and seals.
@@ -184,7 +184,7 @@ fn validate_point_id(id: &str) -> Result<(), HookPointIdError> {
     Ok(())
 }
 
-/// Synthesis contract of a hook point — SPEC §41.8.1 `mode`.
+/// Synthesis contract of a hook point — docs/specs/context-policies.md#spec-41-8-1 `mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookMode {
@@ -213,7 +213,7 @@ impl HookMode {
 }
 
 /// What dispatch does with a handler that fails, times out or panics —
-/// SPEC §41.8.1 `failure`.
+/// docs/specs/context-policies.md#spec-41-8-1 `failure`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookFailurePolicy {
@@ -238,7 +238,7 @@ pub enum TransformMerge {
     ReplaceWhole,
 }
 
-/// Declared contract of one hook point — SPEC §41.8.1 `HookPoint`.
+/// Declared contract of one hook point — docs/specs/context-policies.md#spec-41-8-1 `HookPoint`.
 ///
 /// The contract travels with the admitted graph: a snapshot keeps dispatching
 /// under the contract it leased, and publishing a changed contract republishes
@@ -390,7 +390,7 @@ impl HookPayload {
     }
 }
 
-/// What a handler returns — SPEC §41.8.1 `HookResult`.
+/// What a handler returns — docs/specs/context-policies.md#spec-41-8-1 `HookResult`.
 ///
 /// The variant set is the point's mode contract; an output outside the
 /// mode's legal set is never adopted, whatever the failure policy says.
@@ -497,7 +497,7 @@ pub struct HookSpec {
     /// refuses a mismatch instead of reinterpreting the handler under a
     /// different contract.
     pub point_major: u32,
-    /// Versioned identity of the handler artifact — SPEC §41.8.1
+    /// Versioned identity of the handler artifact — docs/specs/context-policies.md#spec-41-8-1
     /// `HookHandler.implementation`. It is part of the graph digest so a
     /// dispatch receipt can tell two implementations of the same hook id
     /// apart.
@@ -644,7 +644,7 @@ pub struct HookPublication {
     pub registrations: Vec<HookRegistration>,
 }
 
-/// Receipt of one plugin-generation replacement — SPEC §41.8.4 hot update.
+/// Receipt of one plugin-generation replacement — docs/specs/context-policies.md#spec-41-8-4 hot update.
 ///
 /// The new generation is already published; `publication` owns its handlers.
 /// `retired_revision` is the graph revision the replaced handlers were last
@@ -675,7 +675,7 @@ pub struct GenerationRetirement {
     pub quiesced: bool,
 }
 
-/// Receipt of one point dispatch — SPEC §41.8.1 `HookDispatch`.
+/// Receipt of one point dispatch — docs/specs/context-policies.md#spec-41-8-1 `HookDispatch`.
 ///
 /// It records the durable identity of what ran: the leased graph revision and
 /// its digest, plus every handler result stamped with the artifact that
@@ -693,10 +693,10 @@ pub struct HookDispatch {
     /// across restarts.
     pub graph_digest: Digest,
     /// Implementation artifact digest of every ordered handler of the leased
-    /// graph — SPEC §41.8.1 `handler_digests`.
+    /// graph — docs/specs/context-policies.md#spec-41-8-1 `handler_digests`.
     #[serde(default)]
     pub handler_digests: Vec<Digest>,
-    /// The input revision this dispatch ran against — SPEC §41.8.1
+    /// The input revision this dispatch ran against — docs/specs/context-policies.md#spec-41-8-1
     /// `input_revision`. A changed input creates a new dispatch instead of
     /// appending a stale asynchronous result.
     #[serde(default)]
@@ -843,7 +843,7 @@ impl Graph {
         .into_iter()
         .map(|point| (point.clone(), HookPointContract::standard(point)))
         .collect();
-        // The context collection point of SPEC §41.8's stage table. A plugin
+        // The context collection point of docs/specs/context-policies.md#spec-41-8's stage table. A plugin
         // may contribute into every slot except the system contract, which
         // the kernel owns.
         contracts.insert(
@@ -1029,7 +1029,7 @@ impl Graph {
     }
 
     /// The implementation artifact digest of every ordered handler, in
-    /// dispatch order — SPEC §41.8.1 `handler_digests`.
+    /// dispatch order — docs/specs/context-policies.md#spec-41-8-1 `handler_digests`.
     fn handler_digests(&self) -> Vec<Digest> {
         self.points
             .values()
@@ -1355,7 +1355,7 @@ impl HookRegistry {
     /// that admits their successors, so a new dispatch cannot observe both
     /// versions of the plugin. The swap names the retired graph revision so
     /// the caller can await the dispatch barrier before releasing resources
-    /// the old handlers still own — SPEC §41.8.4.
+    /// the old handlers still own — docs/specs/context-policies.md#spec-41-8-4.
     pub fn upgrade_generation(
         &self,
         plugin_id: EntityId,
@@ -1441,7 +1441,7 @@ impl HookRegistry {
     }
 
     /// Withdraw one published generation and wait for its real dispatch
-    /// barrier — SPEC §41.8.4 uninstall and hot replacement.
+    /// barrier — docs/specs/context-policies.md#spec-41-8-4 uninstall and hot replacement.
     ///
     /// The withdrawal removes the generation from new-request discovery. The
     /// barrier is every dispatch still running in this process, because a

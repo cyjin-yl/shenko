@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Android perception/execution plugins: replaceable root/Shizuku/Dhizuku/accessibility adapters, APK bundle composition contract — SPEC §24.5/§24.5.1"
+description = "Android perception/execution plugins: replaceable root/Shizuku/Dhizuku/accessibility adapters, APK bundle composition contract — docs/specs/mobile-runtime.md#spec-24-5, docs/specs/mobile-runtime.md#spec-24-5-1"
 
 [dependencies]
 shenko-types = { path = "../shenko-types" }

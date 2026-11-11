@@ -1,4 +1,4 @@
-//! IM-channel plugin boundary — SPEC §15–16, §35.6, §41.6.
+//! IM-channel plugin boundary — docs/specs/channels.md#spec-15–docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6, docs/specs/channels.md#spec-41-6.
 //!
 //! One channel plugin owns everything that is platform-specific about a
 //! messaging channel:
@@ -532,7 +532,7 @@ pub enum ChannelError {
 /// The plugin also states what its platform can really do
 /// ([`ChannelCapabilities`]) and whose account it serves
 /// ([`ChannelPlugin::account_scope`]), so the runtime never has to know a
-/// platform by name in order to advertise it honestly (SPEC §15.3, §57.4).
+/// platform by name in order to advertise it honestly (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4).
 pub trait ChannelPlugin: Send + Sync {
     /// The stable channel id, e.g. `qq`.
     fn channel_id(&self) -> &str;
@@ -549,7 +549,7 @@ pub trait ChannelPlugin: Send + Sync {
     /// A field that is `false` is a promise NOT to attempt the action, not a
     /// promise that the platform might accept it. The table is the plugin's
     /// own declaration: the runtime advertises exactly what a plugin says it
-    /// can produce (SPEC §15.3, §57.4, RT19).
+    /// can produce (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4, RT19).
     fn capabilities(&self) -> ChannelCapabilities;
 
     /// The `InboxEvent.source` labels this plugin produces. At most one plugin
@@ -734,7 +734,7 @@ impl ChannelRegistry {
     /// The runtime advertises this table instead of a hand-written list per
     /// platform: a channel that is installed declares its own capabilities,
     /// so a new plugin is described the same way as the shipped ones
-    /// (SPEC §15.3, §57.4).
+    /// (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4).
     pub fn capability_tables(&self) -> Vec<(String, String, ChannelCapabilities)> {
         self.plugins
             .iter()

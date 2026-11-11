@@ -1,4 +1,4 @@
-//! Agent identity and call context — SPEC §41.3
+//! Agent identity and call context — docs/specs/durable-state.md#spec-41-3
 use serde::{Deserialize, Serialize};
 use crate::ids::{EntityId, ControllerEpoch, RuntimeGeneration, BranchId};
 

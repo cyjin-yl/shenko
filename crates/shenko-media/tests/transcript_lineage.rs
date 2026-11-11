@@ -1,4 +1,4 @@
-//! Ordered / corrected transcript lineage of a live media session — SPEC §20
+//! Ordered / corrected transcript lineage of a live media session — docs/specs/media.md#spec-20
 //! (输入事件包含时间戳、片段序号、partial/final 修订、说话人候选、转写/原音频
 //! 引用和会话 scope；partial 修订不能产生重复承诺；最终文本与原音频对应可追溯).
 //!

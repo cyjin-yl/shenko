@@ -330,7 +330,7 @@ function initialState(): UiState {
     tasks_error: false,
     memory_error: false,
     playground_error: false,
-  /** The ownership facts (SPEC §44.4). */
+  /** The ownership facts (docs/specs/plugins.md#spec-44-4). */
   owner_state: undefined as OwnerState | undefined,
   /** The name the reader is trying to give the instance. */
   name_draft: '',
@@ -562,7 +562,7 @@ class LiveController implements ProjectionController {
           }
         } else if (anchor && !sameAnchor(anchor, previousAnchor)) {
           // A place is only restorable when the reader is actually in history;
-          // a transient selection is not a place (§21.11).
+          // a transient selection is not a place (docs/specs/web-interface.md#spec-21-11).
           this.state.display.anchor = anchor;
           saveReadingAnchor(displayStorage(), anchor);
           changed = true;
@@ -844,7 +844,7 @@ class LiveController implements ProjectionController {
   }
 
   // An action click admits a durable input; execution authority comes from
-  // the subject's disposition of that input, never from the click (§21.8).
+  // the subject's disposition of that input, never from the click (docs/specs/web-interface.md#spec-21-8).
   private sendAction(documentId: string, option: {
     action_id: string;
     nonce: string;
@@ -1018,7 +1018,7 @@ class LiveController implements ProjectionController {
       this.clearReconnectTimers();
       this.setConnection('online');
       // Attest this connection's display facts so the server degrades
-      // documents to what THIS surface can actually render (§21.5).
+      // documents to what THIS surface can actually render (docs/specs/web-interface.md#spec-21-5).
       try {
         socket.send(
           JSON.stringify({
@@ -1989,7 +1989,7 @@ class LiveController implements ProjectionController {
     }
   }
 
-  /// Name the instance (SPEC §21.1: 可由用户取名，或让 Agent 自主取名).
+  /// Name the instance (docs/specs/web-interface.md#spec-21-1: 可由用户取名，或让 Agent 自主取名).
   ///
   /// The name goes through the same identity policy the subject's own naming
   /// uses; the server answers with the new revision or says why not.
@@ -2019,7 +2019,7 @@ class LiveController implements ProjectionController {
     }
   }
 
-  /// Claim this installation (SPEC §44.4).
+  /// Claim this installation (docs/specs/plugins.md#spec-44-4).
   ///
   /// The capability is what the installation issued; the server answers with
   /// the outcome it really reached.

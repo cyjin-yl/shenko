@@ -1,6 +1,6 @@
 //! The runtime plugin protocol for provider quota observers.
 //!
-//! SPEC §42.1: `QuotaObserver`, `QuotaForecaster`, `QuotaPolicy` and the
+//! docs/specs/quota-resources.md#spec-42-1: `QuotaObserver`, `QuotaForecaster`, `QuotaPolicy` and the
 //! provider adapters are replaceable plugins. This module is the versioned
 //! seam they plug into: a named provider registers observers that turn one
 //! real source payload into a [`QuotaSnapshot`], and the rest of the system

@@ -1,7 +1,7 @@
 //! Which real account a quota reading belongs to, and how a local secret is
 //! reached without ever storing it.
 //!
-//! SPEC §42.3/§47.5: an account scope is a *reference* to a secret-managed
+//! docs/specs/quota-resources.md#spec-42-3, docs/specs/inference.md#spec-47-5: an account scope is a *reference* to a secret-managed
 //! identity, never a credential. A provider distinguishes scopes that are not
 //! interchangeable — an organization, one of its workspaces, the "Default
 //! Workspace" that exists when no workspace id is configured, a single API

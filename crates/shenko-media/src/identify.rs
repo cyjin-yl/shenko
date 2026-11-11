@@ -1,6 +1,6 @@
 //! media.identify — the subject-facing native child that asks the configured
 //! speaker-identity engine about ONE segment's ORIGINAL sealed audio
-//! (SPEC §15.2, §20, §35.3).
+//! (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20, docs/specs/plugins.md#spec-35-3).
 //!
 //! The child is a thin, honest binding: the model input is frozen and
 //! CAS-sealed before anything runs, the scope is the caller's own subject,
@@ -357,7 +357,7 @@ impl MediaIdentifyHandler {
             "audio_bytes": audio.map(|object| object.bytes),
             // Which perception read this audio, which sealed observation it
             // reasons from and the immutable content object of the claim
-            // (§51.2 「记录谁的 perception」, §51.1). Reported exactly as the
+            // (docs/specs/cognition-units.md#spec-51-2 「记录谁的 perception」, docs/specs/cognition-units.md#spec-51-1). Reported exactly as the
             // admitted revision records it; the claim never becomes an
             // identity binding.
             "identification": admitted.provider_facts.get("identification").cloned(),
@@ -378,7 +378,7 @@ impl MediaIdentifyHandler {
     ) -> Result<OperationRecord> {
         // The observation names itself: this operation/attempt is the reason
         // terminal a reader points at when it holds an attitude about the
-        // claim (§51.1 理由指针, §51.2). Without it the pointer would have to
+        // claim (docs/specs/cognition-units.md#spec-51-1 理由指针, docs/specs/cognition-units.md#spec-51-2). Without it the pointer would have to
         // be reconstructed from a receipt it cannot see.
         if let Some(object) = result.as_object_mut() {
             object.insert(
@@ -977,7 +977,7 @@ mod tests {
             "the identified audio identity is the original sealed object"
         );
         // The observation names itself (reason terminal) and the perception
-        // that produced the claim (§51.1 理由指针, §51.2).
+        // that produced the claim (docs/specs/cognition-units.md#spec-51-1 理由指针, docs/specs/cognition-units.md#spec-51-2).
         assert_eq!(
             observation["operation_id"],
             serde_json::json!(armed.invocation.operation_id)
@@ -1305,7 +1305,7 @@ mod tests {
         assert_eq!(fixture.speaker.as_ref().unwrap().calls.lock().await.len(), 1);
     }
 
-    /// The observation result is content (§51.1): the SAME claim about the
+    /// The observation result is content (docs/specs/cognition-units.md#spec-51-1): the SAME claim about the
     /// SAME sealed audio is ONE identity. A crash between admission and E1
     /// reconciles onto the original revision instead of minting a second one,
     /// and a repeat wakes nobody.

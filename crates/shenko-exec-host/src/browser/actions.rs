@@ -1,6 +1,6 @@
 //! Page actions, controller epoch/lease control and identity operations.
 //!
-//! SPEC §24.3/§24.4/§24.6.2: an action is bound to one observation and one
+//! docs/specs/desktop-runtime.md#spec-24-3, docs/specs/desktop-runtime.md#spec-24-4, docs/specs/browser.md#spec-24-6-2: an action is bound to one observation and one
 //! live controller epoch. A stale observation, a revoked lease or a page that
 //! changed underneath the agent is rejected before anything is sent. A
 //! delivered action whose application effect cannot be seen is recorded as
@@ -126,7 +126,7 @@ impl BrowserProvider {
     /// Verify the caller still holds this session's input lease at the
     /// current controller epoch. A human takeover moves the epoch and drops
     /// the agent's lease, so late input is rejected instead of racing the
-    /// human (SPEC §24.3, §24.6.2).
+    /// human (docs/specs/desktop-runtime.md#spec-24-3, docs/specs/browser.md#spec-24-6-2).
     async fn check_input_lease(
         &self,
         session: &Arc<BrowserSession>,

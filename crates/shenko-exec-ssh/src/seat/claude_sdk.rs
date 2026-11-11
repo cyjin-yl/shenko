@@ -1,5 +1,5 @@
 //! Managed Claude Code seat adapter — the Claude control-protocol path
-//! (SPEC §35.5).
+//! (docs/specs/remote-seats.md#spec-35-5).
 //!
 //! Claude Code supports a non-interactive stdio protocol:
 //! `claude -p --input-format stream-json --output-format stream-json
@@ -22,7 +22,7 @@
 //!   effect records; the callback is a decision surface, not a log.
 //! * The callback's in-memory Promise is not a durable question record.
 //!   This adapter persists every question through the store before it is
-//!   answered (SPEC §41.11).
+//!   answered (docs/specs/remote-seats.md#spec-41-11).
 
 use crate::seat::{
     AnswerConfirmation, AnswerTransport, Confidence, PreflightRefusalKind, ProcessIdentity,

@@ -1,0 +1,196 @@
+{
+  "kind": "static_migration_preparation",
+  "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435",
+  "product_executed": false,
+  "canonical_checker_executed": false,
+  "rust_compiled": false,
+  "rustfmt_available": false,
+  "checks": {
+    "kind": "independent_static_document_check",
+    "product_executed": false,
+    "chunks": 365,
+    "domains": 39,
+    "counts": {
+      "requirements.json": 165,
+      "behaviors.json": 63,
+      "sources.json": 59,
+      "acceptance-cases.json": 236
+    },
+    "errors": []
+  },
+  "check_docs_python_ast": "passed",
+  "source_navigation": {
+    "changed_files": 336,
+    "changed_lines": 1254,
+    "targets_resolved": true,
+    "retained": [
+      {
+        "path": "crates/shenko-channel-napcat/examples/napcat_readonly_probe.rs",
+        "line": 2,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "//! §35.6. Not a test and not a fixture: it issues *read-only* `get_*` actions"
+      },
+      {
+        "path": "crates/shenko-evidence/tests/report_cli.rs",
+        "line": 17,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "const SPEC_TEXT: &str = \"| R001 | fixture | §23 | B01 |\\n| B01 fixture | R001 | contract | A01 |\\n| A01 | scenario | condition |\\n\";"
+      },
+      {
+        "path": "crates/shenko-evidence/tests/admission.rs",
+        "line": 26,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "        \"| R001 | fixture | §23 | U01;B01 |\\n| B01 fixture | R001 | contract | {case_id} |\\n| {case_id} | scenario | condition |\\n\""
+      },
+      {
+        "path": "crates/shenko-evidence/tests/admission.rs",
+        "line": 67,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "    let index = SpecIndex::parse(\"| R001 | range | §45 | U01;B01 |\\n| B01 range | R001 | contract | AW01–03 |\\n| AW01 | first | condition |\\n| AW03 | last | condition |\\n\").unwrap();"
+      },
+      {
+        "path": "crates/shenko-evidence/tests/admission.rs",
+        "line": 90,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "    let index = SpecIndex::parse(\"| R001 | unknown family | §23 | B01 |\\n| B01 extension | R001 | contract | ZZ01 |\\n\\n| Case | scenario | result |\\n| --- | --- | --- |\\n| ZZ01 | new family | condition |\\n\").unwrap();"
+      },
+      {
+        "path": "crates/shenko-evidence/tests/admission.rs",
+        "line": 474,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "        \"| R001 | fixture | §23 | U01;B01 |\\n| B01 fixture | R001 | contract | A01 |\\n| A01 | scenario | condition |\\n\";"
+      },
+      {
+        "path": "crates/shenko-evidence/tests/admission.rs",
+        "line": 625,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "        \"| R001 | fixture | §23 | B01 |\\n| B01 fixture | R001 | contract | A01 |\\n| A01 | scenario | condition |\\n\";"
+      },
+      {
+        "path": "crates/shenko-evidence/tests/correction_cli.rs",
+        "line": 19,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "const SPEC_TEXT: &str = \"| R001 | fixture | §23 | B01 |\\n| B01 fixture | R001 | contract | A01 |\\n| A01 | scenario | condition |\\n\";"
+      },
+      {
+        "path": "crates/shenko-subject/src/recovery_tests.rs",
+        "line": 492,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "             capability_card: 约定 承诺 时间冲突\\nprovenance: [SPEC §14]\\n---\\n\\"
+      },
+      {
+        "path": "crates/shenko-exec-host/tests/perception_version_reopen.rs",
+        "line": 449,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "         supersedes: [0.1.0@{}]\\nprovenance: [SPEC §45.1]\\n---\\n\\"
+      },
+      {
+        "path": "crates/shenko-exec-host/tests/awareness_host.rs",
+        "line": 277,
+        "reason": "synthetic parser/unit fixture, not current reading guidance",
+        "text": "         provenance: [SPEC §51.2]\\n---\\n\\"
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer.py",
+        "line": 291,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "        \"contract_reading\": \"SPEC §51.1–§51.10 with docs/decisions/0002/0003 (PR180 merge 2cb17172)\","
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer.py",
+        "line": 457,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "                    \"producer_contract\": \"pre-fix code by construction; it proves no §51 behaviour\","
+      },
+      {
+        "path": "scripts/observe_longrun.py",
+        "line": 62,
+        "reason": "local document section, not retired SPEC",
+        "text": "rebound — see docs/governance/COMPLETION.md §4."
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/producer/src/main.rs",
+        "line": 45,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "//! Contract position (SPEC §51.1–§51.10, decisions 0002/0003, PR180 merge"
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/producer/src/main.rs",
+        "line": 51,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "//! recorded as old-contract code by construction and no §51 acceptance is"
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/producer/src/main.rs",
+        "line": 809,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "            \"reading\": \"SPEC §51.1–§51.10 with docs/decisions/0002 and 0003 (PR180 merge 2cb17172)\","
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/producer/src/main.rs",
+        "line": 812,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "                settlement receipt, immutable sealed decision). It claims no §51 acceptance\","
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+        "line": 43,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "//! Current reading (SPEC §51.1–§51.10, decisions 0002/0003, PR180 merge"
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+        "line": 59,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "//!   bytes never change (§51.4/.10: a failed switch or reopen is not an"
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+        "line": 419,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "    // SPEC §51.1 read through the canonical atoms contract: the committed"
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+        "line": 749,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "                // SPEC §51.1: the prepared material is content plus its reason."
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+        "line": 1170,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "            \"reading\": \"SPEC §51.1–§51.10 with docs/decisions/0002 and 0003 (PR180 merge 2cb17172)\","
+      },
+      {
+        "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+        "line": 1191,
+        "reason": "fixed legacy proof producer/reader: preserve historical contract labels bound to PR180",
+        "text": "                this receipt claims §51 acceptance from it\","
+      }
+    ]
+  },
+  "seed_provenance_lists_checked": [
+    "crates/shenko-awareness-core/seed-perception/installation-units/PERCEPTION.md",
+    "crates/shenko-awareness-core/seed-awareness/subject-frame/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/network-change/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/idle-perception/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/subject-attention/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/host/HOST.md",
+    "crates/shenko-awareness-core/seed-awareness/general-principles/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/capability-gap/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/subject-child-frame/AWARENESS.md",
+    "crates/shenko-awareness-core/seed-awareness/atoms/foundation-cognition/AWARENESS.md"
+  ],
+  "review_fixes": [
+    "Moved all migrated Why blocks to the beginning of each domain: maximum start offset 1616 bytes, preserving existing 64 KiB SelfKnowledge indexing bound.",
+    "Corrected pre-existing nonexistent citations 12.5, 15.4, 22.4 to actual domain contracts; recorded corrections in manifest.",
+    "Corrected source reference ranges without adding intermediate clauses from unrelated comma-separated references."
+  ],
+  "unverified": [
+    "Rust consumer adapters and their three focused tests have not been compiled or run.",
+    "Canonical repository check_docs.py was statically reviewed, not executed.",
+    "No runtime/model behavior or independent product acceptance is claimed.",
+    "Root SPEC/WHY stubs and domain authority changes have not been published or merged at this checkpoint."
+  ]
+}

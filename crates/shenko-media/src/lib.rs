@@ -1,4 +1,4 @@
-//! Continuous-media transcript ingress service — SPEC §15.2, §20, §41.3.
+//! Continuous-media transcript ingress service — docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20, docs/specs/durable-state.md#spec-41-3.
 //!
 //! `MediaIngress` is the typed admission surface a transcript provider (call
 //! audio, LAN realtime speech, classroom listening, speaker pipeline) calls,
@@ -172,7 +172,7 @@ impl MediaIngress {
         self.store.media_transcript(stream)
     }
 
-    /// Admit one recording control (start/stop/state) — SPEC §20. The
+    /// Admit one recording control (start/stop/state) — docs/specs/media.md#spec-20. The
     /// committed control notice carries the projection state so the subject
     /// can read the recording lifecycle from its normal inbox.
     pub async fn admit_recording(

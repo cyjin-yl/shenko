@@ -1,4 +1,4 @@
-//! Main store — SPEC §41.2.1
+//! Main store — docs/specs/durable-state.md#spec-41-2-1
 use anyhow::{Context, Result, ensure};
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
@@ -44,14 +44,14 @@ pub struct Store {
     /// A separate SQLite admission transaction orders complete file/Git/row
     /// import publication across handles without holding the ledger write lock.
     pub(crate) cognition_import_gate: Mutex<Connection>,
-    /// Clock bookkeeping of the semantic waits (SPEC §5.1). The high water
+    /// Clock bookkeeping of the semantic waits (docs/specs/subject-runtime.md#spec-5-1). The high water
     /// mark of a wait lives here for the lifetime of this handle; the durable
     /// part is the observation mark stored with the wait record itself.
     pub(crate) semantic_wait_clock: Mutex<WaitClock>,
     /// Process-local count of runtime-error journal writes that failed before
     /// commit. A journal write must never take down the failing path, so a
     /// dropped entry survives only as this count; later committed entries
-    /// carry the cumulative value (SPEC §45.14).
+    /// carry the cumulative value (docs/specs/cognition-units.md#spec-45-14).
     pub(crate) error_journal_dropped: AtomicU64,
 }
 
@@ -183,7 +183,7 @@ impl Store {
     }
 
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
-        // SPEC §41.2: the object exists before the commit that references it.
+        // docs/specs/durable-state.md#spec-41-2: the object exists before the commit that references it.
         // Seal every raw object the batch carries FIRST, then admit the facts.
         // A left-behind sealed object is an orphan (harmless, content
         // addressed); a committed fact referencing a missing object is not.
@@ -228,10 +228,10 @@ impl Store {
         &self.capabilities
     }
 
-    /// 同笔创建出生记录、head、root task 与第一步；提交引用由真实事务赋值。§44.6
+    /// 同笔创建出生记录、head、root task 与第一步；提交引用由真实事务赋值。docs/specs/plugins.md#spec-44-6
     /// The root task is the subject's own root task identity: the head binds
     /// to it and the row is inserted in the same transaction, so the launch
-    /// binding is atomic with genesis (SPEC §41.5 launch binding).
+    /// binding is atomic with genesis (docs/specs/subject-runtime.md#spec-41-5 launch binding).
     pub fn initialize_genesis(
         &self,
         genesis: &SubjectGenesis,
@@ -403,7 +403,7 @@ impl Store {
     }
 
 
-    /// S0 与结果落账只更新已登记步骤，不允许插入随机新步骤。§41.5
+    /// S0 与结果落账只更新已登记步骤，不允许插入随机新步骤。docs/specs/subject-runtime.md#spec-41-5
     pub fn upsert_step(
         &self,
         step: &SubjectStep,
@@ -443,7 +443,7 @@ impl Store {
     }
 
     /// The `AwaitingModel` transition and the armed request identity commit
-    /// in ONE transaction (SPEC §41.5 S0). The request can never become
+    /// in ONE transaction (docs/specs/subject-runtime.md#spec-41-5 S0). The request can never become
     /// visible without its receipt identity, and the identity can never
     /// become visible without the step that owns it.
     pub fn upsert_step_arming_request(
@@ -730,7 +730,7 @@ impl Store {
         ))
     }
 
-    /// S1：条件更新 step/head，并原子插入真实 planned 后继。§41.5
+    /// S1：条件更新 step/head，并原子插入真实 planned 后继。docs/specs/subject-runtime.md#spec-41-5
     pub fn commit_step_and_advance_head(
         &self,
         step: &SubjectStep,
@@ -926,7 +926,7 @@ impl Store {
         // The model result is a whole unit of the durable stream journal,
         // bound to its request/attempt identity and committed with the step:
         // a reconnecting UI or recovering consumer reads it back instead of
-        // trusting a callback that died with the process (SPEC §12.5).
+        // trusting a callback that died with the process (docs/specs/durable-state.md#content-stream-journal).
         if let Some(model_result_ref) = &step.model_result_ref {
             let raw = self.cas.read_object(&model_result_ref.digest)?;
             let data = String::from_utf8(raw).unwrap_or_else(|_| {
@@ -1023,7 +1023,7 @@ impl Store {
     /// priority dispositions name a review time, attention switches are
     /// bounded, and every applied steering record binds to a real admitted
     /// steer submission whose event was actually selected into this step's
-    /// sealed S0 (SPEC §13.8/§41).
+    /// sealed S0 (docs/specs/subject-runtime.md#spec-13-8, docs/specs/architecture.md#spec-41).
     fn validate_decision_controls(
         &self,
         tx: &rusqlite::Connection,
@@ -1104,7 +1104,7 @@ impl Store {
             }
         }
         // An acknowledgement of an unknown external effect names a case that
-        // was actually carried into this step's S0 (SPEC §41.4 X11), and its
+        // was actually carried into this step's S0 (docs/specs/durable-state.md#spec-41-4 X11), and its
         // reason pointers must be evidence that case already carries. The
         // subject may not accept an uncertainty it was never shown, and may
         // not cite a receipt it was not given.
@@ -1527,7 +1527,7 @@ impl Store {
         read_local_subject_id(&conn, self.ledger.ledger_id())
     }
 
-    /// Read the latest committed OperationRecord by id. SPEC §41.4 X03.
+    /// Read the latest committed OperationRecord by id. docs/specs/durable-state.md#spec-41-4 X03.
     pub fn get_operation(
         &self,
         operation_id: shenko_types::ids::EntityId,
@@ -1601,7 +1601,7 @@ impl Store {
     }
 }
 
-/// One row of the WebUI task list. SPEC §21, §41.4 X02.
+/// One row of the WebUI task list. docs/specs/web-interface.md#spec-21, docs/specs/durable-state.md#spec-41-4 X02.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RecentTask {
     pub task_id: String,
@@ -1610,7 +1610,7 @@ pub struct RecentTask {
     pub created_at: String,
 }
 
-/// Apply required SQLite settings. SPEC §41.2.1
+/// Apply required SQLite settings. docs/specs/durable-state.md#spec-41-2-1
 pub fn configure_sqlite(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
@@ -1625,9 +1625,9 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 
 /// Frozen S0 plan schemas this Store still reads and admits.
 ///
-/// 13 adds the reconciliation docket (SPEC §41.4 X11). A schema-12 plan is
+/// 13 adds the reconciliation docket (docs/specs/durable-state.md#spec-41-4 X11). A schema-12 plan is
 /// the same sealed request without one, so it can never carry an
-/// acknowledgement; old bytes keep their old meaning (SPEC §51.1) instead of
+/// acknowledgement; old bytes keep their old meaning (docs/specs/cognition-units.md#spec-51-1) instead of
 /// being reinterpreted or rewritten.
 pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
     matches!(version, Some(12) | Some(13))

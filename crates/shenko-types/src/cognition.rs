@@ -1,4 +1,4 @@
-//! 认知原子：不可变内容、账本上的态度、理由指针 — SPEC §51.1, §51.3, §51.4, §51.9
+//! 认知原子：不可变内容、账本上的态度、理由指针 — docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3, docs/specs/cognition-units.md#spec-51-4, docs/specs/cognition-units.md#spec-51-9
 //!
 //! 三件事就是全部原语，不是先定下的业务类型：
 //!
@@ -27,7 +27,7 @@ use crate::object::{Digest, ObjectRef};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentRecord {
     pub object: ObjectRef,
-    /// 账本写入这版内容的机制时间。不是时间感知能力（SPEC §51.3）。
+    /// 账本写入这版内容的机制时间。不是时间感知能力（docs/specs/cognition-units.md#spec-51-3）。
     pub registered_at_ms: i64,
 }
 
@@ -44,7 +44,7 @@ impl ContentRecord {
 /// 置信：主体对这条态度有多确定。
 ///
 /// 从第一版就带置信；主体尚未判断时记为 [`AttitudeConfidence::Unknown`]，
-/// 不填默认数字，也不另造量表（SPEC §51.1）。
+/// 不填默认数字，也不另造量表（docs/specs/cognition-units.md#spec-51-1）。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum AttitudeConfidence {
@@ -62,7 +62,7 @@ impl AttitudeConfidence {
     /// 非有限的值不是置信（也无法在 JSON 里表示），返回 `None`，绝不夹取或取默认。
     ///
     /// 这里**不**内置任何区间、尺度或归一化：数值怎么读属于可修订的内容定义或
-    /// 已有领域的合同，不属于内核新造的量表（SPEC §51.1）。
+    /// 已有领域的合同，不属于内核新造的量表（docs/specs/cognition-units.md#spec-51-1）。
     pub fn stated(value: f64) -> Option<Self> {
         value.is_finite().then_some(Self::Stated { value })
     }
@@ -104,7 +104,7 @@ impl ConfidenceState {
     }
 }
 
-/// 一次观察事件。观察属于原始经历，不是 perception 单元本身（SPEC §51.2）。
+/// 一次观察事件。观察属于原始经历，不是 perception 单元本身（docs/specs/cognition-units.md#spec-51-2）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationRef {
     pub event_id: EntityId,
@@ -122,7 +122,7 @@ pub struct SourceRef {
     pub locator: Option<String>,
 }
 
-/// 证据回执（SPEC §41.4 X04）。
+/// 证据回执（docs/specs/durable-state.md#spec-41-4 X04）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReceiptRef {
     pub receipt_id: EntityId,
@@ -130,14 +130,14 @@ pub struct ReceiptRef {
     pub observation_level: Option<ObservationLevel>,
 }
 
-/// 对账案例（SPEC §41.4）。外部效应的未知状态仍是它自己的机制记录。
+/// 对账案例（docs/specs/durable-state.md#spec-41-4）。外部效应的未知状态仍是它自己的机制记录。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReconciliationRef {
     pub case_id: EntityId,
 }
 
 /// 经由他者 perception 的理解。理由停在这份理解上，不停在自己的观察上，
-/// 所以它读起来是「推测对方会这样看」，不是自己的 fact（SPEC §51.2）。
+/// 所以它读起来是「推测对方会这样看」，不是自己的 fact（docs/specs/cognition-units.md#spec-51-2）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PerspectiveRef {
     /// 被模拟或借用视角的主体标签。自由字符串，不是本地身份断言。
@@ -244,7 +244,7 @@ impl ReasonPointer {
         matches!(&self.termination, ReasonTermination::Content(other) if other == digest)
     }
 
-    /// 一组理由停在哪里的读法（SPEC §51.1）。
+    /// 一组理由停在哪里的读法（docs/specs/cognition-units.md#spec-51-1）。
     ///
     /// 只要有一处理由停在其他内容或他者视角上，这条态度就读作 conclusion：
     /// 主体的推导参与了这条内容，不把它升格为自己的原始观察。没有任何理由指针时
@@ -274,7 +274,7 @@ pub enum ReasonReading {
     Unstated,
 }
 
-/// 采纳目标：内容作为哪个单元的成员被接纳（SPEC §51.1, §51.8）。
+/// 采纳目标：内容作为哪个单元的成员被接纳（docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-8）。
 ///
 /// `unit_id` 是单元／宏包自己的 id（例如 `forgetting`）。能力合同用另一套
 /// `cap.` 前缀的标识，两者不得混用。
@@ -308,7 +308,7 @@ impl AdoptionTarget {
     }
 }
 
-/// 遗忘／投影的六个阶段（SPEC §51.7）。状态不改字节，只改默认露出。
+/// 遗忘／投影的六个阶段（docs/specs/cognition-units.md#spec-51-7）。状态不改字节，只改默认露出。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionStage {
@@ -386,7 +386,7 @@ impl AttitudeRole {
     }
 }
 
-/// 账本上的一条态度。supersedes 只追加，不覆盖旧行（SPEC §51.1, §51.3）。
+/// 账本上的一条态度。supersedes 只追加，不覆盖旧行（docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContentAttitude {
     pub attitude_id: EntityId,
@@ -431,7 +431,7 @@ pub struct ContentRevisionEntry {
     pub created_at_ms: i64,
 }
 
-/// 统一的修订露出（SPEC §51.1, §51.4）。
+/// 统一的修订露出（docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-4）。
 ///
 /// 不特意查看时只露出这三项：旧版本数量、最新修改时间、最新一版的摘要；
 /// 全文只在按版本显式读取时给出。投影规则本身写在已安装的 `taste` 宏包里，

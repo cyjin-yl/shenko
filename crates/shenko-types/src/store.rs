@@ -1,4 +1,4 @@
-//! 存储 trait 接口 — SPEC §41.2
+//! 存储 trait 接口 — docs/specs/durable-state.md#spec-41-2
 
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ pub struct StoreCapabilities {
     pub durability_profile: DurabilityProfile,
 }
 
-/// 原始收件箱事件写入 — SPEC §12.1
+/// 原始收件箱事件写入 — docs/specs/memory.md#spec-12-1
 #[derive(Debug)]
 pub struct RawInboxEvent {
     pub event_id: EntityId,
@@ -32,7 +32,7 @@ pub struct RawInboxEvent {
     pub received_at_ms: i64,
 }
 
-/// 原始会话父行写入 — SPEC §12.1
+/// 原始会话父行写入 — docs/specs/memory.md#spec-12-1
 /// 与其事件同一 WriteBatch 提交；已存在时必须一致，不改写原始事实。
 #[derive(Debug)]
 pub struct RawSession {
@@ -44,7 +44,7 @@ pub struct RawSession {
     pub data: String,
 }
 
-/// 原始会话事件写入 — SPEC §12.1
+/// 原始会话事件写入 — docs/specs/memory.md#spec-12-1
 /// event_id 幂等；(session_id, seq) 只能属于一个 event_id。
 #[derive(Debug)]
 pub struct RawSessionEvent {

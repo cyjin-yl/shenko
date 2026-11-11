@@ -1,5 +1,5 @@
 //! Shenko kernel — minimal core: plugin lifecycle, service binding, epoch/cancel/capability handles.
-//! Uses cordis-rs as the plugin backbone (user-confirmed in SPEC §7, U45).
+//! Uses cordis-rs as the plugin backbone (user-confirmed in docs/specs/plugins.md#spec-7, U45).
 //! The kernel does NOT embed any business logic — that lives in plugins.
 pub mod contribution;
 pub mod errors;

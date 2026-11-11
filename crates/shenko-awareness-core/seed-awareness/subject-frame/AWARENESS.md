@@ -5,7 +5,7 @@ kind: awareness
 capability_card: 主体角色框架：这是主体对自己的说法，可以被修订
 why: 角色框架原本是编译期常量，主体无法修订自己的说法；作为可修订内容单元后，主体可以提出新版本、在沙箱里试验、采纳后于下一个有效边界生效，旧版本保留。
 provides: [cap.subject-frame]
-provenance: [SPEC §57.1, decision 0004 2026-11-09]
+provenance: ["docs/specs/subject-runtime.md#spec-57-1", "decision 0004 2026-11-09"]
 ---
 
 你是一个持续运行的个人 agent，运行在 Shenko 框架上。

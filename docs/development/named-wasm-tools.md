@@ -1,6 +1,6 @@
 # 具名 WASM 工具：安装与执行（C06）
 
-本文记录 named WASM tool 的真实状态、接口和获取配方。SPEC §8.2/§8.3/§9/§18.8；
+本文记录 named WASM tool 的真实状态、接口和获取配方。[§8.2](../specs/wasm-tools.md#spec-8-2)、[§8.3](../specs/wasm-home.md#spec-8-3)、[§9](../specs/self-update.md#spec-9)、[§18.8](../specs/wasm-tools.md#spec-18-8)；
 需求 R008/R014/R019/R101；验收 case A09（仅部分推进，未完成 A09 要求的
 Git/SSH 端到端认证）。
 
@@ -84,9 +84,9 @@ Git/SSH 端到端认证）。
 | 目标 | 状态 | 真实原因 |
 | --- | --- | --- |
 | toybox | **unresolved**（移植配方已就绪） | 上游无已发布 WASI 工件；landley/toybox 0.8.15 源码移植配方在 `crates/shenko-wasm/ports/toybox-wasi/`（miniconfig + build.sh + patches + ACQUISITION），需受管构建者以 wasi-sdk-34 构建后逐 applet 安装 |
-| gcc-wasm | unresolved | 未核验 WASM 编译器成品；hosted-vs-target 含义未定（§8.2） |
+| gcc-wasm | unresolved | 未核验 WASM 编译器成品；hosted-vs-target 含义未定（[§8.2](../specs/wasm-tools.md#spec-8-2)） |
 | git | unresolved | 无已核验 wasm32-wasip1 Git client；WASIX ports 需要 WASIX runtime |
-| gh | unresolved | wasi-gh 存在但需专用 HTTP/exec host imports（§8.2 W2），本 runtime 不提供 |
+| gh | unresolved | wasi-gh 存在但需专用 HTTP/exec host imports（[§8.2](../specs/wasm-tools.md#spec-8-2) W2），本 runtime 不提供 |
 | tea | unresolved | 未发现可核验的 Gitea CLI WASM 成品 |
 | ssh | unresolved | OpenSSH WASIX port 需要 WASIX runtime + socket imports；wasmtime-45 preview1 均无；宿主 ssh 不算 WASM SSH（R019） |
 

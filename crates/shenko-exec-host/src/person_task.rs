@@ -1,4 +1,4 @@
-//! Native person-directory capability — SPEC §15.2, §15.2.1, §16, R059/R060/R102.
+//! Native person-directory capability — docs/specs/contacts.md#spec-15-2, docs/specs/contacts.md#spec-15-2-1, docs/specs/channel-adapters.md#spec-16, R059/R060/R102.
 //!
 //! `person.directory` is the subject's contact/identity child. It records who
 //! people are: stable person ids, platform accounts, aliases, relationships
@@ -10,12 +10,12 @@
 //! Deliberate boundaries:
 //! * Admin facts are read-only through this surface. They are set by the
 //!   owner's local path only and never follow familiarity, group status,
-//!   platform roles or voiceprints (§16).
+//!   platform roles or voiceprints (docs/specs/channel-adapters.md#spec-16).
 //! * Recording-local Life ranks (`rank_id`/`cluster_id`) stay scoped to
-//!   their recording and never identify a person by themselves (§15.2.1).
+//!   their recording and never identify a person by themselves (docs/specs/contacts.md#spec-15-2-1).
 //! * Memory anchors resolve real `memory_entries` and task anchors resolve
 //!   real `tasks`, so a person's narrative stays in the Memory/Task systems
-//!   (§15.2) and only the links live here.
+//!   (docs/specs/contacts.md#spec-15-2) and only the links live here.
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -943,7 +943,7 @@ impl PersonDirectoryHandler {
                 },
                 confidence: Confidence::inferred(*confidence),
                 // Speaker matches are clues; they never grant identity or
-                // admin authority (§15.2, R060).
+                // admin authority (docs/specs/contacts.md#spec-15-2, R060).
                 state: PersonClaimState::Candidate,
                 scope: ClaimScope {
                     kind: ClaimScopeKind::Recording,

@@ -1,6 +1,6 @@
 # 频道适配器功能合同（channel-adapters.md）
 
-对应 SPEC §15.3、§16、§35.6；需求 R035、R057。本文只描述本切片
+对应 [§15.3](channel-adapters.md#spec-15-3)、[§16](channel-adapters.md#spec-16)、[§35.6](channels.md#spec-35-6)；需求 R035、R057。本文只描述本切片
 （ArchOtherChannels：官方 QQ / 微信 iLink / 飞书 Lark 三个新适配器及真实
 运行时注册）的功能、接口、错误与恢复合同；不替代 SPEC，不把"已写源码"
 冒充为"已运行验证"。运行证据由父控统一补齐后单独登记。
@@ -29,7 +29,7 @@
 
 napcat（QQ 私有协议，OneBot）由 ArchChannels 负责，不在本切片。
 
-## 授权与续期（§16）
+## 授权与续期（[§16](channel-adapters.md#spec-16)）
 
 - **官方 QQ**：`app_id`+`client_secret` 换 `access_token`，按平台
   `expires_in` 缓存并提前 300s 续期；令牌只进 `Authorization` 头，不进
@@ -48,9 +48,9 @@ napcat（QQ 私有协议，OneBot）由 ArchChannels 负责，不在本切片。
 三个平台的凭证都**本地保存**；账号 scope 分别是 `qq-official:<app_id>`、
 `ilink:<ilink_bot_id>`、`feishu:<app_id>`。管理员身份是 owner 显式设置
 的本地事实（`admin_openids`/`admin_user_ids`/`admin_open_ids`），不从群
-角色、app ticket 或亲密度推导（§16，R035）。
+角色、app ticket 或亲密度推导（[§16](channel-adapters.md#spec-16)，R035）。
 
-## 入站：分类、游标与回执语义（§15.1/§15.3）
+## 入站：分类、游标与回执语义（[§15.1](channels.md#spec-15-1)、[§15.3](channel-adapters.md#spec-15-3)）
 
 - 每个适配器的 `classify(config, raw) -> Option<ChannelEnvelope>` 把平台
   帧分类为规范化信封；不归本适配器的事件返回 `None`，原始帧留在入站
@@ -65,7 +65,7 @@ napcat（QQ 私有协议，OneBot）由 ArchChannels 负责，不在本切片。
 
 入站附件**字节不随行**：定位器（`AttachmentLocator`）命名平台宿主
 （qq-platform 临时 URL / ilink-cdn 加密参数 / feishu-drive file_key），
-由受控附件句柄取回（§15.1）。`ChannelAttachment` 使用共享落地形状
+由受控附件句柄取回（[§15.1](channels.md#spec-15-1)）。`ChannelAttachment` 使用共享落地形状
 （`size`/`locator:Option`/`object`，无 bytes/hash/expires_at）。
 
 ## 出站：真实 send/edit/retract/typing/附件
@@ -135,3 +135,36 @@ channel id：`qq-official` / `ilink` / `feishu`；source 标签：`qqofficial` /
   编译；`PublicationTarget` 的 `id:String` 加宽是 sealed-wire 变更，归其
   owner。真实自有账号的 wire 路径（扫码授权、发/改/撤/typing、加密媒体
   上传下载）属父控后续按 eligible 账号验证的外部前提。
+
+<a id="spec-15-3"></a>
+<!-- migrated-contract: SPEC:15.3 -->
+## 15.3 消息插件合同
+
+MessageProvider/ChannelAdapter 支持 capability discovery、认证/续期、receive/ack、cursor、附件获取、send/edit/retract/typing、投递回执和健康状态。渠道插件故障不使主 loop/记忆服务一起退出。插件暴露真实平台能力，例如 direct/group、富文本、流式回复、主动投递和回复窗口。
+
+入站按 account+provider message identity 去重；先持久写入再推进可重放游标。出站经 durable outbox，区分已生成、待发送、已送达、明确失败与结果未知。平台没有可靠幂等/回执时，不能承诺 exactly-once；不确定操作由 Agent/worker 观察核对再决定重试。
+
+<!-- /migrated-contract: SPEC:15.3 -->
+
+<a id="spec-16"></a>
+<!-- migrated-contract: SPEC:16 -->
+# 16 中国平台与开放对话
+
+| 路线 | 正式接入范围与要求 | 已知边界 |
+| --- | --- | --- |
+| QQ 官方机器人 | 单聊、群聊、频道；认证、事件、媒体、回复/主动投递 | 可接全量群消息取决于平台设置；回复窗口与限频可变，不能写死成无限主动触达 |
+| NapCat / OneBot | 原生客户端 adapter，连接已有本地/远端协议端 | NapCat/NTQQ 本体不要求塞进 WASM；账户命名空间与官方 OpenID 分开 |
+| napcat-cli | 兼容用户已有 daemon/事件/HTTP wake 部署 | 保留其现有使用路径，不让 Python/FUSE 成为全产品必选 |
+| 微信 iLinkBot 路线 | 基于明确版本的 iLink provider，处理二维码授权、游标、context token 与附件 | 当前 Tencent 官方插件声明 direct；微信群能力不能假称已具备；具体 iLinkBot wrapper 可后续指定 |
+| 飞书 / Lark | 私聊、群、线程、卡片、文件；长连接或回调 | App/tenant/权限与国际 Lark 区别明确；回调快速确认，推理异步执行 |
+| 其他平台 | 同一 provider 插件合同与市场 | 平台不可达或拒绝发送时，成果仍在网页 Inbox |
+
+依据：[QQ 消息总览](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)、[Tencent iLink 协议](https://github.com/Tencent/openclaw-weixin/blob/main/docs/ilink-bot-protocol.md)、[iLink 渠道能力](https://github.com/Tencent/openclaw-weixin/blob/main/src/channel.ts)、[napcat-cli](https://github.com/cyjin-yl/napcat-cli)、[飞书消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive?lang=zh-CN)。以实现时平台最新文档和契约测试为准；本文不把本次限频数值当长期核心常量。
+
+默认所有能到达的用户可对话，不设默认 DM pairing/群 allowlist。群主身份不自动获得本 Agent 管理权；管理员由 owner 明确设置。服务保护使用可配置的公平份额/节流与可解释排队，不暗改成只允许少数人聊天。
+
+“开放对话”不等于每条群消息都必须回答。群参与模式可设被叫到才答、自然参与、积极参与；消息仍按所配置的收取/留存能力进入主体，主体自行决定有无值得说的话。bot 互相唤醒、碎片消息合并、群休息时间和连续追问由行为插件处理。
+
+任务完成与通知送达是两个状态。超过平台被动回复窗口、联系人关闭主动消息、账号掉线时，Agent 可以选择其他已授权渠道联系相关人；网页 Inbox 是可取结果的位置，不能被当成唯一固定的联络策略。
+
+<!-- /migrated-contract: SPEC:16 -->

@@ -33,7 +33,7 @@ async-trait = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
-# Account-scoped quota reads (SPEC §42.2) fetch management documents over
+# Account-scoped quota reads (docs/specs/quota-resources.md#spec-42-2) fetch management documents over
 # the provider's own API. The same dependency and features the broker uses,
 # so the lock file keeps one HTTP stack.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

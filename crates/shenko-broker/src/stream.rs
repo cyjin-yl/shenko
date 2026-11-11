@@ -116,7 +116,7 @@ pub struct PublicTextChunk {
     pub message_id: String,
     /// The part identity inside that message.
     pub part_id: String,
-    /// The durable stream the chunk belongs to. SPEC §21.11: the envelope
+    /// The durable stream the chunk belongs to. docs/specs/web-interface.md#spec-21-11: the envelope
     /// carries a stable stream identity through streaming, completion,
     /// failure, cancellation and reconnect.
     pub stream_id: EntityId,

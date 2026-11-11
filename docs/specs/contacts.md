@@ -1,6 +1,6 @@
 # 联系人与人格目录功能合同（contacts.md）
 
-对应 SPEC §6、§15.2、§15.2.1、§16、§20；需求 R059、R060、R102、R104；行为 B23。
+对应 [§6](subject-runtime.md#spec-6)、[§15.2](contacts.md#spec-15-2)、[§15.2.1](contacts.md#spec-15-2-1)、[§16](channel-adapters.md#spec-16)、[§20](media.md#spec-20)；需求 R059、R060、R102、R104；行为 B23。
 本文只描述本切片（ArchContacts）的功能、接口、错误与恢复合同；不替代 SPEC，
 不把"已写源码"冒充为"已运行验证"。运行证据由父控统一补齐后单独登记。
 
@@ -24,7 +24,7 @@
 
 - **人是人，账号是账号。** 人由稳定内部 `PersonId`（EntityId）标识；
   `PlatformAccount { provider, account, tenant, platform_user_id }` 是指向人
-  的声明。昵称、平台 ID、显示名永远不作为身份主键（§15.2，R059）。
+  的声明。昵称、平台 ID、显示名永远不作为身份主键（[§15.2](contacts.md#spec-15-2)，R059）。
 - **声明不是事实。** 每条 `PersonClaim` 带 `Provenance`（谁说的：
   平台事实/人类陈述/模型推断/Life 适配器/媒体提供者/本地操作者）、
   `Confidence`（`value` 可为空＝无分数；`basis` 可为 `unknown`——
@@ -34,15 +34,15 @@
   最高修订号为当前值；重放同一事实返回原始回执（`replayed`），修改则
   追加新修订。别名变化、关系修订、拒绝都留痕，历史不被改写。
 - **scope 是出处，不是受众过滤。** `ClaimScope` 记录事实在哪里学到
-  （私聊/会话/录音/平台/目录/操作者）。主体统一知道个人经历（§6 D1，
+  （私聊/会话/录音/平台/目录/操作者）。主体统一知道个人经历（[§6](subject-runtime.md#spec-6) D1，
   R104）：目录查询不按当前受众隐藏任何事实；对谁说、说什么是主体的
   判断，不是本层的 ACL。
 - **录音内编号不是人。** Life 的 `rank_id` 跨录音追踪候选说话人、
   `cluster_id` 是单次录音内的自动聚类号（可随重跑改变）；二者都挂在
-  `recording_scope` 下，单独不构成身份（§15.2.1，R102）。
+  `recording_scope` 下，单独不构成身份（[§15.2.1](contacts.md#spec-15-2-1)，R102）。
 - **管理员事实独立存放。** `AdminFact` 不是 claim：只有 owner 的本地
   路径能写；它不从亲密度、群身份、平台角色或声纹推导；普通用户没有
-  管理员事实也默认可以对话（§16）。
+  管理员事实也默认可以对话（[§16](channel-adapters.md#spec-16)）。
 
 ## 合并与拆分（Store: `crates/shenko-store/src/contacts.rs`）
 
@@ -64,7 +64,7 @@
 - `MemoryAnchor` / `TaskAnchor` 两种 claim 把人链接到记忆系统与任务系统：
   原生查询时分别用 `Store::memory_entry`（有界 300 字预览）与
   `Store::get_task`（kind/state）回读实体——"为什么认识这个人、对方偏好、
-  承诺、待回访事项"等内容留在 Memory/Task 协议里（§15.2），本目录只存链接。
+  承诺、待回访事项"等内容留在 Memory/Task 协议里（[§15.2](contacts.md#spec-15-2)），本目录只存链接。
   记忆正文被语义遗忘后仍可按原样读回；锚点记录 `missing` 而不是编造内容。
 
 ## 原生能力（exec-host: `person_task.rs`，kind `person.directory` v1）
@@ -87,7 +87,7 @@ Cordis 根、持久账本与恢复路径。操作（输入先冻结为 `FrozenIn
   `inferred`/`media` 出处；**已验证绑定只能由平台侧或 Life 目录产生**，
   模型面无"verified"快捷键。
 - `speaker` 记录必须给出关联人；录音内未知的说话人不进本目录——
-  未知与多说话人情形由媒体管道按原始声明保留（§15.2，R060），
+  未知与多说话人情形由媒体管道按原始声明保留（[§15.2](contacts.md#spec-15-2)，R060），
   与 ArchMedia 的 `MediaSpeakerClaim` 分工：媒体层存原始声明，本层只存
   指向人的候选链接。
 - `admin_status` 只读；任何 op 都不能授予或撤销管理员。
@@ -143,3 +143,29 @@ Cordis 根、持久账本与恢复路径。操作（输入先冻结为 `FrozenIn
   模型行为验收（shenko-dev-verify 方法）在真实沙箱中采样证明。
 - 平台侧已验证账号绑定（ArchChannels）与媒体说话人声明（ArchMedia）
   的消费接线在本切片之外，由对应 owner 完成并登记。
+
+<a id="spec-15-2"></a>
+<!-- migrated-contract: SPEC:15.2 -->
+## 15.2 联系人与声纹插件
+
+ContactProvider 保存稳定内部 person ID、各平台账号、别名变化、关系来源、置信状态和可见范围。Agent 可通过 memory worker 自然维护联系人笔记和编号，也可安装专门插件；自然认识一个人和赋予管理权限是两个操作。个人连续性还包括共同经历、为什么认识这个人、对方表达的偏好、已作承诺、待回访事项和最近有效联系路径。这些复用 Memory/Task/Contact 协议，不把生活关系缩减为通讯录，也不需要增加内核业务代码。
+
+跨渠道合并依据明确关联或可验证账号关系，昵称相同不自动合并。Agent 的推断可以存为待证实关系，错误合并可拆分，历史来源不被改写。公开活动流不能泄露某人的其他私聊账号。
+
+可选本地声纹/说话人识别插件返回分段、候选 speaker/person、置信度及模型版本，保留 unknown 和多说话人情形。转写与声纹是不同能力；匹配结果用于认识人与上下文建议，不独立提升管理员或 SSH 权限。声纹数据的范围、保留/删除与计算设备由配置控制；若使用与 LLM 共享 GPU，必须纳入相同资源图。
+
+<!-- /migrated-contract: SPEC:15.2 -->
+
+<a id="spec-15-2-1"></a>
+<!-- migrated-contract: SPEC:15.2.1 -->
+### 15.2.1 复用 Life 的已有身份材料
+
+已核验用户的私有项目 [cyjin-yl/life](https://github.com/cyjin-yl/life)，本轮读取固定版本 `618f0dcb13eea858b36c7a3f9a802208b56378e6`。People catalog 已要求稳定内部 ID；voiceprints 文档已有 `cluster_id`、`rank_id`、`candidates`、`confirmed_identity`、`model_revision` 以及证据、候选状态和修订记录。本产品据此设计可替换的 Life adapter，复用已有材料与 ID，而不是重新给已认识的人建立一套无关联编号。[People catalog](https://github.com/cyjin-yl/life/blob/618f0dcb13eea858b36c7a3f9a802208b56378e6/catalog/people/README.md)、[voiceprints 约定](https://github.com/cyjin-yl/life/blob/618f0dcb13eea858b36c7a3f9a802208b56378e6/catalog/voiceprints/README.md)
+
+该版本同时区分现行录音内匿名登记与历史实名/跨录音流程：当前 `rank_id` 按录音内片段统计产生，rank/簇数不等于真实人数；历史记录不能直接当新录音自动实名的规则。Adapter 必须保留 recording scope、模型/数据 revision、候选与确认来源、合并/拆分历史，以及原匿名片段的可追溯性。未来识别策略可以自主扩展，但需标明采用的新策略、证据和实际识别范围，不悄悄改写旧判断。
+
+复用关系与身份 schema 不等于已核验 Life 中存在完整的消息平台账号绑定或管理员鉴权引擎。平台认证主体、候选 person 关联和管理角色仍是独立记录；声纹匹配或关系推断不自动授予管理权。Admin 继续由人类明确设置。这里只引用通用结构与设计，不把真实联系人详情或声纹资产复制为公开示例。
+
+模型 embedding 的维度与指纹从实际运行信息读取，不将旧文档常量固化。身份材料可用于自主回忆，但不自动注入亲密度或强制关系立场。
+
+<!-- /migrated-contract: SPEC:15.2.1 -->

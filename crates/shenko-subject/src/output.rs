@@ -315,7 +315,7 @@ pub fn parse_output(
             let action = if let Some(target) = header.strip_prefix("[reply:") {
                 // The reply id is an OPAQUE platform identity. It is taken
                 // verbatim to the end of the line and resolved by the plugin
-                // that owns the kind; the core never parses it. SPEC §16.
+                // that owns the kind; the core never parses it. docs/specs/channel-adapters.md#spec-16.
                 let (kind, id) = target
                     .split_once(':')
                     .ok_or_else(|| invalid(line_no, "reply target must include kind and id"))?;

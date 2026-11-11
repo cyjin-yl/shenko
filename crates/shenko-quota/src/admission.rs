@@ -1,4 +1,4 @@
-//! Quota admission for one runnable request (§42.5). It decides *when* the
+//! Quota admission for one runnable request (docs/specs/quota-resources.md#spec-42-5). It decides *when* the
 //! already-registered next step may spend quota, separately from whether a
 //! backend has compute capacity: a capacity block is returned as its own
 //! outcome and never recorded as a quota state.
@@ -404,7 +404,7 @@ pub fn admit(
             if p.local { return invalid("cloud choice refers to a local profile"); }
             if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
             // The decision names the effort level it selected: the request is
-            // priced at exactly that level's costs (SPEC §42.3, §42.6). An
+            // priced at exactly that level's costs (docs/specs/quota-resources.md#spec-42-3, docs/specs/quota-resources.md#spec-42-6). An
             // unknown level is not silently charged at the profile's default
             // level, and a pre-effort decision names none.
             let Some(priced) = p.costs_at(effort.as_deref()) else {
@@ -600,7 +600,7 @@ pub fn admit(
 }
 
 /// Decide admission of `request_id` under a replaceable cadence strategy
-/// (SPEC §42.1, §42.5).
+/// (docs/specs/quota-resources.md#spec-42-1, docs/specs/quota-resources.md#spec-42-5).
 ///
 /// The cadence strategy is read *before* the durable transition and may only
 /// withhold a fresh admission it would otherwise be granted. The library's

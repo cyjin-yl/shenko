@@ -1,4 +1,4 @@
-//! Rich presentation contract — SPEC §21.5–§21.9, R091.
+//! Rich presentation contract — docs/specs/web-interface.md#spec-21-5–docs/specs/web-interface.md#spec-21-9, R091.
 //!
 //! The subject's committed public text may carry a fenced ```shenko-ui block
 //! holding a versioned SemanticDocument (schema v1). This module validates
@@ -66,7 +66,7 @@ pub struct SemanticDocument {
 /// What the document reduces to when the surface cannot render it richly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FallbackSpec {
-    /// One-line summary preserving the intent (§21.7: degradation keeps
+    /// One-line summary preserving the intent (docs/specs/web-interface.md#spec-21-7: degradation keeps
     /// facts, intent and completable operations).
     pub summary: String,
     /// Full plain-text rendering; defaults to the summary when absent.
@@ -86,7 +86,7 @@ pub struct DocumentNode {
     pub action: Option<ActionBinding>,
 }
 
-/// §21.8 action binding. `payload_hash` is blake3 over the canonical (sorted
+/// docs/specs/web-interface.md#spec-21-8 action binding. `payload_hash` is blake3 over the canonical (sorted
 /// key) JSON of `payload`; the server recomputes it at submit time and never
 /// trusts a client-supplied approval.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,7 +296,7 @@ pub fn extract_documents(
     (documents, errors)
 }
 
-/// Per-surface capability facts with revision and validity (§21.5). Client-
+/// Per-surface capability facts with revision and validity (docs/specs/web-interface.md#spec-21-5). Client-
 /// reported fields are display facts attested by that connection; server-
 /// enforced fields (streaming) come from real wiring, never from the client.
 #[derive(Debug, Clone, Serialize)]
@@ -410,7 +410,7 @@ impl SurfaceCapabilityProvider {
     }
 }
 
-/// How far a document had to degrade for this surface (§21.7 ladder).
+/// How far a document had to degrade for this surface (docs/specs/web-interface.md#spec-21-7 ladder).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DegradedMode {
@@ -429,7 +429,7 @@ pub struct DegradedDocument {
     pub revision: String,
     /// Numbered options preserve action identity across degradation: option N
     /// is always the same action_id + nonce, so "选 2" and a button click
-    /// address one decision (§21.8).
+    /// address one decision (docs/specs/web-interface.md#spec-21-8).
     pub options: Vec<ActionOption>,
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -446,7 +446,7 @@ pub struct ActionOption {
     pub required_capabilities: Vec<String>,
     /// The canonical payload bound in the committed document. The client
     /// submits it verbatim; the server re-hashes at admission and never
-    /// trusts a client-supplied digest (§21.8).
+    /// trusts a client-supplied digest (docs/specs/web-interface.md#spec-21-8).
     pub payload: serde_json::Value,
 }
 

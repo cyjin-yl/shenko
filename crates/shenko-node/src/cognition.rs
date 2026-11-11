@@ -12,7 +12,7 @@
 //!
 //! What a report is: one Store-origin observation of one scope, pointing at the
 //! immutable snapshot digest of that content and at the ledger watermark the
-//! observation covered. What it is not, under SPEC §51.1: cognitive content, an
+//! observation covered. What it is not, under docs/specs/cognition-units.md#spec-51-1: cognitive content, an
 //! attitude, a knowledge kind, a confidence, or the adoption of anything. It is
 //! also not liveness of that installation, a probe of its model or provider, a
 //! capability advertisement, an election or quorum input, or a recoverability
@@ -23,7 +23,7 @@
 //! project this snapshot, that projection is its own; this node keeps a
 //! mechanism report, not a second content ledger.
 //!
-//! Revision identity follows §51.1's dedup rule: the revision is the content
+//! Revision identity follows docs/specs/cognition-units.md#spec-51-1's dedup rule: the revision is the content
 //! digest over its declared coverage. Re-observing identical content is the
 //! same revision, not a new one, so `observed_at` is the instant this content
 //! revision was first observed on this node. It says how long the content has
@@ -125,7 +125,7 @@ pub struct CognitionObservation {
 pub struct CognitionOrigin {
     pub scope: CognitionScope,
     /// The source node's revision of this content at the time it was read.
-    /// A re-observation of unchanged content keeps it, per §51.1 dedup.
+    /// A re-observation of unchanged content keeps it, per docs/specs/cognition-units.md#spec-51-1 dedup.
     pub generation: u64,
     /// When that revision was first observed on the source node.
     pub observed_at: chrono::DateTime<chrono::Utc>,
@@ -144,7 +144,7 @@ pub struct CognitionSnapshotReport {
     pub high_water: u64,
     pub scope: CognitionScope,
     /// Strictly increasing per observed content on this node. Re-observing
-    /// identical content bytes keeps this revision and its exact bytes (§51.1).
+    /// identical content bytes keeps this revision and its exact bytes (docs/specs/cognition-units.md#spec-51-1).
     pub generation: u64,
     pub observed_at: chrono::DateTime<chrono::Utc>,
     pub provenance: String,
@@ -165,7 +165,7 @@ impl CognitionSnapshotReport {
     ///
     /// Content is the digest and the ledger watermark it covers, over the
     /// coverage it declares. The observation instant and its provenance
-    /// sentence are metadata of a revision, not content: §51.1 dedup means
+    /// sentence are metadata of a revision, not content: docs/specs/cognition-units.md#spec-51-1 dedup means
     /// unchanged bytes never open a new revision.
     fn same_content(&self, observation: &CognitionObservation) -> bool {
         self.fingerprint == observation.fingerprint
@@ -229,7 +229,7 @@ impl Node {
     /// stale observation can never replace a newer one (a replayed publish
     /// from another process cannot walk the report backwards).
     ///
-    /// Unchanged content is one revision (SPEC §51.1): re-observing the same
+    /// Unchanged content is one revision (docs/specs/cognition-units.md#spec-51-1): re-observing the same
     /// digest, watermark and coverage returns the stored report byte for byte
     /// and writes nothing, so peers and comparison readers keep seeing stable
     /// bytes at a stable revision. `observed_at` therefore stays the instant

@@ -1,4 +1,4 @@
-//! Real Windows desktop provider (SPEC §24.1, §24.3).
+//! Real Windows desktop provider (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3).
 //!
 //! Hand-rolled FFI against `user32`/`gdi32` — no external windows crate —
 //! so the implementation stays inside this crate's dependency surface.

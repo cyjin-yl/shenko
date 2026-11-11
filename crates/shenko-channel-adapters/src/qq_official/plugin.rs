@@ -1,4 +1,4 @@
-//! The official QQ bot channel plugin — SPEC §15.3, §16.
+//! The official QQ bot channel plugin — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
 //!
 //! The plugin owns everything QQ-specific: the OpenAPI endpoints, the
 //! OpenID namespaces, the reply audience kinds and the acceptance predicate
@@ -282,14 +282,14 @@ impl ChannelPlugin for QqOfficialChannel {
             // index offers send, retract and media upload for private and
             // group chats, and nothing that changes a message that was
             // already sent. Advertising an edit would promise an ability
-            // the platform does not have (SPEC §57.4, RT19).
+            // the platform does not have (docs/specs/channels.md#spec-57-4, RT19).
             edit: false,
             retract: true,
             // The platform has a guild-only typing endpoint, and this adapter
             // can call it — but one reply is one effect, so a typing indicator
             // could only be sent instead of the answer, or after it (when it
             // says nothing). The capability table lists what `describe` can
-            // really produce (SPEC §57.4), so typing is not advertised.
+            // really produce (docs/specs/channels.md#spec-57-4), so typing is not advertised.
             typing: false,
             proactive: true,
             notes: vec![

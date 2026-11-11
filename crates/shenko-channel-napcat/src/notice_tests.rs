@@ -1,4 +1,4 @@
-//! Platform notices become observations the subject can see — SPEC §57.4.
+//! Platform notices become observations the subject can see — docs/specs/channels.md#spec-57-4.
 //!
 //! A recall means a message the subject may have quoted no longer exists; a
 //! member event is exactly the kind of thing a personal agent is supposed to

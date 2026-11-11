@@ -1,4 +1,4 @@
-//! Durable receipts for the subject's own finite generation — SPEC §41.5/§41.4.
+//! Durable receipts for the subject's own finite generation — docs/specs/subject-runtime.md#spec-41-5, docs/specs/durable-state.md#spec-41-4.
 //!
 //! The subject's own turn uses the same discipline as a finite child: the
 //! request identity, the sealed input plan and the payload/provider digests

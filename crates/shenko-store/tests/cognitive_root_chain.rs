@@ -1,4 +1,4 @@
-//! Chain test: capture → reinstate → verify chain — SPEC §51.4
+//! Chain test: capture → reinstate → verify chain — docs/specs/cognition-units.md#spec-51-4
 //!
 //! Exercises the cognitive root append-only version chain through
 //! the store module. Does NOT run a build or any external verification.

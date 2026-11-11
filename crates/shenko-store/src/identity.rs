@@ -1,4 +1,4 @@
-//! Versioned instance identity storage — SPEC §6, R117.
+//! Versioned instance identity storage — docs/specs/subject-runtime.md#spec-6, R117.
 //!
 //! Every revision is kept; the latest one is current. A revision can only be
 //! appended as exactly `current + 1`, so two concurrent editors cannot both

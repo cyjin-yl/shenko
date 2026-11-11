@@ -1,4 +1,4 @@
-//! Read-only native memory queries over the caller's own memory (SPEC §12).
+//! Read-only native memory queries over the caller's own memory (docs/specs/memory.md#spec-12).
 //! The subject is derived from the task, never accepted as model input; all
 //! three operations observe durable rows and seal the exact observation.
 use anyhow::{Context as _, Result, ensure};

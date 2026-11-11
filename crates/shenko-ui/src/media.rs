@@ -1,4 +1,4 @@
-//! HTTP ingress for transcript providers — SPEC §15.2, §20.
+//! HTTP ingress for transcript providers — docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
 //!
 //! These routes expose the SAME durable admission the native `MediaIngress`
 //! service uses: raw revision fact + effective observation committed in one
@@ -424,7 +424,7 @@ struct IdentifyInput {
 /// ledger already sealed (never a re-capture, re-download or re-transcription)
 /// and its claim is admitted as a new revision of that same segment: the
 /// retained provider text and the original audio reference are carried
-/// forward, and the claim stays a model signal with its confidence (§35.3).
+/// forward, and the claim stays a model signal with its confidence (docs/specs/plugins.md#spec-35-3).
 /// No binding is an explicit 404/503, never a fabricated claim.
 async fn identify_speaker(
     State(state): State<MediaRouteState>,

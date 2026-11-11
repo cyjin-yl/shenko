@@ -1,7 +1,7 @@
 import type { UiNode } from './projection';
 
 /**
- * The configuration panel — SPEC §43.1.
+ * The configuration panel — docs/specs/configuration-playground.md#spec-43-1.
  *
  * Every row is a fact the service actually reported: the saved desired
  * revision, the value each consumer adopted, and the value a consumer runs

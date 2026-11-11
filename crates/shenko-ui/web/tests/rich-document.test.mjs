@@ -1,6 +1,6 @@
 /**
  * The rich layer of a semantic document renders as components, not as a JSON
- * dump (SPEC §57.6 / §21.6, acceptance UI-S11).
+ * dump (docs/specs/configuration-playground.md#spec-57-6, docs/specs/web-interface.md#spec-21-6, acceptance UI-S11).
  *
  * The test renders the real component tree to static markup and reads the
  * result the way a browser would: a table is a table, a section is a section,

@@ -1,4 +1,4 @@
-//! Committed context windows — SPEC §12.3.1–12.3.2.
+//! Committed context windows — docs/specs/context-policies.md#spec-12-3-1–docs/specs/context-policies.md#spec-12-3-2.
 //!
 //! The store keeps each scope's window chain opaquely (policy crates own the
 //! body format) and enforces the commit transaction: a window is appended

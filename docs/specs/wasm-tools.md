@@ -1,6 +1,6 @@
 # WASM 工具：真实工件、身份与安装合同
 
-本文是 `crates/shenko-wasm` 工具层与 `shenko tool …` 安装面的功能合同，对应 [SPEC](../../SPEC.md) §8.2、§8.3、§18.8、§35.8、§44.2 与 §44.7。它不替代 SPEC，也不放宽其中任何要求；文中区分“已经存在的接口”和“还没有运行证据的部分”。
+本文是 `crates/shenko-wasm` 工具层与 `shenko tool …` 安装面的功能合同，对应 [SPEC](../INDEX.md) [§8.2](wasm-tools.md#spec-8-2)、[§8.3](wasm-home.md#spec-8-3)、[§18.8](wasm-tools.md#spec-18-8)、[§35.8](self-update.md#spec-35-8)、[§44.2](plugins.md#spec-44-2) 与 [§44.7](plugins.md#spec-44-7)。它不替代 SPEC，也不放宽其中任何要求；文中区分“已经存在的接口”和“还没有运行证据的部分”。
 
 ## 一个权威，不另建工具登记表
 
@@ -63,12 +63,12 @@
 
 ## 具名目标的真实状态
 
-SPEC §8.2 要求的是“真实差距”，不是把名字勾成完成。代码里的 `NAMED_TARGETS` 是这份差距表，`shenko tool list` 会同时打印每个目标的真实状态。
+[§8.2](wasm-tools.md#spec-8-2) 要求的是“真实差距”，不是把名字勾成完成。代码里的 `NAMED_TARGETS` 是这份差距表，`shenko tool list` 会同时打印每个目标的真实状态。
 
 | 目标 | 上游 | 许可证 | 真实兼容类别 | 当前状态与理由 |
 | --- | --- | --- | --- | --- |
 | toybox | landley/toybox 0.8.15 | BSD-3-Clause | W0（标准组件） | 已有真实工件：91 个 WASI preview1 applet，按 applet 逐个安装；未被移植的 applet 不在其列（`uptime` 需要 `sysinfo()`/utmp，preview1 下无诚实实现，已从 `miniconfig.wasi` 移除而不是伪造） |
-| gcc-wasm | wasi-sdk 34（clang/lld）与 GCC hosted/target 构建 | Apache-2.0 WITH LLVM-exception（clang）、GPL-3.0-or-later（gcc） | W0 | 待验证。保留的 wasi-sdk 是**宿主侧**工具链，它产出 wasm32-wasip1 模块；它是 SPEC §8.2 里“输出目标”那一侧，不是“编译器自身运行在 WASM 里”那一侧，两种含义不能互相顶替 |
+| gcc-wasm | wasi-sdk 34（clang/lld）与 GCC hosted/target 构建 | Apache-2.0 WITH LLVM-exception（clang）、GPL-3.0-or-later（gcc） | W0 | 待验证。保留的 wasi-sdk 是**宿主侧**工具链，它产出 wasm32-wasip1 模块；它是 [§8.2](wasm-tools.md#spec-8-2) 里“输出目标”那一侧，不是“编译器自身运行在 WASM 里”那一侧，两种含义不能互相顶替 |
 | git | git/git | GPL-2.0-only | W2 | 未解决。clone/pull/push 需要 socket（preview1 没有），credential helper 链路需要进程派生；可用的私有远端 Git 需要 WASIX 运行时或专用 host import |
 | gh | cli/cli | MIT | W2 | 未解决。wasi-gh 存在但需要本运行时没有的专用 HTTP/exec host import；Go 的 `GOOS=wasip1` 构建不带 socket，因此无法真正调用 API |
 | tea | go-gitea/gitea tea | MIT | W2 | 未解决。同一类 socket/HTTP 缺口；不因 gh 有路线就勾选完成 |
@@ -127,3 +127,35 @@ toybox 端口在 `crates/shenko-wasm/ports/toybox-wasi/`：上游归档与 wasi-
 - 本阶段明确未做：编译、lint、测试、格式化、native 与模型运行。分块路径（> 1 MiB 工件）还没有真实工件可跑，其正确性目前只由源码与契约承担。首次运行分块路径应当用**真实的大工件**，不用填充伪造：CPython 的 WASI 模块是一个合适的候选（由 REPL 切片取得真实解释器工件），或未来移植的编译器模块。以 64 KiB 分块计，一个 30 MB 模块会产生约 480 个分块对象与一份分块清单。
 - 身份与来源凭据是字节的纯函数：同一批字节无论被清单、回执还是安装读到，都得到同一个 blake3 身份与同一个 sha256 来源凭据。重新生成清单只会让清单自身的字段与字节不同，不会让任何 applet 的身份“变化”。
 - 依赖的外部事实：`shenko_store::ContentStore::new` 与 `Store::open` 的签名由父方统一调整（`ContentStore::new` 将改为返回 `Result`）；本切片的代码不自己构造 `ContentStore`，只接收已打开的 `Store` 的 `cas`。
+
+<a id="spec-8-2"></a>
+<!-- migrated-contract: SPEC:8.2 -->
+## 8.2 工具清单与真实差距
+
+| 工具目标 | 研究状态 | 发布验收 |
+| --- | --- | --- |
+| sh 与基本 userland | WASIX 生态有相关构建/移植线索 | 管线、重定向、进程退出、信号/取消、目录与文本工具组合可运行 |
+| toybox | 保留用户点名目标；尚未核验满足全套需求的成品 | 指定 applets、ABI 与 smoke suite，不用有限内置命令冒充完整安装 |
+| gcc-wasm / 编译工具链 | Clang/lld WASM 路线有现成线索；GCC hosted/target 两种含义需区分 | 既注明编译器自身运行在哪里，也注明输出目标；GCC 条目保持待验证 |
+| git + gh WASM | 社区 wasi-gh 已存在，但依赖专用 host 模块；私有 Git credential helper 链路另有缺口 | 私库 clone/pull/commit/push、认证过期与凭据清理端到端通过 |
+| Gitea CLI WASM | 本轮未核验可直接采用的 tea 成品 | 保留移植/适配路线与独立验收，不因 gh 可用就勾选完成 |
+| SSH WASM | 社区 OpenSSH WASIX 移植有 ssh/keygen/scp/sftp；特定高级功能不完整 | 在选定 runtime 中真实 keygen、认证、执行和文件传输，公开未支持功能 |
+| 任意 memory 系统 | 不能由“POSIX 兼容”推导自动可运行 | 发布 dependency profile；能 WASM 就本地运行，否则明确 adapter/native/remote 路线 |
+
+已查到的 [wasi-gh](https://github.com/ai-ecoverse/homescoop/blob/main/packages/wasi-gh/package/README.md) 需要专用 HTTP/exec host 适配；[OpenSSH WASIX port](https://github.com/ai-ecoverse/homescoop/blob/main/packages/wasix-openssh/package/README.md) 不应被当成完整原生 OpenSSH 的等价物。相关 [slicc-kernel](https://github.com/ai-ecoverse/slicc-kernel) 生产路线以浏览器 worker/OPFS 为主，Node headless 入口不是已支持的生产 daemon；不能为了移植几件工具就悄悄给 Rust 产品增加必选浏览器内核。
+
+“真实 SSH WASM”的判断是 SSH 客户端协议/认证逻辑在 WASM 模块执行，宿主提供 socket、熵、时钟、文件或受限签名能力。仅在宿主启动 native ssh，然后转发 stdout，不算该要求完成。
+
+<!-- /migrated-contract: SPEC:8.2 -->
+
+<a id="spec-18-8"></a>
+<!-- migrated-contract: SPEC:18.8 -->
+## 18.8 WASM 能力自主移植
+
+WASM 兼容差距也是 Agent 可以处理的工作。执行 worker 可分析软件的系统调用、动态链接、原生扩展、线程/进程、网络与文件依赖，选择 WASI/WASIX target、专用 host import 或协议适配，生成构建配方并在本地或自有构建节点完成移植。是否采用替代实现由目标功能决定，结果必须注明“真实 WASM”“WASM + host imports”或“native/remote”，不能用标签掩盖执行位置。
+
+移植前后都记录可用磁盘、临时构建峰值、下载/cache、运行内存与依赖闭包；空间不足时可以增量构建、复用缓存、清理未引用候选、使用远端构建或选择更小实现。保留当前可恢复 generation；构建 worker 不得把唯一记忆当临时缓存自行清理；原始记忆的迁移或真实删除按 [§12.4](memory.md#spec-12-4) 由主体决定并委派执行，当前恢复和未决动作所需状态不得由普通构建清理误删。适配器、工具链与策略本身均可继续演进。
+
+安装验收以用户实际需要的功能为准：目标 runtime 的 imports/ABI、包/资源锁、私库认证或 SSH 等对应端到端流程、取消与恢复、自然任务中的选择和正确调用。验证后更新 capability registry 与 recipe，恢复被阻塞任务；失败则保留诊断并尝试其他路线。主体负责目标与委派，child 负责实际源码、构建、文件和安装。这个闭环保留 [§8](wasm-home.md#spec-8) 的真实 WASM 目标，也允许 [§34](desktop-runtime.md#spec-34) 的完整 Linux 环境承担构建和暂时执行。
+
+<!-- /migrated-contract: SPEC:18.8 -->

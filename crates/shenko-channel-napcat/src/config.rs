@@ -1,4 +1,4 @@
-//! QQ/NapCat connector configuration — SPEC §16, §35.6.
+//! QQ/NapCat connector configuration — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6.
 //!
 //! Four different facts live here and must not be confused:
 //!

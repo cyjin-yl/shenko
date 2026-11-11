@@ -1,4 +1,4 @@
-//! 提交引用与持久等级 — SPEC §41.2.1, §41.3
+//! 提交引用与持久等级 — docs/specs/durable-state.md#spec-41-2-1, docs/specs/durable-state.md#spec-41-3
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -26,7 +26,7 @@ impl fmt::Display for CommitRef {
     }
 }
 
-/// 持久等级。SPEC §41.2.1
+/// 持久等级。docs/specs/durable-state.md#spec-41-2-1
 /// 默认 power_loss_local：目标 OS/VFS/设备正确兑现同步语义时，
 /// 确认后应经受本机进程崩溃和掉电；
 /// 不包括磁盘物理损坏、失去整机、未同步远端副本或外部系统操作。
@@ -54,7 +54,7 @@ impl fmt::Display for DurabilityProfile {
     }
 }
 
-/// 提交回执 — SPEC §41.2.1
+/// 提交回执 — docs/specs/durable-state.md#spec-41-2-1
 /// 返回 commit_ref、durability_profile、store_incarnation 和本次写入实体 revision。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitReceipt {
@@ -62,7 +62,7 @@ pub struct CommitReceipt {
     pub durability_profile: DurabilityProfile,
     pub store_incarnation: EntityId,
     pub updated: Vec<UpdatedEntity>,
-    /// Content-addressed objects sealed as part of this commit (SPEC §41.2:
+    /// Content-addressed objects sealed as part of this commit (docs/specs/durable-state.md#spec-41-2:
     /// the object exists before the commit that references it). Empty when
     /// the batch carried no raw objects.
     #[serde(default)]

@@ -1,4 +1,4 @@
-//! QR-code authorisation of the WeChat iLink connector — SPEC §16.
+//! QR-code authorisation of the WeChat iLink connector — docs/specs/channel-adapters.md#spec-16.
 //!
 //! The iLink provider does not use an app ticket. A human scans a QR code,
 //! the provider issues a bot token, and the token is stored locally. The

@@ -1,6 +1,6 @@
 //! `playground.manage:1` — the subject's own hands on its works.
 //!
-//! SPEC §57.6: a personal agent that cannot make or change a thing of its
+//! docs/specs/configuration-playground.md#spec-57-6: a personal agent that cannot make or change a thing of its
 //! own is a conversation, not a being. This child lets the subject create a
 //! work, put new content into it, stage it, publish it, roll it back and
 //! list what it has — through the SAME durable artifact lifecycle the Web UI
@@ -10,7 +10,7 @@
 //! addressed, a stage is a candidate manifest, a publish is an explicit
 //! adoption, and a rollback appends a new version rather than erasing one.
 //! The transitions announce themselves in the subject's own inbox, so the
-//! subject perceives what it changed (§43.2).
+//! subject perceives what it changed (docs/specs/configuration-playground.md#spec-43-2).
 //!
 //! The handler owns no authority of its own: the artifact store owns the
 //! lifecycle, the capability bound to the installed backend owns execution,

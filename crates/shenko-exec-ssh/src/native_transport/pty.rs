@@ -1,4 +1,4 @@
-//! Interactive PTY channel over the native SSH connection — SPEC §17.5.
+//! Interactive PTY channel over the native SSH connection — docs/specs/remote-seats.md#spec-17-5.
 //!
 //! `execute()` is deliberately single-command: it consumes the session. A
 //! seat needs the opposite: one authenticated session, one PTY channel that

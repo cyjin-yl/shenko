@@ -1,4 +1,4 @@
-//! Configuration of the official QQ bot connector — SPEC §16, §35.6.
+//! Configuration of the official QQ bot connector — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6.
 //!
 //! Four different facts live here and must not be confused:
 //!

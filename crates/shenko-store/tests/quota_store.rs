@@ -567,7 +567,7 @@ fn preparing_step(
     step
 }
 
-/// A replaceable admission cadence (SPEC §42.1) may withhold a fresh
+/// A replaceable admission cadence (docs/specs/quota-resources.md#spec-42-1) may withhold a fresh
 /// admission on the durable path: the pacer keeps the deferral, no budget is
 /// reserved, and the same send still admits once the strategy stops holding
 /// it. The deferral is a `quota_policy_wait`, never a capacity or exhaustion

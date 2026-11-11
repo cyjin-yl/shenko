@@ -1,4 +1,4 @@
-//! tmux seat adapter — the "existing foreground TUI" path (SPEC §35.5).
+//! tmux seat adapter — the "existing foreground TUI" path (docs/specs/remote-seats.md#spec-35-5).
 //!
 //! This adapter observes an already running tmux pane and answers what it
 //! sees. It is deliberately the *compatibility* path: it reconstructs the

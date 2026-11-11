@@ -1,5 +1,5 @@
 //! media.read — bounded read-only native view over the subject's own durable
-//! media facts (SPEC §15.2, §20).
+//! media facts (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20).
 //!
 //! The handler mirrors `errors.read`: the model input is frozen and CAS-sealed
 //! before anything is read, the read scope is fixed at freeze time to the

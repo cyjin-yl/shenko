@@ -1,4 +1,4 @@
-//! Local-model behavioral acceptance (SPEC §5.1, §22.1, R077).
+//! Local-model behavioral acceptance (docs/specs/subject-runtime.md#spec-5-1, docs/specs/nodes.md#spec-22-1, R077).
 //!
 //! Shenko is driven by a local model, so a step can be "covered" by Rust tests
 //! and still be unusable: the model may never emit the control line, or may

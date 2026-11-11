@@ -1,6 +1,6 @@
 // The real Store-origin cognition report: producer, peer route, merge, reopen.
 //
-// SPEC §51.1: the node keeps one mechanism observation of *this installation's
+// docs/specs/cognition-units.md#spec-51-1: the node keeps one mechanism observation of *this installation's
 // own* Store snapshot — the immutable content digest over a declared scope plus
 // the ledger watermark it covered. It is not content, not an attitude, not a
 // knowledge kind and not a confidence; it is not a liveness, capacity or
@@ -68,7 +68,7 @@ mod node_cognition_report {
         assert!(!report.scope.local_boundary_preserved);
 
         // A second tick that observes the same Store content is the same revision,
-        // not a new one: unchanged bytes never open a new version (§51.1).
+        // not a new one: unchanged bytes never open a new version (docs/specs/cognition-units.md#spec-51-1).
         let again = node_sync::publish_cognition_report(&store, &mut node, &dir).unwrap();
         assert_eq!(again, report);
 

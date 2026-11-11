@@ -1,5 +1,5 @@
-//! Perception units and the live observations bound to them — SPEC §45.1,
-//! §45.2, §45.4, §45.10.1.
+//! Perception units and the live observations bound to them — docs/specs/cognition-units.md#spec-45-1,
+//! docs/specs/cognition-units.md#spec-45-2, docs/specs/cognition-units.md#spec-45-4, docs/specs/cognition-units.md#spec-45-10-1.
 //!
 //! A perception unit is a definition: what can be observed, about which
 //! target, and why the fact matters. It is not the fact. Installing the
@@ -64,7 +64,7 @@ pub struct PerceptionBinding {
     pub artifact_digest: String,
 }
 
-/// Whose perception an observation was read through — SPEC §51.2.
+/// Whose perception an observation was read through — docs/specs/cognition-units.md#spec-51-2.
 ///
 /// Different subjects (a human, this Shenko, another Shenko) have different
 /// perceptions. Reading one experience through someone else's perception is
@@ -200,7 +200,7 @@ pub struct PerceptionFact {
     /// Digest of evidence bytes this installation holds, when the source
     /// sealed them.
     pub evidence_digest: Option<String>,
-    /// Whose perception this observation was read through (SPEC §51.2).
+    /// Whose perception this observation was read through (docs/specs/cognition-units.md#spec-51-2).
     ///
     /// The source states it; the registry never labels a reading. `None` is
     /// an undeclared attribution — bytes archived before attribution existed
@@ -334,7 +334,7 @@ struct Registration {
     source_id: PerceptionSourceId,
     /// Whose perception this source reads through. The registration states it
     /// once; an observation that arrives with another attribution is refused
-    /// instead of being relabelled (SPEC §51.2).
+    /// instead of being relabelled (docs/specs/cognition-units.md#spec-51-2).
     perspective: PerceptionPerspective,
     observer: Arc<dyn PerceptionObserver>,
     last: Option<PerceptionStatus>,
@@ -950,7 +950,7 @@ impl InstallationFactsSource {
     /// itself (without its own evidence reference), so a later reader can
     /// check what this node observed, when, about what, and under which unit
     /// version — the observation outlives the unit being uninstalled, per
-    /// SPEC §45.10.1.
+    /// docs/specs/cognition-units.md#spec-45-10-1.
     pub fn observe_now(&self) -> Result<PerceptionFact> {
         let mut node = self.node.lock();
         let facts = node.installed_unit_facts()?;

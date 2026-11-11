@@ -1,4 +1,4 @@
-//! Cognition recovery replication — SPEC §5.4.
+//! Cognition recovery replication — docs/specs/nodes.md#spec-5-4.
 //!
 //! A store hands another node its real facts and the verified closure of the
 //! objects they reference. The receiving store publishes nothing before the

@@ -1,4 +1,4 @@
-//! Agent-owned SSH identity generation — SPEC §11/R016.
+//! Agent-owned SSH identity generation — docs/specs/remote-seats.md#spec-11/R016.
 //!
 //! The agent creates and maintains its own ed25519 identity per node. This
 //! module writes a private key (mode 0600) and its OpenSSH `.pub`, and is

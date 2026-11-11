@@ -1,4 +1,4 @@
-//! QuotaPolicy and its replayable decisions (§42.5). A decision picks the
+//! QuotaPolicy and its replayable decisions (docs/specs/quota-resources.md#spec-42-5). A decision picks the
 //! model profile and the highest admission rate every quota window it
 //! touches can sustain until that window's period ends. It is an upper bound
 //! on pacing, never a demand: no request is created to use up a balance.
@@ -95,7 +95,7 @@ pub struct ModelProfile {
     pub cost_per_request: Vec<WindowCost>,
     /// Effort levels this profile may actually run at, in order of
     /// preference for the current task's needs, each priced in its own
-    /// windows (SPEC §42.3 `model_profiles[].effort_bounds`). A policy
+    /// windows (docs/specs/quota-resources.md#spec-42-3 `model_profiles[].effort_bounds`). A policy
     /// recorded before effort planning has none: it then runs at the single
     /// implicit level priced by `cost_per_request`, which is exactly what
     /// every earlier decision did. The levels are configured facts about
@@ -105,7 +105,7 @@ pub struct ModelProfile {
 }
 
 /// One supported effort level of a profile and what one request at that
-/// level costs, per window's own unit (SPEC §42.3).
+/// level costs, per window's own unit (docs/specs/quota-resources.md#spec-42-3).
 ///
 /// The identifier is the configured level name (for example `low`,
 /// `standard`, `deep`); this crate never ranks levels by the name, so a
@@ -155,7 +155,7 @@ pub enum UnknownQuota {
     Admit,
 }
 
-/// What the planner optimizes within the authorized budget (SPEC §42.3).
+/// What the planner optimizes within the authorized budget (docs/specs/quota-resources.md#spec-42-3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyObjective {
@@ -186,7 +186,7 @@ pub struct WindowReserve {
     pub window: WindowRef,
     /// The unit the amount is stated in. A reserve stated in another unit
     /// than the profile's cost cannot be priced, and the window stays unknown
-    /// instead of mixing units (§42.3 rule 2).
+    /// instead of mixing units (docs/specs/quota-resources.md#spec-42-3 rule 2).
     pub unit: String,
     pub amount: Range,
 }
@@ -206,7 +206,7 @@ pub struct UrgentReserveRelease {
     pub release_within: Duration,
 }
 
-/// Admission pacing inputs (SPEC §42.3). Every field has a planner or
+/// Admission pacing inputs (docs/specs/quota-resources.md#spec-42-3). Every field has a planner or
 /// admission effect; none is recorded for decoration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdmissionPacing {
@@ -265,7 +265,7 @@ pub struct QuotaPolicy {
     /// admits no observation as forecast evidence; everything stays unknown.
     #[serde(default)]
     pub observation_sources: Vec<SourceObservationPolicy>,
-    /// What the planner optimizes within the authorized budget (SPEC §42.3).
+    /// What the planner optimizes within the authorized budget (docs/specs/quota-resources.md#spec-42-3).
     /// The default `balanced` is the behavior every earlier policy already
     /// had, so a legacy policy re-serializes to its recorded bytes.
     #[serde(default, skip_serializing_if = "PolicyObjective::is_balanced")]
@@ -290,7 +290,7 @@ pub struct QuotaPolicy {
     /// uncertainty (0..=1). Relative, unlike an absolute window reserve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uncertainty_margin: Option<f64>,
-    /// Admission pacing inputs (SPEC §42.3).
+    /// Admission pacing inputs (docs/specs/quota-resources.md#spec-42-3).
     #[serde(default, skip_serializing_if = "AdmissionPacing::is_default")]
     pub admission_pacing: AdmissionPacing,
 }
@@ -428,7 +428,7 @@ pub enum Choice {
     /// None means no periodic rate bound; immediate window budgets still apply.
     Cloud {
         profile_id: String,
-        /// The effort level this request runs at (SPEC §42.3, §42.6). A
+        /// The effort level this request runs at (docs/specs/quota-resources.md#spec-42-3, docs/specs/quota-resources.md#spec-42-6). A
         /// decision recorded before effort planning names none and is charged
         /// at the profile's own `cost_per_request`, exactly as before.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -513,20 +513,20 @@ pub struct PolicyDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
     /// How many requests of each profile the *held* planning budget supports
-    /// over the horizon (SPEC §42.3 `subject_round_estimates`). A conservative
+    /// over the horizon (docs/specs/quota-resources.md#spec-42-3 `subject_round_estimates`). A conservative
     /// bound derived from recorded evidence, never a promise that exactly
     /// this many rounds happen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round_estimates: Option<RoundEstimates>,
     /// One row per quota-bearing profile the planner assessed: the planned
     /// rate, the round estimate and the cost ranges it was priced with
-    /// (SPEC §42.3 `scenarios`). What the planner compared, kept with the
+    /// (docs/specs/quota-resources.md#spec-42-3 `scenarios`). What the planner compared, kept with the
     /// decision that used it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scenarios: Vec<PlanScenario>,
 }
 
-/// Rounds the held budget supports per profile (SPEC §42.3).
+/// Rounds the held budget supports per profile (docs/specs/quota-resources.md#spec-42-3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoundEstimates {
     /// The horizon these numbers cover: the policy's planning horizon, else
@@ -542,11 +542,11 @@ pub struct RoundEstimates {
     pub per_profile: Vec<(String, Option<f64>)>,
 }
 
-/// One planning scenario the decision compared (SPEC §42.3).
+/// One planning scenario the decision compared (docs/specs/quota-resources.md#spec-42-3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanScenario {
     pub profile_id: String,
-    /// The effort level this row was priced at (SPEC §42.3 `effort_policy`).
+    /// The effort level this row was priced at (docs/specs/quota-resources.md#spec-42-3 `effort_policy`).
     /// `None` is the implicit level of a policy recorded before effort
     /// planning, and is omitted so such a decision keeps its bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -558,7 +558,7 @@ pub struct PlanScenario {
     /// The per-window cost ranges this scenario was priced with.
     pub cost_per_request: Vec<WindowCost>,
     /// Useful work this scenario's rounds are expected to produce
-    /// (SPEC §42.3 `expected_useful_work`), when durable evidence supports an
+    /// (docs/specs/quota-resources.md#spec-42-3 `expected_useful_work`), when durable evidence supports an
     /// expectation at all. Absent stays unknown: one request is never
     /// assumed to equal one useful outcome.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -586,14 +586,14 @@ impl WorkUnit {
 }
 
 /// Measured useful work per admitted subject round, read from durable
-/// provenance (SPEC §42.3 `expected_useful_work`, §42.5).
+/// provenance (docs/specs/quota-resources.md#spec-42-3 `expected_useful_work`, docs/specs/quota-resources.md#spec-42-5).
 ///
 /// The caller counts what the ledger actually recorded — terminal request
 /// rows as rounds and committed steps as useful outcomes — and points at the
 /// ledger position it counted them at. Nothing here is a model's opinion, a
 /// `knowledge_kind`, a keyword score or a constant: no evidence means no
 /// expectation, and the reading is a mechanism measurement rather than a
-/// cognition attitude (§51.1).
+/// cognition attitude (docs/specs/cognition-units.md#spec-51-1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkEvidence {
     pub unit: WorkUnit,

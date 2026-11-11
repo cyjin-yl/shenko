@@ -1,4 +1,4 @@
-//! Read-only native self-knowledge queries — SPEC §38, R124.
+//! Read-only native self-knowledge queries — docs/specs/cognition-units.md#spec-38, R124.
 //! The subject asks what it is, what is installed and why it works this way;
 //! this deterministic child answers from the installed SelfKnowledgeProvider,
 //! never from model-supplied answers and never with a second opinion layer.

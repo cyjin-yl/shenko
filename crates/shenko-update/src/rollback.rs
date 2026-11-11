@@ -1,8 +1,8 @@
-//! SPEC §51.4: append-node rollback of the owned versioned root.
+//! docs/specs/cognition-units.md#spec-51-4: append-node rollback of the owned versioned root.
 //!
 //! Rollback is not a branch pointer moving backwards. It selects a historical
 //! root node and appends a **new** node whose content equals that node, so the
-//! chain and the ledger log beside it only grow (`§9.5`). Content-addressed
+//! chain and the ledger log beside it only grow (`docs/specs/self-update.md#spec-9-5`). Content-addressed
 //! objects are reused, never rewritten; the subject's `agent_id` keeps its
 //! pre-switch value (the subject did not change, only the failure lane did).
 //!
@@ -10,7 +10,7 @@
 //! slots, the `unit_current` cognition selectors, and the WASM linear
 //! memories, execution stacks and interpreter object graphs. External effects
 //! are the one class that cannot be withdrawn: they are reconciled once and
-//! recorded as not undone (`§10.1`). A file/state rollback never claims that a
+//! recorded as not undone (`docs/specs/durable-state.md#spec-10-1`). A file/state rollback never claims that a
 //! sent message or a remote write was reverted.
 //!
 //! # Ownership boundary
@@ -22,7 +22,7 @@
 //! mechanism receipt of what it verified. The controller reports the state
 //! classes a node actually carries; a class it cannot capture is a reported
 //! gap ([`RollbackOutcome::missing_classes`]), never silently removed from the
-//! goal and never counted as a complete `§51.4` rollback.
+//! goal and never counted as a complete `docs/specs/cognition-units.md#spec-51-4` rollback.
 //!
 //! A `HomeCheckpoint` that only declares `FilesAndMetadata` is exactly such a
 //! gap: the file/metadata class may exist while linear memory, execution stack
@@ -45,7 +45,7 @@ pub const RECEIPT_NAMESPACE: &str = "rollback";
 /// CAS codec name of a rollback receipt.
 pub const RECEIPT_CODEC: &str = "append-node-receipt";
 
-/// One class of state that returns together with a home version (`§51.4`).
+/// One class of state that returns together with a home version (`docs/specs/cognition-units.md#spec-51-4`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StateClass {
@@ -64,7 +64,7 @@ pub enum StateClass {
 }
 
 impl StateClass {
-    /// Every class one rollback root must carry to be a `§51.4` rollback.
+    /// Every class one rollback root must carry to be a `docs/specs/cognition-units.md#spec-51-4` rollback.
     ///
     /// This is the normative set. It is not a menu: a root that lacks an entry
     /// is reported as a gap, not redefined as a narrower goal.
@@ -363,7 +363,7 @@ pub fn append_rollback(
             request,
             head_before.as_ref(),
             &appended.node,
-            "chain-rewound: the append returned the node the chain was already at; §51.4 rollback has to append a new node",
+            "chain-rewound: the append returned the node the chain was already at; docs/specs/cognition-units.md#spec-51-4 rollback has to append a new node",
         ));
     }
     let head_after = chain.head()?;
@@ -416,7 +416,7 @@ pub fn append_rollback(
             &appended.node,
             &format!(
                 "append-rewrote-objects: the append reported {} reused objects for {} referenced objects; \
-                 §51.4 reuses content-addressed objects instead of writing them again",
+                 docs/specs/cognition-units.md#spec-51-4 reuses content-addressed objects instead of writing them again",
                 appended.reused_objects,
                 target.objects.len(),
             ),

@@ -1,6 +1,6 @@
 # 长期运行观察：7/30 天证据采集与报告
 
-C19/#24 与 [COMPLETION](../governance/COMPLETION.md) §2「长期性」要求 S5 的 7/30 天报告按真实墙钟时间和明确候选/环境形成，加速测试不能冒充 30 天无人运行。本页描述 `scripts/observe_longrun.py`——一个只做采样的开发工具：它把可归属的运行观察写到磁盘、把采样与声明窗口分开，并把没跑够的窗口永远标 `unobserved`。它不是产品功能，不改变主体行为；它只是让长跑证据可形成、可对账。
+C19/#24 与 [COMPLETION](../governance/COMPLETION.md) [§2](../specs/architecture.md#spec-2)「长期性」要求 S5 的 7/30 天报告按真实墙钟时间和明确候选/环境形成，加速测试不能冒充 30 天无人运行。本页描述 `scripts/observe_longrun.py`——一个只做采样的开发工具：它把可归属的运行观察写到磁盘、把采样与声明窗口分开，并把没跑够的窗口永远标 `unobserved`。它不是产品功能，不改变主体行为；它只是让长跑证据可形成、可对账。
 
 ## 它能采集什么
 
@@ -60,7 +60,7 @@ python3 -I scripts/observe_longrun.py report --dir /path/run-dir \
   --require-observed --write
 
 # 4. 义务报告消费报告（只读；绑定调用方期望的摘要）
-shenko-evidence --spec SPEC.md --evidence-dir docs/evidence \
+shenko-evidence --spec docs/contract-migration.json --evidence-dir docs/evidence \
   --candidate-commit <sha> --long-run /path/run-dir/reports/report-<stamp>.json=<sha256> \
   --json build/spec-obligation-report.json
 ```
@@ -77,14 +77,14 @@ systemd timer 例：`*-*-* *:0/5` 调 `sample`。采样器可以死在任意时�
 - **调度器不保证采样器存活**：`run` 模式随进程退出而停止；`sample` 依赖外部调度。采样器停机期间不生成记录，缺口如实报告。
 - **声明≠结果**：manifest 的窗口是声明的观察义务；只有合格覆盖 ≥ 窗口才标 `observed`。已知 gap 或任何上述完整性/绑定缺口使整次 run 的合格覆盖为零；更长的端点跨度不能抵消。`--require-observed` 在任一窗口未合格时退出 3；非法输入/被拒绝的追加退出 2。
 - **证据并非认证**：每个目录只运行一个写入者；没有并发写入锁，交错写入/重复序号将使证据不合格。本地 JSONL 不带抗篡改签名，manifest 的候选元数据由调用者提供，不证明 PID 实际执行了该二进制。fsync 调用路径不是物理断电耐久性证据。
-- **未见清单**：真实断电 RPO、音频端到端时延、工具/FTS p95、路由器/Android profile、多节点长跑、断电/满盘/分区故障注入都未由本工具观察；它们需要各自的故障注入与设备测量，见 SPEC §23 尾部与本页「仍未观察」。
+- **未见清单**：真实断电 RPO、音频端到端时延、工具/FTS p95、路由器/Android profile、多节点长跑、断电/满盘/分区故障注入都未由本工具观察；它们需要各自的故障注入与设备测量，见 [§23](../specs/verification.md#spec-23) 尾部与本页「仍未观察」。
 
 ## 仍未观察到的义务
 
 | 义务 | 状态 |
 | --- | --- |
 | 任何 7/30 天实际窗口 | 没有任何候选长跑结果；当前为 schema 3 记录/schema 5 报告，长跑 run 仍需绑定实际交付候选与 profile、实际执行文件摘要并经过真实墙钟窗口。短时工具核验不替代这些窗口。 |
-| kernel/rescue 常驻 RSS ≤16 MiB、静止 ≤64 MiB（§22 拟定目标） | 未测量；采样拿到实际值后再定值/裁剪。 |
+| kernel/rescue 常驻 RSS ≤16 MiB、静止 ≤64 MiB（[§22](../specs/nodes.md#spec-22) 拟定目标） | 未测量；采样拿到实际值后再定值/裁剪。 |
 | 路由器 64 位/512 MB profile、Android profile、多节点长跑 | 未开始；需要真实设备与部署。 |
 | 主体行为正确性（持续思考、消息不丢） | 本工具只看进程资源与存活，不看语义；行为验收仍须产品侧协议证据。 |
 

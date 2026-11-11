@@ -1,4 +1,4 @@
-//! 自有版本化根的账本实现 — SPEC §51.4、§10.1、§10.2.1
+//! 自有版本化根的账本实现 — docs/specs/cognition-units.md#spec-51-4, docs/specs/durable-state.md#spec-10-1, docs/specs/durable-state.md#spec-10-2-1
 //!
 //! 认知根的版本链只增不减：每次捕获或回退都在链尾追加一个新节点，
 //! 把当前权威根推进到新版本。回退不倒回指针，而是追加一个内容与历史
@@ -240,7 +240,7 @@ impl Store {
     /// 回退：在链尾追加一个内容与所选历史节点完全相同的新节点。
     ///
     /// `target` 指向要恢复的历史节点；新节点的 `reinstated_from` 记下来源。
-    /// 日志和链只增不减（§51.4）。
+    /// 日志和链只增不减（docs/specs/cognition-units.md#spec-51-4）。
     pub fn reinstate_cognitive_root(
         &self,
         reinstatement: CognitiveRootReinstatement,

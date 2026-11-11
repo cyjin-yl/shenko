@@ -1,6 +1,6 @@
 //! The official QQ surface syntax: what a body means on this platform.
 //!
-//! SPEC §57.4: the kernel keeps ONE reply verb (`[reply:kind:id]`), while a
+//! docs/specs/channels.md#spec-57-4: the kernel keeps ONE reply verb (`[reply:kind:id]`), while a
 //! channel plugin owns its own inline surface syntax and its platform
 //! rendering. On the official QQ Bot API that means three things the plain
 //! string could not do:

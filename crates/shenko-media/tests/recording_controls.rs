@@ -1,6 +1,6 @@
-//! Admitted recording controls reach the live recorder — SPEC §20 录音状态、
+//! Admitted recording controls reach the live recorder — docs/specs/media.md#spec-20 录音状态、
 //! 正在存储的范围和停止控制必须真实可见, and 最终文本与原音频对应可追溯
-//! (§15.2/§20: the segment-final revision's sealed audio is what the provider
+//! (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20: the segment-final revision's sealed audio is what the provider
 //! heard while the recording was live).
 //! Three independent scenarios driven through the real path — MediaRuntime
 //! over a scripted realtime provider, never a mocked ledger: an admitted

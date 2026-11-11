@@ -1,4 +1,4 @@
-//! Managed OMP seat adapter — the OMP JSONL RPC path (SPEC §35.5).
+//! Managed OMP seat adapter — the OMP JSONL RPC path (docs/specs/remote-seats.md#spec-35-5).
 //!
 //! OMP exposes a newline-delimited JSON protocol on stdio
 //! (`omp --mode rpc`). This adapter owns that stdio: it starts the process,

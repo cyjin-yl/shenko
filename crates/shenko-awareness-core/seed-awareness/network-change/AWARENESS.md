@@ -2,7 +2,7 @@
 id: awareness.network-change
 version: 0.2.0
 capability_card: 网络、代理或连接通路发生变化时的自我连续性直觉
-provenance: [SPEC §9.4]
+provenance: ["docs/specs/network-observation.md#spec-9-4"]
 dependencies: []
 ---
 

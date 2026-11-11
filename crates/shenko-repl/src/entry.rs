@@ -1,11 +1,11 @@
 //! Persistent named kernel entries — the REPL kernel *plugin entries* of
-//! SPEC §19.1 ("独立可替换的 kernel 插件") as durable installation state.
+//! docs/specs/repl.md#spec-19-1 ("独立可替换的 kernel 插件") as durable installation state.
 //!
 //! A session's manifest already records the profile it was created with, but
 //! that is session state: it cannot answer "which Python/Node/Bun kernels does
 //! this installation actually have?" after a restart, and a caller had to know
 //! the interpreter path on every `create`. An entry is the missing durable
-//! binding: a name, the named §19.1 target it was built from, the real
+//! binding: a name, the named docs/specs/repl.md#spec-19-1 target it was built from, the real
 //! interpreter path, and the digest of the exact bytes.
 //!
 //! What an entry is and is not:
@@ -56,7 +56,7 @@ pub struct KernelEntry {
     pub schema_version: u32,
     /// Entry name (the directory name) the caller asks `create` for.
     pub entry: String,
-    /// Named §19.1 target this entry was built from (`python-wasi`,
+    /// Named docs/specs/repl.md#spec-19-1 target this entry was built from (`python-wasi`,
     /// `python-native-host`, `node-native-host`, `bun-native-host`,
     /// `quickjs-wasm`). Recorded so a reader never has to guess the route from
     /// the profile alone.
@@ -93,7 +93,7 @@ impl KernelEntry {
 pub struct InstallEntry {
     /// Entry name; `[A-Za-z0-9][A-Za-z0-9._-]*`, at most 64 bytes.
     pub entry: String,
-    /// Named §19.1 target (see `kernel::named_targets`).
+    /// Named docs/specs/repl.md#spec-19-1 target (see `kernel::named_targets`).
     pub target: String,
     /// Real interpreter artifact (module `.wasm`, or a native executable).
     pub module: PathBuf,

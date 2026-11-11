@@ -1,4 +1,4 @@
-//! Real persistent-home closure recovery (SPEC §8.3, §10.1–§10.5, C05).
+//! Real persistent-home closure recovery (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-10-1–docs/specs/memory.md#spec-10-5, C05).
 //!
 //! These cases run the real seed bootstrap (sealed preview1 probe, real host
 //! Git memory, real persisted manifest), a real content-addressed store on

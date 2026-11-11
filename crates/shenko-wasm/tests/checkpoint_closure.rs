@@ -1,4 +1,4 @@
-//! Real `/home` + `/memory` byte closure (SPEC §8.3, §10.1–§10.5, C05).
+//! Real `/home` + `/memory` byte closure (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-10-1–docs/specs/memory.md#spec-10-5, C05).
 //!
 //! Every case is a real host tree, a real on-disk content-addressed store and
 //! the real public API; no file content is faked and no closure is simulated.

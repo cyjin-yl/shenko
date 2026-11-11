@@ -1,4 +1,4 @@
-//! Durable semantic wait records, receipts and clock bookkeeping — SPEC §5.1, R143.
+//! Durable semantic wait records, receipts and clock bookkeeping — docs/specs/subject-runtime.md#spec-5-1, R143.
 //!
 //! A semantic wait is a durable fact about the subject's own decision to keep
 //! thinking until a condition it named is met. The Store owns that lifecycle:

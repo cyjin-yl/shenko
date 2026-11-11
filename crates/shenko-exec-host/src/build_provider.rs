@@ -1,4 +1,4 @@
-//! BuildProvider -- SPEC §35.3, §35.4
+//! BuildProvider -- docs/specs/plugins.md#spec-35-3, docs/specs/self-update.md#spec-35-4
 //! Independent build workspace, cargo/git operations, artifact identity.
 use std::path::PathBuf;
 use anyhow::{anyhow, Result};

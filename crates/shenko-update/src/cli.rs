@@ -61,7 +61,7 @@ pub enum UpdateCommand {
         /// Print the machine-readable report.
         json: bool,
     },
-    /// §51.4 append-node rollback of the cognitive root. This restores the
+    /// docs/specs/cognition-units.md#spec-51-4 append-node rollback of the cognitive root. This restores the
     /// subject's state root to a historical node by appending a new node
     /// with equal content — never rewinding, truncating or deleting the
     /// chain. Distinct from the generation `Rollback` which switches the
@@ -188,7 +188,7 @@ pub async fn execute(command: UpdateCommand, service: &UpdateService, agent_id: 
     }
 }
 
-/// Execute a §51.4 root rollback through the controller's [`RootChain`] seam.
+/// Execute a docs/specs/cognition-units.md#spec-51-4 root rollback through the controller's [`RootChain`] seam.
 ///
 /// The `UpdateService` is expected to provide a `RootChain` implementor.
 /// If the controller has not published one yet, this function returns an
@@ -213,7 +213,7 @@ async fn execute_root_rollback(
         .ok_or_else(|| anyhow::anyhow!(
             "root-chain-unavailable: the installation has no RootChain provider; \
              the ControllerProofR2 contract must publish root_chain() on UpdateService \
-             before §51.4 root rollbacks can run"
+             before docs/specs/cognition-units.md#spec-51-4 root rollbacks can run"
         ))?;
     let external_effects = match service.external_effects() {
         Some(ledger) => {

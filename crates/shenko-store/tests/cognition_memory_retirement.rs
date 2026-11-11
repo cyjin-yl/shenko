@@ -1,4 +1,4 @@
-//! One generation retiring a fact the other already held — SPEC §5.4, §12.4.
+//! One generation retiring a fact the other already held — docs/specs/nodes.md#spec-5-4, docs/specs/memory.md#spec-12-4.
 //!
 //! `docs/specs/self-update.md`: "New facts, revocations, tombstones and
 //! external debt cannot disappear because a workspace or software pointer

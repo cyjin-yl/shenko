@@ -1,4 +1,4 @@
-//! Effect contracts — SPEC §36.
+//! Effect contracts — docs/specs/durable-state.md#spec-36.
 //!
 //! One canonical machine-readable declaration of what an operation touches,
 //! what can be reset/restored/replayed/cancelled/compensated, and on what
@@ -7,7 +7,7 @@
 //! readable by the subject, the UI and the recovery planner without any of
 //! them depending on the plugin's crate.
 //!
-//! §36.2: reset / restore / replay / cancel / compensate are five different
+//! docs/specs/durable-state.md#spec-36-2: reset / restore / replay / cancel / compensate are five different
 //! actions and never share one "rollback" label. Read-only, idempotently
 //! queryable and externally-visible writes are therefore declared separately.
 
@@ -15,7 +15,7 @@ use crate::ids::EntityId;
 use crate::object::VersionedRef;
 use serde::{Deserialize, Serialize};
 
-/// The five actions of §36.2. They are not interchangeable.
+/// The five actions of docs/specs/durable-state.md#spec-36-2. They are not interchangeable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectActionKind {
@@ -148,7 +148,7 @@ pub struct LifecycleContract {
     pub receipt_readable_after_removal: bool,
 }
 
-/// On what basis the guarantee is claimed — §36.3.
+/// On what basis the guarantee is claimed — docs/specs/durable-state.md#spec-36-3.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum GuaranteeBasis {
@@ -306,7 +306,7 @@ impl EffectContractBuilder {
         self
     }
 
-    /// Declare one supported action of §36.2.
+    /// Declare one supported action of docs/specs/durable-state.md#spec-36-2.
     pub fn action(mut self, action: EffectActionKind) -> Self {
         self.contract.supported_actions.push(action);
         self

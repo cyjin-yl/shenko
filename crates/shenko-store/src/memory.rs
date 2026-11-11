@@ -1,5 +1,5 @@
-//! Memory persistence and search — SPEC §12.2 (intent → committed) and
-//! §12.3 (中文检索 / Chinese retrieval).
+//! Memory persistence and search — docs/specs/memory.md#spec-12-2 (intent → committed) and
+//! docs/specs/context-policies.md#spec-12-3 (中文检索 / Chinese retrieval).
 //!
 //! Two representations live in SQLite:
 //! * `memory_intents` — the durable intent queue. An intent is accepted
@@ -8,7 +8,7 @@
 //! * `memory_entries` — the searchable memory records.
 //!
 //! A `forget` intent binds the `entry_id` it retires instead of producing a
-//! new entry: committing it flags that entry `deleted` (SPEC §12.4 semantic
+//! new entry: committing it flags that entry `deleted` (docs/specs/memory.md#spec-12-4 semantic
 //! forget). Search and list keep their `deleted = 0` filter, the original
 //! row and text stay durable, and [`Store::memory_entry`] reads them back.
 //!
@@ -40,7 +40,7 @@ pub struct MemoryEntry {
     /// The open knowledge kind of this fact ("note", "commitment",
     /// "insight", ...). It is NOT the operation that produced the entry:
     /// `save`/`correct`/`forget`/`recall`/`reflect` are operation kinds and
-    /// live on the intent row (SPEC §12.2).
+    /// live on the intent row (docs/specs/memory.md#spec-12-2).
     pub kind: String,
     pub content: String,
     /// Human-readable provenance label of the observation this entry came
@@ -59,12 +59,12 @@ pub struct MemoryEntry {
     pub record_revision: u64,
     pub created_at_ms: i64,
     pub updated_commit_seq: Option<u64>,
-    /// Semantic-forget flag (SPEC §12.4): a forgotten entry is invisible to
+    /// Semantic-forget flag (docs/specs/memory.md#spec-12-4): a forgotten entry is invisible to
     /// default search/list but the original text stays readable and the row
     /// is never physically removed by this path.
     #[serde(default)]
     pub deleted: bool,
-    /// The entry that replaced this one (SPEC §45.12 supersession). A
+    /// The entry that replaced this one (docs/specs/memory.md#spec-45-12 supersession). A
     /// superseded entry stays readable but is no longer a current fact.
     #[serde(default)]
     pub superseded_by: Option<EntityId>,
@@ -72,7 +72,7 @@ pub struct MemoryEntry {
     #[serde(default)]
     pub supersedes: Option<EntityId>,
     /// Commit of the Git knowledge repository that holds the text form of
-    /// this entry (SPEC §10.3). `None` means the text is not in Git yet.
+    /// this entry (docs/specs/memory.md#spec-10-3). `None` means the text is not in Git yet.
     #[serde(default)]
     pub git_commit: Option<String>,
     /// Path of the text form inside the knowledge repository.
@@ -130,7 +130,7 @@ pub struct MemoryIntentRecord {
     #[serde(default)]
     pub confidence: Option<f64>,
     /// The revision the writer expected to base the change on. A different
-    /// current revision is a conflict, never a silent overwrite (SPEC §12.2).
+    /// current revision is a conflict, never a silent overwrite (docs/specs/memory.md#spec-12-2).
     #[serde(default)]
     pub base_revision: Option<u64>,
     /// Caller-owned idempotency identity. Two requests with the same key for
@@ -151,7 +151,7 @@ pub fn default_knowledge_kind() -> String {
     "note".to_string()
 }
 
-/// Operation kinds of the durable memory request chain (SPEC §12.2).
+/// Operation kinds of the durable memory request chain (docs/specs/memory.md#spec-12-2).
 /// The vocabulary is open: a caller may use another verb, and the store
 /// treats it as an operation, never as a knowledge kind.
 pub const MEMORY_OP_SAVE: &str = "save";
@@ -282,7 +282,7 @@ pub enum MemoryIntentFailure {
     NotFound,
 }
 
-/// The result of committing a memory request (SPEC §12.2).
+/// The result of committing a memory request (docs/specs/memory.md#spec-12-2).
 #[derive(Debug, Clone)]
 pub enum MemoryCommitOutcome {
     /// The entry was written and its intent is committed. `superseded` names
@@ -480,7 +480,7 @@ impl Store {
     /// Atomically insert the entry produced by an intent and mark that intent
     /// committed. One ledger commit covers both facts. A request whose base
     /// revision no longer matches the current state ends as `conflicted`
-    /// instead of overwriting another writer's fact (SPEC §12.2).
+    /// instead of overwriting another writer's fact (docs/specs/memory.md#spec-12-2).
     pub fn commit_memory_intent(
         &self,
         entry: &MemoryEntry,
@@ -493,7 +493,7 @@ impl Store {
     }
 
     /// Atomically mark the entry a `forget` intent is bound to as deleted
-    /// and mark that intent committed (SPEC §12.4 semantic forget).
+    /// and mark that intent committed (docs/specs/memory.md#spec-12-4 semantic forget).
     ///
     /// This is *not* an erase: the row, its original text and its
     /// provenance stay durable and readable through
@@ -613,7 +613,7 @@ impl Store {
 
     /// Commit the entry an admitted request produced.
     ///
-    /// The outcome separates the two results SPEC §12.2 asks for: a commit
+    /// The outcome separates the two results docs/specs/memory.md#spec-12-2 asks for: a commit
     /// and a conflict. A conflict is a durable fact of its own — the request
     /// keeps both sides of the disagreement (the current entry stays exactly
     /// as it was, the request keeps its own text) and the intent ends in the
@@ -734,7 +734,7 @@ impl Store {
     /// Two facts are monotonic here: a forgotten entry keeps its tombstone
     /// and a superseded entry keeps its supersession. A later write can
     /// therefore never resurrect a retired fact or silently un-supersede a
-    /// replaced one (SPEC §12.4, §45.12).
+    /// replaced one (docs/specs/memory.md#spec-12-4, docs/specs/memory.md#spec-45-12).
     pub(crate) fn write_memory_entry(
         tx: &rusqlite::Transaction<'_>,
         entry: &MemoryEntry,
@@ -915,7 +915,7 @@ impl Store {
         }
         // An explicit idempotency key names one request for one agent. A
         // retry with the same key resolves to the original request instead
-        // of writing a second memory (SPEC §12.2).
+        // of writing a second memory (docs/specs/memory.md#spec-12-2).
         if let Some(key) = rec.idempotency_key.as_ref().filter(|key| !key.is_empty()) {
             let existing: Option<String> = tx
                 .query_row(
@@ -1161,7 +1161,7 @@ impl Store {
 
     /// Read one entry by id, including semantically forgotten rows.
     ///
-    /// Semantic forget keeps the original text durable (SPEC §12.4); this
+    /// Semantic forget keeps the original text durable (docs/specs/memory.md#spec-12-4); this
     /// read-back is how an audit or a specified re-check reaches it. Search
     /// and list stay live-only.
     pub fn memory_entry(&self, entry_id: EntityId) -> Result<Option<MemoryEntry>, ShenkoError> {
@@ -1174,7 +1174,7 @@ impl Store {
         Ok(entries.pop())
     }
 
-    /// The supersession chain an entry belongs to, oldest first (SPEC §45.12).
+    /// The supersession chain an entry belongs to, oldest first (docs/specs/memory.md#spec-45-12).
     ///
     /// Every version of the fact is kept: neither the replaced nor the
     /// replacing entry is rewritten here, the caller can see exactly which
@@ -1208,7 +1208,7 @@ impl Store {
     }
 
     /// Record the Git knowledge commit and path of an entry after the text
-    /// form was committed to the memory repository (SPEC §10.3). The SQLite
+    /// form was committed to the memory repository (docs/specs/memory.md#spec-10-3). The SQLite
     /// row stays the truth of record; the Git ref is explainable text.
     pub fn mark_memory_git(
         &self,
@@ -1409,7 +1409,7 @@ mod tests {
     }
 
     /// The FTS MATCH path must actually serve ASCII queries, and reopening a
-    /// store must repair an index left stale by a crash (SPEC §12.2 index
+    /// store must repair an index left stale by a crash (docs/specs/memory.md#spec-12-2 index
     /// repair), rather than silently hiding committed memories forever.
     #[test]
     fn fts_index_serves_ascii_and_repairs_on_reopen() {

@@ -1,4 +1,4 @@
-//! Consumer-visible configuration behaviours — SPEC §43.1, R133, CFG02.
+//! Consumer-visible configuration behaviours — docs/specs/configuration-playground.md#spec-43-1, R133, CFG02.
 //!
 //! Each case is about a different fact rather than a different function:
 //! (1) a repeated intent resolves the original change and applies once;

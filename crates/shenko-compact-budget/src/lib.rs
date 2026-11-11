@@ -1,4 +1,4 @@
-//! Budget compact — an independently installable ContextPolicy plugin (§12.3.1).
+//! Budget compact — an independently installable ContextPolicy plugin (docs/specs/context-policies.md#spec-12-3-1).
 //!
 //! Follows Codex `a3d93e1` `compact_token_budget.rs`: no summary model call;
 //! start a new context window that keeps the system prefix, every unfinished

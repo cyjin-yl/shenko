@@ -1,5 +1,5 @@
 //! Immutable WASM runtime state: linear memory, the guest's own continuation
-//! and the interpreter object graph (SPEC §10.2, §51.4).
+//! and the interpreter object graph (docs/specs/durable-state.md#spec-10-2, docs/specs/cognition-units.md#spec-51-4).
 //!
 //! Every case here is a real wasmtime instance, real compiled WAT and a real
 //! on-disk content-addressed store. The guest below is a tiny "interpreter":

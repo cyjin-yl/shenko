@@ -1,6 +1,6 @@
-//! Where the replaceable quota strategies live on a node — SPEC §42.1.
+//! Where the replaceable quota strategies live on a node — docs/specs/quota-resources.md#spec-42-1.
 //!
-//! §42.1 makes the forecaster, the routing policy and the admission cadence
+//! docs/specs/quota-resources.md#spec-42-1 makes the forecaster, the routing policy and the admission cadence
 //! replaceable plugins. The algorithms themselves are in [`shenko_quota`];
 //! this module is the Cordis seam that publishes the *installed set* on the
 //! runtime's root context, so a subject step, a finite model child and the
@@ -9,7 +9,7 @@
 //!
 //! Nothing here selects a strategy by model name, provider or keyword. The
 //! set is installed by the assembly root; an absent publication is the
-//! built-in rolling baseline of §42.5, which is exactly the behavior the
+//! built-in rolling baseline of docs/specs/quota-resources.md#spec-42-5, which is exactly the behavior the
 //! runtime had before the seam existed. A strategy that was installed but
 //! not selected changes nothing, and a selected strategy that refuses is a
 //! typed reconciliation fact — never a fabricated forecast, decision or
@@ -77,7 +77,7 @@ impl Plugin for QuotaStrategyPlugin {
 /// The strategy set a caller must decide with: the published one when the
 /// runtime installed it, otherwise the built-in baseline. A missing
 /// publication is not an error and never changes behavior; it means this
-/// node runs the replayable §42.5 baseline.
+/// node runs the replayable docs/specs/quota-resources.md#spec-42-5 baseline.
 pub fn installed(ctx: &Context) -> QuotaStrategies {
     ctx.try_service::<QuotaStrategyService>()
         .map(|service| service.strategies().clone())

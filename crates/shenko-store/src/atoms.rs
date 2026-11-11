@@ -1,4 +1,4 @@
-//! 认知原子的账本实现：内容登记、态度行、理由指针 — SPEC §51.1, §51.3, §51.4, §51.9
+//! 认知原子的账本实现：内容登记、态度行、理由指针 — docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3, docs/specs/cognition-units.md#spec-51-4, docs/specs/cognition-units.md#spec-51-9
 //!
 //! 这里只有一套储存：`cognition_contents` 登记 CAS 里的不可变内容，
 //! `cognition_attitudes` 是只追加的态度行。没有任何领域可以在别处再建一份态度表，
@@ -36,7 +36,7 @@ pub const COGNITION_LEGACY_NAMESPACE: &str = "cognition-legacy";
 pub const COGNITION_CONTENT_CODEC: &str = "shenko.cognition.content";
 pub const COGNITION_CONTENT_CODEC_MAJOR: u32 = 1;
 
-/// 认知原子表。只建自己的表，不改任何已有行（SPEC §51.1 加法迁移）。
+/// 认知原子表。只建自己的表，不改任何已有行（docs/specs/cognition-units.md#spec-51-1 加法迁移）。
 pub const COGNITION_ATOMS_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS cognition_contents (
     digest TEXT PRIMARY KEY,
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS cognition_contents (
     codec_digest TEXT NOT NULL,
     -- The exact typed reference. The archive closure walks these values to
     -- carry the content bytes, so a recovery archive never names content it
-    -- cannot hand over (SPEC §51.1 immutable content, §5.4 recovery).
+    -- cannot hand over (docs/specs/cognition-units.md#spec-51-1 immutable content, docs/specs/nodes.md#spec-5-4 recovery).
     object_json TEXT NOT NULL,
     registered_at_ms INTEGER NOT NULL,
     registered_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -161,7 +161,7 @@ impl AttitudeDraft {
     }
 
     /// 一次修订。理由里必须已经指出被取代的那一版：修订是带理由的新内容，
-    /// 不是悄悄换掉字节（SPEC §51.4）。缺少这条理由时这里就拒绝，不自造理由。
+    /// 不是悄悄换掉字节（docs/specs/cognition-units.md#spec-51-4）。缺少这条理由时这里就拒绝，不自造理由。
     pub fn revision(
         supersedes: Digest,
         reasons: Vec<ReasonPointer>,
@@ -228,7 +228,7 @@ impl AttitudeDraft {
             }
             if target.unit_id.trim_start().starts_with("cap.") {
                 return Err(ShenkoError::conflict(
-                    "adoption names a unit id; `cap.` names a capability contract (SPEC §51.8)",
+                    "adoption names a unit id; `cap.` names a capability contract (docs/specs/cognition-units.md#spec-51-8)",
                 ));
             }
         }
@@ -589,7 +589,7 @@ impl Store {
     ///
     /// 只看**本机账本**写下的采纳（`created_commit.ledger_id` 是本机的）。从别的节点
     /// 导入的采纳保留为那个节点的记录：复制成功不等于本机已采纳，更不等于本机已启用
-    /// 该单元或执行过它的试验（SPEC §51.8）。
+    /// 该单元或执行过它的试验（docs/specs/cognition-units.md#spec-51-8）。
     pub fn adoption_for(
         &self,
         agent_id: EntityId,
@@ -689,7 +689,7 @@ impl Store {
 
     /// 统一的修订露出：旧版本数量与最新修改时间。全文要按版本显式读。
     ///
-    /// 这里只给事实。默认露出多少、按什么顺序，归已安装的 `taste` 宏包（SPEC §51.1）。
+    /// 这里只给事实。默认露出多少、按什么顺序，归已安装的 `taste` 宏包（docs/specs/cognition-units.md#spec-51-1）。
     pub fn revision_disclosure(
         &self,
         agent_id: EntityId,
@@ -714,7 +714,7 @@ impl Store {
     /// 某个定义槽当前有效的那一版定义：内容 + 写下它的态度。
     ///
     /// 旧内容按这一版定义重新理解；旧定义仍在 [`Store::definition_history`] 里可按
-    /// 版本读到，字节不改写（SPEC §51.4）。
+    /// 版本读到，字节不改写（docs/specs/cognition-units.md#spec-51-4）。
     pub fn effective_definition(
         &self,
         agent_id: EntityId,
@@ -996,7 +996,7 @@ impl Store {
         if let Some(parent) = draft.role.revision_parent() {
             if parent == &object.digest {
                 return Err(ShenkoError::conflict(
-                    "unchanged bytes do not open a new revision (SPEC §51.1)",
+                    "unchanged bytes do not open a new revision (docs/specs/cognition-units.md#spec-51-1)",
                 ));
             }
             if Self::read_content(tx, parent)?.is_none() {
@@ -1306,7 +1306,7 @@ mod tests {
             ReasonAdmission::AbsentLocal { .. }
         ));
 
-        // 能力合同标识不得当单元 id 用（§51.8）。
+        // 能力合同标识不得当单元 id 用（docs/specs/cognition-units.md#spec-51-8）。
         assert!(store
             .record_attitude_for_digest(
                 agent,

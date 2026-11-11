@@ -240,7 +240,7 @@ fn observing_body() -> String {
 /// running subject instead of ending it: the same sealed step continues under
 /// a NEW request identity, the committed S1 still carries the subject's
 /// semantic wait, and the original refusal stays durable evidence of the first
-/// attempt. SPEC §5.1, §41.5, R143, RT16, A01.
+/// attempt. docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-41-5, R143, RT16, A01.
 #[tokio::test]
 async fn a_recorded_provider_rejection_continues_the_same_sealed_subject_step() {
     let (_dir, store, agent) = fixture();
@@ -355,7 +355,7 @@ async fn a_recorded_provider_rejection_continues_the_same_sealed_subject_step() 
         SemanticWaitOutcome::Started
     ));
 
-    // The degradation is a durable fact the subject can read (§45.14), not a
+    // The degradation is a durable fact the subject can read (docs/specs/cognition-units.md#spec-45-14), not a
     // stderr warning only.
     let history = store
         .session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)
@@ -421,7 +421,7 @@ async fn a_refusal_without_retry_evidence_stops_the_subject_instead_of_replaying
 /// input at all the same serial loop keeps asking the same model, every
 /// continuance preserves the one fixed deadline, and a process restart takes
 /// over the same wait record instead of restarting its 600s budget.
-/// SPEC §5.1, §41.5, R143, RT16.
+/// docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-41-5, R143, RT16.
 #[tokio::test]
 async fn the_loop_keeps_polling_an_active_semantic_wait_and_a_restart_keeps_its_deadline() {
     const CONTINUING: &str =

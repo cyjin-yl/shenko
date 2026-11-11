@@ -1,6 +1,6 @@
 //! OneBot v11 message structure: segments, attachments and locators.
 //!
-//! SPEC §15.1, §35.6: an attachment is metadata plus a locator. The bytes do
+//! docs/specs/channels.md#spec-15-1, docs/specs/channels.md#spec-35-6: an attachment is metadata plus a locator. The bytes do
 //! not travel with the message, and the locator names the host that owns
 //! them — the NapCat machine or container, not this process. A remote path is
 //! never handed to a local mount as if it were a local file.
@@ -131,7 +131,7 @@ pub const MAX_SEGMENT_TEXT: usize = 1024;
 
 /// The human-readable text of one non-text OneBot segment.
 ///
-/// SPEC §15.1 requires rich content to keep its structure: a shared card, a
+/// docs/specs/channels.md#spec-15-1 requires rich content to keep its structure: a shared card, a
 /// face, a forwarded record or a location must not vanish from the message the
 /// model reads. Everything here is derived from the platform's own fields; when
 /// a segment carries no readable payload the function returns `None` rather

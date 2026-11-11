@@ -1,4 +1,4 @@
-//! Media runtime — live sessions, recording, barge-in, playback (SPEC §20).
+//! Media runtime — live sessions, recording, barge-in, playback (docs/specs/media.md#spec-20).
 //!
 //! [`MediaRuntime`] is the typed service behind the reserved media slots: it
 //! opens realtime sessions against configured provider bindings
@@ -748,7 +748,7 @@ impl MediaRuntime {
 
     /// Ask the configured speaker-identity engine about one segment's
     /// ORIGINAL sealed audio and admit the engine's claim as a revision of
-    /// that SAME segment (§15.2, §20, §35.3, §51.1, §51.2).
+    /// that SAME segment (docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20, docs/specs/plugins.md#spec-35-3, docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-2).
     ///
     /// The engine reads the bytes this ledger already sealed: the recording
     /// is never re-captured, re-downloaded or re-transcribed, and no audio
@@ -763,7 +763,7 @@ impl MediaRuntime {
     /// that read it and the claim, and is sealed in this ledger's CAS. Its
     /// digest derives the revision identity, so the SAME bytes are ONE
     /// observation: a reconcile or a repeated engine answer returns the
-    /// stored receipt instead of minting another revision (§51.1「字节没变就
+    /// stored receipt instead of minting another revision (docs/specs/cognition-units.md#spec-51-1「字节没变就
     /// 不另开一版」). The revision's own disposition (applied / correcting /
     /// superseded) is the attitude; it never changes these bytes.
     pub async fn identify_speaker(
@@ -811,7 +811,7 @@ impl MediaRuntime {
         // the revision number this admission really takes must be the next
         // free one.
         let revisions = self.store.media_revisions(stream, segment)?;
-        // §51.2: the result's reason stops at the observation that produced
+        // docs/specs/cognition-units.md#spec-51-2: the result's reason stops at the observation that produced
         // this audio — the revision that sealed these exact bytes. Later
         // interpretations of the same utterance stay later, and a re-run of
         // the identification does not move the reason onto itself.
@@ -825,7 +825,7 @@ impl MediaRuntime {
             })
             .map(|revision| revision.revision_id.clone())
             .unwrap_or_else(|| effective.revision_id.clone());
-        // §51.2「记录谁的 perception」: the configured binding and the engine
+        // docs/specs/cognition-units.md#spec-51-2「记录谁的 perception」: the configured binding and the engine
         // identity it reported, not a claim that this is Shenko's own unaided
         // reading.
         let binding = speaker.binding();
@@ -835,7 +835,7 @@ impl MediaRuntime {
             model: binding.model.clone(),
             reported_source: claim.source.clone(),
         };
-        // §51.1: one immutable content identity per observation result.
+        // docs/specs/cognition-units.md#spec-51-1: one immutable content identity per observation result.
         let content = self
             .store
             .cas
@@ -1068,7 +1068,7 @@ impl MediaRuntime {
         // (engine crash, socket loss, control send failure). Leaving the
         // durable stream `open` would hide the disconnect from the subject,
         // so the honest terminal fact is recorded — a later explicit end may
-        // still settle it under a NEW end identity (§20 取消/断线).
+        // still settle it under a NEW end identity (docs/specs/media.md#spec-20 取消/断线).
         let end = MediaStreamEnd {
             end_id: format!("disconnect-{}-{}", stream.stream_id, EntityId::new()),
             stream: stream.clone(),

@@ -344,7 +344,7 @@ pub struct VersionReport {
     /// The judgement cites at least one trial attempt whose own report names
     /// this exact artifact digest.
     pub cites_measured_attempt: bool,
-    /// SPEC §51.1: immutable content, the ledger's attitude towards one exact
+    /// docs/specs/cognition-units.md#spec-51-1: immutable content, the ledger's attitude towards one exact
     /// revision, and where that attitude's reason stops.
     pub metacontract: Metacontract,
     /// Every trial task the subject ran against this exact artifact.
@@ -358,7 +358,7 @@ pub struct VersionReport {
 }
 
 /// The cognitive metacontract of one authored revision, read from the
-/// installation (SPEC §51.1, published `shenko_types::cognition` shape).
+/// installation (docs/specs/cognition-units.md#spec-51-1, published `shenko_types::cognition` shape).
 ///
 /// The consumer owns none of these types and opens no second store. It reads the
 /// canonical attitude JSON when the installation publishes one
@@ -388,7 +388,7 @@ pub struct Metacontract {
     /// The canonical reason pointers verbatim.
     pub reasons: Vec<Value>,
     /// A reason that passed through someone else's perception is not the
-    /// subject's own observation (SPEC §51.2, decision 0002 perspective field).
+    /// subject's own observation (docs/specs/cognition-units.md#spec-51-2, decision 0002 perspective field).
     pub via_perception_present: bool,
     /// Whether this installation verified the cited evidence:
     /// `verified_local` / `refuted_local` / `undetermined`, read from the
@@ -402,7 +402,7 @@ pub struct Metacontract {
     /// `reconciliation`, `content`, `perspective`, `none`, or the legacy
     /// evidence kinds.
     pub reason_terminations: Vec<String>,
-    /// §51.1 reading, derived here and never stored by the product:
+    /// docs/specs/cognition-units.md#spec-51-1 reading, derived here and never stored by the product:
     /// observation/source/receipt/reconciliation read like a fact; content and
     /// perspective read like a conclusion; no reason reads as unstated.
     pub reads_as: String,
@@ -687,7 +687,7 @@ fn evidence_attitude(evidence: Option<&Value>, digest: &str) -> Option<Value> {
 }
 
 /// Read the metacontract facts of one revision out of what the installation
-/// actually holds (SPEC §51.1).
+/// actually holds (docs/specs/cognition-units.md#spec-51-1).
 fn metacontract(
     version: &Value,
     entry: Option<&EntryFacts>,
@@ -879,7 +879,7 @@ fn metacontract(
             "newest_modified_at": newest_modified_at,
             "source": "node retained unit facts",
         }),
-        note: "SPEC §51.6: this runtime still installs cognition units whose judgement is recorded as an adoption record; when this installation publishes no canonical ContentAttitude the block says so (attitude_source=legacy_adoption_record) instead of inventing one. ReasonReading is derived by this consumer and never read as a stored field. An absent confidence stays absent, an absent disclosure stays omitted/unresolved, and neither becomes a default number. Evidence verification is read as the verifier's tri-state; a non-empty reason list never upgrades it, and a legacy flag is labelled as a legacy flag.".to_owned(),
+        note: "docs/specs/cognition-units.md#spec-51-6: this runtime still installs cognition units whose judgement is recorded as an adoption record; when this installation publishes no canonical ContentAttitude the block says so (attitude_source=legacy_adoption_record) instead of inventing one. ReasonReading is derived by this consumer and never read as a stored field. An absent confidence stays absent, an absent disclosure stays omitted/unresolved, and neither becomes a default number. Evidence verification is read as the verifier's tri-state; a non-empty reason list never upgrades it, and a legacy flag is labelled as a legacy flag.".to_owned(),
     }
 }
 
@@ -1244,7 +1244,7 @@ pub fn restart_parity(before_restart: &Snapshot, after_restart: &Snapshot, autho
             .filter(|id| !tasks_before.contains(*id))
             .cloned()
             .collect();
-        // §51.1 dedup: unchanged bytes never open a second revision.
+        // docs/specs/cognition-units.md#spec-51-1 dedup: unchanged bytes never open a second revision.
         let mut seen: BTreeMap<String, String> = BTreeMap::new();
         for row in &versions_after {
             let digest = row
@@ -1277,7 +1277,7 @@ pub fn restart_parity(before_restart: &Snapshot, after_restart: &Snapshot, autho
             "equal": equal,
         }));
     }
-    // §51.4/§51.10: the subject keeps its pre-switch identity across a restart.
+    // docs/specs/cognition-units.md#spec-51-4, docs/specs/cognition-units.md#spec-51-10: the subject keeps its pre-switch identity across a restart.
     let agent_id_stable = before_restart.subject_agent_id.is_some()
         && before_restart.subject_agent_id == after_restart.subject_agent_id;
     json!({

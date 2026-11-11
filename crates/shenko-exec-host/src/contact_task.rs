@@ -1,4 +1,4 @@
-//! Read-only native NapCat contact/identity queries — SPEC §15.2, §16, §35.6.
+//! Read-only native NapCat contact/identity queries — docs/specs/contacts.md#spec-15-2, docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6.
 //!
 //! This handler runs `get_login_info` / `get_friend_list` / `get_stranger_info`
 //! / `get_group_list` / `get_group_member_list` / `get_group_member_info` over

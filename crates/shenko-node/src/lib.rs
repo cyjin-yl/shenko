@@ -1028,7 +1028,7 @@ impl Node {
         }
         // A result armed under an older election epoch is fenced: the source
         // fact survives as evidence, but it does not settle the task once a
-        // newer election committed (SPEC §5.4.3).
+        // newer election committed (docs/specs/nodes.md#spec-5-4-3).
         let fence: Option<(String, String)> = tx
             .query_row(
                 "SELECT election_term,election_epoch FROM node_assignment_fences WHERE task=?1 AND epoch=?2",
@@ -1145,7 +1145,7 @@ impl Node {
                 // The installation's own Store observation, reported on the
                 // authenticated route so a peer reads a published report rather
                 // than a claim about one. It is a mechanism report, not content
-                // or an attitude (SPEC §51.1). `null` means this installation
+                // or an attitude (docs/specs/cognition-units.md#spec-51-1). `null` means this installation
                 // has published none: unknown, never a default.
                 "cognition":self.cognition_report()?,
                 "running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v3","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),

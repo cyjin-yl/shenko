@@ -1,6 +1,6 @@
 # 内核零业务，能力优先写成 perception + awareness
 
-2026-11-05 的概念修订见 [SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由) 与 [决策 0002](../decisions/0002-cognitive-atoms-2026-11-05.md)。下文把 awareness 写成「给模型的一段材料」的地方，包括 `AWARENESS.md` 的正文，描述的是当前 harness，不是能力本身。模型现在不能只靠文档稳定地注意；外部 watcher 的主动 notice 是模拟这层能力的必要抽象。兴趣、维护和空转填充仍是插件，不进内核。
+2026-11-05 的概念修订见 [51 认知元概念：内容、态度与理由](../specs/cognition-units.md#spec-51) 与 [决策 0002](../decisions/0002-cognitive-atoms-2026-11-05.md)。下文把 awareness 写成「给模型的一段材料」的地方，包括 `AWARENESS.md` 的正文，描述的是当前 harness，不是能力本身。模型现在不能只靠文档稳定地注意；外部 watcher 的主动 notice 是模拟这层能力的必要抽象。兴趣、维护和空转填充仍是插件，不进内核。
 
 ## 原则
 
@@ -26,7 +26,7 @@
 - 在 subject/kernel 里写 `if text.contains("记住") { save() }` 之类的关键词分派。
 - 用分类器先把自然语言判成固定意图，再按意图走强制管线；判错就没有补救。
 - 把"应该想到什么"写成 if/else，而不告诉模型为什么该想到它。
-- 让 awareness 携带权限或直接触发动作。觉察只提供视角，不提升权威（§45、§33）。
+- 让 awareness 携带权限或直接触发动作。觉察只提供视角，不提升权威（[§45](../specs/cognition-units.md#spec-45)、[§33](../requirements/user-sources.md#spec-33)）。
 
 这些不是"更强的确定性"，而是把判断从模型手里拿走，同时把维护成本留给关键词表。
 
@@ -93,7 +93,7 @@ provider wire、解析器及 native child；模型为当前服务的
 id: awareness.check-commitments
 version: 0.1.0
 capability_card: 约定 承诺 时间冲突
-provenance: [SPEC §14]
+provenance: [docs/specs/research-memory.md#spec-14]
 dependencies: []
 ---
 
@@ -104,7 +104,7 @@ dependencies: []
 写的时候回答四件事：**提醒注意什么、为什么值得注意、什么条件下适用、什么条件下不适用**。
 用原则与观察回答，不用动作清单回答；上面的例子刻意没有写"先做什么、再做什么"。
 不要复述输出协议，不要写权限，不要写成必须逐字执行的仪式。单元要小到能独立替换：
-一个单元只负责一种视角。需要精确版本依赖时用 §45.10 的 required/recommended 选择器。
+一个单元只负责一种视角。需要精确版本依赖时用 [§45.10](../specs/cognition-units.md#spec-45-10) 的 required/recommended 选择器。
 
 ## 一个 perception/awareness 怎样才算"有效"
 

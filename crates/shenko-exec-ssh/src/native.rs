@@ -1,5 +1,5 @@
 //! Installed native task authority for SSH exec/PTY and seat observation —
-//! SPEC §11, §17, §35.5, §41.11.
+//! docs/specs/remote-seats.md#spec-11, docs/specs/remote-seats.md#spec-17, docs/specs/remote-seats.md#spec-35-5, docs/specs/remote-seats.md#spec-41-11.
 //!
 //! Seven native children, all wired to the same runtime the binary installs:
 //!
@@ -1065,7 +1065,7 @@ impl NativeTaskHandler for SeatRespondHandler {
 }
 
 // ---------------------------------------------------------------------------
-// managed agent seats (omp.seat / claude.seat) — SPEC §17.1, §35.5, R069
+// managed agent seats (omp.seat / claude.seat) — docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5, R069
 // ---------------------------------------------------------------------------
 
 const OMP_SEAT_CONTRACT: &[u8] = b"shenko.omp.seat/v1: one managed OMP JSONL-RPC seat per operation; the durable seat record binds the adapter's session anchor (the exact spawn command line), the v2 writer lease and the runtime attachment are recorded under the trusted operation id; recovery reads the durable seat facts, never re-spawns the process";

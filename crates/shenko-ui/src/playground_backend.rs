@@ -1,5 +1,5 @@
 //! Artifact backend admission and execution on the existing native
-//! Task/Operation/T1/E1/T2 path — SPEC §43.2. Files are business state, never
+//! Task/Operation/T1/E1/T2 path — docs/specs/configuration-playground.md#spec-43-2. Files are business state, never
 //! dispatch truth.
 //!
 //! A backend binds to a registered runtime provider. Two providers exist:
@@ -215,7 +215,7 @@ pub struct BackendActionRequest {
     pub input: Value,
 }
 
-/// Who invoked an artifact action — SPEC §43.2 dedupes on
+/// Who invoked an artifact action — docs/specs/configuration-playground.md#spec-43-2 dedupes on
 /// `(artifact_id, authenticated_actor, action_id)`.
 ///
 /// The actor is resolved at the authenticated boundary: the admin bearer of a
@@ -331,7 +331,7 @@ fn valid_token(token: &str) -> bool {
     !token.is_empty() && token.len() <= 64 && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// The action identity — SPEC §43.2 `(artifact_id, authenticated_actor,
+/// The action identity — docs/specs/configuration-playground.md#spec-43-2 `(artifact_id, authenticated_actor,
 /// action_id)`. Two different actors reusing one `action_id` are two different
 /// actions; the same actor repeating it resolves the original receipt.
 fn task_id(artifact_id: EntityId, actor: &ArtifactActor, request_id: &str) -> EntityId {

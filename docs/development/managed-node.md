@@ -96,7 +96,7 @@ changes, and monotonic fencing epochs — is the only path to a committed
 primary claim; the candidacy response above reports the claim and quorum basis
 but never substitutes for them. A partitioned component with no reachable
 quorum opens an explicit availability branch and keeps its own subject
-available without claiming domain primary (§5.4.1), and a runtime observation
+available without claiming domain primary ([§5.4.1](../specs/nodes.md#spec-5-4-1)), and a runtime observation
 records the `Primary` role only against the committed election's fencing
 token.
 

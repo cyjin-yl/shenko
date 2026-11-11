@@ -1,4 +1,4 @@
-//! The installable context strategies and their runtime wiring — SPEC §12.3.1.
+//! The installable context strategies and their runtime wiring — docs/specs/context-policies.md#spec-12-3-1.
 //!
 //! Budget compact and snapcompact are two independent strategies. Each one
 //! is an installable code unit: its manifest, version, dependencies and

@@ -1,5 +1,5 @@
 /**
- * Browser-local display state for the single subject timeline (SPEC §21.11).
+ * Browser-local display state for the single subject timeline (docs/specs/web-interface.md#spec-21-11).
  *
  * Only display facts live here — reading position, code wrapping and which
  * disclosures the reader opened. Durable business facts never do: those come

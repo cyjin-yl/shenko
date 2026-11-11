@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Official QQ, iLinkBot and Feishu/Lark channel adapters for the Shenko IM boundary (SPEC §15.3, §16, §35.6)"
+description = "Official QQ, iLinkBot and Feishu/Lark channel adapters for the Shenko IM boundary (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6)"
 
 [dependencies]
 shenko-types = { path = "../shenko-types" }

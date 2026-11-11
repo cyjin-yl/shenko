@@ -1,4 +1,4 @@
-//! Managed copy-on-write workspace/branch store (SPEC §41.3).
+//! Managed copy-on-write workspace/branch store (docs/specs/durable-state.md#spec-41-3).
 //!
 //! A COW mount keeps its `source` base readonly on disk forever. All guest
 //! mutations land in a per-branch overlay under the Shenko home:
@@ -745,7 +745,7 @@ impl BranchStore {
 
     /// Commit the branch's effective view across all supplied mount bases.
     ///
-    /// Publication order follows SPEC §10.5: the in-flight marker is written
+    /// Publication order follows docs/specs/memory.md#spec-10-5: the in-flight marker is written
     /// before the first object, every recorded file's bytes are sealed and
     /// verified, the commit object is sealed (its digest must equal the
     /// record id), then the journal line, then `head` under an
@@ -1021,7 +1021,7 @@ impl BranchStore {
     /// Reset the branch *working state*: overlay files and tombstones are
     /// cleared, so the next view is exactly the base.
     ///
-    /// History is append-only (SPEC §51.4): `commits.jsonl` and `head` are
+    /// History is append-only (docs/specs/cognition-units.md#spec-51-4): `commits.jsonl` and `head` are
     /// never deleted. The reset itself is published as a new node whose
     /// per-mount change set is empty — "the view equals the base for the
     /// mounts this branch knew about" — so the log stays complete and an
@@ -1080,7 +1080,7 @@ impl BranchStore {
     }
 
     /// Roll a branch back to a selected historical node without rewriting the
-    /// log (SPEC §51.4, §10.1).
+    /// log (docs/specs/cognition-units.md#spec-51-4, docs/specs/durable-state.md#spec-10-1).
     ///
     /// The working state is materialized from the target node's sealed
     /// objects, and a *new* node whose content equals the target node is

@@ -1,4 +1,4 @@
-//! Non-model observers (§42.2). They read what a provider already exposes on
+//! Non-model observers (docs/specs/quota-resources.md#spec-42-2). They read what a provider already exposes on
 //! normal traffic; none of them starts a paid generation to probe a balance.
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::Value;

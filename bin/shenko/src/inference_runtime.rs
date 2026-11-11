@@ -1,4 +1,4 @@
-//! The inference runtime composition — SPEC §13, §41.9, §45.14.
+//! The inference runtime composition — docs/specs/inference.md#spec-13, docs/specs/inference.md#spec-41-9, docs/specs/cognition-units.md#spec-45-14.
 //!
 //! The composition root owns the three things the broker cannot know by
 //! itself: the physical resource domain a provider binding really belongs to,

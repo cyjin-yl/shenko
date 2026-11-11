@@ -1,4 +1,4 @@
-//! Intent acceptance → commit → search (SPEC §12.2 / §12.3).
+//! Intent acceptance → commit → search (docs/specs/memory.md#spec-12-2, docs/specs/context-policies.md#spec-12-3).
 use shenko_memory::{MemoryStore, ProcessOutcome};
 use shenko_store::Store;
 use shenko_types::ids::EntityId;
@@ -180,7 +180,7 @@ fn concurrent_equal_admissions_share_one_durable_entry_identity() {
     assert_eq!(facts[0].entry_id, first_id);
 }
 
-/// SPEC §12.4 semantic forget: the durable intent settles the target entry
+/// docs/specs/memory.md#spec-12-4 semantic forget: the durable intent settles the target entry
 /// in one commit, default search/list stop surfacing it, and the original
 /// text stays readable — including after a store reopen. A replay of the
 /// same intent resolves against the committed fact instead of re-forgetting.

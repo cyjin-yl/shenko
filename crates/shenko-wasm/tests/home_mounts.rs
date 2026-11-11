@@ -1,5 +1,5 @@
 //! Integration coverage for the persistent WASM home and mount contract
-//! (SPEC §8.3, C05 slice D): real preview1 guests and the public branch
+//! (docs/specs/wasm-home.md#spec-8-3, C05 slice D): real preview1 guests and the public branch
 //! lifecycle APIs. Each guest is an actual compiled module; no host
 //! path is substituted for a declared mount and nothing is mocked.
 //!

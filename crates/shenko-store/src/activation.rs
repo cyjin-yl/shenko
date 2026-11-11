@@ -1,4 +1,4 @@
-//! Durable activation records and the activation selector — SPEC §41.12.
+//! Durable activation records and the activation selector — docs/specs/self-update.md#spec-41-12.
 //!
 //! The selector row is the linearization point of a software-generation
 //! hand-over: a successful conditional update of `selector_revision` (with a
@@ -7,7 +7,7 @@
 //!
 //! Both tables live in the same SQLite file as the ledger, so the first
 //! selector can be created in the same transaction as the genesis, the root
-//! task, the branch head and the first step (§44.6).
+//! task, the branch head and the first step (docs/specs/plugins.md#spec-44-6).
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -100,7 +100,7 @@ impl crate::store::GenesisExtension for ActivationSelector {
 /// transaction.
 ///
 /// This is the conditional "expected selector does not exist" write of
-/// §41.12 X05: an installation that already has a selector is never
+/// docs/specs/self-update.md#spec-41-12 X05: an installation that already has a selector is never
 /// overwritten by a bootstrap or by an import.
 pub fn write_initial_selector(
     tx: &Transaction<'_>,
@@ -670,7 +670,7 @@ impl Store {
     }
 
     /// Swap the activation selector — the linearization point of an
-    /// activation (§41.12 X17 step 4).
+    /// activation (docs/specs/self-update.md#spec-41-12 X17 step 4).
     ///
     /// The selector's expected revision, the monotonic epoch and the
     /// activation record's `activated` phase are committed in one ledger

@@ -1,4 +1,4 @@
-//! Real media engine adapters — SPEC §20.
+//! Real media engine adapters — docs/specs/media.md#spec-20.
 //!
 //! [`FunAsrWebsocketProvider`] speaks the documented FunASR websocket
 //! runtime protocol: after connecting to the server's root websocket path the
@@ -23,7 +23,7 @@
 //! Speaker identity claims (`spk_name`/`spk_score`) are mapped to
 //! [`MediaSpeakerClaim`] verbatim: an empty or absent `spk_name` stays
 //! unknown (no claim), a non-empty one carries the engine score as
-//! confidence and never becomes identity authority (§35.3).
+//! confidence and never becomes identity authority (docs/specs/plugins.md#spec-35-3).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -100,7 +100,7 @@ pub trait MediaEventSink: Send + Sync {
     async fn on_session_finished(&self, stream: &MediaStreamDescriptor, reason: Option<String>);
 }
 
-/// A provider that can open realtime media sessions (§20).
+/// A provider that can open realtime media sessions (docs/specs/media.md#spec-20).
 #[async_trait]
 pub trait RealtimeSessionProvider: Send + Sync {
     fn binding(&self) -> &MediaProviderBinding;
@@ -446,7 +446,7 @@ async fn identify_funasr_pcm(
 }
 
 /// What one playback actually did — the agent's voice is interruptible
-/// (§20) so the receipt must distinguish finished from barge-in-stopped.
+/// (docs/specs/media.md#spec-20) so the receipt must distinguish finished from barge-in-stopped.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum MediaPlaybackReceipt {

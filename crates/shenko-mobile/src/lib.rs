@@ -1,4 +1,4 @@
-//! Android perception/execution plugins — SPEC §24.5/§24.5.1, C15 (mobile half).
+//! Android perception/execution plugins — docs/specs/mobile-runtime.md#spec-24-5, docs/specs/mobile-runtime.md#spec-24-5-1, C15 (mobile half).
 //!
 //! Mobile OS perception and execution are plugins, not core business: this
 //! crate implements the on-device bridge client and the native task handlers
@@ -27,11 +27,11 @@
 //!   OS mechanism with its own grant state.
 //! - Off-device (any non-Android host) every execution returns a typed
 //!   unavailable fact naming the exact missing mechanism. A desktop node
-//!   cannot pretend to hold this phone's OS grants (SPEC §5.4.4: a copied
+//!   cannot pretend to hold this phone's OS grants (docs/specs/nodes.md#spec-5-4-4: a copied
 //!   conclusion is not the receiver's capability).
 //! - App-database observation keeps `file located / readable / recovered
 //!   copy / point-in-time consistent / plaintext / structure / semantics` as
-//!   separate facts (§24.5.1). A raw db+wal copy is never reported as a
+//!   separate facts (docs/specs/mobile-runtime.md#spec-24-5-1). A raw db+wal copy is never reported as a
 //!   consistent snapshot, and decrypted or semantically-complete content is
 //!   never claimed without the actual plaintext evidence.
 

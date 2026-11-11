@@ -1,5 +1,5 @@
 //! The pluggable memory-intervention policy and its bounded worker.
-//! SPEC §14.4 (主动记忆 worker), §14.2 (四种状态不同处理).
+//! docs/specs/research-memory.md#spec-14-4 (主动记忆 worker), docs/specs/research-memory.md#spec-14-2 (四种状态不同处理).
 //!
 //! The memory worker is a *bounded* task, not a second subject: it observes a
 //! limited trajectory and the structured bank of one research lineage, and it
@@ -173,7 +173,7 @@ pub struct InterventionModelReply {
     pub tokens: u64,
 }
 
-/// The pluggable intervention policy (SPEC §14.4).
+/// The pluggable intervention policy (docs/specs/research-memory.md#spec-14-4).
 ///
 /// A policy is asked for a plan and reads the answer. It never performs the
 /// call itself: the runtime seals the request, admits it against the owner's

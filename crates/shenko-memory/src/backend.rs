@@ -1,4 +1,4 @@
-//! Replaceable memory backend — SPEC §12.3.
+//! Replaceable memory backend — docs/specs/context-policies.md#spec-12-3.
 //!
 //! Every memory implementation speaks one contract: retain/recall/reflect/
 //! correct/forget/read/flush/health. The storage mechanism never decides
@@ -35,7 +35,7 @@ pub struct MemoryRequest {
     pub scope: String,
     pub content: String,
     /// The entry a `correct` replaces; the replaced entry keeps its text and
-    /// gains a supersession link (SPEC §45.12).
+    /// gains a supersession link (docs/specs/memory.md#spec-45-12).
     pub supersedes_entry_id: Option<EntityId>,
     /// The entry a `forget` retires. The operation target and the supersession
     /// target are separate facts on the envelope.
@@ -126,7 +126,7 @@ pub struct RecallQuery {
     pub knowledge_kinds: Vec<String>,
     /// Empty means every scope. There is deliberately no audience ACL: the
     /// subject's own personal knowledge is never hidden from the subject by
-    /// the current chat audience (SPEC §6 unified knowledge).
+    /// the current chat audience (docs/specs/subject-runtime.md#spec-6 unified knowledge).
     pub scopes: Vec<String>,
     /// Include semantically forgotten and superseded entries, with their
     /// status visible. Default recall surfaces live facts only.
@@ -145,7 +145,7 @@ impl RecallQuery {
 }
 
 /// One recall hit: the entry plus the match-centred excerpt that proves where
-/// the match actually is in the original text (SPEC §12.3).
+/// the match actually is in the original text (docs/specs/context-policies.md#spec-12-3).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryHit {
     pub entry: MemoryEntry,
@@ -205,7 +205,7 @@ pub struct FlushOutcome {
     pub conflicts: usize,
 }
 
-/// The one memory backend contract (SPEC §12.3). Implementations are
+/// The one memory backend contract (docs/specs/context-policies.md#spec-12-3). Implementations are
 /// replaceable; the store-backed one is the truth of record.
 pub trait MemoryBackend: Send + Sync {
     /// Admit and process a retain request. The request is admitted before any
@@ -240,7 +240,7 @@ pub trait MemoryBackend: Send + Sync {
 }
 
 /// The store-backed memory backend: SQLite ledger + CAS objects are the
-/// durable truth (SPEC §12.1/§12.2).
+/// durable truth (docs/specs/memory.md#spec-12-1, docs/specs/memory.md#spec-12-2).
 pub struct StoreMemoryBackend {
     worker: MemoryStore,
     store: Arc<Store>,
@@ -257,7 +257,7 @@ impl StoreMemoryBackend {
     }
 
     /// Attach the Git knowledge repository so every committed fact is also
-    /// written as an explainable text commit (SPEC §10.3).
+    /// written as an explainable text commit (docs/specs/memory.md#spec-10-3).
     pub fn with_knowledge(mut self, git: Arc<crate::knowledge::GitKnowledgeStore>) -> Self {
         self.git = Some(git);
         self

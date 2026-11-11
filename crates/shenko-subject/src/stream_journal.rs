@@ -1,9 +1,9 @@
-//! The durable journal of a subject's provider stream — SPEC §12.5, §57.5.
+//! The durable journal of a subject's provider stream — docs/specs/durable-state.md#content-stream-journal, docs/specs/web-interface.md#spec-57-5.
 //!
 //! A streamed response must survive a crash or a UI reconnect: every unit the
 //! transport delivered is journaled in the ledger, bound to the durable source
 //! identity of the work (request) rather than to an in-memory callback. The
-//! store already owns that journal (§12.5 content streams); this adapter is
+//! store already owns that journal (docs/specs/durable-state.md#content-stream-journal content streams); this adapter is
 //! the bridge between the broker's stream contract and the store's own
 //! invariants:
 //!
@@ -32,7 +32,7 @@ const TERMINAL_KIND: &str = "provider_terminal";
 /// The stream kind of a provider stream.
 const STREAM_KIND: &str = "provider_stream";
 /// The durable bound of one journaled text unit, matching the store's own
-/// chunk bound (§12.5) and the broker's batch bound.
+/// chunk bound (docs/specs/durable-state.md#content-stream-journal) and the broker's batch bound.
 const UNIT_MAX_BYTES: usize = 4096;
 
 /// A store-backed journal of provider streams.

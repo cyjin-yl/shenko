@@ -108,7 +108,7 @@ pub(super) fn parse_dialogue(value: &str, line_no: u64) -> Result<DialogueSpec, 
 
 /// `[dnd] {...}` — the subject's own attention switch. Off is bounded:
 /// it names the silenced sources and a review time, never an unbounded
-/// silent switch (SPEC §13.8).
+/// silent switch (docs/specs/subject-runtime.md#spec-13-8).
 pub(super) fn parse_dnd(value: &str, line_no: u64) -> Result<AttentionSpec, ShenkoError> {
     let spec: AttentionSpec = serde_json::from_str(value)
         .map_err(|_| invalid(line_no, "dnd requires one JSON object"))?;
@@ -145,7 +145,7 @@ pub(super) fn parse_steer(value: &str, line_no: u64) -> Result<SteerSpec, Shenko
 /// `[policy] {...}` — the subject's own request about its runtime policy.
 ///
 /// The request is durable and visible; whether this installation can serve
-/// it is a fact the subject sees in its next step (SPEC §57.8).
+/// it is a fact the subject sees in its next step (docs/specs/subject-runtime.md#spec-57-8).
 pub(super) fn parse_policy(value: &str, line_no: u64) -> Result<PolicySpec, ShenkoError> {
     let spec: PolicySpec = serde_json::from_str(value)
         .map_err(|_| invalid(line_no, "policy requires one JSON object"))?;

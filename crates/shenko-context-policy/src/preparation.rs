@@ -1,4 +1,4 @@
-//! The prepared-window publication contract — SPEC §12.3.2.
+//! The prepared-window publication contract — docs/specs/context-policies.md#spec-12-3-2.
 //!
 //! A preparation runs off the request path: it reads the raw history and
 //! renders the new representation while the subject keeps thinking. The

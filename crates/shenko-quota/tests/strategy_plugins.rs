@@ -1,6 +1,6 @@
-//! The replaceable quota-strategy seam — SPEC §42.1, §42.5, §42.6.
+//! The replaceable quota-strategy seam — docs/specs/quota-resources.md#spec-42-1, docs/specs/quota-resources.md#spec-42-5, docs/specs/quota-resources.md#spec-42-6.
 //!
-//! §42.1 makes the forecaster, the routing policy and the admission cadence
+//! docs/specs/quota-resources.md#spec-42-1 makes the forecaster, the routing policy and the admission cadence
 //! replaceable plugins. These are library-level consumers of the public API:
 //! they install a strategy, select it, and check that the produced record
 //! names the strategy while the durable state machine keeps every safety

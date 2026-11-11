@@ -6,181 +6,599 @@
       "file": "docs/specs/architecture.md",
       "owner": "parent",
       "current_agent": "Main",
-      "sections": "全部 SPEC；§48 自主主体、运行时能力闭环与正式文档分层"
+      "sections": "SPEC:0；SPEC:1；SPEC:2；SPEC:41；SPEC:48；SPEC:48.1；SPEC:48.2；SPEC:48.3；SPEC:48.4；SPEC:48.5；SPEC:48.6；SPEC:50；SPEC:54；SPEC:54.1；SPEC:54.2；SPEC:54.3；SPEC:54.4；SPEC:54.5；SPEC:57；SPEC:57.0；WHY:intro",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:0",
+        "SPEC:1",
+        "SPEC:2",
+        "SPEC:41",
+        "SPEC:48",
+        "SPEC:48.1",
+        "SPEC:48.2",
+        "SPEC:48.3",
+        "SPEC:48.4",
+        "SPEC:48.5",
+        "SPEC:48.6",
+        "SPEC:50",
+        "SPEC:54",
+        "SPEC:54.1",
+        "SPEC:54.2",
+        "SPEC:54.3",
+        "SPEC:54.4",
+        "SPEC:54.5",
+        "SPEC:57",
+        "SPEC:57.0",
+        "WHY:intro"
+      ]
     },
     {
       "file": "docs/specs/browser.md",
       "owner": "ArchBrowser",
       "current_agent": "ArchBrowser",
-      "sections": "§24.6/19.1/41"
+      "sections": "SPEC:24.6；SPEC:24.6.1；SPEC:24.6.2；SPEC:24.6.3",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:24.6",
+        "SPEC:24.6.1",
+        "SPEC:24.6.2",
+        "SPEC:24.6.3"
+      ]
     },
     {
       "file": "docs/specs/channel-adapters.md",
       "owner": "ArchOtherChannels",
       "current_agent": "ArchOtherChannelsNext",
-      "sections": "§15.3/16/35.6; R035/R057"
+      "sections": "SPEC:15.3；SPEC:16",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:15.3",
+        "SPEC:16"
+      ]
     },
     {
       "file": "docs/specs/channels.md",
       "owner": "ArchChannels",
       "current_agent": "ArchChannelsNext",
-      "sections": "§15–16/35.6/41.6; C13"
+      "sections": "SPEC:15；SPEC:15.1；SPEC:35.6；SPEC:41.6；SPEC:52；SPEC:57.4；SPEC:57.15",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:15",
+        "SPEC:15.1",
+        "SPEC:35.6",
+        "SPEC:41.6",
+        "SPEC:52",
+        "SPEC:57.4",
+        "SPEC:57.15"
+      ]
     },
     {
       "file": "docs/specs/cognition-units.md",
       "owner": "ArchCognitionUnits",
       "current_agent": "ArchCognitionLive",
-      "sections": "§18/38/45; C10"
+      "sections": "SPEC:18.4；SPEC:18.5；SPEC:18.7；SPEC:38；SPEC:38.1；SPEC:38.2；SPEC:38.3；SPEC:38.4；SPEC:38.5；SPEC:38.6；SPEC:38.7；SPEC:41.13；SPEC:45；SPEC:45.1；SPEC:45.2；SPEC:45.3；SPEC:45.4；SPEC:45.5；SPEC:45.6；SPEC:45.7；SPEC:45.8；SPEC:45.9；SPEC:45.10；SPEC:45.10.1；SPEC:45.10.2；SPEC:45.10.3；SPEC:45.10.4；SPEC:45.10.5；SPEC:45.10.6；SPEC:45.11；SPEC:45.13；SPEC:45.14；SPEC:51；SPEC:51.1；SPEC:51.2；SPEC:51.3；SPEC:51.4；SPEC:51.5；SPEC:51.6；SPEC:51.7；SPEC:51.8；SPEC:51.9；SPEC:51.10；SPEC:57.9；WHY:6",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:18.4",
+        "SPEC:18.5",
+        "SPEC:18.7",
+        "SPEC:38",
+        "SPEC:38.1",
+        "SPEC:38.2",
+        "SPEC:38.3",
+        "SPEC:38.4",
+        "SPEC:38.5",
+        "SPEC:38.6",
+        "SPEC:38.7",
+        "SPEC:41.13",
+        "SPEC:45",
+        "SPEC:45.1",
+        "SPEC:45.2",
+        "SPEC:45.3",
+        "SPEC:45.4",
+        "SPEC:45.5",
+        "SPEC:45.6",
+        "SPEC:45.7",
+        "SPEC:45.8",
+        "SPEC:45.9",
+        "SPEC:45.10",
+        "SPEC:45.10.1",
+        "SPEC:45.10.2",
+        "SPEC:45.10.3",
+        "SPEC:45.10.4",
+        "SPEC:45.10.5",
+        "SPEC:45.10.6",
+        "SPEC:45.11",
+        "SPEC:45.13",
+        "SPEC:45.14",
+        "SPEC:51",
+        "SPEC:51.1",
+        "SPEC:51.2",
+        "SPEC:51.3",
+        "SPEC:51.4",
+        "SPEC:51.5",
+        "SPEC:51.6",
+        "SPEC:51.7",
+        "SPEC:51.8",
+        "SPEC:51.9",
+        "SPEC:51.10",
+        "SPEC:57.9",
+        "WHY:6"
+      ]
     },
     {
       "file": "docs/specs/configuration-playground.md",
       "owner": "ArchPlayground",
       "current_agent": "ArchPlayground",
-      "sections": "§21/23/41.9/41.10/43/44; C12"
+      "sections": "SPEC:43；SPEC:43.1；SPEC:43.2；SPEC:43.3；SPEC:57.6",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:43",
+        "SPEC:43.1",
+        "SPEC:43.2",
+        "SPEC:43.3",
+        "SPEC:57.6"
+      ]
     },
     {
       "file": "docs/specs/contacts.md",
       "owner": "ArchContacts",
       "current_agent": "ArchContacts",
-      "sections": "§6/15.2/15.2.1/16/20; R059/R060/R102"
+      "sections": "SPEC:15.2；SPEC:15.2.1",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:15.2",
+        "SPEC:15.2.1"
+      ]
     },
     {
       "file": "docs/specs/context-policies.md",
       "owner": "ArchContextPolicies",
       "current_agent": "ArchContextPoliciesNext",
-      "sections": "§12.3/13/37/41.7–8; C20"
+      "sections": "SPEC:12.3；SPEC:12.3.1；SPEC:12.3.2；SPEC:37；SPEC:37.1；SPEC:37.2；SPEC:37.3；SPEC:37.4；SPEC:37.5；SPEC:37.6；SPEC:37.7；SPEC:37.8；SPEC:37.9；SPEC:37.10；SPEC:37.11；SPEC:41.8；SPEC:41.8.1；SPEC:41.8.2；SPEC:41.8.3；SPEC:41.8.4",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:12.3",
+        "SPEC:12.3.1",
+        "SPEC:12.3.2",
+        "SPEC:37",
+        "SPEC:37.1",
+        "SPEC:37.2",
+        "SPEC:37.3",
+        "SPEC:37.4",
+        "SPEC:37.5",
+        "SPEC:37.6",
+        "SPEC:37.7",
+        "SPEC:37.8",
+        "SPEC:37.9",
+        "SPEC:37.10",
+        "SPEC:37.11",
+        "SPEC:41.8",
+        "SPEC:41.8.1",
+        "SPEC:41.8.2",
+        "SPEC:41.8.3",
+        "SPEC:41.8.4"
+      ]
     },
     {
       "file": "docs/specs/desktop-runtime.md",
       "owner": "ArchDesktop",
       "current_agent": "ArchDesktop",
-      "sections": "§10.2.1/22/24/34; C15"
+      "sections": "SPEC:24；SPEC:24.1；SPEC:24.2；SPEC:24.3；SPEC:24.4；SPEC:34；SPEC:34.1；SPEC:34.2；SPEC:34.3；SPEC:34.4；SPEC:34.5；SPEC:34.6；SPEC:34.7",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:24",
+        "SPEC:24.1",
+        "SPEC:24.2",
+        "SPEC:24.3",
+        "SPEC:24.4",
+        "SPEC:34",
+        "SPEC:34.1",
+        "SPEC:34.2",
+        "SPEC:34.3",
+        "SPEC:34.4",
+        "SPEC:34.5",
+        "SPEC:34.6",
+        "SPEC:34.7"
+      ]
     },
     {
       "file": "docs/specs/documentation.md",
       "owner": "ArchDocs",
       "current_agent": "ArchDocsNext",
-      "sections": "All SPEC; user document refactor mandate"
+      "sections": "WHY:11；WHY:12",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "WHY:11",
+        "WHY:12"
+      ]
     },
     {
       "file": "docs/specs/durable-state.md",
       "owner": "ArchLedger",
       "current_agent": "ArchLedgerNext",
-      "sections": "§10/12/36/41.1/41.4; C01/C17/C21"
+      "sections": "SPEC:10；SPEC:10.1；SPEC:10.2；SPEC:10.2.1；SPEC:10.4；SPEC:10.6；SPEC:36；SPEC:36.1；SPEC:36.2；SPEC:36.3；SPEC:36.4；SPEC:36.5；SPEC:36.6；SPEC:36.7；SPEC:36.8；SPEC:41.2；SPEC:41.2.1；SPEC:41.2.2；SPEC:41.2.3；SPEC:41.3；SPEC:41.4；SPEC:41.14；SPEC:50.4",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:10",
+        "SPEC:10.1",
+        "SPEC:10.2",
+        "SPEC:10.2.1",
+        "SPEC:10.4",
+        "SPEC:10.6",
+        "SPEC:36",
+        "SPEC:36.1",
+        "SPEC:36.2",
+        "SPEC:36.3",
+        "SPEC:36.4",
+        "SPEC:36.5",
+        "SPEC:36.6",
+        "SPEC:36.7",
+        "SPEC:36.8",
+        "SPEC:41.2",
+        "SPEC:41.2.1",
+        "SPEC:41.2.2",
+        "SPEC:41.2.3",
+        "SPEC:41.3",
+        "SPEC:41.4",
+        "SPEC:41.14",
+        "SPEC:50.4"
+      ]
     },
     {
       "file": "docs/specs/ecosystem-adapters.md",
       "owner": "ArchEcosystem",
       "current_agent": "ArchEcosystem",
-      "sections": "§49（新增章节）；复用 §7/§18/§36/§45 的安装、任务效果与认知单元机制"
+      "sections": "SPEC:49；SPEC:49.1；SPEC:49.2；SPEC:49.3；SPEC:49.4；SPEC:49.5；SPEC:50.1；SPEC:50.2",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:49",
+        "SPEC:49.1",
+        "SPEC:49.2",
+        "SPEC:49.3",
+        "SPEC:49.4",
+        "SPEC:49.5",
+        "SPEC:50.1",
+        "SPEC:50.2"
+      ]
     },
     {
       "file": "docs/specs/inference.md",
       "owner": "ArchBroker",
       "current_agent": "ArchBrokerNext",
-      "sections": "§13/25–26/42/47; C04"
+      "sections": "SPEC:13；SPEC:13.5；SPEC:13.6；SPEC:13.7；SPEC:13.7.1；SPEC:13.7.2；SPEC:13.7.3；SPEC:25；SPEC:25.1；SPEC:25.2；SPEC:26；SPEC:26.1；SPEC:26.2；SPEC:35.9；SPEC:41.9；SPEC:41.10；SPEC:47；SPEC:47.1；SPEC:47.2；SPEC:47.3；SPEC:47.4；SPEC:47.5；SPEC:47.6；SPEC:47.7；WHY:8",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:13",
+        "SPEC:13.5",
+        "SPEC:13.6",
+        "SPEC:13.7",
+        "SPEC:13.7.1",
+        "SPEC:13.7.2",
+        "SPEC:13.7.3",
+        "SPEC:25",
+        "SPEC:25.1",
+        "SPEC:25.2",
+        "SPEC:26",
+        "SPEC:26.1",
+        "SPEC:26.2",
+        "SPEC:35.9",
+        "SPEC:41.9",
+        "SPEC:41.10",
+        "SPEC:47",
+        "SPEC:47.1",
+        "SPEC:47.2",
+        "SPEC:47.3",
+        "SPEC:47.4",
+        "SPEC:47.5",
+        "SPEC:47.6",
+        "SPEC:47.7",
+        "WHY:8"
+      ]
     },
     {
       "file": "docs/specs/media.md",
       "owner": "ArchMedia",
       "current_agent": "ArchMedia",
-      "sections": "§20/35.3/41.6; C16"
+      "sections": "SPEC:20",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:20"
+      ]
     },
     {
       "file": "docs/specs/memory.md",
       "owner": "ArchMemory",
       "current_agent": "ArchMemory",
-      "sections": "§10.3/10.5/12/45.12; C09"
+      "sections": "SPEC:10.3；SPEC:10.5；SPEC:12；SPEC:12.1；SPEC:12.2；SPEC:12.4；SPEC:45.12；SPEC:45.12.1；WHY:5",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:10.3",
+        "SPEC:10.5",
+        "SPEC:12",
+        "SPEC:12.1",
+        "SPEC:12.2",
+        "SPEC:12.4",
+        "SPEC:45.12",
+        "SPEC:45.12.1",
+        "WHY:5"
+      ]
     },
     {
       "file": "docs/specs/mobile-runtime.md",
       "owner": "ArchMobile",
       "current_agent": "ArchMobileLifecycle",
-      "sections": "§24.5/24.5.1/5.4; C15"
+      "sections": "SPEC:24.5；SPEC:24.5.1",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:24.5",
+        "SPEC:24.5.1"
+      ]
     },
     {
       "file": "docs/specs/model-children.md",
       "owner": "ArchModelChildren",
       "current_agent": "ArchModelChildrenNext",
-      "sections": "§5.3/5.5/6/14.5/41.5; R106/R107"
+      "sections": "SPEC:5.3；SPEC:5.5；SPEC:14.5；SPEC:53；WHY:2",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:5.3",
+        "SPEC:5.5",
+        "SPEC:14.5",
+        "SPEC:53",
+        "WHY:2"
+      ]
     },
     {
       "file": "docs/specs/network-observation.md",
       "owner": "ArchNetwork",
       "current_agent": "ArchNetwork",
-      "sections": "§9.4/§18.7/§45；net.probe（native 定义版本 1）"
+      "sections": "SPEC:9.4；SPEC:50.3",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:9.4",
+        "SPEC:50.3"
+      ]
     },
     {
       "file": "docs/specs/nodes.md",
       "owner": "ArchNodes",
       "current_agent": "ArchNodes",
-      "sections": "§5.4/22/38/41/44; C17"
+      "sections": "SPEC:5.4；SPEC:5.4.1；SPEC:5.4.2；SPEC:5.4.3；SPEC:5.4.4；SPEC:22；SPEC:22.1；SPEC:22.2；WHY:7",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:5.4",
+        "SPEC:5.4.1",
+        "SPEC:5.4.2",
+        "SPEC:5.4.3",
+        "SPEC:5.4.4",
+        "SPEC:22",
+        "SPEC:22.1",
+        "SPEC:22.2",
+        "WHY:7"
+      ]
     },
     {
       "file": "docs/specs/plugins.md",
       "owner": "ArchPluginRuntime",
       "current_agent": "ArchPluginRuntimeNext",
-      "sections": "§7/18/36/37/41.2/41.8/45; C03"
+      "sections": "SPEC:7；SPEC:18；SPEC:18.1；SPEC:18.2；SPEC:18.3；SPEC:18.6；SPEC:35.3；SPEC:41.7；SPEC:41.7.1；SPEC:41.7.2；SPEC:41.7.3；SPEC:44；SPEC:44.1；SPEC:44.2；SPEC:44.3；SPEC:44.4；SPEC:44.5；SPEC:44.6；SPEC:44.7；SPEC:44.8；SPEC:44.9",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:7",
+        "SPEC:18",
+        "SPEC:18.1",
+        "SPEC:18.2",
+        "SPEC:18.3",
+        "SPEC:18.6",
+        "SPEC:35.3",
+        "SPEC:41.7",
+        "SPEC:41.7.1",
+        "SPEC:41.7.2",
+        "SPEC:41.7.3",
+        "SPEC:44",
+        "SPEC:44.1",
+        "SPEC:44.2",
+        "SPEC:44.3",
+        "SPEC:44.4",
+        "SPEC:44.5",
+        "SPEC:44.6",
+        "SPEC:44.7",
+        "SPEC:44.8",
+        "SPEC:44.9"
+      ]
     },
     {
       "file": "docs/specs/quota-resources.md",
       "owner": "ArchQuota",
       "current_agent": "Parent",
-      "sections": "§13/42/47.5; C18"
+      "sections": "SPEC:13.1；SPEC:13.2；SPEC:13.3；SPEC:13.4；SPEC:42；SPEC:42.1；SPEC:42.2；SPEC:42.3；SPEC:42.4；SPEC:42.5；SPEC:42.6；SPEC:42.7；SPEC:42.8",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:13.1",
+        "SPEC:13.2",
+        "SPEC:13.3",
+        "SPEC:13.4",
+        "SPEC:42",
+        "SPEC:42.1",
+        "SPEC:42.2",
+        "SPEC:42.3",
+        "SPEC:42.4",
+        "SPEC:42.5",
+        "SPEC:42.6",
+        "SPEC:42.7",
+        "SPEC:42.8"
+      ]
     },
     {
       "file": "docs/specs/remote-seats.md",
       "owner": "ArchRemoteSeats",
       "current_agent": "ArchSeatFences",
-      "sections": "§17/35.5/41.11; C07/C08"
+      "sections": "SPEC:11；SPEC:17；SPEC:17.1；SPEC:17.2；SPEC:17.3；SPEC:17.4；SPEC:17.5；SPEC:35.5；SPEC:41.11",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:11",
+        "SPEC:17",
+        "SPEC:17.1",
+        "SPEC:17.2",
+        "SPEC:17.3",
+        "SPEC:17.4",
+        "SPEC:17.5",
+        "SPEC:35.5",
+        "SPEC:41.11"
+      ]
     },
     {
       "file": "docs/specs/repl.md",
       "owner": "ArchRepl",
       "current_agent": "ArchReplLimits",
-      "sections": "§19/19.1/41.3; C14"
+      "sections": "SPEC:19；SPEC:19.1",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:19",
+        "SPEC:19.1"
+      ]
     },
     {
       "file": "docs/specs/research-memory.md",
       "owner": "ArchResearch",
       "current_agent": "ArchRetention",
-      "sections": "§14/12.4/10.5; C09"
+      "sections": "SPEC:14；SPEC:14.1；SPEC:14.2；SPEC:14.3；SPEC:14.4；SPEC:14.6",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:14",
+        "SPEC:14.1",
+        "SPEC:14.2",
+        "SPEC:14.3",
+        "SPEC:14.4",
+        "SPEC:14.6"
+      ]
     },
     {
       "file": "docs/specs/self-update.md",
       "owner": "ArchUpgrade",
       "current_agent": "ArchUpgradeLive",
-      "sections": "§9/10/35.8/41.12/44; C08/C21"
+      "sections": "SPEC:9；SPEC:9.1；SPEC:9.2；SPEC:9.3；SPEC:9.5；SPEC:35；SPEC:35.1；SPEC:35.4；SPEC:35.7；SPEC:35.8；SPEC:35.10；SPEC:41.12；SPEC:41.15；SPEC:57.10；WHY:3；WHY:9",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:9",
+        "SPEC:9.1",
+        "SPEC:9.2",
+        "SPEC:9.3",
+        "SPEC:9.5",
+        "SPEC:35",
+        "SPEC:35.1",
+        "SPEC:35.4",
+        "SPEC:35.7",
+        "SPEC:35.8",
+        "SPEC:35.10",
+        "SPEC:41.12",
+        "SPEC:41.15",
+        "SPEC:57.10",
+        "WHY:3",
+        "WHY:9"
+      ]
     },
     {
       "file": "docs/specs/subject-runtime.md",
       "owner": "ArchSubject",
       "current_agent": "ArchSubjectNext",
-      "sections": "§5–6/13.8/41.5–6/44; C01/C02/C22"
+      "sections": "SPEC:4；SPEC:5；SPEC:5.1；SPEC:5.2；SPEC:5.6；SPEC:6；SPEC:13.8；SPEC:41.5；SPEC:57.1；SPEC:57.2；SPEC:57.3；SPEC:57.8；WHY:1",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:4",
+        "SPEC:5",
+        "SPEC:5.1",
+        "SPEC:5.2",
+        "SPEC:5.6",
+        "SPEC:6",
+        "SPEC:13.8",
+        "SPEC:41.5",
+        "SPEC:57.1",
+        "SPEC:57.2",
+        "SPEC:57.3",
+        "SPEC:57.8",
+        "WHY:1"
+      ]
     },
     {
       "file": "docs/specs/verification.md",
       "owner": "ArchEvidence",
       "current_agent": "ArchEvidenceNext",
-      "sections": "§23/27/28–29/40/46 and all acceptance tables; C19"
+      "sections": "SPEC:23；SPEC:27；SPEC:29；SPEC:29.1；SPEC:29.2；SPEC:41.1；SPEC:41.1.1；SPEC:41.16；SPEC:41.16.1；SPEC:41.16.2；SPEC:41.16.3；SPEC:55；SPEC:55.1；SPEC:55.2；SPEC:55.3；SPEC:55.4；SPEC:55.5；SPEC:57.13；SPEC:57.14",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:23",
+        "SPEC:27",
+        "SPEC:29",
+        "SPEC:29.1",
+        "SPEC:29.2",
+        "SPEC:41.1",
+        "SPEC:41.1.1",
+        "SPEC:41.16",
+        "SPEC:41.16.1",
+        "SPEC:41.16.2",
+        "SPEC:41.16.3",
+        "SPEC:55",
+        "SPEC:55.1",
+        "SPEC:55.2",
+        "SPEC:55.3",
+        "SPEC:55.4",
+        "SPEC:55.5",
+        "SPEC:57.13",
+        "SPEC:57.14"
+      ]
     },
     {
       "file": "docs/specs/wasm-home.md",
       "owner": "ArchWasmHome",
       "current_agent": "ArchWasmHomeNext",
-      "sections": "§8–10/41.3/44; C05"
+      "sections": "SPEC:8；SPEC:8.1；SPEC:8.3；SPEC:35.2；WHY:4",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:8",
+        "SPEC:8.1",
+        "SPEC:8.3",
+        "SPEC:35.2",
+        "WHY:4"
+      ]
     },
     {
       "file": "docs/specs/wasm-tools.md",
       "owner": "ArchWasmTools",
       "current_agent": "ArchWasmToolsNext",
-      "sections": "§8.2/18.8/35/44; C06"
+      "sections": "SPEC:8.2；SPEC:18.8",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:8.2",
+        "SPEC:18.8"
+      ]
     },
     {
       "file": "docs/specs/web-interface.md",
       "owner": "ArchWeb",
       "current_agent": "ArchWeb",
-      "sections": "§21/41.6/43; C11"
+      "sections": "SPEC:21；SPEC:21.1；SPEC:21.2；SPEC:21.3；SPEC:21.4；SPEC:21.5；SPEC:21.6；SPEC:21.7；SPEC:21.8；SPEC:21.9；SPEC:21.10；SPEC:21.11；SPEC:21.12；SPEC:41.18；SPEC:57.5；SPEC:57.7；WHY:10",
+      "contract_manifest": "docs/contract-migration.json",
+      "canonical_sections": [
+        "SPEC:21",
+        "SPEC:21.1",
+        "SPEC:21.2",
+        "SPEC:21.3",
+        "SPEC:21.4",
+        "SPEC:21.5",
+        "SPEC:21.6",
+        "SPEC:21.7",
+        "SPEC:21.8",
+        "SPEC:21.9",
+        "SPEC:21.10",
+        "SPEC:21.11",
+        "SPEC:21.12",
+        "SPEC:41.18",
+        "SPEC:57.5",
+        "SPEC:57.7",
+        "WHY:10"
+      ]
     }
   ]
 }

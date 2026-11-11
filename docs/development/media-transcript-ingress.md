@@ -1,6 +1,6 @@
 # Continuous-media transcript revision ingress
 
-SPEC: §15.2, §20, §41.2/§41.3. Work package C16 / issue #21, case A16.
+SPEC: [§15.2](../specs/contacts.md#spec-15-2)、[§20](../specs/media.md#spec-20)、[§41.2](../specs/durable-state.md#spec-41-2)、[§41.3](../specs/durable-state.md#spec-41-3). Work package C16 / issue #21, case A16.
 
 This document describes the durable ingress contract **for real transcript
 providers**. It is not an ASR implementation and does not claim one exists:
@@ -59,14 +59,14 @@ a later step, and `event_disposition_commit` reports committed consumption.
   revision. `revision_id` is the durable idempotency identity.
 - `MediaSpeakerClaim { speaker, person_id, confidence ∈ [0,1], corrected,
   source }` — an optional provider claim with confidence/unknown/correction.
-  It is never an identity binding or authority (§15.2); `speaker: None`
+  It is never an identity binding or authority ([§15.2](../specs/contacts.md#spec-15-2)); `speaker: None`
   records explicit unknown.
 - `MediaAudioRef::Sealed { object }` — CAS object ref. Admission validates the
   digest is exactly `blake3:` plus 64 lowercase hex digits **before** any path
   resolution, uses pinned cap-std capability-relative opens confined to this
   CAS even across escaping symlinks, and verifies
   the stored bytes hash to the declared digest at the declared length before
-  the metadata commit (§41.2.2). A rewritten algorithm, a phantom digest or
+  the metadata commit ([§41.2.2](../specs/durable-state.md#spec-41-2-2)). A rewritten algorithm, a phantom digest or
   same-length corrupted content is rejected, never admitted.
   `MediaAudioRef::Provider(…)` records a provider-local locator verbatim —
   provenance, not archive.
@@ -198,7 +198,7 @@ contradictory utterance. Streams that cancel or disconnect produce a
 - An audio capture device/path (SIP/WebRTC endpoint, LAN audio source, or a
   recorder) and a real ASR engine producing partial/final text.
 - Optional speaker/voiceprint model producing `MediaSpeakerClaim`; sharing
-  the LLM's GPU must be coordinated through the resource budget, §20.
+  the LLM's GPU must be coordinated through the resource budget, [§20](../specs/media.md#spec-20).
 - The provider's own upstream continuity/gap reporting and receipt
   reconciliation. `pending`/`rejected` no longer requires a provider resend:
   the subject recovers the committed row. If the transport lost an admission

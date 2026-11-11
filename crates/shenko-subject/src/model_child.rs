@@ -1,8 +1,8 @@
 //! Real finite, durable, multi-step tool-using model children.
 //!
-//! SPEC §5.3 (委派与对话), §5.5 (主体—child 双向协作), §6 (child 的独立
-//! system prompt / 模型 / 上下文 / 工具 / 输出预算), §14.5 (递归收敛：父预算
-//! 账户、去重), §41.5 (有限子任务), R106/R107.
+//! docs/specs/model-children.md#spec-5-3 (委派与对话), docs/specs/model-children.md#spec-5-5 (主体—child 双向协作), docs/specs/subject-runtime.md#spec-6 (child 的独立
+//! system prompt / 模型 / 上下文 / 工具 / 输出预算), docs/specs/model-children.md#spec-14-5 (递归收敛：父预算
+//! 账户、去重), docs/specs/subject-runtime.md#spec-41-5 (有限子任务), R106/R107.
 //!
 //! A model child is NOT one generation with `tools=[]`. It is a bounded agent
 //! run:
@@ -16,7 +16,7 @@
 //!   starting a second one;
 //! * the child's own system prompt, model, context, tool choice and output
 //!   budget are authored by the delegator. Its per-step output budget is NOT
-//!   the delegating step's single-turn cap (SPEC §6); only real transport
+//!   the delegating step's single-turn cap (docs/specs/subject-runtime.md#spec-6); only real transport
 //!   facts and the child's own total budget bound it;
 //! * the run is finite: a step budget, a tool-call budget and a total token
 //!   budget. A child never becomes a second infinite primary loop.
@@ -347,7 +347,7 @@ struct FrozenModelChildStep {
 fn read_contribution_plan<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<Option<ContributionPlan>, D::Error> {
-    // A plan sealed before the SPEC §51.9 cutover spells the sourced-content
+    // A plan sealed before the docs/specs/cognition-units.md#spec-51-9 cutover spells the sourced-content
     // kind `fact`. The sealed bytes are never rewritten; this reader migrates
     // its parsed copy through the one named migration.
     let mut document = serde_json::Value::deserialize(deserializer)?;
@@ -814,7 +814,7 @@ impl ModelChildHandler {
         Ok(current)
     }
 
-    /// The role frame this child runs under — SPEC §57.10.
+    /// The role frame this child runs under — docs/specs/self-update.md#spec-57-10.
     ///
     /// The frame is content, not a constant: the unit that provides
     /// `cap.child-role-frame` speaks for the child, and the subject may write
@@ -1269,7 +1269,7 @@ impl ModelChildHandler {
             self.inherited_transcript(&contract)?;
         if contract.continued_from.is_some() {
             // A continuation may only spend what the run it continues has
-            // left. Spawning never increases the total budget (SPEC §14.5).
+            // left. Spawning never increases the total budget (docs/specs/model-children.md#spec-14-5).
             ensure!(
                 contract.budget.max_total_tokens
                     <= previous_budget
@@ -1920,7 +1920,7 @@ impl ModelChildHandler {
     ///
     /// The nested child is a real child run with its own contract, its own
     /// steps and its own transcript. It may only spend what this child has
-    /// left: spawning never increases the total budget (SPEC §14.5). The
+    /// left: spawning never increases the total budget (docs/specs/model-children.md#spec-14-5). The
     /// nested child has no reply grant of its own — the outer child owns the
     /// outbound authority it was granted.
     async fn call_nested_child(
@@ -2213,7 +2213,7 @@ impl ModelChildHandler {
         let continuation = question.as_ref().map(|_| {
             // A continuation may only spend what this run has left, so the
             // remaining numbers travel with the question instead of being
-            // guessed from the other result fields (SPEC §14.5).
+            // guessed from the other result fields (docs/specs/model-children.md#spec-14-5).
             serde_json::json!({
                 "continue_task_id": contract.task_id,
                 "owner_answer_required": true,
@@ -2986,7 +2986,7 @@ mod grant_account_tests {
         assert!(!without.contains("已安装的认知单元目录"), "{without}");
     }
 
-    /// The child's role frame is content, not a constant — SPEC §57.10.
+    /// The child's role frame is content, not a constant — docs/specs/self-update.md#spec-57-10.
     ///
     /// The unit that provides `cap.child-role-frame` speaks for the child;
     /// with nothing installed the compiled contract stays in force, and two

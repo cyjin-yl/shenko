@@ -1,4 +1,4 @@
-//! Streaming archive framing for cognition recovery bundles — SPEC §5.4.
+//! Streaming archive framing for cognition recovery bundles — docs/specs/nodes.md#spec-5-4.
 //!
 //! The archive is a self-describing byte stream: a manifest frame that
 //! declares every payload, followed by the payload frames themselves. Each
@@ -38,7 +38,7 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// can interpret completely — an archive naming a fact class this reader
 /// does not know is refused whole at manifest validation.
 ///
-/// Schema 6 adds the cognitive atoms (SPEC §51.1): the canonical content
+/// Schema 6 adds the cognitive atoms (docs/specs/cognition-units.md#spec-51-1): the canonical content
 /// registry, the append-only attitude ledger and the insert-only legacy
 /// content mapping. These are REQUIRED facts, not optional extras: an archive
 /// that carries them and no longer declares the classes they belong to would

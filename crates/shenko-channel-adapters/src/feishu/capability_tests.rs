@@ -1,5 +1,5 @@
 //! The Feishu channel's declared capabilities must be reachable —
-//! SPEC §57.4, acceptance RT19.
+//! docs/specs/channels.md#spec-57-4, acceptance RT19.
 //!
 //! These cases exercise the plugin's own dispatch description: what it can
 //! really produce, and what it honestly refuses.

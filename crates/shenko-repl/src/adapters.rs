@@ -1,4 +1,4 @@
-//! Real kernel adapters for the named §19.1 runtimes: embedded, hash-pinned
+//! Real kernel adapters for the named docs/specs/repl.md#spec-19-1 runtimes: embedded, hash-pinned
 //! cell drivers plus ready-made `KernelProfile`s for each actual interpreter
 //! route (WASM and native). A profile binds a *specific* interpreter artifact
 //! by host path; the session re-reads and re-hashes that artifact for every
@@ -186,7 +186,7 @@ fn guest_module_argv0(module: &Path) -> String {
         .unwrap_or_else(|| "kernel.wasm".into())
 }
 
-/// Build the real profile for one of the named §19.1 targets that this build
+/// Build the real profile for one of the named docs/specs/repl.md#spec-19-1 targets that this build
 /// can actually bind. The target name selects the adapter — never a runtime
 /// substitution: an unavailable target (node-wasm, bun-wasm, pyodide) refuses
 /// instead of borrowing QuickJS or a native host, and `--stdlib` is refused

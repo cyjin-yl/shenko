@@ -1,4 +1,4 @@
-//! The QQ channel declares what it can really do — SPEC §57.4, RT19.
+//! The QQ channel declares what it can really do — docs/specs/channels.md#spec-57-4, RT19.
 //!
 //! The table is a promise in both directions: a `false` field means this
 //! plugin will refuse the action instead of sending a request the platform

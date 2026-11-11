@@ -1,4 +1,4 @@
-//! The Feishu/Lark channel plugin — SPEC §15.3, §16.
+//! The Feishu/Lark channel plugin — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
 //!
 //! The plugin owns everything Feishu-specific: the app-ticket auth, the
 //! event-dispatcher ingress, the typed message builder and the edit, recall
@@ -244,7 +244,7 @@ impl ChannelPlugin for FeishuChannel {
             // adapter can call it — but one reply is one effect, so the
             // indicator could only be sent instead of the answer, or after
             // it (when it says nothing). The capability table lists what
-            // `describe` can really produce (SPEC §57.4), so typing is not
+            // `describe` can really produce (docs/specs/channels.md#spec-57-4), so typing is not
             // advertised.
             typing: false,
             proactive: true,

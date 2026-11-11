@@ -1,4 +1,4 @@
-//! Memory persistence + search (SPEC §12.2 intent→committed, §12.3 中文检索).
+//! Memory persistence + search (docs/specs/memory.md#spec-12-2 intent→committed, docs/specs/context-policies.md#spec-12-3 中文检索).
 use shenko_store::{MemoryEntry, Store};
 use shenko_types::ids::EntityId;
 use std::path::PathBuf;

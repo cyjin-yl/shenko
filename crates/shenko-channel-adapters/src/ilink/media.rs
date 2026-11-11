@@ -1,4 +1,4 @@
-//! Encrypted media of the WeChat iLink CDN — SPEC §16, §15.1.
+//! Encrypted media of the WeChat iLink CDN — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-15-1.
 //!
 //! The iLink CDN stores media encrypted with AES-128-ECB and PKCS#7 padding.
 //! An upload is therefore four steps:

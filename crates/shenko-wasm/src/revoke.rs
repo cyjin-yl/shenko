@@ -1,4 +1,4 @@
-//! Live withdrawal of already-open guest write capabilities (SPEC §8.3, §41.3).
+//! Live withdrawal of already-open guest write capabilities (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-41-3).
 //!
 //! Withdrawing `writable` is not the same as reopening a mount read-only. A COW
 //! mount keeps its mode, its branch overlay and its merged view: the guest

@@ -1,4 +1,4 @@
-//! Operation、Attempt 记录 — SPEC §41.4 X03
+//! Operation、Attempt 记录 — docs/specs/durable-state.md#spec-41-4 X03
 //! 一次意图不等于一次网络尝试。
 
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use crate::commit::CommitRef;
 use crate::ids::{ControllerEpoch, EntityId, RecordRevision};
 use crate::object::{Digest, ObjectRef, VersionRef};
 
-/// 资源绑定 — SPEC §41.4 X03 注
+/// 资源绑定 — docs/specs/durable-state.md#spec-41-4 X03 注
 /// 至少记录实际 provider、账号/资源 identity、runtime/node、挂载 generation、
 /// 相关 observation/revision 和能力等级。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +48,7 @@ pub enum OperationOutcome {
     Interrupted,
 }
 
-/// 外部效果状态 — SPEC §41.4 X03
+/// 外部效果状态 — docs/specs/durable-state.md#spec-41-4 X03
 /// failed 可伴随 partial 或 unknown，cancelled 不推导 none。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,7 +59,7 @@ pub enum EffectStatus {
     Unknown,
 }
 
-/// OperationRecord — SPEC §41.4 X03
+/// OperationRecord — docs/specs/durable-state.md#spec-41-4 X03
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationRecord {
     pub record_schema_version: u32,
@@ -131,7 +131,7 @@ pub struct ProviderHandle {
     pub version: String,
 }
 
-/// AttemptRecord — SPEC §41.4 X03
+/// AttemptRecord — docs/specs/durable-state.md#spec-41-4 X03
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttemptRecord {
     pub record_schema_version: u32,

@@ -18,7 +18,7 @@ pub const PUBLICATION_TARGET_SCHEMA_VERSION: u32 = 2;
 /// `id` is an OPAQUE platform identity. A QQ number, an official OpenID, a
 /// Feishu `chat_id` and an iLink context token are different namespaces; the
 /// core stores them as strings and only the owning plugin interprets them
-/// (SPEC §16, §35.6). `account` is the account/tenant namespace that owns
+/// (docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6). `account` is the account/tenant namespace that owns
 /// the conversation; `tenant` and `conversation` carry the platform's own
 /// namespaces when it has them.
 ///
@@ -222,7 +222,7 @@ pub struct ModelChildContext {
 }
 
 /// The child's own finite budget. It is allocated by the delegator; a nested
-/// child may only receive what its parent has left (SPEC §14.5).
+/// child may only receive what its parent has left (docs/specs/model-children.md#spec-14-5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelChildBudget {
@@ -317,7 +317,7 @@ impl ModelChildBudget {
 ///
 /// `max_tokens` is the child's per-step output budget. It is the child's own
 /// number: it is not mechanically capped by the delegating step's single-turn
-/// output cap (SPEC §6). Only real transport facts and the child's own
+/// output cap (docs/specs/subject-runtime.md#spec-6). Only real transport facts and the child's own
 /// budget bound it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -355,7 +355,7 @@ pub struct ModelChildSpec {
 }
 
 /// Authored disposition of one durable input event. The sealed decision binds
-/// it to the exact event selected into this step's S0 (SPEC §13.8).
+/// it to the exact event selected into this step's S0 (docs/specs/subject-runtime.md#spec-13-8).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DispositionSpec {
@@ -404,7 +404,7 @@ pub struct DialogueSpec {
 
 /// The subject's own attention decision (do-not-disturb and back). A switch
 /// off requires the sources it silences and a review time; it is never an
-/// unbounded silent switch (SPEC §13.8).
+/// unbounded silent switch (docs/specs/subject-runtime.md#spec-13-8).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttentionSpec {
@@ -428,7 +428,7 @@ pub struct SteerSpec {
 /// The subject's explicit decision about one reconciliation case: the
 /// external effect stays unknown, and the subject records why it can keep
 /// working with that residue. It never claims the effect did not happen
-/// (SPEC §41.4 X11), so there is no "resolved" authored here.
+/// (docs/specs/durable-state.md#spec-41-4 X11), so there is no "resolved" authored here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReconcileSpec {
@@ -436,7 +436,7 @@ pub struct ReconcileSpec {
     pub case_id: EntityId,
     /// The evidence this reading rests on — receipt identities already
     /// attached to that case. A reason that cites a receipt it never saw is
-    /// refused at S1 (SPEC §51.1: reasons terminate at an observation,
+    /// refused at S1 (docs/specs/cognition-units.md#spec-51-1: reasons terminate at an observation,
     /// original or receipt).
     pub reason_refs: Vec<EntityId>,
     /// What uncertainty remains, and what evidence would still settle it.
@@ -447,7 +447,7 @@ pub struct ReconcileSpec {
 ///
 /// The kinds here are the ones no dispatcher serves yet: the request is
 /// recorded as an unbound capability gap, never as a refusal, and the subject
-/// can see it in its next step (SPEC §57.8, G57).
+/// can see it in its next step (docs/specs/subject-runtime.md#spec-57-8, G57).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicySpec {
@@ -522,7 +522,7 @@ pub enum OutputAction {
     },
     /// The subject asks for a policy of its own: how compute is shared, or
     /// how updates and networking behave. The request is durable; whether an
-    /// installation can serve it is a fact it can see (SPEC §57.8).
+    /// installation can serve it is a fact it can see (docs/specs/subject-runtime.md#spec-57-8).
     Policy {
         spec: PolicySpec,
     },

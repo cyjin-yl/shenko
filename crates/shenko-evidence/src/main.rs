@@ -12,7 +12,7 @@
 //! and never rewrites the record it corrects.
 //!
 //! Usage:
-//!   shenko-evidence --spec SPEC.md --evidence-dir docs/evidence \
+//!   shenko-evidence --spec docs/contract-migration.json --evidence-dir docs/evidence \
 //!       [--candidate-commit <sha>] [--json build/spec-obligation-report.json] \
 //!       [--long-run <report.json>=<sha256>]...
 //!   shenko-evidence --evidence-dir docs/evidence --withdraw <evidence-id> \
@@ -27,9 +27,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use shenko_evidence::contract_input::read_contract_input;
 use shenko_evidence::{CorrectionRequest, LongRunInput, ReportInputs, analyze, write_correction};
 
-const USAGE: &str = "usage: shenko-evidence --spec <SPEC.md> --evidence-dir <dir> \
+const USAGE: &str = "usage: shenko-evidence --spec <docs/contract-migration.json|contract.md> --evidence-dir <dir> \
 [--candidate-commit <sha>] [--json <out.json>] [--long-run <report.json>=<sha256>]... \
 | shenko-evidence --evidence-dir <dir> --withdraw <evidence-id> --reason <text> \
 --source-sha256 <sha256> [--superseded-by <evidence-id>] [--json <out.json>]";
@@ -150,8 +151,7 @@ fn run() -> Result<(), String> {
 }
 
 fn run_report(args: &ReportArgs) -> Result<(), String> {
-    let spec_text = std::fs::read_to_string(&args.spec)
-        .map_err(|error| format!("cannot read {}: {error}", args.spec.display()))?;
+    let contracts = read_contract_input(&args.spec)?;
     let long_run: Vec<LongRunInput<'_>> = args
         .long_run
         .iter()
@@ -161,12 +161,16 @@ fn run_report(args: &ReportArgs) -> Result<(), String> {
         })
         .collect();
     let analysis = analyze(&ReportInputs {
-        spec_text: &spec_text,
+        spec_text: &contracts.text,
         evidence_dir: &args.evidence_dir,
         candidate_commit: args.candidate_commit.as_deref(),
         long_run: &long_run,
     })
     .map_err(|error| format!("SPEC index error: {error:?}"))?;
+    let counts = analysis.index.counts();
+    if counts.requirements == 0 || counts.behaviors == 0 || counts.acceptance_cases == 0 {
+        return Err("input has no complete obligation universe; pass current contract documents, not a navigation page".into());
+    }
     println!("{}", analysis.summary());
     // A rejected report is not silence: the operator asked for duration
     // evidence and has to see why these bytes were not admitted, otherwise
@@ -175,8 +179,9 @@ fn run_report(args: &ReportArgs) -> Result<(), String> {
         eprintln!("warning: long-run report {path} was not admitted: {reason}");
     }
     if let Some(path) = &args.json {
-        let bytes =
-            serde_json::to_vec_pretty(&analysis.to_json()).map_err(|error| error.to_string())?;
+        let mut report = analysis.to_json();
+        contracts.annotate_report(&mut report);
+        let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
         std::fs::write(path, bytes)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
         println!("report written to {}", path.display());
@@ -209,4 +214,28 @@ fn run_withdraw(args: &WithdrawArgs) -> Result<(), String> {
         println!("outcome written to {}", path.display());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_is_not_a_zero_obligation_success() {
+        let directory = tempfile::tempdir().unwrap();
+        let spec = directory.path().join("INDEX.md");
+        let evidence_dir = directory.path().join("evidence");
+        let output = directory.path().join("report.json");
+        std::fs::write(&spec, "# Navigation\n\nRead the current domain contracts.\n").unwrap();
+        std::fs::create_dir(&evidence_dir).unwrap();
+        let result = run_report(&ReportArgs {
+            spec,
+            evidence_dir,
+            candidate_commit: None,
+            json: Some(output.clone()),
+            long_run: Vec::new(),
+        });
+        assert!(matches!(result, Err(error) if error.contains("no complete obligation universe")));
+        assert!(!output.exists());
+    }
 }

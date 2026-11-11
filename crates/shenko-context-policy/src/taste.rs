@@ -1,4 +1,4 @@
-//! Installable revision-disclosure projection — SPEC §51.1, §51.9.
+//! Installable revision-disclosure projection — docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-9.
 //!
 //! Revisions are retained, never rewritten. What a surface shows *by default*
 //! about a revised unit or attitude is a decision of the installed `taste`
@@ -23,7 +23,7 @@
 //!   projection rather than adding a parallel one.
 //! * [`disclose_revisions`] is the one call consumers make. With no taste
 //!   installed it reports `None`: the caller records the material as
-//!   omitted/unresolved (§45.10) instead of inventing a count or falling back
+//!   omitted/unresolved (docs/specs/cognition-units.md#spec-45-10) instead of inventing a count or falling back
 //!   to a locally hardcoded policy.
 //!
 //! [`DefaultRevisionTaste`] is the distribution's preinstalled implementation
@@ -314,7 +314,7 @@ pub trait RevisionTaste: Send + Sync + 'static {
     ) -> Result<Disclosure, TasteError>;
 }
 
-/// The distribution's preinstalled projection: SPEC §51.1's confirmed default
+/// The distribution's preinstalled projection: docs/specs/cognition-units.md#spec-51-1's confirmed default
 /// — retained originals, the selected revision as material, older revisions
 /// collapsed to their count and the latest modification time, full text only
 /// by explicit revision.
@@ -409,7 +409,7 @@ impl RevisionTaste for DefaultRevisionTaste {
 ///
 /// `taste` is the installed projection service. `None` means no taste is
 /// installed on this node: the caller reports the revision material as
-/// omitted/unresolved (§45.10) rather than applying a default of its own.
+/// omitted/unresolved (docs/specs/cognition-units.md#spec-45-10) rather than applying a default of its own.
 pub fn disclose_revisions(
     taste: Option<&dyn RevisionTaste>,
     chain: &RevisionChain,

@@ -170,7 +170,7 @@ pub struct WasiRunControl {
     pub deadline: Option<Duration>,
     /// Optional cancellation handle observed at epoch checkpoints.
     pub cancel: Option<WasiCancellation>,
-    /// Optional live write-withdrawal request (SPEC §8.3, §41.3). Another
+    /// Optional live write-withdrawal request (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-41-3). Another
     /// thread may withdraw write capability while the guest runs; the guest's
     /// already-open writable descriptors then refuse further writes at the
     /// next hostcall boundary, while reads keep the same merged view. Unlike
@@ -280,7 +280,7 @@ pub enum WasiRunOutcome {
 }
 
 /// Guest path where the persistent WASM home is mounted for WASI commands
-/// (SPEC §8.3: every mount declares its source path and guest path; the home
+/// (docs/specs/wasm-home.md#spec-8-3: every mount declares its source path and guest path; the home
 /// mount is the one preopen a WASI session always gets).
 pub const HOME_GUEST_PATH: &str = "/home";
 
@@ -473,7 +473,7 @@ impl WasmRuntime {
     /// guest exists, and the guest's preview1 host resolves every path from
     /// those handles: no host pathname is re-resolved for the guest, so an
     /// ancestor swap between validation and use cannot redirect a preopen
-    /// (SPEC §8.3, A08).
+    /// (docs/specs/wasm-home.md#spec-8-3, A08).
     /// The command supplies exact argv, environment and streams, without a
     /// shell or inherited process state. A normal return is exit code 0 and a
     /// `proc_exit(n)` trap is exit code `n`; other traps are errors, and any
@@ -672,7 +672,7 @@ fn wasi_exit(result: wasmtime::Result<()>) -> Result<WasiRunOutcome> {
 /// is opened into an owned directory capability and the guest's preview1
 /// host resolves paths from those handles only. No host pathname is
 /// re-resolved for the guest, so an ancestor swap between validation and
-/// use cannot redirect a preopen (SPEC §8.3, A08).
+/// use cannot redirect a preopen (docs/specs/wasm-home.md#spec-8-3, A08).
 fn run_wasi_blocking<I, O, E>(
     engine: &Engine,
     home: &Path,
@@ -805,7 +805,7 @@ where
 }
 
 /// A retained WASI preview1 instance that can be driven across calls and
-/// snapshotted between them (SPEC §51.4 runtime state).
+/// snapshotted between them (docs/specs/cognition-units.md#spec-51-4 runtime state).
 ///
 /// This is not a second engine or a parallel runtime: it is the same
 /// `ControlledCtx`/`P1Host`/`Linker` wiring as [`WasmRuntime::run_wasi_module`],
