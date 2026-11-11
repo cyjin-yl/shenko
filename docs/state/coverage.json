@@ -2330,16 +2330,22 @@
       ],
       "specification_state": "specified",
       "implementation_state": "partial",
-      "evidence_state": [],
-      "acceptance_case_ids": [],
+      "evidence_state": [
+        "verified_real"
+      ],
+      "acceptance_case_ids": [
+        "PG07"
+      ],
       "implementation_refs": [
         "crates/shenko-ui/src/playground.rs",
         "crates/shenko-ui/src/server.rs"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "Playground /playground CRUD、原子写、artifact_changed inbox 事件；真实进程后端仍为 canned echo(TODO §43)"
+      "note": "Playground /playground CRUD、原子写、artifact_changed inbox 事件；真实进程后端仍为 canned echo(TODO §43)。PG07 已在合并后 main 上真跑通过（shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request）；后端仍是 canned echo，故 satisfied=false。"
     },
     {
       "requirement_id": "R135",
@@ -2647,7 +2653,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2675,10 +2682,21 @@
         "crates/shenko-subject/src/lib.rs:50",
         "crates/shenko-awareness-core/seed-awareness/subject-frame/AWARENESS.md"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "主体角色框机制完整：CAP_SUBJECT_FRAME 常量定义、capability_unit 解析（Absent/Installed/Ambiguous）、subject_frame() 消费者、subject_prompt_with_frame() 组装、种子单元均已落地。无独立运行证据文件；确定性记账与真实消费者行为 ≠ 模型效能，satisfied=false。"
+      "note": "主体角色框机制完整：CAP_SUBJECT_FRAME 常量定义、capability_unit 解析（Absent/Installed/Ambiguous）、subject_frame() 消费者、subject_prompt_with_frame() 组装、种子单元均已落地。G58/G60/RT17–RT20/UI-S11–UI-S14 已在合并后 main 375238a 上真跑通过（见 evidence_refs）；AW10–AW14/G57/G59 仍待判定，故 satisfied=false。确定性记账与真实消费者行为 ≠ 模型效能。"
     },
     {
       "requirement_id": "R149",
@@ -2688,7 +2706,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2713,10 +2732,21 @@
         "crates/shenko-awareness-core/src/cognition.rs:609",
         "crates/shenko-awareness-core/src/cognition.rs:619"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "Absent/Ambiguous 双分支在 capability_unit() 中实现，歧义不静默选择而是报告。无独立运行证据文件；satisfied=false。"
+      "note": "Absent/Ambiguous 双分支在 capability_unit() 中实现，歧义不静默选择而是报告。G58/G60/RT17–RT20/UI-S11–UI-S14 已真跑通过；AW10–AW14/G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R150",
@@ -2726,7 +2756,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2752,10 +2783,21 @@
         "crates/shenko-subject/src/loop_runner.rs:699",
         "crates/shenko-awareness-core/seed-awareness/idle-perception/AWARENESS.md"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "CAP_IDLE_PERCEPTION 常量定义、idle_perception() 消费者（无提供者时回退 IDLE_CONTINUATION_PROMPT）、种子单元均已落地。无独立运行证据文件；satisfied=false。"
+      "note": "CAP_IDLE_PERCEPTION 常量定义、idle_perception() 消费者（无提供者时回退 IDLE_CONTINUATION_PROMPT）、种子单元均已落地。G58/G60/RT17–RT20/UI-S11–UI-S14 已真跑通过；AW10–AW14/G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R151",
@@ -2765,7 +2807,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2793,10 +2836,21 @@
         "crates/shenko-subject/src/loop_runner.rs:808",
         "crates/shenko-awareness-core/seed-awareness/subject-attention/AWARENESS.md"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "CAP_ATTENTION_POLICY 常量定义、attention_budget() 解析（max_events_per_step/idle_wait_ms 带 clamp 上界）、step 中 recv_batch 消费、种子单元均已落地。无独立运行证据文件；satisfied=false。"
+      "note": "CAP_ATTENTION_POLICY 常量定义、attention_budget() 解析（max_events_per_step/idle_wait_ms 带 clamp 上界）、step 中 recv_batch 消费、种子单元均已落地。G58/G60/RT17–RT20/UI-S11–UI-S14 已真跑通过；AW10–AW14/G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R152",
@@ -2806,7 +2860,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2831,10 +2886,21 @@
         "crates/shenko-subject/src/loop_runner.rs:264",
         "crates/shenko-subject/src/loop_runner.rs:461"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "Ignored disposition + \"主体未在本轮处置\" reason 在 dispositions_for_events() 中实现；held_inputs 字段在 SubjectLoopState 中定义。无独立运行证据文件；satisfied=false。"
+      "note": "Ignored disposition + \"主体未在本轮处置\" reason 在 dispositions_for_events() 中实现；held_inputs 字段在 SubjectLoopState 中定义。G58/G60/RT17–RT20/UI-S11–UI-S14 已真跑通过；AW13/AW14/G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R153",
@@ -2844,7 +2910,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2871,10 +2938,21 @@
         "crates/shenko-subject/src/loop_runner.rs:321",
         "crates/shenko-subject/src/authored_controls.rs:118"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "hold_paused_sources() 实现 review_after 到期检查、held release/pause 逻辑；parse_dnd() 强制 state=off 时需要 sources 和 review_after。无独立运行证据文件；satisfied=false。"
+      "note": "hold_paused_sources() 实现 review_after 到期检查、held release/pause 逻辑；parse_dnd() 强制 state=off 时需要 sources 和 review_after。G58/G60/RT17–RT20/UI-S11–UI-S14 已真跑通过；AW13/AW14/G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R154",
@@ -2884,7 +2962,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2918,10 +2997,21 @@
         "crates/shenko-channel-adapters/src/qq_official/outbound.rs:108",
         "crates/shenko-channel-adapters/src/qq_official/plugin.rs:625"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "NapCat outbound: @mention→at segment, [quote:]→reply segment, markdown 降级（围栏/标题/强调/链接），8 条 outbound 测试；qq_official outbound: @openid→platform markup, [quote:]→message_reference, markdown msg_type=2。无独立运行证据文件；satisfied=false。"
+      "note": "NapCat outbound: @mention→at segment, [quote:]→reply segment, markdown 降级（围栏/标题/强调/链接），8 条 outbound 测试；qq_official outbound: @openid→platform markup, [quote:]→message_reference, markdown msg_type=2。RT17 已在合并后 main 上真跑：outbound::tests 8 条全通过。"
     },
     {
       "requirement_id": "R155",
@@ -2931,7 +3021,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -2958,10 +3049,21 @@
         "crates/shenko-channel-napcat/src/notice_tests.rs:79",
         "crates/shenko-channel-napcat/src/notice_tests.rs:109"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "classify_notice() 处理 group_recall/member_change/poke，未知 notice 保持 unclassified；3 条 notice 测试覆盖撤回、成员变动、普通消息。无独立运行证据文件；satisfied=false。"
+      "note": "classify_notice() 处理 group_recall/member_change/poke，未知 notice 保持 unclassified；3 条 notice 测试覆盖撤回、成员变动、普通消息。RT18 已在合并后 main 上真跑：notice_tests 3 条全通过。"
     },
     {
       "requirement_id": "R156",
@@ -2971,7 +3073,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3002,11 +3105,21 @@
         "crates/shenko-channel-adapters/src/feishu/capability_tests.rs"
       ],
       "evidence_refs": [
-        "docs/evidence/qq-official-capability-audit-20261110.md"
+        "docs/evidence/qq-official-capability-audit-20261110.md",
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "qq_official capabilities() 表只列 describe 可达动作（edit=false, typing=false），Edit dispatch 被显式拒绝；feishu 动作常量与 dispatch 映射；qq_official 7 条 + feishu 5 条 capability 测试。有现存证据文件 docs/evidence/qq-official-capability-audit-20261110.md；satisfied=false（确定性记账 ≠ 模型效能）。"
+      "note": "qq_official capabilities() 表只列 describe 可达动作（edit=false, typing=false），Edit dispatch 被显式拒绝；feishu 动作常量与 dispatch 映射；qq_official 7 条 + feishu 5 条 capability 测试。RT19 已在合并后 main 上真跑：capability_tests 12 条全通过。证据文件 docs/evidence/qq-official-capability-audit-20261110.md；确定性记账 ≠ 模型效能，satisfied=false。"
     },
     {
       "requirement_id": "R157",
@@ -3016,7 +3129,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3049,10 +3163,21 @@
         "crates/shenko-subject/src/loop_runner.rs:1656",
         "crates/shenko-subject/src/loop_runner.rs:1668"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "流式三器官：StreamJournalSink 持久 journal、StreamSink publish（先落盘再广播）、ControlGate 控制行过滤（is_control_line）、broker submit_stream_recorded（journal 必须存在）、subject 按 stream_journal/stream_public 组装。无独立运行证据文件；satisfied=false。"
+      "note": "流式三器官：StreamJournalSink 持久 journal、StreamSink publish（先落盘再广播）、ControlGate 控制行过滤（is_control_line）、broker submit_stream_recorded（journal 必须存在）、subject 按 stream_journal/stream_public 组装。RT20 已在合并后 main 上真跑通过（broker --lib 6 passed）；UI-S13/UI-S14 的 web 用例也已真跑。"
     },
     {
       "requirement_id": "R158",
@@ -3062,7 +3187,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3081,7 +3207,8 @@
         "UI-S11",
         "UI-S12",
         "UI-S13",
-        "UI-S14"
+        "UI-S14",
+        "PG06"
       ],
       "implementation_refs": [
         "crates/shenko-ui/src/playground_manage.rs:41",
@@ -3093,10 +3220,22 @@
         "crates/shenko-ui/web/src/react-renderer.tsx:1276",
         "crates/shenko-ui/web/src/react-renderer.tsx:1346"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）",
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "PlaygroundManageHandler（playground.manage/v1 contract）实现 create/put/stage/publish/rollback/list；PlaygroundState native dispatcher 共享；react-renderer WorkEntry/OpenedWorkPanel 渲染作品并绑定 action_refs 到 revision。无独立运行证据文件；satisfied=false。"
+      "note": "PlaygroundManageHandler（playground.manage/v1 contract）实现 create/put/stage/publish/rollback/list；PlaygroundState native dispatcher 共享；react-renderer WorkEntry/OpenedWorkPanel 渲染作品并绑定 action_refs 到 revision。PG06 已在合并后 main 上真跑通过（shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work）；AW10–AW14/G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R159",
@@ -3106,7 +3245,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3144,10 +3284,21 @@
         "crates/shenko-ui/src/presentation.rs:222",
         "crates/shenko-ui/src/presentation.rs:480"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "RichDocument 渲染所有 kind（section/text/markdown/code/table/compare/select/form/chart/media/actions），unknown kind 显示名称而非 JSON dump；validate_document + degrade 降级阶梯。无独立运行证据文件；satisfied=false。"
+      "note": "RichDocument 渲染所有 kind（section/text/markdown/code/table/compare/select/form/chart/media/actions），unknown kind 显示名称而非 JSON dump；validate_document + degrade 降级阶梯。UI-S11 已在合并后 main 的真实 web 构建上真跑：rich-document 5 条全通过。"
     },
     {
       "requirement_id": "R160",
@@ -3157,7 +3308,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3190,10 +3342,21 @@
         "crates/shenko-ui/web/src/react-renderer.tsx:336",
         "crates/shenko-ui/web/src/react-renderer.tsx:550"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "index.html 首帧前决定主题（query→stored→prefers-color-scheme），无暗色闪烁；app.css :root[data-theme=light] 单一样式来源；react-renderer TimelineSurface 有界宣布（announceCommitted 不逐字重读）、阅读锚点保持。无独立运行证据文件；satisfied=false。"
+      "note": "index.html 首帧前决定主题（query→stored→prefers-color-scheme），无暗色闪烁；app.css :root[data-theme=light] 单一样式来源；react-renderer TimelineSurface 有界宣布（announceCommitted 不逐字重读）、阅读锚点保持。UI-S12/UI-S13/UI-S14 已在真实 web 构建上真跑（prototypes 4、live-controller 8、timeline-state 4 全通过）。"
     },
     {
       "requirement_id": "R161",
@@ -3203,7 +3366,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3229,10 +3393,21 @@
         "crates/shenko-subject/src/loop_runner.rs:1114",
         "crates/shenko-subject/src/loop_runner.rs:2041"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "output.rs 输出协议含 [policy] 控制行（resource_share/update_policy/network_policy）；loop_runner.rs 中 unbound_subject_intents 查询并注入提示、PolicyIntent 记录为 durable 事实。无独立运行证据文件；satisfied=false。"
+      "note": "output.rs 输出协议含 [policy] 控制行（resource_share/update_policy/network_policy）；loop_runner.rs 中 unbound_subject_intents 查询并注入提示、PolicyIntent 记录为 durable 事实。G57 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R162",
@@ -3242,7 +3417,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3268,10 +3444,21 @@
         "crates/shenko-ui/src/playground_manage.rs:574",
         "crates/shenko-awareness-core/src/cognition.rs:611"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "loop_runner OutputAction::Dnd 记录 AttentionPolicy（durable，带 review_after）；playground_manage descriptor role_revision/authority_refs 留痕；cognition.rs Ambiguous 分支不替主体选择。无独立运行证据文件；satisfied=false。"
+      "note": "loop_runner OutputAction::Dnd 记录 AttentionPolicy（durable，带 review_after）；playground_manage descriptor role_revision/authority_refs 留痕；cognition.rs Ambiguous 分支不替主体选择。G57/G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R163",
@@ -3281,7 +3468,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3307,10 +3495,21 @@
         "crates/shenko-awareness-core/src/cognition.rs:601",
         "crates/shenko-awareness-core/src/cognition.rs:619"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "frame_tests.rs 验证两个提供者共存→歧义、停用一个→另一个生效、reopen 持久；cognition.rs capability_unit() 三分支（Absent/Installed/Ambiguous）。无独立运行证据文件；satisfied=false。"
+      "note": "frame_tests.rs 验证两个提供者共存→歧义、停用一个→另一个生效、reopen 持久；cognition.rs capability_unit() 三分支（Absent/Installed/Ambiguous）。G59 仍待判定，satisfied=false。"
     },
     {
       "requirement_id": "R164",
@@ -3320,7 +3519,8 @@
       "specification_state": "specified",
       "implementation_state": "implemented",
       "evidence_state": [
-        "implemented"
+        "implemented",
+        "verified_real"
       ],
       "acceptance_case_ids": [
         "AW10",
@@ -3351,10 +3551,21 @@
         "crates/shenko-exec-host/src/contact_task.rs:7",
         "crates/shenko-awareness-core/src/cognition_self_learning/facts.rs:11"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "负面元要求：全仓 grep approval.?gate|allowlist|hard.?deny|manual.?approval 只命中\"明确声明不使用\"的上下文。所有命中点都是显式否定（\"no approval gate\"、\"not approval gates\"、\"allowlist is the type itself\" 等），无新增人工审批门、产品 allowlist 或静态 hard deny。无正面源码（这是负面要求）；satisfied=false。"
+      "note": "负面元要求：全仓 grep approval.?gate|allowlist|hard.?deny|manual.?approval 只命中\"明确声明不使用\"的上下文。所有命中点都是显式否定（\"no approval gate\"、\"not approval gates\"、\"allowlist is the type itself\" 等），无新增人工审批门、产品 allowlist 或静态 hard deny。无正面源码（这是负面要求）；本章 diff（4e7267a..375238a）新增命中行数 = 0，已复核，satisfied=false（负面要求不能由一次 grep 单独宣布满足）。"
     },
     {
       "requirement_id": "R165",
@@ -3395,11 +3606,21 @@
       ],
       "evidence_refs": [
         "shenko-subject --lib the_childs_role_frame_comes_from_the_installed_unit",
-        "shenko-subject --lib the_cognition_directory_travels_only_when_it_exists"
+        "shenko-subject --lib the_cognition_directory_travels_only_when_it_exists",
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work + interrupted_versions_and_exact_rollback_keep_new_business_data",
+        "本章 diff（4e7267a..375238a）新增 allowlist/approval/人工审批/hard deny 行数 = 0；全仓 grep 只命中既有声明与早于本章的类型级 allowlist",
+        "shenko-channel-napcat --lib outbound::tests（8 条全通过）",
+        "shenko-channel-napcat --lib notice_tests（3 条全通过）",
+        "shenko-channel-adapters --lib capability_tests（12 条全通过）",
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner",
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs（5 条全通过）",
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs（4 条全通过）",
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs（8 条全通过）",
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs（4 条）+ live-controller.test.mjs（8 条）"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "child 角色框已可修订（PR #261）：提供 cap.child-role-frame 的单元正文成为孩子角色前缀，无提供者时用编译回退合同；同一能力目录的其余部分仍待整体验证，故 satisfied=false。"
+      "note": "child 角色框已可修订（PR #261）：提供 cap.child-role-frame 的单元正文成为孩子角色前缀，无提供者时用编译回退合同；AW15 已 verified_real。同一能力目录的其余部分（AW10–AW14/G57/G59）仍待判定，satisfied=false。"
     }
   ],
   "count": 165

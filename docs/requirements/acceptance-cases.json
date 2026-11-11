@@ -3913,13 +3913,15 @@
       ],
       "source_markdown_line": 6668,
       "source_row": "| G58 | 主体修订自己的心智框架或回滚 | 修订留下带理由的态度记录；回滚按只增版本链执行，旧字节不覆盖，外部副作用不撤回 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/src/playground_manage_tests.rs:99",
         "crates/shenko-ui/src/playground_tests.rs:99"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work 和 interrupted_versions_and_exact_rollback_keep_new_business_data 判定"
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work：通过——修订留下带理由的态度记录、采纳与回滚按只增版本链执行",
+        "shenko-ui --lib interrupted_versions_and_exact_rollback_keep_new_business_data：通过——中断的版本与精确回滚保留较新的业务数据",
+        "shenko-ui --lib：25 passed / 0 failed（合并后 main 375238a，容器内 cargo test --offline --locked）"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -3950,7 +3952,7 @@
       ],
       "source_markdown_line": 6670,
       "source_row": "| G60 | 复核本轮全部新增机制 | 没有新增人工审批、产品 allowlist 或静态 hard deny；真实约束按事实记录 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-node/src/units.rs:4879",
         "crates/shenko-ui/src/config_service.rs:5",
@@ -3962,7 +3964,9 @@
         "crates/shenko-awareness-core/src/cognition_self_learning/facts.rs:11"
       ],
       "evidence": [
-        "负面元要求：全仓 grep 只命中\"明确声明不使用 approval gate / allowlist / hard deny\"的上下文，无正面源码。待主控复核 grep 结果确认无新增人工审批门。"
+        "负面元要求复核：全仓 grep（allowlist / approval gate / 人工审批 / hard deny）只命中两类上下文——(a) 明确声明不使用审批门（shenko-ui/src/api.rs:173、config_service.rs:5、config_task.rs:43、shenko-awareness-core/src/cognition_self_learning/facts.rs:11、shenko-exec-host/tests/desktop_native_*_proof.rs、shenko-node/src/units.rs:4879）；(b) 早于本章的既有类型级 allowlist（shenko-channel-napcat/src/client.rs、attachments.rs、shenko-exec-host/src/contact_task.rs —— 那里 allowlist 就是类型本身，commit acb5c46 早于本章）",
+        "本章 diff（4e7267a..origin/main，crates/**/*.rs + bin/**/*.rs，+7227 行）对 allowlist / approval / 人工审批 / hard deny 的新增行数为 0：新增机制没有引入人工审批门、产品 allowlist 或静态 hard deny",
+        "真实约束按事实记录：官方 QQ 的回复窗口/撤回时限/频控写在能力表 notes，NapCat 的动作集合由插件自己的 describe 决定"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -3975,7 +3979,7 @@
       ],
       "source_markdown_line": 6657,
       "source_row": "| RT17 | 出站正文含 `@<id>`、`[quote:<id>]` 与 Markdown 标记 | 插件把它们翻译成平台段；正文不再把 `**`、标题符与代码围栏原样发给用户；不翻译时退回单段纯文本 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-channel-napcat/src/outbound.rs:197",
         "crates/shenko-channel-napcat/src/outbound.rs:204",
@@ -3989,7 +3993,8 @@
         "crates/shenko-channel-adapters/src/qq_official/outbound.rs:108"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-channel-napcat --lib outbound_tests 判定（8 条 outbound 用例）"
+        "shenko-channel-napcat --lib outbound::tests：8 条全通过（a_plain_body_stays_one_text_segment / a_leading_mention_becomes_an_at_segment / a_mention_and_a_quote_keep_their_order / a_quote_becomes_a_reply_segment / a_link_keeps_its_label_and_its_target / a_mention_that_is_not_a_number_stays_text / markdown_markers_do_not_reach_the_user / code_fences_lose_the_fence_and_keep_the_content）——合并后 main 375238a，容器内 cargo test --offline --locked",
+        "shenko-channel-napcat --lib：44 passed / 0 failed"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4002,14 +4007,14 @@
       ],
       "source_markdown_line": 6658,
       "source_row": "| RT18 | 平台收到一条撤回或成员变动事件 | 事件作为观察进入主体输入序列，带来源与被撤回消息标识；主体不再引用已不存在的消息 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-channel-napcat/src/notice_tests.rs:47",
         "crates/shenko-channel-napcat/src/notice_tests.rs:79",
         "crates/shenko-channel-napcat/src/notice_tests.rs:109"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-channel-napcat --lib notice_tests 判定（3 条 notice 用例）"
+        "shenko-channel-napcat --lib notice_tests：3 条全通过（a_recall_is_classified_as_an_observation / member_events_classify_and_unknown_notices_do_not / ordinary_messages_still_classify）——合并后 main 375238a，容器内 cargo test --offline --locked"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4022,13 +4027,14 @@
       ],
       "source_markdown_line": 6659,
       "source_row": "| RT19 | 某通道声明 edit/retract/typing 能力 | 能力表只列 describe 实际能产出的动作；不可达的动作不计入能力 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs:46",
         "crates/shenko-channel-adapters/src/feishu/capability_tests.rs:45"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-channel-adapters --lib capability_tests 判定（qq_official 7 条 + feishu 5 条）"
+        "shenko-channel-adapters --lib capability_tests：12 条全通过（qq_official 7 条含 the_platform_has_no_edit_so_the_plugin_offers_no_edit / the_capability_table_only_lists_reachable_actions；feishu 5 条含 an_edit_addresses_the_bots_own_last_post / the_capability_table_only_lists_reachable_actions）——合并后 main 375238a",
+        "shenko-channel-adapters --lib：43 passed / 0 failed"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4041,12 +4047,13 @@
       ],
       "source_markdown_line": 6660,
       "source_row": "| RT20 | 真实流式调用 | chunk 先落盘再广播，控制行不外泄，最终正文与已提交内容一致；未接通生产者时界面诚实报告流式不可用 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-broker/src/broker.rs:1974"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner 判定"
+        "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner：1 条通过——合并后 main 375238a，容器内 cargo test --offline --locked",
+        "shenko-broker --lib：6 passed / 0 failed"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4059,7 +4066,7 @@
       ],
       "source_markdown_line": 6663,
       "source_row": "| UI-S11 | 主体提交一段 `shenko-ui` 动态文档 | 界面按能力渲染真实组件；降级路径保持同一语义与动作身份，不出现 JSON 调试视图 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/web/tests/rich-document.test.mjs:51",
         "crates/shenko-ui/web/tests/rich-document.test.mjs:76",
@@ -4068,7 +4075,7 @@
         "crates/shenko-ui/web/tests/rich-document.test.mjs:101"
       ],
       "evidence": [
-        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/rich-document.test.mjs 判定（5 条 web 用例）"
+        "node --test crates/shenko-ui/web/tests/rich-document.test.mjs：5 条全通过——合并后 main 375238a 的 web 源码在容器内真实构建（Proto-UI 钉住提交 971cd35a）后跑的 node 测试"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4081,14 +4088,15 @@
       ],
       "source_markdown_line": 6664,
       "source_row": "| UI-S12 | 系统偏好浅色 | 首屏不出现暗色闪烁；样式来自单一来源，构建产物与源无偏差 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/src/index.html:18",
         "crates/shenko-ui/src/static/app.css:48",
         "crates/shenko-ui/web/tests/prototypes.test.mjs:30"
       ],
       "evidence": [
-        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/prototypes.test.mjs 判定（构建产物与源无偏差、编译器溯源 4 条）"
+        "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",
+        "web 全量：node --test tests/*.test.mjs → 21 passed / 0 failed"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4101,14 +4109,14 @@
       ],
       "source_markdown_line": 6665,
       "source_row": "| UI-S13 | 时间线出现新的已提交内容 | 屏幕阅读器得到一次有界宣布，不逐字重读整段回答 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/web/src/react-renderer.tsx:275",
         "crates/shenko-ui/web/src/react-renderer.tsx:550",
         "crates/shenko-ui/web/tests/live-controller.test.mjs:457"
       ],
       "evidence": [
-        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/live-controller.test.mjs 判定（流式 prefix 不标 committed、block 保留原因等用例）"
+        "node --test crates/shenko-ui/web/tests/live-controller.test.mjs：8 条全通过（流式 prefix 不标 committed、block 保留原因）"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4121,7 +4129,7 @@
       ],
       "source_markdown_line": 6666,
       "source_row": "| UI-S14 | 时间线同时出现正文、作品与其动作 | 三者保持稳定身份与阅读锚点，展开与更新不互相打断 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/web/src/react-renderer.tsx:328",
         "crates/shenko-ui/web/src/react-renderer.tsx:336",
@@ -4131,7 +4139,7 @@
         "crates/shenko-ui/web/tests/live-controller.test.mjs:257"
       ],
       "evidence": [
-        "待主控在容器内跑 node --test crates/shenko-ui/web/tests/timeline-state.test.mjs crates/shenko-ui/web/tests/live-controller.test.mjs 判定（阅读锚点、动作绑定、重复提交幂等等用例）"
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs：4 条全通过 + live-controller.test.mjs：8 条全通过（阅读锚点、动作绑定、重复提交幂等）"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4144,12 +4152,12 @@
       ],
       "source_markdown_line": 6661,
       "source_row": "| PG06 | 主体经原生任务创建并迭代一件作品 | 作品版本、状态与事件按既有闭包入账，事件进入同一 inbox，回滚保留较新状态 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/src/playground_manage_tests.rs:99"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work 判定"
+        "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work：通过——主体经原生任务创建、迭代并采纳一件作品，版本/状态/事件按既有闭包入账，回滚保留较新状态"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
@@ -4162,12 +4170,12 @@
       ],
       "source_markdown_line": 6662,
       "source_row": "| PG07 | 主体或用户在时间线内操作一件作品 | 作品可打开并操作，动作绑定 revision 与请求标识，重复提交不产生第二次效果 |",
-      "verification_status": "unverified",
+      "verification_status": "verified_real",
       "implementation_refs": [
         "crates/shenko-ui/src/playground_tests.rs:140"
       ],
       "evidence": [
-        "待主控在容器内跑 cargo test -p shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request 判定"
+        "shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request：通过——动作绑定 revision 与请求标识，重复提交不产生第二次效果"
       ],
       "applicability": "to_be_resolved_against_full_scope"
     },
