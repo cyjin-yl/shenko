@@ -42,6 +42,10 @@ Library (`shenko-node`, all durable, additive storage schema 6):
   `fencing_token`, `check_fencing`, `is_primary`, `election_status`.
 - Replication: `append_control_entries` (verifies the committed quorum
   certificate before accepting; an unverified entry is rejected, not queued).
+  The input suffix must continue the request predecessor exactly — the first
+  entry is `prev_index + 1`, every later entry is one more than the one
+  before it — and it is applied as a whole or refused as a whole.
+  `control_log_conflicts` reads the refused divergences this node retained.
 - Partition/adoption/reconciliation: `open_availability_branch`, `branches`,
   `adopt_identity` (retains experience; records `AdoptionRecord` +
   `BranchFact`), `reconcile_peer_experience` (dedup by identity, conflicts
@@ -99,6 +103,15 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   behind or forked; its receipt is evidence, not a vote.
 - `candidate_log_not_up_to_date` — the candidate must catch up from the
   committed control log before it may lead ( Raft-safety guard).
+- `log_mismatch: ...` in an `AppendOutcome` — the request predecessor is not
+  this node's committed entry, or the input suffix skipped an index or does
+  not extend the committed prefix. Nothing is applied and the commit index
+  does not move.
+- `log_conflict: ...` in an `AppendOutcome` — the offered entry names an
+  index this node already committed with a different term or a different
+  decision. The divergence is retained as `node_control_log_conflicts`
+  evidence rows (`committed` and `offered` under one `conflict_id`); the
+  committed record is never deleted or overwritten.
 - `primary observation requires a committed election fencing token` /
   `stale fencing token` — a runtime tried to record `Primary` without (or
   against) the committed election; refused.
@@ -112,10 +125,11 @@ domain-primary claim. The deterministic no-model path observes with `None`.
 
 ## Recovery
 
-- All election state is durable in the node database (schema 6 tables:
+- All election state is durable in the node database (election tables:
   `node_election_state`, `node_control_log`, `node_member_configs`,
   `node_votes`, `node_branches`, `node_reconciliations`,
-  `node_assignment_fences`, `node_observation_fences`). Reopening the node
+  `node_assignment_fences`, `node_observation_fences`,
+  `node_control_log_conflicts`). Reopening the node
   replays nothing; committed facts are read directly.
 - A partitioned node keeps thinking on an explicit availability branch; the
   branch fact records that `global_quorum: false`. Rejoining is not LWW: the
