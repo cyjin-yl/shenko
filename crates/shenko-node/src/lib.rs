@@ -29,7 +29,7 @@ pub use cognition::*;
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 7;
+const STORAGE_SCHEMA: u32 = 8;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -412,8 +412,9 @@ impl Node {
             }
             // Schema 5 introduced the capability tables; schema 6 adds the
             // election, membership, branch and reconciliation tables; schema 7
-            // adds the unit-removal lifecycle fact. Each step only creates the
-            // tables that version did not have yet.
+            // adds the unit-removal lifecycle fact; schema 8 adds the
+            // side-by-side control-log divergence evidence. Each step only
+            // creates the tables that version did not have yet.
             if locked <= 4 {
                 tx.execute_batch(capability::CAPABILITY_SCHEMA)?;
             }
@@ -425,6 +426,12 @@ impl Node {
                 // append-only lifecycle fact; the live installation tables
                 // keep their schema-6 shape.
                 tx.execute_batch(units::UNIT_REMOVALS_TABLE)?;
+            }
+            if locked <= 7 {
+                // Schema 8 retains refused divergent control-log appends as
+                // two rows per divergence: the committed record and the
+                // offered one, neither replacing the other.
+                tx.execute_batch(election::CONTROL_CONFLICT_SCHEMA)?;
             }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
@@ -1176,6 +1183,9 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     }
     if version >= 7 {
         expected.execute_batch(units::UNIT_REMOVALS_TABLE)?;
+    }
+    if version >= 8 {
+        expected.execute_batch(election::CONTROL_CONFLICT_SCHEMA)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
