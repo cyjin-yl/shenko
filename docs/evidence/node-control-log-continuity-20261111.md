@@ -42,10 +42,16 @@ Date: 2026-11-11. Branch: `fix/node-control-log-continuity-20261111` (base `orig
    `offered` 两行，`UNIQUE(conflict_id, side)`，`INSERT OR IGNORE` —— 重复
    观察同一分歧不重复留证），然后拒绝该请求，**不删除/覆盖已提交事实**。
    完全相同的内容是幂等重放，不是冲突。
-3. **commit_index 不跨洞**：`contiguous_commit_end` 从 `commit_index` 起
-   沿持久日志逐项走到第一个缺失 index 为止；apply 循环只允许新条目恰好
-   扩展连续前缀（`entry.index == next`），否则 `log_mismatch`。状态写回
-   `commit_index = end`（连续前缀尾）。
+   已记录前沿之外的既有分歧按 `log_mismatch` 拒绝，不将未知提交状态的行
+   写成 `committed` 冲突证据。
+3. **commit_index 不跨洞**：apply 循环只允许新条目恰好扩展耐久记录的
+   提交前沿（`entry.index == next`；next 从已记录的 commit_index + 1 开始，
+   仅在插入新条目后前进），否则 `log_mismatch`。
+   集成审查删除了原候选的 `contiguous_commit_end` 推断：前沿以上有物理行
+   不等于那些行已经提交，纯重放不能返回一个未写回的更大提交位置。旧版
+   `PushConfig` 留下的稀疏或回退前沿须显式对账，不自动补造历史或重放较早
+   的配置效果。`a_replay_does_not_promote_rows_above_the_recorded_commit_frontier`
+   覆盖这一边界；父级纠正后的运行证据单独记录，不由原切片的通过结果代替。
 4. **附带修复（同一 commit，issue #275 现场证据）**：`election_role` 用
    `get_state::<String>` 之后再 `serde_json::from_str::<ElectionRole>` 解析
    裸字符串，等于双重解码——任何已提交 role 都让 `election_status` 返回
@@ -81,11 +87,32 @@ Date: 2026-11-11. Branch: `fix/node-control-log-continuity-20261111` (base `orig
   等于原记录、`offered` 行内容等于来件；重复同一请求不重复留证。
 - `an_identical_replay_is_idempotent_not_a_conflict`：重放同一条 →
   `accepted=0`，reason `"accepted"`，日志长度 2、commit_index 2、无冲突证据。
+- `a_replay_does_not_promote_rows_above_the_recorded_commit_frontier`：模拟旧
+  writer 留下的记录前沿回退；重放不抬高返回的提交位置，不在既有行后隐式
+  扩展新尾部。
 - `a_contiguous_suffix_is_accepted_and_the_commit_index_advances`：
   `prev_index=1, entries=[index 2, index 3]` → `accepted=2`，`commit_index=3`，
   primary claim epoch=2。
 
-## 复现与判定命令（容器 `shenko-dev-persistent-20261026`，worktree 内）
+## 配置 push 的对应写入约束
+
+集成审查进一步确认 `bin/shenko/src/node_sync.rs` 的两个真实生产者均发送
+`control_log()` 完整日志；不需要稀疏配置条目的兼容路径。接收端现在要求
+非空的连续 `1..N`，且 N 覆盖已记录提交前沿与最高保留物理行；所有条目的
+证书、term 顺序与已保留字节在写入前统一核验。已提交前缀中缺少的字节、
+分歧与较短历史均拒绝，不凭配置 revision 创造日志位置。
+
+被宣告的配置 revision/digest/term 必须出现在验证过的配置日志条目中；
+不再先插入配置，再用刚插入的值证明自己。仅新插入条目应用效果，重放
+保持原事实。配置 revision 相同也可以接收更新的 primary 后缀，节点 term
+跟随已验证的日志；不能因 revision 相同而跳过真实 catch-up。新学到的
+配置在验证完成后保留来源 `committed_at`，不会改写已经保留的配置元数据。
+
+三个新增行为用例分别覆盖缺口拒绝、无对应日志的配置宣告拒绝，以及完整
+catch-up、重放与短前缀拒绝的连续过程。原跨进程 `partition_rejoin` 用例
+同时要求双方持有相同配置，能检出来源提交时间被本地时间替换的问题。
+
+## 原切片的复现与判定命令（容器 `shenko-dev-persistent-20261026`）
 
 ```
 export PATH=/usr/local/cargo/bin:$PATH
@@ -114,15 +141,32 @@ echo -n '{"command":"election_status"}' | shenko-node <dir>
 # 修复后：返回完整 election_status JSON
 ```
 
+## 父级最终验证
+
+最终源码的 `election.rs` SHA-256 为
+`2b31ff75f577c24ba61f635a64f2b91863c3acd9a032bbffaca746990acf5049`。
+容器内使用 `--offline --locked -j2`，逐条命令保留实际退出状态和运行前后
+源码哈希：
+
+- `cargo test -p shenko-node --lib election::tests`：14 passed，0 failed。
+  Cargo 的子串过滤还匹配了 6 条 `selection::tests`；8 条控制日志用例均通过。
+- `cargo test -p shenko-node --test partition_rejoin --test cognition_report --test reconciliation_receipts --test unit_uninstall_wire`：7 passed，0 failed。
+- `cargo check -p shenko`：exit 0，覆盖 CLI 对本次 Broker/Node 合同的消费者。
+
+原始日志与 receipt 已通过原容器与归档端的 SHA-256 比对，位置为
+`build/verification-retained-20261111-cb466628/manifest-final.json`。归档也保留
+了较早的回归 fixture 编译失败，以及跨进程检查发现来源提交时间被改成
+本地时间的失败；最终结果不由这些旧运行代替。R4 的 32 条库测试通过发生在
+时间元数据修正之前，最终相关路径由 R5 的上述检查覆盖。
+
 ## 本文件不证明什么
 
 - 不证明"全部共识/认证协议已验收"：证书与配置的密码学绑定（voter 身份、
   config_digest 的跨节点一致性、证书伪造抵抗）继续需要独立审查；本修复只
   保证 follower 复制路径的前缀连续与内容判等。
-- 不覆盖 `adopt_member_configuration`（push 路径）：它已经做了全内容判等
-  （`existing.term == entry.term && kind == payload`，冲突即 ensure 拒绝），
-  但其 `commit_index = max(entries.index)` 以及 `INSERT OR REPLACE` 不是本
-  issue 范围，未改动。
+- 配置 push 的历史字节缺口不自动补造。完整且匹配的显式 push 可以证明旧
+  前沿以上保留行所属的真实提交前缀；内容不匹配或已提交字节缺失仍须按
+  分支对账处理，不覆盖旧事实。
 - 机制测试在单节点私有 SQLite 上进行，不含真实 SSH 传输、不含多进程并发、
   不含宕机中点恢复；`partition_rejoin` 集成测试用独立进程验证了同一
   append/election_status 路径。

@@ -23,7 +23,8 @@ Files: `crates/shenko-broker/src/resource.rs`, `crates/shenko-broker/src/broker.
 - New fields `admission_gate: Mutex<()>` and `budget_changed: Notify` on `ResourceDomain`.
 - New `ComputeBudget { configured, active, unknown_charged, external_enforceable, external_advisory, available }`; `compute_budget()` is the single place the figure is computed: `available = configured − max(active, unknown_charged) − external_enforceable`. The `max` prevents double-billing an unknown charge that still holds its guard (guard retained occupancy in `active`, and `debt` records it again).
 - `ResourceDomain::try_admit()` locks `admission_gate`, checks `occupied + external_enforceable < configured` *inside the gate*, then delegates to `admission.try_admit()` — a concurrent external registration cannot squeeze past a checked admission.
-- `register_external_client` / `release_external_client` update the ledger and `budget_changed.notify_one()`. `external_reserved_units` (enforceable only) and `external_advisory_units` expose the ledger.
+- `register_external_client` / `release_external_client` take the same `admission_gate` before updating the ledger and notifying `budget_changed`. `external_reserved_units` (enforceable only) and `external_advisory_units` use saturating sums; large recorded reservations cannot wrap into apparent availability.
+- The raw `admission()` accessor is `pub(crate)`: external callers cannot bypass the domain's reservation-aware admission path. These two entry-point corrections were made during integration review of the original slice.
 - `effective_compute_capacity()` returns `budget.available` — the displayed bound and the enforced bound are the same number.
 - `recover_unknown()` delegates to `admission.recover_unknown()` (retained charge may exceed cap, blocks new work). `handoff_snapshot` now embeds `compute_budget`.
 - `Broker::run` calls `self.domain.try_admit()` (not `admission().try_admit()`) and `select!`s on `self.domain.budget_changed().notified()` so a released external reservation wakes queued work. `BrokerHandle::recover_unknown`/`register_recovered` route through `domain.recover_unknown()`; `handle.admission` is `pub(crate)` and only for reads (`active_count`/`capacity`). `handle.effective_capacity()` doc updated.
@@ -70,9 +71,22 @@ New tests and what they prove:
 
 The `ControlledProvider` fixture is fully scripted (semaphore gate, `starts` channel, `max_active` counter); no network is involved.
 
+## Parent integration verification
+
+Parent verification on `integration/correctness-20261111-r2` ran the entire
+broker package with the dispatch-classification repair and the additional
+`external_reservations_saturate_instead_of_wrapping_the_budget` regression:
+23 library + 17 KV capability + 1 unknown-read + 2 provider-usage tests passed
+(43 total, command exit 0). The parent also checked the `shenko` CLI consumers
+with `cargo check --offline --locked -p shenko -j2` (exit 0). Original logs,
+including failed and superseded node/fleet runs, are retained byte-for-byte
+under `build/verification-retained-20261111-cb466628/manifest-final.json`; its SHA-256
+entries were compared to the original container files. This is mechanism and
+compilation evidence, not a measurement of an external engine or client.
+
 ## What this file does not prove
 
-- **Whole-product regression.** The full `shenko-broker` package (lib + all integration tests) passes; other crates (`shenko-subject`, `shenko-store`, binaries) were not rebuilt or re-tested here; the integrator re-runs on the merged tree.
+- **Whole-product runtime regression.** The parent checked the CLI's downstream types and the entire broker package; it did not run every subject, Store or device scenario. These results do not establish whole-product acceptance.
 - **Real provider behavior.** `ControlledProvider` is a scripted fixture: tests prove the dispatch/budget mechanism, not that a real vLLM/HTTP engine actually reports an incarnation or that any real external client exists. No external network was used.
 - **`engine_identity` correctness.** The scoped-uniqueness rule assumes `engine_identity` is a faithful deployment-supplied identity. If two profiles report the same engine under *different* `engine_identity` strings (or a restart rotates `engine_identity`), the registry cannot detect they are one physical engine — that is the honest-degradation boundary, not a claimed guarantee.
 - **Adoption of these APIs.** `ResourceDomainRegistry::resolve`, `register_external_client`, `bind_alias`, `observe_incarnation` have no production callers in this snapshot (verified by workspace-wide grep): the defects were contract-level wrongness in APIs awaiting multi-profile/external-client wiring. The tests prove the mechanism end-to-end through the real `Broker::run` loop and the real registry, not that some existing call site now behaves differently — none exists yet.

@@ -106,8 +106,9 @@ impl ResourceDomain {
         self.identity.write().engine_incarnation = Some(incarnation.to_string());
     }
 
-    /// The compute budget of this domain.
-    pub fn admission(&self) -> &AdmissionController {
+    /// Shared accounting for the broker owner. External callers admit only
+    /// through `try_admit`, which includes this domain's reservations.
+    pub(crate) fn admission(&self) -> &AdmissionController {
         &self.admission
     }
 
@@ -149,6 +150,7 @@ impl ResourceDomain {
     }
 
     pub fn register_external_client(&self, usage: ExternalClientUsage) {
+        let _gate = self.admission_gate.lock();
         {
             let mut clients = self.external.write();
             clients.retain(|client| client.client_ref != usage.client_ref);
@@ -163,6 +165,7 @@ impl ResourceDomain {
     /// reservation existed. In-flight local requests keep their charges and
     /// nothing is claimed about the remote request having terminated.
     pub fn release_external_client(&self, client_ref: &str) -> bool {
+        let _gate = self.admission_gate.lock();
         let removed = {
             let mut clients = self.external.write();
             let before = clients.len();
@@ -183,7 +186,7 @@ impl ResourceDomain {
             .iter()
             .filter(|client| client.enforceable)
             .map(|client| client.units)
-            .sum()
+            .fold(0, u64::saturating_add)
     }
 
     /// Units external clients occupy that this product cannot enforce. They
@@ -196,7 +199,7 @@ impl ResourceDomain {
             .iter()
             .filter(|client| !client.enforceable)
             .map(|client| client.units)
-            .sum()
+            .fold(0, u64::saturating_add)
     }
 
     /// The one compute budget of this domain, owned here and read identically
@@ -717,6 +720,24 @@ mod tests {
         let held = domain.try_admit().expect("released reservation frees the slot");
         held.release_terminal();
         assert!(domain.try_admit().is_some(), "terminal release frees the slot");
+    }
+
+    #[test]
+    fn external_reservations_saturate_instead_of_wrapping_the_budget() {
+        let domain = domain("domain-a", "engine-a", Some("inc-1"), 2);
+        for name in ["ext-a", "ext-b"] {
+            domain.register_external_client(ExternalClientUsage {
+                client_ref: name.into(), units: u64::MAX, enforceable: true, evidence: None,
+            });
+        }
+        assert_eq!(domain.external_reserved_units(), u64::MAX);
+        assert_eq!(domain.compute_budget().available, Some(0));
+        assert!(domain.try_admit().is_none());
+        domain.release_external_client("ext-a");
+        assert!(domain.try_admit().is_none());
+        domain.release_external_client("ext-b");
+        domain.try_admit().unwrap().release_never_dispatched();
+        assert_eq!(domain.compute_budget().available, Some(2));
     }
 
     #[test]

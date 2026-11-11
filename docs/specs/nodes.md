@@ -31,10 +31,10 @@ a count of replicated agent processes (one replicated identity is one vote).
 
 ## Interfaces
 
-Library (`shenko-node`, all durable, additive storage schema 6):
+Library (`shenko-node`, all durable, additive storage schema 8):
 
 - Configuration: `ensure_member_configuration` (genesis `{self}`),
-  `adopt_member_configuration` (verified push), `member_configuration`,
+  `adopt_member_configuration` (verified push of the full committed prefix), `member_configuration`,
   `propose_member_change` / `propose_final_member_change` /
   `tally_member_change` (joint then final), `control_log`.
 - Election: `campaign`, `handle_vote_request`, `record_vote_response`,
@@ -46,6 +46,15 @@ Library (`shenko-node`, all durable, additive storage schema 6):
   entry is `prev_index + 1`, every later entry is one more than the one
   before it — and it is applied as a whole or refused as a whole.
   `control_log_conflicts` reads the refused divergences this node retained.
+- Configuration catch-up: a push supplies the full continuous log from index
+  1 and covers every retained index. It preserves identical committed bytes,
+  requires the advertised configuration to be committed by the supplied log,
+  and applies only newly inserted entries. Equal configuration revisions may
+  still carry a newer primary suffix. Empty, sparse, shorter or divergent
+  histories are refused atomically; configuration revision never substitutes
+  for a log index. Only the verified entries can establish a configuration;
+  a newly learned revision retains its originating `committed_at` metadata
+  after validation. Existing retained configuration metadata is not rewritten.
 - Partition/adoption/reconciliation: `open_availability_branch`, `branches`,
   `adopt_identity` (retains experience; records `AdoptionRecord` +
   `BranchFact`), `reconcile_peer_experience` (dedup by identity, conflicts
@@ -136,6 +145,12 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   node reconciles peer experience (events deduped by identity, conflicts as
   parallel facts) and may `adopt_identity` to resume one self, retaining all
   experience.
+- A legacy hole inside the recorded committed prefix is refused on catch-up;
+  the receiver cannot recreate missing committed bytes or erase a divergence.
+  Matching retained rows above the old frontier can be certified only by an
+  explicit verified full-prefix push, never by an append replay or presence
+  alone. Such a push must cover the highest retained row and cannot rewind
+  the recorded frontier.
 - Reconciliation retains each complete peer result receipt in the existing
   receipt journal, in the same transaction as its reconciliation record.
   `ExportReceipts` can read the original ticket, output digest and source
