@@ -407,34 +407,6 @@ pub struct SeatObservation {
     pub raw_evidence: Vec<u8>,
 }
 
-/// The operations SPEC §17.1 requires the plugin to offer. `read` operations
-/// never touch the seat's input path; `write` operations are the ones a
-/// writer lease and a preflight guard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SeatOperation {
-    Discover,
-    Inspect,
-    Attach,
-    Submit,
-    Steer,
-    Interrupt,
-    ReadEvents,
-    Respond,
-    Resume,
-    Detach,
-}
-
-impl SeatOperation {
-    /// Whether this operation writes into the seat.
-    pub fn writes_to_seat(self) -> bool {
-        matches!(
-            self,
-            Self::Submit | Self::Steer | Self::Interrupt | Self::Respond
-        )
-    }
-}
-
 /// The writer authority a write travels with — SPEC §17.1, §35.5, §41.11.
 ///
 /// The fence is not a local pre-check: it is the authority the adapter
@@ -547,6 +519,9 @@ pub trait SeatAdapter: Send + Sync + std::any::Any {
     fn capability(&self) -> SeatCapability;
     /// Find the seats this adapter can currently see.
     async fn discover(&self) -> Result<Vec<SeatHandle>>;
+    /// Observe whether the owned process/channel/pane still exists. This is
+    /// a transport fact, not protocol readiness or completion of remote work.
+    async fn transport_live(&self, seat: &SeatHandle) -> Result<bool>;
     /// Read the current state of one seat.
     async fn observe(&self, seat: &SeatHandle) -> Result<SeatObservation>;
     /// Map a decision onto the exact bytes that will be written.

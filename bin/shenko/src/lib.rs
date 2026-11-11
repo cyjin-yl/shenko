@@ -1144,7 +1144,7 @@ async fn install_native_definitions(
     // SSH PTY, managed OMP/Claude seats and seat question/answer operations
     // share one live seat owner.
     let seat_runtime = Arc::new(shenko_exec_ssh::seat::runtime::SeatRuntime::new(Arc::clone(store)));
-    let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 6] = [
+    let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 7] = [
         Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
         Arc::new(shenko_exec_ssh::SshPtyHandler::new(
             Arc::clone(store),
@@ -1163,6 +1163,10 @@ async fn install_native_definitions(
             Arc::clone(&seat_runtime),
         )),
         Arc::new(shenko_exec_ssh::SeatRespondHandler::new(
+            Arc::clone(store),
+            Arc::clone(&seat_runtime),
+        )),
+        Arc::new(shenko_exec_ssh::SeatFleetHandler::new(
             Arc::clone(store),
             Arc::clone(&seat_runtime),
         )),

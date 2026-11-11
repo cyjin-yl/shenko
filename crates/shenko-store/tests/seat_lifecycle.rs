@@ -80,6 +80,38 @@ fn relocation_preserves_history_and_invalidates_previous_location_lease() {
 }
 
 #[test]
+fn fleet_inventory_retains_history_and_bounds_rows_with_a_truncation_witness() {
+    let dir = std::env::temp_dir().join(format!("shenko-seat-fleet-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let task = EntityId::new();
+    let first = store.register_seat(EntityId::new(), task, "omp", "1", location("%1")).unwrap();
+    let successor = store.relocate_seat(first.seat_id, task, "omp", "1", location("%2")).unwrap();
+    let inventory = store.seat_fleet_summary(Some(task)).unwrap();
+    // Relocation updates both records in one commit; UUID order breaks that
+    // tie. The consumer contract is preserved history and current status.
+    let current = inventory.iter().find(|seat| seat.seat_id == successor.seat_id).unwrap();
+    let predecessor = inventory.iter().find(|seat| seat.seat_id == first.seat_id).unwrap();
+    assert_eq!(current.status, SeatStatus::Active);
+    assert_eq!(predecessor.status, SeatStatus::Retired);
+    assert_eq!(current.open_question_count, 0);
+    let other_task = EntityId::new();
+    let other = store.register_seat(EntityId::new(), other_task, "omp", "1", location("%other")).unwrap();
+    let all = store.seat_fleet_summary(None).unwrap();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].seat_id, other.seat_id);
+    assert_eq!(all[0].task_id, other_task);
+    assert_eq!(store.seat_fleet_summary(Some(task)).unwrap().len(), 2);
+    for n in 3..=40 {
+        store.register_seat(EntityId::new(), task, "omp", "1", location(&format!("%{n}"))).unwrap();
+    }
+    let bounded = store.seat_fleet_summary(Some(task)).unwrap();
+    assert_eq!(bounded.len(), shenko_store::SEAT_FLEET_LIMIT + 1);
+    assert!(bounded.iter().all(|seat| seat.last_observed_at.is_none()));
+    assert!(store.seat_fleet_summary(Some(EntityId::new())).unwrap().is_empty());
+}
+
+#[test]
 fn pane_admits_only_one_active_seat_for_registration_and_relocation() {
     let dir = std::env::temp_dir().join(format!("shenko-seat-{}", EntityId::new()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -206,6 +206,36 @@ pub struct SeatRecord {
     pub updated_commit: CommitRef,
 }
 
+/// A bounded inventory page includes one extra row to reveal truncation.
+pub const SEAT_FLEET_LIMIT: usize = 32;
+
+/// Credential-free durable facts about a task's seat. Stored seat and question
+/// revisions do not attest transport liveness or an observation timestamp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeatFleetEntry {
+    pub seat_id: EntityId,
+    pub task_id: EntityId,
+    pub adapter: String,
+    pub adapter_version: String,
+    pub location_summary: String,
+    pub status: SeatStatus,
+    pub open_question_count: u64,
+    pub last_observed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl SeatLocation {
+    fn fleet_summary(&self, seat_id: EntityId) -> String {
+        match self {
+            Self::Tmux { host, pane_id, .. } => format!("tmux pane {pane_id} on {host}"),
+            Self::SshPty { host, port, .. } => format!("SSH PTY seat {seat_id} on {host}:{port}"),
+            // A managed session anchor may be the original command line. It
+            // must not copy command arguments or credentials into inventory.
+            Self::OmpRpc { host, .. } => format!("OMP seat {seat_id} on {host}"),
+            Self::ClaudeSdk { host, .. } => format!("Claude seat {seat_id} on {host}"),
+        }
+    }
+}
+
 /// Durable writer lease — SPEC §17.1 单写者.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeatLease {
@@ -1481,6 +1511,44 @@ impl Store {
         rows.iter()
             .map(|d| serde_json::from_str(d).map_err(Into::into))
             .collect()
+    }
+
+    /// Newest seats and their open questions in one bounded query, optionally
+    /// filtered by owning task. Enumeration itself needs no prior task UUID.
+    /// The 33rd row is a truncation witness, not a second page silently lost.
+    pub fn seat_fleet_summary(&self, task_id: Option<EntityId>) -> Result<Vec<SeatFleetEntry>> {
+        let conn = self.ledger.conn.lock();
+        let mut query = conn.prepare(
+            "WITH selected AS (
+                 SELECT seat_id, data, updated_commit_seq FROM seat_records
+                 WHERE (?1 IS NULL OR task_id=?1)
+                 ORDER BY updated_commit_seq DESC, seat_id
+                 LIMIT ?2
+             )
+             SELECT s.data, COUNT(q.question_id)
+             FROM selected s
+             LEFT JOIN seat_questions q ON q.seat_id=s.seat_id AND q.state='open'
+             GROUP BY s.seat_id
+             ORDER BY s.updated_commit_seq DESC, s.seat_id",
+        )?;
+        let rows = query.query_map(
+            params![task_id.map(|id| id.to_string()), (SEAT_FLEET_LIMIT + 1) as i64],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)),
+        )?;
+        rows.map(|row| {
+            let (data, open_question_count) = row?;
+            let seat: SeatRecord = serde_json::from_str(&data)?;
+            Ok(SeatFleetEntry {
+                seat_id: seat.seat_id,
+                task_id: seat.task_id,
+                location_summary: seat.location.fleet_summary(seat.seat_id),
+                adapter: seat.adapter,
+                adapter_version: seat.adapter_version,
+                status: seat.status,
+                open_question_count,
+                last_observed_at: None,
+            })
+        }).collect()
     }
 
     /// Follow the supersedes chain to the latest record for the

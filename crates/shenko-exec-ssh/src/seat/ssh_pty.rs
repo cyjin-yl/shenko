@@ -195,6 +195,10 @@ impl SeatAdapter for SshPtySeat {
         Ok(vec![self.handle.clone()])
     }
 
+    async fn transport_live(&self, _seat: &SeatHandle) -> Result<bool> {
+        Ok(self.is_stream_open())
+    }
+
     async fn observe(&self, seat: &SeatHandle) -> Result<SeatObservation> {
         let grid = self.screen.lock().await.grid();
         let questions = infer_questions(&grid, seat);
