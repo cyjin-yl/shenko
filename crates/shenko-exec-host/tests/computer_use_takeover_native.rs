@@ -95,7 +95,7 @@
 //! A missing prerequisite or a lost capability fails RED with
 //! `INCONCLUSIVE (no pass)` and a retained `receipt.json`; it can never
 //! return success. The evidence root defaults to
-//! `<project>/build/computer-use-takeover-native`, resolved by the `docs/contract-migration.json`
+//! `<project>/build/computer-use-takeover-native`, resolved by the `docs/contracts.json`
 //! marker (so it never lands inside the source worktree);
 //! `SHENKO_TAKEOVER_EVIDENCE_DIR` overrides it. Each run retains its own
 //! directory with `receipt.json`, the observation CAS (`store/`) and the
@@ -456,7 +456,7 @@ fn evidence_root() -> PathBuf {
     if let Ok(dir) = std::env::var("SHENKO_TAKEOVER_EVIDENCE_DIR") {
         return PathBuf::from(dir);
     }
-    // Resolve the project root by the docs/contract-migration.json marker, not by a fixed number
+    // Resolve the project root by the docs/contracts.json marker, not by a fixed number
     // of `..` steps: the crate is built both inside `worktrees/<name>` and in
     // a plain clone. Evidence stays outside the source tree either way.
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -465,7 +465,7 @@ fn evidence_root() -> PathBuf {
         for _ in 0..depth {
             root.pop();
         }
-        if root.join("docs/contract-migration.json").is_file() {
+        if root.join("docs/contracts.json").is_file() {
             return root.join("build/computer-use-takeover-native");
         }
     }

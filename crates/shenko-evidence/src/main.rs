@@ -12,7 +12,7 @@
 //! and never rewrites the record it corrects.
 //!
 //! Usage:
-//!   shenko-evidence --spec docs/contract-migration.json --evidence-dir docs/evidence \
+//!   shenko-evidence --spec docs/contracts.json --evidence-dir docs/evidence \
 //!       [--candidate-commit <sha>] [--json build/spec-obligation-report.json] \
 //!       [--long-run <report.json>=<sha256>]...
 //!   shenko-evidence --evidence-dir docs/evidence --withdraw <evidence-id> \
@@ -30,7 +30,7 @@ use std::process::ExitCode;
 use shenko_evidence::contract_input::read_contract_input;
 use shenko_evidence::{CorrectionRequest, LongRunInput, ReportInputs, analyze, write_correction};
 
-const USAGE: &str = "usage: shenko-evidence --spec <docs/contract-migration.json|contract.md> --evidence-dir <dir> \
+const USAGE: &str = "usage: shenko-evidence --spec <docs/contracts.json|contract.md> --evidence-dir <dir> \
 [--candidate-commit <sha>] [--json <out.json>] [--long-run <report.json>=<sha256>]... \
 | shenko-evidence --evidence-dir <dir> --withdraw <evidence-id> --reason <text> \
 --source-sha256 <sha256> [--superseded-by <evidence-id>] [--json <out.json>]";

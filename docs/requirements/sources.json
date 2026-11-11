@@ -1067,5 +1067,5 @@
       "source_row": "| REF-AGENT-SKILLS | UPSTREAM；官方 Agent Skills 与仓库指令文档 | [OpenAI Skills](https://developers.openai.com/codex/skills)、[OpenAI AGENTS.md](https://developers.openai.com/codex/guides/agents-md)、[Claude Skills](https://code.claude.com/docs/en/skills)、[Claude memory](https://code.claude.com/docs/en/memory)、[Agent Skills 规范](https://agentskills.io/specification)；核验 2026-10-22 | SKILL.md/name/description 的共同格式、宿主目录发现、符号链接与必读入口；具体哲学/原子分工和无人工 gate 为用户要求及 Shenko 设计。写入文件不等于两个宿主已实际运行。 |"
     }
   ],
-  "contract_manifest": "docs/contract-migration.json"
+  "contract_manifest": "docs/contracts.json"
 }

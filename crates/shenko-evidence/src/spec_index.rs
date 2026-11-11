@@ -21,7 +21,7 @@ pub struct AcceptanceCase {
     /// True when the SPEC row merges scenario and pass condition into one
     /// cell, so no separate pass condition can be read from the table.
     pub merged_row: bool,
-    /// Line in the parsed contract text (1-based). Manifest reports also carry
+    /// Line in the parsed contract text (1-based). Inventory reports also carry
     /// the actual document path and Markdown line.
     pub spec_line: usize,
     /// The verbatim SPEC row.
@@ -79,8 +79,8 @@ pub struct IndexCounts {
 impl SpecIndex {
     /// Parse the SPEC markdown text.
     ///
-    /// `spec_text` contains current contract tables (one document or manifest
-    /// blocks composed in source order). Rows are recognised by their
+    /// `spec_text` contains current contract tables (one document or complete
+    /// documents composed in inventory order). Rows are recognised by their
     /// leading ID cell, so the parser follows the SPEC's own table structure
     /// instead of a fixed list of IDs.
     pub fn parse(spec_text: &str) -> Result<SpecIndex, IndexError> {

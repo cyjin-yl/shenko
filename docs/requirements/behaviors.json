@@ -1477,5 +1477,5 @@
       "source_path": "docs/requirements/design-provenance.md"
     }
   ],
-  "contract_manifest": "docs/contract-migration.json"
+  "contract_manifest": "docs/contracts.json"
 }

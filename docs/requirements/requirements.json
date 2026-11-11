@@ -3109,5 +3109,5 @@
       "source_markdown_line": 246
     }
   ],
-  "contract_manifest": "docs/contract-migration.json"
+  "contract_manifest": "docs/contracts.json"
 }

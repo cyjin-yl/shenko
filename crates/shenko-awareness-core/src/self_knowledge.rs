@@ -454,7 +454,7 @@ impl SelfKnowledgeProvider {
     /// not here.
     pub fn install_source_index(&self, root: &Path, revision: &str) -> anyhow::Result<usize> {
         // Resolve the current documentation before replacing the old index.
-        // An unreadable or invalid manifest is not evidence that the old root
+        // An unreadable or invalid inventory is not evidence that the old root
         // documents still describe the running tree.
         let mut entries = if root.is_dir() {
             collect_current_documents(root)?
@@ -555,17 +555,12 @@ impl SelfKnowledgeProvider {
     }
 }
 
-/// The migration manifest identifies current domain text, not its archived
-/// sources. Only the fields needed for discovery belong in this reader.
+/// The current contract inventory identifies live domain documents. Discovery
+/// does not depend on the historical migration ledger or its archived sources.
 #[derive(Deserialize)]
 struct ContractDocuments {
     schema_version: u32,
-    chunks: Vec<ContractDocument>,
-}
-
-#[derive(Deserialize)]
-struct ContractDocument {
-    path: String,
+    documents: Vec<String>,
 }
 
 fn historical_document(path: &Path) -> bool {
@@ -579,13 +574,13 @@ fn collect_current_documents(
 ) -> anyhow::Result<Vec<(String, SelfResourceKind, String)>> {
     use anyhow::Context;
 
-    let manifest_path = root.join("docs/contract-migration.json");
-    let bytes = std::fs::read(&manifest_path)
-        .with_context(|| format!("cannot read current contract manifest {}", manifest_path.display()))?;
-    let manifest: ContractDocuments = serde_json::from_slice(&bytes)
-        .context("invalid current contract manifest")?;
-    anyhow::ensure!(manifest.schema_version == 1, "unsupported current contract manifest schema");
-    anyhow::ensure!(!manifest.chunks.is_empty(), "current contract manifest has no document targets");
+    let inventory_path = root.join("docs/contracts.json");
+    let bytes = std::fs::read(&inventory_path)
+        .with_context(|| format!("cannot read current contract inventory {}", inventory_path.display()))?;
+    let inventory: ContractDocuments = serde_json::from_slice(&bytes)
+        .context("invalid current contract inventory")?;
+    anyhow::ensure!(inventory.schema_version == 1, "unsupported current contract inventory schema");
+    anyhow::ensure!(!inventory.documents.is_empty(), "current contract inventory has no document targets");
 
     let mut entries = Vec::new();
     let mut seen = HashSet::new();
@@ -596,18 +591,18 @@ fn collect_current_documents(
             entries.push((name.to_string(), SelfResourceKind::Docs, path.to_string_lossy().into_owned()));
         }
     }
-    for chunk in manifest.chunks {
-        let relative = Path::new(&chunk.path);
+    for document in inventory.documents {
+        let relative = Path::new(&document);
         anyhow::ensure!(
             relative.starts_with("docs")
                 && relative.components().all(|component| matches!(component, Component::Normal(_)))
                 && relative.extension().is_some_and(|extension| extension == "md")
                 && !historical_document(relative),
-            "invalid current contract target: {}", chunk.path
+            "invalid current contract target: {}", document
         );
-        if seen.insert(chunk.path.clone()) {
+        if seen.insert(document.clone()) {
             let path = root.join(relative);
-            entries.push((chunk.path, SelfResourceKind::Design, path.to_string_lossy().into_owned()));
+            entries.push((document, SelfResourceKind::Design, path.to_string_lossy().into_owned()));
         }
     }
     Ok(entries)

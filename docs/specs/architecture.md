@@ -425,7 +425,7 @@ Shenko 的认知架构从人类心智和认知科学出发设计，不从模型�
 <!-- migrated-contract: SPEC:54.4 -->
 ## 54.4 更好的 Awareness 与 Perception
 
-[§51.1](cognition-units.md#spec-51-1)、[§51.3](cognition-units.md#spec-51-3) 把 awareness 从文档降级为能力、把态度从 metadata 升级为一等记录。这是起点，不是终点。目标是让 Shenko 的 awareness 和 perception 持续演进：
+[§51.1](cognition-units.md#spec-51-1)–[§51.3](cognition-units.md#spec-51-3) 把 awareness 从文档降级为能力、把态度从 metadata 升级为一等记录。这是起点，不是终点。目标是让 Shenko 的 awareness 和 perception 持续演进：
 
 - **Awareness 自主习得**（[§51.4](cognition-units.md#spec-51-4)）：主体可以从经验中学到新的 awareness 原子，不只是安装预写的单元。
 - **Perception 多源融合**：环境感知（[§44](plugins.md#spec-44)）、时间感知（[§43](configuration-playground.md#spec-43)）、社交感知（[§42](quota-resources.md#spec-42)）、通道状态（[§52](channels.md#spec-52)）、资源压力（[§51.7](cognition-units.md#spec-51-7) 存储压力）都作为感知输入，主体自主综合判断。

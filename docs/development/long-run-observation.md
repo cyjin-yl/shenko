@@ -60,7 +60,7 @@ python3 -I scripts/observe_longrun.py report --dir /path/run-dir \
   --require-observed --write
 
 # 4. 义务报告消费报告（只读；绑定调用方期望的摘要）
-shenko-evidence --spec docs/contract-migration.json --evidence-dir docs/evidence \
+shenko-evidence --spec docs/contracts.json --evidence-dir docs/evidence \
   --candidate-commit <sha> --long-run /path/run-dir/reports/report-<stamp>.json=<sha256> \
   --json build/spec-obligation-report.json
 ```

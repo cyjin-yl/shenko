@@ -54,7 +54,7 @@ use std::path::Path;
 /// Everything the report needs to know about where its inputs live.
 #[derive(Debug, Clone)]
 pub struct ReportInputs<'a> {
-    /// Current contract text (assembled from docs when using a manifest).
+    /// Current contract text (assembled from the full current-document inventory).
     pub spec_text: &'a str,
     /// The directory holding the retained evidence records.
     pub evidence_dir: &'a Path,

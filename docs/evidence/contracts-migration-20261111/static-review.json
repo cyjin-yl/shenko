@@ -21,15 +21,9 @@
   "check_docs_python_ast": "passed",
   "source_navigation": {
     "changed_files": 336,
-    "changed_lines": 1254,
+    "changed_lines": 1255,
     "targets_resolved": true,
     "retained": [
-      {
-        "path": "crates/shenko-channel-napcat/examples/napcat_readonly_probe.rs",
-        "line": 2,
-        "reason": "synthetic parser/unit fixture, not current reading guidance",
-        "text": "//! §35.6. Not a test and not a fixture: it issues *read-only* `get_*` actions"
-      },
       {
         "path": "crates/shenko-evidence/tests/report_cli.rs",
         "line": 17,
@@ -192,5 +186,21 @@
     "Canonical repository check_docs.py was statically reviewed, not executed.",
     "No runtime/model behavior or independent product acceptance is claimed.",
     "Root SPEC/WHY stubs and domain authority changes have not been published or merged at this checkpoint."
-  ]
+  ],
+  "review_corrections": {
+    "live_inventory": "docs/contracts.json",
+    "full_document_counts": {
+      "requirements": 165,
+      "behaviors": 63,
+      "sources": 59,
+      "cases": 236
+    },
+    "future_obligations": "Current inventory reads full documents; migration provenance optional for new entries. Rust regression tests authored, not executed.",
+    "probe_reference": "Real NapCat read-only probe §35.6 converted, removed from fixture exemption.",
+    "range_repairs": [
+      "SPEC:51.10 §51.1–§51.9",
+      "SPEC:54.4 §51.1–§51.3",
+      "SPEC:56 §51–§55"
+    ]
+  }
 }

@@ -5618,5 +5618,5 @@
       }
     }
   ],
-  "contract_manifest": "docs/contract-migration.json"
+  "contract_manifest": "docs/contracts.json"
 }

@@ -35,8 +35,8 @@ def outside_fences(text):
         if fence is None:
             yield number, line
 
-# Root SPEC/WHY are navigation only. The migration manifest names every
-# authoritative moved block and retains the complete, immutable input snapshots.
+# Root SPEC/WHY are navigation only. This migration ledger audits original
+# preservation; the separate live inventory below defines the current input.
 migration = read_json('docs/contract-migration.json')
 check(migration.get('schema_version') == 1, 'Unsupported contract migration schema')
 originals = {}
@@ -52,6 +52,8 @@ for original in migration['originals']:
     originals[name] = data
 check(set(originals) == {'SPEC.md', 'WHY.md'}, 'Migration must preserve both source documents')
 
+# One-time migration proof is opt-in; ordinary checks permit contract evolution.
+verify_migration = '--verify-migration' in sys.argv[1:]
 chunk_ids = set()
 contract_texts = {}
 contract_chunks = {}
@@ -65,6 +67,17 @@ for chunk in migration['chunks']:
     relative = Path(chunk['path'])
     check(relative.parts[:1] == ('docs',) and '..' not in relative.parts,
           f'Migrated contract outside docs: {relative}')
+    source_lines = originals[original].splitlines(keepends=True)
+    start, end = chunk['start_line'], chunk['end_line']
+    check(1 <= start <= end <= len(source_lines), f'Invalid source extent: {cid}')
+    source_bytes = b''.join(source_lines[start - 1:end])
+    check(hashlib.sha256(source_bytes).hexdigest() == chunk['source_sha256'],
+          f'Migration source checksum mismatch: {cid}')
+    contract_texts.setdefault(original, []).append((start, end, source_bytes))
+    # Only the migration checkpoint verifies current markers/hashes. The one
+    # immutable user-quotation block is preserved separately from live clauses.
+    if not verify_migration and cid != 'SPEC:33':
+        continue
     path = ROOT / relative
     text = path.read_text()
     matches = list(re.finditer(
@@ -76,16 +89,10 @@ for chunk in migration['chunks']:
         continue
     match = matches[0]
     body = match.group(1)
-    check(hashlib.sha256(body.encode()).hexdigest() == chunk['migrated_sha256'],
-          f'Migrated contract checksum mismatch: {cid}')
-    source_lines = originals[original].splitlines(keepends=True)
-    start, end = chunk['start_line'], chunk['end_line']
-    check(1 <= start <= end <= len(source_lines), f'Invalid source extent: {cid}')
-    source_bytes = b''.join(source_lines[start - 1:end])
-    check(hashlib.sha256(source_bytes).hexdigest() == chunk['source_sha256'],
-          f'Migration source checksum mismatch: {cid}')
+    if verify_migration:
+        check(hashlib.sha256(body.encode()).hexdigest() == chunk['migrated_sha256'],
+              f'Migrated contract checksum mismatch: {cid}')
     contract_chunks[cid] = body
-    contract_texts.setdefault(original, []).append((start, end, body))
     # User utterances retain their original bytes, including historical links.
     if cid == 'SPEC:33':
         check(body.encode() == source_bytes, 'Original user utterances changed during migration')
@@ -101,7 +108,29 @@ for name, data in originals.items():
         cursor = end + 1
     check(cursor == len(data.splitlines()) + 1, f'Migration does not cover all of {name}')
 
-spec = ''.join(body for _, _, body in sorted(contract_texts.get('SPEC.md', [])))
+# Current definitions come from complete live documents, never migration slices.
+inventory = read_json('docs/contracts.json')
+check(inventory.get('schema_version') == 1, 'Unsupported current contract inventory')
+documents = inventory.get('documents', [])
+check(bool(documents) and len(documents) == len(set(documents)), 'Empty/duplicate current contracts')
+current_texts = []
+for document in documents:
+    if not isinstance(document, str):
+        check(False, 'Non-string current contract document')
+        continue
+    path = ROOT / document
+    valid = (isinstance(document, str) and document.startswith('docs/')
+             and '..' not in Path(document).parts and path.is_file()
+             and path.resolve().is_relative_to((ROOT / 'docs').resolve())
+             and not path.resolve().is_relative_to((ROOT / 'docs/history').resolve())
+             and not path.resolve().is_relative_to((ROOT / 'docs/research/archive').resolve()))
+    check(valid, f'Invalid current contract document: {document}')
+    if valid:
+        current_texts.append(path.read_text())
+if verify_migration:
+    check({chunk['path'] for chunk in migration['chunks']} <= set(documents),
+          'Current inventory drops a migrated document')
+spec = '\n\n'.join(current_texts)
 spec_bytes = originals['SPEC.md']
 rows = list(outside_fences(spec))
 requirements = read_json('docs/requirements/requirements.json')
@@ -117,14 +146,14 @@ for label, index in (('requirements', requirements), ('behaviors', behaviors),
                      ('sources', sources), ('cases', cases)):
     check(index.get('schema_version') == 2, f'{label}: index schema not migrated')
     check(index.get('spec_path') == 'docs/INDEX.md', f'{label}: obsolete root authority')
-    check(index.get('contract_manifest') == 'docs/contract-migration.json',
+    check(index.get('contract_manifest') == 'docs/contracts.json',
           f'{label}: contract manifest missing')
     for item in index['items']:
         identity = item.get('id', item.get('case_id'))
         source = item.get('source_path', '')
         number = item.get('source_markdown_line')
         source_path = ROOT / source
-        check(source.startswith('docs/') and source_path.is_file(),
+        check(source in documents and source_path.is_file(),
               f'{identity}: current source document missing')
         if not source_path.is_file():
             continue
@@ -135,7 +164,8 @@ for label, index in (('requirements', requirements), ('behaviors', behaviors),
             check(lines[number - 1] == item.get('source_row'),
                   f'{identity}: source row does not match current document')
         prior = item.get('migration_source')
-        check(isinstance(prior, dict), f'{identity}: original source provenance missing')
+        # New domain-native obligations need no fabricated migration provenance.
+        check(prior is None or isinstance(prior, dict), f'{identity}: invalid provenance')
         if isinstance(prior, dict):
             old_path = prior.get('source_path', prior.get('path'))
             old_line = prior.get('source_markdown_line', prior.get('line'))

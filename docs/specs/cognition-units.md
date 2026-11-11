@@ -1250,7 +1250,7 @@ WASM 线性内存、执行栈和解释器对象图都在这个版本化根里。
 <!-- migrated-contract: SPEC:51.10 -->
 ## 51.10 读法治理
 
-2026-11-06 的读法治理。不改 [§1](architecture.md#spec-1)–[§47](inference.md#spec-47) 的字节。那些章节里的历史句子继续留在原地。与本节或 [§51.1](cognition-units.md#spec-51-1)、[§51.9](cognition-units.md#spec-51-9) 冲突时，以本节和 [决策 0003](../decisions/0003-spec-governance-2026-11-06.md) 的现行读法为准，不把旧句涂掉。
+2026-11-06 的读法治理。不改 [§1](architecture.md#spec-1)–[§47](inference.md#spec-47) 的字节。那些章节里的历史句子继续留在原地。与本节或 [§51.1](cognition-units.md#spec-51-1)–[§51.9](cognition-units.md#spec-51-9) 冲突时，以本节和 [决策 0003](../decisions/0003-spec-governance-2026-11-06.md) 的现行读法为准，不把旧句涂掉。
 
 - [§45.1](cognition-units.md#spec-45-1) 与 [§48.3](architecture.md#spec-48-3) 的旧句把 awareness 写成读过就会遵守的文档。现行读法：awareness 是能力；文档与外部 watcher 的 notice 是会变薄的 harness。[§48.3](architecture.md#spec-48-3) 已有一句取代说明，原文保留。
 - [§10.1](durable-state.md#spec-10-1) 把快照写成文件状态，并把身份、原始会话和副作用回执排除在沙箱倒退之外。现行读法：外部副作用不撤回；回滚后 `agent_id` 保持切换前的值；原始会话留在只增日志里，不因回滚被涂掉。WASM 线性内存、执行栈和解释器对象图纳入自有版本化根，不再被「快照不是 CPU 内存」排除在回滚目标之外。一次文件快照仍然不能假装撤销已经发出的消息。

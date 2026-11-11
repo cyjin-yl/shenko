@@ -201,7 +201,7 @@
 <!-- migrated-contract: SPEC:56 -->
 # 56 验收追踪矩阵 / Acceptance Traceability Matrix
 
-[§32](traceability.md#spec-32) 的需求矩阵追踪到 R 编号；本节把 [§51](../specs/cognition-units.md#spec-51)、[§55](../specs/verification.md#spec-55) 的认知与自主条款映射到当前实现面与证据，作为下一轮验收的对照表。状态由证据目录（`build/`）与原生验证结果判定，不由「代码存在」判定。
+[§32](traceability.md#spec-32) 的需求矩阵追踪到 R 编号；本节把 [§51](../specs/cognition-units.md#spec-51)–[§55](../specs/verification.md#spec-55) 的认知与自主条款映射到当前实现面与证据，作为下一轮验收的对照表。状态由证据目录（`build/`）与原生验证结果判定，不由「代码存在」判定。
 
 | 条款 | 实现面 | 验收状态 | 备注 |
 |---|---|---|---|

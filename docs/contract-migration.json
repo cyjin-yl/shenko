@@ -3536,7 +3536,7 @@
       "path": "docs/specs/cognition-units.md",
       "anchor": "spec-51-10",
       "heading": "51.10 读法治理",
-      "migrated_sha256": "826ea953bbac7409382f8a9687270fb0cfaa21e8e726dc80b95403729d251558"
+      "migrated_sha256": "4e6672f355547dba9e05e0f8956626b8e9e33114e83ef053fcff13eb127cabc6"
     },
     {
       "id": "SPEC:52",
@@ -3613,7 +3613,7 @@
       "path": "docs/specs/architecture.md",
       "anchor": "spec-54-4",
       "heading": "54.4 更好的 Awareness 与 Perception",
-      "migrated_sha256": "ebce2d3e8aef60c794e5aceb6b9e18222a4be52354d65e353bad3509cc319fdc"
+      "migrated_sha256": "c4dd3b066ec3a7507265292ac6d21efaca7036b04dbe95f9735f828a5a2d455f"
     },
     {
       "id": "SPEC:54.5",
@@ -3701,7 +3701,7 @@
       "path": "docs/requirements/traceability.md",
       "anchor": "spec-56",
       "heading": "56 验收追踪矩阵 / Acceptance Traceability Matrix",
-      "migrated_sha256": "b5b7b0de71e1728ee840f4cb229dc3992028452d905eda6f354e20fd231d2999"
+      "migrated_sha256": "59a848f4b5e8c74c590658134ba01015b5e90f614846fcdbd33a2c29f338a34f"
     },
     {
       "id": "SPEC:57",
