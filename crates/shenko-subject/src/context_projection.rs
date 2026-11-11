@@ -19,6 +19,22 @@ use crate::loop_runner::{SubjectLoopState, build_system_prompt, stable_system_pr
 /// evaluation samples this exact sentence.
 pub const IDLE_CONTINUATION_PROMPT: &str = "[运行时连续思考提示；不是新外部消息] 继续。";
 
+/// Project advertised limits into the input budget left after output is reserved.
+/// Unknown provider context stays unknown; callers reject an exhausted budget.
+pub fn input_model_caps(
+    capabilities: &ProviderCapabilities,
+    reserved_output_tokens: u32,
+) -> Option<ModelCaps> {
+    capabilities.max_context_tokens.filter(|limit| *limit > 0).map(|max_context| ModelCaps {
+        model_id: capabilities.binding.model().into(),
+        max_context: max_context.saturating_sub(reserved_output_tokens),
+        vision: capabilities.vision.map(|vision| VisionCaps {
+            max_image_context: vision.max_image_context.saturating_sub(reserved_output_tokens),
+            patch_px: vision.patch_px,
+        }),
+    })
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub(super) enum ContextSelection {
@@ -774,24 +790,10 @@ pub(super) fn prepare_context(
     let scope_id = EntityId(state.head.branch_id.0);
     let source = StoreHistory::new(Arc::clone(&state.store), scope_id, Arc::new(estimate_tokens));
     let history = BoundedHistory { leaf: source.leaf_seq().map_err(storage)?, history: &source };
-    let advertised_caps = state.model_capabilities.as_ref().and_then(|caps|
-        caps.max_context_tokens.filter(|limit| *limit > 0).map(|max_context| ModelCaps {
-            model_id: caps.binding.model().into(), max_context,
-            vision: caps.vision.as_ref().map(|vision| VisionCaps {
-                max_image_context: vision.max_image_context, patch_px: vision.patch_px,
-            }),
-        })
-    );
     let reserved_output_tokens = u32::try_from(state.max_tokens)
         .map_err(|_| ShenkoError::conflict("output reservation exceeds token budget type"))?;
-    let caps = advertised_caps.as_ref().map(|caps| ModelCaps {
-        model_id: caps.model_id.clone(),
-        max_context: caps.max_context.saturating_sub(reserved_output_tokens),
-        vision: caps.vision.map(|vision| VisionCaps {
-            max_image_context: vision.max_image_context.saturating_sub(reserved_output_tokens),
-            patch_px: vision.patch_px,
-        }),
-    });
+    let caps = state.model_capabilities.as_deref()
+        .and_then(|caps| input_model_caps(caps, reserved_output_tokens));
     if caps.as_ref().is_some_and(|caps| caps.max_context == 0) {
         return Err(ShenkoError::conflict("output reservation leaves no input context"));
     }

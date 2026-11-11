@@ -3011,6 +3011,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone())
             .with_stream_sinks(stream_journal, Some(stream_public));
+            let reserved_output_tokens = loop_state.max_tokens;
 
             // Connector/ACK storage failures also stop admission in the subject.
             let connector_failure = cancel.clone();
@@ -3052,7 +3053,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_store(Arc::clone(&store))
                 .with_media_ingress(Arc::clone(&media.ingress))
                 .with_media_runtime(Arc::clone(&media.runtime))
-                .with_context(Arc::clone(&context_registry), capabilities)
+                .with_context(Arc::clone(&context_registry), capabilities, reserved_output_tokens)
                 .with_data_dir(data_dir.clone())
                 .with_owner(owner_state)
                 .with_config(config_service)

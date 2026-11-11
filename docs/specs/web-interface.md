@@ -554,3 +554,13 @@ withdraw 的取消目标是这条输入的后续处理，不是所有已产生�
 **修。** 浅色偏好不闪暗（`index.html` 现在硬编 `class="dark"`）；样式只有单一来源（`src/static/app.css` 与 `web/src/app.css` 的偏差必须消失）；屏幕阅读器对新提交内容给出有界宣布；命名与认领有入口；主体在场信号按诚实事实呈现（不知道就说不知道，不假装在思考）。
 
 <!-- /migrated-contract: SPEC:57.7 -->
+
+## Context policy input budget
+
+`/api/context` retains the bound provider's advertised limits as raw facts.
+Strategy availability uses the subject's shared `input_model_caps` projection
+and the exact output reservation supplied by the same bootstrap. Both text
+and image context budgets subtract that reservation; image patch geometry
+does not change. Unknown advertised context remains unknown. An exhausted
+input budget or an output reservation outside the token type is reported as
+not evaluated with its reason, rather than advertising usable strategies.

@@ -34,9 +34,10 @@ pub struct ContextFacts {
     /// Registry the subject loop actually selects and commits windows through.
     /// None means no live registry was supplied to this reporter.
     pub registry: Option<Arc<shenko_context_policy::PolicyRegistry>>,
-    /// Advertised capabilities of the bound model; strategy availability is
-    /// evaluated against exactly this, or reported not_evaluated.
+    /// Advertised capabilities of the bound model, before output reservation.
     pub capabilities: Option<shenko_broker::request::ProviderCapabilities>,
+    /// The same output reservation the subject subtracts from context limits.
+    pub reserved_output_tokens: u64,
 }
 
 /// Actual provider selection supplied by the production bootstrap. Configured
@@ -773,16 +774,12 @@ async fn context_handler(
                     "epoch": epoch,
                 }))
                 .collect();
-            report["availability"] = match &context.capabilities {
-                Some(caps) if caps.max_context_tokens.is_some_and(|limit| limit > 0) => {
-                    let caps = shenko_context_policy::ModelCaps {
-                        model_id: caps.binding.model().into(),
-                        max_context: caps.max_context_tokens.unwrap_or(0),
-                        vision: caps.vision.map(|vision| shenko_context_policy::VisionCaps {
-                            max_image_context: vision.max_image_context,
-                            patch_px: vision.patch_px,
-                        }),
-                    };
+            let caps = u32::try_from(context.reserved_output_tokens).map(|reserved| {
+                context.capabilities.as_ref()
+                    .and_then(|caps| shenko_subject::input_model_caps(caps, reserved))
+            });
+            report["availability"] = match caps {
+                Ok(Some(caps)) if caps.max_context > 0 => {
                     registry
                         .availability(&caps)
                         .into_iter()
@@ -792,9 +789,21 @@ async fn context_handler(
                         }))
                         .collect()
                 }
-                _ => {
+                Ok(None) => {
                     report["availability_note"] = json!(
                         "provider capabilities not observed; strategy availability not evaluated"
+                    );
+                    json!([])
+                }
+                Ok(Some(_)) => {
+                    report["availability_note"] = json!(
+                        "output reservation leaves no input context; strategy availability not evaluated"
+                    );
+                    json!([])
+                }
+                Err(_) => {
+                    report["availability_note"] = json!(
+                        "output reservation exceeds token budget type; strategy availability not evaluated"
                     );
                     json!([])
                 }
