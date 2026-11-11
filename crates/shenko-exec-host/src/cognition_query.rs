@@ -29,7 +29,10 @@ const LIST_CONTRACT: &[u8] = b"shenko.cognition.unit.list/v1: bounded paginated 
 const EVIDENCE_CONTRACT: &[u8] = b"shenko.cognition.unit.evidence/v1: reads the registered observations and trial records of one installed unit; no external effects";
 const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
 
-/// One query against the installation authority.
+/// A frozen query against the installation authority.
+///
+/// The tag belongs to the durable operation codec. Public inputs are decoded
+/// by the native task kind before they are sealed in this representation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum CatalogQuery {
@@ -48,6 +51,23 @@ pub enum CatalogQuery {
     },
     /// The observations and trial records of one unit.
     Evidence { unit_id: String },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListInput {
+    #[serde(default)]
+    start: usize,
+    #[serde(default = "default_page_count")]
+    count: usize,
+    #[serde(default)]
+    catalog_revision: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EvidenceInput {
+    unit_id: String,
 }
 
 fn default_page_count() -> usize {
@@ -112,7 +132,22 @@ impl CognitionQueryHandler {
     }
 
     fn freeze(&self, value: serde_json::Value) -> Result<CatalogQuery> {
-        let query: CatalogQuery = serde_json::from_value(value)?;
+        ensure!(value.is_object(), "cognition query input must be a JSON object");
+        let query = match self.kind {
+            "cognition.unit.list" => {
+                let input: ListInput = serde_json::from_value(value)?;
+                CatalogQuery::List {
+                    start: input.start,
+                    count: input.count,
+                    catalog_revision: input.catalog_revision,
+                }
+            }
+            "cognition.unit.evidence" => {
+                let input: EvidenceInput = serde_json::from_value(value)?;
+                CatalogQuery::Evidence { unit_id: input.unit_id }
+            }
+            kind => anyhow::bail!("unsupported cognition query kind '{kind}'"),
+        };
         if let CatalogQuery::Evidence { unit_id } = &query {
             let unit_id = unit_id.trim();
             ensure!(
@@ -359,10 +394,10 @@ impl CognitionQueryHandler {
 impl NativeTaskHandler for CognitionQueryHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
         let prompt = if self.kind == "cognition.unit.list" {
-            "cognition.unit.list/v1 分页读取已安装认知单元的能力卡目录：[delegate:cognition.unit.list:1] {\"start\":0,\"count\":16}。目录里的卡片是入口，不是命令；正文仍要按需用 cognition.unit.read 读确切版本。若返回了 next_start，就从它继续读，不要跳过任何单元；若目录修订与你手上的一致性不符，就重新读目录。"
+            "cognition.unit.list/v1 分页读取已安装认知单元的能力卡目录：[delegate:cognition.unit.list:1] {\"start\":0,\"count\":16}。查询种类由任务名确定，参数不接受 op。目录里的卡片是入口，不是命令；正文仍要按需用 cognition.unit.read 读确切版本。若返回了 next_start，就从它继续读，不要跳过任何单元；若目录修订与你手上的一致性不符，就重新读目录。"
                 .to_string()
         } else {
-            "cognition.unit.evidence/v1 读取某个已安装单元在本机登记的证据：[delegate:cognition.unit.evidence:1] {\"unit_id\":\"...\"}。返回注册过的观测与试验记录；这些是本机真正发生过的记录，判断时引用它们，不要凭空写证据。"
+            "cognition.unit.evidence/v1 读取某个已安装单元在本机登记的证据：[delegate:cognition.unit.evidence:1] {\"unit_id\":\"...\"}。查询种类由任务名确定，参数不接受 op。返回注册过的观测与试验记录；这些是本机真正发生过的记录，判断时引用它们，不要凭空写证据。"
                 .to_string()
         };
         NativeTaskDescriptor {
@@ -403,3 +438,6 @@ impl NativeTaskHandler for CognitionQueryHandler {
         self.observe(&operation, &attempt, &frozen)
     }
 }
+
+#[cfg(test)]
+mod tests;
