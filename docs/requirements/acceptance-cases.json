@@ -5245,7 +5245,7 @@
       ],
       "source_markdown_line": 479,
       "source_row": "| G58 | 主体修订自己的心智框架或回滚 | 修订留下带理由的态度记录；回滚按只增版本链执行，旧字节不覆盖，外部副作用不撤回 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/src/playground_manage_tests.rs:99",
         "crates/shenko-ui/src/playground_tests.rs:99"
@@ -5255,7 +5255,7 @@
         "shenko-ui --lib interrupted_versions_and_exact_rollback_keep_new_business_data：通过——中断的版本与精确回滚保留较新的业务数据",
         "shenko-ui --lib：25 passed / 0 failed（合并后 main 375238a，容器内 cargo test --offline --locked）"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 shenko-ui 记录验证 playground 作品的态度、版本与回滚机制；没有验证主体修订自身心智框架及其外部副作用边界。保留组件通过记录，完整 G58 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6674,
@@ -5296,7 +5296,7 @@
       ],
       "source_markdown_line": 481,
       "source_row": "| G60 | 复核本轮全部新增机制 | 没有新增人工审批、产品 allowlist 或静态 hard deny；真实约束按事实记录 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-node/src/units.rs:4879",
         "crates/shenko-ui/src/config_service.rs:5",
@@ -5312,7 +5312,7 @@
         "本章 diff（4e7267a..origin/main，crates/**/*.rs + bin/**/*.rs，+7227 行）对 allowlist / approval / 人工审批 / hard deny 的新增行数为 0：新增机制没有引入人工审批门、产品 allowlist 或静态 hard deny",
         "真实约束按事实记录：官方 QQ 的回复窗口/撤回时限/频控写在能力表 notes，NapCat 的动作集合由插件自己的 describe 决定"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 grep 与 diff 记录只证明所选词形在所选源码范围中的命中情况，不能证明全部新增机制不存在语义上的人工审批、产品 allowlist 或静态 hard deny；完整 G60 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6676,
@@ -5346,7 +5346,7 @@
         "shenko-channel-napcat --lib outbound::tests：8 条全通过（a_plain_body_stays_one_text_segment / a_leading_mention_becomes_an_at_segment / a_mention_and_a_quote_keep_their_order / a_quote_becomes_a_reply_segment / a_link_keeps_its_label_and_its_target / a_mention_that_is_not_a_number_stays_text / markdown_markers_do_not_reach_the_user / code_fences_lose_the_fence_and_keep_the_content）——合并后 main 375238a，容器内 cargo test --offline --locked",
         "shenko-channel-napcat --lib：44 passed / 0 failed"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "组件范围：NapCat 出站语法翻译与纯文本降级，既有 main 375238a 容器测试记录覆盖本行命名分支；不据此宣称真实平台投递、所有通道或模型行为完成。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6663,
@@ -5363,7 +5363,7 @@
       ],
       "source_markdown_line": 469,
       "source_row": "| RT18 | 平台收到一条撤回或成员变动事件 | 事件作为观察进入主体输入序列，带来源与被撤回消息标识；主体不再引用已不存在的消息 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-channel-napcat/src/notice_tests.rs:47",
         "crates/shenko-channel-napcat/src/notice_tests.rs:79",
@@ -5372,7 +5372,7 @@
       "evidence": [
         "shenko-channel-napcat --lib notice_tests：3 条全通过（a_recall_is_classified_as_an_observation / member_events_classify_and_unknown_notices_do_not / ordinary_messages_still_classify）——合并后 main 375238a，容器内 cargo test --offline --locked"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 notice_tests 验证平台事件分类；没有覆盖带来源与撤回标识的观察进入真实主体输入序列，以及主体随后不再引用撤回消息。完整 RT18 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6664,
@@ -5398,7 +5398,7 @@
         "shenko-channel-adapters --lib capability_tests：12 条全通过（qq_official 7 条含 the_platform_has_no_edit_so_the_plugin_offers_no_edit / the_capability_table_only_lists_reachable_actions；feishu 5 条含 an_edit_addresses_the_bots_own_last_post / the_capability_table_only_lists_reachable_actions）——合并后 main 375238a",
         "shenko-channel-adapters --lib：43 passed / 0 failed"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "组件范围：qq_official 与 feishu 的 describe/能力表可达性，既有 main 375238a 容器测试记录覆盖本行合同；不据此宣称账号权限、真实平台动作或模型行为完成。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6665,
@@ -5415,7 +5415,7 @@
       ],
       "source_markdown_line": 471,
       "source_row": "| RT20 | 真实流式调用 | chunk 先落盘再广播，控制行不外泄，最终正文与已提交内容一致；未接通生产者时界面诚实报告流式不可用 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-broker/src/broker.rs:1974"
       ],
@@ -5423,7 +5423,7 @@
         "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner：1 条通过——合并后 main 375238a，容器内 cargo test --offline --locked",
         "shenko-broker --lib：6 passed / 0 failed"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 broker 记录使用脚本化流生产者，覆盖组件的流交接；没有覆盖真实 provider 到主体、持久 journal、公开广播与最终 committed 正文的完整路径，以及无生产者时的界面状态。完整 RT20 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6666,
@@ -5440,7 +5440,7 @@
       ],
       "source_markdown_line": 474,
       "source_row": "| UI-S11 | 主体提交一段 `shenko-ui` 动态文档 | 界面按能力渲染真实组件；降级路径保持同一语义与动作身份，不出现 JSON 调试视图 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/web/tests/rich-document.test.mjs:51",
         "crates/shenko-ui/web/tests/rich-document.test.mjs:76",
@@ -5451,7 +5451,7 @@
       "evidence": [
         "node --test crates/shenko-ui/web/tests/rich-document.test.mjs：5 条全通过——合并后 main 375238a 的 web 源码在容器内真实构建（Proto-UI 钉住提交 971cd35a）后跑的 node 测试"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有真实 web 构建与 Node 用例覆盖文档数据及降级逻辑；没有在浏览器验证主体提交的动态文档实际渲染组件、能力降级与动作身份。完整 UI-S11 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6669,
@@ -5468,7 +5468,7 @@
       ],
       "source_markdown_line": 475,
       "source_row": "| UI-S12 | 系统偏好浅色 | 首屏不出现暗色闪烁；样式来自单一来源，构建产物与源无偏差 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/src/index.html:18",
         "crates/shenko-ui/src/static/app.css:48",
@@ -5478,7 +5478,7 @@
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",
         "web 全量：node --test tests/*.test.mjs → 21 passed / 0 failed"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有构建和 Node 用例覆盖产物与源码一致性；没有观察浅色偏好下首屏是否暗闪，也没有据此完成实际样式来源验收。完整 UI-S12 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6670,
@@ -5495,7 +5495,7 @@
       ],
       "source_markdown_line": 476,
       "source_row": "| UI-S13 | 时间线出现新的已提交内容 | 屏幕阅读器得到一次有界宣布，不逐字重读整段回答 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/web/src/react-renderer.tsx:275",
         "crates/shenko-ui/web/src/react-renderer.tsx:550",
@@ -5504,7 +5504,7 @@
       "evidence": [
         "node --test crates/shenko-ui/web/tests/live-controller.test.mjs：8 条全通过（流式 prefix 不标 committed、block 保留原因）"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 live-controller Node 用例覆盖提交与流前缀状态；没有观察真实页面的无障碍宣布次数、长度及重读行为。完整 UI-S13 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6671,
@@ -5521,7 +5521,7 @@
       ],
       "source_markdown_line": 477,
       "source_row": "| UI-S14 | 时间线同时出现正文、作品与其动作 | 三者保持稳定身份与阅读锚点，展开与更新不互相打断 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/web/src/react-renderer.tsx:328",
         "crates/shenko-ui/web/src/react-renderer.tsx:336",
@@ -5533,7 +5533,7 @@
       "evidence": [
         "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs：4 条全通过 + live-controller.test.mjs：8 条全通过（阅读锚点、动作绑定、重复提交幂等）"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 timeline-state 与 live-controller Node 用例覆盖数据身份和幂等；没有在实际时间线验证正文、作品及动作展开更新时的阅读锚点稳定性。完整 UI-S14 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6672,
@@ -5550,14 +5550,14 @@
       ],
       "source_markdown_line": 472,
       "source_row": "| PG06 | 主体经原生任务创建并迭代一件作品 | 作品版本、状态与事件按既有闭包入账，事件进入同一 inbox，回滚保留较新状态 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/src/playground_manage_tests.rs:99"
       ],
       "evidence": [
         "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work：通过——主体经原生任务创建、迭代并采纳一件作品，版本/状态/事件按既有闭包入账，回滚保留较新状态"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 shenko-ui helper 记录覆盖作品创建、迭代与版本机制；没有完成真实原生任务的创建至发布闭包、同一 inbox 事件及回滚的整体验证。完整 PG06 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6667,
@@ -5574,14 +5574,14 @@
       ],
       "source_markdown_line": 473,
       "source_row": "| PG07 | 主体或用户在时间线内操作一件作品 | 作品可打开并操作，动作绑定 revision 与请求标识，重复提交不产生第二次效果 |",
-      "verification_status": "verified_real",
+      "verification_status": "unverified",
       "implementation_refs": [
         "crates/shenko-ui/src/playground_tests.rs:140"
       ],
       "evidence": [
         "shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request：通过——动作绑定 revision 与请求标识，重复提交不产生第二次效果"
       ],
-      "applicability": "to_be_resolved_against_full_scope",
+      "applicability": "既有 reader action 用例覆盖 revision、请求标识绑定与去重；没有在实际时间线打开作品并操作。完整 PG07 未验证。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6668,
@@ -5609,7 +5609,7 @@
         "shenko-subject --lib the_cognition_directory_travels_only_when_it_exists: 目录只在存在时随行，未回归",
         "shenko-awareness-core: 15 passed"
       ],
-      "applicability": "child 角色框由内容单元提供；协议边界（工具目录、回复授权、预算）仍由 harness 持有",
+      "applicability": "单元级机制范围：安装正文替换 child 角色前缀、无提供者时编译回退、停用提供者在共用解析器中排除。保留既有通过记录；不据此宣称模型效能、主体修订的完整运行闭包或 R165 的目录与插件共享全部完成。既有记录尚未绑定完整的不可变源码及日志收据。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6662,

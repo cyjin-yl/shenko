@@ -1371,8 +1371,8 @@
       "status": "已规定；待实现与目标环境验证",
       "title": "注意力政策与未决输入",
       "refs": "U64；REF-USER、REF-DESIGN",
-      "contract": "事件预算、空等与来源可见性由主体政策决定，harness 只给上界；未处置输入进入 deferred 并持续可见；注意力暂停期间来源不入窗、事实保留、到期复审。",
-      "verification": "[§57.3](../specs/subject-runtime.md#spec-57-3)；AW13–AW14；deferred 可见性、暂停范围与复审分别可判定。",
+      "contract": "事件预算、空等与来源可见性由主体政策决定，harness 只给上界；主体未处置的输入记为『未处置』而非『已处理』，主体显式 deferred 的输入继续留在队列里；注意力暂停期间来源不入窗、事实保留、到期复审。",
+      "verification": "[§57.3](../specs/subject-runtime.md#spec-57-3)；AW13–AW14；未处置记录、deferred 留存、暂停范围与复审分别可判定。",
       "requirements": [],
       "migration_source": {
         "source_path": "SPEC.md",
