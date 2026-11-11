@@ -1051,6 +1051,7 @@ mod tests {
         assert_eq!(semantic_question_id_for_fact(&handle, &callback), None);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn fleet_distinguishes_durable_attached_and_exited_seats_without_a_writer() {
         let dir = std::env::temp_dir().join(format!("shenko-fleet-{}", EntityId::new()));

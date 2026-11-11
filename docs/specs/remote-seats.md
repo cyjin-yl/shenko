@@ -54,6 +54,21 @@ lease, sends input or records a new question. Its native operation has
 an unfinished read may take another snapshot using the original sealed task
 selector, without creating transport effects.
 
+The model discovery measurement lives in
+`crates/shenko-exec-host/tests/seat_fleet_behavior.rs`. It runs the product
+subject, broker, parser, native dispatcher and original CAS receipts in fresh
+installations. Its natural task does not name the handler or provide a task
+UUID. The observed Coder 390 run (`swift-qwen3.8-27b-nvfp4`) returned complete
+inventories in 3/3 installed trials, compared with 0/3 when absent; all 3
+unrelated-task trials avoided the fleet handler. These are bounded discovery,
+inventory and committed-consumption observations. Final answer semantics,
+remote control and long-term reliability are separate acceptance questions.
+The [validation record](../evidence/seat-fleet-native-20261111.md) binds these
+observations to their source, original receipts and retained evidence limits.
+Set the explicit model endpoint/name and `SHENKO_USE_LOCAL_MODEL=1` to run the
+measurement; ordinary offline runs skip it. Original Store/CAS and failed or
+unstarted trials are retained beneath `SHENKO_SANDBOX_ROOT`.
+
 ## Writer lease v2 (SPEC §17.1 单写者)
 
 `SeatLeaseRequest { lease_id, seat_id, holder_task_id, lease_epoch (>0),
