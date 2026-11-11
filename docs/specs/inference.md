@@ -36,8 +36,8 @@ NInfer、Strata、vLLM、1Cat-vLLM 各自有 profile 构造器（`profile::nativ
 
 - 身份由部署给出：`ResourceDomainIdentity { domain_id, engine_identity, engine_incarnation, epoch }`。URL 不是身份：同一 resident engine 的多个 URL、模型别名、Chat/Responses/Anthropic 入口必须绑定同一 `domain_id`（`ResourceDomainRegistry::bind_alias`）。
 - 显式别名优先于 profile 自带的 `resource_domain_id`，所以第二个 URL 拿不到第二份满额预算。
-- 两个不同域声明同一 `engine_incarnation` 会被 `ResourceDomainRegistry::resolve` 拒绝（"engine incarnation … is already bound to resource domain …"），并由 `incarnation_conflicts()` 报告。
-- 未知结果被隔离而不是释放：`ResourceDomain::quarantine` 记录欠账，`effective_compute_capacity` 从可用预算里扣除被隔离欠账与可强制的外部预留；只有原始终止证据才能通过 `reconcile_recorded` 归还。
+- `engine_incarnation` 在相同 `engine_identity` 范围内唯一（供应商范围内的字符串，不是全局身份）：同一范围内把它声明给第二个 domain 会在 `register` / `resolve` / `observe_incarnation` 处被拒绝（"engine incarnation … is already bound to resource domain …"），并由 `incarnation_conflicts()` 报告。
+- 未知结果被隔离而不是释放：`ResourceDomain::quarantine` 记录欠账；被隔离的额度仍算在途，`effective_compute_capacity` 从可用预算里扣掉在途额度与可强制的外部预留，而这个数值就是 `ResourceDomain::try_admit` 在真实派发路径上执行的同一预算（`compute_budget()` 给出分解）；只有原始终止证据才能通过 `reconcile_recorded` 归还。
 
 ## 计算与驻留分开
 

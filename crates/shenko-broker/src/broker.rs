@@ -157,7 +157,9 @@ pub struct BrokerHandle {
     tx: mpsc::UnboundedSender<Submission>,
     binding: ProviderBinding,
     /// The compute budget of this handle's physical domain.
-    pub admission: AdmissionController,
+    /// Kept for reading charge counters; dispatch never decides through this
+    /// handle — the domain's own `try_admit` is the single budget owner.
+    pub(crate) admission: AdmissionController,
     domain: Arc<ResourceDomain>,
     domains: Arc<ResourceDomainRegistry>,
     registry: Arc<ProviderRegistry>,
@@ -244,7 +246,7 @@ impl BrokerHandle {
     /// Repeated recovery and live requests cannot count the same identity twice.
     pub fn recover_unknown(&self, request_id: EntityId) {
         self.accounting.lock().expect("broker accounting poisoned")
-            .entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
+            .entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
         self.domain
             .quarantine(request_id, now_ms(), "recovered without terminal evidence");
     }
@@ -287,7 +289,7 @@ impl BrokerHandle {
             return Ok(());
         }
         let Some(result) = result else {
-            accounting.entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
+            accounting.entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
             return Ok(());
         };
         if accounting.get(&source.request_id()).is_some_and(Option::is_some) {
@@ -365,9 +367,9 @@ impl BrokerHandle {
         self.admission.capacity()
     }
 
-    /// The capacity that is actually available now: the configured budget
-    /// minus the quarantined unknown debt and the enforceable external
-    /// reservations of this domain.
+    /// The capacity that is actually available now: the same figure the
+    /// dispatch path enforces — configured budget minus held charges and
+    /// enforceable external reservations of this domain.
     pub fn effective_capacity(&self) -> DomainCapacity {
         self.domain.effective_compute_capacity()
     }
@@ -878,7 +880,10 @@ impl Broker {
             // Fill only currently available slots. A full budget leaves the
             // request in FairQueue instead of losing it or failing it spuriously.
             while !queue.is_empty() {
-                let Some(guard) = self.domain.admission().try_admit() else {
+                // The domain owns the budget: enforceable external
+                // reservations and retained unknown charges gate dispatch
+                // here, not only the diagnostics.
+                let Some(guard) = self.domain.try_admit() else {
                     break;
                 };
                 let submission = queue.pop().expect("queue checked non-empty");
@@ -923,6 +928,7 @@ impl Broker {
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
                     _ = self.accounting_changed.notified() => Event::AccountingChanged,
+                    _ = self.domain.budget_changed().notified() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             } else {
@@ -931,6 +937,7 @@ impl Broker {
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
                     _ = self.accounting_changed.notified() => Event::AccountingChanged,
+                    _ = self.domain.budget_changed().notified() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             };
@@ -2067,5 +2074,143 @@ mod tests {
         drop(handle);
         run.abort();
         let _ = run.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_enforceable_external_reservation_limits_real_dispatch() {
+        use crate::resource::ExternalClientUsage;
+
+        let submit = |handle: &BrokerHandle| {
+            let request_id = EntityId::new();
+            let (result_tx, result_rx) = oneshot::channel();
+            handle
+                .submit(InferenceRequest {
+                    request_id,
+                    agent_id: EntityId::new(),
+                    conversation_id: EntityId::new(),
+                    provider_binding: handle.binding().clone(),
+                    priority: InferencePriority::Normal,
+                    epoch: ControllerEpoch(1),
+                    payload: InferencePayload {
+                        system_prompt: String::new(),
+                        messages: vec![InferenceMessage::text("user", "external reservation fixture")],
+                        max_tokens: Some(16),
+                        tools: vec![],
+                        native_options: BTreeMap::new(),
+                    },
+                    result_tx,
+                })
+                .unwrap();
+            (request_id, result_rx)
+        };
+
+        // C=2 plus one enforceable external unit: only one local request may
+        // enter the provider, and the diagnostic figure must equal what the
+        // dispatch path enforces.
+        let (provider, mut starts) = ControlledProvider::new();
+        let domain = default_domain(AdmissionController::new(2)).unwrap();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), Arc::clone(&domain)).unwrap();
+        domain.register_external_client(ExternalClientUsage {
+            client_ref: "ext-1".into(),
+            units: 1,
+            enforceable: true,
+            evidence: None,
+        });
+        assert_eq!(
+            domain.effective_compute_capacity().value,
+            Some(1),
+            "the diagnostic capacity shows the one remaining local slot"
+        );
+        let (first, first_rx) = submit(&handle);
+        let (second, second_rx) = submit(&handle);
+        let run = tokio::spawn(broker.run());
+        let observed = ControlledProvider::next_start(&mut starts).await;
+        assert_eq!(observed.0, first);
+        assert_eq!(handle.active_count(), 1);
+        assert_eq!(
+            domain.effective_compute_capacity().value,
+            Some(0),
+            "while the local slot is occupied nothing else may enter"
+        );
+        // The second local request stays queued: the provider is not entered
+        // a second time even though its configured capacity is 2.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), starts.recv())
+                .await
+                .is_err(),
+            "the external reservation kept the second request out of the provider"
+        );
+        // Releasing the first request lets the queued one through: the
+        // reservation bound concurrency, not request identity.
+        provider.gate.add_permits(1);
+        assert_eq!(first_rx.await.unwrap().status, InferenceStatus::Success);
+        let observed = ControlledProvider::next_start(&mut starts).await;
+        assert_eq!(observed.0, second);
+        assert_eq!(provider.max_active.load(Ordering::SeqCst), 1);
+        provider.gate.add_permits(1);
+        assert_eq!(second_rx.await.unwrap().status, InferenceStatus::Success);
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_external_reservation_release_resumes_queued_dispatch() {
+        use crate::resource::ExternalClientUsage;
+
+        // C=1 plus one enforceable external unit: nothing local may dispatch;
+        // releasing the reservation must wake the queued request.
+        let (provider, mut starts) = ControlledProvider::new();
+        let domain = default_domain(AdmissionController::new(1)).unwrap();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), Arc::clone(&domain)).unwrap();
+        domain.register_external_client(ExternalClientUsage {
+            client_ref: "ext-1".into(),
+            units: 1,
+            enforceable: true,
+            evidence: None,
+        });
+        assert_eq!(domain.effective_compute_capacity().value, Some(0));
+        let request_id = EntityId::new();
+        let (result_tx, result_rx) = oneshot::channel();
+        handle
+            .submit(InferenceRequest {
+                request_id,
+                agent_id: EntityId::new(),
+                conversation_id: EntityId::new(),
+                provider_binding: handle.binding().clone(),
+                priority: InferencePriority::Normal,
+                epoch: ControllerEpoch(1),
+                payload: InferencePayload {
+                    system_prompt: String::new(),
+                    messages: vec![InferenceMessage::text("user", "resume after release fixture")],
+                    max_tokens: Some(16),
+                    tools: vec![],
+                    native_options: BTreeMap::new(),
+                },
+                result_tx,
+            })
+            .unwrap();
+        let run = tokio::spawn(broker.run());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), starts.recv())
+                .await
+                .is_err(),
+            "the full reservation blocks every local request"
+        );
+        // The reservation is released; the queued request must be dispatched
+        // without a second submission.
+        assert!(domain.release_external_client("ext-1"));
+        assert_eq!(domain.effective_compute_capacity().value, Some(1));
+        let observed = ControlledProvider::next_start(&mut starts).await;
+        assert_eq!(observed.0, request_id);
+        provider.gate.add_permits(1);
+        assert_eq!(result_rx.await.unwrap().status, InferenceStatus::Success);
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }
