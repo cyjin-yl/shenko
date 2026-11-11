@@ -29,7 +29,9 @@ pub struct ParseRequest {
     /// CAS/object digest of the source document bytes — the result is bound
     /// to this exact input, never to a path that could be swapped.
     pub source_digest: String,
-    /// Optional original filename for provider-side logging only.
+    /// Optional original filename. A provider that uploads the document
+    /// (OXR) also uses it as the upload name, because the upstream service
+    /// infers the document type from it.
     #[serde(default)]
     pub source_name: Option<String>,
     /// Pages to parse; empty = the whole document.
@@ -58,6 +60,33 @@ pub struct PageBlock {
     /// Optional reference into a provider table/figure structure.
     #[serde(default)]
     pub structure_ref: Option<String>,
+    /// The provider's own element-type token for this block. OXR upstream
+    /// has a closed vocabulary of layout elements (title, text, table,
+    /// figure, formula, code block, chemical structure, ...), and the exact
+    /// spelling differs between the OXR-native output ("Page-header") and
+    /// the SoMark-compatible API ("header"). The token is therefore carried
+    /// verbatim: absent = the provider reported none, and a token this build
+    /// does not recognize is kept as-is instead of being dropped or renamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element_type: Option<String>,
+    /// The content format of this block's payload. Upstream values include
+    /// `text`, `latex`, `mathml`, `ascii`, `html`, `markdown` and `image`.
+    /// Carried verbatim; absent = unknown, never inferred from the element
+    /// type (a formula rendered as `latex` and a table rendered as `html`
+    /// are different facts the provider must state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_format: Option<String>,
+}
+
+/// The page's own coordinate space, as the provider reported it. Without it
+/// the block bboxes have no declared unit and cannot be called restored.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageSize {
+    /// Page width in the provider's coordinate unit.
+    pub width: f32,
+    /// Page height in the provider's coordinate unit.
+    pub height: f32,
 }
 
 /// The provider/model/config version evidence for one page's parse.
@@ -93,6 +122,11 @@ pub struct PageResult {
     /// Whether block bboxes were restored to original-page coordinates.
     /// `false` = coordinates unknown/absent; never a guess.
     pub coordinates_restored: bool,
+    /// The page's coordinate space, when the provider reported one. Absent =
+    /// the coordinate space is unknown (and therefore
+    /// `coordinates_restored` is false).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<PageSize>,
 }
 
 /// A durable per-page checkpoint: a page that is done (or definitively
@@ -108,6 +142,13 @@ pub struct PageCheckpoint {
     /// The page's terminal failure reason, when it failed.
     #[serde(default)]
     pub failure: Option<String>,
+    /// The page's outcome is UNKNOWN: the request may or may not have been
+    /// processed upstream. This is deliberately NOT a terminal failure — the
+    /// page may be retried under the same cache key, but the caller has to
+    /// reconcile the unknown before re-sending, because an unknown page and
+    /// a failed page are different facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_outcome: Option<String>,
     /// When this checkpoint was committed.
     pub committed_at: chrono::DateTime<chrono::Utc>,
 }
@@ -120,6 +161,9 @@ pub enum ParseState {
     Running,
     /// Every requested page has a checkpoint (success or terminal failure).
     Complete,
+    /// The provider could not determine the document's page count, so no
+    /// page was claimed. The boundary never guesses a page count.
+    PageCountUnknown,
     /// Cancelled by the subject; checkpoints retained for resume.
     Cancelled,
     /// The provider could not run at all (no engine/model/runtime).
