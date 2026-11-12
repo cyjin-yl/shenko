@@ -60,7 +60,7 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 
 ## 扩展
 
-能力通过插件进入运行时，运行时装配在 `bin/shenko/src/lib.rs` 中可见：
+能力通过插件进入运行时，运行时装配在 `bin/shenko/src/lib.rs` 中可见。扩展只有一个入口：插件经同一个生命周期进入，向能力目录登记它能做什么，向钩子图登记它在什么时刻被调用。哪些规则属于内核、哪些是可以替换的参考插件，见[内核合同](docs/specs/kernel.md)；当前实现与它的差距见[内核收敛计划](docs/development/kernel-convergence.md)。
 
 - **原生任务处理**：实现 `NativeTaskHandler`（`descriptor` / `execute` / `reconcile`）并用 `NativeTaskHandlerPlugin` 注册，即可成为主体可委派的能力。已有的例子是 WASI 工具执行、Computer Use、Playground 后端、错误读取、issue 草稿与自解释。
 - **provider**：实现 broker 的 provider 合同接入推理；额度观测与 admission 是独立策略，不写死模型名单。
@@ -79,9 +79,10 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 | 文档 | 内容 |
 | --- | --- |
 | [领域规格索引](docs/INDEX.md) | 旧规格入口，仅导航；现行正文已按领域拆入 docs/ |
+| [docs/specs/kernel.md](docs/specs/kernel.md) | 内核合同：九条不变量、每条的 Why，以及参考插件的边界。先读这一份 |
 | [docs/specs/architecture.md](docs/specs/architecture.md) | 当前功能边界与各层事实归属 |
 | [docs/INDEX.md](docs/INDEX.md) | 全部文档的真实盘点、阅读顺序与归档去向 |
-| [docs/specs/](docs/specs) | 30 份领域功能合同，按领域阅读功能、接口、Why、错误与恢复 |
+| [docs/specs/](docs/specs) | 内核合同与 30 份领域功能合同，按领域阅读功能、接口、Why、错误与恢复 |
 | [docs/governance/](docs/governance) | 自主决定边界、完整交付合同、许可与接续 |
 | [docs/requirements/](docs/requirements) | 165 项 R、63 组 B、59 条来源与 236 条验收的机器可读索引，每条绑定实际来源文档 |
 | [docs/evidence/](docs/evidence) | 已保存的真实运行证据与其边界 |

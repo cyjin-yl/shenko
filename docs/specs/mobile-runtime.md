@@ -1,5 +1,7 @@
 # Mobile runtime — [§24.5](mobile-runtime.md#spec-24-5)、[§24.5.1](mobile-runtime.md#spec-24-5-1)、[§5.4](nodes.md#spec-5-4) (C15 mobile half)
 
+**内核定位。** 参考插件，APK 只是发行包，建立在[内核合同](kernel.md)的[内核 5](kernel.md#kernel-5)、[内核 6](kernel.md#kernel-6)与[内核 7](kernel.md#kernel-7)之上。
+
 This document is the implementation contract for the Android half of C15:
 mobile OS perception and execution are **plugins, not core business**, and the
 APK is **only a distribution bundle**. Bundled ≠ available ≠ OS-authorized.

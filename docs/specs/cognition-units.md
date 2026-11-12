@@ -1,5 +1,7 @@
 # Cognition units — functional contract ([§18](plugins.md#spec-18)、[§38](cognition-units.md#spec-38)、[§45](cognition-units.md#spec-45); C10)
 
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 8](kernel.md#kernel-8)（一个安装权威，改变可回退）与[内核 9](kernel.md#kernel-9)（给模型看的内容属于单元）的具体形状。文中的具体单元是参考内容，主体可以修订和替换。
+
 
 <a id="why-6"></a>
 <!-- migrated-contract: WHY:6 -->

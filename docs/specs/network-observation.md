@@ -1,5 +1,7 @@
 # 通路观察：`net.probe` 的测量边界
 
+**内核定位。** 参考插件：一个感知单元及其执行，建立在[内核合同](kernel.md)之上。它以单元的形式安装（[内核 8](kernel.md#kernel-8)），经[内核 7](kernel.md#kernel-7)登记，只提供带来源和时间的观察，不替主体作判断（[内核 9](kernel.md#kernel-9)）。
+
 本文对应 [§9.4](network-observation.md#spec-9-4)、[§18.7](cognition-units.md#spec-18-7) 与 [§45](cognition-units.md#spec-45) 的觉察要求：**自己此刻是否还能到达某个端点，只能由一次真实观察回答**，印象、上一次的成功或对目录条目的假设都不能替代它。
 
 ## 存在的理由

@@ -1,5 +1,7 @@
 # 推理 broker 与物理资源合同
 
+**内核定位。** 参考插件：[内核合同](kernel.md)中[内核 5](kernel.md#kernel-5)在推理上的实现。调用模型是外部效果的一种；发送边界与提供者绑定随步封存（[内核 4](kernel.md#kernel-4)）；公平与不饿死的界限属于[内核 2](kernel.md#kernel-2)。调度策略、KV 分配和提供者都可以替换。
+
 
 <a id="why-8"></a>
 <!-- migrated-contract: WHY:8 -->

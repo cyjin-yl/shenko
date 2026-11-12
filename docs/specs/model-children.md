@@ -1,5 +1,7 @@
 # 模型 child：有限、多步、可调用真实能力的子 Agent
 
+**内核定位。** 参考插件：能力架上的委派执行者，建立在[内核合同](kernel.md)之上。委派是带回执的效果（[内核 5](kernel.md#kernel-5)）；child 与主体共用推理容量而互不饿死（[内核 2](kernel.md#kernel-2)）；经[内核 7](kernel.md#kernel-7)登记。child 的角色框是可修订的单元内容（[内核 9](kernel.md#kernel-9)）。
+
 
 <a id="why-2"></a>
 <!-- migrated-contract: WHY:2 -->

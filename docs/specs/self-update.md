@@ -1,5 +1,7 @@
 # Software-generation handoff
 
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 8](kernel.md#kernel-8)“改变可回退”的部分，以及[内核 1](kernel.md#kernel-1)的软件代号围栏。更新器本身是参考插件，可以替换。
+
 
 <a id="why-3"></a>
 <!-- migrated-contract: WHY:3 -->

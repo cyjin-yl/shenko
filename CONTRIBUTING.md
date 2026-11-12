@@ -20,5 +20,6 @@
 ## 提交前
 
 - `python3 scripts/check_docs.py` 校验文档与归档完整性（不验证产品行为）。
+- `python3 scripts/check_kernel_boundary.py --baseline-ref <已审阅提交>` 对照独立基线检查工作区依赖边界；通过 Cargo 的只读 metadata 查询纳入自动成员，不构建或验证产品行为。证据保留实际基线的完整提交；规则见[内核合同](docs/specs/kernel.md#kernel-7)。
 - 覆盖、模拟、源码存在与真实运行是不同事实，不互相替代；在 PR 中如实区分。
 - 文档改动同时更新 [docs/INDEX.md](docs/INDEX.md) 导航与对应 `docs/specs/` 合同。

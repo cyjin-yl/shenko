@@ -1,5 +1,7 @@
 # Desktop runtime contract (computer.use, OS/VM providers, original LayerFS)
 
+**内核定位。** 参考插件，登记在能力架上，建立在[内核合同](kernel.md)的[内核 5](kernel.md#kernel-5)、[内核 6](kernel.md#kernel-6)与[内核 7](kernel.md#kernel-7)之上。操作系统与虚拟机提供者各自可以替换；没有桌面会话或权限是事实，不是内核的禁令。
+
 Scope: [§10.2.1](durable-state.md#spec-10-2-1)、[§22](nodes.md#spec-22)、[§24](desktop-runtime.md#spec-24)、[§34](desktop-runtime.md#spec-34); work package C15 (ArchDesktop).
 Sources: `crates/shenko-exec-host/src/desktop.rs` (neutral contract),
 `computer_use.rs` (product + X11 provider + native task kinds),

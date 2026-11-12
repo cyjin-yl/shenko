@@ -1,5 +1,7 @@
 # Shenko REPL ([§19](repl.md#spec-19)、[§19.1](repl.md#spec-19-1))
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。每次执行是带回执的效果（[内核 5](kernel.md#kernel-5)），处理器经[内核 7](kernel.md#kernel-7)登记。
+
 `crates/shenko-repl` implements stateful REPL sessions behind one contract,
 with two **honest session models**:
 

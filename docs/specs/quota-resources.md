@@ -1,5 +1,7 @@
 # Shenko 额度资源 — 功能合同（quota-resources.md）
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。额度是准入策略和带来源的观察，不是内核规则；它作用于[内核 5](kernel.md#kernel-5)的推理效果，经[内核 7](kernel.md#kernel-7)接入。
+
 适用条款：[§13.1](quota-resources.md#spec-13-1)、[§13.7](inference.md#spec-13-7)、[§42.1](quota-resources.md#spec-42-1)、[§42.8](quota-resources.md#spec-42-8)、[§47.5](inference.md#spec-47-5)；需求 R130；关联行为 B19、B20、B42；验收场景 QA01–QA06。本文是稳定的功能/接口/错误/恢复合同，不是任务板，也不宣称任何运行证据。
 
 ## 1. 职责边界
