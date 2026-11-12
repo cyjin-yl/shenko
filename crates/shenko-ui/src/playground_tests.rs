@@ -372,3 +372,24 @@ async fn a_work_page_is_served_as_a_trusted_revision() {
     assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
     assert_eq!(response.headers().get("x-artifact-revision").unwrap(), "1");
 }
+
+/// A published work lens shows the adopted page, not a later draft head; with
+/// nothing adopted there is no adopted page (docs/specs/web-interface.md#5-1).
+#[tokio::test]
+async fn the_adopted_page_is_served_until_a_new_publication() {
+    let (root, store, _) = fixture("adopted");
+    let pg = PlaygroundState::open(root.join("playground"), store).unwrap();
+    let id = EntityId::new();
+    pg.put(id, "page".into(), "text/html".into(), b"<p>r1</p>").unwrap();
+    let app = router(pg.clone());
+    let get = |uri: String| app.clone().oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap());
+    assert_eq!(get(format!("/playground/{id}/adopted")).await.unwrap().status(), StatusCode::NOT_FOUND);
+    let staged = pg.stage_artifact(id, Some(1), Some("stage-r1")).unwrap();
+    pg.publish_artifact(id, &staged.candidate_manifest_refs.last().unwrap().digest, Some(1), Some("publish-r1")).unwrap();
+    pg.put(id, "page".into(), "text/html".into(), b"<p>r2 draft</p>").unwrap();
+    let adopted = get(format!("/playground/{id}/adopted")).await.unwrap();
+    assert_eq!(adopted.headers().get("x-artifact-revision").unwrap(), "1");
+    assert_eq!(to_bytes(adopted.into_body(), 1024).await.unwrap().as_ref(), b"<p>r1</p>");
+    let head = get(format!("/playground/{id}")).await.unwrap();
+    assert_eq!(head.headers().get("x-artifact-revision").unwrap(), "2", "the draft head is still readable as such");
+}

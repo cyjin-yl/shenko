@@ -354,25 +354,57 @@ function Attention({ step, status, tasks }: { step: number | null; status: strin
  */
 function WorkFrame({ artifactId, title, revision }: { artifactId: string; title: string; revision?: number }) {
   const pinned = pinnedWorks().includes(artifactId);
+  const [, rerender] = React.useReducer((value: number) => value + 1, 0);
+  // A lens shows the adopted page; the authored head is a draft until a
+  // publication adopts it, and previewing it is the reader's explicit choice.
+  const [adopted, setAdopted] = React.useState<{ state: 'loading' | 'none' | 'ready'; revision?: string }>({ state: 'loading' });
+  const [draft, setDraft] = React.useState(false);
+  React.useEffect(() => {
+    if (SAFE_MODE) return;
+    let live = true;
+    setAdopted({ state: 'loading' });
+    fetch(`/playground/${encodeURIComponent(artifactId)}/adopted`, { method: 'HEAD', cache: 'no-store' })
+      .then((response) => {
+        if (!live) return;
+        setAdopted(response.ok
+          ? { state: 'ready', revision: response.headers.get('x-artifact-revision') ?? undefined }
+          : { state: 'none' });
+      })
+      .catch(() => { if (live) setAdopted({ state: 'none' }); });
+    return () => { live = false; };
+  }, [artifactId, revision]);
   if (SAFE_MODE) {
     return <div className="work-frame"><p className="muted safe-note">安全模式：不打开作品页。去掉地址里的 <code>safe=1</code> 即可恢复。</p></div>;
   }
-  const [, rerender] = React.useReducer((value: number) => value + 1, 0);
+  const src = draft ? `/playground/${artifactId}` : `/playground/${artifactId}/adopted`;
   return (
     <div className="work-frame">
       <div className="work-frame-bar">
-        <span className="muted">r{revision ?? '—'}</span>
+        <span className="muted">
+          {draft ? `草稿预览 · r${revision ?? '—'}` : adopted.state === 'ready' ? `已采纳 · r${adopted.revision ?? '—'}` : adopted.state === 'none' ? '尚未采纳' : ''}
+        </span>
+        {draft && adopted.state === 'ready' && <Button variant="ghost" size="sm" onClick={() => setDraft(false)}>回到已采纳版本</Button>}
+        {!draft && adopted.state === 'ready' && revision !== undefined && String(revision) !== adopted.revision && (
+          <Button variant="ghost" size="sm" onClick={() => setDraft(true)}>预览草稿 r{revision}</Button>
+        )}
         <Button variant="ghost" size="sm" onClick={() => { setWorkPinned(artifactId, !pinned); rerender(); }}>
           {pinned ? '从镜头栏取下' : '固定到镜头栏'}
         </Button>
-        <a className="work-frame-link" href={`/playground/${artifactId}`} target="_blank" rel="noreferrer noopener">新窗口</a>
+        <a className="work-frame-link" href={src} target="_blank" rel="noreferrer noopener">新窗口</a>
       </div>
-      <iframe
-        key={`${artifactId}@${revision ?? 0}`}
-        className="work-iframe"
-        src={`/playground/${artifactId}`}
-        title={title}
-      />
+      {!draft && adopted.state === 'none'
+        ? <div className="work-frame-empty">
+          <p className="muted">这件作品还没有采纳的版本，镜头只显示已采纳的页面。</p>
+          <Button variant="outline" size="sm" onClick={() => setDraft(true)}>预览草稿 r{revision ?? '—'}（未采纳）</Button>
+        </div>
+        : !draft && adopted.state === 'loading'
+          ? <div className="work-frame-empty" />
+          : <iframe
+            key={`${src}@${draft ? revision ?? 0 : adopted.revision ?? 0}`}
+            className="work-iframe"
+            src={src}
+            title={title}
+          />}
     </div>
   );
 }
