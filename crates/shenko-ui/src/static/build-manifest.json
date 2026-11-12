@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "b25229a94251398bc2f375554fcb9622dc8e79ab",
-    "previous_reviewed_commit": "971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e",
+    "commit": "35195a6e6f1ba6a7d800da0029f2683013abd18b",
+    "previous_reviewed_commit": "b25229a94251398bc2f375554fcb9622dc8e79ab",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/tank/shared/projects/shenko/build/claude-prs-20261112/proto-upstream-b252-r2",
+    "source_checkout": "/tank/shared/projects/shenko/build/claude-prs-20261112/proto-upstream-3519-r3",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/shenko/build/claude-prs-20261112/upstream-build-r1/upstream-build.json",
-      "receipt_sha256": "1f01b7e927a0e2c2a2a2a77bc85004c9afb4fe5cbd1ad8cfd7a0be01dc8c29aa"
+      "receipt_path": "/tank/shared/projects/shenko/build/claude-prs-20261112/upstream-build-r2/upstream-build.json",
+      "receipt_sha256": "5a0342d692c2b2bb8b793bb467fe5986a92e8d903cf828e0e81601f448e7a8ff"
     }
   },
   "packages": [
@@ -118,11 +118,11 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-ui-291-20261112/crates/shenko-ui/web",
-  "built_at": "2026-11-12T16:43:47.429Z",
+  "built_at": "2026-11-12T17:23:42.854Z",
   "artifacts": {
     "app.js": {
-      "bytes": 1076429,
-      "sha256": "84ac500cf9dcd75e9dca34b8419415b250b8ff6e266323eeea20e2c555997ead"
+      "bytes": 1076451,
+      "sha256": "ca03b3335d6677b6b9e4b724c9ed1ff3fc0afc872941d5e19c6128d8b4739e8e"
     },
     "app.css": {
       "bytes": 37606,
