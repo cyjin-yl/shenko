@@ -918,7 +918,9 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
       ? '离线中 · 草稿保留在此浏览器'
       : !node.props.subject_bound
         ? '等待真实主体绑定'
-        : null;
+        : node.props.append_offered !== true
+          ? '服务端当前未开放追加输入'
+          : null;
   return (
     <footer className="composer" hidden={node.props.hidden}>
       <div className={`composer-card${steering ? ' is-steer' : ''}`}>

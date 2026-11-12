@@ -99,7 +99,10 @@ export function Button({
 // and decides only the label and tone; the Prototype renders markup and tokens.
 export function TransportBadge({ connection, demo }: { connection: ConnectionState; demo: boolean }) {
   if (demo) return <CompiledTransportBadge label="本地模拟" tone="local" />;
-  return <CompiledTransportBadge label={connectionLabel(connection)} tone={connection} />;
+  // The generated component re-applies its tone on update but keeps the
+  // first text it rendered, so a changed label remounts it.
+  const label = connectionLabel(connection);
+  return <CompiledTransportBadge key={label} label={label} tone={connection} />;
 }
 
 /** A two-state control is the upstream toggle family, which owns aria-pressed. */

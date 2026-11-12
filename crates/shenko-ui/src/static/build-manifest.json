@@ -118,11 +118,11 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/home/user/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-12T13:02:11.937Z",
+  "built_at": "2026-11-12T13:08:08.762Z",
   "artifacts": {
     "app.js": {
-      "bytes": 1071375,
-      "sha256": "21531f1c75f69f618071348e55028c31683ff3c67b0a2370e4422e2c3287a328"
+      "bytes": 1071550,
+      "sha256": "96b7db3a1353902e7c23753b78c03e30881388a15593e08c805b506bb01e56ca"
     },
     "app.css": {
       "bytes": 35701,

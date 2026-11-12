@@ -775,6 +775,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       steer_action: steerAction,
       steer_enabled: canSteer,
       steer_available: state.source === 'live' && state.capabilities.steer,
+      append_offered: state.append_available && state.durable_receipts,
       streaming: state.streaming,
     },
     [],
