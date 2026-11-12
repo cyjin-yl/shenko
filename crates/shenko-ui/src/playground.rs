@@ -375,21 +375,31 @@ impl PlaygroundState {
     fn sync_durable(&self, version: &ArtifactVersion) -> anyhow::Result<ArtifactRecord> {
         let (manifest, manifest_ref, version_record_ref) = self.build_manifest(version)?;
         self.store.put_artifact_manifest(&manifest)?;
+        // A content head is an authored proposal. Only publish selects an
+        // active manifest; edits must also retain earlier staged proposals.
+        let (creator_task_id, record_revision, active_manifest_ref, candidate_manifest_refs, lifecycle, runtime_instance_refs) =
+            match self.store.artifact_record(version.artifact_id)? {
+                Some(record) => (
+                    record.creator_task_id, record.record_revision, record.active_manifest_ref,
+                    record.candidate_manifest_refs, record.lifecycle, record.runtime_instance_refs,
+                ),
+                None => (None, 0, None, Vec::new(), "draft".into(), Vec::new()),
+            };
         let root = self.artifact_dir(version.artifact_id);
         let root_identity = directory_identity(&root);
         let record = ArtifactRecord {
             schema_version: 1,
             artifact_id: version.artifact_id,
             subject_id: self.agent_id,
-            creator_task_id: None,
+            creator_task_id,
             title: version.title.clone(),
-            record_revision: 0,
-            active_manifest_ref: Some(manifest_ref.clone()),
-            candidate_manifest_refs: Vec::new(),
+            record_revision,
+            active_manifest_ref,
+            candidate_manifest_refs,
             state_revision: format!("{}:{}", version.revision, &manifest.version_digest.0[..16.min(manifest.version_digest.0.len())]),
             state_ref: version_record_ref.clone(),
-            lifecycle: "draft".into(),
-            runtime_instance_refs: Vec::new(),
+            lifecycle,
+            runtime_instance_refs,
             desired_lifecycle_ref: manifest_ref.clone(),
             provenance_and_causation_ref: version_record_ref,
             artifact_root: root,

@@ -611,3 +611,17 @@ and image context budgets subtract that reservation; image patch geometry
 does not change. Unknown advertised context remains unknown. An exhausted
 input budget or an output reservation outside the token type is reported as
 not evaluated with its reason, rather than advertising usable strategies.
+
+## Playground root response adapter
+
+`/api/playground` returns roots as `[artifact_id, root_path, root_identity]`
+tuples. The live controller admits complete string triples into the semantic
+root view; the renderer displays that path and identity rather than reading
+object fields from the wire tuple. The HTML work consumer case uses the real
+wire shape alongside the content revision header and immutable version list.
+
+Content writes update the authored head without implicitly adopting its
+manifest or erasing staged candidates. A newly authored work has no active
+manifest until explicit publication; later PUT, rollback and backend binding
+retain the existing adoption and candidate facts. Stage can therefore propose
+the current head and the UI can explicitly adopt that candidate.

@@ -2083,8 +2083,17 @@ class LiveController implements ProjectionController {
       const namespaceList = isObject(namespaces) && 'namespaces' in namespaces && Array.isArray(namespaces.namespaces)
         ? namespaces.namespaces
         : undefined;
+      const roots: NonNullable<NonNullable<UiState['playground']>['roots']> = [];
+      if (Array.isArray(surface.roots)) {
+        for (const entry of surface.roots) {
+          if (!Array.isArray(entry) || entry.length !== 3
+            || typeof entry[0] !== 'string' || typeof entry[1] !== 'string' || typeof entry[2] !== 'string') continue;
+          roots.push({ artifact_id: entry[0], root: entry[1], identity: entry[2] });
+        }
+      }
       this.state.playground = {
         ...(surface as Record<string, unknown>),
+        roots,
         namespaces: namespaceList,
       } as UiState['playground'];
       this.state.playground_error = false;

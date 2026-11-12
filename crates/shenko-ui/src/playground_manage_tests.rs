@@ -124,6 +124,7 @@ fn the_subject_can_create_iterate_and_adopt_a_work() {
         .unwrap()
         .expect("the work has a durable record");
     assert_eq!(record.title, "我的第一件作品");
+    assert!(record.active_manifest_ref.is_none(), "authoring does not adopt the new work");
 
     // New content is a new revision, and the old one is still there.
     let put = serde_json::json!({
@@ -141,35 +142,27 @@ fn the_subject_can_create_iterate_and_adopt_a_work() {
         .expect("the revisions are readable");
     assert_eq!(revisions, vec![1, 2], "a rollback can return to either");
 
-    // Staging the head is a proposal. The head of a work whose content the
-    // subject just wrote is ALREADY the active manifest, so staging it again
-    // is an honest replay: it adds no second candidate and says so.
+    // Staging proposes the authored head without adopting it.
     let stage = serde_json::json!({"schema_version": 1, "op": "stage", "artifact_id": artifact_id});
     let frozen = handler.freeze_for_test(stage).expect("a stage request freezes");
     let (result, outcome, _) = handler.observe_for_test(&frozen);
     assert_eq!(outcome, shenko_types::operation::OperationOutcome::Succeeded);
-    assert_eq!(
-        result["candidate_manifests"], 0,
-        "re-staging the active head does not invent a candidate: {result}"
-    );
+    assert_eq!(result["candidate_manifests"], 1, "the authored head is a candidate: {result}");
+    let staged = store.artifact_record(artifact_id.parse().unwrap()).unwrap().unwrap();
+    assert!(staged.active_manifest_ref.is_none(), "staging does not adopt");
+    let candidate = staged.candidate_manifest_refs[0].clone();
 
-    // Publishing adopts a staged candidate. There is none here, so the
-    // operation says exactly that instead of pretending to adopt.
+    // Publishing explicitly adopts the genuinely staged candidate.
     let publish = serde_json::json!({"schema_version": 1, "op": "publish", "artifact_id": artifact_id});
     let frozen = handler.freeze_for_test(publish).expect("a publish request freezes");
     let (result, outcome, _) = handler.observe_for_test(&frozen);
-    assert_eq!(outcome, shenko_types::operation::OperationOutcome::Failed);
-    assert_eq!(result["error"]["code"], "playground_no_candidate");
-    // The work still has its active manifest: a refused publish changes
-    // nothing.
+    assert_eq!(outcome, shenko_types::operation::OperationOutcome::Succeeded, "{result}");
     let record = store
         .artifact_record(artifact_id.parse().unwrap())
         .unwrap()
         .expect("the work has a durable record");
-    assert!(
-        record.active_manifest_ref.is_some(),
-        "the work still has the manifest it had"
-    );
+    assert_eq!(record.active_manifest_ref.as_ref(), Some(&candidate));
+    assert_eq!(record.candidate_manifest_refs, vec![candidate.clone()]);
 
     // A rollback appends a version rather than erasing one.
     let rollback = serde_json::json!({
@@ -188,6 +181,18 @@ fn the_subject_can_create_iterate_and_adopt_a_work() {
         .revisions(artifact_id.parse().unwrap())
         .expect("the revisions are readable");
     assert_eq!(revisions, vec![1, 2, 3], "nothing was erased");
+    let record = store.artifact_record(artifact_id.parse().unwrap()).unwrap().unwrap();
+    assert_eq!(record.active_manifest_ref.as_ref(), Some(&candidate), "rollback authors content without changing adoption");
+    assert_eq!(record.candidate_manifest_refs, vec![candidate.clone()]);
+
+    playground.stage_artifact(artifact_id.parse().unwrap(), Some("stage-rollback")).unwrap();
+    let staged = store.artifact_record(artifact_id.parse().unwrap()).unwrap().unwrap();
+    assert!(staged.candidate_manifest_refs.contains(&candidate), "staging retains the adopted proposal");
+    assert!(staged.candidate_manifest_refs.iter().any(|reference| reference != &candidate), "the rollback has a distinct proposal");
+    playground.put(artifact_id.parse().unwrap(), "new draft".into(), "text/html".into(), b"<h1>not adopted</h1>").unwrap();
+    let edited = store.artifact_record(artifact_id.parse().unwrap()).unwrap().unwrap();
+    assert_eq!(edited.active_manifest_ref, staged.active_manifest_ref, "editing preserves the adopted version");
+    assert_eq!(edited.candidate_manifest_refs, staged.candidate_manifest_refs, "editing preserves staged proposals");
 
     let _ = std::fs::remove_dir_all(&root);
 }

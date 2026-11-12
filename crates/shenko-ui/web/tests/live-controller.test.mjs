@@ -492,7 +492,7 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   const json = (value) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
   globalThis.fetch = async (path) => {
     if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
-    if (path === '/api/playground') return json({ available: true, artifacts: [work] });
+    if (path === '/api/playground') return json({ available: true, artifacts: [work], roots: [[artifactId, '/owned/work/root', 'blake3:root-identity']] });
     if (path === `/playground/${artifactId}/manifest`) return json({ record: { title: work.title, record_revision: 9 } });
     if (path === `/playground/${artifactId}/versions`) return json({ ok: true, revisions: [1, 4] });
     if (path === `/playground/${artifactId}`) return new Response(html, { headers: { 'Content-Type': 'text/html', 'X-Artifact-Revision': '4' } });
@@ -510,4 +510,6 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   assert.deepEqual(panel.props.work?.revisions, [1, 4]);
   assert.equal(panel.props.work_error, false);
   assert.equal(panel.props.open, true);
+  const playground = controller.projection().nodes.find((node) => node.props.playground)?.props.playground;
+  assert.deepEqual(playground?.roots, [{ artifact_id: artifactId, root: '/owned/work/root', identity: 'blake3:root-identity' }]);
 });
