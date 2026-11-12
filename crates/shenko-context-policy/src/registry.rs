@@ -700,25 +700,12 @@ impl PolicyRegistry {
         caps: &ModelCaps,
         used_tokens: u32,
     ) -> Result<PreparedCandidate, PrepareError> {
-        // An explicit request is taken by the attempt that turns it into a
-        // candidate. A candidate that is later dropped puts it back, so the
-        // request survives until a window actually commits; it is answered by
-        // the committed window, not by an attempt.
-        let request = self.state.lock().rollover.take();
-        let rollover = request.is_some();
-        let prepared = self.prepare_for(history, caps, used_tokens, rollover);
-        let (window, attempts) = match prepared {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                if let Some(request) = request {
-                    let mut state = self.state.lock();
-                    if state.rollover.is_none() {
-                        state.rollover = Some(request);
-                    }
-                }
-                return Err(error);
-            }
-        };
+        // The committed window answers an explicit request, not preparation.
+        // Keep it pending even without a journal and while a worker is in
+        // flight, so the request path still enters adoption below the size
+        // trigger. A cancelled or stale preparation consumes nothing.
+        let rollover = self.state.lock().rollover.is_some();
+        let (window, attempts) = self.prepare_for(history, caps, used_tokens, rollover)?;
         let binding = PreparationBinding {
             scope_id: self.ledger.scope_id(),
             source_window: window.base.source_window,
@@ -744,8 +731,8 @@ impl PolicyRegistry {
     /// stale window overwrite a newer one.
     pub fn publish(&self, candidate: PreparedCandidate) -> Result<(), PublishError> {
         if let Err(error) = self.verify_binding(&candidate) {
-            // A refused candidate answered nothing: an explicit request taken
-            // by its preparation goes back to pending.
+            // Refusal records the stale diagnostic without consuming the
+            // scope's pending explicit request.
             self.drop_candidate(&candidate, PreparationOutcome::Stale, error.to_string());
             return Err(error);
         }
@@ -928,9 +915,9 @@ impl PolicyRegistry {
         outcome: PreparationOutcome,
         detail: String,
     ) {
-        // A dropped candidate answered nothing. An explicit request goes back
-        // to pending, so the next safe boundary still rolls over; the refusal
-        // itself stays visible in the diagnostic.
+        // A dropped candidate answered nothing. Keep the live request and
+        // restore a durable pending request if present; the refusal itself
+        // stays visible in the diagnostic.
         let pending = if candidate.rollover {
             let journal = self.state.lock().rollover_journal.clone();
             journal.and_then(|journal| journal.pending().ok().flatten())

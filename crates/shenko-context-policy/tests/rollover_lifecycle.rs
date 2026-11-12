@@ -177,3 +177,64 @@ fn a_strategy_retired_between_publication_and_adoption_cannot_commit() {
     assert_eq!(registry.ledger().current().unwrap(), head_before, "no window was committed");
     assert!(base_leaf <= history.leaf_seq().unwrap().unwrap_or(0));
 }
+
+#[test]
+fn a_store_free_request_survives_refusal_until_a_window_commits() {
+    let history = shenko_context_policy::MemoryHistory::new();
+    history.append(shenko_context_policy::ItemKind::User, "hello", 10);
+    let registry = registry();
+    registry.install(Arc::new(Fixture)).unwrap();
+    let request = registry.request_rollover(registry.ledger().scope_id()).unwrap();
+    let candidate = registry.prepare_candidate(&history, &CAPS, 10).unwrap();
+    let head_before = registry.ledger().current().unwrap();
+
+    registry.install(Arc::new(Fixture)).unwrap();
+    assert!(matches!(
+        registry.publish(candidate),
+        Err(shenko_context_policy::PublishError::StalePolicy { .. })
+    ));
+    assert_eq!(registry.ledger().current().unwrap(), head_before);
+    assert_eq!(registry.rollover_request().unwrap().request_id, request.request_id);
+
+    let next = registry.prepare_candidate(&history, &CAPS, 10).unwrap();
+    let late = next.clone();
+    registry.publish(next).unwrap();
+    assert!(registry.needs_preparation(&CAPS, 10));
+    let (committed, _) = registry.adopt_prepared(&history).unwrap().unwrap();
+    assert_ne!(committed.id, head_before.id);
+    assert!(!registry.rollover_pending());
+    assert!(!registry.needs_preparation(&CAPS, 10));
+
+    assert!(matches!(
+        registry.publish(late),
+        Err(shenko_context_policy::PublishError::StaleSource { .. })
+    ));
+    assert!(!registry.rollover_pending(), "late refusal cannot revive an answered request");
+    assert_eq!(registry.ledger().current().unwrap(), committed);
+}
+
+#[test]
+fn preparing_without_publication_keeps_the_explicit_boundary_pending() {
+    let history = shenko_context_policy::MemoryHistory::new();
+    history.append(shenko_context_policy::ItemKind::User, "hello", 10);
+    let registry = registry();
+    registry.install(Arc::new(Fixture)).unwrap();
+    let request = registry.request_rollover(registry.ledger().scope_id()).unwrap();
+    let head_before = registry.ledger().current().unwrap();
+    let candidate = registry.prepare_candidate(&history, &CAPS, 10).unwrap();
+    assert!(candidate.rollover);
+    assert!(
+        registry.needs_preparation(&CAPS, 10),
+        "the subject must still enter adoption below the automatic trigger"
+    );
+    drop(candidate);
+    assert_eq!(registry.rollover_request().unwrap().request_id, request.request_id);
+    assert_eq!(registry.ledger().current().unwrap(), head_before);
+
+    let next = registry.prepare_candidate(&history, &CAPS, 10).unwrap();
+    registry.publish(next).unwrap();
+    let (committed, _) = registry.adopt_prepared(&history).unwrap().unwrap();
+    assert_ne!(committed.id, head_before.id);
+    assert!(!registry.rollover_pending());
+    assert!(registry.adopt_prepared(&history).unwrap().is_none());
+}
