@@ -200,7 +200,7 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
             supervisor.spawn(NativeTaskHandlerPlugin, writer).await?;
             let native = supervisor.context().try_service::<NativeChildService>()?;
             let task_id = EntityId::new();
-            let result = native.call_tool(&shenko_subject::ChildToolCall {
+            let result = native.call_tool(&shenko_kernel::task::ChildToolCall {
                 call_id: task_id.to_string(), task_id, kind: "cognition.unit.write".into(),
                 definition_version: 1,
                 input: serde_json::json!({
@@ -304,7 +304,7 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
                 supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
                 let native = supervisor.context().try_service::<NativeChildService>()?;
                 let task_id = EntityId::new();
-                let result = native.call_tool(&shenko_subject::ChildToolCall {
+                let result = native.call_tool(&shenko_kernel::task::ChildToolCall {
                     call_id: task_id.to_string(), task_id, kind: "cognition.unit.trial".into(),
                     definition_version: 1, input: serde_json::to_value(&spec)?,
                 }, &parent, &authority).await?;

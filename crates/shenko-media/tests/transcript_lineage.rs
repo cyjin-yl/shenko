@@ -28,7 +28,7 @@ use shenko_media::provider::{
 use shenko_media::runtime::{MediaProviders, MediaRuntime};
 use shenko_media::{MediaIngress, SubjectDelivery};
 use shenko_store::store::Store;
-use shenko_subject::inbox::{InboxEvent, InboxEventKind};
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::media::*;

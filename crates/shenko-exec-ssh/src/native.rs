@@ -34,7 +34,7 @@ use crate::SshBinding;
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use shenko_store::{SeatAnswerDecisionState, SeatLeaseRequest, Store};
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     ids::*,
     object::*,

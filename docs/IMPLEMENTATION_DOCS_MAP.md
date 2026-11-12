@@ -230,9 +230,9 @@
 | [内核 2](specs/kernel.md#kernel-2) 循环不停 | `shenko-subject`：`run_subject_loop`、`attention_budget`；`shenko-types`：`MAX_WAIT_SECS` | 机制已有 |
 | [内核 3](specs/kernel.md#kernel-3) 经历不改写 | `shenko-store`：`raw_session.rs`、内容存储；`shenko-node`：单元版本历史与移除事实 | 机制已有 |
 | [内核 4](specs/kernel.md#kernel-4) 先封存，再行动 | `shenko-subject`：`FrozenStepInput`；`shenko-store`：`subject_request.rs` | 机制已有 |
-| [内核 5](specs/kernel.md#kernel-5) 效果有账 | `shenko-subject`：`NativeTaskHandler` 的 `execute`、`reconcile`、`effect_contracts`；`shenko-broker`；渠道出站台账 | 机制已有 |
+| [内核 5](specs/kernel.md#kernel-5) 效果有账 | `shenko-kernel`：`NativeTaskHandler` 的 `execute`、`reconcile`、`effect_contracts`（登记与派发在 `shenko-subject`）；`shenko-broker`；渠道出站台账 | 机制已有 |
 | [内核 6](specs/kernel.md#kernel-6) 权限来自事实 | 能力声明与认知材料的合同、注释 | 原则已写，入口尚未逐一核对 |
-| [内核 7](specs/kernel.md#kernel-7) 一个门，两个架子 | `shenko-kernel`：`PluginRegistry`、`PluginRuntime`、`HookRegistry` | 部分：钩子架没有处理器；主体直接读认知目录；贡献注册表与钩子点并存；[依赖边界](state/kernel-boundary.json)有 32 条违例 |
+| [内核 7](specs/kernel.md#kernel-7) 一个门，两个架子 | `shenko-kernel`：`PluginRegistry`、`PluginRuntime`、`HookRegistry` | 部分：钩子架没有处理器；主体直接读认知目录；贡献注册表与钩子点并存；[依赖边界](state/kernel-boundary.json)有 26 条违例 |
 | [内核 8](specs/kernel.md#kernel-8) 一个安装权威 | `shenko-node`：`units.rs`；`shenko-update` | 部分：原生处理器的启停不由单元状态决定；种子里没有元感知与元 awareness 单元 |
 | [内核 9](specs/kernel.md#kernel-9) 内核不做判断 | `shenko-awareness-core` 的种子单元；`shenko-subject` 的 `subject_frame`、`idle_perception` | 部分：编译回退文本仍在（`SUBJECT_CONTRACT`、`IDLE_CONTINUATION_PROMPT`、`ROLE_CONTRACT`） |
 

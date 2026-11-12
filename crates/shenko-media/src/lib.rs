@@ -24,7 +24,7 @@ use cordis_core::{Context, Plugin, Service};
 use tokio::sync::mpsc;
 
 use shenko_store::store::Store;
-use shenko_subject::inbox::InboxEvent;
+use shenko_types::inbox::InboxEvent;
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::media::*;

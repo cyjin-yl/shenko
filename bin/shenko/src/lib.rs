@@ -809,7 +809,7 @@ async fn spawn_media_services(
     store: &Arc<shenko_store::store::Store>,
     data_dir: &std::path::Path,
     agent_id: shenko_types::ids::EntityId,
-    inbox: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    inbox: tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>,
 ) -> Result<MediaServices> {
     let _media_ingress_plugin = supervisor
         .spawn(
@@ -874,24 +874,24 @@ async fn install_native_definitions(
             ),
         )
         .await?;
-    let printf_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let printf_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::HostPrintfHandler::new(Arc::clone(store)));
     let _native_printf_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, printf_handler)
         .await?;
-    let history_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let history_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(store)));
     let _native_history_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
         .await?;
     // Reachability is observed, not assumed: one bounded probe of a declared
     // endpoint with per-stage measured timings and no persistent state.
-    let net_probe_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let net_probe_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::NetProbeHandler::new(Arc::clone(store)));
     let _native_net_probe_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, net_probe_handler)
         .await?;
-    let memory_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let memory_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::MemoryHandler::new(Arc::clone(store)));
     let _native_memory_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, memory_handler)
@@ -902,12 +902,12 @@ async fn install_native_definitions(
     // Runtime-error awareness — docs/specs/cognition-units.md#spec-45-14: errors.read exposes the
     // subject's own committed runtime_error facts; issue.submit writes
     // subject-authored drafts into the local issues outbox only.
-    let errors_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let errors_read_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::ErrorsReadHandler::new(Arc::clone(store)));
     let _native_errors_read_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, errors_read_handler)
         .await?;
-    let issue_submit_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+    let issue_submit_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> = Arc::new(
         shenko_exec_host::IssueSubmitHandler::new(
             Arc::clone(store),
             data_dir.join("issues"),
@@ -918,12 +918,12 @@ async fn install_native_definitions(
         .await?;
     // Person-directory operations share the live native registry; owner-set
     // admin grants remain outside the subject's task surface.
-    let person_directory_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let person_directory_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::PersonDirectoryHandler::new(Arc::clone(store)));
     let _native_person_directory_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, person_directory_handler)
         .await?;
-    let media_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let media_read_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_media::MediaReadHandler::new(Arc::clone(store)));
     let _media_read_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, media_read_handler)
@@ -931,7 +931,7 @@ async fn install_native_definitions(
     // Speaker identification of one already-sealed segment. The handler binds
     // to the SAME live media runtime the UI routes and provider plugins use,
     // which is why the media services are constructed before this install.
-    let media_identify_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+    let media_identify_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> = Arc::new(
         shenko_media::MediaIdentifyHandler::new(
             Arc::clone(store),
             Arc::clone(&media.runtime),
@@ -948,7 +948,7 @@ async fn install_native_definitions(
         option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound"),
         "0.6.2",
     ));
-    let self_knowledge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let self_knowledge_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::SelfKnowledgeHandler::new(
             Arc::clone(store),
             Arc::clone(&self_knowledge),
@@ -968,7 +968,7 @@ async fn install_native_definitions(
     handoff_participants.register(Arc::new(update_runtime::PlaygroundServices(
         Arc::clone(&artifact_services),
     )));
-    let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+    let playground_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> = Arc::new(
         shenko_ui::PlaygroundBackendHandler::new(Arc::clone(store), data_dir.join("playground"))
             .with_services(Arc::clone(&artifact_services)),
     );
@@ -981,7 +981,7 @@ async fn install_native_definitions(
     let playground_state = Arc::new(
         shenko_ui::playground::PlaygroundState::open(data_dir.join("playground"), Arc::clone(store))?,
     );
-    let playground_manage_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+    let playground_manage_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> = Arc::new(
         shenko_ui::playground_manage::PlaygroundManageHandler::new(
             Arc::clone(store),
             Arc::clone(&playground_state),
@@ -1001,7 +1001,7 @@ async fn install_native_definitions(
     let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(
         Arc::clone(store),
     ));
-    let config_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let config_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_ui::ConfigHandler::new(
             Arc::clone(store),
             Arc::clone(&config_service),
@@ -1013,7 +1013,7 @@ async fn install_native_definitions(
     // and session state across tasks.
     let computer_use_backend =
         Arc::new(shenko_exec_host::ComputerUseBackend::new(Arc::clone(store)));
-    let computer_use_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 6] = [
+    let computer_use_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 6] = [
         Arc::new(shenko_exec_host::ComputerUseSessionHandler::new(Arc::clone(
             &computer_use_backend,
         ))),
@@ -1043,7 +1043,7 @@ async fn install_native_definitions(
         data_dir.join("browser"),
     ));
     computer_use_backend.register_human_input_observer(browser_provider.clone());
-    let browser_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 5] = [
+    let browser_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 5] = [
         Arc::new(shenko_exec_host::browser::handlers::BrowserSessionHandler::new(
             Arc::clone(&browser_provider),
         )),
@@ -1080,7 +1080,7 @@ async fn install_native_definitions(
         mobile_bridge,
         data_dir.to_path_buf(),
     ));
-    let mobile_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 6] = [
+    let mobile_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 6] = [
         Arc::new(shenko_mobile::AndroidDeviceProbeHandler::new(Arc::clone(&mobile_backend))),
         Arc::new(shenko_mobile::AndroidScreenObserveHandler::new(Arc::clone(&mobile_backend))),
         Arc::new(shenko_mobile::AndroidControlLeaseHandler::new(Arc::clone(&mobile_backend))),
@@ -1096,7 +1096,7 @@ async fn install_native_definitions(
     // Real named-WASM-tool execution: wasi.exec resolves this
     // installation's own unit inventory and runs their verified
     // artifact bytes in the real WasmRuntime under the home mounts.
-    let wasi_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let wasi_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::WasiExecHandler::new(
             Arc::clone(store),
             wasi_mounts,
@@ -1119,9 +1119,9 @@ async fn install_native_definitions(
         Arc::clone(store),
         repl_sessions,
     );
-    let repl_session_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let repl_session_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(repl_session_handler);
-    let repl_cell_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let repl_cell_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(repl_cell_handler);
     let _repl_session_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, repl_session_handler)
@@ -1144,7 +1144,7 @@ async fn install_native_definitions(
     // SSH PTY, managed OMP/Claude seats and seat question/answer operations
     // share one live seat owner.
     let seat_runtime = Arc::new(shenko_exec_ssh::seat::runtime::SeatRuntime::new(Arc::clone(store)));
-    let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 7] = [
+    let seat_ssh_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 7] = [
         Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
         Arc::new(shenko_exec_ssh::SshPtyHandler::new(
             Arc::clone(store),
@@ -1200,7 +1200,7 @@ async fn install_native_definitions(
         Arc::clone(&native_child),
     )));
     let agent_id = store.get_existing_agent_id()?.context("no initialized subject")?;
-    let update_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+    let update_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> = Arc::new(
         shenko_update::native::UpdateControlHandler::new(
             Arc::clone(store),
             data_dir.to_path_buf(),
@@ -2005,7 +2005,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // children on the same Cordis root: the subject can inspect what
             // it has and write down what it actually learned, with the
             // judgement and evidence recorded as its own durable facts.
-            let cognition_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let cognition_read_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::CognitionReadHandler::new(
                     Arc::clone(&store),
                     Arc::clone(&cognition),
@@ -2016,7 +2016,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     cognition_read_handler,
                 )
                 .await?;
-            let cognition_write_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let cognition_write_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::CognitionWriteHandler::new(
                     Arc::clone(&store),
                     Arc::clone(&cognition),
@@ -2033,7 +2033,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // being written again: after a sandbox self-test the subject cites
             // the trial attempt of the exact artifacts it measured, and no
             // second artifact is installed under the same revision.
-            let cognition_judge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let cognition_judge_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::CognitionJudgeHandler::new(
                     Arc::clone(&store),
                     Arc::clone(&cognition),
@@ -2049,7 +2049,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // reads over the same installation authority: the model pages
             // through the cards and cites what this installation actually
             // recorded.
-            let cognition_list_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let cognition_list_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::CognitionQueryHandler::list(
                     Arc::clone(&store),
                     Arc::clone(&cognition),
@@ -2060,7 +2060,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     cognition_list_handler,
                 )
                 .await?;
-            let cognition_evidence_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let cognition_evidence_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::CognitionQueryHandler::evidence(
                     Arc::clone(&store),
                     Arc::clone(&cognition),
@@ -2289,7 +2289,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     None
                 }
             };
-            let model_child_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+            let model_child_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> = Arc::new(
                 shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone(), supervisor.context().clone())?,
             );
             let _model_child_plugin = supervisor
@@ -2304,7 +2304,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // switched off. It runs in throwaway sandboxes and its inference
             // goes through this broker, so the trial is metered like every
             // other inference.
-            let cognition_trial_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let cognition_trial_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::CognitionTrialHandler::new(
                     Arc::clone(&store),
                     Arc::clone(&cognition),
@@ -2369,7 +2369,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 // protocol and durable task/evidence path as every native
                 // child. Installing only while the connector exists keeps the
                 // advertised capability honest: no NapCat, no definition.
-                let contacts_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                let contacts_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                     Arc::new(shenko_exec_host::NapCatContactsHandler::new(
                         Arc::clone(&store),
                         Arc::clone(&client),
@@ -4112,12 +4112,12 @@ async fn run_deterministic_ui(
 
 fn napcat_inbox_event(
     event: shenko_channel_napcat::client::OneBotEvent,
-) -> Result<shenko_subject::inbox::InboxEvent> {
-    Ok(shenko_subject::inbox::InboxEvent {
+) -> Result<shenko_types::inbox::InboxEvent> {
+    Ok(shenko_types::inbox::InboxEvent {
         event_id: event
             .ingress_id
             .ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?,
-        kind: shenko_subject::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::to_value(&event)?,
         created_at: chrono::Utc::now(),
         source: "napcat".to_string(),
@@ -4191,7 +4191,7 @@ async fn admit_channel_event(
     registry: &shenko_types::channel::ChannelRegistry,
     store: &shenko_store::store::Store,
     agent_id: shenko_types::ids::EntityId,
-    inbox_tx: &tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    inbox_tx: &tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>,
     source: &str,
     mut envelope: shenko_types::channel::ChannelEnvelope,
     raw: &serde_json::Value,
@@ -4209,9 +4209,9 @@ async fn admit_channel_event(
         anyhow::bail!("no registered channel plugin owns source {source}");
     };
     envelope = prepare_channel_envelope(plugin, store, event_id, envelope).await?;
-    let inbox_ev = shenko_subject::inbox::InboxEvent {
+    let inbox_ev = shenko_types::inbox::InboxEvent {
         event_id,
-        kind: shenko_subject::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::to_value(&envelope)?,
         created_at: chrono::Utc::now(),
         source: source.to_string(),
@@ -4236,7 +4236,7 @@ async fn run_adapter_ingress(
     registry: shenko_types::channel::ChannelRegistry,
     store: Arc<shenko_store::store::Store>,
     agent_id: shenko_types::ids::EntityId,
-    inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    inbox_tx: tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> Result<()> {
     // Two independent watermarks, mirroring the shipped NapCat ingress: the
@@ -4797,7 +4797,7 @@ async fn install_node_capability_reader(
     store: Arc<shenko_store::Store>,
     node: shenko_node::Node,
 ) -> Result<()> {
-    let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::NodeCapabilitiesHandler::new(store, node));
     supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
     Ok(())
@@ -4810,7 +4810,7 @@ async fn install_node_selection_recorder(
     store: Arc<shenko_store::Store>,
     node: shenko_node::Node,
 ) -> Result<()> {
-    let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::NodeSelectionHandler::new(store, node));
     supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
     Ok(())
@@ -4824,7 +4824,7 @@ async fn install_native_ssh(
     node: shenko_node::Node,
     path: &std::path::Path,
 ) -> Result<()> {
-    let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+    let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_exec_host::NativeSshTaskHandler::from_file(store, node, path)?);
     supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
     Ok(())
@@ -5329,7 +5329,7 @@ mod recovery_integration_tests {
                 (store.clone(), RuntimeGeneration::default()),
             )
             .await?;
-        let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
             Arc::new(shenko_exec_host::HostPrintfHandler::new(store.clone()));
         let _handler = supervisor
             .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
@@ -5443,7 +5443,7 @@ mod recovery_integration_tests {
             )
             .await
             .unwrap();
-        let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
             Arc::new(shenko_exec_host::HostPrintfHandler::new(store.clone()));
         let _handler = supervisor
             .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
@@ -5514,7 +5514,7 @@ mod recovery_integration_tests {
         }
         let delivery_error = failed.unwrap().unwrap().expect_err(
             "unexpected inbox closure must propagate, not return success");
-        assert!(delivery_error.is::<tokio::sync::mpsc::error::SendError<shenko_subject::InboxEvent>>(),
+        assert!(delivery_error.is::<tokio::sync::mpsc::error::SendError<shenko_types::inbox::InboxEvent>>(),
             "the propagated cause must be receiver loss, not an unrelated store failure");
         let (head, _) = store.load_subject(agent).unwrap();
         let error_filter = shenko_store::SessionEventFilter {
@@ -5596,7 +5596,7 @@ mod recovery_integration_tests {
         assert_eq!(settled_event.payload["result"]["stdout_utf8"], settling_text);
         assert_eq!(
             original_event.kind,
-            shenko_subject::inbox::InboxEventKind::TaskResult
+            shenko_types::inbox::InboxEventKind::TaskResult
         );
         assert_eq!(
             original_event
@@ -5725,7 +5725,7 @@ mod recovery_integration_tests {
             &[task_id],
             vec![],
         );
-        let descriptor = shenko_subject::NativeTaskHandler::descriptor(
+        let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
             &shenko_exec_host::HostPrintfHandler::new(store.clone()),
         );
         let claim = store
@@ -5978,7 +5978,7 @@ mod recovery_integration_tests {
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
     struct ReceiptConflictClaim {
         task: shenko_types::task::TaskRecord,
-        invocation: shenko_store::TaskInvocation,
+        invocation: shenko_types::task::TaskInvocation,
         operation_id: EntityId,
         result_id: EntityId,
         software_generation: RuntimeGeneration,
@@ -6298,7 +6298,7 @@ mod recovery_integration_tests {
             "[delegate:host.printf:1] {\"text\":\"admitted\"}\n[delegate:host.printf:1] {\"text\":\"pending\"}",
             &[admitted, pending], vec![],
         );
-        let descriptor = shenko_subject::NativeTaskHandler::descriptor(
+        let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
             &shenko_exec_host::HostPrintfHandler::new(store.clone()),
         );
         let claim = store.claim_native_task(admitted, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
@@ -6359,7 +6359,7 @@ mod recovery_integration_tests {
             &[cancelled_task, unknown_task],
             vec![],
         );
-        let descriptor = shenko_subject::NativeTaskHandler::descriptor(
+        let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
             &shenko_exec_host::HostPrintfHandler::new(old_store.clone()),
         );
         let cancelled_claim = old_store
@@ -6474,7 +6474,7 @@ mod recovery_integration_tests {
             )
             .await
             .unwrap();
-        let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
             Arc::new(shenko_exec_host::HostPrintfHandler::new(reopened.clone()));
         let _handler = supervisor
             .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
@@ -6730,7 +6730,7 @@ mod recovery_integration_tests {
     async fn drive_native_as(
         fixture: &ComputerUseFixture,
         caller_instance_id: EntityId,
-        handler: &dyn shenko_subject::NativeTaskHandler,
+        handler: &dyn shenko_kernel::task::NativeTaskHandler,
         task_id: EntityId,
         input: serde_json::Value,
     ) -> shenko_types::operation::OperationRecord {
@@ -6739,7 +6739,7 @@ mod recovery_integration_tests {
             .claim_native_task(task_id, handler.descriptor().implementation_ref, false)
             .unwrap()
             .expect("pending task claimable");
-        let invocation = shenko_subject::NativeTaskInvocation {
+        let invocation = shenko_kernel::task::NativeTaskInvocation {
             child_tools: None,
             context: shenko_types::agent::CallContext {
                 caller_instance_id,
@@ -6771,7 +6771,7 @@ mod recovery_integration_tests {
     /// Drive as the fixture's single admitted controller instance.
     async fn drive_native(
         fixture: &ComputerUseFixture,
-        handler: &dyn shenko_subject::NativeTaskHandler,
+        handler: &dyn shenko_kernel::task::NativeTaskHandler,
         task_id: EntityId,
         input: serde_json::Value,
     ) -> shenko_types::operation::OperationRecord {
@@ -7129,7 +7129,7 @@ mod recovery_integration_tests {
 
         // An armed input attempt whose controller never produced a result:
         // reconcile reports Unknown with honest progress, arms no retry.
-        let input_desc = shenko_subject::NativeTaskHandler::descriptor(
+        let input_desc = shenko_kernel::task::NativeTaskHandler::descriptor(
             &fixture.handlers.input,
         );
         let claim = fixture
@@ -7145,7 +7145,7 @@ mod recovery_integration_tests {
         )
         .unwrap();
         let task = fixture.store.external_task(ids[3]).unwrap();
-        let reconciled = shenko_subject::NativeTaskHandler::reconcile(
+        let reconciled = shenko_kernel::task::NativeTaskHandler::reconcile(
             &fixture.handlers.input,
             &task,
             armed_op.operation_id,

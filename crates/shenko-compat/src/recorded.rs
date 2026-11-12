@@ -6,8 +6,8 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::{Value, json};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskInvocation};
-use shenko_subject::inbox::{InboxEvent, InboxEventKind};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskInvocation};
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::{commit::CommitRef, evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*, object::*, operation::*, task::{TaskRecord, NativeEvidenceObservation,
         NATIVE_EVIDENCE_OBSERVATION_SOURCE}};

@@ -504,7 +504,7 @@ async fn obligation_archive_required_conflict_rolls_back_before_file_publication
 /// Admit one input delivery the way a real store receives it. An obligation
 /// origin is a durable event, so the fixture admits the event into
 /// `inbox_events` instead of only passing it to the step.
-fn admit(store: &Store, agent: EntityId, event: &crate::inbox::InboxEvent) -> crate::inbox::InboxEvent {
+fn admit(store: &Store, agent: EntityId, event: &shenko_types::inbox::InboxEvent) -> shenko_types::inbox::InboxEvent {
     let mut batch = shenko_types::store::WriteBatch::new();
     batch.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
         event_id: event.event_id,
@@ -855,8 +855,8 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     let delivered = inbox.recv_batch(8, 1_000).await;
     assert_eq!(delivered.len(), 1, "one volatile wake for the durable admission");
     let wake = delivered.into_iter().next().unwrap();
-    assert_eq!(wake.kind, crate::inbox::InboxEventKind::SelfWake);
-    assert_eq!(wake.source, crate::inbox::SUBJECT_WAKE_SOURCE);
+    assert_eq!(wake.kind, shenko_types::inbox::InboxEventKind::SelfWake);
+    assert_eq!(wake.source, shenko_types::inbox::SUBJECT_WAKE_SOURCE);
     assert_eq!(wake.payload["obligation_id"],
         serde_json::json!(due_obligation.obligation_id));
     // created_at is the due fact itself, so a later process reproduces the
@@ -876,7 +876,7 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     let mut replacement = wake.clone();
     replacement.created_at = chrono::Utc::now();
     assert!(store.admit_inbox_event(wake.event_id, agent,
-        crate::inbox::SELF_WAKE_KIND, crate::inbox::SUBJECT_WAKE_SOURCE,
+        shenko_types::inbox::SELF_WAKE_KIND, shenko_types::inbox::SUBJECT_WAKE_SOURCE,
         &serde_json::to_value(&replacement).unwrap()).is_err(),
         "a same-id row with different facts is a conflict, never a silent dup");
     crate::dispatch::wake_due_obligations(
@@ -888,7 +888,7 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
         &store, agent, &inbox.sender(), &mut fresh).await.unwrap();
     assert_eq!(fresh.len(), 1, "a restarted scanner wakes the still-open fact once");
     assert_eq!(store.admit_inbox_event(wake.event_id, agent,
-        crate::inbox::SELF_WAKE_KIND, crate::inbox::SUBJECT_WAKE_SOURCE,
+        shenko_types::inbox::SELF_WAKE_KIND, shenko_types::inbox::SUBJECT_WAKE_SOURCE,
         &serde_json::to_value(&wake).unwrap()).unwrap(), InboxAdmission::Replay);
     drop(inbox.recv_batch(8, 200).await);
 

@@ -13,7 +13,8 @@ use shenko_compat_mcp::{McpConnection, McpPlugin, UNIT_ID, protocol::ConnectionS
 use shenko_kernel::Supervisor;
 use shenko_node::{Node, UnitRequest};
 use shenko_store::Store;
-use shenko_subject::{ChildToolCall, NativeChildPlugin, NativeChildService, NativeTaskHandler, NativeTaskHandlerPlugin};
+use shenko_subject::{NativeChildPlugin, NativeChildService, NativeTaskHandlerPlugin};
+use shenko_kernel::task::{ChildToolCall, NativeTaskHandler};
 use shenko_types::{commit::CommitRef, ids::*, object::{Digest, ObjectRef, SchemaRef}, operation::AuthorityRef, subject::*, task::*};
 
 #[path = "plugin_lifecycle/sandbox_execution.rs"]

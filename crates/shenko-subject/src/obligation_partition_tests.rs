@@ -183,7 +183,7 @@ fn partition_genesis(dir: &Path, agent: EntityId) -> Arc<Store> {
 }
 
 /// Admit one durable input delivery the way the store really receives it.
-fn partition_admit(store: &Store, agent: EntityId, event: &crate::inbox::InboxEvent) {
+fn partition_admit(store: &Store, agent: EntityId, event: &shenko_types::inbox::InboxEvent) {
     let mut batch = shenko_types::store::WriteBatch::new();
     batch.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
         event_id: event.event_id,
@@ -487,7 +487,7 @@ async fn partition_try_commit_output(
     store: &Arc<Store>,
     subject: &mut SubjectLoopState,
     seq: u64,
-    events: &[crate::inbox::InboxEvent],
+    events: &[shenko_types::inbox::InboxEvent],
     raw: &str,
 ) -> Result<EntityId, ShenkoError> {
     let cancelled = tokio_util::sync::CancellationToken::new();

@@ -10,7 +10,7 @@ use shenko_exec_ssh::{NativeSshFileTargetConfig, NativeSshInstallation,
     SelectedSshOutcome, SshAction, SshTaskRunner, native_transport::NativeCommandLimits};
 use shenko_node::Node;
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{ids::EntityId, object::Digest, operation::OperationRecord,
     task::{ImplementationRef, TaskRecord}};
 use std::{collections::BTreeMap, path::Path, sync::{Arc, Mutex}, time::Duration};

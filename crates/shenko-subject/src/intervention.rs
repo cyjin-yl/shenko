@@ -47,7 +47,7 @@ use shenko_types::task::{ImplementationRef, TaskRecord};
 use std::sync::Arc;
 
 use crate::quota_gate::{QuotaGate, observe_quota_response, quota_dispatch_gate, settle_quota_terminal};
-use crate::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_memory::intervention_runtime::PmaContributionRuntime;
 
 /// The native definition kind of the memory-intervention worker.
@@ -531,7 +531,7 @@ fn decision_provenance(decision: &InterventionDecision) -> Vec<String> {
 
 struct InterventionReceiptSink {
     store: Arc<Store>,
-    invocation: shenko_store::TaskInvocation,
+    invocation: shenko_types::task::TaskInvocation,
     frozen: FrozenIntervention,
     input_ref: ObjectRef,
     operation: OperationRecord,

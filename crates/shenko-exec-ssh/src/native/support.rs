@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result, ensure};
 use base64::Engine as _;
 use russh::keys::PrivateKeyWithHashAlg;
 use shenko_store::Store;
-use shenko_subject::NativeTaskInvocation;
+use shenko_kernel::NativeTaskInvocation;
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt},

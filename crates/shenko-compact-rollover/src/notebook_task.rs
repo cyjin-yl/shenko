@@ -25,7 +25,7 @@ use shenko_context_policy::{
     RolloverRequest,
 };
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     effect::{

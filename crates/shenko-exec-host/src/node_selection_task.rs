@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_node::{Identity, Node, NodeSelection, NodeSelectionOutcome, NodeSelectionReceipt};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt},
@@ -385,7 +385,7 @@ impl NativeTaskHandler for NodeSelectionHandler {
 mod tests {
     use super::*;
     use shenko_node::{Request, CapabilityKnowledge, SelectionUnavailable, RoleAssignmentRequest, NodeRole};
-    use shenko_store::TaskInvocation;
+    use shenko_types::task::TaskInvocation;
     use shenko_types::agent::CallContext;
     use shenko_types::store::WriteBatch;
     use shenko_types::task::{DispatchEligibility, RunMode, TaskOwner, TaskState};

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_awareness_core::{SelfKnowledgeProvider, SelfResource, SelfResourceKind};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt},
@@ -479,7 +479,7 @@ fn get_result(resource: &SelfResource) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shenko_store::TaskInvocation;
+    use shenko_types::task::TaskInvocation;
     use shenko_types::agent::CallContext;
     use shenko_types::ids::TaskRevision;
     use shenko_types::store::WriteBatch;

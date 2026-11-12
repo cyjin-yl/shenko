@@ -7,7 +7,8 @@ use super::*;
 use crate::playground_backend::{ArtifactActor, BackendActionRequest, PlaygroundBackendHandler};
 use axum::{body::to_bytes, http::Request};
 use shenko_kernel::{FiberHandle, Supervisor};
-use shenko_subject::{NativeChildPlugin, NativeTaskHandler, NativeTaskHandlerPlugin};
+use shenko_subject::{NativeChildPlugin, NativeTaskHandlerPlugin};
+use shenko_kernel::task::NativeTaskHandler;
 use shenko_types::{commit::CommitRef, ids::*, operation::OperationState, subject::*};
 use tower::ServiceExt;
 

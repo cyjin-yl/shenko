@@ -7,7 +7,8 @@ use shenko_compat_skill::{SkillPlugin, SkillSource, SourceInput};
 use shenko_exec_host::{CognitionQueryHandler, CognitionReadHandler, CognitionWriteHandler,
     SandboxRuntime, UnresolvedSandboxObservation};
 use shenko_kernel::Supervisor;
-use shenko_subject::{NativeChildService, NativeTaskHandler, NativeTaskHandlerPlugin};
+use shenko_subject::{NativeChildService, NativeTaskHandlerPlugin};
+use shenko_kernel::task::NativeTaskHandler;
 use shenko_types::{subject::SubjectStep, task::{NativeTaskDefinition, TaskResult}};
 use std::{io::{Cursor, Write}, process::Command};
 
