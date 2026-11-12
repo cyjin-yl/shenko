@@ -589,6 +589,18 @@ impl UpdateService {
         ensure!(same_slot_path(&recorded_slot, &self.live_slot)
                 || same_slot_path(&recorded_slot, &self.data_dir),
             "the open hand-over names another source slot; explicit reconciliation required");
+        // The candidate's selector CAS is the linearization point. The old
+        // process can die after it and before mirroring it here, so the local
+        // selector alone cannot say "never committed": complete any
+        // committed candidate first (a no-op when none committed), then read
+        // the selector again.
+        let selected = if selected.selector_revision == activation.expected_selector_revision {
+            self.finish_committed_handoff(agent_id)?;
+            self.store.activation_selector(agent_id).map_err(UpdateError::CandidateStore)?
+                .ok_or(UpdateError::SelectorMissing)?
+        } else {
+            selected
+        };
         if selected.selector_revision > activation.expected_selector_revision {
             // The candidate CAS committed. Completion (mirror, fence, pointer)
             // is deterministic; the old writer is never resumed.

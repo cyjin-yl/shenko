@@ -333,6 +333,7 @@ fn live_driver_exit_without_report_retains_the_real_status() -> Result<()> {
     const EXITING_GUEST: &str = r#"
 (module
   (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+  (memory (export "memory") 1)
   (func (export "_start") (call $exit (i32.const 7))))
 "#;
     let root = temp_root("driver-exit");

@@ -1619,6 +1619,7 @@ fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch()
     // Durable: a reopen reads the same settlement and still refuses to send.
     drop(store);
     let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
     assert_eq!(publication_state(&reopened, intent_id), "blocked");
     assert!(
         reopened
