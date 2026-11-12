@@ -375,7 +375,32 @@ impl Store {
                 fenced.record_revision = RecordRevision(fresh.record_revision.0 + 1);
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
-                fenced.committed_at = commit_ref;
+                // `committed_at` names the last committed step, which the
+                // planned step is bound to; the fence is not a step and keeps
+                // it. The planned step moves to the new epoch with its head
+                // (as an activation successor does), so the fenced copy stays
+                // a readable, consistent record instead of an unloadable one.
+                let raw_step: String = tx
+                    .query_row(
+                        "SELECT data FROM subject_steps WHERE step_id=?1",
+                        [fresh.next_step_id.to_string()],
+                        |row| row.get(0),
+                    )
+                    .map_err(storage_error)?;
+                let mut step: SubjectStep = serde_json::from_str(&raw_step)?;
+                validate_step_binding(&fresh, &step)?;
+                step.controller_epoch = fenced.controller_epoch;
+                step.record_revision = step.record_revision.next();
+                tx.execute(
+                    "UPDATE subject_steps SET record_revision=?2, data=?3, updated_commit_seq=?4 WHERE step_id=?1",
+                    params![
+                        step.step_id.to_string(),
+                        step.record_revision.0 as i64,
+                        serde_json::to_string(&step)?,
+                        seq.0 as i64,
+                    ],
+                )
+                .map_err(storage_error)?;
                 let changed = tx
                     .execute(
                         "UPDATE subject_branch_heads SET mode='handoff', record_revision=?3, data=?4, updated_commit_seq=?5
