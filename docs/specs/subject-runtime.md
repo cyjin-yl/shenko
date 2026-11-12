@@ -522,9 +522,7 @@ child 进度、结果产物、任务终态、对话投递、渠道发送分别�
 <!-- migrated-contract: SPEC:57.1 -->
 ## 57.1 角色框架是可修订内容单元
 
-**合同。** 主体角色文本属于内容单元，内核不携带它（[内核 9](kernel.md#kernel-9)）。运行时按能力契约 `cap.subject-frame` 解析：安装中**恰好一个**启用单元提供该契约时，该单元当前版本的正文就是主体的角色前缀。这段内容经钩子图到达主体，主体不引用认知目录的具体类型（[内核 7](kernel.md#kernel-7)）。没有提供者时，运行时如实报告缺失：提示里只有内核 ABI 的说明和“没有安装角色框”这一事实，不用编译进去的文本顶替；默认角色框由种子安装的单元提供。两个**不同**单元同时提供时是歧义：harness 不替主体选，按缺失处理并把歧义报告给主体，由主体决定停用哪一个。停用的单元不是提供者。
-
-**当前实现。** 主体直接读取认知目录（`shenko-awareness-core/src/cognition.rs` 的 `capability_unit`；`shenko-subject/src/loop_runner.rs` 的 `subject_frame`）；没有提供者或出现歧义时使用编译回退文本 `SUBJECT_CONTRACT`。向上述合同收敛的步骤见[内核收敛计划](../development/kernel-convergence.md)第 3 步与第 5 步。
+**合同。** 主体角色文本不再由编译期常量独占。运行时按能力契约 `cap.subject-frame` 解析：安装中**恰好一个**启用单元提供该契约时，该单元当前版本的正文就是主体的角色前缀（`shenko-awareness-core/src/cognition.rs` 的 `capability_unit`；`shenko-subject/src/loop_runner.rs` 的 `subject_frame`）。没有提供者时用编译回退文本。两个**不同**单元同时提供时是歧义：harness 不替主体选，保持编译回退并把歧义报告给主体，由主体决定停用哪一个。停用的单元不是提供者。
 
 **边界。** 只有角色文本可被替换；输出协议（控制行语法、回复语法、工具目录）仍是内核 ABI（`shenko-subject/src/lib.rs` 的 `subject_prompt_with_frame`）。换 frame 不等于换 kernel：想要不同的输出协议，那是另一个内核版本，不是另一段 frame。
 
@@ -534,17 +532,19 @@ child 进度、结果产物、任务终态、对话投递、渠道发送分别�
 
 <!-- /migrated-contract: SPEC:57.1 -->
 
+**结构迁移说明。** [内核 7](kernel.md#kernel-7) 与[内核 9](kernel.md#kernel-9) 允许把角色内容及其编译回退迁到可替换参考插件，经钩子图到达主体。上面的既有合同保持有效：精确提供者选择、缺失与歧义时的回退、歧义报告及下一有效 S0 生效的要求不能因此改变。当前仍由主体直接读取认知目录，并在缺失或歧义时使用 `SUBJECT_CONTRACT`；[收敛计划](../development/kernel-convergence.md)记录后续结构工作，不代表迁移完成。
+
 <a id="spec-57-2"></a>
 <!-- migrated-contract: SPEC:57.2 -->
 ## 57.2 空闲是感知，不是提示
 
-**合同。** 没有新外部输入时，主体收到的是一次观察，而不是运行时下达的命令。措辞由提供 `cap.idle-perception` 的单元给出；没有提供者时，主体收到的是一条只陈述事实的观察，即此刻没有新的外部输入，不含建议或命令（[内核 9](kernel.md#kernel-9)）。观察的内容由主体自己决定写什么：距上次外部输入多久、未竟几件、正在等什么，都可以写进这则单元。
-
-**当前实现。** `subject.idle_perception` 直接读取认知目录；没有提供者时使用编译回退句 `IDLE_CONTINUATION_PROMPT`，它带一句祈使的“继续”。收敛步骤见[内核收敛计划](../development/kernel-convergence.md)第 3 步与第 5 步。
+**合同。** 没有新外部输入时，主体收到的是一次观察，而不是运行时下达的命令。措辞由提供 `cap.idle-perception` 的单元给出（`subject.idle_perception`）；没有提供者时用编译回退句。观察的内容由主体自己决定写什么：距上次外部输入多久、未竟几件、正在等什么，都可以写进这则单元。
 
 **不变的部分。** [§5.1](subject-runtime.md#spec-5-1) 的持续接续与 600 秒语义等待不变；等待态是注意力状态，与推理/排队时间正交；真实容量等待、OS 挂起、主动暂停分别记账。"空闲不是停止的理由"仍然成立，但那是主体读到的内容，不是 harness 写死的台词。
 
 <!-- /migrated-contract: SPEC:57.2 -->
+
+**结构迁移说明。** [内核 9](kernel.md#kernel-9) 把空闲观察及其回退内容的所有权交给可替换单元或参考插件；这不取消上面的编译回退义务，也不改变持续接续与 600 秒语义等待。当前 `subject.idle_perception` 直接读取认知目录，缺失时仍使用 `IDLE_CONTINUATION_PROMPT`。迁移后仍须满足既有观察语义，不能把结构上的缺失事实冒充完整的空闲感知行为。
 
 <a id="spec-57-3"></a>
 <!-- migrated-contract: SPEC:57.3 -->
