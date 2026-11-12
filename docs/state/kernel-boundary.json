@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "purpose": "Dependency-boundary baseline for docs/specs/kernel.md#kernel-7. Structure only: it records which workspace crates cross the kernel boundary today. It is a ratchet, not a target and not evidence that any crate works. scripts/check_kernel_boundary.py fails on a new violation and on a stale entry; --update only removes entries.",
+  "recorded_at_commit": "db3970e",
+  "roles": {
+    "interface": [
+      "shenko-types",
+      "shenko-kernel"
+    ],
+    "core": [
+      "shenko-store",
+      "shenko-subject"
+    ],
+    "assembly": [
+      "shenko",
+      "shenko-seed"
+    ]
+  },
+  "role_notes": {
+    "interface": "What a plugin may depend on.",
+    "core": "Holds the decision line, the sealed step and the ledger today. A plugin depending on these, or these depending on a plugin, is a violation.",
+    "assembly": "Wires the product together and may depend on everything.",
+    "plugin": "Every other workspace member."
+  },
+  "counts": {
+    "plugin_reaches_core": 25,
+    "core_depends_on_plugin": 7,
+    "interface_depends_outward": 0
+  },
+  "violations": [
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-store",
+      "to": "shenko-quota"
+    },
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-subject",
+      "to": "shenko-awareness-core"
+    },
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-subject",
+      "to": "shenko-broker"
+    },
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-subject",
+      "to": "shenko-context-policy"
+    },
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-subject",
+      "to": "shenko-identity"
+    },
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-subject",
+      "to": "shenko-memory"
+    },
+    {
+      "rule": "core_depends_on_plugin",
+      "from": "shenko-subject",
+      "to": "shenko-quota"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compact-rollover",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compact-rollover",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compat",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compat",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compat-mcp",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compat-mcp",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compat-skill",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-compat-skill",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-context-policy",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-exec-host",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-exec-host",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-exec-ssh",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-exec-ssh",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-media",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-media",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-memory",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-mobile",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-mobile",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-repl",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-repl",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-ui",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-ui",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-update",
+      "to": "shenko-store"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-update",
+      "to": "shenko-subject"
+    },
+    {
+      "rule": "plugin_reaches_core",
+      "from": "shenko-wasm",
+      "to": "shenko-store"
+    }
+  ]
+}
