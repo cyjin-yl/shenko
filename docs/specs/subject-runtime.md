@@ -1,6 +1,6 @@
 # Subject runtime contract
 
-**内核定位。** 本文承载[内核合同](kernel.md)中[内核 1](kernel.md#kernel-1)、[内核 2](kernel.md#kernel-2)与[内核 4](kernel.md#kernel-4)的具体形状。角色框、空闲感知与注意力政策是可修订的单元内容（[内核 9](kernel.md#kernel-9)）。57.1 与 57.2 的合同正文写的是目标，各自的“当前实现”说明代码今天的做法。
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 1](kernel.md#kernel-1)、[内核 2](kernel.md#kernel-2)与[内核 4](kernel.md#kernel-4)的具体形状。角色框、空闲感知与注意力政策是可修订的单元内容（[内核 9](kernel.md#kernel-9)）。57.1、57.2 的既有合同正文持续有效；其后的结构迁移说明另记实现归属与差距，不替换旧义务。
 
 
 <a id="why-1"></a>
