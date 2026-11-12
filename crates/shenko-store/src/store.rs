@@ -419,7 +419,7 @@ impl Store {
                 if changed != 1 {
                     return Err(ShenkoError::conflict("stale branch head for handoff fence"));
                 }
-                self.record_subject_commit(&tx, commit_ref, 1)?;
+                self.record_subject_commit(&tx, commit_ref, 2)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(fenced)
             },
