@@ -23,7 +23,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     effect::{
@@ -640,7 +640,7 @@ mod tests {
     use crate::provider::SpeakerIdentity;
     use crate::runtime::MediaProviders;
     use shenko_store::TaskInvocation;
-    use shenko_subject::inbox::{InboxEvent, InboxEventKind};
+    use shenko_types::inbox::{InboxEvent, InboxEventKind};
     use shenko_types::agent::CallContext;
     use shenko_types::error::{ErrorScope, ProtocolError};
     use shenko_types::store::WriteBatch;

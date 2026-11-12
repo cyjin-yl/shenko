@@ -19,7 +19,7 @@
 | 绕路二：平行的收集路径 | 主体直接调用 `shenko-context-policy` 的 `ContributionRegistry::collect`；`context.collect` 钩子点只有定义，主体没有派发它 |
 | 绕路三：装配写死 | `bin/shenko/src/lib.rs` 里有三十多处手写的处理器登记，启停不由安装单元的状态决定 |
 
-依赖方向的现状记录在[依赖边界基线](../state/kernel-boundary.json)：25 条“插件伸进内核内部”，7 条“内核依赖具体插件”。
+依赖方向的现状记录在[依赖边界基线](../state/kernel-boundary.json)：19 条“插件伸进内核内部”，7 条“内核依赖具体插件”。起点是 `db3970e` 上的 25 条与 7 条；第 1 步的第一部分去掉了 6 条。
 
 承重代码的分布：名为 `shenko-kernel` 的 crate 约四千行源码，只含生命周期、能力目录与钩子图；决策线、封存与账本在 `shenko-store`（约四万八千行）和 `shenko-subject`（约两万三千行）里。`shenko-store` 的三十多个公开模块中，认知档案、研究、媒体、座位、联系人、额度、记忆、配置等是领域表，不是账本本身。
 
@@ -43,7 +43,7 @@
 
 对应[内核 7](../specs/kernel.md#kernel-7)。
 
-11 个插件 crate 依赖 `shenko-subject`。除 `shenko-exec-host` 之外的 10 个，从中使用的只有三类东西：任务处理器合同（`NativeTaskHandler`、`NativeTaskDescriptor`、`NativeTaskInvocation`、`NativeTaskHandlerPlugin`、`ChildToolCall` 等）、它的登记服务（`NativeChildService`、`NativeChildPlugin`），以及收件箱和发件箱的消息类型（`InboxEvent`、`InboxEventKind`、`OutboxMessage`）。
+收敛开始前，11 个插件 crate 依赖 `shenko-subject`。除 `shenko-exec-host` 之外的 10 个，从中使用的只有三类东西：任务处理器合同（`NativeTaskHandler`、`NativeTaskDescriptor`、`NativeTaskInvocation`、`NativeTaskHandlerPlugin`、`ChildToolCall` 等）、它的登记服务（`NativeChildService`、`NativeChildPlugin`），以及收件箱和发件箱的消息类型（`InboxEvent`、`InboxEventKind`、`OutboxMessage`）。
 
 做法：
 
@@ -53,6 +53,11 @@
 4. 各插件改为从接口 crate 引入，去掉对 `shenko-subject` 的依赖。
 
 预期效果：依赖边界基线里“插件伸进内核内部”减少 10 条。这一步只移动类型和 trait，不改变行为，适合最先做。
+
+进度：
+
+- 第一部分已经写成源码，**尚未编译或运行**。任务处理器合同（`NativeTaskHandler`、`NativeTaskDescriptor`、`NativeTaskInvocation`、`ChildToolCall`、`ChildToolOutcome`、`ChildToolRuntime`）在 `shenko-kernel` 的 `task` 模块；`TaskInvocation` 与收件箱事件类型（`InboxEvent`、`InboxEventKind`）在 `shenko-types`。原位置保留再导出，其余调用者不需要改动。`shenko-compact-rollover`、`shenko-exec-ssh`、`shenko-media`、`shenko-mobile`、`shenko-repl`、`shenko-update` 六个 crate 改为依赖 `shenko-kernel`，不再依赖 `shenko-subject`。
+- 剩余部分：`shenko-compat`、`shenko-compat-mcp`、`shenko-compat-skill`、`shenko-ui` 还需要登记服务（`NativeChildService`、`NativeChildPlugin`、`NativeTaskHandlerPlugin`）与 `OutboxMessage`。登记服务持有账本，不能直接移动；需要在内核接口里定义一个“处理器宿主”的 trait，由主体实现并作为服务发布，插件只面向这个 trait。全部调用者迁完之后，删除 `shenko-subject` 与 `shenko-store` 里的再导出。
 
 ### 第 2 步：沙箱装配移出执行插件
 

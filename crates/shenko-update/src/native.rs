@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::commit::CommitRef;
 use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 use shenko_types::ids::{EntityId, LedgerSeq};

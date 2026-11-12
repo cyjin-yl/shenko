@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "purpose": "Dependency-boundary baseline for docs/specs/kernel.md#kernel-7. Structure only: it records which workspace crates cross the kernel boundary today. It is a ratchet, not a target and not evidence that any crate works. scripts/check_kernel_boundary.py fails on a new violation and on a stale entry; --update only removes entries.",
-  "recorded_at_commit": "db3970e",
+  "first_recorded_at_commit": "db3970e",
   "roles": {
     "interface": [
       "shenko-types",
@@ -23,7 +23,7 @@
     "plugin": "Every other workspace member."
   },
   "counts": {
-    "plugin_reaches_core": 25,
+    "plugin_reaches_core": 19,
     "core_depends_on_plugin": 7,
     "interface_depends_outward": 0
   },
@@ -67,11 +67,6 @@
       "rule": "plugin_reaches_core",
       "from": "shenko-compact-rollover",
       "to": "shenko-store"
-    },
-    {
-      "rule": "plugin_reaches_core",
-      "from": "shenko-compact-rollover",
-      "to": "shenko-subject"
     },
     {
       "rule": "plugin_reaches_core",
@@ -125,18 +120,8 @@
     },
     {
       "rule": "plugin_reaches_core",
-      "from": "shenko-exec-ssh",
-      "to": "shenko-subject"
-    },
-    {
-      "rule": "plugin_reaches_core",
       "from": "shenko-media",
       "to": "shenko-store"
-    },
-    {
-      "rule": "plugin_reaches_core",
-      "from": "shenko-media",
-      "to": "shenko-subject"
     },
     {
       "rule": "plugin_reaches_core",
@@ -150,18 +135,8 @@
     },
     {
       "rule": "plugin_reaches_core",
-      "from": "shenko-mobile",
-      "to": "shenko-subject"
-    },
-    {
-      "rule": "plugin_reaches_core",
       "from": "shenko-repl",
       "to": "shenko-store"
-    },
-    {
-      "rule": "plugin_reaches_core",
-      "from": "shenko-repl",
-      "to": "shenko-subject"
     },
     {
       "rule": "plugin_reaches_core",
@@ -177,11 +152,6 @@
       "rule": "plugin_reaches_core",
       "from": "shenko-update",
       "to": "shenko-store"
-    },
-    {
-      "rule": "plugin_reaches_core",
-      "from": "shenko-update",
-      "to": "shenko-subject"
     },
     {
       "rule": "plugin_reaches_core",

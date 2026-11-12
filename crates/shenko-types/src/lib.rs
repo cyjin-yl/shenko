@@ -14,6 +14,7 @@ pub mod error;
 pub mod evidence;
 pub mod identity;
 pub mod ids;
+pub mod inbox;
 pub mod media;
 pub mod object;
 pub mod operation;

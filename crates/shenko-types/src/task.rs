@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::commit::CommitRef;
-use crate::ids::{ControllerEpoch, EntityId, RecordRevision, TaskRevision};
+use crate::ids::{ControllerEpoch, EntityId, RecordRevision, RuntimeGeneration, TaskRevision};
 use crate::object::{Digest, ObjectRef};
 use crate::operation::{EffectStatus, OperationOutcome, OperationState};
 
@@ -272,4 +272,22 @@ pub struct NativeEvidenceObservation {
     pub normalized_ref: Option<ObjectRef>,
     pub observed_at: chrono::DateTime<chrono::Utc>,
     pub received_commit: CommitRef,
+}
+
+/// Trusted executor context, not authority supplied by a model tool argument.
+///
+/// It is plain protocol data: the ledger issues it when a worker claims a
+/// task, and a native task handler receives it with its invocation. It lives
+/// here so that a handler can name it without depending on the ledger crate
+/// (docs/specs/kernel.md#kernel-7).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskInvocation {
+    pub task_id: EntityId,
+    pub task_revision: TaskRevision,
+    pub record_revision: RecordRevision,
+    pub invocation_id: EntityId,
+    pub epoch: ControllerEpoch,
+    pub software_generation: RuntimeGeneration,
+    pub worker_id: EntityId,
+    pub node_id: EntityId,
 }
