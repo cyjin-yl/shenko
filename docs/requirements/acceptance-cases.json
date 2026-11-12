@@ -5497,9 +5497,8 @@
       "source_row": "| UI-S13 | 时间线出现新的已提交内容 | 屏幕阅读器得到一次有界宣布，不逐字重读整段回答 |",
       "verification_status": "unverified",
       "implementation_refs": [
-        "crates/shenko-ui/web/src/react-renderer.tsx:275",
-        "crates/shenko-ui/web/src/react-renderer.tsx:550",
-        "crates/shenko-ui/web/tests/live-controller.test.mjs:457"
+        "crates/shenko-ui/web/src/react-renderer.tsx:623",
+        "crates/shenko-ui/web/src/react-renderer.tsx:834"
       ],
       "evidence": [
         "node --test crates/shenko-ui/web/tests/live-controller.test.mjs：8 条全通过（流式 prefix 不标 committed、block 保留原因）"
@@ -5523,12 +5522,12 @@
       "source_row": "| UI-S14 | 时间线同时出现正文、作品与其动作 | 三者保持稳定身份与阅读锚点，展开与更新不互相打断 |",
       "verification_status": "unverified",
       "implementation_refs": [
-        "crates/shenko-ui/web/src/react-renderer.tsx:328",
-        "crates/shenko-ui/web/src/react-renderer.tsx:336",
+        "crates/shenko-ui/web/src/react-renderer.tsx:356",
+        "crates/shenko-ui/web/src/react-renderer.tsx:898",
         "crates/shenko-ui/web/tests/timeline-state.test.mjs:55",
         "crates/shenko-ui/web/tests/timeline-state.test.mjs:70",
         "crates/shenko-ui/web/tests/live-controller.test.mjs:233",
-        "crates/shenko-ui/web/tests/live-controller.test.mjs:257"
+        "crates/shenko-ui/web/tests/live-controller.test.mjs:258"
       ],
       "evidence": [
         "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs：4 条全通过 + live-controller.test.mjs：8 条全通过（阅读锚点、动作绑定、重复提交幂等）"

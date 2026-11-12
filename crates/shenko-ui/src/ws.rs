@@ -875,6 +875,75 @@ mod tests {
     }
 
     #[test]
+    fn input_history_retains_admission_order_and_withdrawal_after_reopen() {
+        let (dir, state, input, mut rx) = service_state();
+        let subject = state.subject_id.unwrap();
+        let store = state.store.as_ref().unwrap();
+        let mut first_time = None;
+        for number in 0..3 {
+            let mut message = submission(SubmissionMode::Append);
+            message.subject_id = subject.to_string();
+            message.submission_id = format!("history-{number}");
+            message.message_id = format!("message-{number}");
+            message.content = format!("历史正文 {number}");
+            assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
+            if number == 0 {
+                first_time = Some(rx.try_recv().unwrap().created_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true));
+            }
+            // Another subject's admission creates a real gap in ledger seq;
+            // it must neither appear nor terminate this subject's page.
+            if number == 1 {
+                let other = EntityId::new();
+                let foreign = WebInputService::new(Arc::clone(store), other, None, presentation());
+                let mut message = submission(SubmissionMode::Append);
+                message.subject_id = other.to_string();
+                assert!(matches!(foreign.submit(&message).stage, SubmissionStage::Accepted));
+            }
+        }
+        let withdrawal = input.withdraw(&WithdrawRequest {
+            schema_version: 2, kind: "withdraw".into(), submission_id: "history-0".into(),
+            subject_id: subject.to_string(), cancel_id: "cancel-history-0".into(),
+        });
+        assert_eq!(withdrawal.withdrawal.unwrap().result, "withdrawn_before_presentation");
+        let page = WebInputService::history(store, subject, None, 2).unwrap();
+        assert_eq!(page.total, 3);
+        assert_eq!(page.items.iter().map(|row| row.payload["submission_id"].as_str().unwrap())
+            .collect::<Vec<_>>(), ["history-2", "history-1"]);
+        assert!(page.has_older);
+        let before = page.next_before.unwrap();
+        let accepted = input.get("history-0", &subject.to_string(), None).accepted_commit.unwrap();
+        drop(input);
+        drop(state);
+        let reopened = shenko_store::Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+        let older = WebInputService::history(&reopened, subject, Some(before), 2).unwrap();
+        assert_eq!(older.total, 3);
+        assert!(!older.has_older);
+        assert_eq!(older.next_before, None);
+        assert_eq!(older.items[0].payload["content"], "历史正文 0");
+        assert_eq!(older.items[0].created_at, first_time.unwrap());
+        assert_eq!(older.items[0].view.accepted_commit.as_deref(), Some(accepted.as_str()));
+        assert_eq!(older.items[0].view.withdrawal.as_ref().unwrap().cancel_id, "cancel-history-0");
+        assert_eq!(WebInputService::history(&reopened, EntityId::new(), None, 2).unwrap().total, 0);
+    }
+
+    #[test]
+    fn an_unreadable_submission_table_does_not_report_not_admitted() {
+        let (dir, state, input, _rx) = service_state();
+        let subject = state.subject_id.unwrap();
+        let mut message = submission(SubmissionMode::Append);
+        message.subject_id = subject.to_string();
+        assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
+        // Preserve the original rows while making the normal reader fail.
+        let database = rusqlite::Connection::open(dir.join("store.db")).unwrap();
+        database.execute("ALTER TABLE web_input_submissions RENAME TO retained_unavailable_submissions", []).unwrap();
+        assert_eq!(input.get(&message.submission_id, &message.subject_id, None).result, "temporarily_unavailable");
+        assert!(WebInputService::history(state.store.as_ref().unwrap(), subject, None, 10).is_err());
+        assert_eq!(database.query_row("SELECT COUNT(*) FROM retained_unavailable_submissions", [],
+            |row| row.get::<_, i64>(0)).unwrap(), 1);
+    }
+
+    #[test]
     fn committed_projection_reuses_message_part_identity() {
         let step_id = EntityId::new();
         let commit_ref = CommitRef::new(EntityId::new(), LedgerSeq(7));

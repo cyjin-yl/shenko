@@ -76,16 +76,20 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
 fn initialized_subject_with_bootstrap_event(
     bootstrap_event: &[u8],
 ) -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
+    let dir = tmp_dir();
+    let db = dir.join("head.db");
+    let cas = dir.join("cas");
+    let store = Arc::new(Store::open(db, cas).unwrap());
+    let agent_id = initialize_subject_in(&store, bootstrap_event);
+    (dir, store, agent_id)
+}
+
+fn initialize_subject_in(store: &Store, bootstrap_event: &[u8]) -> shenko_types::ids::EntityId {
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
     use shenko_types::subject::{
         GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
     };
-
-    let dir = tmp_dir();
-    let db = dir.join("head.db");
-    let cas = dir.join("cas");
-    let store = Arc::new(Store::open(db, cas).unwrap());
 
     let agent_id = EntityId::new();
     let branch_id = BranchId::new();
@@ -165,7 +169,7 @@ fn initialized_subject_with_bootstrap_event(
         .initialize_genesis(&genesis, &head, &first_step, &root_task)
         .unwrap();
 
-    (dir, store, agent_id)
+    agent_id
 }
 
 #[test]
@@ -1416,16 +1420,15 @@ fn commit_publication_step(
 
 #[test]
 fn channel_conversations_interleave_publications_with_recorded_message_times() {
-    use chrono::{Duration, NaiveDateTime};
+    use chrono::{DateTime, Duration};
     use shenko_types::{channel::ChannelEnvelope, ids::EntityId, store::RawInboxEvent};
 
     let (dir, store, agent) = initialized_subject();
     let publication = publication_intent();
     commit_publication_step(&store, agent, &publication);
-    let task = store.list_task_summaries(100).unwrap().into_iter()
+    let task = store.list_task_summaries(agent, 100).unwrap().into_iter()
         .find(|task| task.task_id == publication.intent_id.to_string()).unwrap();
-    let published = NaiveDateTime::parse_from_str(&task.created_at, "%Y-%m-%d %H:%M:%S%.f")
-        .unwrap().and_utc();
+    let published = DateTime::parse_from_rfc3339(&task.created_at).unwrap().to_utc();
     let admit = |text: &str, at: chrono::DateTime<chrono::Utc>| {
         let event_id = EntityId::new();
         let envelope: ChannelEnvelope = serde_json::from_value(serde_json::json!({
@@ -1449,14 +1452,14 @@ fn channel_conversations_interleave_publications_with_recorded_message_times() {
     let before = admit("较早的来信", published - Duration::seconds(1));
     let after = admit("较后的来信", published + Duration::seconds(1));
     let expected = vec![before.to_string(), publication.intent_id.to_string(), after.to_string()];
-    let messages = store.channel_conversation_messages(10).unwrap();
+    let messages = store.channel_conversation_messages(agent, 10).unwrap();
     assert_eq!(messages.iter().map(|message| message.message_id.clone()).collect::<Vec<_>>(), expected);
     assert_eq!(messages.iter().map(|message| message.direction).collect::<Vec<_>>(),
         vec!["inbound", "outbound", "inbound"]);
     assert!(messages.iter().all(|message| message.thread_key == "qq:10001|group|123456789"));
     drop(store);
     let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
-    assert_eq!(reopened.channel_conversation_messages(10).unwrap().into_iter()
+    assert_eq!(reopened.channel_conversation_messages(agent, 10).unwrap().into_iter()
         .map(|message| message.message_id).collect::<Vec<_>>(), expected);
 }
 
@@ -1469,11 +1472,61 @@ fn channel_conversations_limit_selects_latest_publications() {
     for intent in [&first, &second, &third] {
         commit_publication_step(&store, agent, intent);
     }
-    let actual = store.channel_conversation_messages(2).unwrap().into_iter()
+    let actual = store.channel_conversation_messages(agent, 2).unwrap().into_iter()
         .map(|message| message.message_id).collect::<std::collections::BTreeSet<_>>();
     let expected = [second.intent_id.to_string(), third.intent_id.to_string()]
         .into_iter().collect::<std::collections::BTreeSet<_>>();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn inspection_projections_keep_each_subjects_tasks_and_messages_private() {
+    use shenko_types::{channel::ChannelEnvelope, ids::EntityId, store::RawInboxEvent};
+    let (_dir, store, first) = initialized_subject();
+    let second = initialize_subject_in(&store, b"second subject");
+    let first_publication = publication_intent();
+    let second_publication = publication_intent();
+    commit_publication_step(&store, first, &first_publication);
+    commit_publication_step(&store, second, &second_publication);
+    let mut events = Vec::new();
+    for (agent, text) in [(first, "first private input"), (second, "second private input")] {
+        let event_id = EntityId::new();
+        let at = chrono::Utc::now();
+        let envelope: ChannelEnvelope = serde_json::from_value(serde_json::json!({
+            "schema_version": 1, "provider": "qq", "account": "qq:10001",
+            "transport_identity_domain": "test:qq", "conversation": "group:123456789",
+            "message_id": event_id, "received_at": at, "actor": {"platform_id": "member"},
+            "content": {"text": text},
+            "reply_target": {"kind": "group", "id": "123456789", "label": "", "account": "qq:10001"}
+        })).unwrap();
+        let mut batch = WriteBatch::new();
+        batch.inbox_event_upserts.push(RawInboxEvent {
+            event_id, agent_id: agent, source: "channel/qq".into(), kind: "message".into(),
+            payload_json: serde_json::to_string(&envelope).unwrap(), received_at_ms: at.timestamp_millis(),
+        });
+        store.commit(batch).unwrap();
+        events.push(event_id);
+    }
+    for (agent, publication, foreign, event) in [
+        (first, &first_publication, &second_publication, events[0]),
+        (second, &second_publication, &first_publication, events[1]),
+    ] {
+        let (head, _) = store.load_subject(agent).unwrap();
+        let ids = store.list_task_summaries(agent, 100).unwrap().into_iter()
+            .map(|task| task.task_id).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids, [head.subject_root_task_id.to_string(), publication.intent_id.to_string()]
+            .into_iter().collect());
+        assert!(store.task_trajectory(agent, foreign.intent_id).unwrap().is_none());
+        let own = store.task_trajectory(agent, publication.intent_id).unwrap().unwrap();
+        assert_eq!(own.task.task_id, publication.intent_id.to_string());
+        assert!(own.children.is_empty());
+        let messages = store.channel_conversation_messages(agent, 100).unwrap().into_iter()
+            .map(|message| message.message_id).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(messages, [event.to_string(), publication.intent_id.to_string()].into_iter().collect());
+    }
+    // The installation cannot select an arbitrary local subject for an API
+    // request: ambiguous identity is an error, never an unscoped fallback.
+    assert!(store.get_existing_agent_id().is_err());
 }
 
 fn publication_state(store: &Store, intent_id: shenko_types::ids::EntityId) -> String {

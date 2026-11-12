@@ -2953,8 +2953,8 @@
         "crates/shenko-ui/src/playground_manage.rs:44",
         "crates/shenko-ui/src/playground_manage.rs:573",
         "crates/shenko-ui/src/playground.rs:61",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1035",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1054",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1097",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1116",
         "crates/shenko-ui/web/src/surfaces.tsx:394",
         "crates/shenko-ui/web/src/surfaces.tsx:407"
       ],
@@ -3029,7 +3029,9 @@
         "crates/shenko-ui/src/static/app.css:51",
         "crates/shenko-ui/src/static/app.css:74",
         "crates/shenko-ui/web/src/react-renderer.tsx:107",
-        "crates/shenko-ui/web/src/react-renderer.tsx:260"
+        "crates/shenko-ui/web/src/react-renderer.tsx:260",
+        "crates/shenko-ui/web/src/react-renderer.tsx:834",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1097"
       ],
       "evidence_refs": [
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",

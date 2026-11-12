@@ -180,8 +180,8 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
   const [threadId, setThreadId] = React.useState<string>(() => new URLSearchParams(location.search).get('thread') ?? 'direct');
   const conversations = useConversations(projection.source === 'live', timeline.props.step as number | null);
   const threads = React.useMemo(
-    () => collectThreads({ projection, tasks, conversations: demo ? demoConversations : conversations }),
-    [projection, tasks, conversations, demo],
+    () => collectThreads({ projection, tasks, conversations: demo ? demoConversations : conversations.rows }),
+    [projection, tasks, conversations.rows, demo],
   );
   const inspect = React.useMemo(() => ({
     tasks,
@@ -278,6 +278,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
                 : null}
               emit={emit}
               onOpenInspect={() => setTab('inspect')}
+              historyControl={<SubmissionHistory node={timeline} emit={emit} />}
               demo={demo}
             />
             : <InspectContext.Provider value={inspect}>
@@ -291,7 +292,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
             </InspectContext.Provider>}
           {/* Results of the reader's own acts (copied, rejected stale action…)
               are a quiet status line, not a floating toast. */}
-          <div className="statusline" role="status" aria-live="polite">{notice.props.text ?? ''}</div>
+          <div className="statusline" role="status" aria-live="polite">{[notice.props.text, conversations.error].filter(Boolean).join(' · ')}</div>
         </main>
         <aside className="lens" hidden={open === null} aria-label={open === null ? undefined : lenses.find((lens) => lens.id === openId)?.title}>
           <div className="lens-head">
@@ -305,7 +306,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           </div>
           <div className="lens-body">
             {open?.kind === 'work'
-              ? <WorkFrame artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} />
+              ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
               : <>
                 <TasksSurface node={nodes.tasks_surface} />
                 <MemorySurface node={nodes.memory_surface} />
@@ -352,27 +353,30 @@ function Attention({ step, status, tasks }: { step: number | null; status: strin
  * which opens no work page. Its revision keys the frame, so a new revision is
  * a fresh page.
  */
-function WorkFrame({ artifactId, title, revision }: { artifactId: string; title: string; revision?: number }) {
+function WorkFrame({ artifactId, title, revision, activeManifestDigest }: { artifactId: string; title: string; revision?: number; activeManifestDigest?: string }) {
   const pinned = pinnedWorks().includes(artifactId);
   const [, rerender] = React.useReducer((value: number) => value + 1, 0);
   // A lens shows the adopted page; the authored head is a draft until a
   // publication adopts it, and previewing it is the reader's explicit choice.
   const [adopted, setAdopted] = React.useState<{ state: 'loading' | 'none' | 'ready'; revision?: string }>({ state: 'loading' });
+  const [error, setError] = React.useState<string>();
   const [draft, setDraft] = React.useState(false);
   React.useEffect(() => {
     if (SAFE_MODE) return;
     let live = true;
-    setAdopted({ state: 'loading' });
     fetch(`/playground/${encodeURIComponent(artifactId)}/adopted`, { method: 'HEAD', cache: 'no-store' })
       .then((response) => {
         if (!live) return;
-        setAdopted(response.ok
-          ? { state: 'ready', revision: response.headers.get('x-artifact-revision') ?? undefined }
-          : { state: 'none' });
+        if (!response.ok && response.status !== 404) throw new Error(`HTTP ${response.status}`);
+        setError(undefined);
+        const next = response.ok
+          ? { state: 'ready' as const, revision: response.headers.get('x-artifact-revision') ?? undefined }
+          : { state: 'none' as const };
+        setAdopted((previous) => previous.state === next.state && previous.revision === next.revision ? previous : next);
       })
-      .catch(() => { if (live) setAdopted({ state: 'none' }); });
+      .catch(() => { if (live) setError('作品采纳状态暂不可用'); });
     return () => { live = false; };
-  }, [artifactId, revision]);
+  }, [artifactId, revision, activeManifestDigest]);
   if (SAFE_MODE) {
     return <div className="work-frame"><p className="muted safe-note">安全模式：不打开作品页。去掉地址里的 <code>safe=1</code> 即可恢复。</p></div>;
   }
@@ -392,6 +396,7 @@ function WorkFrame({ artifactId, title, revision }: { artifactId: string; title:
         </Button>
         <a className="work-frame-link" href={src} target="_blank" rel="noreferrer noopener">新窗口</a>
       </div>
+      {error && <p className="muted" role="status">{error}</p>}
       {!draft && adopted.state === 'none'
         ? <div className="work-frame-empty">
           <p className="muted">这件作品还没有采纳的版本，镜头只显示已采纳的页面。</p>
@@ -423,24 +428,48 @@ const InspectContext = React.createContext<{
 }>({ tasks: [], openThread: () => undefined, subject: { id: 'subject', name: '主体', role: 'subject' }, demo: false });
 
 /// Channel conversations, re-read when a new step commits.
-function useConversations(live: boolean, step: number | null): ConversationRow[] {
+function useConversations(live: boolean, step: number | null): { rows: ConversationRow[]; error?: string } {
   const [rows, setRows] = React.useState<ConversationRow[]>([]);
+  const [error, setError] = React.useState<string>();
   React.useEffect(() => {
     if (!live) return;
     let current = true;
     fetch('/api/conversations', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => { if (current && data && Array.isArray(data.messages)) setRows(data.messages); })
-      .catch(() => { /* the threads keep their last known rows */ });
+      .then((response) => {
+        if (!response.ok) throw new Error(`会话读取失败：HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        if (!current) return;
+        if (!data || data.available !== true || !Array.isArray(data.messages)) {
+          throw new Error(typeof data?.note === 'string' ? data.note : '会话暂不可用');
+        }
+        setRows(data.messages);
+        setError(undefined);
+      })
+      .catch((failure) => { if (current) setError(failure instanceof Error ? failure.message : '会话暂不可用'); });
     return () => { current = false; };
   }, [live, step]);
-  return rows;
+  return { rows, error };
+}
+
+function SubmissionHistory({ node, emit }: { node: UiNode; emit: Emit }) {
+  const history = node.props.submission_history;
+  if (!history || !history.loading && !history.error && !history.has_older) return null;
+  return <div className="im-system">
+    {history.loading && <span role="status">正在读取消息历史…</span>}
+    {history.error && <span role="status">消息历史暂不可用：{history.error} </span>}
+    {!history.loading && (history.has_older || history.error) && <span data-load-submissions="true"><Button
+      variant="ghost" size="sm"
+      onClick={() => emit('timeline', 'submissions.load_older')}
+    >{history.error ? '重新读取消息历史' : '加载更早的消息'}</Button></span>}
+  </div>;
 }
 
 const demoConversations: ConversationRow[] = [
   { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'inbound', message_id: 'dc1', sender_id: 'a', sender_name: '阿青', text: '有人试过 27B 在 4 路 128K 下的吞吐吗', at: new Date(Date.now() - 50 * 60_000).toISOString() },
   { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'inbound', message_id: 'dc2', sender_id: 'b', sender_name: 'Mo', text: '我这边 KV 一满就掉得厉害', at: new Date(Date.now() - 48 * 60_000).toISOString() },
-  { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'outbound', message_id: 'dc3', text: '我们这边是自动分 KV，负载对半的时候会落到 50/50。可以先看看是不是启动顺序导致的重试。', state: 'done' },
+  { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'outbound', message_id: 'dc3', text: '我们这边是自动分 KV，负载对半的时候会落到 50/50。可以先看看是不是启动顺序导致的重试。', state: 'settled' },
 ];
 
 /// The delegations one committed round started, branching off the spine:
@@ -821,6 +850,7 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
           <ScrollRoot className="timeline-root">
             <ScrollViewport className="timeline-viewport">
               <div className="timeline-column">
+                <SubmissionHistory node={node} emit={emit} />
                 {entries.length === 0
                   ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} name={name} />
                   : <TimelineEntries entries={entries} emit={emit} name={name} onOpenWork={this.props.onOpenWork} />}

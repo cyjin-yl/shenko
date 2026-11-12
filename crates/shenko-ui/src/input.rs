@@ -16,7 +16,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
-use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission};
+use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission, WebSubmissionRecord};
 use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::ids::EntityId;
 use shenko_types::store::RawInboxEvent;
@@ -123,6 +123,23 @@ pub struct SubmissionView {
     /// applied to a newer retry; never a server-side sequence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub send_epoch: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct SubmissionHistoryEntry {
+    pub payload: serde_json::Value,
+    pub created_at: String,
+    pub accepted_seq: u64,
+    pub view: SubmissionView,
+}
+
+#[derive(Serialize)]
+pub struct SubmissionHistoryPage {
+    pub subject_id: String,
+    pub items: Vec<SubmissionHistoryEntry>,
+    pub total: u64,
+    pub has_older: bool,
+    pub next_before: Option<u64>,
 }
 
 impl SubmissionView {
@@ -681,40 +698,34 @@ impl WebInputService {
     }
 
     fn view_for(&self, submission_id: &str, send_epoch: Option<u64>) -> SubmissionView {
-        let mut view = self.view_base(submission_id, send_epoch);
+        match self.store.web_submission(self.subject_id, submission_id) {
+            Ok(Some(record)) => Self::view_for_record(&self.store, self.subject_id, &record, send_epoch)
+                .unwrap_or_else(|_| self.view_base(submission_id, send_epoch)),
+            Ok(None) => SubmissionView {
+                result: "not_admitted",
+                ..self.view_base(submission_id, send_epoch)
+            },
+            Err(_) => self.view_base(submission_id, send_epoch),
+        }
+    }
+
+    fn view_for_record(
+        store: &Store,
+        subject_id: EntityId,
+        record: &WebSubmissionRecord,
+        send_epoch: Option<u64>,
+    ) -> Result<SubmissionView, shenko_types::error::ShenkoError> {
+        let mut view = SubmissionView::unavailable(&record.submission_id, send_epoch);
         view.result = "found";
-        let Some(record) = self
-            .store
-            .web_submission(self.subject_id, submission_id)
-            .unwrap_or(None)
-        else {
-            view.result = "not_admitted";
-            return view;
-        };
         view.event_id = Some(record.event_id.to_string());
         view.accepted_commit = Some(record.accepted_commit.to_string());
-        match self.store.event_disposition_commit(self.subject_id, record.event_id) {
-            Ok(Some(commit)) => {
-                view.stage = Some("committed");
-                view.committed_at = Some(commit.to_string());
-            }
-            Ok(None) => match self.store.web_input_selected_step(self.subject_id, record.event_id) {
-                Ok(Some(step_id)) => {
-                    view.stage = Some("selected");
-                    view.selected_step_id = Some(step_id.to_string());
-                }
-                Ok(None) => view.stage = Some("accepted"),
-                Err(_) => {
-                    view.result = "temporarily_unavailable";
-                    view.stage = None;
-                }
-            },
-            Err(_) => {
-                view.result = "temporarily_unavailable";
-                view.stage = None;
-            }
-        }
-        if let Ok(Some(withdrawal)) = self.store.web_input_withdrawal(self.subject_id, submission_id) {
+        let committed = store.event_disposition_commit(subject_id, record.event_id)?;
+        view.selected_step_id = store.web_input_selected_step(subject_id, record.event_id)?
+            .map(|step_id| step_id.to_string());
+        view.stage = Some(if committed.is_some() { "committed" }
+            else if view.selected_step_id.is_some() { "selected" } else { "accepted" });
+        view.committed_at = committed.map(|commit| commit.to_string());
+        if let Some(withdrawal) = store.web_input_withdrawal(subject_id, &record.submission_id)? {
             view.withdrawal = Some(WithdrawalView {
                 cancel_id: withdrawal.cancel_id,
                 commit_ref: withdrawal.commit.to_string(),
@@ -728,7 +739,33 @@ impl WebInputService {
                 },
             });
         }
-        view
+        Ok(view)
+    }
+
+    /// Rebuild the owner's message history from admission and receipt facts.
+    /// The caller supplies the installation's current subject, never a
+    /// browser-selected agent or a fallback unscoped query.
+    pub fn history(
+        store: &Store,
+        subject_id: EntityId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> anyhow::Result<SubmissionHistoryPage> {
+        let page = store.web_submissions_page(subject_id, before, limit)?;
+        let mut items = Vec::with_capacity(page.items.len());
+        for row in page.items {
+            let view = Self::view_for_record(store, subject_id, &row.record, None)?;
+            items.push(SubmissionHistoryEntry {
+                payload: serde_json::from_str(&row.record.payload)?,
+                created_at: row.created_at,
+                accepted_seq: row.record.accepted_commit.seq.0,
+                view,
+            });
+        }
+        Ok(SubmissionHistoryPage {
+            subject_id: subject_id.to_string(),
+            items, total: page.total, has_older: page.has_older, next_before: page.next_before,
+        })
     }
 
     /// Reconnect/replay query — docs/specs/web-interface.md#spec-41-18 get_web_input.
@@ -739,14 +776,7 @@ impl WebInputService {
                 ..self.view_base(submission_id, send_epoch)
             };
         }
-        match self.store.web_submission(self.subject_id, submission_id) {
-            Ok(Some(_)) => self.view_for(submission_id, send_epoch),
-            Ok(None) => SubmissionView {
-                result: "not_admitted",
-                ..self.view_base(submission_id, send_epoch)
-            },
-            Err(_) => self.view_base(submission_id, send_epoch),
-        }
+        self.view_for(submission_id, send_epoch)
     }
 
     /// The placement reported for fresh submissions of this mode; used by the

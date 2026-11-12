@@ -56,7 +56,16 @@ pub struct TaskTrajectory {
     pub operations: Vec<TrajectoryOperation>,
 }
 
-fn summary(task_id: String, data: &str, created_at: String) -> TaskSummary {
+pub(crate) fn utc_timestamp(value: &str) -> Result<String> {
+    use chrono::{DateTime, NaiveDateTime, SecondsFormat, Utc};
+    let time = match DateTime::parse_from_rfc3339(value) {
+        Ok(time) => time.with_timezone(&Utc),
+        Err(_) => NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f")?.and_utc(),
+    };
+    Ok(time.to_rfc3339_opts(SecondsFormat::Nanos, true))
+}
+
+fn summary(task_id: String, data: &str, created_at: String) -> Result<TaskSummary> {
     let v: Value = serde_json::from_str(data).unwrap_or_default();
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
     let owner = v.get("owner");
@@ -65,43 +74,46 @@ fn summary(task_id: String, data: &str, created_at: String) -> TaskSummary {
         .then(|| text(owner.and_then(|o| o.get("id"))))
         .flatten()
         .filter(|parent| *parent != task_id);
-    TaskSummary {
+    Ok(TaskSummary {
         task_id,
         kind: text(v.get("kind")).unwrap_or_else(|| "unknown".into()),
         state: text(v.get("state").and_then(|s| s.get("status"))).unwrap_or_else(|| "unknown".into()),
         parent_task_id,
         created_by_step_id: text(v.get("created_by_step_id")),
-        created_at,
-        terminal_at: text(v.get("terminal_at")),
-    }
+        created_at: utc_timestamp(&created_at)?,
+        terminal_at: v.get("terminal_at").and_then(Value::as_str).map(utc_timestamp).transpose()?,
+    })
 }
 
 impl Store {
     /// Recent tasks with their parent and creating step, newest first.
-    pub fn list_task_summaries(&self, limit: usize) -> Result<Vec<TaskSummary>> {
+    pub fn list_task_summaries(&self, agent_id: EntityId, limit: usize) -> Result<Vec<TaskSummary>> {
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT task_id, data, created_at FROM tasks ORDER BY created_at DESC, task_id DESC LIMIT ?1",
+            "SELECT task_id, data, created_at FROM tasks WHERE json_extract(data,'$.agent_id')=?1 \
+             ORDER BY created_at DESC, task_id DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map([limit.clamp(1, 500) as i64], |r| {
+        let rows = stmt.query_map(rusqlite::params![agent_id.to_string(), limit.clamp(1, 500) as i64], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
         })?;
         let mut out = Vec::new();
         for row in rows {
             let (id, data, created_at) = row?;
-            out.push(summary(id, &data, created_at));
+            out.push(summary(id, &data, created_at)?);
         }
         Ok(out)
     }
 
-    /// The trajectory of one task, or `None` when the task does not exist.
-    pub fn task_trajectory(&self, task_id: EntityId) -> Result<Option<TaskTrajectory>> {
+    /// The subject's task trajectory, or `None` for an absent or foreign task.
+    pub fn task_trajectory(&self, agent_id: EntityId, task_id: EntityId) -> Result<Option<TaskTrajectory>> {
+        let agent_key = agent_id.to_string();
+        let task_key = task_id.to_string();
         let (task, children, operations) = {
             let conn = self.ledger.conn.lock();
             let Some(task) = conn
                 .query_row(
-                    "SELECT task_id, data, created_at FROM tasks WHERE task_id=?1",
-                    [task_id.to_string()],
+                    "SELECT task_id, data, created_at FROM tasks WHERE task_id=?1 AND json_extract(data,'$.agent_id')=?2",
+                    rusqlite::params![task_key, agent_key],
                     |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
                 )
                 .optional()?
@@ -111,23 +123,27 @@ impl Store {
             let input_ref = serde_json::from_str::<Value>(&task.1).ok()
                 .and_then(|v| v.get("input_ref").cloned())
                 .and_then(|r| serde_json::from_value::<shenko_types::object::ObjectRef>(r).ok());
-            let task = (summary(task.0, &task.1, task.2), input_ref);
+            let task = (summary(task.0, &task.1, task.2)?, input_ref);
             let mut stmt = conn.prepare(
                 "SELECT task_id, data, created_at FROM tasks \
                  WHERE json_extract(data,'$.owner.kind')='task' AND json_extract(data,'$.owner.id')=?1 AND task_id<>?1 \
+                 AND json_extract(data,'$.agent_id')=?2 \
                  ORDER BY created_at, rowid",
             )?;
             let children = stmt
-                .query_map([task_id.to_string()], |r| {
+                .query_map(rusqlite::params![task_key, agent_key], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
                 })?
-                .map(|row| row.map(|(id, data, at)| summary(id, &data, at)))
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+                .map(|row| {
+                    let (id, data, at) = row?;
+                    summary(id, &data, at)
+                })
+                .collect::<Result<Vec<_>>>()?;
             let mut stmt = conn.prepare(
                 "SELECT data FROM operations WHERE json_extract(data,'$.task_id')=?1 ORDER BY rowid",
             )?;
             let operations = stmt
-                .query_map([task_id.to_string()], |r| r.get::<_, String>(0))?
+                .query_map([task_key.as_str()], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             (task, children, operations)
         };
@@ -219,17 +235,18 @@ impl Store {
     /// Recent messages, up to `limit` in each direction, in timestamp order.
     /// Publication time comes from the task created with the intent; missing
     /// historical task metadata stays unknown instead of inventing a time.
-    pub fn channel_conversation_messages(&self, limit: usize) -> Result<Vec<ConversationMessage>> {
+    pub fn channel_conversation_messages(&self, agent_id: EntityId, limit: usize) -> Result<Vec<ConversationMessage>> {
         use chrono::SecondsFormat;
         use shenko_types::channel::ChannelEnvelope;
         let limit = limit.clamp(1, 2000) as i64;
+        let agent_key = agent_id.to_string();
         let inbound = {
             let conn = self.ledger.conn.lock();
             let mut stmt = conn.prepare(
                 "SELECT event_id, data FROM inbox_events \
-                 WHERE kind='message' ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+                 WHERE agent_id=?1 AND kind='message' ORDER BY created_at DESC, rowid DESC LIMIT ?2",
             )?;
-            stmt.query_map([limit], |r| {
+            stmt.query_map(rusqlite::params![agent_key, limit], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
@@ -238,10 +255,10 @@ impl Store {
             let conn = self.ledger.conn.lock();
             let mut stmt = conn.prepare(
                 "SELECT i.intent_id, i.payload, i.state, t.created_at FROM subject_intents i \
-                 LEFT JOIN tasks t ON t.task_id=i.intent_id \
-                 WHERE i.kind='publication' ORDER BY i.created_seq DESC, i.intent_id DESC LIMIT ?1",
+                 LEFT JOIN tasks t ON t.task_id=i.intent_id AND json_extract(t.data,'$.agent_id')=i.agent_id \
+                 WHERE i.agent_id=?1 AND i.kind='publication' ORDER BY i.created_seq DESC, i.intent_id DESC LIMIT ?2",
             )?;
-            stmt.query_map([limit], |row| {
+            stmt.query_map(rusqlite::params![agent_key, limit], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?))
             })?
@@ -272,10 +289,7 @@ impl Store {
             let Ok(publication) = serde_json::from_str::<shenko_types::subject::PublicationIntent>(&payload) else {
                 continue;
             };
-            let at = created_at.map(|value| {
-                chrono::NaiveDateTime::parse_from_str(&value, "%Y-%m-%d %H:%M:%S%.f")
-                    .map(|time| time.and_utc().to_rfc3339_opts(SecondsFormat::Nanos, true))
-            }).transpose()?;
+            let at = created_at.as_deref().map(utc_timestamp).transpose()?;
             let target = publication.target;
             out.push(ConversationMessage {
                 thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),

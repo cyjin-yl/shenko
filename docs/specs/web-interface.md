@@ -174,7 +174,7 @@ HTML 作品在时间线中同时提供页面入口与“详情与操作”；动
 **两个视图。** 对话（IM）是给所有者的主要交互界面，采用 Messages 的视觉惯例：左侧
 会话列表，右侧当前会话；查看者一侧为系统蓝气泡，其他参与者为灰气泡，连续同一发言者
 合并、末条带尾巴，群聊在首条上方标发言者、末条旁显示其字母头像，间隔超过 15 分钟显示
-时间，回执在末条下方（已发送 / 已送达 / 已读 / 已回复，分别对应 sent、accepted、
+时间，回执在末条下方（已发送 / 已送达 / 已选入 / 已处理，分别对应 sent、accepted、
 selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.1 的原始思考流。
 
 **一切对话都是带参与者的会话。** `web/src/threads.ts` 用同一模型表示三类会话，差别只在
@@ -690,3 +690,13 @@ and the UI's adoption action selects the newest retained candidate.
 Channel conversations combine classified inbox envelopes with committed publication intents. Each direction selects its newest bounded history. A publication's displayed time comes from the task created in the same S1 transaction, which also covers publications created by a delegated child. Imported task metadata keeps its recorded time; an older publication without that metadata retains an unknown time. Messages use normalized UTC timestamps and stable message identities for ordering. Existing inbox rows do not carry a cross-table commit sequence, so the projection does not infer a causal order from unrelated row numbers.
 
 Publication labels follow the actual `ready`, `claimed`, `acknowledged`, `settled`, `blocked` and `unknown` ledger states. `settled` is displayed as an ended operation: cancellation can settle a publication that was never dispatched, so this state alone does not prove that a message was sent or read.
+
+## Owner input history and inspection reads
+
+`GET /api/submissions?limit=100&before=<accepted_commit_seq>` reads the current installation's owner messages from `web_input_submissions`, including their canonical payload, persisted event time and durable receipt view. Action submissions retain their separate presentation lane. Pages are newest first, with `total`, `has_older` and `next_before`; the cursor is strictly below the last returned admission sequence. The limit uses the same 1–200 bounds as the context metadata pages. Both conversation and Inspect offer earlier pages, and retain the reader's message anchor while those pages are inserted. A bounded page never proves that an omitted pending submission was not admitted.
+
+The shared receipt reader recovers `selected_step_id` from the sealed input plan even after S1 committed a disposition. The browser hydrates existing submission IDs and original payload/time, merges durable facts without sending an input, and keeps locally pending or conflicting attempts. It does not save recovered historical messages as new local submissions. Owner messages precede their actual selected step; replay arrival time does not substitute for historical order. Until all owner history is available, unpaired steps are shown without claiming that they were independent thought. `selected` means selected into sealed input; `committed` means durably handled, and neither receipt alone proves that the model read the message or produced a reply.
+
+Task lists, trajectories and channel conversations require an explicit subject in their Store readers. The API resolves the installation's existing local subject for each read, and fails on missing or ambiguous identity rather than falling back to all rows. Foreign task IDs are absent from that subject's trajectory surface, including child lookups. Inspection times are normalized RFC3339 UTC; a failed conversation read preserves previously known messages and reports the unavailable state.
+
+Rendered subject parts and their copy actions use the original `(message_id, part_id)` pair, so different rounds' `text/0` parts retain independent identities. Work lenses observe the durable active manifest digest as well as the authored revision; adoption can therefore refresh a page without another content write. The adopted revision label comes from the actual adopted response header, and an unchanged page retains its frame.

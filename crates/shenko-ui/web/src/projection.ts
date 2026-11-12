@@ -24,6 +24,7 @@ export interface WorkView {
   title?: string;
   mime?: string;
   revision?: number;
+  active_manifest_digest?: string;
   lifecycle?: string;
   updated_at?: string;
 }
@@ -66,6 +67,7 @@ export interface PlaygroundView {
     title?: string;
     mime?: string;
     revision?: number;
+    active_manifest_digest?: string;
     parent_revision?: number | null;
     updated_at?: string;
     backend?: boolean;
@@ -191,6 +193,7 @@ export interface WithdrawalView {
 export interface Submission {
   payload: SubmissionPayload;
   created_at: string;
+  accepted_seq?: number;
   receipt: ReceiptState;
   detail?: string;
   event_id?: string;
@@ -202,6 +205,15 @@ export interface Submission {
   // Correlation between this client's send attempts and the query_replies:
   // a view for an older attempt must not undo a newer send's restored ACK.
   send_epoch: number;
+}
+
+export interface SubmissionHistoryState {
+  loading: boolean;
+  total?: number;
+  has_older: boolean;
+  next_before?: number;
+  newest_seq?: number;
+  error?: string;
 }
 
 // docs/specs/web-interface.md#spec-21-8: numbered options preserve action identity across degradation.
@@ -378,6 +390,7 @@ export interface UiState {
   step: number | null;
   timeline: TimelinePart[];
   submissions: Submission[];
+  submission_history?: SubmissionHistoryState;
   draft: string;
   config?: ConfigView;
   config_error: boolean;
@@ -545,15 +558,16 @@ function addAction(
 
 function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[] {
   const subjectRows = state.timeline.filter((part) => part.content.length > 0).map((part) => {
+    const identity = JSON.stringify([part.message_id, part.part_id]);
     const copyAction = addAction(
       actions,
-      `part.copy.${part.part_id}`,
+      `part.copy.${identity}`,
       'part.copy',
       `copy:${part.part_revision}`,
       true,
       { content: part.content },
     );
-    return node(`part.${part.part_id}`, 'subject_part', { part }, [], {
+    return node(`part.${identity}`, 'subject_part', { part }, [], {
       action_refs: [copyAction],
       a11y: { label: `第 ${part.step} 轮已提交内容` },
       fallback: 'raw_text',
@@ -595,7 +609,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
     );
   });
-  return [...subjectRows, ...submissionRows].sort((left, right) => {
+  const chronological = [...subjectRows, ...submissionRows].sort((left, right) => {
     const timeOf = (entry: UiNode): string => entry.kind === 'subject_part'
       ? entry.props.part.observed_at
       : entry.kind === 'user_submission'
@@ -607,6 +621,37 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
     // committed reply stays after local input instead of jumping above it.
     return Date.parse(leftTime) - Date.parse(rightTime);
   });
+  // A recovered owner's message belongs immediately before the step whose
+  // sealed input selected it. Replay arrival time is not historical time.
+  const replies = new Set(subjectRows.map((entry) => (entry.props.part as TimelinePart).step_id));
+  const selected = new Map<string, UiNode[]>();
+  const paired = new Set<string>();
+  for (const entry of submissionRows) {
+    const submission = entry.props.submission as Submission;
+    if (!submission.selected_step_id || !replies.has(submission.selected_step_id)) continue;
+    const rows = selected.get(submission.selected_step_id) ?? [];
+    rows.push(entry);
+    selected.set(submission.selected_step_id, rows);
+    paired.add(entry.node_id);
+  }
+  for (const rows of selected.values()) rows.sort((a, b) => {
+    const left = a.props.submission as Submission;
+    const right = b.props.submission as Submission;
+    return left.accepted_seq !== undefined && right.accepted_seq !== undefined
+      ? left.accepted_seq - right.accepted_seq
+      : Date.parse(left.created_at) - Date.parse(right.created_at);
+  });
+  const ordered: UiNode[] = [];
+  for (const entry of chronological) {
+    if (paired.has(entry.node_id)) continue;
+    if (entry.kind === 'subject_part') {
+      const step = (entry.props.part as TimelinePart).step_id;
+      const before = selected.get(step);
+      if (before) { ordered.push(...before); selected.delete(step); }
+    }
+    ordered.push(entry);
+  }
+  return ordered;
 }
 
 export function buildProjection(state: UiState, revision: number): UiProjection {
@@ -707,6 +752,12 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       { action_refs: [openRef], fallback: 'read_only_list' },
     ));
   }
+  const historyAction = addAction(
+    actions, 'submissions.load_older', 'submissions.load_older',
+    `submissions:${state.subject_id}:${state.submission_history?.next_before ?? 'latest'}`,
+    state.source === 'live' && !state.submission_history?.loading
+      && (state.submission_history?.has_older === true || Boolean(state.submission_history?.error)),
+  );
   const timeline = node(
     'timeline',
     'timeline',
@@ -724,10 +775,12 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       connection: state.connection,
       step: state.step,
       subject_status: state.self?.status ?? 'unknown',
+      submission_history: state.submission_history,
     },
     timelineChildren,
     {
       action_refs: [
+        historyAction,
         addAction(actions, 'timeline.reading', 'timeline.reading', 'display-v1'),
         addAction(actions, 'timeline.latest', 'timeline.latest', 'display-v1'),
         addAction(actions, 'timeline.code_wrap', 'timeline.code_wrap', 'display-v1'),

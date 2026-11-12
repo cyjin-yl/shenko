@@ -433,6 +433,7 @@ class LiveController implements ProjectionController {
   private selfSeq = 0;
   private selfApplied = 0;
   private abort = new AbortController();
+  private submissionHistoryLoading = false;
   private pendingChunks = new Map<string, Map<number, TimelineChunk>>();
   /// One durable origin identity per (key, exact desired bytes): pressing save
   /// again for the same value resolves the original change instead of
@@ -690,6 +691,9 @@ class LiveController implements ProjectionController {
         }
         break;
       }
+      case 'submissions.load_older':
+        void this.loadSubmissionHistory(this.state.submission_history?.next_before);
+        break;
       case 'submission.retry': {
         const id = action.payload?.submission_id;
         const submission = this.state.submissions.find((row) => row.payload.submission_id === id);
@@ -1098,6 +1102,7 @@ class LiveController implements ProjectionController {
         // the client never fabricates a typewriter from this flag alone.
         this.state.streaming = caps.streaming;
         this.refreshSubmissions();
+        void this.loadSubmissionHistory();
         this.scheduleReceiptRefresh();
         this.emit();
         return;
@@ -1358,6 +1363,13 @@ class LiveController implements ProjectionController {
     if (validRevision(data.send_epoch) && data.send_epoch < submission.send_epoch) {
       return;
     }
+    if (submission.receipt === 'conflict') return;
+    this.applySubmissionView(submission, data, true);
+    this.scheduleReceiptRefresh();
+    this.emit();
+  }
+
+  private applySubmissionView(submission: Submission, data: Record<string, unknown>, persist: boolean): void {
     if (data.result === 'found' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
       if (isObject(data.withdrawal)) {
@@ -1373,14 +1385,13 @@ class LiveController implements ProjectionController {
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
         typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
+      if (typeof data.selected_step_id === 'string') submission.selected_step_id = data.selected_step_id;
       if (data.stage === 'committed' && typeof data.committed_at === 'string') {
         submission.receipt = 'committed';
         submission.committed_at =
           typeof data.committed_at === 'string' ? data.committed_at : submission.committed_at;
         submission.detail = undefined;
         retireSubmission(submission);
-        this.scheduleReceiptRefresh();
-        this.emit();
         return;
       } else if (data.stage === 'selected' && typeof data.selected_step_id === 'string') {
         if (submission.receipt !== 'committed') submission.receipt = 'selected';
@@ -1408,9 +1419,90 @@ class LiveController implements ProjectionController {
       submission.detail = '持久查询暂不可用；原 ID 与此前回执仍保留。';
     }
     // Query failure is not not_admitted and never restores an accepted draft.
-    saveSubmission(submission);
-    this.scheduleReceiptRefresh();
+    if (persist) saveSubmission(submission);
+  }
+
+  private async loadSubmissionHistory(before?: number): Promise<void> {
+    const subject = this.state.subject_id;
+    if (!subject || this.disposed || this.submissionHistoryLoading) return;
+    this.submissionHistoryLoading = true;
+    const previous = this.state.submission_history;
+    this.state.submission_history = { has_older: false, ...previous, loading: true, error: undefined };
     this.emit();
+    try {
+      const query = new URLSearchParams({ limit: '100' });
+      if (before !== undefined) query.set('before', String(before));
+      const page = await this.fetchJson(`/api/submissions?${query}`);
+      if (this.disposed || subject !== this.state.subject_id) return;
+      if (!isObject(page) || page.available !== true || page.subject_id !== subject
+        || !Array.isArray(page.items) || !validRevision(page.total) || typeof page.has_older !== 'boolean') {
+        throw new Error(isObject(page) && typeof page.note === 'string' ? page.note : '输入历史暂不可用');
+      }
+      const items: Array<{ payload: SubmissionPayload; created_at: string; seq: number; view: Record<string, unknown> }> = [];
+      const ids = new Set<string>();
+      let upper = before ?? Infinity;
+      for (const row of page.items) {
+        if (!isObject(row) || !isObject(row.payload) || !isObject(row.view)
+          || row.payload.schema_version !== 2 || row.payload.type !== 'submit'
+          || row.payload.subject_id !== subject || typeof row.payload.submission_id !== 'string'
+          || typeof row.payload.message_id !== 'string' || typeof row.payload.content !== 'string'
+          || !['append', 'steer'].includes(String(row.payload.mode))
+          || typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))
+          || !validRevision(row.accepted_seq) || row.accepted_seq >= upper
+          || row.view.result !== 'found' || row.view.submission_id !== row.payload.submission_id
+          || typeof row.view.event_id !== 'string' || typeof row.view.accepted_commit !== 'string'
+          || !['accepted', 'selected', 'committed'].includes(String(row.view.stage))
+          || row.view.stage === 'selected' && typeof row.view.selected_step_id !== 'string'
+          || row.view.stage === 'committed' && typeof row.view.committed_at !== 'string'
+          || ids.has(row.payload.submission_id)) throw new Error('输入历史页的身份或顺序无效');
+        upper = row.accepted_seq;
+        ids.add(row.payload.submission_id);
+        items.push({ payload: row.payload as unknown as SubmissionPayload, created_at: row.created_at,
+          seq: row.accepted_seq, view: row.view });
+      }
+      if (page.has_older && (!items.length || !validRevision(page.next_before)
+        || page.next_before !== items[items.length - 1].seq)
+        || !page.has_older && page.next_before !== null && page.next_before !== undefined
+        || previous?.total !== undefined && page.total < previous.total) {
+        throw new Error('输入历史的继续游标或计数无效');
+      }
+      const known = new Map(this.state.submissions.map((row) => [row.payload.submission_id, row]));
+      for (const row of items) {
+        let submission = known.get(row.payload.submission_id);
+        if (submission && (submission.payload.subject_id !== subject
+          || submission.payload.message_id !== row.payload.message_id
+          || submission.payload.content !== row.payload.content || submission.payload.mode !== row.payload.mode)) {
+          submission.receipt = 'conflict';
+          submission.detail = '此 ID 已有不同的持久输入；保留本地尝试内容。';
+          continue;
+        }
+        if (!submission) {
+          submission = { payload: row.payload, created_at: row.created_at, receipt: 'accepted', send_epoch: 0 };
+          this.state.submissions.push(submission);
+          known.set(row.payload.submission_id, submission);
+        }
+        if (submission.receipt === 'conflict') continue;
+        submission.created_at = row.created_at;
+        submission.accepted_seq = row.seq;
+        this.applySubmissionView(submission, row.view, false);
+      }
+      const overlaps = before === undefined && previous?.newest_seq !== undefined
+        && items.some((row) => row.seq <= previous.newest_seq!);
+      this.state.submission_history = {
+        loading: false, total: page.total,
+        has_older: overlaps ? previous!.has_older : page.has_older,
+        next_before: overlaps ? previous!.next_before : page.has_older ? Number(page.next_before) : undefined,
+        newest_seq: Math.max(previous?.newest_seq ?? 0, items[0]?.seq ?? 0),
+      };
+      this.scheduleReceiptRefresh();
+    } catch (error) {
+      if (this.disposed || subject !== this.state.subject_id) return;
+      this.state.submission_history = { has_older: false, ...previous, loading: false,
+        error: error instanceof Error ? error.message : '输入历史暂不可用' };
+    } finally {
+      this.submissionHistoryLoading = false;
+    }
+    if (!this.disposed) this.emit();
   }
 
   // The same durable query answers for an admitted action. Its view proves
@@ -1839,6 +1931,7 @@ class LiveController implements ProjectionController {
       }
       this.ensureIdentityLoaded();
       this.refreshSubmissions();
+      void this.loadSubmissionHistory();
       this.scheduleReceiptRefresh();
       // The ownership facts travel with the self view: the reader learns
       // whether this installation is claimed without a second round trip.
@@ -1876,7 +1969,11 @@ class LiveController implements ProjectionController {
     if (this.taskRefresh !== undefined) return;
     this.taskRefresh = window.setTimeout(() => {
       this.taskRefresh = undefined;
-      if (!this.disposed) void this.loadTasks();
+      if (!this.disposed) {
+        void this.loadTasks();
+        void this.loadPlayground();
+        void this.loadSubmissionHistory();
+      }
     }, 600);
   }
 
@@ -2092,7 +2189,7 @@ class LiveController implements ProjectionController {
         this.fetchJson('/api/playground'),
         this.fetchJson('/api/config/namespaces').catch(() => undefined),
       ]);
-      if (!isObject(surface)) throw new Error('invalid playground surface');
+      if (!isObject(surface) || surface.available !== true) throw new Error('invalid playground surface');
       const namespaceList = isObject(namespaces) && 'namespaces' in namespaces && Array.isArray(namespaces.namespaces)
         ? namespaces.namespaces
         : undefined;
@@ -2104,9 +2201,23 @@ class LiveController implements ProjectionController {
           roots.push({ artifact_id: entry[0], root: entry[1], identity: entry[2] });
         }
       }
+      const artifacts: NonNullable<NonNullable<UiState['playground']>['artifacts']> = [];
+      if (Array.isArray(surface.artifacts)) {
+        for (const entry of surface.artifacts) {
+          if (!isObject(entry) || typeof entry.artifact_id !== 'string') continue;
+          const record = isObject(entry.record) ? entry.record : undefined;
+          const active = record && isObject(record.active_manifest_ref) ? record.active_manifest_ref : undefined;
+          artifacts.push({
+            ...entry,
+            artifact_id: entry.artifact_id,
+            active_manifest_digest: typeof active?.digest === 'string' ? active.digest : undefined,
+          });
+        }
+      }
       this.state.playground = {
         ...(surface as Record<string, unknown>),
         roots,
+        artifacts,
         namespaces: namespaceList,
       } as UiState['playground'];
       this.state.playground_error = false;

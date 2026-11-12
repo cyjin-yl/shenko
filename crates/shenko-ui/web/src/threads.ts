@@ -101,8 +101,8 @@ const RECEIPT_WORDS: Record<string, string> = {
   sending: '发送中…',
   sent: '已发送',
   accepted: '已送达',
-  selected: '已读',
-  committed: '已回复',
+  selected: '已选入',
+  committed: '已处理',
   conflict: 'ID 冲突',
   rejected: '未送达',
   unknown: '送达未知',
@@ -123,13 +123,17 @@ registerThreadSource({
     const replySteps = new Set(submissions
       .map((entry) => (entry.props.submission as Submission).selected_step_id)
       .filter((id): id is string => typeof id === 'string'));
+    const history = timeline?.props.submission_history;
+    const historyIncomplete = projection.source === 'live'
+      && (!history || history.loading || history.error || history.has_older);
     const messages: ThreadMessage[] = [];
     let quiet = 0;
+    let quietKey = '';
     const flushQuiet = (at?: string) => {
       if (quiet === 0) return;
       messages.push({
-        key: `quiet-${messages.length}`, from: subject, kind: 'system', at,
-        text: `${subject.name} 独自思考了 ${quiet} 轮`,
+        key: `quiet-${quietKey}`, from: subject, kind: 'system', at,
+        text: historyIncomplete ? `其他 ${quiet} 轮（输入历史尚未全部读取）` : `${subject.name} 独自思考了 ${quiet} 轮`,
         link: { label: '在 Inspect 查看', target: 'inspect' },
       });
       quiet = 0;
@@ -158,6 +162,7 @@ registerThreadSource({
           messages.push({ key: entry.node_id, from: subject, kind: 'message', at: part.observed_at, text: part.content, tone: 'pending', node: entry });
         } else {
           quiet += 1;
+          quietKey = entry.node_id;
         }
       } else if (entry.kind === 'semantic_document') {
         messages.push({ key: entry.node_id, from: subject, kind: 'message', text: '', node: entry });

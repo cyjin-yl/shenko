@@ -16,7 +16,7 @@ import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } fro
  * `message-bubble` Prototype with the message content in its slot.
  */
 export function ImView({
-  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, demo,
+  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, historyControl, demo,
 }: {
   threads: Thread[];
   selected: string;
@@ -25,6 +25,7 @@ export function ImView({
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
   onOpenInspect: () => void;
+  historyControl?: React.ReactNode;
   demo: boolean;
 }) {
   const thread = threads.find((item) => item.id === selected) ?? threads[0];
@@ -63,6 +64,7 @@ export function ImView({
           renderAttachment={renderAttachment}
           emit={emit}
           onOpenInspect={onOpenInspect}
+          historyControl={historyControl}
           demo={demo}
         />
         : <div className="im-empty">还没有会话。</div>}
@@ -96,12 +98,13 @@ function shortWhen(value: string | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, demo }: {
+function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo }: {
   thread: Thread;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
   onOpenInspect: () => void;
+  historyControl?: React.ReactNode;
   demo: boolean;
 }) {
   const [loaded, setLoaded] = React.useState<ThreadMessage[] | null>(null);
@@ -116,9 +119,29 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, d
   const messages = loaded ?? thread.messages;
   const scroller = React.useRef<HTMLDivElement>(null);
   const atEnd = React.useRef(true);
+  const anchor = React.useRef<{ key: string; offset: number } | undefined>(undefined);
+  const rememberAnchor = () => {
+    const element = scroller.current;
+    if (!element) return;
+    const top = element.getBoundingClientRect().top;
+    const visible = Array.from(element.querySelectorAll<HTMLElement>('[data-message-key]'))
+      .find((row) => row.getBoundingClientRect().bottom > top);
+    if (visible?.dataset.messageKey) anchor.current = {
+      key: visible.dataset.messageKey,
+      offset: visible.getBoundingClientRect().top - top,
+    };
+  };
   React.useLayoutEffect(() => {
     const element = scroller.current;
-    if (element && atEnd.current) element.scrollTop = element.scrollHeight;
+    if (!element) return;
+    if (atEnd.current) element.scrollTop = element.scrollHeight;
+    else if (anchor.current) {
+      const target = Array.from(element.querySelectorAll<HTMLElement>('[data-message-key]'))
+        .find((row) => row.dataset.messageKey === anchor.current!.key);
+      if (target) element.scrollTop += target.getBoundingClientRect().top
+        - element.getBoundingClientRect().top - anchor.current.offset;
+    }
+    rememberAnchor();
   }, [messages]);
   const group = thread.participants.length > 2 || thread.kind !== 'direct';
   return (
@@ -136,12 +159,20 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, d
       <div
         className="im-scroll"
         ref={scroller}
+        onClickCapture={(event) => {
+          if ((event.target as Element).closest('[data-load-submissions]')) {
+            atEnd.current = false;
+            rememberAnchor();
+          }
+        }}
         onScroll={(event) => {
           const target = event.currentTarget;
           atEnd.current = target.scrollHeight - target.scrollTop - target.clientHeight < 32;
+          rememberAnchor();
         }}
       >
         <div className="im-messages">
+          {thread.kind === 'direct' && historyControl}
           {thread.note && <p className="im-note">{thread.note}</p>}
           {error && <p className="im-system is-error">这段对话没能读出来：{error}</p>}
           {thread.load && !loaded && !error && !demo && <p className="im-system">正在读取…</p>}
@@ -183,7 +214,7 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
     if (Number.isFinite(at)) lastAt = at;
     if (message.kind === 'system') {
       out.push(
-        <p className="im-system" key={message.key}>
+        <p className="im-system" key={message.key} data-message-key={message.key}>
           {message.text}
           {message.link && <button type="button" className="im-link" onClick={onOpenInspect}>{message.link.label}</button>}
         </p>,
@@ -201,6 +232,7 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
       <div
         className={`im-msg ${self ? 'is-self' : 'is-other'}${first ? ' is-first' : ''}${tail ? ' is-tail' : ''}`}
         key={message.key}
+        data-message-key={message.key}
         data-entry-key={message.node?.node_id}
       >
         {!self && group && first && <span className="im-sender">{message.from.name}</span>}

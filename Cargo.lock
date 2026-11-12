@@ -4385,6 +4385,7 @@ dependencies = [
  "libc",
  "parking_lot",
  "pulldown-cmark",
+ "rusqlite",
  "serde",
  "serde_json",
  "shenko-broker",
