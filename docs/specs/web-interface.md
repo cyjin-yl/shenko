@@ -101,6 +101,13 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
   committed/stream 合并——committed 全量正文 seq 0 被吸收为 S1 绑定（两种到达
   顺序幂等），流 chunk 落在 committed 基 part 只补 identity 不补文本；空洞进
   pending buffer，绝不拼接；`sendWithMode`/`sendWithdraw`/`sendAction`。
+- 视觉层（2026-11-12 重做）：`ui-kit.tsx` 适配全部上游 family 并给出统一按钮/
+  toggle；`react-renderer.tsx` 是外壳、时间线与输入区；`surfaces.tsx` 是按需
+  页面与主体详情 drawer；`markdown.tsx` 按块渲染已提交正文（未闭合代码围栏从
+  第一行起就是代码块并标明未闭合）；`icons.tsx` 是本地线性图标。视觉原则：
+  中性底色、单一强调色（浏览器暴露 `AccentColor` 时跟随系统）、层级来自字号与
+  留白、只有真实状态才有颜色（扁平状态点 + 文字，无光晕/脉冲）、外壳不可选中
+  且保持箭头光标、动作结果显示为安静的状态行而非浮动 toast。
 - `react-renderer.tsx`：SemanticDocumentView（summary + 编号选项按钮，Rich 显示
   节点树 JSON）、ReceiptView 增 placement/撤回按钮/撤回标记、Composer 增
   Steer 按钮与流式事实文案、day 分组兼容 document 节点。详情页按投影的
@@ -112,11 +119,49 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
   `step_id`；类型检查不能靠转换、占位步骤或放宽消息校验通过。
 - `demo-controller.ts`：补齐新 UiState 字段（demo 全 false/空）。
 
+## 5.1 界面扩展：主体流与镜头（2026-11-12）
+
+默认界面只有一条固定的**主体流**（时间线 + 输入）。任务、记忆、Playground、配置
+以及作品都是**镜头（lens）**：在主体流旁打开，主体流不离开视野；窄屏时镜头覆盖
+主体流，关闭即回到原阅读位置。外壳没有常驻侧栏导航；镜头栏在顶部（手机在底部），
+Ctrl/⌘ 1–9 打开第 N 个镜头，Ctrl/⌘ 0 关闭。主体流左侧的竖线是主体连续的 thought
+loop：每个已提交轮次是线上的一个实心点，未提交的流式内容是空心点，作品与文档从线上
+分出，用户输入落在线旁。顶部的注意力行只陈述事实：进行中的任务（不计结构性的
+`subject_root`）、最近已提交轮次和上报的主体状态。
+
+镜头由 `web/src/slots.ts` 的贡献注册表提供：外壳自己的页面与外部贡献走同一个
+`registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。信任按来源区分，而不是
+按注册表：
+
+| 来源 | 呈现 | 权限 |
+| --- | --- | --- |
+| `shell` | 本 bundle 的组件 | 外壳自身 |
+| `work` | Playground 作品已发布的页面，放在 `sandbox="allow-scripts allow-forms allow-popups allow-modals"` 的 iframe 中 | 不授予 same-origin；服务端对 `/playground/{id}` 内容另发 CSP `sandbox` 与 `nosniff`，直接打开也是不透明 origin。作品读不到外壳 DOM、cookie、`/ws` 或 `/api`，要改变什么只能走作品声明的 action |
+
+Why：作品与 awareness/plugin 经常由主体自己写成，不能沿用“安装即信任”的同源模块
+模型；但同一扩展点仍应让它们成为一等界面。DeepSeek Harness 的 Web 客户端以 Cordis
+插件向类型化 slot（`ctx.slots.register/inject`，list/keyed/chain/hoc 与 priority
+覆盖）注册同源 React 组件，安装即信任；Shenko 采用同样的“外壳也是贡献者”结构，
+但对模型可写的来源加了 origin 隔离。
+
+尚未实现，按顺序推进：作品页与外壳之间的 `postMessage` 桥（只携带作品声明的 action，
+仍由服务端按 §43.2 认证、去重与入 inbox）；Rust/WASM 插件经版本化服务协议声明镜头
+与时间线条目贡献；仅主题 token 的皮肤贡献；经所有者安装、签名的同源代码插件作为
+第三档。
+
+HTML 作品在时间线中同时提供页面入口与“详情与操作”；动作绑定正文响应的 `x-artifact-revision`，不混用记录修订。
+作品列表尚未加载或暂时失败时保留已知镜头，仅依成功取得的列表移除已不存在的作品。
+浏览器拒绝写入偏好时，固定与取下仍在当前页面生效；镜头快捷键不抢占输入框与可编辑内容中的按键。
+
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json`：`971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e`
-（migrated_from `7181a93…`）。上游 `pnpm-lock.yaml` sha256 不变
-（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。
+`web/upstream-pin.json`：`35195a6e6f1ba6a7d800da0029f2683013abd18b`
+（2026-11-12 主线，migrated_from `b25229a…`）。上游 `pnpm-lock.yaml` sha256 不变
+（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。界面采用的 shadcn
+family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
+toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
+separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
+双重 Tab 停靠。
 
 构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
 `adapter-react`、`prototypes-shadcn`、`cli` 三个入口的依赖闭包，而不是调用
@@ -566,3 +611,21 @@ and image context budgets subtract that reservation; image patch geometry
 does not change. Unknown advertised context remains unknown. An exhausted
 input budget or an output reservation outside the token type is reported as
 not evaluated with its reason, rather than advertising usable strategies.
+
+## Playground root response adapter
+
+`/api/playground` returns roots as `[artifact_id, root_path, root_identity]`
+tuples. The live controller admits complete string triples into the semantic
+root view; the renderer displays that path and identity rather than reading
+object fields from the wire tuple. The HTML work consumer case uses the real
+wire shape alongside the content revision header and immutable version list.
+
+Content writes update the authored head without implicitly adopting its
+manifest or erasing staged candidates. A newly authored work has no active
+manifest until explicit publication; later PUT, rollback and backend binding
+retain the existing adoption and candidate facts. Stage can therefore propose
+the current head and the UI can explicitly adopt that candidate.
+Content, stage and publish transitions share the Playground record write lock;
+a reader's revision is checked inside that transition. Publication resolves
+the candidate CAS object before looking up its typed manifest version digest,
+and the UI's adoption action selects the newest retained candidate.

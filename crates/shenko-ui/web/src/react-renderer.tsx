@@ -1,32 +1,14 @@
 import * as React from 'react';
-import { createPortal } from 'react-dom';
-import { RichDocument, type DocumentNodeView } from './document-view';
 import { createRoot, type Root } from 'react-dom/client';
-import { createReactAdapter } from '@proto.ui/adapter-react';
-import { shadcnButton } from '@proto.ui/prototypes-shadcn/button';
-import { shadcnTextareaRoot } from '@proto.ui/prototypes-shadcn/textarea';
-import {
-  shadcnScrollAreaRoot,
-  shadcnScrollAreaViewport,
-  shadcnScrollAreaScrollbar,
-  shadcnScrollAreaThumb,
-} from '@proto.ui/prototypes-shadcn/scroll-area';
-import {
-  shadcnCollapsibleRoot,
-  shadcnCollapsibleTrigger,
-  shadcnCollapsibleContent,
-} from '@proto.ui/prototypes-shadcn/collapsible';
-import type { OpenedWork, OwnerState, WorkView } from './projection';
+import { RichDocument, type DocumentNodeView } from './document-view';
 import {
   intentFor,
   partState,
   type ActionReceiptView,
-  type BuildManifest,
   type ConnectionState,
   type DegradedDocument,
   type DocumentErrorView,
   type Dispatch,
-  type PlaygroundView,
   type ReadingAnchor,
   type ReadingSelection,
   type Submission,
@@ -34,31 +16,41 @@ import {
   type UiNode,
   type UiProjection,
   type ViewName,
+  type WorkView,
 } from './projection';
-import { ConfigEntries } from './config-panel';
 import { resolveAnchor, selectionApplies } from './reading-state';
+import { Icon } from './icons';
+import { Markdown } from './markdown';
 import {
-  readContentRevisionDisclosure,
-  readRevisionDisclosure,
-  type ContentRevisionDisclosure,
-  type RevisionDisclosure,
-} from './revision-disclosure';
-import { CompiledTransportBadge } from '../generated/prototypes/transport-badge/Component';
-
-// These are the actual upstream prototypes and official runtime adapter, not
-// local lookalikes. The Proto-UI compiler is not part of this graph: it runs at
-// build time (web/compiler.mjs) and this bundle only imports the React DOM
-// source it emitted for Shenko's own Prototypes.
-const adapt = createReactAdapter({ ...React, createPortal });
-const ProtoButton = adapt(shadcnButton);
-const ProtoTextarea = adapt(shadcnTextareaRoot);
-const ScrollRoot = adapt(shadcnScrollAreaRoot);
-const ScrollViewport = adapt(shadcnScrollAreaViewport);
-const ScrollScrollbar = adapt(shadcnScrollAreaScrollbar);
-const ScrollThumb = adapt(shadcnScrollAreaThumb);
-const CollapsibleRoot = adapt(shadcnCollapsibleRoot);
-const CollapsibleTrigger = adapt(shadcnCollapsibleTrigger);
-const CollapsibleContent = adapt(shadcnCollapsibleContent);
+  Button,
+  ProtoTextarea,
+  ScrollRoot,
+  ScrollScrollbar,
+  ScrollThumb,
+  ScrollViewport,
+  CollapsibleContent,
+  CollapsibleRoot,
+  CollapsibleTrigger,
+  Separator,
+  ToggleGroupItem,
+  ToggleGroupRoot,
+  Toggle,
+  TransportBadge,
+  connectionAnnouncement,
+  dayLabel,
+  formatTime,
+  type Emit,
+} from './ui-kit';
+import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
+import {
+  lensSnapshot,
+  pinnedWorks,
+  setWorkPinned,
+  isPage,
+  subscribeLenses,
+  syncWorkLenses,
+  type LensContribution,
+} from './slots';
 
 export interface ProjectionRenderer {
   render(projection: UiProjection, dispatch: Dispatch): void;
@@ -84,7 +76,8 @@ export function createReactProjectionRenderer(host: HTMLElement): ProjectionRend
   };
 }
 
-type Emit = (nodeId: string, actionId: string, payload?: Record<string, unknown>) => void;
+/** The stream's lens: whichever contribution is open beside it. */
+type OpenLens = { kind: 'view'; view: ViewName } | { kind: 'work'; artifact_id: string } | null;
 
 function ProjectionView({ projection, dispatch }: { projection: UiProjection; dispatch: Dispatch }) {
   const nodes = Object.fromEntries(projection.nodes.map((item) => [item.kind, item]));
@@ -97,165 +90,222 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
     dispatch(intentFor(projection, nodeId, actionId, payload));
   }, [projection, dispatch]);
 
+  const theme = navigation.props.theme === 'light' ? 'light' : 'dark';
   React.useEffect(() => {
-    const theme = navigation.props.theme === 'light' ? 'light' : 'dark';
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
-  }, [navigation.props.theme]);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#fcfcfc' : '#1c1c1c');
+  }, [theme]);
 
-  const identityName = projection.identity?.display_name || '未命名主体';
-  const mark = projection.identity?.display_name
-    ? Array.from(projection.identity.display_name)[0]
-    : '·';
+  const items = navigation.props.items as UiNode[];
+  const current = (items.find((item) => item.props.current)?.props.view ?? 'timeline') as ViewName;
+  const name = projection.identity?.display_name || undefined;
+  const demo = projection.source === 'demo';
+  const lenses = React.useSyncExternalStore(subscribeLenses, lensSnapshot);
+  const works = nodes.playground_surface?.props.playground?.artifacts as WorkView[] | undefined;
+  const knownWorks = React.useRef<WorkView[]>([]);
+  React.useEffect(() => {
+    if (works) knownWorks.current = works;
+    syncWorkLenses(works);
+  }, [works]);
+
+  // A work lens is this page's reading state; the projection only knows that
+  // the Playground view is the one beside the stream.
+  const [workLens, setWorkLens] = React.useState<string | null>(null);
+  const open: OpenLens = workLens && current === 'playground'
+    ? { kind: 'work', artifact_id: workLens }
+    : current === 'timeline' ? null : { kind: 'view', view: current };
+  const navRef = (view: ViewName) => items.find((item) => item.props.view === view);
+  const selectView = (view: ViewName) => {
+    const item = navRef(view);
+    if (item) emit(item.node_id, item.action_refs[0], { view });
+  };
+  const openLens = (lens: LensContribution | undefined) => {
+    if (!lens) {
+      setWorkLens(null);
+      selectView('timeline');
+    } else if (lens.source === 'work' && lens.artifact_id) {
+      setWorkLens(lens.artifact_id);
+      if (current !== 'playground') selectView('playground');
+    } else if (lens.view) {
+      setWorkLens(null);
+      selectView(lens.view);
+    }
+  };
+  const openId = open === null ? null : open.kind === 'work' ? `work:${open.artifact_id}` : open.view;
+
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.defaultPrevented || event.composedPath().some((target) => target instanceof HTMLElement
+        && (target.isContentEditable || target.matches('input, textarea, select')))) return;
+      if (event.key === '0') { event.preventDefault(); openLens(undefined); return; }
+      const index = Number(event.key);
+      if (!Number.isInteger(index) || index < 1 || index > lenses.length) return;
+      event.preventDefault();
+      const lens = lenses[index - 1];
+      openLens(openId === lens.id ? undefined : lens);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as Array<Record<string, unknown>>;
+  const openWork = open?.kind === 'work'
+    ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
+    : undefined;
 
   return (
-    <div className="app-shell" data-source={projection.source}>
+    <div className="shell" data-source={projection.source} data-lens={openId ?? 'none'}>
       <a className="skip-link" href="#composer-editor" onClick={(event) => {
         event.preventDefault();
         document.querySelector<HTMLTextAreaElement>('#composer-editor textarea')?.focus();
       }}>跳到输入区</a>
-      <aside className="side-rail">
-        <div className="brand" aria-label="Shenko">Shenko<span className="brand-mark" aria-hidden="true" /></div>
-        <Navigation node={navigation} emit={emit} />
-        <div className="rail-foot">
-          <span className="rail-rule" />
-          <ProtoButton
-            styleProfile="rhea"
-            variant="ghost"
-            size="sm"
-            className="theme-button"
-            onClick={() => emit('navigation', 'theme.toggle')}
+
+      <header className="topbar">
+        <button
+          type="button"
+          className="presence"
+          onClick={() => emit('context', 'panel.toggle')}
+          aria-label={`${name ?? '未命名主体'}，打开主体详情`}
+        >
+          <span className="presence-name">
+            {name ?? <span className="is-unnamed">未命名主体</span>}
+            {demo && <span className="tag">模拟投影</span>}
+          </span>
+          <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
+        </button>
+        <nav className="lensbar" aria-label="镜头">
+          <ToggleGroupRoot
+            className="lens-switch"
+            a11yLabel="在时间线旁打开"
+            value={openId ? [openId] : []}
+            onValueChange={(detail: { value: readonly string[] }) => {
+              const next = detail.value.find((id) => id !== openId) ?? null;
+              openLens(next ? lenses.find((lens) => lens.id === next) : undefined);
+            }}
           >
-            <Icon name={navigation.props.theme === 'light' ? 'moon' : 'sun'} />
-            切换明暗
-          </ProtoButton>
-          <span className="rail-version">Proto-UI · {projection.assets.proto_ui.revision.slice(0, 8)}</span>
+            {lenses.map((lens, index) => (
+              <ToggleGroupItem key={lens.id} value={lens.id} className="lens-item" data-source={lens.source}>
+                <Icon name={lens.icon} size={17} />
+                <span className="lens-label">{lens.title}</span>
+                <span className="sr-only">{index < 9 ? `（Ctrl/⌘ ${index + 1}）` : ''}</span>
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroupRoot>
+        </nav>
+        <div className="topbar-actions">
+          <TransportBadge connection={projection.connection} demo={demo} />
+          <Toggle
+            active={timeline.props.wrap === true}
+            label="长代码行软换行"
+            onChange={() => emit('timeline', 'timeline.code_wrap')}
+          ><Icon name="wrap" /></Toggle>
+          <Button
+            variant="ghost"
+            size="icon"
+            label={theme === 'light' ? '切换到深色' : '切换到浅色'}
+            onClick={() => emit('navigation', 'theme.toggle')}
+          ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
+          <Button variant="ghost" size="icon" label="主体详情" onClick={() => emit('context', 'panel.toggle')}>
+            <Icon name="panel" />
+          </Button>
         </div>
-      </aside>
+      </header>
 
-      <main className="main-surface">
-        <header className="topbar">
-          <div className="mobile-brand" aria-label="Shenko">Shenko<span className="brand-mark" /></div>
-          <div className="subject-heading">
-            <span className="subject-mark" aria-hidden="true">{mark}</span>
-            <div className="subject-heading-text">
-              <div className="subject-name-row">
-                <h1>{identityName}</h1>
-                {projection.source === 'demo' && <span className="demo-badge">模拟投影</span>}
-              </div>
-              <span className="subject-subline">
-                {projection.identity?.revision ? `identity r${projection.identity.revision}` : 'identity revision 未知'}
-              </span>
-            </div>
+      <div className="body">
+        <main className="stream" id="main">
+          <TimelineSurface
+            node={timeline}
+            projection={projection}
+            emit={emit}
+            onOpenWork={(artifactId) => openLens({ id: `work:${artifactId}`, title: '', icon: 'file', order: 0, source: 'work', artifact_id: artifactId })}
+          />
+          <Composer node={composer} emit={emit} />
+          {/* Results of the reader's own acts (copied, rejected stale action…)
+              are a quiet status line, not a floating toast. */}
+          <div className="statusline" role="status" aria-live="polite">{notice.props.text ?? ''}</div>
+        </main>
+        <aside className="lens" hidden={open === null} aria-label={open === null ? undefined : lenses.find((lens) => lens.id === openId)?.title}>
+          <div className="lens-head">
+            <span className="lens-title">{lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? ''}</span>
+            {open?.kind === 'work' && (
+              <span className="lens-sub">作品页 · 独立沙箱，不带界面权限</span>
+            )}
+            <Button variant="ghost" size="icon" label="关闭镜头，回到时间线" onClick={() => openLens(undefined)}>
+              <Icon name="close" />
+            </Button>
           </div>
-          <div className="topbar-actions">
-            <TransportBadge connection={projection.connection} demo={projection.source === 'demo'} />
-            <ProtoButton
-              styleProfile="rhea"
-              variant="outline"
-              size="sm"
-              className="panel-toggle"
-              onClick={() => emit('context', 'panel.toggle')}
-            >
-              <Icon name="panel" />详情
-            </ProtoButton>
+          <div className="lens-body">
+            {open?.kind === 'work'
+              ? <WorkFrame artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} />
+              : <>
+                <TasksSurface node={nodes.tasks_surface} />
+                <MemorySurface node={nodes.memory_surface} />
+                <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
+                <PlaygroundSurface
+                  node={nodes.playground_surface}
+                  onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
+                />
+              </>}
           </div>
-        </header>
+        </aside>
+      </div>
 
-        <div className="status-strip">
-          <span><span className="status-tick" />{timeline.props.step ? `已见第 ${timeline.props.step} 次提交` : '尚无已提交步骤'}</span>
-          <span className="status-divider" />
-          <span>{timeline.props.subject_status === 'unknown' || !timeline.props.subject_status ? '主体状态未知' : String(timeline.props.subject_status)}</span>
-          <span className="status-spacer" />
-          <span className="reading-label">{readingLabel(timeline.props.reading)}</span>
-        </div>
-
-        <div className="surface-stack">
-          <TimelineSurface node={timeline} projection={projection} emit={emit} />
-          <TasksSurface node={nodes.tasks_surface} />
-          <MemorySurface node={nodes.memory_surface} />
-          <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
-          <PlaygroundSurface node={nodes.playground_surface} />
-        </div>
-        <Composer node={composer} emit={emit} />
-      </main>
-
-      <nav className="mobile-nav" aria-label="主要导航">
-        <NavigationItems node={navigation} emit={emit} mobile />
-      </nav>
       <ContextPanel node={panel} projection={projection} emit={emit} />
-      {notice.props.text && <div className="notice" role="status">{notice.props.text}</div>}
       <span className="sr-only" aria-live="polite">{connectionAnnouncement(projection.connection)}</span>
     </div>
   );
 }
 
-function Navigation({ node, emit }: { node: UiNode; emit: Emit }) {
-  return <nav className="rail-nav" aria-label="主要导航"><NavigationItems node={node} emit={emit} /></nav>;
+/**
+ * What the subject is doing now, from facts only: running and waiting tasks,
+ * the last committed round, the reported status. Nothing is inferred; with no
+ * facts the line says so.
+ */
+function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: Array<Record<string, unknown>> }) {
+  // `subject_root` is the structural owner of all the subject's work (the
+  // subject itself, whose status is reported separately), not a thing it is
+  // doing; only work beneath it is attention.
+  const active = tasks.filter((task) => task.kind !== 'subject_root'
+    && ['running', 'pending', 'waiting', 'queued'].includes(String(task.state)));
+  const facts: string[] = [];
+  if (active.length === 1) facts.push(`在做：${String(active[0].kind ?? active[0].task_id)}`);
+  else if (active.length > 1) facts.push(`${active.length} 件事进行中`);
+  facts.push(step ? `第 ${step} 轮` : '尚无已提交步骤');
+  if (status && status !== 'unknown') facts.push(status);
+  return <span className="attention">{facts.join(' · ')}</span>;
 }
 
-const VIEW_LABELS: Record<ViewName, string> = {
-  timeline: '时间线',
-  tasks: '任务',
-  memory: '记忆',
-  config: '配置',
-  playground: 'Playground',
-};
-
-function NavigationItems({ node, emit, mobile = false }: { node: UiNode; emit: Emit; mobile?: boolean }) {
-  return (node.props.items as UiNode[]).map((item) => {
-    const view = item.props.view as ViewName;
-    return (
-      <button
-        type="button"
-        key={`${mobile ? 'mobile' : 'rail'}-${view}`}
-        className={`nav-item ${item.props.current ? 'is-current' : ''}`}
-        aria-current={item.props.current ? 'page' : undefined}
-        onClick={() => emit(item.node_id, item.action_refs[0], { view })}
-      >
-        <Icon name={view} />
-        <span>{VIEW_LABELS[view]}</span>
-      </button>
-    );
-  });
-}
-
-// The chip is Shenko's own Prototype, compiled at build time into React DOM
-// source by the pinned Proto-UI compiler. This caller keeps the transport facts
-// and decides only the label and tone; the Prototype renders markup and tokens.
-function TransportBadge({ connection, demo }: { connection: ConnectionState; demo: boolean }) {
-  if (demo) return <CompiledTransportBadge label="本地模拟" tone="local" />;
-  const labels: Record<ConnectionState, string> = {
-    connecting: '连接中',
-    online: '传输已连接',
-    reconnecting: '正在重连',
-    offline: '传输离线',
-  };
-  return <CompiledTransportBadge label={labels[connection]} tone={connection} />;
-}
-
-/** Compiler facts exactly as the build recorded them; nothing is inferred. */
-function compilerLabel(compiler: BuildManifest['compiler'] | undefined): string {
-  if (!compiler) return 'Compiler：构建 manifest 未记录。';
-  const runtime = compiler.runtime_imported === true ? '浏览器运行期导入编译器' : '浏览器未导入编译器';
-  if (compiler.status !== 'build_time_compiled') {
-    return `Compiler：${compiler.status}；${runtime}。`;
-  }
-  const names = (compiler.prototypes ?? []).map((prototype) => prototype.name);
-  const profile = compiler.profile ?? 'profile 未记录';
-  if (names.length === 0) return `Compiler：构建期编译，未记录已编译 prototype（${profile}）；${runtime}。`;
-  return `Compiler：构建期编译 ${names.length} 个 Shenko prototype（${names.join('、')}，${profile}）；${runtime}。`;
-}
-
-function connectionAnnouncement(connection: ConnectionState): string {
-  return connection === 'online' ? '传输已连接' : connection === 'reconnecting' ? '连接中断，正在重连' : '传输未连接';
-}
-
-function readingLabel(reading: string): string {
-  if (reading === 'following_latest') return '跟随最新';
-  if (reading === 'selecting_or_interacting') return '保持选择与交互';
-  return '阅读历史';
+/**
+ * A work's published page, live beside the stream. The frame has no
+ * same-origin grant and the server sends its own CSP sandbox, so the page
+ * runs as an opaque origin: it cannot read the shell, its cookies or its
+ * socket. Its revision keys the frame, so a new revision is a fresh page.
+ */
+function WorkFrame({ artifactId, title, revision }: { artifactId: string; title: string; revision?: number }) {
+  const pinned = pinnedWorks().includes(artifactId);
+  const [, rerender] = React.useReducer((value: number) => value + 1, 0);
+  return (
+    <div className="work-frame">
+      <div className="work-frame-bar">
+        <span className="muted">r{revision ?? '—'}</span>
+        <Button variant="ghost" size="sm" onClick={() => { setWorkPinned(artifactId, !pinned); rerender(); }}>
+          {pinned ? '从镜头栏取下' : '固定到镜头栏'}
+        </Button>
+        <a className="work-frame-link" href={`/playground/${artifactId}`} target="_blank" rel="noreferrer noopener">新窗口</a>
+      </div>
+      <iframe
+        key={`${artifactId}@${revision ?? 0}`}
+        className="work-iframe"
+        src={`/playground/${artifactId}`}
+        title={title}
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        referrerPolicy="no-referrer"
+      />
+    </div>
+  );
 }
 
 interface AnchorSnapshot {
@@ -270,6 +320,8 @@ interface TimelineSurfaceProps {
   node: UiNode;
   projection: UiProjection;
   emit: Emit;
+  /** Opens a page-bearing work as a lens beside the stream. */
+  onOpenWork: (artifactId: string) => void;
 }
 
 class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string }> {
@@ -293,8 +345,14 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
 
   componentDidMount() {
     this.scrollElement = this.findScrollElement();
-    if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
-    else this.restoreSavedAnchor(this.props.node.props.anchor as ReadingAnchor | undefined);
+    if (this.props.node.props.reading === 'following_latest') {
+      this.scrollToEnd();
+      // The upstream scroll area settles its viewport after first layout.
+      this.resizeFrame = requestAnimationFrame(() => {
+        this.resizeFrame = 0;
+        if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
+      });
+    } else this.restoreSavedAnchor(this.props.node.props.anchor as ReadingAnchor | undefined);
     this.rememberAnchor();
     this.restoreSavedSelection();
     window.addEventListener('resize', this.onResize);
@@ -543,13 +601,14 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
   render() {
     const { node, projection, emit } = this.props;
     const entries = node.props.entries as UiNode[];
+    const name = projection.identity?.display_name || undefined;
     return (
-      <section className="timeline-surface" hidden={node.props.hidden} aria-label="主体时间线">
+      <section className="timeline" hidden={node.props.hidden} aria-label="主体时间线">
         {/* One bounded announcement per committed round; the answer itself is
             not read again. */}
         <span className="sr-only" aria-live="polite">{this.state.announcement}</span>
         <div
-          className="timeline-scroll-capture"
+          className="timeline-capture"
           ref={this.capture}
           data-reading={node.props.reading}
           data-wrap={node.props.wrap === true ? 'on' : 'off'}
@@ -558,43 +617,29 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
             if (event.deltaY < 0) this.emitAnchor();
           }}
           onPointerDown={(event) => {
-            if ((event.target as Element).closest('pre,button,details,input,textarea')) {
+            if ((event.target as Element).closest('pre,button,details,input,textarea,select,[role="button"]')) {
               emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
             }
           }}
         >
           <ScrollRoot className="timeline-root">
             <ScrollViewport className="timeline-viewport">
-              <div className="timeline-measure">
+              <div className="timeline-column">
                 {entries.length === 0
-                  ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} />
-                  : <TimelineEntries entries={entries} emit={emit} />}
+                  ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} name={name} />
+                  : <TimelineEntries entries={entries} emit={emit} name={name} onOpenWork={this.props.onOpenWork} />}
               </div>
             </ScrollViewport>
             <ScrollScrollbar orientation="vertical" className="timeline-scrollbar">
               <ScrollThumb className="timeline-thumb" />
             </ScrollScrollbar>
           </ScrollRoot>
-          <div className="timeline-tools">
-            <ProtoButton
-              styleProfile="rhea"
-              variant="ghost"
-              size="sm"
-              onClick={() => emit('timeline', 'timeline.code_wrap')}
-            >
-              {node.props.wrap === true ? '取消软换行' : '软换行长代码'}
-            </ProtoButton>
-          </div>
           {node.props.reading !== 'following_latest' && (
             <div className="jump-latest">
-              <ProtoButton
-                styleProfile="rhea"
-                variant="secondary"
-                size="sm"
-                onClick={() => emit('timeline', 'timeline.latest')}
-              >
-                {node.props.new_count > 0 ? `${node.props.new_count} 条新内容` : '回到最新'}<Icon name="down" />
-              </ProtoButton>
+              <Button variant="secondary" size="sm" onClick={() => emit('timeline', 'timeline.latest')}>
+                <Icon name="down" size={15} />
+                {node.props.new_count > 0 ? `${node.props.new_count} 条新内容` : '回到最新'}
+              </Button>
             </div>
           )}
         </div>
@@ -603,71 +648,252 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
   }
 }
 
-function EmptyTimeline({ connection, demo }: { connection: ConnectionState; demo: boolean }) {
+function EmptyTimeline({ connection, demo }: { connection: ConnectionState; demo: boolean; name?: string }) {
   return (
-    <div className="empty-timeline" data-testid="empty-timeline">
-      <div className="empty-orbit" aria-hidden="true"><span /><span /><i /></div>
-      <h2>{demo ? '模拟时间线为空' : '等待第一条已提交内容'}</h2>
-      <p>{demo ? '这里只展示本地模拟 projection。' : connection === 'online' ? '传输已连接；主体的下一步会在持久提交后出现。' : '草稿会保留，连接恢复后可继续追加。'}</p>
-      <span className="empty-note">不显示未提交 token，不推断主体正在思考。</span>
+    <div className="empty" data-testid="empty-timeline">
+      <Icon name="timeline" size={22} />
+      <p>
+        {demo
+          ? '模拟时间线为空。'
+          : connection === 'online'
+            ? '还没有已提交的内容。'
+            : '没有连上服务，草稿会保留。'}
+      </p>
     </div>
   );
 }
 
-function TimelineEntries({ entries, emit }: { entries: UiNode[]; emit: Emit }) {
+function entryTime(entry: UiNode): string | null {
+  if (entry.kind === 'subject_part') return entry.props.part.observed_at;
+  if (entry.kind === 'user_submission') return entry.props.submission.created_at;
+  return null;
+}
+
+function TimelineEntries({ entries, emit, name, onOpenWork }: {
+  entries: UiNode[]; emit: Emit; name?: string; onOpenWork: (artifactId: string) => void;
+}) {
   let lastDay = '';
-  return <div className="timeline-entries">{entries.map((entry) => {
+  let previous: { kind: string; at: number } | undefined;
+  return <div className="entries">{entries.map((entry) => {
     // A document (or its failure) rides the day of the committed step that
     // carried it; it never opens a "时间未知" group of its own.
-    if (entry.kind === 'semantic_document' || entry.kind === 'document_error') {
-      return <EntryView node={entry} emit={emit} key={entry.node_id} />;
+    if (entry.kind === 'semantic_document' || entry.kind === 'document_error' || entry.kind === 'work') {
+      previous = undefined;
+      return <EntryView node={entry} emit={emit} key={entry.node_id} name={name} continued={false} onOpenWork={onOpenWork} />;
     }
-    const value = entry.kind === 'subject_part'
-      ? entry.props.part.observed_at
-      : entry.kind === 'user_submission'
-        ? entry.props.submission.created_at
-        : null;
+    const value = entryTime(entry);
     const day = dayLabel(value);
-    const separator = day !== lastDay ? <div className="day-separator" key={`day-${entry.node_id}`}><span>{day}</span></div> : null;
+    const separator = day !== lastDay
+      ? <div className="day" key={`day-${entry.node_id}`}><Separator className="day-rule" /><span>{day}</span><Separator className="day-rule" /></div>
+      : null;
+    if (separator) previous = undefined;
     lastDay = day;
-    return <React.Fragment key={entry.node_id}>{separator}<EntryView node={entry} emit={emit} /></React.Fragment>;
+    // Consecutive subject rounds within a few minutes read as one voice: the
+    // seal and name are shown once, each round keeps its own meta line.
+    const at = value ? Date.parse(value) : Number.NaN;
+    const continued = previous !== undefined
+      && previous.kind === entry.kind
+      && Number.isFinite(at)
+      && at - previous.at < 6 * 60_000;
+    previous = { kind: entry.kind, at };
+    return <React.Fragment key={entry.node_id}>
+      {separator}
+      <EntryView node={entry} emit={emit} name={name} continued={continued} onOpenWork={onOpenWork} />
+    </React.Fragment>;
   })}</div>;
 }
 
-function EntryView({ node, emit }: { node: UiNode; emit: Emit }) {
-  return node.kind === 'subject_part'
-    ? <SubjectPart node={node} emit={emit} />
-    : node.kind === 'semantic_document'
-      ? <SemanticDocumentView node={node} emit={emit} />
-      : node.kind === 'document_error'
-        ? <DocumentErrorEntry node={node} />
-      : node.kind === 'work'
-        ? <WorkEntry node={node} emit={emit} />
-      : <UserSubmission node={node} emit={emit} />;
+function EntryView({ node, emit, name, continued, onOpenWork }: {
+  node: UiNode; emit: Emit; name?: string; continued: boolean; onOpenWork: (artifactId: string) => void;
+}) {
+  switch (node.kind) {
+    case 'subject_part': return <SubjectPart node={node} emit={emit} name={name} continued={continued} />;
+    case 'semantic_document': return <SemanticDocumentView node={node} emit={emit} />;
+    case 'document_error': return <DocumentErrorEntry node={node} />;
+    case 'work': return <WorkEntry node={node} emit={emit} onOpenWork={onOpenWork} />;
+    default: return <UserSubmission node={node} emit={emit} continued={continued} />;
+  }
+}
+
+function SubjectPart({ node, emit, name, continued }: { node: UiNode; emit: Emit; name?: string; continued: boolean }) {
+  const part = node.props.part as TimelinePart;
+  const state = partState(part);
+  const live = state.streaming && !part.terminal;
+  // Only committed text carries a step number. A durable streamed prefix is
+  // real ledger content, but labelling it "第 N 轮" would claim an S1 step the
+  // part does not have yet (docs/specs/web-interface.md#spec-21-11).
+  const stepLabel = state.committed ? `第 ${part.step} 轮` : part.terminal ? '流式 · 已结束' : '正在输出';
+  const announcement = state.committed
+    ? `第 ${part.step} 轮已提交内容`
+    : '主体正在输出、尚未提交的持久流式内容';
+  return (
+    <article
+      className={`entry subject${continued ? ' is-continued' : ''}`}
+      data-entry-key={node.node_id}
+      data-message-id={part.message_id}
+      data-part-id={part.part_id}
+      data-part-revision={part.part_revision}
+      data-next-chunk-seq={part.next_chunk_seq}
+      data-commit-ref={part.commit_ref}
+      data-committed={state.committed ? 'true' : 'false'}
+      data-streaming={state.streaming ? 'true' : 'false'}
+      aria-label={announcement}
+      aria-busy={live ? true : undefined}
+    >
+      <div className="entry-main">
+        <header className="entry-meta">
+          <span className={`entry-step${state.committed ? '' : ' is-live'}`}>
+            {live && <span className="live-dot" aria-hidden="true" />}
+            {stepLabel}
+          </span>
+          <time dateTime={part.observed_at} title="界面接收时间，不是持久 commit 墙钟时间">{formatTime(part.observed_at)}</time>
+          {!state.committed && <span className="tag tag-quiet">未提交</span>}
+          {part.gap && <span className="tag tag-warn">序号空洞 · 等待补读</span>}
+        </header>
+        <div className="entry-body">
+          <PartErrorBoundary text={part.content}><Markdown text={part.content} /></PartErrorBoundary>
+        </div>
+        <footer className="entry-tools">
+          <Button variant="ghost" size="sm" label="复制这一轮" onClick={() => emit(node.node_id, node.action_refs[0])}>
+            <Icon name="copy" size={15} /><span>复制</span>
+          </Button>
+          <CollapsibleRoot className="identity">
+            <CollapsibleTrigger className="identity-trigger">
+              <Icon name="info" size={15} /><span>来源</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="identity-body"><dl>
+              <div><dt>message</dt><dd>{part.message_id}</dd></div>
+              <div><dt>part</dt><dd>{part.part_id}</dd></div>
+              <div><dt>revision</dt><dd>{part.part_revision}</dd></div>
+              <div><dt>commit</dt><dd>{part.commit_ref}</dd></div>
+              <div><dt>request / attempt</dt><dd>{part.request_id ?? '未知'} / {part.attempt_id ?? '未知'}</dd></div>
+              <div><dt>状态</dt><dd>{state.committed ? '已提交' : '未提交 · 持久流式'}</dd></div>
+            </dl></CollapsibleContent>
+          </CollapsibleRoot>
+        </footer>
+      </div>
+    </article>
+  );
+}
+
+class PartErrorBoundary extends React.Component<{ text: string; children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) {
+      return <div className="part-fallback" role="note">
+        <p>这一段没能按格式呈现，下面是原文；其余内容不受影响。</p>
+        <pre>{this.props.text}</pre>
+        <button type="button" onClick={() => this.setState({ failed: false })}>重新呈现</button>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
+
+// Durable admission stages are distinct facts (docs/specs/web-interface.md#spec-41-18):
+// each label names one stage; none is drawn as a progress bar.
+const RECEIPT: Record<string, { short: string; long: string; tone: string }> = {
+  sending: { short: '发送中', long: '正在写入传输', tone: 'pending' },
+  sent: { short: '已发出', long: '已写入传输 · 等待服务端回执', tone: 'pending' },
+  accepted: { short: '已接纳', long: '已持久接纳 · 等待选入/处置回执', tone: 'accepted' },
+  selected: { short: '已选入', long: '已选入封口输入计划 · 等待处置回执', tone: 'accepted' },
+  committed: { short: '已处置', long: '主体已提交处置', tone: 'done' },
+  conflict: { short: 'ID 冲突', long: '提交 ID 冲突 · 原输入未改写', tone: 'error' },
+  rejected: { short: '未接收', long: '服务端未接收', tone: 'error' },
+  unknown: { short: '回执未知', long: '传输回执未知 · 可用同一 ID 查询或重试', tone: 'warn' },
+};
+
+function placementText(submission: Submission): string | null {
+  const placement = submission.placement;
+  if (!placement) return null;
+  switch (placement.actual) {
+    case 'next_boundary': return '下一边界处置';
+    case 'live_steer': return '进行中请求内处置';
+    case 'cancel_reseal': return '取消重封';
+    default: return '处置位置待定';
+  }
+}
+
+function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; continued: boolean }) {
+  const submission = node.props.submission as Submission;
+  const receipt = RECEIPT[submission.receipt] ?? RECEIPT.unknown;
+  const withdrawal = submission.withdrawal;
+  const withdrawAction = node.props.withdraw_action as string | undefined;
+  const retryAction = node.props.retry_action as string | undefined;
+  const placement = placementText(submission);
+  const steer = submission.payload.mode === 'steer';
+  const detail = [receipt.long, submission.detail, placement].filter(Boolean).join(' · ');
+  return (
+    <article
+      className={`entry user${continued ? ' is-continued' : ''}${withdrawal ? ' is-withdrawn' : ''}`}
+      data-entry-key={node.node_id}
+      data-submission-id={submission.payload.submission_id}
+    >
+      <div className="entry-main">
+        <div className="bubble">
+          {steer && <span className="bubble-mode"><Icon name="steer" size={13} />引导</span>}
+          <div className="entry-body">{submission.payload.content}</div>
+        </div>
+        <footer className={`receipt tone-${receipt.tone}`} data-receipt={submission.receipt} title={detail}>
+          <span className="receipt-dot" aria-hidden="true" />
+          <span className="receipt-label">{receipt.short}</span>
+          <span className="sr-only">：{detail}</span>
+          {submission.detail && <span className="receipt-detail">{submission.detail}</span>}
+          {placement && <span className="receipt-detail">{placement}</span>}
+          {withdrawal && (
+            <span className="receipt-detail is-withdrawal">
+              {withdrawal.result === 'withdrawal_queued' ? '撤回已排队' : '呈现前已撤回'}
+            </span>
+          )}
+          <time dateTime={submission.created_at}>{formatTime(submission.created_at)}</time>
+          {(submission.receipt === 'rejected' || submission.receipt === 'unknown') && typeof retryAction === 'string' && (
+            <button type="button" className="text-action" onClick={() => emit(node.node_id, retryAction)}>
+              <Icon name="retry" size={14} />以同一 ID 重试
+            </button>
+          )}
+          {!withdrawal && typeof withdrawAction === 'string' && (
+            <button type="button" className="text-action" onClick={() => emit(node.node_id, withdrawAction)}>
+              <Icon name="undo" size={14} />撤回
+            </button>
+          )}
+        </footer>
+      </div>
+    </article>
+  );
 }
 
 /// One work of the subject, in the timeline (docs/specs/configuration-playground.md#spec-57-6).
 ///
 /// It names the work's own revision: what the reader does next is bound to
 /// the revision they saw. Opening the work is the reader's own action.
-function WorkEntry({ node, emit }: { node: UiNode; emit: Emit }) {
+function WorkEntry({ node, emit, onOpenWork }: { node: UiNode; emit: Emit; onOpenWork: (artifactId: string) => void }) {
   const work = node.props.work as WorkView;
+  // Page works offer both the live page and their revision-bound management
+  // record; all work actions still use the projected action identity.
+  const page = isPage(work.mime);
   return (
-    <article className="timeline-entry work-entry" data-entry-key={node.node_id} data-artifact-id={work.artifact_id}>
-      <div className="entry-gutter"><span className="step-label">作品</span></div>
-      <div className="entry-content">
-        <div className="work-summary">
-          <strong>{String(work.title ?? work.artifact_id)}</strong>
-          <span>r{String(work.revision ?? '—')}</span>
-          <span>{String(work.lifecycle ?? 'draft')}</span>
-          <span>{String(work.mime ?? '—')}</span>
+    <article className="entry attachment" data-entry-key={node.node_id} data-artifact-id={work.artifact_id}>
+      <div className="entry-main">
+        <div className="work-card">
+          <span className="work-icon"><Icon name="file" /></span>
+          <span className="work-text">
+            <strong>{String(work.title ?? work.artifact_id)}</strong>
+            <span className="work-meta">
+              作品 · r{String(work.revision ?? '—')} · {String(work.lifecycle ?? 'draft')} · {String(work.mime ?? '—')}
+            </span>
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => page ? onOpenWork(work.artifact_id) : emit(node.node_id, node.action_refs[0])}
+          >
+            <Icon name="open" size={15} />打开
+          </Button>
+          {page && <Button variant="ghost" size="sm" onClick={() => emit(node.node_id, node.action_refs[0])}>
+            详情与操作
+          </Button>}
         </div>
-        <ProtoButton
-          styleProfile="rhea"
-          variant="outline"
-          size="sm"
-          onClick={() => emit(node.node_id, node.action_refs[0])}
-        >打开作品</ProtoButton>
       </div>
     </article>
   );
@@ -679,18 +905,20 @@ function DocumentErrorEntry({ node }: { node: UiNode }) {
   const error = node.props.error as DocumentErrorView;
   return (
     <article
-      className="timeline-entry document-error-entry"
+      className="entry attachment"
       data-entry-key={node.node_id}
       data-source-step={error.source_step_id}
       role="note"
     >
-      <div className="entry-gutter"><span className="step-label">界面降级</span></div>
-      <div className="entry-content">
-        <p className="document-error-reason">这段已提交正文里的界面块未能呈现，富层已丢弃；正文仍按原文显示。</p>
-        <p className="document-error-detail">{error.reason}</p>
-        {error.source_commit && (
-          <span className="document-error-commit">commit {error.source_commit}</span>
-        )}
+      <div className="entry-main">
+        <div className="doc-error">
+          <Icon name="warning" />
+          <div>
+            <p>这一轮里的界面块没能呈现，已退回原文显示。</p>
+            <p className="doc-error-reason">{error.reason}</p>
+            {error.source_commit && <code>commit {error.source_commit}</code>}
+          </div>
+        </div>
       </div>
     </article>
   );
@@ -701,10 +929,10 @@ function DocumentErrorEntry({ node }: { node: UiNode }) {
 // Execution authority comes from the subject's disposition of the admitted
 // input; this view only submits that input.
 const ACTION_STAGE_LABELS: Record<ActionReceiptView['stage'], string> = {
-  sending: '动作提交中',
-  accepted: '已持久接纳 · 处置待主体',
+  sending: '提交中',
+  accepted: '已接纳 · 等待主体处置',
   selected: '已选入封口输入计划',
-  committed: '主体已提交处置',
+  committed: '主体已处置',
   rejected: '未接纳',
   unavailable: '回执暂不可用',
   conflict: '动作键冲突',
@@ -721,16 +949,16 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
   const admitted = (row: ActionReceiptView | undefined): boolean =>
     row !== undefined && ['sending', 'accepted', 'selected'].includes(row.stage);
   return (
-    <article className="timeline-entry document-entry" data-entry-key={node.node_id} data-document-id={document.document_id}>
-      <div className="entry-gutter">
-        <span className="step-label">界面</span>
-        <span className="document-mode" data-mode={document.mode}>
-          {document.mode === 'rich' ? '完整' : document.mode === 'card' ? '卡片' : '文本'}
-        </span>
-      </div>
-      <div className="entry-content">
-        <div className={`semantic-document is-${document.mode}`}>
-          <p className="document-summary">{document.summary}</p>
+    <article className="entry attachment" data-entry-key={node.node_id} data-document-id={document.document_id}>
+      <div className="entry-main">
+        <div className={`doc is-${document.mode}`}>
+          <header className="doc-head">
+            <span className="doc-kind"><Icon name="spark" size={15} />界面</span>
+            <span className="doc-mode" data-mode={document.mode}>
+              {document.mode === 'rich' ? '完整' : document.mode === 'card' ? '卡片' : '文本'}
+            </span>
+          </header>
+          <p className="doc-summary">{document.summary}</p>
           {document.mode === 'rich' && Array.isArray(document.nodes) && document.nodes.length > 0 && (
             <RichDocument
               nodes={document.nodes as DocumentNodeView[]}
@@ -741,25 +969,26 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
             />
           )}
           {document.options.length > 0 && (
-            <ol className="document-options">
+            <ol className="doc-options">
               {document.options.map((option, index) => {
                 const receipt = latest(option.action_id);
                 const pending = admitted(receipt);
                 return (
                   <li key={`${option.action_id}:${option.nonce}`} data-action-id={option.action_id}>
-                    <ProtoButton
-                      styleProfile="rhea"
-                      variant="outline"
-                      size="sm"
-                      disabled={pending}
+                    <button
+                      type="button"
+                      className="doc-option"
+                      disabled={pending || !node.action_refs[index]}
                       onClick={() => emit(node.node_id, node.action_refs[index])}
-                    >{index + 1}. {option.label}</ProtoButton>
-                    {receipt && (
-                      <span className={`action-receipt is-${receipt.stage}`} data-stage={receipt.stage}>
-                        {ACTION_STAGE_LABELS[receipt.stage]}
-                        {receipt.detail ? ` · ${receipt.detail}` : ''}
-                      </span>
-                    )}
+                    >
+                      <span className="doc-option-index">{index + 1}</span>
+                      <span className="doc-option-label">{option.label}</span>
+                      {receipt && (
+                        <span className={`doc-option-receipt is-${receipt.stage}`} data-stage={receipt.stage}>
+                          {ACTION_STAGE_LABELS[receipt.stage]}{receipt.detail ? ` · ${receipt.detail}` : ''}
+                        </span>
+                      )}
+                    </button>
                   </li>
                 );
               })}
@@ -771,228 +1000,6 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
   );
 }
 
-function SubjectPart({ node, emit }: { node: UiNode; emit: Emit }) {
-  const part = node.props.part as TimelinePart;
-  const state = partState(part);
-  // Only committed text carries a step number. A durable streamed prefix is
-  // real ledger content, but labelling it "第 N 轮" would claim an S1 step the
-  // part does not have yet (docs/specs/web-interface.md#spec-21-11).
-  const gutterLabel = state.committed
-    ? `第 ${part.step} 轮`
-    : part.terminal
-      ? '流式 · 已完成'
-      : '流式接收中';
-  const footerLabel = state.committed ? '已提交' : '未提交 · 持久流式';
-  const announcement = state.committed
-    ? `第 ${part.step} 轮已提交内容`
-    : '主体正在输出、尚未提交的持久流式内容';
-  return (
-    <article
-      className="timeline-entry subject-entry"
-      data-entry-key={node.node_id}
-      data-message-id={part.message_id}
-      data-part-id={part.part_id}
-      data-part-revision={part.part_revision}
-      data-next-chunk-seq={part.next_chunk_seq}
-      data-commit-ref={part.commit_ref}
-      data-committed={state.committed ? 'true' : 'false'}
-      data-streaming={state.streaming ? 'true' : 'false'}
-      aria-label={announcement}
-      aria-busy={state.streaming && !part.terminal ? true : undefined}
-    >
-      <div className="entry-gutter">
-        <span className="step-label">{gutterLabel}</span>
-        <time dateTime={part.observed_at} title="UI 接收时间，不是持久 commit 墙钟时间">{formatTime(part.observed_at)}</time>
-      </div>
-      <div className="entry-content">
-        <PartErrorBoundary text={part.content}><Markdown text={part.content} /></PartErrorBoundary>
-        <footer className="entry-footer">
-          <span className="commit-label"><Icon name="commit" />{footerLabel}</span>
-          {part.gap && <span className="gap-label">序号空洞 · 等待补读</span>}
-          <details className="identity-details">
-            <summary>part identity</summary>
-            <dl>
-              <div><dt>message</dt><dd>{part.message_id}</dd></div>
-              <div><dt>part</dt><dd>{part.part_id}</dd></div>
-              <div><dt>revision</dt><dd>{part.part_revision}</dd></div>
-              <div><dt>commit</dt><dd>{part.commit_ref}</dd></div>
-              <div><dt>request / attempt</dt><dd>{part.request_id ?? '未知'} / {part.attempt_id ?? '未知'}</dd></div>
-            </dl>
-          </details>
-          <span className="entry-action">
-            <ProtoButton
-              styleProfile="rhea"
-              variant="ghost"
-              size="sm"
-              onClick={() => emit(node.node_id, node.action_refs[0])}
-            ><Icon name="copy" />复制</ProtoButton>
-          </span>
-        </footer>
-      </div>
-    </article>
-  );
-}
-
-class PartErrorBoundary extends React.Component<{ text: string; children: React.ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() { return { failed: true }; }
-  render() {
-    if (this.state.failed) {
-      return <div className="part-fallback" role="note">
-        <span>此 part 已降级为原始文本；其余界面仍可用。</span>
-        <pre>{this.props.text}</pre>
-        <button type="button" onClick={() => this.setState({ failed: false })}>重新呈现</button>
-      </div>;
-    }
-    return this.props.children;
-  }
-}
-
-interface MarkdownBlock { kind: string; key: string; text: string; language?: string; items?: string[] }
-
-function parseMarkdown(text: string): MarkdownBlock[] {
-  const lines = text.replaceAll('\r\n', '\n').split('\n');
-  const blocks: MarkdownBlock[] = [];
-  let index = 0;
-  let sequence = 0;
-  const nextKey = (kind: string) => `${kind}-${sequence++}`;
-  while (index < lines.length) {
-    const line = lines[index];
-    if (!line.trim()) { index += 1; continue; }
-    if (line.trimStart().startsWith('```')) {
-      const language = line.trimStart().slice(3).trim();
-      const key = nextKey('code');
-      index += 1;
-      const code: string[] = [];
-      while (index < lines.length && !lines[index].trimStart().startsWith('```')) {
-        code.push(lines[index]);
-        index += 1;
-      }
-      if (index < lines.length) index += 1;
-      blocks.push({ kind: 'code', key, text: code.join('\n'), language });
-      continue;
-    }
-    const heading = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (heading) {
-      blocks.push({ kind: `h${heading[1].length}`, key: nextKey('heading'), text: heading[2] });
-      index += 1;
-      continue;
-    }
-    if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      const key = nextKey('list');
-      while (index < lines.length && /^[-*]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^[-*]\s+/, ''));
-        index += 1;
-      }
-      blocks.push({ kind: 'list', key, text: '', items });
-      continue;
-    }
-    if (line.startsWith('>')) {
-      const key = nextKey('quote');
-      const quote: string[] = [];
-      while (index < lines.length && lines[index].startsWith('>')) {
-        quote.push(lines[index].replace(/^>\s?/, ''));
-        index += 1;
-      }
-      blocks.push({ kind: 'quote', key, text: quote.join('\n') });
-      continue;
-    }
-    const key = nextKey('paragraph');
-    const paragraph: string[] = [];
-    while (index < lines.length && lines[index].trim() && !lines[index].trimStart().startsWith('```') && !/^(#{1,4})\s+/.test(lines[index]) && !/^[-*]\s+/.test(lines[index]) && !lines[index].startsWith('>')) {
-      paragraph.push(lines[index]);
-      index += 1;
-    }
-    blocks.push({ kind: 'paragraph', key, text: paragraph.join('\n') });
-  }
-  return blocks;
-}
-
-function inlineText(text: string): React.ReactNode[] {
-  return text.split(/(`[^`]*`)/g).filter(Boolean).map((part, index) =>
-    part.startsWith('`') && part.endsWith('`') && part.length > 1
-      ? <code className="inline-code" key={index}>{part.slice(1, -1)}</code>
-      : <React.Fragment key={index}>{part}</React.Fragment>,
-  );
-}
-
-function Markdown({ text }: { text: string }) {
-  const blocks = React.useMemo(() => parseMarkdown(text), [text]);
-  return <div className="markdown-body">{blocks.map((block) => {
-    if (block.kind === 'code') {
-      return <figure className="code-block" key={block.key}>
-        <figcaption>{block.language || 'text'}<span>已提交代码</span></figcaption>
-        <pre tabIndex={0}><code>{block.text}</code></pre>
-      </figure>;
-    }
-    if (block.kind === 'list') return <ul key={block.key}>{block.items?.map((item, index) => <li key={index}>{inlineText(item)}</li>)}</ul>;
-    if (block.kind === 'quote') return <blockquote key={block.key}>{inlineText(block.text)}</blockquote>;
-    if (block.kind.startsWith('h')) {
-      const level = Math.min(4, Number(block.kind.slice(1))) as 1 | 2 | 3 | 4;
-      return React.createElement(`h${level + 1}`, { key: block.key }, inlineText(block.text));
-    }
-    return <p key={block.key}>{inlineText(block.text)}</p>;
-  })}</div>;
-}
-
-function UserSubmission({ node, emit }: { node: UiNode; emit: Emit }) {
-  const submission = node.props.submission as Submission;
-  return (
-    <article className="timeline-entry user-entry" data-entry-key={node.node_id} data-submission-id={submission.payload.submission_id}>
-      <div className="entry-gutter"><span className="step-label">你</span><time dateTime={submission.created_at}>{formatTime(submission.created_at)}</time></div>
-      <div className="entry-content">
-        <div className="user-text">{submission.payload.content}</div>
-        <ReceiptView submission={submission} emit={emit} node={node} />
-      </div>
-    </article>
-  );
-}
-
-function ReceiptView({ submission, emit, node }: { submission: Submission; emit: Emit; node: UiNode }) {
-  const placement = submission.placement;
-  const placementText = placement
-    ? placement.actual === 'next_boundary'
-      ? '处置位置：下一边界'
-      : placement.actual === 'live_steer'
-        ? '处置位置：进行中请求内'
-        : placement.actual === 'cancel_reseal'
-          ? '处置位置：取消重封'
-          : '处置位置：待定'
-    : null;
-  const labels: Record<string, string> = {
-    sending: '发送中',
-    sent: '已写入传输 · 等待服务端回执',
-    accepted: '已持久接纳 · 等待选入/处置回执',
-    selected: '已选入封口输入计划 · 等待处置回执',
-    committed: '主体已提交处置',
-    conflict: '提交 ID 冲突 · 原输入未改写',
-    rejected: '未接收',
-    unknown: '传输回执未知 · 可用同一 ID 查询或重试',
-  };
-  const withdrawal = submission.withdrawal;
-  const withdrawAction = node.props.withdraw_action as string | undefined;
-  return <div className={`receipt is-${submission.receipt}`} data-receipt={submission.receipt}>
-    <span className="receipt-mark" aria-hidden="true" />
-    <span>
-      {labels[submission.receipt]}{submission.detail ? ` · ${submission.detail}` : ''}
-      {placementText ? ` · ${placementText}` : ''}
-    </span>
-    {withdrawal && (
-      <span className="withdrawal-mark">
-        {withdrawal.result === 'withdrawal_queued' ? '撤回已排队 · 等待 S-折入' : '呈现前已撤回'}
-      </span>
-    )}
-    {(submission.receipt === 'rejected' || submission.receipt === 'unknown')
-      && typeof node.props.retry_action === 'string' && (
-      <ProtoButton styleProfile="rhea" variant="outline" size="sm" onClick={() => emit(node.node_id, node.props.retry_action)}>以同一 ID 重试</ProtoButton>
-    )}
-    {!withdrawal && typeof withdrawAction === 'string' && (
-      <ProtoButton styleProfile="rhea" variant="outline" size="sm" onClick={() => emit(node.node_id, withdrawAction)}>撤回</ProtoButton>
-    )}
-  </div>;
-}
-
 function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
   const draftAction = node.action_refs[0];
   const appendAction = node.action_refs[1];
@@ -1000,16 +1007,28 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
   const append = node.props.append_action as string;
   const canSend = Boolean(node.props.append_enabled) && appendAction === append;
   const canSteer = Boolean(node.props.steer_enabled) && steerAction === node.action_refs[2];
+  // The mode is the reader's choice of which admitted action Enter submits;
+  // steer is offered only while the server provides it.
+  const [mode, setMode] = React.useState<'append' | 'steer'>('append');
+  const steerOffered = node.props.steer_available === true && steerAction === node.action_refs[2];
+  const steering = mode === 'steer' && steerOffered;
+  const submit = () => {
+    if (steering && steerAction) emit('composer', steerAction);
+    else if (canSend) emit('composer', appendAction);
+  };
+  const demo = node.props.demo === true;
+  const reason = demo
+    ? '本地模拟投影，不发送输入'
+    : node.props.connection !== 'online'
+      ? '离线中 · 草稿保留在此浏览器'
+      : !node.props.subject_bound
+        ? '等待真实主体绑定'
+        : node.props.append_offered !== true
+          ? '服务端当前未开放追加输入'
+          : null;
   return (
-    <footer className="composer-dock" hidden={node.props.hidden}>
-      <div className="composer-shell">
-        <div className="composer-topline">
-          <span className="composer-mode">Append<span className="mode-dot" /></span>
-          <span className="composer-capability">
-            {node.props.streaming === true ? '流式传输已接入' : '仅已提交内容'}
-            {canSteer ? ' · Steer 可用（下一边界处置）' : ' · Steer 未提供'}
-          </span>
-        </div>
+    <footer className="composer" hidden={node.props.hidden}>
+      <div className={`composer-card${steering ? ' is-steer' : ''}`}>
         <div
           className="composer-editor"
           id="composer-editor"
@@ -1017,7 +1036,7 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
             if (event.nativeEvent.isComposing) return;
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
-              if (canSend) emit('composer', appendAction);
+              submit();
             } else if (event.key === 'Escape') {
               event.stopPropagation();
               if (node.props.draft) emit('composer', draftAction, { value: '' });
@@ -1026,433 +1045,51 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
           }}
         >
           <ProtoTextarea
-            ariaLabel={node.props.demo ? '模拟投影输入区，不发送' : '向同一主体追加输入'}
+            ariaLabel={demo ? '模拟投影输入区，不发送' : steering ? '引导同一主体' : '向同一主体追加输入'}
             value={node.props.draft}
-            rows={3}
-            readOnly={node.props.demo}
-            placeholder={node.props.demo ? '模拟投影不发送输入' : '给同一主体追加一条消息…'}
-            className="composer-textarea"
+            rows={2}
+            readOnly={demo}
+            placeholder={demo ? '模拟投影不发送输入' : steering ? '引导它此刻的注意力…' : '说点什么…'}
+            className="composer-input"
             onValueChange={(detail) => emit('composer', draftAction, { value: detail.value })}
           />
         </div>
-        <div className="composer-actions">
-          <div className="composer-truth">
-            <span>{node.props.demo ? '本地模拟 · live 写入未启动' : node.props.connection !== 'online' ? '离线时保留草稿' : !node.props.subject_bound ? '等待真实 subject 绑定' : '草稿仅保存在此浏览器'}</span>
-            <span className="composer-hint">Enter 追加 · Shift+Enter 换行{canSteer ? ' · Steer 在下一边界处置' : ''}</span>
-          </div>
-          {canSteer && (
-            <ProtoButton
-              styleProfile="rhea"
-              variant="outline"
-              size="default"
-              disabled={!canSteer}
-              onClick={() => emit('composer', steerAction)}
-            >Steer<Icon name="arrow" /></ProtoButton>
-          )}
-          <ProtoButton
-            styleProfile="rhea"
+        <div className="composer-bar">
+          {steerOffered ? (
+            <ToggleGroupRoot
+              className="mode-switch"
+              a11yLabel="输入方式"
+              value={[steering ? 'steer' : 'append']}
+              onValueChange={(detail: { value: readonly string[] }) => {
+                const next = detail.value[0];
+                if (next === 'append' || next === 'steer') setMode(next);
+              }}
+            >
+              <ToggleGroupItem className="mode-item" value="append">追加</ToggleGroupItem>
+              <ToggleGroupItem className="mode-item" value="steer">引导</ToggleGroupItem>
+            </ToggleGroupRoot>
+          ) : null}
+          <span className="composer-hint">
+            {reason ?? (steering ? '引导在下一边界处置 · Enter 发送' : 'Enter 发送 · Shift + Enter 换行')}
+          </span>
+          <Button
             variant="default"
-            size="default"
-            className="send-button"
-            disabled={!canSend}
-            onClick={() => emit('composer', appendAction)}
-          >追加<Icon name="arrow" /></ProtoButton>
+            size="icon"
+            className="send"
+            label={steering ? '引导' : '追加'}
+            disabled={steering ? !canSteer : !canSend}
+            onClick={submit}
+          ><Icon name={steering ? 'steer' : 'send'} /></Button>
         </div>
       </div>
     </footer>
   );
 }
 
-function SurfaceHeader({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
-  return <header className="surface-header"><span className="eyebrow">{eyebrow}</span><h2>{title}</h2><p>{detail}</p></header>;
-}
-
-function TasksSurface({ node }: { node?: UiNode }) {
-  if (!node) return null;
-  const data = node.props.data;
-  const items = Array.isArray(data?.items) ? data.items : [];
-  return <section className="detail-surface" hidden={node.props.hidden}>
-    <SurfaceHeader eyebrow="按需视图" title="任务" detail="来自当前节点只读任务接口；空结果不代替未知。" />
-    {node.props.error ? <SurfaceNote text="任务接口不可用" tone="error" /> : data?.available === false ? <SurfaceNote text={data?.note || '任务源尚未接入'} /> : items.length === 0 ? <SurfaceNote text="暂无任务" /> : (
-      <div className="data-list">{items.map((task: Record<string, unknown>, index: number) => <div className="data-row task-row" key={String(task.task_id ?? index)}>
-        <code>{String(task.task_id ?? '—')}</code><span>{String(task.kind ?? '—')}</span><strong>{String(task.state ?? '—')}</strong><time>{formatStamp(task.created_at)}</time>
-      </div>)}</div>
-    )}
-  </section>;
-}
-
-function MemorySurface({ node }: { node?: UiNode }) {
-  if (!node) return null;
-  const items = Array.isArray(node.props.data?.items) ? node.props.data.items : [];
-  return <section className="detail-surface" hidden={node.props.hidden}>
-    <SurfaceHeader eyebrow="按需视图" title="记忆" detail="只呈现接口实际返回的条目，不从未持久 profile 生成回忆。" />
-    {node.props.error ? <SurfaceNote text="记忆接口不可用" tone="error" /> : items.length === 0 ? <SurfaceNote text={node.props.data?.note || '暂无记忆条目'} /> : (
-      <div className="data-list">{items.map((memory: Record<string, unknown>, index: number) => <div className="data-row memory-row" key={String(memory.id ?? index)}>
-        {/* `kind` is a learnable hint, never the entry's content. */}
-        <span>{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}{memory.kind ? <small className="memory-kind">{String(memory.kind)}</small> : null}</span><time>{formatStamp(memory.created_at)}</time>
-        <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
-        <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
-      </div>)}</div>
-    )}
-  </section>;
-}
-
-/**
- * Renders the server's taste disclosure verbatim: retained-version count and
- * latest modification by default, full text only when the request asked for a
- * specific revision. A missing projection stays missing (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-4).
- */
-function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure | null }) {
-  if (!disclosure) return null;
-  const facts: string[] = [];
-  if (disclosure.older_versions !== null) facts.push(`旧版本 ${disclosure.older_versions} 版`);
-  if (disclosure.latest_modified_at_ms !== null) facts.push(`最新修改 ${formatStampMs(disclosure.latest_modified_at_ms)}`);
-  if (disclosure.selected !== null) facts.push(`当前读第 ${disclosure.selected} 版`);
-  if (disclosure.written_at_ms !== null) facts.push(`写于 ${formatStampMs(disclosure.written_at_ms)}`);
-  if (facts.length === 0 && !disclosure.full_text) return null;
-  return <div className="revision-disclosure" data-revision-family={disclosure.family}>
-    {facts.length ? <span className="revision-summary">{facts.join(' · ')}</span> : null}
-    {disclosure.content_digest ? <code className="revision-digest">{disclosure.content_digest.slice(0, 12)}</code> : null}
-    {disclosure.full_text ? <div className="revision-full">
-      <h4>第 {disclosure.full_text.revision} 版全文{disclosure.full_text.written_at_ms !== null ? ` · 写于 ${formatStampMs(disclosure.full_text.written_at_ms)}` : ''}</h4>
-      {disclosure.full_text.text !== null
-        ? <p>{disclosure.full_text.text}</p>
-        : <small className="revision-note">请求的版本全文未解析</small>}
-    </div> : null}
-    {disclosure.full_text_unreadable ? <small className="revision-note">请求的版本全文不可读</small> : null}
-  </div>;
-}
-
-/** Store-level revision summary exactly as projected; no derived chain. */
-function ContentRevisionDisclosureView({ revision }: { revision: ContentRevisionDisclosure | null }) {
-  if (!revision) return null;
-  return <div className="revision-disclosure">
-    <span className="revision-summary">旧版本 {revision.old_version_count} 版 · 最新修改 {formatStampMs(revision.latest_modified_at_ms)}</span>
-    <code className="revision-digest">{revision.latest_digest.slice(0, 12)}</code>
-  </div>;
-}
-
-function ConfigSurface({ node, projection, emit }: { node?: UiNode; projection: UiProjection; emit: Emit }) {
-  if (!node) return null;
-  const config = node.props.config;
-  const self = node.props.self;
-  const manifest = node.props.manifest;
-  const unknown = (value: unknown) => value === undefined || value === null || value === '' || value === 'unknown' ? '未知' : String(value);
-  return <section className="detail-surface config-surface" hidden={node.props.hidden}>
-    <SurfaceHeader eyebrow="运行事实" title="配置与能力" detail="值来自当前服务接口或本地构建 manifest；unknown 不被改写成在线或已启用。" />
-    <div className="config-grid">
-      <ConfigItem label="模型绑定" value={node.props.config_error ? '接口不可用' : unknown(config?.model)} />
-      <ConfigItem label="主体状态" value={unknown(self?.status)} />
-      <ConfigItem label="传输" value={connectionAnnouncement(node.props.connection)} />
-      <ConfigItem label="最近已见提交" value={node.props.step ? `第 ${node.props.step} 次` : '尚无'} />
-      <ConfigItem label="Runtime generation" value={unknown(config?.generation)} />
-      <ConfigItem label="API key" value={typeof config?.api_key_configured === 'boolean' ? config.api_key_configured ? '已配置（未读取值）' : '未配置' : '未知'} />
-      <ConfigItem label="数据目录" value={unknown(config?.data_dir)} wide />
-      <ConfigItem label="WebSocket" value={wsUrl()} wide />
-      <ConfigItem label="服务版本" value={unknown(node.props.server_version)} />
-      <ConfigItem label="Subject ID" value={projection.subject_id ?? '未知'} wide />
-    </div>
-    <ConfigEntries node={node} emit={emit} />
-    <div className="capability-block">
-      <h3>输入与时间线能力</h3>
-      <div className="capability-row"><span>Append</span><strong>{projection.capabilities.append ? projection.capabilities.durable_input_receipts ? '可用 · 持久回执' : '可用 · 传输回执' : '不可用'}</strong></div>
-      <div className="capability-row"><span>Steer</span><strong>{projection.capabilities.steer ? '可用 · 下一边界处置' : '未提供 · 不显示伪动作'}</strong></div>
-      <div className="capability-row"><span>Durable accepted / selected</span><strong>{projection.capabilities.durable_input_receipts ? '已接入 · 由 Store 回执' : '不可用'}</strong></div>
-      <div className="capability-row"><span>Streaming</span><strong>{projection.capabilities.streaming ? '生产者已接线 · 仅已提交 chunk' : '无生产者 · 仅已提交内容'}</strong></div>
-      <div className="capability-row"><span>Committed replay</span><strong>{projection.capabilities.committed_replay ? '已接入' : '未知'}</strong></div>
-    </div>
-    <div className="build-block">
-      <div><span className="eyebrow">真实前端构建</span><h3>Proto-UI + React adapter</h3></div>
-      {manifest ? <>
-        <code className="commit-sha">{manifest.upstream.commit}</code>
-        <p>{manifest.packages.join(' · ')}</p>
-        <p>采用 family：{manifest.adopted_families.join('、')}。{compilerLabel(manifest.compiler)}</p>
-      </> : <p>构建 manifest 未读取。</p>}
-      <div className="license-links"><a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">Proto-UI 许可</a><a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">shadcn 来源与许可</a><a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">React 许可</a></div>
-    </div>
-  </section>;
-}
-
-function ConfigItem({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
-  return <div className={`config-item ${wide ? 'is-wide' : ''}`}><span>{label}</span><strong title={value}>{value}</strong></div>;
-}
-
-function PlaygroundSurface({ node }: { node?: UiNode }) {
-  if (!node) return null;
-  const playground: PlaygroundView | undefined = node.props.playground;
-  const roots = Array.isArray(playground?.roots) ? playground.roots : [];
-  const artifacts = Array.isArray(playground?.artifacts) ? playground.artifacts : [];
-  const namespaces = Array.isArray(playground?.namespaces) ? playground.namespaces : [];
-  return <section className="detail-surface playground-surface" hidden={node.props.hidden}>
-    <SurfaceHeader eyebrow="全栈工件" title="Playground" detail="工件、可选根与配置命名空间全部来自持久记录；不可用即显示不可用，不用占位数据。" />
-    {node.props.error ? <SurfaceNote text="Playground 接口不可用" tone="error" /> : playground?.available === false ? <SurfaceNote text="Playground 需要持久 Store 与主体" /> : <>
-      <div className="capability-block">
-        <h3>可选根（enumerable roots）</h3>
-        {roots.length === 0 ? <SurfaceNote text="尚无已选根" /> : (
-          <div className="data-list">{roots.map((root) => <div className="data-row playground-row" key={String(root.artifact_id)}>
-            <code>{String(root.artifact_id)}</code><span>{String(root.root)}</span><code>{String(root.identity).slice(0, 16)}…</code>
-          </div>)}</div>
-        )}
-      </div>
-      <div className="capability-block">
-        <h3>工件</h3>
-        {artifacts.length === 0 ? <SurfaceNote text="尚无工件" /> : (
-          <div className="data-list">{artifacts.map((artifact) => <div className="data-row playground-row" key={String(artifact.artifact_id)}>
-            <strong>{String(artifact.title ?? artifact.artifact_id)}</strong>
-            <span>r{String(artifact.revision ?? '—')}</span>
-            <span>{String(artifact.mime ?? '—')}</span>
-            <span>{artifact.backend ? 'backend' : 'content'}</span>
-            <span>{String(artifact.lifecycle ?? 'draft')}</span>
-            <time>{formatStamp(artifact.updated_at)}</time>
-          </div>)}</div>
-        )}
-      </div>
-      <div className="capability-block">
-        <h3>配置命名空间</h3>
-        {namespaces.length === 0 ? <SurfaceNote text="尚未注册配置命名空间" /> : (
-          <div className="data-list">{namespaces.map((entry) => <div className="data-row playground-row" key={String(entry.namespace)}>
-            <code>{String(entry.namespace)}</code><span>{String(entry.description ?? '—')}</span>
-          </div>)}</div>
-        )}
-      </div>
-    </>}
-  </section>;
-}
-
-function SurfaceNote({ text, tone = 'neutral' }: { text: string; tone?: 'neutral' | 'error' }) {
-  return <div className={`surface-note is-${tone}`}><span className="note-mark" /><p>{text}</p></div>;
-}
-
-function ContextPanel({ node, projection, emit }: { node: UiNode; projection: UiProjection; emit: Emit }) {
-  const open = Boolean(node.props.open);
-  const aside = React.createRef<HTMLElement>();
-  const emitRef = React.useRef(emit);
-  emitRef.current = emit;
-  React.useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const panel = aside.current;
-    panel?.querySelector<HTMLElement>('.panel-close-button button')?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        emitRef.current('context', 'panel.toggle');
-        return;
-      }
-      if (event.key !== 'Tab' || !panel || !window.matchMedia('(max-width: 719px)').matches) return;
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>('button,[href],input,textarea,select,[tabindex]:not([tabindex="-1"])')).filter((element) => element.offsetParent !== null);
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previous?.focus();
-    };
-  }, [open]);
-  const identityName = projection.identity?.display_name || '未命名主体';
-  return <>
-    <div className="panel-scrim" hidden={!open} onPointerDown={() => emit('context', 'panel.toggle')} />
-    <aside className="context-panel" ref={aside} hidden={!open} aria-label="主体详情" role="dialog" aria-modal={false}>
-      <header className="panel-header">
-        <div><span className="eyebrow">主体详情</span><h2>{identityName}</h2><p>{projection.identity?.revision ? `identity revision ${projection.identity.revision}` : 'identity revision 未知'}</p></div>
-        <span className="panel-close-button"><ProtoButton styleProfile="rhea" variant="ghost" size="icon" onClick={() => emit('context', 'panel.toggle')}><Icon name="close" /><span className="sr-only">关闭详情</span></ProtoButton></span>
-      </header>
-      <div className="panel-sections">
-        {(node.props.sections as UiNode[]).map((section) => <PanelSection key={section.node_id} section={section} node={node} emit={emit} />)}
-      </div>
-      <OpenedWorkPanel node={node} emit={emit} />
-      <IdentityPanel node={node} emit={emit} />
-      <footer className="panel-footer">框架 Shenko · 实例身份独立</footer>
-    </aside>
-  </>;
-}
-
-const SECTION_LABELS: Record<string, string> = { status: '当前状态', activity: '近期提交', artifacts: '产物', devices: '设备' };
-
-/// The work the reader opened, with the actions bound to its revision
-/// (docs/specs/configuration-playground.md#spec-57-6). Every action names the revision the reader saw: a work
-/// that moved on refuses the stale action instead of quietly applying to
-/// whatever is there now.
-/// The instance's own name and who owns it (docs/specs/web-interface.md#spec-21-1, docs/specs/plugins.md#spec-44-4).
-///
-/// The name is the instance's, not the brand's, and the reader may give it one
-/// — or let the subject name itself. Ownership is reported as the fact it is:
-/// claimed, not claimed, or a claim still pending.
-function IdentityPanel({ node, emit }: { node: UiNode; emit: Emit }) {
-  const owner = node.props.owner_state as OwnerState | undefined;
-  const nameDraft = (node.props.name_draft ?? '') as string;
-  const claimDraft = (node.props.claim_draft ?? '') as string;
-  const nameRef = node.props.identity_name_ref as string | undefined;
-  const claimRef = node.props.owner_claim_ref as string | undefined;
-  return <section className="identity-panel">
-    <h3 className="identity-panel-title">这个实例</h3>
-    <div className="identity-panel-row">
-      <label className="identity-name-field">
-        <span>给它取个名字</span>
-        <input
-          value={nameDraft}
-          onChange={(event) => emit(node.node_id, node.props.identity_name_draft_ref ?? '', { value: event.target.value })}
-          placeholder="留空则让主体自己取名"
-        />
-      </label>
-      <ProtoButton
-        styleProfile="rhea"
-        variant="outline"
-        size="sm"
-        onClick={() => nameRef && emit(node.node_id, nameRef)}
-      >取名</ProtoButton>
-    </div>
-    {owner?.available === false ? (
-      <SurfaceNote text="这台安装还没有装上归属机制" />
-    ) : (
-      <div className="identity-panel-row">
-        <span className="identity-owner-state">
-          {owner?.claimed === true ? '这台安装已经归你' : owner?.claim_pending === true ? '认领在等你完成' : '这台安装还没有被认领'}
-        </span>
-        {!owner?.claimed && (
-          <>
-            <label className="identity-claim-field">
-              <span>认领凭据</span>
-              <input
-                value={claimDraft}
-                onChange={(event) => emit(node.node_id, node.props.owner_claim_draft_ref ?? '', { value: event.target.value })}
-                placeholder="这台安装给出的认领凭据"
-              />
-            </label>
-            <ProtoButton
-              styleProfile="rhea"
-              variant="ghost"
-              size="sm"
-              onClick={() => claimRef && emit(node.node_id, claimRef)}
-            >认领</ProtoButton>
-          </>
-        )}
-      </div>
-    )}
-  </section>;
-}
-
-function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {
-  const work = node.props.work as OpenedWork | undefined;
-  const refs = (node.props.work_action_refs ?? []) as string[];
-  if (node.props.work_error === true) {
-    return <section className="opened-work"><SurfaceNote text="这件作品现在读不到" tone="error" /></section>;
-  }
-  if (!work) return null;
-  return <section className="opened-work" data-artifact-id={work.artifact_id}>
-    <h3 className="opened-work-title">{String(work.title ?? work.artifact_id)}</h3>
-    <p className="opened-work-facts">
-      <span>r{String(work.revision ?? '—')}</span>
-      <span>{String(work.lifecycle ?? 'draft')}</span>
-      <span>{String(work.mime ?? '—')}</span>
-    </p>
-    {work.content !== undefined && (
-      <pre className="opened-work-content" tabIndex={0}><code>{work.content}</code></pre>
-    )}
-    <div className="opened-work-actions">
-      <ProtoButton
-        styleProfile="rhea"
-        variant="outline"
-        size="sm"
-        onClick={() => refs[0] && emit(node.node_id, refs[0])}
-      >暂存为候选</ProtoButton>
-      <ProtoButton
-        styleProfile="rhea"
-        variant="outline"
-        size="sm"
-        onClick={() => refs[1] && emit(node.node_id, refs[1])}
-      >采纳候选</ProtoButton>
-      <ProtoButton
-        styleProfile="rhea"
-        variant="ghost"
-        size="sm"
-        onClick={() => refs[2] && emit(node.node_id, refs[2])}
-      >回到旧修订</ProtoButton>
-    </div>
-  </section>;
-}
-
-function PanelSection({ section, node, emit }: { section: UiNode; node: UiNode; emit: Emit }) {
-  const name = section.props.section as string;
-  const open = Boolean(section.props.open);
-  return <CollapsibleRoot
-    open={open}
-    className="panel-collapsible"
-    onOpenChange={(detail) => {
-      if (detail.open !== open) emit(section.node_id, section.action_refs[0], { section: name });
-    }}
-  >
-    <CollapsibleTrigger className="collapsible-trigger"><span>{SECTION_LABELS[name]}</span><Icon name={open ? 'minus' : 'plus'} /></CollapsibleTrigger>
-    <CollapsibleContent className="collapsible-content"><PanelSectionBody name={name} node={node} /></CollapsibleContent>
-  </CollapsibleRoot>;
-}
-
-function PanelSectionBody({ name, node }: { name: string; node: UiNode }) {
-  const self = node.props.self;
-  const config = node.props.config;
-  if (name === 'status') return <dl className="panel-facts">
-    <div><dt>主体状态</dt><dd>{self?.status && self.status !== 'unknown' ? self.status : '未知'}</dd></div>
-    <div><dt>传输</dt><dd>{connectionAnnouncement(node.props.connection)}</dd></div>
-    <div><dt>最近已见提交</dt><dd>{node.props.step ? `第 ${node.props.step} 次` : '尚无'}</dd></div>
-    <div><dt>已连接客户端</dt><dd>{typeof self?.connected_clients === 'number' ? self.connected_clients : '未知'}</dd></div>
-    <div><dt>模型绑定</dt><dd>{config?.model && config.model !== 'unknown' ? config.model : '未知'}</dd></div>
-  </dl>;
-  if (name === 'activity') {
-    const parts = (node.props.timeline as TimelinePart[]).filter((part) => part.content).slice(-3).reverse();
-    return parts.length ? <div className="panel-activity">{parts.map((part) => <div className="activity-row" key={part.part_id}><time>{formatTime(part.observed_at)}</time><span><strong>第 {part.step} 轮</strong>{firstLine(part.content)}</span></div>)}</div> : <p className="panel-note">尚无已提交内容</p>;
-  }
-  if (name === 'artifacts') {
-    const artifacts = Array.isArray(self?.artifacts) ? self.artifacts : [];
-    return artifacts.length ? <div className="panel-list">{artifacts.map((artifact: { id: string; title?: string; kind?: string }) => <div className="panel-list-row" key={artifact.id}><span>{artifact.title || artifact.id}</span><small>{artifact.kind || '未知类型'}</small></div>)}</div> : <p className="panel-note">暂无产物 · 未读取时不虚构</p>;
-  }
-  const devices = Array.isArray(self?.devices) ? self.devices : [];
-  return devices.length ? <div className="panel-list">{devices.map((device: { id: string; name?: string; label?: string; kind?: string; online?: boolean }) => <div className="panel-list-row" key={device.id}><span>{device.name || device.label || device.id}</span><small>{device.online === true ? '在线' : device.online === false ? '离线' : '未知'}{device.kind ? ` · ${device.kind}` : ''}</small></div>)}</div> : <p className="panel-note">设备发现尚未接入；不显示本机绿色在线标记。</p>;
-}
-
-function formatTime(value: unknown): string {
-  if (typeof value !== 'string' || !value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-function dayLabel(value: string | null): string {
-  if (value === null) return '时间未知';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '时间未知';
-  const weekdays = '日一二三四五六';
-  return `${date.getMonth() + 1}月${date.getDate()}日 · 周${weekdays[date.getDay()]}`;
-}
-
-function formatStamp(value: unknown): string {
-  if (typeof value !== 'string' || !value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.getMonth() + 1}-${date.getDate()} ${formatTime(value)}`;
-}
-
-/** Disclosure timestamps are epoch milliseconds; only presentation changes here. */
-function formatStampMs(value: number): string {
-  return Number.isFinite(value) ? formatStamp(new Date(value).toISOString()) : '—';
-}
-
-function firstLine(text: string): string {
-  return text.split('\n').find((line) => line.trim())?.trim() ?? '（空）';
-}
-
-function wsUrl(): string {
-  if (!location.host) return '不可用';
-  return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
-}
-
-/// The rendered text of one entry, excluding its chrome (step label, receipt
+/// The rendered text of one entry, excluding its chrome (meta line, receipt
 /// footer): a selection replay must address the content the reader saw.
 function textRoot(entry: HTMLElement): HTMLElement {
-  return entry.querySelector<HTMLElement>('.entry-content') ?? entry;
+  return entry.querySelector<HTMLElement>('.entry-body') ?? entry;
 }
 
 function textNodes(root: HTMLElement): Text[] {
@@ -1482,26 +1119,4 @@ function pointAt(nodes: Text[], offset: number): { node: Text; offset: number } 
   }
   const last = nodes[nodes.length - 1];
   return last ? { node: last, offset: last.data.length } : null;
-}
-
-function Icon({ name }: { name: string }) {
-  const common = { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.35, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
-  switch (name) {
-    case 'timeline': return <svg {...common}><path d="M4 2.5v11M4 4h8M4 8h6M4 12h8" /><circle cx="3.9" cy="2.5" r=".7" fill="currentColor" stroke="none" /></svg>;
-    case 'tasks': return <svg {...common}><rect x="3" y="2.5" width="10" height="11" rx="2" /><path d="m5.5 6 1 1 2-2M9.5 6h1M5.5 10l1 1 2-2M9.5 10h1" /></svg>;
-    case 'memory': return <svg {...common}><path d="M5 3.5h6a2 2 0 0 1 2 2v7H6a3 3 0 0 1-3-3v-6Z" /><path d="M6 3.5v9M8.5 6h2M8.5 8.5h2" /></svg>;
-    case 'config': return <svg {...common}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" /></svg>;
-    case 'playground': return <svg {...common}><path d="M3 3.5h10v9H3Z" /><path d="m6.5 5.8 3.5 2.2-3.5 2.2Z" /></svg>;
-    case 'panel': return <svg {...common}><rect x="2" y="2.5" width="12" height="11" rx="2" /><path d="M9.5 2.5v11M12 6h.01M12 9h.01" /></svg>;
-    case 'sun': return <svg {...common}><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M12.6 3.4l-.7.7M4.1 11.9l-.7.7" /></svg>;
-    case 'moon': return <svg {...common}><path d="M12.8 10.2A5.4 5.4 0 0 1 5.8 3.3a5.4 5.4 0 1 0 7 6.9Z" /></svg>;
-    case 'copy': return <svg {...common}><rect x="5" y="5" width="8" height="8" rx="1.5" /><path d="M10.5 5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1H5" /></svg>;
-    case 'commit': return <svg {...common}><circle cx="8" cy="8" r="5.5" /><path d="m5.3 8.2 1.7 1.7 3.7-3.8" /></svg>;
-    case 'arrow': return <svg {...common}><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>;
-    case 'down': return <svg {...common}><path d="M8 2.5v10M4.5 9 8 12.5 11.5 9" /></svg>;
-    case 'close': return <svg {...common}><path d="m4 4 8 8M12 4l-8 8" /></svg>;
-    case 'plus': return <svg {...common}><path d="M8 3v10M3 8h10" /></svg>;
-    case 'minus': return <svg {...common}><path d="M3 8h10" /></svg>;
-    default: return <svg {...common}><circle cx="8" cy="8" r="5" /></svg>;
-  }
 }
