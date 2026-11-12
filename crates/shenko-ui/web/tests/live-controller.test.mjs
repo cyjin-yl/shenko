@@ -489,13 +489,20 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   const artifactId = 'html-work';
   const html = '<!doctype html><h1>作品与 emoji 🌲</h1>';
   const work = { artifact_id: artifactId, title: 'A page', mime: 'text/html', revision: 4 };
+  const olderCandidate = `blake3:${'a'.repeat(64)}`;
+  const latestCandidate = `blake3:${'b'.repeat(64)}`;
+  const published = [];
   const json = (value) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
-  globalThis.fetch = async (path) => {
+  globalThis.fetch = async (path, options) => {
     if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
     if (path === '/api/playground') return json({ available: true, artifacts: [work], roots: [[artifactId, '/owned/work/root', 'blake3:root-identity']] });
-    if (path === `/playground/${artifactId}/manifest`) return json({ record: { title: work.title, record_revision: 9 } });
+    if (path === `/playground/${artifactId}/manifest`) return json({ record: { title: work.title, record_revision: 9, candidate_manifest_refs: [{ digest: olderCandidate }, { digest: latestCandidate }] } });
     if (path === `/playground/${artifactId}/versions`) return json({ ok: true, revisions: [1, 4] });
     if (path === `/playground/${artifactId}`) return new Response(html, { headers: { 'Content-Type': 'text/html', 'X-Artifact-Revision': '4' } });
+    if (path === `/playground/${artifactId}/publish`) {
+      published.push(JSON.parse(options.body));
+      return json({ ok: true });
+    }
     return new Response('not found', { status: 404 });
   };
   const controller = createLiveController();
@@ -512,4 +519,7 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   assert.equal(panel.props.open, true);
   const playground = controller.projection().nodes.find((node) => node.props.playground)?.props.playground;
   assert.deepEqual(playground?.roots, [{ artifact_id: artifactId, root: '/owned/work/root', identity: 'blake3:root-identity' }]);
+  intent(controller, 'context', `work.publish.${artifactId}`);
+  await setImmediate();
+  assert.deepEqual(published.map(({ manifest_digest, revision }) => ({ manifest_digest, revision })), [{ manifest_digest: latestCandidate, revision: 4 }]);
 });

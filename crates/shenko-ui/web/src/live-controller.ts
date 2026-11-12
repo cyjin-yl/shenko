@@ -1970,7 +1970,7 @@ class LiveController implements ProjectionController {
     const requestId = this.workRequests.get(key) as string;
     try {
       if (op === 'publish') {
-        const candidate = work.candidates?.[0];
+        const candidate = work.candidates?.at(-1);
         if (!candidate) {
           this.state.display.notice = '这件作品还没有可采纳的候选';
           this.emit();

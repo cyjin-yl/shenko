@@ -155,8 +155,8 @@ HTML 作品在时间线中同时提供页面入口与“详情与操作”；动
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json`：`b25229a94251398bc2f375554fcb9622dc8e79ab`
-（2026-11-12 主线，migrated_from `971cd35…`）。上游 `pnpm-lock.yaml` sha256 不变
+`web/upstream-pin.json`：`35195a6e6f1ba6a7d800da0029f2683013abd18b`
+（2026-11-12 主线，migrated_from `b25229a…`）。上游 `pnpm-lock.yaml` sha256 不变
 （`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。界面采用的 shadcn
 family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
 toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
@@ -625,3 +625,7 @@ manifest or erasing staged candidates. A newly authored work has no active
 manifest until explicit publication; later PUT, rollback and backend binding
 retain the existing adoption and candidate facts. Stage can therefore propose
 the current head and the UI can explicitly adopt that candidate.
+Content, stage and publish transitions share the Playground record write lock;
+a reader's revision is checked inside that transition. Publication resolves
+the candidate CAS object before looking up its typed manifest version digest,
+and the UI's adoption action selects the newest retained candidate.

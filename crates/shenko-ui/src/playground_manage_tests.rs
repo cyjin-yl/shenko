@@ -185,7 +185,7 @@ fn the_subject_can_create_iterate_and_adopt_a_work() {
     assert_eq!(record.active_manifest_ref.as_ref(), Some(&candidate), "rollback authors content without changing adoption");
     assert_eq!(record.candidate_manifest_refs, vec![candidate.clone()]);
 
-    playground.stage_artifact(artifact_id.parse().unwrap(), Some("stage-rollback")).unwrap();
+    playground.stage_artifact(artifact_id.parse().unwrap(), None, Some("stage-rollback")).unwrap();
     let staged = store.artifact_record(artifact_id.parse().unwrap()).unwrap().unwrap();
     assert!(staged.candidate_manifest_refs.contains(&candidate), "staging retains the adopted proposal");
     assert!(staged.candidate_manifest_refs.iter().any(|reference| reference != &candidate), "the rollback has a distinct proposal");
