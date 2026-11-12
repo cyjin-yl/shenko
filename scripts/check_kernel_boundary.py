@@ -27,7 +27,6 @@ code here. Every other workspace member is a plugin.
 """
 from pathlib import Path
 import argparse
-import fnmatch
 import json
 import subprocess
 import sys
@@ -39,21 +38,16 @@ RULES = ('plugin_reaches_core', 'core_depends_on_plugin', 'interface_depends_out
 
 
 def member_manifests():
-    workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
-    excluded = workspace.get('exclude', [])
-    seen = set()
-    for member in workspace['members']:
-        matches = sorted(ROOT.glob(member))
-        if not matches:
-            raise ValueError(f'Workspace member has no manifest: {member}')
-        for directory in matches:
-            relative = directory.relative_to(ROOT).as_posix()
-            if any(fnmatch.fnmatchcase(relative, pattern) for pattern in excluded):
-                continue
-            path = directory / 'Cargo.toml'
-            if path not in seen:
-                seen.add(path)
-                yield path
+    # Cargo owns explicit/glob/excluded members and path-dependency auto-members.
+    # --no-deps avoids resolving/downloading external dependency packages;
+    # --offline --locked keeps this a non-building, non-mutating structure query.
+    metadata = json.loads(subprocess.check_output(
+        ['cargo', 'metadata', '--offline', '--locked', '--no-deps', '--format-version=1'],
+        cwd=ROOT, text=True))
+    members = set(metadata['workspace_members'])
+    for package in sorted(metadata['packages'], key=lambda item: item['name']):
+        if package['id'] in members:
+            yield Path(package['manifest_path'])
 
 
 def dependency_tables(manifest):
