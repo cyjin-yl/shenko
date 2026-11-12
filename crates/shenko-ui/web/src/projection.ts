@@ -718,7 +718,8 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       anchor: state.display.anchor,
       selection: state.display.selection,
       wrap: state.display.wrap,
-      hidden: state.display.view !== 'timeline',
+      // The stream is the one fixed surface; other views open beside it.
+      hidden: false,
       empty: timelineChildren.length === 0,
       connection: state.connection,
       step: state.step,
@@ -733,7 +734,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         addAction(actions, 'timeline.selection', 'timeline.selection', 'display-v1'),
       ],
       a11y: { label: '主体时间线' },
-      layout: { hidden: state.display.view !== 'timeline' },
+      layout: { hidden: false },
       fallback: 'committed_text',
     },
   );
@@ -767,7 +768,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     {
       draft,
       connection: state.connection,
-      hidden: state.display.view !== 'timeline',
+      hidden: false,
       demo: state.source === 'demo',
       subject_bound: Boolean(state.subject_id),
       append_action: appendAction,
@@ -782,7 +783,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     {
       action_refs: [draftAction, appendAction, steerAction],
       a11y: { label: '向同一主体追加输入' },
-      layout: { hidden: state.display.view !== 'timeline' },
+      layout: { hidden: false },
     },
   );
   const panelAction = addAction(actions, 'panel.toggle', 'panel.toggle', 'display-v1');

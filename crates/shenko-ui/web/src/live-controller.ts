@@ -455,6 +455,8 @@ class LiveController implements ProjectionController {
     void this.loadSelf();
     void this.loadTasks();
     void this.loadMemory();
+    // Works can be lenses beside the stream, so they are known from the start.
+    void this.loadPlayground();
     void this.loadHealth();
     void this.loadManifest();
   }

@@ -117,6 +117,36 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
   `step_id`；类型检查不能靠转换、占位步骤或放宽消息校验通过。
 - `demo-controller.ts`：补齐新 UiState 字段（demo 全 false/空）。
 
+## 5.1 界面扩展：主体流与镜头（2026-11-12）
+
+默认界面只有一条固定的**主体流**（时间线 + 输入）。任务、记忆、Playground、配置
+以及作品都是**镜头（lens）**：在主体流旁打开，主体流不离开视野；窄屏时镜头覆盖
+主体流，关闭即回到原阅读位置。外壳没有常驻侧栏导航；镜头栏在顶部（手机在底部），
+Ctrl/⌘ 1–9 打开第 N 个镜头，Ctrl/⌘ 0 关闭。主体流左侧的竖线是主体连续的 thought
+loop：每个已提交轮次是线上的一个实心点，未提交的流式内容是空心点，作品与文档从线上
+分出，用户输入落在线旁。顶部的注意力行只陈述事实：进行中的任务（不计结构性的
+`subject_root`）、最近已提交轮次和上报的主体状态。
+
+镜头由 `web/src/slots.ts` 的贡献注册表提供：外壳自己的页面与外部贡献走同一个
+`registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。信任按来源区分，而不是
+按注册表：
+
+| 来源 | 呈现 | 权限 |
+| --- | --- | --- |
+| `shell` | 本 bundle 的组件 | 外壳自身 |
+| `work` | Playground 作品已发布的页面，放在 `sandbox="allow-scripts allow-forms allow-popups allow-modals"` 的 iframe 中 | 不授予 same-origin；服务端对 `/playground/{id}` 内容另发 CSP `sandbox` 与 `nosniff`，直接打开也是不透明 origin。作品读不到外壳 DOM、cookie、`/ws` 或 `/api`，要改变什么只能走作品声明的 action |
+
+Why：作品与 awareness/plugin 经常由主体自己写成，不能沿用“安装即信任”的同源模块
+模型；但同一扩展点仍应让它们成为一等界面。DeepSeek Harness 的 Web 客户端以 Cordis
+插件向类型化 slot（`ctx.slots.register/inject`，list/keyed/chain/hoc 与 priority
+覆盖）注册同源 React 组件，安装即信任；Shenko 采用同样的“外壳也是贡献者”结构，
+但对模型可写的来源加了 origin 隔离。
+
+尚未实现，按顺序推进：作品页与外壳之间的 `postMessage` 桥（只携带作品声明的 action，
+仍由服务端按 §43.2 认证、去重与入 inbox）；Rust/WASM 插件经版本化服务协议声明镜头
+与时间线条目贡献；仅主题 token 的皮肤贡献；经所有者安装、签名的同源代码插件作为
+第三档。
+
 ## 6. Proto-UI pin
 
 `web/upstream-pin.json`：`b25229a94251398bc2f375554fcb9622dc8e79ab`

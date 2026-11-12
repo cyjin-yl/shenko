@@ -148,6 +148,13 @@ function demoState(): UiState {
       ],
     },
     memory_error: false,
+    playground: {
+      available: true,
+      artifacts: [
+        { artifact_id: 'demo-work-1', title: '启动时序对照表', mime: 'text/html', revision: 3, lifecycle: 'running', updated_at: new Date(Date.now() - 7 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-2', title: '记忆合并草稿', mime: 'text/markdown', revision: 1, lifecycle: 'draft', updated_at: new Date(Date.now() - 2 * 60_000).toISOString() },
+      ],
+    },
     playground_error: false,
     display,
   };

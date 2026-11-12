@@ -795,6 +795,21 @@ async fn list_handler() -> Redirect {
     Redirect::temporary("/?view=playground")
 }
 
+/// A work's content is the subject's (or a plugin's) own code, never the
+/// shell's. Served same-origin without this, an HTML work opened directly
+/// would run with the admin UI's origin and could drive `/ws`, config and
+/// owner routes. The CSP `sandbox` directive gives the document an opaque
+/// origin whether it is opened directly or framed by a lens, so its scripts
+/// run but hold none of the shell's authority (docs/specs/web-interface.md#spec-21-3).
+pub(crate) fn confine_artifact_content(headers: &mut axum::http::HeaderMap) {
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox allow-scripts allow-forms allow-popups allow-modals"),
+    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+}
+
 async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
     let Some(record) = pg.get(&id) else { return error_response(StatusCode::NOT_FOUND, "artifact not found") };
     match pg.read_content(&record) {
@@ -804,6 +819,7 @@ async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<E
             response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(&record.mime)
                 .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
             if let Ok(value) = HeaderValue::from_str(&record.revision.to_string()) { response.headers_mut().insert("x-artifact-revision", value); }
+            confine_artifact_content(response.headers_mut());
             response
         }
     }

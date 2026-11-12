@@ -304,3 +304,21 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
     drop(pg); drop(store);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A work's own page never runs with the shell's origin: opened directly or
+/// framed by a lens, the response itself sandboxes it to an opaque origin.
+#[tokio::test]
+async fn a_work_page_is_served_in_an_opaque_origin() {
+    let (root, store, _) = fixture("confined");
+    let pg = PlaygroundState::open(root.join("playground"), store).unwrap();
+    let id = EntityId::new();
+    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/owner')</script>").unwrap();
+    let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let policy = response.headers().get(header::CONTENT_SECURITY_POLICY).unwrap().to_str().unwrap();
+    assert!(policy.starts_with("sandbox "), "{policy}");
+    assert!(policy.contains("allow-scripts"), "the work still runs: {policy}");
+    assert!(!policy.contains("allow-same-origin"), "but never as the shell: {policy}");
+    assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+}

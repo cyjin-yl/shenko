@@ -16,6 +16,7 @@ import {
   type RevisionDisclosure,
 } from './revision-disclosure';
 import { Icon } from './icons';
+import { isPage } from './slots';
 import {
   Button,
   CollapsibleContent,
@@ -228,14 +229,14 @@ export function ConfigSurface({ node, projection, emit }: { node?: UiNode; proje
   );
 }
 
-export function PlaygroundSurface({ node }: { node?: UiNode }) {
+export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenWork?: (artifactId: string) => void }) {
   if (!node) return null;
   const playground: PlaygroundView | undefined = node.props.playground;
   const roots = Array.isArray(playground?.roots) ? playground.roots : [];
   const artifacts = Array.isArray(playground?.artifacts) ? playground.artifacts : [];
   const namespaces = Array.isArray(playground?.namespaces) ? playground.namespaces : [];
   return (
-    <Page title="Playground" lead="主体长期保留的作品，以及它们的根与配置命名空间。" hidden={node.props.hidden}>
+    <Page title="Playground" lead="主体长期保留的作品。带页面的作品可以在时间线旁打开，也可以固定成镜头。" hidden={node.props.hidden}>
       {node.props.error
         ? <Note tone="error" text="Playground 接口不可用。" />
         : playground?.available === false
@@ -253,7 +254,11 @@ export function PlaygroundSurface({ node }: { node?: UiNode }) {
                       </span>
                     </span>
                     <span className="row-state">{String(artifact.lifecycle ?? 'draft')}</span>
-                    <time className="row-time">{formatStamp(artifact.updated_at)}</time>
+                    {isPage(artifact.mime) && onOpenWork
+                      ? <Button variant="outline" size="sm" onClick={() => onOpenWork(String(artifact.artifact_id))}>
+                        <Icon name="open" size={15} />打开
+                      </Button>
+                      : <time className="row-time">{formatStamp(artifact.updated_at)}</time>}
                   </li>
                 ))}</ul>
               )}

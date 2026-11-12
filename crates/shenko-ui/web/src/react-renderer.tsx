@@ -42,6 +42,15 @@ import {
   type Emit,
 } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
+import {
+  lensSnapshot,
+  pinnedWorks,
+  setWorkPinned,
+  isPage,
+  subscribeLenses,
+  syncWorkLenses,
+  type LensContribution,
+} from './slots';
 
 export interface ProjectionRenderer {
   render(projection: UiProjection, dispatch: Dispatch): void;
@@ -67,13 +76,8 @@ export function createReactProjectionRenderer(host: HTMLElement): ProjectionRend
   };
 }
 
-const VIEW_LABELS: Record<ViewName, string> = {
-  timeline: '时间线',
-  tasks: '任务',
-  memory: '记忆',
-  config: '配置',
-  playground: 'Playground',
-};
+/** The stream's lens: whichever contribution is open beside it. */
+type OpenLens = { kind: 'view'; view: ViewName } | { kind: 'work'; artifact_id: string } | null;
 
 function ProjectionView({ projection, dispatch }: { projection: UiProjection; dispatch: Dispatch }) {
   const nodes = Object.fromEntries(projection.nodes.map((item) => [item.kind, item]));
@@ -91,132 +95,209 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#faf8f4' : '#1a1917');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#fcfcfc' : '#1c1c1c');
   }, [theme]);
 
   const items = navigation.props.items as UiNode[];
   const current = (items.find((item) => item.props.current)?.props.view ?? 'timeline') as ViewName;
   const name = projection.identity?.display_name || undefined;
   const demo = projection.source === 'demo';
+  const lenses = React.useSyncExternalStore(subscribeLenses, lensSnapshot);
+  const works = ((nodes.playground_surface?.props.playground?.artifacts ?? []) as WorkView[]);
+  React.useEffect(() => { syncWorkLenses(works); }, [works]);
+
+  // A work lens is this page's reading state; the projection only knows that
+  // the Playground view is the one beside the stream.
+  const [workLens, setWorkLens] = React.useState<string | null>(null);
+  const open: OpenLens = workLens && current === 'playground'
+    ? { kind: 'work', artifact_id: workLens }
+    : current === 'timeline' ? null : { kind: 'view', view: current };
+  const navRef = (view: ViewName) => items.find((item) => item.props.view === view);
+  const selectView = (view: ViewName) => {
+    const item = navRef(view);
+    if (item) emit(item.node_id, item.action_refs[0], { view });
+  };
+  const openLens = (lens: LensContribution | undefined) => {
+    if (!lens) {
+      setWorkLens(null);
+      selectView('timeline');
+    } else if (lens.source === 'work' && lens.artifact_id) {
+      setWorkLens(lens.artifact_id);
+      if (current !== 'playground') selectView('playground');
+    } else if (lens.view) {
+      setWorkLens(null);
+      selectView(lens.view);
+    }
+  };
+  const openId = open === null ? null : open.kind === 'work' ? `work:${open.artifact_id}` : open.view;
+
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key === '0') { event.preventDefault(); openLens(undefined); return; }
+      const index = Number(event.key);
+      if (!Number.isInteger(index) || index < 1 || index > lenses.length) return;
+      event.preventDefault();
+      const lens = lenses[index - 1];
+      openLens(openId === lens.id ? undefined : lens);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as Array<Record<string, unknown>>;
+  const openWork = open?.kind === 'work' ? works.find((work) => work.artifact_id === open.artifact_id) : undefined;
 
   return (
-    <div className="shell" data-source={projection.source} data-view={current}>
+    <div className="shell" data-source={projection.source} data-lens={openId ?? 'none'}>
       <a className="skip-link" href="#composer-editor" onClick={(event) => {
         event.preventDefault();
         document.querySelector<HTMLTextAreaElement>('#composer-editor textarea')?.focus();
       }}>跳到输入区</a>
 
-      <aside className="sidebar" aria-label="Shenko">
-        <div className="wordmark">Shenko</div>
-        <nav className="nav" aria-label="主要导航">
-          <NavigationItems items={items} emit={emit} />
+      <header className="topbar">
+        <button
+          type="button"
+          className="presence"
+          onClick={() => emit('context', 'panel.toggle')}
+          aria-label={`${name ?? '未命名主体'}，打开主体详情`}
+        >
+          <span className="presence-name">
+            {name ?? <span className="is-unnamed">未命名主体</span>}
+            {demo && <span className="tag">模拟投影</span>}
+          </span>
+          <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
+        </button>
+        <nav className="lensbar" aria-label="镜头">
+          <ToggleGroupRoot
+            className="lens-switch"
+            a11yLabel="在时间线旁打开"
+            value={openId ? [openId] : []}
+            onValueChange={(detail: { value: readonly string[] }) => {
+              const next = detail.value.find((id) => id !== openId) ?? null;
+              openLens(next ? lenses.find((lens) => lens.id === next) : undefined);
+            }}
+          >
+            {lenses.map((lens, index) => (
+              <ToggleGroupItem key={lens.id} value={lens.id} className="lens-item" data-source={lens.source}>
+                <Icon name={lens.icon} size={17} />
+                <span className="lens-label">{lens.title}</span>
+                <span className="sr-only">{index < 9 ? `（Ctrl/⌘ ${index + 1}）` : ''}</span>
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroupRoot>
         </nav>
-        <div className="sidebar-foot">
+        <div className="topbar-actions">
+          <TransportBadge connection={projection.connection} demo={demo} />
+          <Toggle
+            active={timeline.props.wrap === true}
+            label="长代码行软换行"
+            onChange={() => emit('timeline', 'timeline.code_wrap')}
+          ><Icon name="wrap" /></Toggle>
           <Button
             variant="ghost"
-            size="sm"
-            className="theme-toggle"
+            size="icon"
             label={theme === 'light' ? '切换到深色' : '切换到浅色'}
             onClick={() => emit('navigation', 'theme.toggle')}
-          >
-            <Icon name={theme === 'light' ? 'moon' : 'sun'} />
-            <span className="nav-text">{theme === 'light' ? '深色' : '浅色'}</span>
+          ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
+          <Button variant="ghost" size="icon" label="主体详情" onClick={() => emit('context', 'panel.toggle')}>
+            <Icon name="panel" />
           </Button>
-          <span className="build-tag" title={`Proto-UI ${projection.assets.proto_ui.revision}`}>
-            Proto-UI {projection.assets.proto_ui.revision.slice(0, 7)}
-          </span>
         </div>
-      </aside>
+      </header>
 
-      <main className="main" id="main">
-        <header className="topbar">
-          <button
-            type="button"
-            className="presence"
-            onClick={() => emit('context', 'panel.toggle')}
-            aria-label={`${name ?? '未命名主体'}，打开主体详情`}
-          >
-            <span className="presence-text">
-              <span className="presence-name">
-                {name ?? <span className="is-unnamed">未命名主体</span>}
-                {demo && <span className="tag tag-demo">模拟投影</span>}
-              </span>
-              <span className="presence-line">
-                <PresenceLine step={timeline.props.step} status={timeline.props.subject_status} />
-              </span>
-            </span>
-          </button>
-          <div className="topbar-actions">
-            <TransportBadge connection={projection.connection} demo={demo} />
-            {current === 'timeline' && (
-              <Toggle
-                active={timeline.props.wrap === true}
-                label="长代码行软换行"
-                onChange={() => emit('timeline', 'timeline.code_wrap')}
-              ><Icon name="wrap" /></Toggle>
+      <div className="body">
+        <main className="stream" id="main">
+          <TimelineSurface
+            node={timeline}
+            projection={projection}
+            emit={emit}
+            onOpenWork={(artifactId) => openLens({ id: `work:${artifactId}`, title: '', icon: 'file', order: 0, source: 'work', artifact_id: artifactId })}
+          />
+          <Composer node={composer} emit={emit} />
+          {/* Results of the reader's own acts (copied, rejected stale action…)
+              are a quiet status line, not a floating toast. */}
+          <div className="statusline" role="status" aria-live="polite">{notice.props.text ?? ''}</div>
+        </main>
+        <aside className="lens" hidden={open === null} aria-label={open === null ? undefined : lenses.find((lens) => lens.id === openId)?.title}>
+          <div className="lens-head">
+            <span className="lens-title">{lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? ''}</span>
+            {open?.kind === 'work' && (
+              <span className="lens-sub">作品页 · 独立沙箱，不带界面权限</span>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="mobile-only"
-              label={theme === 'light' ? '切换到深色' : '切换到浅色'}
-              onClick={() => emit('navigation', 'theme.toggle')}
-            ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              label="主体详情"
-              onClick={() => emit('context', 'panel.toggle')}
-            ><Icon name="panel" /></Button>
+            <Button variant="ghost" size="icon" label="关闭镜头，回到时间线" onClick={() => openLens(undefined)}>
+              <Icon name="close" />
+            </Button>
           </div>
-        </header>
+          <div className="lens-body">
+            {open?.kind === 'work'
+              ? <WorkFrame artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} />
+              : <>
+                <TasksSurface node={nodes.tasks_surface} />
+                <MemorySurface node={nodes.memory_surface} />
+                <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
+                <PlaygroundSurface
+                  node={nodes.playground_surface}
+                  onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
+                />
+              </>}
+          </div>
+        </aside>
+      </div>
 
-        <div className="stage">
-          <TimelineSurface node={timeline} projection={projection} emit={emit} />
-          <TasksSurface node={nodes.tasks_surface} />
-          <MemorySurface node={nodes.memory_surface} />
-          <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
-          <PlaygroundSurface node={nodes.playground_surface} />
-        </div>
-        <Composer node={composer} emit={emit} />
-        {/* Results of the reader's own acts (copied, rejected stale action…)
-            are a quiet status line, not a floating toast. */}
-        <div className="statusline" role="status" aria-live="polite">{notice.props.text ?? ''}</div>
-      </main>
-
-      <nav className="tabbar" aria-label="主要导航">
-        <NavigationItems items={items} emit={emit} compact />
-      </nav>
       <ContextPanel node={panel} projection={projection} emit={emit} />
       <span className="sr-only" aria-live="polite">{connectionAnnouncement(projection.connection)}</span>
     </div>
   );
 }
 
-/** What is known about the subject right now, in words; unknown stays unknown. */
-function PresenceLine({ step, status }: { step: number | null; status: string }) {
-  const facts: string[] = [step ? `已见第 ${step} 轮` : '尚无已提交步骤'];
+/**
+ * What the subject is doing now, from facts only: running and waiting tasks,
+ * the last committed round, the reported status. Nothing is inferred; with no
+ * facts the line says so.
+ */
+function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: Array<Record<string, unknown>> }) {
+  // `subject_root` is the structural owner of all the subject's work (the
+  // subject itself, whose status is reported separately), not a thing it is
+  // doing; only work beneath it is attention.
+  const active = tasks.filter((task) => task.kind !== 'subject_root'
+    && ['running', 'pending', 'waiting', 'queued'].includes(String(task.state)));
+  const facts: string[] = [];
+  if (active.length === 1) facts.push(`在做：${String(active[0].kind ?? active[0].task_id)}`);
+  else if (active.length > 1) facts.push(`${active.length} 件事进行中`);
+  facts.push(step ? `第 ${step} 轮` : '尚无已提交步骤');
   if (status && status !== 'unknown') facts.push(status);
-  return <>{facts.join(' · ')}</>;
+  return <span className="attention">{facts.join(' · ')}</span>;
 }
 
-function NavigationItems({ items, emit, compact = false }: { items: UiNode[]; emit: Emit; compact?: boolean }) {
-  return items.map((item) => {
-    const view = item.props.view as ViewName;
-    return (
-      <button
-        type="button"
-        key={`${compact ? 'tab' : 'nav'}-${view}`}
-        className={`${compact ? 'tab' : 'nav-item'}${item.props.current ? ' is-current' : ''}`}
-        aria-current={item.props.current ? 'page' : undefined}
-        title={VIEW_LABELS[view]}
-        onClick={() => emit(item.node_id, item.action_refs[0], { view })}
-      >
-        <Icon name={view} size={compact ? 20 : 18} />
-        <span className="nav-text">{VIEW_LABELS[view]}</span>
-      </button>
-    );
-  });
+/**
+ * A work's published page, live beside the stream. The frame has no
+ * same-origin grant and the server sends its own CSP sandbox, so the page
+ * runs as an opaque origin: it cannot read the shell, its cookies or its
+ * socket. Its revision keys the frame, so a new revision is a fresh page.
+ */
+function WorkFrame({ artifactId, title, revision }: { artifactId: string; title: string; revision?: number }) {
+  const pinned = pinnedWorks().includes(artifactId);
+  const [, rerender] = React.useReducer((value: number) => value + 1, 0);
+  return (
+    <div className="work-frame">
+      <div className="work-frame-bar">
+        <span className="muted">r{revision ?? '—'}</span>
+        <Button variant="ghost" size="sm" onClick={() => { setWorkPinned(artifactId, !pinned); rerender(); }}>
+          {pinned ? '从镜头栏取下' : '固定到镜头栏'}
+        </Button>
+        <a className="work-frame-link" href={`/playground/${artifactId}`} target="_blank" rel="noreferrer noopener">新窗口</a>
+      </div>
+      <iframe
+        key={`${artifactId}@${revision ?? 0}`}
+        className="work-iframe"
+        src={`/playground/${artifactId}`}
+        title={title}
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        referrerPolicy="no-referrer"
+      />
+    </div>
+  );
 }
 
 interface AnchorSnapshot {
@@ -231,6 +312,8 @@ interface TimelineSurfaceProps {
   node: UiNode;
   projection: UiProjection;
   emit: Emit;
+  /** Opens a page-bearing work as a lens beside the stream. */
+  onOpenWork: (artifactId: string) => void;
 }
 
 class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string }> {
@@ -536,7 +619,7 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
               <div className="timeline-column">
                 {entries.length === 0
                   ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} name={name} />
-                  : <TimelineEntries entries={entries} emit={emit} name={name} />}
+                  : <TimelineEntries entries={entries} emit={emit} name={name} onOpenWork={this.props.onOpenWork} />}
               </div>
             </ScrollViewport>
             <ScrollScrollbar orientation="vertical" className="timeline-scrollbar">
@@ -578,7 +661,9 @@ function entryTime(entry: UiNode): string | null {
   return null;
 }
 
-function TimelineEntries({ entries, emit, name }: { entries: UiNode[]; emit: Emit; name?: string }) {
+function TimelineEntries({ entries, emit, name, onOpenWork }: {
+  entries: UiNode[]; emit: Emit; name?: string; onOpenWork: (artifactId: string) => void;
+}) {
   let lastDay = '';
   let previous: { kind: string; at: number } | undefined;
   return <div className="entries">{entries.map((entry) => {
@@ -586,7 +671,7 @@ function TimelineEntries({ entries, emit, name }: { entries: UiNode[]; emit: Emi
     // carried it; it never opens a "时间未知" group of its own.
     if (entry.kind === 'semantic_document' || entry.kind === 'document_error' || entry.kind === 'work') {
       previous = undefined;
-      return <EntryView node={entry} emit={emit} key={entry.node_id} name={name} continued={false} />;
+      return <EntryView node={entry} emit={emit} key={entry.node_id} name={name} continued={false} onOpenWork={onOpenWork} />;
     }
     const value = entryTime(entry);
     const day = dayLabel(value);
@@ -605,17 +690,19 @@ function TimelineEntries({ entries, emit, name }: { entries: UiNode[]; emit: Emi
     previous = { kind: entry.kind, at };
     return <React.Fragment key={entry.node_id}>
       {separator}
-      <EntryView node={entry} emit={emit} name={name} continued={continued} />
+      <EntryView node={entry} emit={emit} name={name} continued={continued} onOpenWork={onOpenWork} />
     </React.Fragment>;
   })}</div>;
 }
 
-function EntryView({ node, emit, name, continued }: { node: UiNode; emit: Emit; name?: string; continued: boolean }) {
+function EntryView({ node, emit, name, continued, onOpenWork }: {
+  node: UiNode; emit: Emit; name?: string; continued: boolean; onOpenWork: (artifactId: string) => void;
+}) {
   switch (node.kind) {
     case 'subject_part': return <SubjectPart node={node} emit={emit} name={name} continued={continued} />;
     case 'semantic_document': return <SemanticDocumentView node={node} emit={emit} />;
     case 'document_error': return <DocumentErrorEntry node={node} />;
-    case 'work': return <WorkEntry node={node} emit={emit} />;
+    case 'work': return <WorkEntry node={node} emit={emit} onOpenWork={onOpenWork} />;
     default: return <UserSubmission node={node} emit={emit} continued={continued} />;
   }
 }
@@ -772,8 +859,11 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
 ///
 /// It names the work's own revision: what the reader does next is bound to
 /// the revision they saw. Opening the work is the reader's own action.
-function WorkEntry({ node, emit }: { node: UiNode; emit: Emit }) {
+function WorkEntry({ node, emit, onOpenWork }: { node: UiNode; emit: Emit; onOpenWork: (artifactId: string) => void }) {
   const work = node.props.work as WorkView;
+  // A work with a page opens live beside the stream; any other work opens its
+  // revision-bound record in the details panel.
+  const page = isPage(work.mime);
   return (
     <article className="entry attachment" data-entry-key={node.node_id} data-artifact-id={work.artifact_id}>
       <div className="entry-main">
@@ -785,7 +875,11 @@ function WorkEntry({ node, emit }: { node: UiNode; emit: Emit }) {
               作品 · r{String(work.revision ?? '—')} · {String(work.lifecycle ?? 'draft')} · {String(work.mime ?? '—')}
             </span>
           </span>
-          <Button variant="outline" size="sm" onClick={() => emit(node.node_id, node.action_refs[0])}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => page ? onOpenWork(work.artifact_id) : emit(node.node_id, node.action_refs[0])}
+          >
             <Icon name="open" size={15} />打开
           </Button>
         </div>
