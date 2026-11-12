@@ -1,5 +1,7 @@
 # 浏览器能力功能合同（docs/specs/browser.md）
 
+**内核定位。** 参考插件，登记在能力架上，建立在[内核合同](kernel.md)的[内核 5](kernel.md#kernel-5)、[内核 6](kernel.md#kernel-6)与[内核 7](kernel.md#kernel-7)之上。浏览器引擎、会话与接管方式都可以替换。
+
 绑定：[§24.6](browser.md#spec-24-6)（原生浏览器能力、持久身份与人类接管）、[§19.1](repl.md#spec-19-1)（多 kernel 与统一会话生命周期）、[§41](architecture.md#spec-41)（插件效果声明、重试/取消/补偿与恢复边界）、[§24.3](desktop-runtime.md#spec-24-3)（显示域接管语义）。实现位于 `crates/shenko-exec-host/src/browser/`，共享运行装配位于 `bin/shenko/src/lib.rs`。
 
 本文件定义浏览器能力的功能、接口与恢复合同。身份/会话/接管/恢复语义以 [§24.6](browser.md#spec-24-6) 为准；源码存在或编译通过不替代真实引擎运行证据。

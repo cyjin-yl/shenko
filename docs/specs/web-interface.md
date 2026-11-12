@@ -1,5 +1,7 @@
 # Web 界面契约 — [§21](web-interface.md#spec-21)、[§41.18](web-interface.md#spec-41-18)、[§43](configuration-playground.md#spec-43)（C11 + architecture-web 切片）
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。界面读取的是账本里的事实（[内核 3](kernel.md#kernel-3)），输入与输出经[内核 7](kernel.md#kernel-7)接入；它是主体时间线的一个读者和输入来源，可以替换。
+
 
 <a id="why-10"></a>
 <!-- migrated-contract: WHY:10 -->

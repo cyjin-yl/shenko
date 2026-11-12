@@ -1,5 +1,7 @@
 # 联系人与人格目录功能合同（contacts.md）
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。联系人事实带来源（[内核 3](kernel.md#kernel-3)）；身份与管理员指派是[内核 6](kernel.md#kernel-6)所说的事实；处理器经[内核 7](kernel.md#kernel-7)登记。
+
 对应 [§6](subject-runtime.md#spec-6)、[§15.2](contacts.md#spec-15-2)、[§15.2.1](contacts.md#spec-15-2-1)、[§16](channel-adapters.md#spec-16)、[§20](media.md#spec-20)；需求 R059、R060、R102、R104；行为 B23。
 本文只描述本切片（ArchContacts）的功能、接口、错误与恢复合同；不替代 SPEC，
 不把"已写源码"冒充为"已运行验证"。运行证据由父控统一补齐后单独登记。

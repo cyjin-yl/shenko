@@ -1,5 +1,7 @@
 # Subject runtime contract
 
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 1](kernel.md#kernel-1)、[内核 2](kernel.md#kernel-2)与[内核 4](kernel.md#kernel-4)的具体形状。角色框、空闲感知与注意力政策是可修订的单元内容（[内核 9](kernel.md#kernel-9)）。57.1 与 57.2 里“没有提供者时用编译回退文本”与[内核 9](kernel.md#kernel-9)的目标不同，见[内核合同的差异一节](kernel.md#与现行合同的差异)。
+
 
 <a id="why-1"></a>
 <!-- migrated-contract: WHY:1 -->

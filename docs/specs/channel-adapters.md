@@ -1,5 +1,7 @@
 # 频道适配器功能合同（channel-adapters.md）
 
+**内核定位。** 参考插件，登记在能力架上，建立在[内核合同](kernel.md)的[内核 5](kernel.md#kernel-5)、[内核 6](kernel.md#kernel-6)与[内核 7](kernel.md#kernel-7)之上。每个渠道适配器独立安装和卸载；目标标识对内核是不透明的字符串。
+
 对应 [§15.3](channel-adapters.md#spec-15-3)、[§16](channel-adapters.md#spec-16)、[§35.6](channels.md#spec-35-6)；需求 R035、R057。本文只描述本切片
 （ArchOtherChannels：官方 QQ / 微信 iLink / 飞书 Lark 三个新适配器及真实
 运行时注册）的功能、接口、错误与恢复合同；不替代 SPEC，不把"已写源码"

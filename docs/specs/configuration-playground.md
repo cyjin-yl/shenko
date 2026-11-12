@@ -1,5 +1,7 @@
 # Configuration Service & Playground — Functional Contract
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。配置变更是带回执的效果（[内核 5](kernel.md#kernel-5)），服务与处理器经[内核 7](kernel.md#kernel-7)登记。
+
 [§21](web-interface.md#spec-21) (single subject timeline / Proto-UI app), [§23](verification.md#spec-23)、[§41.9](inference.md#spec-41-9)、[§41.10](inference.md#spec-41-10)、[§43](configuration-playground.md#spec-43)
 (configuration & playground), [§44.4](plugins.md#spec-44-4) (ownership). Runtime modules:
 `shenko-ui::{config_service,owner,playground,playground_backend}`; shared

@@ -1,5 +1,7 @@
 # 验证、证据与完整验收合同
 
+**内核定位。** 本文是方法合同，规定证据规则，不属于运行时内核。[内核合同](kernel.md)各条的“可观察效果”按本文的证据等级分别报告。
+
 本文对应 [SPEC](../INDEX.md) [§23](verification.md#spec-23)、[§27](verification.md#spec-27)–[§29](verification.md#spec-29)、[§40](../governance/development-contract.md#spec-40)、[§46](../governance/COMPLETION.md#spec-46) 及全部验收表，约束证据怎样回答“哪个候选，在什么条件下，实际发生了什么”。它不替代功能实现，也不以工作流、审批或某个模型名称限制 Shenko 的自主能力。
 
 ## 验收分母来自规格

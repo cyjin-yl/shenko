@@ -1,5 +1,7 @@
 # 可选生态适配器：MCP 与 Agent Skills
 
+**内核定位。** 可选的参考插件，建立在[内核合同](kernel.md)之上。第三方材料不携带权限（[内核 6](kernel.md#kernel-6)），经[内核 7](kernel.md#kernel-7)登记，以单元的形式安装和启停（[内核 8](kernel.md#kernel-8)）。
+
 本文是第三方生态兼容的功能与接口合同，对应 [§49](ecosystem-adapters.md#spec-49)，并复用 [§7](plugins.md#spec-7)、[§18](plugins.md#spec-18)、[§36](durable-state.md#spec-36)、[§45](cognition-units.md#spec-45) 的既有机制。
 它描述**目标行为与实际接口**；真实协议调用、模型使用与长期观察的证据由
 `docs/specs/verification.md` 的规则单独记录，源码与本文件都不是运行期证据。

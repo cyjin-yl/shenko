@@ -297,6 +297,24 @@
       ]
     },
     {
+      "file": "docs/specs/kernel.md",
+      "owner": "parent",
+      "current_agent": "Main",
+      "sections": "KERNEL:1；KERNEL:2；KERNEL:3；KERNEL:4；KERNEL:5；KERNEL:6；KERNEL:7；KERNEL:8；KERNEL:9（2026-11-11 新增，无旧 SPEC 章节来源；见 docs/decisions/0007-kernel-and-reference-plugins-2026-11-11.md）",
+      "contract_manifest": "docs/contracts.json",
+      "canonical_sections": [
+        "KERNEL:1",
+        "KERNEL:2",
+        "KERNEL:3",
+        "KERNEL:4",
+        "KERNEL:5",
+        "KERNEL:6",
+        "KERNEL:7",
+        "KERNEL:8",
+        "KERNEL:9"
+      ]
+    },
+    {
       "file": "docs/specs/media.md",
       "owner": "ArchMedia",
       "current_agent": "ArchMedia",

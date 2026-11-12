@@ -24,6 +24,7 @@
     "docs/specs/durable-state.md",
     "docs/specs/ecosystem-adapters.md",
     "docs/specs/inference.md",
+    "docs/specs/kernel.md",
     "docs/specs/media.md",
     "docs/specs/memory.md",
     "docs/specs/mobile-runtime.md",

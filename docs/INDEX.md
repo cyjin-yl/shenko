@@ -4,10 +4,15 @@
 
 最新明确用户决定控制目标；[领域合同](specs/architecture.md)定义行为及其 Why，当前源码和真实运行证据说明实现状态。根 `SPEC.md`、`WHY.md` 已退役为导航，不能作为内容来源。实现 Agent 从本索引进入具体文档，引用实际标题/锚点，不再写“完整合同见 SPEC §…”。
 
+[内核合同](specs/kernel.md)规定九条不变量，回答哪些规则属于内核、哪些是默认安装并可以替换的参考插件；其余领域合同各自在开头标明相对内核的定位。领域合同与内核合同不一致之处以内核合同为准，差异与代码的收敛步骤列在[内核合同的差异一节](specs/kernel.md#与现行合同的差异)和[内核收敛计划](development/kernel-convergence.md)。
+
 [迁移决定](decisions/0005-domain-contract-migration-2026-11-11.md)说明保全与边界；[机器映射](contract-migration.json)连接旧章节和现行目标。原编号仅为稳定追踪标识，不要求读者往返单体规格。历史归档不是当前指令。
 
 ## 当前入口
 
+- [内核合同](specs/kernel.md)：先读这一份。九条不变量，每条带意图、前提、可观察效果、灵活边界、失效条件、来源，以及当前实现状态。
+- [内核九条与参考插件](decisions/0007-kernel-and-reference-plugins-2026-11-11.md)：上述合同的来源与边界。
+- [内核收敛计划](development/kernel-convergence.md)：代码向内核合同收敛的步骤；[依赖边界基线](state/kernel-boundary.json)由 `scripts/check_kernel_boundary.py` 检查，只查结构。
 - [AGENTS](../AGENTS.md) 与 [shenko-dev](../.agents/skills/shenko-dev/SKILL.md)：开发哲学与协作。
 - [实现地图](IMPLEMENTATION_DOCS_MAP.md)：调用点与实现缺口，不冒充运行验收。
 - [完整交付合同](governance/COMPLETION.md)：正式范围及证据等级。
@@ -19,7 +24,7 @@
 
 ## 领域合同
 
-30 份现有领域合同保留原所有权；其中的规范和理由由该领域共同维护。
+[内核合同](specs/kernel.md)之外的 30 份领域合同保留原所有权；其中的规范和理由由该领域共同维护。每份领域合同相对内核的定位见[内核合同的对照表](specs/kernel.md#不属于内核的部分)。
 
 | 领域 | 拥有者 | 内容入口 |
 | --- | --- | --- |
@@ -36,6 +41,7 @@
 | [durable-state](specs/durable-state.md) | ArchLedger | 分域规范、接口、Why、错误与恢复 |
 | [ecosystem-adapters](specs/ecosystem-adapters.md) | ArchEcosystem | 分域规范、接口、Why、错误与恢复 |
 | [inference](specs/inference.md) | ArchBroker | 分域规范、接口、Why、错误与恢复 |
+| [kernel](specs/kernel.md) | parent | 九条内核不变量、六栏 Why、参考插件的边界 |
 | [media](specs/media.md) | ArchMedia | 分域规范、接口、Why、错误与恢复 |
 | [memory](specs/memory.md) | ArchMemory | 分域规范、接口、Why、错误与恢复 |
 | [mobile-runtime](specs/mobile-runtime.md) | ArchMobile | 分域规范、接口、Why、错误与恢复 |
@@ -56,6 +62,7 @@
 
 ## Why 按领域阅读
 
+- [为什么要有一份很小的内核合同](decisions/0007-kernel-and-reference-plugins-2026-11-11.md#why)
 - [为什么主体需要持续存在](specs/subject-runtime.md#why-1)
 - [为什么只有一条主思考流，却鼓励很多孩子](specs/model-children.md#why-2)
 - [为什么核心小，而且任何部分都能改](specs/self-update.md#why-3)
