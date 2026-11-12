@@ -551,15 +551,9 @@ mod tests {
             "agent_id": agent_id.to_string(),
         });
         conn.execute(
-            "INSERT OR IGNORE INTO tasks(task_id,agent_id,kind,state,data,\
-             created_commit_seq,updated_commit_seq,record_revision)
-             VALUES(?1,?2,'publication','active',?3,?4,?4,0)",
-            params![
-                task_id.to_string(),
-                agent_id.to_string(),
-                task_data.to_string(),
-                commit.seq.0 as i64,
-            ],
+            "INSERT OR IGNORE INTO tasks(task_id,data,updated_commit_seq,record_revision)
+             VALUES(?1,?2,?3,0)",
+            params![task_id.to_string(), task_data.to_string(), commit.seq.0 as i64],
         )
         .unwrap();
     }
@@ -603,15 +597,9 @@ mod tests {
         });
         let conn = store.ledger.conn.lock();
         conn.execute(
-            "INSERT OR IGNORE INTO operations(operation_id,task_id,state,data,\
-             created_commit_seq,updated_commit_seq)
-             VALUES(?1,?2,'reconciling',?3,?4,?4)",
-            params![
-                operation_id.to_string(),
-                task_id.to_string(),
-                op_data.to_string(),
-                commit.seq.0 as i64,
-            ],
+            "INSERT OR IGNORE INTO operations(operation_id,data,updated_commit_seq)
+             VALUES(?1,?2,?3)",
+            params![operation_id.to_string(), op_data.to_string(), commit.seq.0 as i64],
         )
         .unwrap();
     }
@@ -625,7 +613,7 @@ mod tests {
         });
         let conn = store.ledger.conn.lock();
         conn.execute(
-            "INSERT OR IGNORE INTO evidence_receipts(receipt_id,operation_id,data,created_commit_seq)
+            "INSERT OR IGNORE INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq)
              VALUES(?1,?2,?3,1)",
             params![receipt_id.to_string(), operation_id.to_string(), data.to_string()],
         )

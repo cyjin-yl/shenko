@@ -2016,6 +2016,12 @@ mod tests {
         let (harness, root) = Harness::new("entry-refusals")?;
         let module = harness.data_dir.join("kernels").join("node.wat");
         fs::write(&module, RESIDENT_GUEST)?;
+        // A native binding executes its artifact, so admission requires the
+        // execute bit (kernel::validate_module_mode).
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&module, fs::Permissions::from_mode(0o755))?;
+        }
         let outside = root.join("outside.wat");
         fs::write(&outside, RESIDENT_GUEST)?;
 
