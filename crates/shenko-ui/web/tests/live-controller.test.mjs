@@ -493,10 +493,10 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   globalThis.fetch = async (path) => {
     if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
     if (path === '/api/playground') return json({ available: true, artifacts: [work] });
-    if (path === `/api/playground/${artifactId}/manifest`) return json({ record: work });
-    if (path === `/playground/${artifactId}/versions`) return json([1, 4]);
-    if (path === `/playground/${artifactId}`) return new Response(html, { headers: { 'Content-Type': 'text/html' } });
-    return json({});
+    if (path === `/playground/${artifactId}/manifest`) return json({ record: { title: work.title, record_revision: 9 } });
+    if (path === `/playground/${artifactId}/versions`) return json({ ok: true, revisions: [1, 4] });
+    if (path === `/playground/${artifactId}`) return new Response(html, { headers: { 'Content-Type': 'text/html', 'X-Artifact-Revision': '4' } });
+    return new Response('not found', { status: 404 });
   };
   const controller = createLiveController();
   t.after(() => controller.dispose());
@@ -507,6 +507,7 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   const panel = controller.projection().nodes.find((node) => node.node_id === 'context');
   assert.equal(panel.props.work?.content, html);
   assert.equal(panel.props.work?.revision, 4);
+  assert.deepEqual(panel.props.work?.revisions, [1, 4]);
   assert.equal(panel.props.work_error, false);
   assert.equal(panel.props.open, true);
 });

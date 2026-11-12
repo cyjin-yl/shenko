@@ -1901,13 +1901,18 @@ class LiveController implements ProjectionController {
     if (typeof artifactId !== 'string' || artifactId === '') return;
     try {
       const [meta, content] = await Promise.all([
-        this.fetchJson(`/api/playground/${artifactId}/manifest`),
+        this.fetchJson(`/playground/${artifactId}/manifest`),
         fetch(`/playground/${artifactId}`, {
           cache: 'no-store',
           signal: this.abort.signal,
-        }).then((response) => {
+        }).then(async (response) => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.text();
+          const revisionHeader = response.headers.get('x-artifact-revision');
+          const revision = Number(revisionHeader);
+          if (!revisionHeader || !Number.isSafeInteger(revision) || revision < 1) {
+            throw new Error('invalid work content revision');
+          }
+          return { text: await response.text(), revision };
         }),
       ]);
       if (!isObject(meta)) throw new Error('invalid work manifest');
@@ -1920,14 +1925,14 @@ class LiveController implements ProjectionController {
           .filter((entry): entry is { digest: string } => entry !== null)
         : [];
       const versions = await this.fetchJson(`/playground/${artifactId}/versions`)
-        .then((value) => (Array.isArray(value) ? (value as number[]) : []))
+        .then((value) => (isObject(value) && Array.isArray(value.revisions) ? (value.revisions as number[]) : []))
         .catch(() => [] as number[]);
       this.state.work = {
         artifact_id: artifactId,
         title: typeof record.title === 'string' ? record.title : undefined,
-        revision: typeof record.revision === 'number' ? record.revision : undefined,
+        revision: content.revision,
         lifecycle: typeof record.lifecycle === 'string' ? record.lifecycle : undefined,
-        content,
+        content: content.text,
         candidates,
         revisions: versions,
       };
