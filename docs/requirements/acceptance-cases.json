@@ -12,7 +12,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 404,
+      "source_markdown_line": 415,
       "source_row": "| UI-S01 | 用户停在中段阅读，尾部继续输出 10 秒，并在上方补入历史/加载图片 | 同一阅读锚点持续可见；在静态 viewport 且对象未被主动替换时，默认容忍偏移不超过 2 CSS px；不被拉回底部 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -37,7 +37,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 405,
+      "source_markdown_line": 416,
       "source_row": "| UI-S02 | following_latest 连续流入、用户中途上滚或拖滚动条 | 尾部增长平顺；用户操作立即停止跟随；只有明确恢复操作/回到底部才重新跟随 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -62,7 +62,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 406,
+      "source_markdown_line": 417,
       "source_row": "| UI-S03 | 逐段到达代码围栏、表格、数学式、链接，包含中文/emoji 跨 chunk | 无整篇纯文本/富文本反复切换；无无关稳定块的卸载/重置；最终文本与格式符合持久内容和当前 parser 合同 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -87,7 +87,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 407,
+      "source_markdown_line": 418,
       "source_row": "| UI-S04 | 用户在持续增长的代码块中选中文字、横向滚动、改折行 | 后续 chunk/高亮不清掉选择、横向位置和折行偏好；复制结果匹配可见 revision |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -112,7 +112,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 408,
+      "source_markdown_line": 419,
       "source_row": "| UI-S05 | 工具卡片从准备到运行再到完成；用户已展开日志或填写动态表单 | 同一对象稳定更新；不自动收起、重建、清空输入或重复提交；旧 action revision 被正确拒绝/更新 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -137,7 +137,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 409,
+      "source_markdown_line": 420,
       "source_row": "| UI-S06 | 字体/媒体延迟到达，侧栏开合、窗口 resize、200% 字号缩放、软键盘弹出 | 不产生无补偿整页跳动；响应式变化后原阅读对象仍定位可见，合法可滚动范围内恢复至原偏移附近（默认一行高以内）；输入焦点与内容保留 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -162,7 +162,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 410,
+      "source_markdown_line": 421,
       "source_row": "| UI-S07 | 消息 parser/代码高亮/某插件组件抛错 | 仅对应区域降级；导航、输入框、其余历史继续可用；修复呈现不重放外部工具 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -187,7 +187,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 411,
+      "source_markdown_line": 422,
       "source_row": "| UI-S08 | 已提交 chunk 在发送前/发送后断线，重连重复/补发 | 正文不丢、不重复、不串 attempt；未持久内容没有提前显示；可按 chunk_seq 续接 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -212,7 +212,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 412,
+      "source_markdown_line": 423,
       "source_row": "| UI-S09 | stream 中连续点击两次停止/重试；旧结果迟到 | UI 绑定正确的 request/attempt 与替代关系；不制造第二条无限主体或绕 broker 的并发；旧内容只作为原 attempt 事实保存 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -237,7 +237,7 @@
         "首版测试语料与可判定门槛"
       ],
       "source_path": "docs/specs/web-interface.md",
-      "source_markdown_line": 413,
+      "source_markdown_line": 424,
       "source_row": "| UI-S10 | 参考设备正常负载下回放文本流 | 从客户端收到已提交事件到对应可见更新，首版目标 p95 ≤100ms；记录长任务和掉帧，不能用延迟打字满足视觉目标。该阈值不包含 LLM/网络/存储等待，也不是未测设备保证 |",
       "verification_status": "unverified",
       "implementation_refs": [],

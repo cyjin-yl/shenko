@@ -1,4 +1,5 @@
 import type { UiNode } from './projection';
+import { Button, ProtoInput } from './ui-kit';
 
 /**
  * The configuration panel — docs/specs/configuration-playground.md#spec-43-1.
@@ -37,55 +38,42 @@ function shown(value: unknown): string {
 export function ConfigEntries({ node, emit }: { node: UiNode; emit: Emit }) {
   const rows = (Array.isArray(node.props.entries) ? node.props.entries : []) as ConfigEntryRow[];
   const live = node.props.live === true;
-  return <div className="config-entries-block">
-    <div className="config-entries-head">
-      <h3>配置命名空间</h3>
-      <p>保存的 desired revision、各消费者实际采用的 revision、以及消费者现在运行的值分别记录；保存成功不等于服务健康，未执行或不可读都如实显示。</p>
-    </div>
-    {node.props.entries_error === true
-      ? <p className="config-entry-note is-error">配置接口不可用</p>
-      : rows.length === 0
-        ? <p className="config-entry-note">当前没有注册的配置命名空间</p>
-        : rows.map((row) => {
-          const adoptions = Array.isArray(row.adoptions) ? row.adoptions : [];
-          return <div className="config-entry" key={row.key}>
-            <div className="config-entry-title">
-              <strong>{row.key}</strong>
-              <span>{row.application ?? '生效方式未知'}</span>
-            </div>
-            <div className="config-entry-facts">
-              <span>已保存 revision：{row.desired_revision === undefined ? '无' : row.desired_revision}</span>
-              <span>consumer 实际运行：{shown(row.current_value)}</span>
-            </div>
-            {row.current_value_error && <p className="config-entry-note is-error">{row.current_value_error}</p>}
-            <div className="config-entry-adoptions">
-              {adoptions.length === 0
-                ? <span>尚无 consumer adoption</span>
-                : adoptions.map((adoption) => <span key={adoption.consumer_id ?? 'unknown'}>
-                  {adoption.consumer_id ?? '未知 consumer'} · revision {adoption.adopted_revision ?? '未知'}
-                </span>)}
-            </div>
-            {row.error
-              ? <p className="config-entry-note is-error">{row.code ? `${row.code}: ` : ''}{row.error}</p>
-              : <div className="config-entry-editor">
-                <label>
-                  <span>新值（JSON）</span>
-                  <input
-                    className="config-entry-input"
-                    type="text"
-                    value={row.draft ?? ''}
-                    spellCheck={false}
-                    onChange={(event) => emit('config', 'config.draft', { entry: row.key, value: event.target.value })}
-                  />
-                </label>
-                <button
-                  className="config-entry-apply"
-                  type="button"
-                  disabled={!live || !row.apply_action}
-                  onClick={() => { if (row.apply_action) emit('config', row.apply_action); }}
-                >提交修改</button>
-              </div>}
-          </div>;
-        })}
-  </div>;
+  if (node.props.entries_error === true) return <p className="muted is-error">配置接口不可用。</p>;
+  if (rows.length === 0) return <p className="muted">当前没有注册的配置项。</p>;
+  return <ul className="config-entries">{rows.map((row) => {
+    const adoptions = Array.isArray(row.adoptions) ? row.adoptions : [];
+    const labelId = `config-${row.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+    return <li className="config-entry" key={row.key}>
+      <div className="config-entry-head">
+        <code className="config-key" id={labelId}>{row.key}</code>
+        <span className="muted">{row.application ?? '生效方式未知'}</span>
+      </div>
+      {/* Saved, adopted and running are three facts; saving is not health. */}
+      <dl className="facts is-compact">
+        <div className="fact"><dt>已保存</dt><dd>{row.desired_revision === undefined ? '无' : `revision ${row.desired_revision}`}</dd></div>
+        <div className="fact"><dt>实际运行</dt><dd className="is-mono">{shown(row.current_value)}</dd></div>
+        <div className="fact"><dt>采用</dt><dd>{adoptions.length === 0
+          ? '尚无 consumer 采用'
+          : adoptions.map((adoption) => `${adoption.consumer_id ?? '未知 consumer'} · r${adoption.adopted_revision ?? '?'}`).join('；')}</dd></div>
+      </dl>
+      {row.current_value_error && <p className="muted is-error">{row.current_value_error}</p>}
+      {row.error
+        ? <p className="muted is-error">{row.code ? `${row.code}: ` : ''}{row.error}</p>
+        : <div className="field-row">
+          <ProtoInput
+            className="input is-mono"
+            labelledBy={labelId}
+            value={row.draft ?? ''}
+            placeholder="新值（JSON）"
+            onValueChange={(detail: { value: string }) => emit('config', 'config.draft', { entry: row.key, value: detail.value })}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!live || !row.apply_action}
+            onClick={() => { if (row.apply_action) emit('config', row.apply_action); }}
+          >提交修改</Button>
+        </div>}
+    </li>;
+  })}</ul>;
 }

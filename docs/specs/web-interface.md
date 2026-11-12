@@ -99,6 +99,13 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
   committed/stream 合并——committed 全量正文 seq 0 被吸收为 S1 绑定（两种到达
   顺序幂等），流 chunk 落在 committed 基 part 只补 identity 不补文本；空洞进
   pending buffer，绝不拼接；`sendWithMode`/`sendWithdraw`/`sendAction`。
+- 视觉层（2026-11-12 重做）：`ui-kit.tsx` 适配全部上游 family 并给出统一按钮/
+  toggle；`react-renderer.tsx` 是外壳、时间线与输入区；`surfaces.tsx` 是按需
+  页面与主体详情 drawer；`markdown.tsx` 按块渲染已提交正文（未闭合代码围栏从
+  第一行起就是代码块并标明未闭合）；`icons.tsx` 是本地线性图标。视觉原则：
+  中性底色、单一强调色（浏览器暴露 `AccentColor` 时跟随系统）、层级来自字号与
+  留白、只有真实状态才有颜色（扁平状态点 + 文字，无光晕/脉冲）、外壳不可选中
+  且保持箭头光标、动作结果显示为安静的状态行而非浮动 toast。
 - `react-renderer.tsx`：SemanticDocumentView（summary + 编号选项按钮，Rich 显示
   节点树 JSON）、ReceiptView 增 placement/撤回按钮/撤回标记、Composer 增
   Steer 按钮与流式事实文案、day 分组兼容 document 节点。详情页按投影的
@@ -112,9 +119,13 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json`：`971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e`
-（migrated_from `7181a93…`）。上游 `pnpm-lock.yaml` sha256 不变
-（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。
+`web/upstream-pin.json`：`b25229a94251398bc2f375554fcb9622dc8e79ab`
+（2026-11-12 主线，migrated_from `971cd35…`）。上游 `pnpm-lock.yaml` sha256 不变
+（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。界面采用的 shadcn
+family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
+toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
+separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
+双重 Tab 停靠。
 
 构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
 `adapter-react`、`prototypes-shadcn`、`cli` 三个入口的依赖闭包，而不是调用
