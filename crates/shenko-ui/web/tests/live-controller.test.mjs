@@ -483,3 +483,30 @@ test('a block that cannot become a surface keeps its reason beside the step', as
     ['subject_part', 'document_error'],
   );
 });
+
+test('opening an HTML work reads its raw content and reveals its revision-bound details', async (t) => {
+  const { sockets } = environment(t);
+  const artifactId = 'html-work';
+  const html = '<!doctype html><h1>作品与 emoji 🌲</h1>';
+  const work = { artifact_id: artifactId, title: 'A page', mime: 'text/html', revision: 4 };
+  const json = (value) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (path === '/api/playground') return json({ available: true, artifacts: [work] });
+    if (path === `/api/playground/${artifactId}/manifest`) return json({ record: work });
+    if (path === `/playground/${artifactId}/versions`) return json([1, 4]);
+    if (path === `/playground/${artifactId}`) return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+    return json({});
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  open(sockets[0]);
+  intent(controller, `work.${artifactId}`, `work.open.${artifactId}`);
+  await setImmediate();
+  const panel = controller.projection().nodes.find((node) => node.node_id === 'context');
+  assert.equal(panel.props.work?.content, html);
+  assert.equal(panel.props.work?.revision, 4);
+  assert.equal(panel.props.work_error, false);
+  assert.equal(panel.props.open, true);
+});

@@ -1902,7 +1902,13 @@ class LiveController implements ProjectionController {
     try {
       const [meta, content] = await Promise.all([
         this.fetchJson(`/api/playground/${artifactId}/manifest`),
-        this.fetchJson(`/playground/${artifactId}`),
+        fetch(`/playground/${artifactId}`, {
+          cache: 'no-store',
+          signal: this.abort.signal,
+        }).then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.text();
+        }),
       ]);
       if (!isObject(meta)) throw new Error('invalid work manifest');
       const record = isObject(meta.record) ? meta.record : {};
@@ -1921,7 +1927,7 @@ class LiveController implements ProjectionController {
         title: typeof record.title === 'string' ? record.title : undefined,
         revision: typeof record.revision === 'number' ? record.revision : undefined,
         lifecycle: typeof record.lifecycle === 'string' ? record.lifecycle : undefined,
-        content: typeof content === 'string' ? content : undefined,
+        content,
         candidates,
         revisions: versions,
       };
@@ -1931,7 +1937,10 @@ class LiveController implements ProjectionController {
       this.state.work = undefined;
       this.state.work_error = true;
     }
-    if (!this.disposed) this.emit();
+    if (!this.disposed) {
+      this.state.display.panel_open = true;
+      this.emit();
+    }
   }
 
   /// One action on the opened work.
