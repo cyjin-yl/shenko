@@ -643,14 +643,14 @@ class LiveController implements ProjectionController {
         void this.applyConfigEntry(action.payload?.namespace, action.payload?.logical_key);
         break;
       case 'identity.name.draft':
-        this.state.name_draft = typeof action.payload?.value === 'string' ? action.payload.value : '';
+        this.state.name_draft = typeof intent.payload?.value === 'string' ? intent.payload.value : '';
         this.emit();
         break;
       case 'identity.name':
         void this.nameInstance();
         break;
       case 'owner.claim.draft':
-        this.state.claim_draft = typeof action.payload?.value === 'string' ? action.payload.value : '';
+        this.state.claim_draft = typeof intent.payload?.value === 'string' ? intent.payload.value : '';
         this.emit();
         break;
       case 'owner.claim':

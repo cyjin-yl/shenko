@@ -70,7 +70,10 @@ registerLens({ id: 'config', title: '配置', icon: 'config', order: 90, source:
 /// browser, like the theme: it does not change the work or its permissions.
 const PINNED_KEY = 'shenko.lenses.pinned.v1';
 
+let pagePinnedWorks: string[] | undefined;
+
 export function pinnedWorks(): string[] {
+  if (pagePinnedWorks) return [...pagePinnedWorks];
   try {
     const value = JSON.parse(localStorage.getItem(PINNED_KEY) ?? '[]');
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -83,10 +86,12 @@ export function setWorkPinned(artifactId: string, pinned: boolean): void {
   const current = new Set(pinnedWorks());
   if (pinned) current.add(artifactId);
   else current.delete(artifactId);
+  const next = [...current];
   try {
-    localStorage.setItem(PINNED_KEY, JSON.stringify([...current]));
+    localStorage.setItem(PINNED_KEY, JSON.stringify(next));
+    pagePinnedWorks = undefined;
   } catch {
-    // A browser that refuses storage keeps the pin for this page only.
+    pagePinnedWorks = next;
   }
   syncWorkLenses(lastWorks);
 }
@@ -95,7 +100,9 @@ let lastWorks: Array<{ artifact_id: string; title?: string; mime?: string }> = [
 const workDisposers = new Map<string, () => void>();
 
 /// Keep pinned, still-existing, page-bearing works registered as lenses.
-export function syncWorkLenses(works: Array<{ artifact_id: string; title?: string; mime?: string }>): void {
+/// An unavailable listing is not evidence that a work was removed.
+export function syncWorkLenses(works: Array<{ artifact_id: string; title?: string; mime?: string }> | undefined): void {
+  if (!works) return;
   lastWorks = works;
   const pinned = new Set(pinnedWorks());
   const wanted = new Map(works

@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { UiNode } from './projection';
 import { Button, ProtoInput } from './ui-kit';
 
@@ -36,13 +37,14 @@ function shown(value: unknown): string {
 }
 
 export function ConfigEntries({ node, emit }: { node: UiNode; emit: Emit }) {
+  const labelPrefix = useId();
   const rows = (Array.isArray(node.props.entries) ? node.props.entries : []) as ConfigEntryRow[];
   const live = node.props.live === true;
   if (node.props.entries_error === true) return <p className="muted is-error">配置接口不可用。</p>;
   if (rows.length === 0) return <p className="muted">当前没有注册的配置项。</p>;
   return <ul className="config-entries">{rows.map((row) => {
     const adoptions = Array.isArray(row.adoptions) ? row.adoptions : [];
-    const labelId = `config-${row.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+    const labelId = `${labelPrefix}-${encodeURIComponent(row.key)}`;
     return <li className="config-entry" key={row.key}>
       <div className="config-entry-head">
         <code className="config-key" id={labelId}>{row.key}</code>

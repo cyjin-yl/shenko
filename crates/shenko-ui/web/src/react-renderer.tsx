@@ -103,8 +103,12 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
   const name = projection.identity?.display_name || undefined;
   const demo = projection.source === 'demo';
   const lenses = React.useSyncExternalStore(subscribeLenses, lensSnapshot);
-  const works = ((nodes.playground_surface?.props.playground?.artifacts ?? []) as WorkView[]);
-  React.useEffect(() => { syncWorkLenses(works); }, [works]);
+  const works = nodes.playground_surface?.props.playground?.artifacts as WorkView[] | undefined;
+  const knownWorks = React.useRef<WorkView[]>([]);
+  React.useEffect(() => {
+    if (works) knownWorks.current = works;
+    syncWorkLenses(works);
+  }, [works]);
 
   // A work lens is this page's reading state; the projection only knows that
   // the Playground view is the one beside the stream.
@@ -134,6 +138,8 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.defaultPrevented || event.composedPath().some((target) => target instanceof HTMLElement
+        && (target.isContentEditable || target.matches('input, textarea, select')))) return;
       if (event.key === '0') { event.preventDefault(); openLens(undefined); return; }
       const index = Number(event.key);
       if (!Number.isInteger(index) || index < 1 || index > lenses.length) return;
@@ -146,7 +152,9 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
   });
 
   const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as Array<Record<string, unknown>>;
-  const openWork = open?.kind === 'work' ? works.find((work) => work.artifact_id === open.artifact_id) : undefined;
+  const openWork = open?.kind === 'work'
+    ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
+    : undefined;
 
   return (
     <div className="shell" data-source={projection.source} data-lens={openId ?? 'none'}>
@@ -861,8 +869,8 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
 /// the revision they saw. Opening the work is the reader's own action.
 function WorkEntry({ node, emit, onOpenWork }: { node: UiNode; emit: Emit; onOpenWork: (artifactId: string) => void }) {
   const work = node.props.work as WorkView;
-  // A work with a page opens live beside the stream; any other work opens its
-  // revision-bound record in the details panel.
+  // Page works offer both the live page and their revision-bound management
+  // record; all work actions still use the projected action identity.
   const page = isPage(work.mime);
   return (
     <article className="entry attachment" data-entry-key={node.node_id} data-artifact-id={work.artifact_id}>
@@ -882,6 +890,9 @@ function WorkEntry({ node, emit, onOpenWork }: { node: UiNode; emit: Emit; onOpe
           >
             <Icon name="open" size={15} />打开
           </Button>
+          {page && <Button variant="ghost" size="sm" onClick={() => emit(node.node_id, node.action_refs[0])}>
+            详情与操作
+          </Button>}
         </div>
       </div>
     </article>
