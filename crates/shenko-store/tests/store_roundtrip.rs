@@ -633,7 +633,7 @@ fn imported_committed_steps_replay_in_step_order_with_a_one_item_page() {
     let second_receipt = source.commit_step_and_advance_head(&second, &head, third_id).unwrap();
     let mut archive = Vec::new();
     source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive).unwrap();
-    let target = Store::open(dir.join("replay.db"), dir.join("replay-cas")).unwrap();
+    let target = Arc::new(Store::open(dir.join("replay.db"), dir.join("replay-cas")).unwrap());
     let local_agent = initialize_subject_in(&target, b"local replay owner");
     let (local_head, local_step) = target.load_subject(local_agent).unwrap();
     let local_step_id = local_step.step_id;
