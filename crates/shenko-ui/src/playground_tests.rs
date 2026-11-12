@@ -150,11 +150,11 @@ fn a_readers_action_is_bound_to_a_revision_and_a_request() {
     pg.stage_artifact(id, Some(first.revision), Some("reader-first")).unwrap();
     pg.put(id, "second".into(), "text/plain".into(), b"second body").unwrap();
     let stale = first.revision;
-    let refusal = pg.stage_artifact(id, Some(stale), Some("reader-stale")).expect_err("the work moved on");
-    assert!(
-        refusal.to_string().contains("revision"),
-        "the refusal names the revision the action named: {refusal:#}"
-    );
+    let before_stale = pg.durable_record(id).unwrap().unwrap();
+    pg.stage_artifact(id, Some(stale), Some("reader-stale")).expect_err("the work moved on");
+    let after_stale = pg.durable_record(id).unwrap().unwrap();
+    assert_eq!(after_stale.updated_commit, before_stale.updated_commit);
+    assert_eq!(after_stale.candidate_manifest_refs, before_stale.candidate_manifest_refs);
 
     // A stage with the current revision succeeds, and the durable transition
     // names the request that asked for it.
