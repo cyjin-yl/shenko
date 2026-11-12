@@ -37,12 +37,13 @@ pub struct OutboxMessage {
 /// a repeated snapshot independently of effect dispatch.
 pub fn committed_after(
     store: &shenko_store::Store,
+    subject_id: shenko_types::ids::EntityId,
     seq: u64,
     after_step_id: Option<shenko_types::ids::EntityId>,
     limit: usize,
 ) -> anyhow::Result<Vec<OutboxMessage>> {
     store
-        .committed_decisions_after(seq, after_step_id, limit)?
+        .committed_decisions_after(subject_id, seq, after_step_id, limit)?
         .into_iter()
         .map(|(replay_seq, step, decision)| {
             let identity_revision = store

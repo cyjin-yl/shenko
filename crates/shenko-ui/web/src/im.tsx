@@ -16,7 +16,7 @@ import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } fro
  * `message-bubble` Prototype with the message content in its slot.
  */
 export function ImView({
-  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, historyControl, demo,
+  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, historyControl, historyLoading, demo,
 }: {
   threads: Thread[];
   selected: string;
@@ -25,7 +25,8 @@ export function ImView({
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
   onOpenInspect: () => void;
-  historyControl?: React.ReactNode;
+  historyControl?: (beforeLoad: () => void) => React.ReactNode;
+  historyLoading?: boolean;
   demo: boolean;
 }) {
   const thread = threads.find((item) => item.id === selected) ?? threads[0];
@@ -65,6 +66,7 @@ export function ImView({
           emit={emit}
           onOpenInspect={onOpenInspect}
           historyControl={historyControl}
+          historyLoading={historyLoading}
           demo={demo}
         />
         : <div className="im-empty">还没有会话。</div>}
@@ -98,13 +100,14 @@ function shortWhen(value: string | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo }: {
+function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, historyLoading, demo }: {
   thread: Thread;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
   onOpenInspect: () => void;
-  historyControl?: React.ReactNode;
+  historyControl?: (beforeLoad: () => void) => React.ReactNode;
+  historyLoading?: boolean;
   demo: boolean;
 }) {
   const [loaded, setLoaded] = React.useState<ThreadMessage[] | null>(null);
@@ -117,32 +120,7 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
     return () => { live = false; };
   }, [thread.id, thread.state, demo]);
   const messages = loaded ?? thread.messages;
-  const scroller = React.useRef<HTMLDivElement>(null);
-  const atEnd = React.useRef(true);
-  const anchor = React.useRef<{ key: string; offset: number } | undefined>(undefined);
-  const rememberAnchor = () => {
-    const element = scroller.current;
-    if (!element) return;
-    const top = element.getBoundingClientRect().top;
-    const visible = Array.from(element.querySelectorAll<HTMLElement>('[data-message-key]'))
-      .find((row) => row.getBoundingClientRect().bottom > top);
-    if (visible?.dataset.messageKey) anchor.current = {
-      key: visible.dataset.messageKey,
-      offset: visible.getBoundingClientRect().top - top,
-    };
-  };
-  React.useLayoutEffect(() => {
-    const element = scroller.current;
-    if (!element) return;
-    if (atEnd.current) element.scrollTop = element.scrollHeight;
-    else if (anchor.current) {
-      const target = Array.from(element.querySelectorAll<HTMLElement>('[data-message-key]'))
-        .find((row) => row.dataset.messageKey === anchor.current!.key);
-      if (target) element.scrollTop += target.getBoundingClientRect().top
-        - element.getBoundingClientRect().top - anchor.current.offset;
-    }
-    rememberAnchor();
-  }, [messages]);
+  const viewport = React.useRef<MessageViewport>(null);
   const group = thread.participants.length > 2 || thread.kind !== 'direct';
   return (
     <section className="im-thread" aria-label={thread.title}>
@@ -156,23 +134,9 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
           </span>
         </span>
       </header>
-      <div
-        className="im-scroll"
-        ref={scroller}
-        onClickCapture={(event) => {
-          if ((event.target as Element).closest('[data-load-submissions]')) {
-            atEnd.current = false;
-            rememberAnchor();
-          }
-        }}
-        onScroll={(event) => {
-          const target = event.currentTarget;
-          atEnd.current = target.scrollHeight - target.scrollTop - target.clientHeight < 32;
-          rememberAnchor();
-        }}
-      >
+      <MessageViewport ref={viewport} historyLoading={historyLoading === true}>
         <div className="im-messages">
-          {thread.kind === 'direct' && historyControl}
+          {thread.kind === 'direct' && historyControl?.(() => viewport.current?.beginBackfill())}
           {thread.note && <p className="im-note">{thread.note}</p>}
           {error && <p className="im-system is-error">这段对话没能读出来：{error}</p>}
           {thread.load && !loaded && !error && !demo && <p className="im-system">正在读取…</p>}
@@ -186,10 +150,85 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
             onOpenInspect={onOpenInspect}
           />
         </div>
-      </div>
+      </MessageViewport>
       {thread.composer ? composer : null}
     </section>
   );
+}
+
+interface MessageAnchor {
+  key?: string;
+  offset?: number;
+  scrollTop: number;
+}
+
+// Capture the old DOM before mutation, as the Inspect timeline does. A page
+// load keeps its original anchor through the intermediate loading control.
+class MessageViewport extends React.Component<{ historyLoading: boolean; children: React.ReactNode }> {
+  private element = React.createRef<HTMLDivElement>();
+  private following = true;
+  private backfillAnchor: MessageAnchor | null = null;
+  private lastScrollTop = 0;
+
+  componentDidMount() {
+    this.restore(null);
+  }
+
+  beginBackfill = () => {
+    this.following = false;
+    this.backfillAnchor = this.captureAnchor();
+  };
+
+  getSnapshotBeforeUpdate(): MessageAnchor | null {
+    return this.following ? null : this.backfillAnchor ?? this.captureAnchor();
+  }
+
+  componentDidUpdate(_previous: unknown, _state: unknown, snapshot: MessageAnchor | null) {
+    this.restore(snapshot);
+    if (!this.props.historyLoading) this.backfillAnchor = null;
+  }
+
+  private captureAnchor(): MessageAnchor | null {
+    const element = this.element.current;
+    if (!element) return null;
+    const top = element.getBoundingClientRect().top;
+    for (const row of element.querySelectorAll<HTMLElement>('[data-message-key]')) {
+      const bounds = row.getBoundingClientRect();
+      if (bounds.bottom > top) return {
+        key: row.dataset.messageKey, offset: bounds.top - top, scrollTop: element.scrollTop,
+      };
+    }
+    return { scrollTop: element.scrollTop };
+  }
+
+  private restore(snapshot: MessageAnchor | null) {
+    const element = this.element.current;
+    if (!element) return;
+    if (this.following) element.scrollTop = element.scrollHeight;
+    else if (snapshot) {
+      let target: HTMLElement | undefined;
+      if (snapshot.key) for (const row of element.querySelectorAll<HTMLElement>('[data-message-key]')) {
+        if (row.dataset.messageKey === snapshot.key) { target = row; break; }
+      }
+      if (target && snapshot.offset !== undefined) {
+        element.scrollTop += target.getBoundingClientRect().top
+          - element.getBoundingClientRect().top - snapshot.offset;
+      } else element.scrollTop = snapshot.scrollTop;
+    }
+    this.lastScrollTop = element.scrollTop;
+  }
+
+  private onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget;
+    if (element.scrollTop === this.lastScrollTop) return;
+    this.following = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
+    this.backfillAnchor = null;
+    this.lastScrollTop = element.scrollTop;
+  };
+
+  render() {
+    return <div className="im-scroll" ref={this.element} onScroll={this.onScroll}>{this.props.children}</div>;
+  }
 }
 
 function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspect }: {

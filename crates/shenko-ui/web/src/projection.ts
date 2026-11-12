@@ -107,6 +107,8 @@ export interface TimelinePart {
   step: number;
   step_id: string;
   commit_ref: string;
+  /** Position in this receiving ledger; the source commit may be foreign. */
+  commit_seq?: number;
   observed_at: string;
   stream_id?: string;
   request_id?: string;
@@ -207,12 +209,33 @@ export interface Submission {
   send_epoch: number;
 }
 
+export interface SubmissionCursor {
+  seq: number;
+  submission_id: string;
+}
+
+// SQLite's binary UTF-8 order follows Unicode scalar values. JavaScript's
+// default UTF-16 comparison differs for supplementary characters in IDs.
+export function compareSubmissionOrder(leftSeq: number, leftId: string, rightSeq: number, rightId: string): number {
+  if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+  let left = 0;
+  let right = 0;
+  while (left < leftId.length && right < rightId.length) {
+    const a = leftId.codePointAt(left)!;
+    const b = rightId.codePointAt(right)!;
+    if (a !== b) return a - b;
+    left += a > 0xffff ? 2 : 1;
+    right += b > 0xffff ? 2 : 1;
+  }
+  return leftId.length - rightId.length;
+}
+
 export interface SubmissionHistoryState {
   loading: boolean;
   total?: number;
   has_older: boolean;
-  next_before?: number;
-  newest_seq?: number;
+  next_before?: SubmissionCursor;
+  newest_cursor?: SubmissionCursor;
   error?: string;
 }
 
@@ -609,7 +632,26 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
     );
   });
+  const sequenceOf = (entry: UiNode): number | undefined => entry.kind === 'subject_part'
+    ? (entry.props.part as TimelinePart).commit_seq
+    : (entry.props.submission as Submission).accepted_seq;
   const chronological = [...subjectRows, ...submissionRows].sort((left, right) => {
+    const leftSeq = sequenceOf(left);
+    const rightSeq = sequenceOf(right);
+    if (leftSeq !== undefined && rightSeq !== undefined) {
+      if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+      // An import can admit the selected input and its step in one local
+      // transaction. The input still precedes that step.
+      if (left.kind !== right.kind) return left.kind === 'user_submission' ? -1 : 1;
+      if (left.kind === 'user_submission') return compareSubmissionOrder(leftSeq,
+        (left.props.submission as Submission).payload.submission_id, rightSeq,
+        (right.props.submission as Submission).payload.submission_id);
+      return 0;
+    }
+    // An unadmitted browser attempt has no ledger position. Keep it after
+    // durable history until a real admission tells us where it belongs.
+    if (leftSeq !== undefined) return -1;
+    if (rightSeq !== undefined) return 1;
     const timeOf = (entry: UiNode): string => entry.kind === 'subject_part'
       ? entry.props.part.observed_at
       : entry.kind === 'user_submission'
@@ -617,18 +659,19 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
         : '';
     const leftTime = timeOf(left);
     const rightTime = timeOf(right);
-    // Committed history retains replay order for equal timestamps; a later
-    // committed reply stays after local input instead of jumping above it.
     return Date.parse(leftTime) - Date.parse(rightTime);
   });
-  // A recovered owner's message belongs immediately before the step whose
-  // sealed input selected it. Replay arrival time is not historical time.
-  const replies = new Set(subjectRows.map((entry) => (entry.props.part as TimelinePart).step_id));
+  // If a source has no order cursor, its actual selected step still gives a
+  // causal placement. Known ledger positions retain their admission order.
+  const replies = new Map(subjectRows.map((entry) => [(entry.props.part as TimelinePart).step_id,
+    entry.props.part as TimelinePart]));
   const selected = new Map<string, UiNode[]>();
   const paired = new Set<string>();
   for (const entry of submissionRows) {
     const submission = entry.props.submission as Submission;
     if (!submission.selected_step_id || !replies.has(submission.selected_step_id)) continue;
+    if (submission.accepted_seq !== undefined
+      && replies.get(submission.selected_step_id)!.commit_seq !== undefined) continue;
     const rows = selected.get(submission.selected_step_id) ?? [];
     rows.push(entry);
     selected.set(submission.selected_step_id, rows);
@@ -754,7 +797,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   }
   const historyAction = addAction(
     actions, 'submissions.load_older', 'submissions.load_older',
-    `submissions:${state.subject_id}:${state.submission_history?.next_before ?? 'latest'}`,
+    `submissions:${state.subject_id}:${JSON.stringify(state.submission_history?.next_before ?? null)}`,
     state.source === 'live' && !state.submission_history?.loading
       && (state.submission_history?.has_older === true || Boolean(state.submission_history?.error)),
   );

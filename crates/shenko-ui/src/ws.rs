@@ -54,6 +54,8 @@ pub struct TimelineMessage {
     pub step: u64,
     pub step_id: String,
     pub commit_ref: String,
+    /// Receiving-ledger replay position; `commit_ref` may name a foreign source.
+    pub commit_seq: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +87,7 @@ fn committed_timeline_message(out: OutboxMessage) -> TimelineMessage {
         step: out.step,
         step_id,
         commit_ref,
+        commit_seq: out.replay_seq,
         terminal: Some(true),
         // The current OutboxMessage has no stream/request/attempt binding.
         // They remain absent rather than being inferred from the step number.
@@ -401,7 +404,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
             "documents": state.presentation.is_some(),
             "attachments": false,
             "durable_input_receipts": state.input.is_some(),
-            "committed_replay": state.store.is_some(),
+            "committed_replay": state.store.is_some() && state.subject_id.is_some(),
             "streaming": state.stream.is_some(),
         },
         "surface": caps,
@@ -656,12 +659,16 @@ async fn recv_committed(
     let Some(store) = &state.store else {
         return recv_outbox(wake).await;
     };
+    let Some(subject_id) = state.subject_id else {
+        // Missing or ambiguous local identity never selects another subject.
+        return std::future::pending().await;
+    };
     loop {
         if let Some(out) = history.pop_front() {
             *cursor = (out.replay_seq, Some(out.step_id));
             return Some(out);
         }
-        match shenko_subject::outbox::committed_after(store, cursor.0, cursor.1, 64) {
+        match shenko_subject::outbox::committed_after(store, subject_id, cursor.0, cursor.1, 64) {
             Ok(messages) => history.extend(messages),
             Err(e) => {
                 tracing::error!(err=%e,"committed timeline read failed; no guessed replay");
@@ -916,7 +923,7 @@ mod tests {
         drop(input);
         drop(state);
         let reopened = shenko_store::Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
-        let older = WebInputService::history(&reopened, subject, Some(before), 2).unwrap();
+        let older = WebInputService::history(&reopened, subject, Some(&before), 2).unwrap();
         assert_eq!(older.total, 3);
         assert!(!older.has_older);
         assert_eq!(older.next_before, None);
@@ -946,7 +953,7 @@ mod tests {
     #[test]
     fn committed_projection_reuses_message_part_identity() {
         let step_id = EntityId::new();
-        let commit_ref = CommitRef::new(EntityId::new(), LedgerSeq(7));
+        let commit_ref = CommitRef::new(EntityId::new(), LedgerSeq(700));
         let out = OutboxMessage {
             kind: "thought".into(),
             step: 3,
@@ -962,6 +969,8 @@ mod tests {
         assert_eq!(messages.len(), 1);
         let first = &messages[0];
         assert_eq!(first.message_id, step_id.to_string());
+        assert_eq!(first.commit_ref, commit_ref.to_string());
+        assert_eq!(first.commit_seq, 7);
         assert_eq!(first.part_id, TEXT_PART_ID);
         assert_eq!(first.chunk_seq, 0);
         assert_eq!(first.terminal, Some(true));

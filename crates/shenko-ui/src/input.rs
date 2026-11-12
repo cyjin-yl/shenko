@@ -16,7 +16,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
-use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission, WebSubmissionRecord};
+use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission, WebSubmissionCursor, WebSubmissionRecord};
 use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::ids::EntityId;
 use shenko_types::store::RawInboxEvent;
@@ -139,7 +139,7 @@ pub struct SubmissionHistoryPage {
     pub items: Vec<SubmissionHistoryEntry>,
     pub total: u64,
     pub has_older: bool,
-    pub next_before: Option<u64>,
+    pub next_before: Option<WebSubmissionCursor>,
 }
 
 impl SubmissionView {
@@ -748,7 +748,7 @@ impl WebInputService {
     pub fn history(
         store: &Store,
         subject_id: EntityId,
-        before: Option<u64>,
+        before: Option<&WebSubmissionCursor>,
         limit: usize,
     ) -> anyhow::Result<SubmissionHistoryPage> {
         let page = store.web_submissions_page(subject_id, before, limit)?;

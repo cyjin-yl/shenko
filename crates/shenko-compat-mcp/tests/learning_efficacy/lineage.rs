@@ -88,12 +88,13 @@ pub(super) fn consumed_sources(store: &Store, output: &CommittedTrialOutput) -> 
 
 fn consumption_and_write_steps(store: &Store, output: &CommittedTrialOutput,
     event_id: EntityId, creator: EntityId) -> Result<(u64, u64)> {
+    let agent = store.get_existing_agent_id()?.context("trial subject missing")?;
     let mut cursor = (0, None);
     let mut source_step = None;
     let mut writer_step = None;
     let mut reached_output = false;
     loop {
-        let decisions = store.committed_decisions_after(cursor.0, cursor.1, 64)?;
+        let decisions = store.committed_decisions_after(agent, cursor.0, cursor.1, 64)?;
         if decisions.is_empty() { break; }
         for (seq, step, decision) in decisions {
             cursor = (seq, Some(step.step_id));

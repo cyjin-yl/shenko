@@ -45,6 +45,8 @@ pub struct StreamChunkDto {
     pub request_id: String,
     pub attempt_id: String,
     pub commit_ref: String,
+    /// Local replay position, separate from the immutable source commit.
+    pub commit_seq: u64,
 }
 
 impl From<StoredOutputPart> for StreamChunkDto {
@@ -70,6 +72,7 @@ impl From<StoredOutputPart> for StreamChunkDto {
             request_id: part.request_id.to_string(),
             attempt_id: part.attempt_id.to_string(),
             commit_ref: stored.commit.to_string(),
+            commit_seq: stored.commit_seq,
         }
     }
 }
@@ -140,6 +143,7 @@ impl StreamSink {
             request_id: part.request_id.to_string(),
             attempt_id: part.attempt_id.to_string(),
             commit_ref: commit.to_string(),
+            commit_seq: commit.seq.0,
         }
     }
 

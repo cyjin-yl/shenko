@@ -2914,10 +2914,10 @@
       ],
       "implementation_refs": [
         "crates/shenko-subject/src/stream_journal.rs",
-        "crates/shenko-ui/src/stream.rs:77",
-        "crates/shenko-ui/src/stream.rs:97",
-        "crates/shenko-ui/src/stream.rs:172",
-        "crates/shenko-ui/src/stream.rs:183",
+        "crates/shenko-ui/src/stream.rs:80",
+        "crates/shenko-ui/src/stream.rs:103",
+        "crates/shenko-ui/src/stream.rs:176",
+        "crates/shenko-ui/src/stream.rs:186",
         "crates/shenko-broker/src/broker.rs:460",
         "crates/shenko-broker/src/stream.rs:266",
         "crates/shenko-broker/src/stream.rs:277",
@@ -2953,8 +2953,8 @@
         "crates/shenko-ui/src/playground_manage.rs:44",
         "crates/shenko-ui/src/playground_manage.rs:573",
         "crates/shenko-ui/src/playground.rs:61",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1097",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1116",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1098",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1117",
         "crates/shenko-ui/web/src/surfaces.tsx:394",
         "crates/shenko-ui/web/src/surfaces.tsx:407"
       ],
@@ -3030,8 +3030,8 @@
         "crates/shenko-ui/src/static/app.css:74",
         "crates/shenko-ui/web/src/react-renderer.tsx:107",
         "crates/shenko-ui/web/src/react-renderer.tsx:260",
-        "crates/shenko-ui/web/src/react-renderer.tsx:834",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1097"
+        "crates/shenko-ui/web/src/react-renderer.tsx:835",
+        "crates/shenko-ui/web/src/react-renderer.tsx:1098"
       ],
       "evidence_refs": [
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",

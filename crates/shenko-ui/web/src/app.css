@@ -762,7 +762,7 @@ code.row-sub, code.row-title { font-size: 12px; }
 .im-head-text { display: grid; min-width: 0; }
 .im-head-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .im-head-sub { font-size: 12px; color: var(--muted); }
-.im-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.im-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; }
 .im-messages { max-width: 760px; margin: 0 auto; padding: 16px 20px 20px; display: flex; flex-direction: column; }
 .im-note { margin: 0 auto 12px; padding: 6px 12px; border-radius: 12px; background: var(--sunken); font-size: 12px; color: var(--muted); text-align: center; }
 .im-time { margin: 14px 0 6px; text-align: center; font-size: 11.5px; color: var(--muted); font-weight: 500; }

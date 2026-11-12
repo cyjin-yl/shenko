@@ -2,6 +2,7 @@ import {
   UI_INTENT_SCHEMA,
   UI_PROJECTION_SCHEMA,
   buildProjection,
+  compareSubmissionOrder,
   semanticHash,
   type ActionReceiptView,
   type OwnerState,
@@ -18,6 +19,7 @@ import {
   type DocumentErrorView,
   type ServerCapabilities,
   type Submission,
+  type SubmissionCursor,
   type SubmissionPayload,
   type TimelinePart,
   type UiIntent,
@@ -348,6 +350,16 @@ function validRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+// Input receipts reconstruct this reference in the receiving ledger. Part
+// commit_ref is an immutable source identity and must never use this parser.
+function admissionSequence(reference: string): number | undefined {
+  const slash = reference.lastIndexOf('/');
+  if (slash <= 0) return undefined;
+  const suffix = reference.slice(slash + 1);
+  const sequence = Number(suffix);
+  return /^\d+$/.test(suffix) && validRevision(sequence) ? sequence : undefined;
+}
+
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -419,6 +431,8 @@ export function createLiveController(): ProjectionController {
 
 class LiveController implements ProjectionController {
   private state = initialState();
+  // Server history is readable without becoming this browser's pending outbox.
+  private localOutbox = new Set(this.state.submissions.map((row) => row.payload.submission_id));
   private listeners = new Set<() => void>();
   private revision = 0;
   private cached: UiProjection;
@@ -781,6 +795,7 @@ class LiveController implements ProjectionController {
       this.emit();
       return;
     }
+    this.localOutbox.add(payload.submission_id);
     this.state.submissions = [...this.state.submissions, submission];
     this.state.display.reading = 'following_latest';
     this.state.display.new_count = 0;
@@ -800,6 +815,7 @@ class LiveController implements ProjectionController {
       this.emit();
       return;
     }
+    this.localOutbox.add(submission.payload.submission_id);
     this.emit();
     try {
       socket.send(JSON.stringify(submission.payload));
@@ -1210,6 +1226,7 @@ class LiveController implements ProjectionController {
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
         typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
+      submission.accepted_seq = admissionSequence(data.accepted_commit) ?? submission.accepted_seq;
       if (submission.receipt === 'accepted') submission.detail = detail;
     } else if (data.stage === 'unavailable') {
       if (!submission.accepted_commit) submission.receipt = 'unknown';
@@ -1364,7 +1381,7 @@ class LiveController implements ProjectionController {
       return;
     }
     if (submission.receipt === 'conflict') return;
-    this.applySubmissionView(submission, data, true);
+    this.applySubmissionView(submission, data, this.localOutbox.has(submission.payload.submission_id));
     this.scheduleReceiptRefresh();
     this.emit();
   }
@@ -1385,6 +1402,7 @@ class LiveController implements ProjectionController {
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
         typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
+      submission.accepted_seq = admissionSequence(data.accepted_commit) ?? submission.accepted_seq;
       if (typeof data.selected_step_id === 'string') submission.selected_step_id = data.selected_step_id;
       if (data.stage === 'committed' && typeof data.committed_at === 'string') {
         submission.receipt = 'committed';
@@ -1410,7 +1428,7 @@ class LiveController implements ProjectionController {
       // it is the only copy of this attempt until the user acts.
       submission.receipt = 'rejected';
       submission.detail = '服务端无此提交记录；可以同一 ID 重发。';
-      if (!this.state.draft.trim()) {
+      if (persist && !this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
@@ -1422,7 +1440,7 @@ class LiveController implements ProjectionController {
     if (persist) saveSubmission(submission);
   }
 
-  private async loadSubmissionHistory(before?: number): Promise<void> {
+  private async loadSubmissionHistory(before?: SubmissionCursor): Promise<void> {
     const subject = this.state.subject_id;
     if (!subject || this.disposed || this.submissionHistoryLoading) return;
     this.submissionHistoryLoading = true;
@@ -1431,7 +1449,10 @@ class LiveController implements ProjectionController {
     this.emit();
     try {
       const query = new URLSearchParams({ limit: '100' });
-      if (before !== undefined) query.set('before', String(before));
+      if (before !== undefined) {
+        query.set('before_seq', String(before.seq));
+        query.set('before_id', before.submission_id);
+      }
       const page = await this.fetchJson(`/api/submissions?${query}`);
       if (this.disposed || subject !== this.state.subject_id) return;
       if (!isObject(page) || page.available !== true || page.subject_id !== subject
@@ -1440,7 +1461,7 @@ class LiveController implements ProjectionController {
       }
       const items: Array<{ payload: SubmissionPayload; created_at: string; seq: number; view: Record<string, unknown> }> = [];
       const ids = new Set<string>();
-      let upper = before ?? Infinity;
+      let upper = before;
       for (const row of page.items) {
         if (!isObject(row) || !isObject(row.payload) || !isObject(row.view)
           || row.payload.schema_version !== 2 || row.payload.type !== 'submit'
@@ -1448,25 +1469,31 @@ class LiveController implements ProjectionController {
           || typeof row.payload.message_id !== 'string' || typeof row.payload.content !== 'string'
           || !['append', 'steer'].includes(String(row.payload.mode))
           || typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))
-          || !validRevision(row.accepted_seq) || row.accepted_seq >= upper
+          || !validRevision(row.accepted_seq) || !row.payload.submission_id
+          || upper !== undefined && compareSubmissionOrder(row.accepted_seq, row.payload.submission_id,
+            upper.seq, upper.submission_id) >= 0
           || row.view.result !== 'found' || row.view.submission_id !== row.payload.submission_id
           || typeof row.view.event_id !== 'string' || typeof row.view.accepted_commit !== 'string'
           || !['accepted', 'selected', 'committed'].includes(String(row.view.stage))
           || row.view.stage === 'selected' && typeof row.view.selected_step_id !== 'string'
           || row.view.stage === 'committed' && typeof row.view.committed_at !== 'string'
           || ids.has(row.payload.submission_id)) throw new Error('输入历史页的身份或顺序无效');
-        upper = row.accepted_seq;
+        upper = { seq: row.accepted_seq, submission_id: row.payload.submission_id };
         ids.add(row.payload.submission_id);
         items.push({ payload: row.payload as unknown as SubmissionPayload, created_at: row.created_at,
           seq: row.accepted_seq, view: row.view });
       }
-      if (page.has_older && (!items.length || !validRevision(page.next_before)
-        || page.next_before !== items[items.length - 1].seq)
+      if (page.has_older && (!items.length || !isObject(page.next_before)
+        || page.next_before.seq !== items[items.length - 1].seq
+        || page.next_before.submission_id !== items[items.length - 1].payload.submission_id)
         || !page.has_older && page.next_before !== null && page.next_before !== undefined
         || previous?.total !== undefined && page.total < previous.total) {
         throw new Error('输入历史的继续游标或计数无效');
       }
       const known = new Map(this.state.submissions.map((row) => [row.payload.submission_id, row]));
+      const newest = previous?.newest_cursor;
+      const overlaps = before === undefined && newest !== undefined && items.some((row) =>
+        row.seq === newest.seq && row.payload.submission_id === newest.submission_id);
       for (const row of items) {
         let submission = known.get(row.payload.submission_id);
         if (submission && (submission.payload.subject_id !== subject
@@ -1486,13 +1513,14 @@ class LiveController implements ProjectionController {
         submission.accepted_seq = row.seq;
         this.applySubmissionView(submission, row.view, false);
       }
-      const overlaps = before === undefined && previous?.newest_seq !== undefined
-        && items.some((row) => row.seq <= previous.newest_seq!);
       this.state.submission_history = {
         loading: false, total: page.total,
         has_older: overlaps ? previous!.has_older : page.has_older,
-        next_before: overlaps ? previous!.next_before : page.has_older ? Number(page.next_before) : undefined,
-        newest_seq: Math.max(previous?.newest_seq ?? 0, items[0]?.seq ?? 0),
+        next_before: overlaps ? previous!.next_before : page.has_older ? {
+          seq: items[items.length - 1].seq, submission_id: items[items.length - 1].payload.submission_id,
+        } : undefined,
+        newest_cursor: before === undefined && items.length
+          ? { seq: items[0].seq, submission_id: items[0].payload.submission_id } : newest,
       };
       this.scheduleReceiptRefresh();
     } catch (error) {
@@ -1623,6 +1651,7 @@ class LiveController implements ProjectionController {
           streamed.content = data.content;
           streamed.next_chunk_seq = Math.max(streamed.next_chunk_seq, 1);
           streamed.commit_ref = data.commit_ref;
+          if (validRevision(data.commit_seq)) streamed.commit_seq = data.commit_seq;
           streamed.part_revision = data.part_revision;
           streamed.step = data.step;
           streamed.step_id = data.step_id;
@@ -1638,6 +1667,7 @@ class LiveController implements ProjectionController {
         streamed.content = data.content;
         streamed.next_chunk_seq = Math.max(streamed.next_chunk_seq, data.chunk_seq + 1);
         streamed.commit_ref = data.commit_ref;
+        if (validRevision(data.commit_seq)) streamed.commit_seq = data.commit_seq;
         streamed.part_revision = data.part_revision;
         streamed.step = data.step;
         streamed.step_id = data.step_id;
@@ -1673,6 +1703,7 @@ class LiveController implements ProjectionController {
       return;
     }
     const chunkSeq = data.chunk_seq;
+    if (existing && !isStream && validRevision(data.commit_seq)) existing.commit_seq = data.commit_seq;
     if (existing && chunkSeq < existing.next_chunk_seq) {
       // Committed replay and reconnect duplicates are idempotent. No
       // browser-visible step counter substitutes for message/part identity.
@@ -1720,6 +1751,7 @@ class LiveController implements ProjectionController {
         step: data.step,
         step_id: typeof data.step_id === 'string' ? data.step_id : data.message_id,
         commit_ref: data.commit_ref,
+        ...(validRevision(data.commit_seq) ? { commit_seq: data.commit_seq } : {}),
         observed_at: typeof data.observed_at === 'string' ? data.observed_at : '',
         ...(typeof data.stream_id === 'string' ? { stream_id: data.stream_id } : {}),
         ...(typeof data.request_id === 'string' ? { request_id: data.request_id } : {}),

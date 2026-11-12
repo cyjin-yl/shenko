@@ -71,11 +71,19 @@ pub struct WebSubmissionHistoryRow {
     pub created_at: String,
 }
 
+/// An import can admit many inputs in one local commit. The stable input ID
+/// completes the cursor without inventing a separate commit for each row.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebSubmissionCursor {
+    pub seq: u64,
+    pub submission_id: String,
+}
+
 pub struct WebSubmissionPage {
     pub items: Vec<WebSubmissionHistoryRow>,
     pub total: u64,
     pub has_older: bool,
-    pub next_before: Option<u64>,
+    pub next_before: Option<WebSubmissionCursor>,
 }
 
 pub enum WebAdmission {
@@ -130,11 +138,12 @@ impl Store {
     pub fn web_submissions_page(
         &self,
         agent_id: EntityId,
-        before: Option<u64>,
+        before: Option<&WebSubmissionCursor>,
         limit: usize,
     ) -> Result<WebSubmissionPage, ShenkoError> {
         let limit = limit.clamp(1, 200);
-        let before = before.map(i64::try_from).transpose().map_err(storage_error)?;
+        let before_seq = before.map(|cursor| i64::try_from(cursor.seq)).transpose().map_err(storage_error)?;
+        let before_id = before.map(|cursor| cursor.submission_id.as_str());
         let conn = self.ledger.conn.lock();
         let agent = agent_id.to_string();
         let total: u64 = conn.query_row(
@@ -148,10 +157,11 @@ impl Store {
              FROM web_input_submissions s LEFT JOIN inbox_events i \
              ON i.event_id=s.event_id AND i.agent_id=s.agent_id \
              WHERE s.agent_id=?1 AND json_extract(s.payload,'$.type')='submit' \
-             AND (?2 IS NULL OR s.accepted_commit_seq<?2) \
-             ORDER BY s.accepted_commit_seq DESC LIMIT ?3",
+             AND (?2 IS NULL OR s.accepted_commit_seq<?2 \
+                  OR (s.accepted_commit_seq=?2 AND s.submission_id<?3)) \
+             ORDER BY s.accepted_commit_seq DESC, s.submission_id DESC LIMIT ?4",
         ).map_err(storage_error)?;
-        let rows = statement.query_map(params![agent, before, (limit + 1) as i64], |row| {
+        let rows = statement.query_map(params![agent, before_seq, before_id, (limit + 1) as i64], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?, row.get::<_, u64>(3)?, row.get::<_, String>(4)?))
         }).map_err(storage_error)?;
@@ -170,7 +180,10 @@ impl Store {
         }
         let has_older = items.len() > limit;
         items.truncate(limit);
-        let next_before = has_older.then(|| items.last().unwrap().record.accepted_commit.seq.0);
+        let next_before = if has_older { items.last().map(|row| WebSubmissionCursor {
+            seq: row.record.accepted_commit.seq.0,
+            submission_id: row.record.submission_id.clone(),
+        }) } else { None };
         Ok(WebSubmissionPage { items, total, has_older, next_before })
     }
 

@@ -226,6 +226,7 @@ function committedPart(stepId, step, content) {
     step,
     step_id: stepId,
     commit_ref: `ledger/${step}`,
+    commit_seq: step,
     terminal: true,
   };
 }
@@ -541,6 +542,79 @@ function historicalInput(seq, stepId) {
   };
 }
 
+test('replayed replies keep local ledger order ahead of newer unselected owner inputs', async (t) => {
+  const { sockets } = environment(t);
+  const older = historicalInput(3, 'old-step');
+  const pending = historicalInput(12);
+  pending.view.stage = 'accepted';
+  delete pending.view.committed_at;
+  // Admission order remains authoritative even when browser clocks differ.
+  pending.created_at = '2025-01-01T00:00:00Z';
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => json(path === '/api/self' ? { subject_id: 'fixture-subject' }
+    : String(path).startsWith('/api/submissions?') ? {
+      available: true, subject_id: 'fixture-subject', total: 2,
+      items: [pending, older], has_older: false, next_before: null,
+    } : {});
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  socket.receive({ ...committedPart('old-step', 10, '原先已提交的回复'),
+    commit_ref: 'foreign-source/700', observed_at: '2099-01-01T00:00:00Z' });
+  const direct = () => collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
+  assert.deepEqual(direct().messages.map((message) => message.text),
+    ['原始输入 3', '原先已提交的回复', '原始输入 12']);
+
+  intent(controller, 'composer', 'composer.draft', { value: '本页新发送的输入' });
+  intent(controller, 'composer', 'composer.append');
+  const input = socket.sent.find((message) => message.type === 'submit');
+  view(socket, input, 'accepted', { accepted_commit: 'ledger/14' });
+  assert.deepEqual(direct().messages.map((message) => message.text),
+    ['原始输入 3', '原先已提交的回复', '原始输入 12', '本页新发送的输入']);
+});
+
+test('queried historical inputs stay outside the browser outbox until an explicit retry', async (t) => {
+  const { storage, sockets } = environment(t);
+  const historical = historicalInput(30);
+  historical.view.stage = 'accepted';
+  delete historical.view.committed_at;
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => json(path === '/api/self' ? { subject_id: 'fixture-subject' }
+    : String(path).startsWith('/api/submissions?') ? {
+      available: true, subject_id: 'fixture-subject', total: 1,
+      items: [historical], has_older: false, next_before: null,
+    } : {});
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  intent(controller, 'composer', 'composer.draft', { value: '本机尚待处理的输入' });
+  intent(controller, 'composer', 'composer.append');
+  const local = socket.sent.find((message) => message.type === 'submit');
+  t.mock.timers.tick(2000);
+  assert.ok(socket.sent.some((message) => message.type === 'query_submission'
+    && message.submission_id === historical.payload.submission_id));
+  socket.receive({ ...historical.view, send_epoch: 0 });
+  view(socket, local, 'accepted');
+  assert.equal(storage.has('shenko.submission.v2.history-30'), false);
+  assert.ok(storage.has(`shenko.submission.v2.${local.submission_id}`));
+  assert.equal(socket.sent.filter((message) => message.type === 'submit').length, 1);
+  socket.receive({ schema_version: 2, type: 'submission_view', result: 'not_admitted',
+    submission_id: historical.payload.submission_id, send_epoch: 0 });
+  assert.equal(controller.projection().nodes.find((node) => node.node_id === 'composer').props.draft, '');
+  assert.equal(storage.has('shenko.submission.v2.history-30'), false);
+  const row = timelineNode(controller).children.find((entry) => entry.node_id === 'submission.history-30');
+  intent(controller, row.node_id, row.props.retry_action);
+  assert.equal(socket.sent.filter((message) => message.type === 'submit').length, 2);
+  assert.deepEqual(socket.sent.filter((message) => message.type === 'submit').at(-1), historical.payload);
+  assert.deepEqual(socket.persistedAtSend.at(-1).payload, historical.payload);
+});
+
 test('reopened owner history pairs each reply, loads earlier pages and keeps copy actions independent', async (t) => {
   const { storage, sockets } = environment(t);
   const copied = [];
@@ -557,10 +631,10 @@ test('reopened owner history pairs each reply, loads earlier pages and keeps cop
     if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
     if (String(path).startsWith('/api/submissions?')) {
       requests.push(String(path));
-      const before = new URL(String(path), 'http://fixture.invalid').searchParams.get('before');
+      const before = new URL(String(path), 'http://fixture.invalid').searchParams.get('before_seq');
       return json({ available: true, subject_id: 'fixture-subject', total: 2,
         items: [historicalInput(before ? 4 : 20, before ? 'step-4' : 'step-20')],
-        has_older: !before, next_before: before ? null : 20 });
+        has_older: !before, next_before: before ? null : { seq: 20, submission_id: 'history-20' } });
     }
     return json({});
   };
@@ -617,7 +691,8 @@ test('unavailable and invalid history pages preserve both admitted and pending i
       if (phase === 'unavailable') return json({ available: false, items: [], note: 'storage unavailable' });
       return json({ available: true, subject_id: 'fixture-subject', total: 2,
         items: [historicalInput(phase === 'invalid' ? 40 : 30, 'step-30')],
-        has_older: true, next_before: phase === 'invalid' ? 40 : 30 });
+        has_older: true, next_before: { seq: phase === 'invalid' ? 40 : 30,
+          submission_id: phase === 'invalid' ? 'history-40' : 'history-30' } });
     }
     return json({});
   };
@@ -638,9 +713,52 @@ test('unavailable and invalid history pages preserve both admitted and pending i
     assert.deepEqual(new Set(original().map((entry) => entry.props.submission.payload.submission_id)),
       new Set(['history-30', pendingId]));
     assert.equal(original().find((entry) => entry.props.submission.payload.submission_id === pendingId).props.submission.receipt, saved);
-    assert.equal(timelineNode(controller).props.submission_history.next_before, 30);
+    assert.deepEqual(timelineNode(controller).props.submission_history.next_before,
+      { seq: 30, submission_id: 'history-30' });
     assert.ok(timelineNode(controller).props.submission_history.error);
   }
-  assert.ok(requests.slice(-2).every((path) => path.includes('before=30')));
+  assert.ok(requests.slice(-2).every((path) => path.includes('before_seq=30') && path.includes('before_id=history-30')));
   assert.equal(socket.sent.filter((message) => message.type === 'submit').length, 1);
+});
+
+test('history pages sharing one import commit retain every ID in SQLite binary order', async (t) => {
+  const { storage, sockets } = environment(t);
+  const ids = ['same-\u{10000}', 'same-\ue000', 'same-a'];
+  const rows = ids.map((id) => {
+    const row = historicalInput(50);
+    row.payload.submission_id = id;
+    row.payload.message_id = `message-${id}`;
+    row.payload.content = `原始输入 ${id}`;
+    row.view = { ...row.view, submission_id: id, stage: 'accepted' };
+    delete row.view.committed_at;
+    return row;
+  });
+  const requests = [];
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (!String(path).startsWith('/api/submissions?')) return json({});
+    const query = new URL(String(path), 'http://fixture.invalid').searchParams;
+    requests.push(query);
+    const earlier = query.has('before_id');
+    return json({ available: true, subject_id: 'fixture-subject', total: 3,
+      items: earlier ? rows.slice(2) : rows.slice(0, 2), has_older: !earlier,
+      next_before: earlier ? null : { seq: 50, submission_id: ids[1] } });
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  assert.equal(timelineNode(controller).props.submission_history.error, undefined);
+  intent(controller, 'timeline', 'submissions.load_older');
+  await setImmediate();
+  assert.deepEqual(timelineNode(controller).children.filter((entry) => entry.kind === 'user_submission')
+    .map((entry) => entry.props.submission.payload.submission_id), [...ids].reverse());
+  assert.equal(requests.at(-1).get('before_seq'), '50');
+  assert.equal(requests.at(-1).get('before_id'), ids[1]);
+  assert.equal(timelineNode(controller).props.submission_history.has_older, false);
+  assert.equal([...storage.keys()].some((key) => key.startsWith('shenko.submission.v2.')), false);
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
 });

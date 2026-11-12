@@ -278,7 +278,8 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
                 : null}
               emit={emit}
               onOpenInspect={() => setTab('inspect')}
-              historyControl={<SubmissionHistory node={timeline} emit={emit} />}
+              historyControl={(beforeLoad) => <SubmissionHistory node={timeline} emit={emit} beforeLoad={beforeLoad} />}
+              historyLoading={timeline.props.submission_history?.loading === true}
               demo={demo}
             />
             : <InspectContext.Provider value={inspect}>
@@ -453,7 +454,7 @@ function useConversations(live: boolean, step: number | null): { rows: Conversat
   return { rows, error };
 }
 
-function SubmissionHistory({ node, emit }: { node: UiNode; emit: Emit }) {
+function SubmissionHistory({ node, emit, beforeLoad }: { node: UiNode; emit: Emit; beforeLoad?: () => void }) {
   const history = node.props.submission_history;
   if (!history || !history.loading && !history.error && !history.has_older) return null;
   return <div className="im-system">
@@ -461,7 +462,7 @@ function SubmissionHistory({ node, emit }: { node: UiNode; emit: Emit }) {
     {history.error && <span role="status">消息历史暂不可用：{history.error} </span>}
     {!history.loading && (history.has_older || history.error) && <span data-load-submissions="true"><Button
       variant="ghost" size="sm"
-      onClick={() => emit('timeline', 'submissions.load_older')}
+      onClick={() => { beforeLoad?.(); emit('timeline', 'submissions.load_older'); }}
     >{history.error ? '重新读取消息历史' : '加载更早的消息'}</Button></span>}
   </div>;
 }

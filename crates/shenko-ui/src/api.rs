@@ -501,6 +501,14 @@ struct ContextQuery {
     before: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubmissionsQuery {
+    limit: Option<usize>,
+    before_seq: Option<u64>,
+    before_id: Option<String>,
+}
+
 fn local_subject_id(store: &shenko_store::Store) -> anyhow::Result<shenko_types::ids::EntityId> {
     store.get_existing_agent_id()?.ok_or_else(|| anyhow::anyhow!("subject is not initialized"))
 }
@@ -509,21 +517,28 @@ fn local_subject_id(store: &shenko_store::Store) -> anyhow::Result<shenko_types:
 /// `/api/context`: newest first, with an explicit strictly-older cursor.
 async fn submissions_handler(
     State(state): State<ApiState>,
-    Query(query): Query<ContextQuery>,
-) -> Json<Value> {
+    Query(query): Query<SubmissionsQuery>,
+) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    let before = match (query.before_seq, query.before_id) {
+        (None, None) => None,
+        (Some(seq), Some(submission_id)) if !submission_id.is_empty() =>
+            Some(shenko_store::web_input::WebSubmissionCursor { seq, submission_id }),
+        _ => return Err((axum::http::StatusCode::BAD_REQUEST,
+            Json(json!({"available": false, "note": "历史游标需要完整的序号和提交 ID"})))),
+    };
     let Some(store) = state.store.as_ref() else {
-        return Json(json!({"available": false, "items": [], "note": "持久输入服务尚未接入"}));
+        return Ok(Json(json!({"available": false, "items": [], "note": "持久输入服务尚未接入"})));
     };
     let limit = query.limit
         .unwrap_or_else(|| crate::config_namespaces::page_limit(state.config.as_ref()))
         .clamp(1, crate::config_namespaces::MAX_PAGE_LIMIT);
-    match local_subject_id(store).and_then(|subject| crate::input::WebInputService::history(store, subject, query.before, limit)) {
+    Ok(match local_subject_id(store).and_then(|subject| crate::input::WebInputService::history(store, subject, before.as_ref(), limit)) {
         Ok(page) => Json(json!({
             "available": true, "subject_id": page.subject_id, "items": page.items,
             "total": page.total, "has_older": page.has_older, "next_before": page.next_before,
         })),
         Err(error) => Json(json!({"available": false, "items": [], "note": format!("输入历史读取失败: {error}")})),
-    }
+    })
 }
 
 /// `GET /api/tasks` → `{ items: [{task_id, kind, state, created_at}] }`.

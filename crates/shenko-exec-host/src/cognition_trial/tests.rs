@@ -114,7 +114,8 @@ async fn native_read_fixture(followup: bool, missing: bool) {
         let installation = std::fs::read_dir(&root).unwrap().map(|entry| entry.unwrap())
             .find(|entry| entry.file_name().to_string_lossy().starts_with("native-read-")).unwrap().path();
         let store = Store::open(installation.join("shenko.db"), installation.join("cas")).unwrap();
-        let decisions = store.committed_decisions_after(0, None, 64).unwrap();
+        let agent = store.get_existing_agent_id().unwrap().unwrap();
+        let decisions = store.committed_decisions_after(agent, 0, None, 64).unwrap();
         let intent = decisions.iter().flat_map(|(_, _, decision)| &decision.delegated_task_intents)
             .find(|intent| intent.definition.as_ref().is_some_and(|definition|
                 definition.input["unit_id"] == "uninstalled.fixture.unit")).unwrap();
@@ -449,7 +450,8 @@ fn assert_control_cannot_read_candidate(fixture: &PreparedFixture) -> Result<()>
         .map(|entry| entry.path()).find(|path| path.join("shenko.db").is_file())
         .context("control subject installation missing")?;
     let store = Store::open(installation.join("shenko.db"), installation.join("cas"))?;
-    let decisions = store.committed_decisions_after(0, None, 64)?;
+    let agent = store.get_existing_agent_id()?.context("control subject missing")?;
+    let decisions = store.committed_decisions_after(agent, 0, None, 64)?;
     let intent = decisions.iter().flat_map(|(_, _, decision)| &decision.delegated_task_intents)
         .find(|intent| intent.definition.as_ref().is_some_and(|definition|
             definition.input["unit_id"] == fixture.source_read["unit_id"]))

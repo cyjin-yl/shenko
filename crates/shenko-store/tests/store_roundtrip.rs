@@ -634,22 +634,87 @@ fn imported_committed_steps_replay_in_step_order_with_a_one_item_page() {
     let mut archive = Vec::new();
     source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive).unwrap();
     let target = Store::open(dir.join("replay.db"), dir.join("replay-cas")).unwrap();
+    let local_agent = initialize_subject_in(&target, b"local replay owner");
+    let (local_head, local_step) = target.load_subject(local_agent).unwrap();
+    let local_step_id = local_step.step_id;
+    let local_next = EntityId::new();
+    let local_result = recorded_result(&target, &local_head, local_step);
+    let local_committed = committed_candidate(&target, local_result, local_next);
+    target.commit_step_and_advance_head(&local_committed, &local_head, local_next).unwrap();
     target.import_cognition_archive(&archive[..], &CognitionImportOptions::default()).unwrap();
 
-    let first_page = target.committed_decisions_after(0, None, 1).unwrap();
+    assert_eq!(target.get_existing_agent_id().unwrap(), Some(local_agent));
+    let local = target.committed_decisions_after(local_agent, 0, None, 64).unwrap();
+    assert_eq!(local.iter().map(|(_, step, _)| step.step_id).collect::<Vec<_>>(), [local_step_id]);
+    assert!(target.committed_decisions_after(EntityId::new(), 0, None, 64).unwrap().is_empty());
+    let first_page = target.committed_decisions_after(agent, 0, None, 1).unwrap();
     assert_eq!(first_page.len(), 1);
     let (local_seq, first, _) = &first_page[0];
     assert_eq!(first.step_id, first_id);
     assert_eq!(first.step_no, 1);
     assert_eq!(first.commit_ref, Some(first_receipt.commit_ref));
-    let second_page = target.committed_decisions_after(*local_seq, Some(first.step_id), 1).unwrap();
+    let second_page = target.committed_decisions_after(agent, *local_seq, Some(first.step_id), 1).unwrap();
     assert_eq!(second_page.len(), 1);
     let (next_seq, second, _) = &second_page[0];
     assert_eq!(*next_seq, *local_seq);
     assert_eq!(second.step_id, second_id);
     assert_eq!(second.step_no, 2);
     assert_eq!(second.commit_ref, Some(second_receipt.commit_ref));
-    assert!(target.committed_decisions_after(*next_seq, Some(second.step_id), 1).unwrap().is_empty());
+    assert!(target.committed_decisions_after(agent, *next_seq, Some(second.step_id), 1).unwrap().is_empty());
+}
+
+#[test]
+fn imported_owner_inputs_page_through_one_shared_commit_without_loss() {
+    use shenko_store::cognition::{CognitionImportOptions, CognitionSnapshotOptions};
+    use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission};
+    use shenko_types::inbox::{InboxEvent, InboxEventKind};
+    use shenko_types::ids::EntityId;
+    use shenko_types::store::RawInboxEvent;
+
+    let (dir, source, agent) = initialized_subject();
+    let ids = ["cursor-a", "cursor-\u{e000}", "cursor-\u{10000}"];
+    for id in ids {
+        let payload = serde_json::json!({
+            "schema_version": 2, "type": "submit", "subject_id": agent.to_string(),
+            "submission_id": id, "message_id": format!("message-{id}"),
+            "mode": "append", "content": format!("原始输入 {id}"), "attachment_refs": [],
+        });
+        let event = InboxEvent {
+            event_id: EntityId::new(), kind: InboxEventKind::Message,
+            payload: serde_json::json!({"role": "user", "content": payload["content"], "submission_id": id}),
+            created_at: chrono::Utc::now(), source: WEB_INPUT_SOURCE.into(),
+        };
+        let raw = RawInboxEvent {
+            event_id: event.event_id, agent_id: agent, source: event.source.clone(),
+            kind: "message".into(), payload_json: serde_json::to_string(&event).unwrap(),
+            received_at_ms: event.created_at.timestamp_millis(),
+        };
+        assert!(matches!(source.admit_web_submission(agent, id, &payload.to_string(), &raw).unwrap(),
+            WebAdmission::Admitted(_)));
+    }
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive).unwrap();
+    let target = Store::open(dir.join("owner-history.db"), dir.join("owner-history-cas")).unwrap();
+    target.import_cognition_archive(&archive[..], &CognitionImportOptions::default()).unwrap();
+    let imported_seq = target.web_submissions_page(agent, None, 10).unwrap();
+    assert_eq!(imported_seq.items.len(), 3);
+    let seq = imported_seq.items[0].record.accepted_commit.seq.0;
+    assert!(imported_seq.items.iter().all(|row| row.record.accepted_commit.seq.0 == seq));
+    let mut before = None;
+    let mut recovered = Vec::new();
+    loop {
+        let page = target.web_submissions_page(agent, before.as_ref(), 1).unwrap();
+        assert_eq!(page.total, 3);
+        recovered.extend(page.items.into_iter().map(|row| row.record.submission_id));
+        if !page.has_older { assert_eq!(page.next_before, None); break; }
+        before = page.next_before;
+    }
+    assert_eq!(recovered, ids.into_iter().rev().collect::<Vec<_>>());
+    assert_eq!(target.web_submissions_page(EntityId::new(), None, 1).unwrap().total, 0);
+    drop(target);
+    let reopened = Store::open(dir.join("owner-history.db"), dir.join("owner-history-cas")).unwrap();
+    assert_eq!(reopened.web_submissions_page(agent, before.as_ref(), 1).unwrap()
+        .items[0].record.submission_id, ids[0]);
 }
 
 #[test]

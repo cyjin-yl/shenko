@@ -137,15 +137,15 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-pr293-align-20261113/crates/shenko-ui/web",
-  "built_at": "2026-11-12T21:45:30.377Z",
+  "built_at": "2026-11-12T23:13:30.877Z",
   "artifacts": {
     "app.js": {
-      "bytes": 1126203,
-      "sha256": "013b832b747a7d567f28cedd088a81df36275e34529972147fd4f23c8ff16a40"
+      "bytes": 1128642,
+      "sha256": "749f670f2d6b5acb96cd64632621220f25873620e8f710dccb19e86413ae8690"
     },
     "app.css": {
-      "bytes": 50450,
-      "sha256": "113a9284f93a82645915e1d479cd1d0d20432b1ad5c1d3596c3cdcf88e0f3183"
+      "bytes": 50473,
+      "sha256": "bc59cc652b249bbb6934e54214c77868ee9440c3d3b747eb2016eb3dd05c0c23"
     },
     "proto-ui-style.css": {
       "bytes": 294,
