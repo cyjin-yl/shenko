@@ -150,6 +150,12 @@ Why：主体会在没有人盯着的情况下自己编写、在沙箱里自测�
 以所有者会话调用 `/api`；如果一页由外部内容诱导写成，它在所有者打开时以所有者身份运行。
 这由主体的来源意识、自测与回退承担，记录在此以便日后按证据修订。
 
+这里的默认信任授予已安装扩展使用其运行环境与能力声明的权限，不改变
+[§21.3](#spec-21-3) 的服务协议、能力检查和数据可见范围，或
+[§21.6](#spec-21-6) 对任意代码组件声明运行环境与能力的要求。作品页面经所有者的
+Web 会话调用服务；页面和第三方 slot 贡献都不直接读写 SQLite，业务副作用仍由任务与
+operation ledger 证明。能力目录中的插件贡献接线属于下方明确列出的后续实现。
+
 DeepSeek Harness 的 Web 客户端以 Cordis 插件向类型化 slot（`ctx.slots.register/inject`，
 list/keyed/chain/hoc 与 priority 覆盖）注册同源 React 组件，安装即信任。Shenko 采用
 同样的“外壳也是贡献者”结构；插件的界面贡献按 [内核 7](kernel.md#kernel-7) 只经能力
@@ -678,3 +684,9 @@ Content, stage and publish transitions share the Playground record write lock;
 a reader's revision is checked inside that transition. Publication resolves
 the candidate CAS object before looking up its typed manifest version digest,
 and the UI's adoption action selects the newest retained candidate.
+
+## Conversation publication facts
+
+Channel conversations combine classified inbox envelopes with committed publication intents. Each direction selects its newest bounded history. A publication's displayed time comes from the task created in the same S1 transaction, which also covers publications created by a delegated child. Imported task metadata keeps its recorded time; an older publication without that metadata retains an unknown time. Messages use normalized UTC timestamps and stable message identities for ordering. Existing inbox rows do not carry a cross-table commit sequence, so the projection does not infer a causal order from unrelated row numbers.
+
+Publication labels follow the actual `ready`, `claimed`, `acknowledged`, `settled`, `blocked` and `unknown` ledger states. `settled` is displayed as an ended operation: cancellation can settle a publication that was never dispatched, so this state alone does not prove that a message was sent or read.

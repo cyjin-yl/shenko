@@ -211,13 +211,16 @@ pub struct ConversationMessage {
     pub sender_name: Option<String>,
     pub text: String,
     pub at: Option<String>,
-    /// Publication state for outbound messages (`ready`, `claimed`, `done`…).
+    /// The publication ledger's actual state for outbound messages.
     pub state: Option<String>,
 }
 
 impl Store {
-    /// Recent channel conversation messages in both directions, oldest first.
+    /// Recent messages, up to `limit` in each direction, in timestamp order.
+    /// Publication time comes from the task created with the intent; missing
+    /// historical task metadata stays unknown instead of inventing a time.
     pub fn channel_conversation_messages(&self, limit: usize) -> Result<Vec<ConversationMessage>> {
+        use chrono::SecondsFormat;
         use shenko_types::channel::ChannelEnvelope;
         let limit = limit.clamp(1, 2000) as i64;
         let inbound = {
@@ -231,46 +234,66 @@ impl Store {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
         };
-        let mut out = Vec::new();
+        let publications = {
+            let conn = self.ledger.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT i.intent_id, i.payload, i.state, t.created_at FROM subject_intents i \
+                 LEFT JOIN tasks t ON t.task_id=i.intent_id \
+                 WHERE i.kind='publication' ORDER BY i.created_seq DESC, i.intent_id DESC LIMIT ?1",
+            )?;
+            stmt.query_map([limit], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut out = Vec::with_capacity(inbound.len() + publications.len());
         for (event_id, data) in inbound {
             // Only classified envelopes carry a reply audience; other inputs
             // (the owner's web input, legacy frames) are not channel threads.
             let Ok(envelope) = serde_json::from_str::<ChannelEnvelope>(&data) else { continue };
-            let Some(target) = envelope.reply_target.as_ref() else { continue };
+            let Some(target) = envelope.reply_target else { continue };
             out.push(ConversationMessage {
                 thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
-                thread_label: Some(target.label.clone()).filter(|label| !label.is_empty()),
-                thread_kind: target.kind.clone(),
-                channel: envelope.provider.clone(),
+                thread_label: Some(target.label).filter(|label| !label.is_empty()),
+                thread_kind: target.kind,
+                channel: envelope.provider,
                 direction: "inbound",
                 message_id: event_id,
-                sender_id: Some(envelope.actor.platform_id.clone()),
-                sender_name: envelope.actor.display_name.clone().or_else(|| envelope.actor.alias.clone()),
-                text: envelope.content.text.clone(),
-                at: Some(envelope.occurred_at.unwrap_or(envelope.received_at).to_rfc3339()),
+                sender_id: Some(envelope.actor.platform_id),
+                sender_name: envelope.actor.display_name.or(envelope.actor.alias),
+                text: envelope.content.text,
+                at: Some(envelope.occurred_at.unwrap_or(envelope.received_at)
+                    .to_rfc3339_opts(SecondsFormat::Nanos, true)),
                 state: None,
             });
         }
-        for intent in self.committed_intents(Some("publication"), None, limit as usize)? {
-            let Ok(publication) = serde_json::from_value::<shenko_types::subject::PublicationIntent>(intent.payload.clone()) else {
+        for (intent_id, payload, state, created_at) in publications {
+            let Ok(publication) = serde_json::from_str::<shenko_types::subject::PublicationIntent>(&payload) else {
                 continue;
             };
-            let target = &publication.target;
+            let at = created_at.map(|value| {
+                chrono::NaiveDateTime::parse_from_str(&value, "%Y-%m-%d %H:%M:%S%.f")
+                    .map(|time| time.and_utc().to_rfc3339_opts(SecondsFormat::Nanos, true))
+            }).transpose()?;
+            let target = publication.target;
             out.push(ConversationMessage {
                 thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
                 thread_label: None,
-                thread_kind: target.kind.clone(),
-                channel: target.channel.clone(),
+                thread_kind: target.kind,
+                channel: target.channel,
                 direction: "outbound",
-                message_id: intent.intent_id.to_string(),
+                message_id: intent_id,
                 sender_id: None,
                 sender_name: None,
-                text: publication.content.clone(),
-                at: None,
-                state: Some(intent.state.clone()),
+                text: publication.content,
+                at,
+                state: Some(state),
             });
         }
-        out.sort_by(|left, right| left.at.cmp(&right.at));
+        out.sort_unstable_by(|left, right| left.at.is_none().cmp(&right.at.is_none())
+            .then_with(|| left.at.cmp(&right.at))
+            .then_with(|| left.message_id.cmp(&right.message_id)));
         Ok(out)
     }
 }

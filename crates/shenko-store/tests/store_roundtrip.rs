@@ -1414,6 +1414,68 @@ fn commit_publication_step(
     step
 }
 
+#[test]
+fn channel_conversations_interleave_publications_with_recorded_message_times() {
+    use chrono::{Duration, NaiveDateTime};
+    use shenko_types::{channel::ChannelEnvelope, ids::EntityId, store::RawInboxEvent};
+
+    let (dir, store, agent) = initialized_subject();
+    let publication = publication_intent();
+    commit_publication_step(&store, agent, &publication);
+    let task = store.list_task_summaries(100).unwrap().into_iter()
+        .find(|task| task.task_id == publication.intent_id.to_string()).unwrap();
+    let published = NaiveDateTime::parse_from_str(&task.created_at, "%Y-%m-%d %H:%M:%S%.f")
+        .unwrap().and_utc();
+    let admit = |text: &str, at: chrono::DateTime<chrono::Utc>| {
+        let event_id = EntityId::new();
+        let envelope: ChannelEnvelope = serde_json::from_value(serde_json::json!({
+            "schema_version": 1, "provider": "qq", "account": "qq:10001",
+            "transport_identity_domain": "test:qq", "conversation": "group:123456789",
+            "message_id": event_id.to_string(), "received_at": at, "occurred_at": at,
+            "actor": {"platform_id": "member", "display_name": "成员"},
+            "content": {"text": text},
+            "reply_target": {"kind": "group", "id": "123456789", "label": "群聊", "account": "qq:10001"}
+        })).unwrap();
+        let mut batch = WriteBatch::new();
+        batch.inbox_event_upserts.push(RawInboxEvent {
+            event_id, agent_id: agent, source: "channel/qq".into(), kind: "message".into(),
+            payload_json: serde_json::to_string(&envelope).unwrap(), received_at_ms: at.timestamp_millis(),
+        });
+        store.commit(batch).unwrap();
+        event_id
+    };
+    // A delayed delivery can precede an already committed publication in
+    // event time. The later message must follow that same publication.
+    let before = admit("较早的来信", published - Duration::seconds(1));
+    let after = admit("较后的来信", published + Duration::seconds(1));
+    let expected = vec![before.to_string(), publication.intent_id.to_string(), after.to_string()];
+    let messages = store.channel_conversation_messages(10).unwrap();
+    assert_eq!(messages.iter().map(|message| message.message_id.clone()).collect::<Vec<_>>(), expected);
+    assert_eq!(messages.iter().map(|message| message.direction).collect::<Vec<_>>(),
+        vec!["inbound", "outbound", "inbound"]);
+    assert!(messages.iter().all(|message| message.thread_key == "qq:10001|group|123456789"));
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    assert_eq!(reopened.channel_conversation_messages(10).unwrap().into_iter()
+        .map(|message| message.message_id).collect::<Vec<_>>(), expected);
+}
+
+#[test]
+fn channel_conversations_limit_selects_latest_publications() {
+    let (_dir, store, agent) = initialized_subject();
+    let first = publication_intent();
+    let second = publication_intent();
+    let third = publication_intent();
+    for intent in [&first, &second, &third] {
+        commit_publication_step(&store, agent, intent);
+    }
+    let actual = store.channel_conversation_messages(2).unwrap().into_iter()
+        .map(|message| message.message_id).collect::<std::collections::BTreeSet<_>>();
+    let expected = [second.intent_id.to_string(), third.intent_id.to_string()]
+        .into_iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(actual, expected);
+}
+
 fn publication_state(store: &Store, intent_id: shenko_types::ids::EntityId) -> String {
     store
         .committed_intents(Some("publication"), None, 16)

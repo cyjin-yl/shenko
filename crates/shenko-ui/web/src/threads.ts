@@ -342,7 +342,8 @@ export interface ConversationRow {
 }
 
 const PUBLICATION_WORDS: Record<string, string> = {
-  ready: '待发送', claimed: '发送中', done: '已发送', refused: '未发送', unknown: '发送结果未知',
+  ready: '待发送', claimed: '发送中', acknowledged: '已确认', settled: '已结束',
+  blocked: '未发送', unknown: '发送结果未知',
 };
 
 /// Channel conversations — groups and direct chats on other platforms — from
