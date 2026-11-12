@@ -1976,7 +1976,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 429,
+      "source_markdown_line": 433,
       "source_row": "| H01 | 同一组插件以不同安装顺序加载，给定相同版本与依赖图得到相同处理顺序和最终结构；异步贡献完成顺序不改变结果 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2000,7 +2000,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 430,
+      "source_markdown_line": 434,
       "source_row": "| H02 | 插件 A 要求 after B、B 要求 after A，候选图拒绝并说明环；旧主体继续，能委派修复 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2024,7 +2024,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 431,
+      "source_markdown_line": 435,
       "source_row": "| H03 | generation 期间连续入站 QQ、child、更新与音频事件；按真实边界注入，不丢原文、不修改旧请求、不启动另一主体 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2048,7 +2048,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 432,
+      "source_markdown_line": 436,
       "source_row": "| H04 | Budget Compact、Snapcompact、PMA 与工具发现同时安装，策略选择及最终预算确定；瞬态提醒不永久污染 history |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2072,7 +2072,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 433,
+      "source_markdown_line": 437,
       "source_row": "| H05 | C=1 且 memory hook 需要额外模型推理，主/子都能推进，没有占许可等待许可的死锁 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2096,7 +2096,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 434,
+      "source_markdown_line": 438,
       "source_row": "| H06 | 给定 handler 新增 hook schema 或 before/after 依赖，缺失 required 目标不会静默失效；兼容 adapter 可升级激活 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2120,7 +2120,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 435,
+      "source_markdown_line": 439,
       "source_row": "| H07 | 活跃请求期间热更新插件，当前请求按固定图结束或明确交接；后续请求使用新图，旧 receipt 仍能解释 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2144,7 +2144,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 436,
+      "source_markdown_line": 440,
       "source_row": "| H08 | handler 超时、异常、重复事件或反馈循环有明确 trace 与恢复；不以新插件故障使整个永续主体不可恢复 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2168,7 +2168,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 437,
+      "source_markdown_line": 441,
       "source_row": "| H09 | 自开发新增真实 hook 点和插件，加载后在目标时机实际触发；只注册名字但路径不触发不能通过 |",
       "verification_status": "unverified",
       "implementation_refs": [],
@@ -2192,7 +2192,7 @@
         "37.11 首版验收"
       ],
       "source_path": "docs/specs/context-policies.md",
-      "source_markdown_line": 438,
+      "source_markdown_line": 442,
       "source_row": "| H10 | 回放经过发送/Seat/更新 hook 的历史，读取既有事实或协调 unknown，不重复外部效果；已实现 provider 原生字段不被兼容层吞掉 |",
       "verification_status": "unverified",
       "implementation_refs": [],
