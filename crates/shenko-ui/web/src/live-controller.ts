@@ -1496,6 +1496,9 @@ class LiveController implements ProjectionController {
   private applyChunk(data: TimelineChunk, isStream: boolean): void {
     if (!isStream && (this.state.step === null || data.step > this.state.step)) {
       this.state.step = data.step;
+      // A new committed step may have started or settled delegations; the
+      // task list behind the IM threads and Inspect branches follows it.
+      this.scheduleTaskRefresh();
     }
     const key = this.partKey(data);
     const streamFacts = {
@@ -1865,6 +1868,16 @@ class LiveController implements ProjectionController {
       void this.loadSelf();
     }, this.identityRetryDelay);
     this.identityRetryDelay = Math.min(this.identityRetryDelay * 2, 30000);
+  }
+
+  private taskRefresh: number | undefined;
+
+  private scheduleTaskRefresh(): void {
+    if (this.taskRefresh !== undefined) return;
+    this.taskRefresh = window.setTimeout(() => {
+      this.taskRefresh = undefined;
+      if (!this.disposed) void this.loadTasks();
+    }, 600);
   }
 
   private async loadTasks(): Promise<void> {

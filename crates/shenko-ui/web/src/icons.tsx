@@ -6,7 +6,7 @@ export type IconName =
   | 'timeline' | 'tasks' | 'memory' | 'config' | 'playground'
   | 'panel' | 'sun' | 'moon' | 'copy' | 'check' | 'send' | 'steer'
   | 'down' | 'close' | 'chevron' | 'more' | 'undo' | 'retry'
-  | 'file' | 'open' | 'spark' | 'wrap' | 'info' | 'warning' | 'empty';
+  | 'file' | 'open' | 'spark' | 'wrap' | 'info' | 'warning' | 'empty' | 'chat';
 
 export function Icon({ name, size = 18 }: { name: IconName | string; size?: number }) {
   const common = {
@@ -46,6 +46,7 @@ export function Icon({ name, size = 18 }: { name: IconName | string; size?: numb
     case 'wrap': return <svg {...common}><path d="M3.5 5h13M3.5 10h10.5a2.5 2.5 0 0 1 0 5H10" /><path d="m11.5 13.2-1.8 1.8 1.8 1.8M3.5 15h3" /></svg>;
     case 'info': return <svg {...common}><circle cx="10" cy="10" r="7" /><path d="M10 9v4.5M10 6.5h.01" /></svg>;
     case 'warning': return <svg {...common}><path d="M10 3.5 17 16H3Z" /><path d="M10 8.5v3.5M10 14h.01" /></svg>;
+    case 'chat': return <svg {...common}><path d="M10 3.5c3.9 0 7 2.6 7 5.8s-3.1 5.8-7 5.8c-.8 0-1.6-.1-2.3-.3L4.2 16.3l.9-2.9C3.8 12.3 3 10.9 3 9.3 3 6.1 6.1 3.5 10 3.5Z" /></svg>;
     case 'empty': return <svg {...common}><rect x="3.5" y="5" width="13" height="10" rx="3" strokeDasharray="2.5 2.5" /></svg>;
     default: return <svg {...common}><circle cx="10" cy="10" r="6" /></svg>;
   }

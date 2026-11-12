@@ -608,6 +608,19 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     assert_eq!(replacement.usage(&request_id), Some(used));
     assert!(replacement.collect(&scope, 2).contributions.is_empty());
     assert!(matches!(store.native_task_result(task.task_id).unwrap().unwrap().outcome, TaskOutcome::Succeeded));
+    // The inspection trajectory reads the same run back from ledger facts:
+    // both model steps in order with their sealed records, the tool call the
+    // first step made, and the final answer (docs/specs/web-interface.md#5-2).
+    let trajectory = store.task_trajectory(task.task_id).unwrap().expect("the run has a trajectory");
+    assert_eq!(trajectory.task.kind, crate::model_child::MODEL_CHILD_KIND);
+    assert!(trajectory.input.as_ref().is_some_and(|input| input.to_string().contains("Observe prepared context.")),
+        "the delegation brief is readable: {:?}", trajectory.input);
+    let steps: Vec<_> = trajectory.operations.iter()
+        .filter(|operation| operation.operation_name == MODEL_CHILD_STEP_OPERATION).collect();
+    assert_eq!(steps.len(), 2, "{:?}", trajectory.operations);
+    let first = steps[0].record.as_ref().expect("first step record is sealed");
+    assert_eq!(first["tool_calls"].as_array().map(Vec::len), Some(1), "{first}");
+    assert_eq!(steps[1].record.as_ref().unwrap()["text"], "finished the finite observation");
     server.await.unwrap();
     native.close_and_join(0).await;
     drop(native); drop(subject);

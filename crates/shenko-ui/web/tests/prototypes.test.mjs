@@ -32,7 +32,7 @@ test('every declared Shenko prototype was compiled from the authored source byte
   assert.equal(manifest.status, 'build_time_compiled');
   assert.equal(manifest.runtime_imported, false);
   assert.equal(manifest.profile, 'react-dom-source-v1');
-  assert.deepEqual(manifest.prototypes.map((prototype) => prototype.name), ['transport-badge']);
+  assert.deepEqual(manifest.prototypes.map((prototype) => prototype.name), ['transport-badge', 'message-bubble']);
   for (const prototype of manifest.prototypes) {
     assert.equal(sha256(join(webRoot, prototype.entry)), prototype.entry_sha256);
     assert.equal(sha256(join(webRoot, prototype.generated_source)), prototype.generated_sha256);

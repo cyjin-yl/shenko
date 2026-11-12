@@ -148,6 +148,8 @@ impl ApiState {
 pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/api/tasks", get(tasks_handler))
+        .route("/api/tasks/{id}/trajectory", get(task_trajectory_handler))
+        .route("/api/conversations", get(conversations_handler))
         .route("/api/memory", get(memory_handler))
         .route("/api/config", get(config_handler))
         .route("/api/self", get(self_status_handler))
@@ -511,7 +513,7 @@ async fn tasks_handler(
         .unwrap_or_else(|| crate::config_namespaces::page_limit(state.config.as_ref()))
         .clamp(1, crate::config_namespaces::MAX_PAGE_LIMIT);
     match state.store.as_ref() {
-        Some(store) => match store.list_recent_tasks(limit) {
+        Some(store) => match store.list_task_summaries(limit) {
             Ok(items) => Json(json!({ "available": true, "items": items })),
             Err(e) => Json(json!({
                 "available": false,
@@ -524,6 +526,39 @@ async fn tasks_handler(
             "items": [],
             "note": "store 尚未接入 UI server (UiServer::with_store)",
         })),
+    }
+}
+
+/// `GET /api/tasks/{id}/trajectory` — one task's trajectory from ledger facts
+/// only: its row, the tasks it owns, and each operation with the normalized
+/// record its final evidence sealed (docs/specs/web-interface.md#5-2).
+async fn task_trajectory_handler(
+    State(state): State<ApiState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Some(store) = state.store.as_ref() else {
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "store 尚未接入 UI server" }))).into_response();
+    };
+    let Ok(task_id) = id.parse::<shenko_types::ids::EntityId>() else {
+        return (axum::http::StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid task id" }))).into_response();
+    };
+    match store.task_trajectory(task_id) {
+        Ok(Some(trajectory)) => Json(json!(trajectory)).into_response(),
+        Ok(None) => (axum::http::StatusCode::NOT_FOUND, Json(json!({ "error": "task not found" }))).into_response(),
+        Err(error) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": error.to_string() }))).into_response(),
+    }
+}
+
+/// `GET /api/conversations` — channel conversations (groups and direct chats)
+/// in both directions from the subject's own records (docs/specs/web-interface.md#5-2).
+async fn conversations_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(store) = state.store.as_ref() else {
+        return Json(json!({ "available": false, "messages": [], "note": "store 尚未接入 UI server" }));
+    };
+    match store.channel_conversation_messages(600) {
+        Ok(messages) => Json(json!({ "available": true, "messages": messages })),
+        Err(error) => Json(json!({ "available": false, "messages": [], "note": format!("会话读取失败: {error}") })),
     }
 }
 

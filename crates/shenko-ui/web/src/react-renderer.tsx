@@ -42,6 +42,18 @@ import {
   type Emit,
 } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
+import { ImView } from './im';
+import {
+  collectThreads,
+  isDelegation,
+  subjectParticipant,
+  trajectoryMessages,
+  childParticipant,
+  demoTrajectory,
+  type ConversationRow,
+  type ThreadMessage,
+  type TrajectoryResponse,
+} from './threads';
 import {
   lensSnapshot,
   pinnedWorks,
@@ -152,6 +164,31 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
   });
 
   const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as Array<Record<string, unknown>>;
+
+  // Two views of the same subject: 对话 is where the owner talks with it and
+  // watches the groups it is in; Inspect is its raw stream of thought. The
+  // choice is this browser's reading preference.
+  const [tab, setTabState] = React.useState<'im' | 'inspect'>(() => {
+    const query = new URLSearchParams(location.search).get('tab');
+    if (query === 'inspect' || query === 'im') return query;
+    try { return localStorage.getItem('shenko.tab.v1') === 'inspect' ? 'inspect' : 'im'; } catch { return 'im'; }
+  });
+  const setTab = (next: 'im' | 'inspect') => {
+    setTabState(next);
+    try { localStorage.setItem('shenko.tab.v1', next); } catch { /* page-only preference */ }
+  };
+  const [threadId, setThreadId] = React.useState<string>(() => new URLSearchParams(location.search).get('thread') ?? 'direct');
+  const conversations = useConversations(projection.source === 'live', timeline.props.step as number | null);
+  const threads = React.useMemo(
+    () => collectThreads({ projection, tasks, conversations: demo ? demoConversations : conversations }),
+    [projection, tasks, conversations, demo],
+  );
+  const inspect = React.useMemo(() => ({
+    tasks,
+    openThread: (id: string) => { setThreadId(id); setTab('im'); },
+    subject: subjectParticipant(projection),
+    demo,
+  }), [tasks, projection, demo]);
   const openWork = open?.kind === 'work'
     ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
     : undefined;
@@ -176,6 +213,20 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           </span>
           <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
         </button>
+        <nav className="tabs" aria-label="视图">
+          <ToggleGroupRoot
+            className="tab-switch"
+            a11yLabel="视图"
+            value={[tab]}
+            onValueChange={(detail: { value: readonly string[] }) => {
+              const next = detail.value.find((value) => value !== tab);
+              if (next === 'im' || next === 'inspect') setTab(next);
+            }}
+          >
+            <ToggleGroupItem value="im" className="tab-item"><Icon name="chat" size={16} />对话</ToggleGroupItem>
+            <ToggleGroupItem value="inspect" className="tab-item"><Icon name="timeline" size={16} />Inspect</ToggleGroupItem>
+          </ToggleGroupRoot>
+        </nav>
         <nav className="lensbar" aria-label="镜头">
           <ToggleGroupRoot
             className="lens-switch"
@@ -215,14 +266,29 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
       </header>
 
       <div className="body">
-        <main className="stream" id="main">
-          <TimelineSurface
-            node={timeline}
-            projection={projection}
-            emit={emit}
-            onOpenWork={(artifactId) => openLens({ id: `work:${artifactId}`, title: '', icon: 'file', order: 0, source: 'work', artifact_id: artifactId })}
-          />
-          <Composer node={composer} emit={emit} />
+        <main className="stream" id="main" data-tab={tab}>
+          {tab === 'im'
+            ? <ImView
+              threads={threads}
+              selected={threadId}
+              onSelect={setThreadId}
+              composer={<Composer node={composer} emit={emit} variant="im" />}
+              renderAttachment={(message: ThreadMessage) => message.node?.kind === 'semantic_document'
+                ? <SemanticDocumentView node={message.node} emit={emit} />
+                : null}
+              emit={emit}
+              onOpenInspect={() => setTab('inspect')}
+              demo={demo}
+            />
+            : <InspectContext.Provider value={inspect}>
+              <TimelineSurface
+                node={timeline}
+                projection={projection}
+                emit={emit}
+                onOpenWork={(artifactId) => openLens({ id: `work:${artifactId}`, title: '', icon: 'file', order: 0, source: 'work', artifact_id: artifactId })}
+              />
+              <Composer node={composer} emit={emit} />
+            </InspectContext.Provider>}
           {/* Results of the reader's own acts (copied, rejected stale action…)
               are a quiet status line, not a floating toast. */}
           <div className="statusline" role="status" aria-live="polite">{notice.props.text ?? ''}</div>
@@ -231,7 +297,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           <div className="lens-head">
             <span className="lens-title">{lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? ''}</span>
             {open?.kind === 'work' && (
-              <span className="lens-sub">作品页 · 独立沙箱，不带界面权限</span>
+              <span className="lens-sub">作品页 · 主体自己写的扩展，可回退到任一修订</span>
             )}
             <Button variant="ghost" size="icon" label="关闭镜头，回到时间线" onClick={() => openLens(undefined)}>
               <Icon name="close" />
@@ -279,13 +345,18 @@ function Attention({ step, status, tasks }: { step: number | null; status: strin
 }
 
 /**
- * A work's published page, live beside the stream. The frame has no
- * same-origin grant and the server sends its own CSP sandbox, so the page
- * runs as an opaque origin: it cannot read the shell, its cookies or its
- * socket. Its revision keys the frame, so a new revision is a fresh page.
+ * A work's published page, live beside the stream. Works are trusted
+ * extensions by default (docs/specs/web-interface.md#5-1): the subject wrote,
+ * tested and can roll them back, so the page shares the shell's origin. The
+ * safety rope is the named revision and the shell's safe mode (`?safe=1`),
+ * which opens no work page. Its revision keys the frame, so a new revision is
+ * a fresh page.
  */
 function WorkFrame({ artifactId, title, revision }: { artifactId: string; title: string; revision?: number }) {
   const pinned = pinnedWorks().includes(artifactId);
+  if (SAFE_MODE) {
+    return <div className="work-frame"><p className="muted safe-note">安全模式：不打开作品页。去掉地址里的 <code>safe=1</code> 即可恢复。</p></div>;
+  }
   const [, rerender] = React.useReducer((value: number) => value + 1, 0);
   return (
     <div className="work-frame">
@@ -301,10 +372,103 @@ function WorkFrame({ artifactId, title, revision }: { artifactId: string; title:
         className="work-iframe"
         src={`/playground/${artifactId}`}
         title={title}
-        sandbox="allow-scripts allow-forms allow-popups allow-modals"
-        referrerPolicy="no-referrer"
       />
     </div>
+  );
+}
+
+/// Safe mode opens no work page and pins no work lens: the rescue path when a
+/// trusted extension misbehaves (docs/specs/web-interface.md#spec-21-3).
+const SAFE_MODE = new URLSearchParams(location.search).get('safe') === '1';
+
+/// What Inspect needs beyond the projection: the task list (to find the
+/// delegations a round started) and a way to open a thread in 对话.
+const InspectContext = React.createContext<{
+  tasks: Array<Record<string, unknown>>;
+  openThread: (id: string) => void;
+  subject: ReturnType<typeof subjectParticipant>;
+  demo: boolean;
+}>({ tasks: [], openThread: () => undefined, subject: { id: 'subject', name: '主体', role: 'subject' }, demo: false });
+
+/// Channel conversations, re-read when a new step commits.
+function useConversations(live: boolean, step: number | null): ConversationRow[] {
+  const [rows, setRows] = React.useState<ConversationRow[]>([]);
+  React.useEffect(() => {
+    if (!live) return;
+    let current = true;
+    fetch('/api/conversations', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (current && data && Array.isArray(data.messages)) setRows(data.messages); })
+      .catch(() => { /* the threads keep their last known rows */ });
+    return () => { current = false; };
+  }, [live, step]);
+  return rows;
+}
+
+const demoConversations: ConversationRow[] = [
+  { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'inbound', message_id: 'dc1', sender_id: 'a', sender_name: '阿青', text: '有人试过 27B 在 4 路 128K 下的吞吐吗', at: new Date(Date.now() - 50 * 60_000).toISOString() },
+  { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'inbound', message_id: 'dc2', sender_id: 'b', sender_name: 'Mo', text: '我这边 KV 一满就掉得厉害', at: new Date(Date.now() - 48 * 60_000).toISOString() },
+  { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', channel: 'qq', direction: 'outbound', message_id: 'dc3', text: '我们这边是自动分 KV，负载对半的时候会落到 50/50。可以先看看是不是启动顺序导致的重试。', state: 'done' },
+];
+
+/// The delegations one committed round started, branching off the spine:
+/// each is its own trajectory, readable inline or as a group thread in 对话.
+function DelegationBranches({ stepId }: { stepId: string }) {
+  const { tasks, openThread, subject, demo } = React.useContext(InspectContext);
+  const delegations = tasks.filter((task) => isDelegation(task) && task.created_by_step_id === stepId);
+  if (delegations.length === 0) return null;
+  return <div className="branches">{delegations.map((task) => (
+    <DelegationBranch key={String(task.task_id)} task={task} subject={subject} demo={demo}
+      onOpen={() => openThread(`delegation:${String(task.task_id)}`)} />
+  ))}</div>;
+}
+
+function DelegationBranch({ task, subject, demo, onOpen }: {
+  task: Record<string, unknown>; subject: ReturnType<typeof subjectParticipant>; demo: boolean; onOpen: () => void;
+}) {
+  const id = String(task.task_id);
+  const child = childParticipant(id);
+  const [open, setOpen] = React.useState(false);
+  const [trace, setTrace] = React.useState<ThreadMessage[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!open || demo) return;
+    let live = true;
+    fetch(`/api/tasks/${encodeURIComponent(id)}/trajectory`, { cache: 'no-store' })
+      .then((response) => { if (!response.ok) throw new Error(String(response.status)); return response.json(); })
+      .then((data: TrajectoryResponse) => { if (live) setTrace(trajectoryMessages(data, subject)); })
+      .catch((reason) => { if (live) setError(String(reason?.message ?? reason)); });
+    return () => { live = false; };
+  }, [open, id, String(task.state), demo]);
+  return (
+    <CollapsibleRoot className="branch" open={open} onOpenChange={(detail: { open: boolean }) => setOpen(detail.open)}>
+      <div className="branch-head">
+        <CollapsibleTrigger className="branch-trigger">
+          <Icon name="chevron" size={14} />
+          <span className="branch-title">委派 → {child.name}</span>
+          <span className="branch-state" data-state={String(task.state)}>{String(task.state)}</span>
+        </CollapsibleTrigger>
+        <button type="button" className="text-action" onClick={onOpen}><Icon name="chat" size={14} />在对话中打开</button>
+      </div>
+      <CollapsibleContent className="branch-body">
+        {demo ? <ol className="trace">{trajectoryMessages(demoTrajectory(id), subject).map((item) => (
+          <li key={item.key} className={`trace-row role-${item.from.role} kind-${item.kind}`}>
+            <span className="trace-who">{item.kind === 'system' ? '·' : item.from.name}</span>
+            <span className="trace-text">{item.tag ? <b>{item.tag} </b> : null}{item.text || '（无文字）'}</span>
+            {item.meta && <span className="trace-meta">{item.meta}</span>}
+          </li>
+        ))}</ol>
+          : error ? <p className="muted is-error">轨迹读取失败：{error}</p>
+            : !trace ? <p className="muted">正在读取轨迹…</p>
+              : <ol className="trace">{trace.map((item) => (
+                <li key={item.key} className={`trace-row role-${item.from.role} kind-${item.kind}`}>
+                  <span className="trace-who">{item.kind === 'system' ? '·' : item.from.name}</span>
+                  <span className="trace-text">{item.tag ? <b>{item.tag} </b> : null}{item.text || '（无文字）'}</span>
+                  {item.meta && <span className="trace-meta">{item.meta}</span>}
+                </li>
+              ))}</ol>}
+      </CollapsibleContent>
+    </CollapsibleRoot>
   );
 }
 
@@ -753,6 +917,7 @@ function SubjectPart({ node, emit, name, continued }: { node: UiNode; emit: Emit
         <div className="entry-body">
           <PartErrorBoundary text={part.content}><Markdown text={part.content} /></PartErrorBoundary>
         </div>
+        {state.committed && <DelegationBranches stepId={part.step_id} />}
         <footer className="entry-tools">
           <Button variant="ghost" size="sm" label="复制这一轮" onClick={() => emit(node.node_id, node.action_refs[0])}>
             <Icon name="copy" size={15} /><span>复制</span>
@@ -1000,7 +1165,7 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
   );
 }
 
-function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
+function Composer({ node, emit, variant = 'stream' }: { node: UiNode; emit: Emit; variant?: 'stream' | 'im' }) {
   const draftAction = node.action_refs[0];
   const appendAction = node.action_refs[1];
   const steerAction = node.props.steer_action as string | undefined;
@@ -1027,7 +1192,7 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
           ? '服务端当前未开放追加输入'
           : null;
   return (
-    <footer className="composer" hidden={node.props.hidden}>
+    <footer className={`composer composer-${variant}`} hidden={node.props.hidden}>
       <div className={`composer-card${steering ? ' is-steer' : ''}`}>
         <div
           className="composer-editor"
@@ -1049,7 +1214,7 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
             value={node.props.draft}
             rows={2}
             readOnly={demo}
-            placeholder={demo ? '模拟投影不发送输入' : steering ? '引导它此刻的注意力…' : '说点什么…'}
+            placeholder={demo ? '模拟投影不发送输入' : steering ? '引导它此刻的注意力…' : variant === 'im' ? '信息' : '说点什么…'}
             className="composer-input"
             onValueChange={(detail) => emit('composer', draftAction, { value: detail.value })}
           />

@@ -33,7 +33,7 @@ function demoPart(step: number, minutesAgo: number, content: string): TimelinePa
   };
 }
 
-function demoSubmission(id: string, minutesAgo: number, content: string, receipt: Submission['receipt'], mode: 'append' | 'steer' = 'append'): Submission {
+function demoSubmission(id: string, minutesAgo: number, content: string, receipt: Submission['receipt'], mode: 'append' | 'steer' = 'append', selectedStep?: string): Submission {
   return {
     payload: {
       schema_version: 2,
@@ -48,6 +48,7 @@ function demoSubmission(id: string, minutesAgo: number, content: string, receipt
     created_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
     receipt,
     placement: receipt === 'committed' ? { requested: mode, actual: 'next_boundary' } : undefined,
+    selected_step_id: selectedStep,
     send_epoch: 1,
   };
 }
@@ -127,8 +128,8 @@ function demoState(): UiState {
       ),
     ],
     submissions: [
-      demoSubmission('demo-sub-1', 12, '部署那边的重试，是不是和昨天说的配置顺序有关？', 'committed'),
-      demoSubmission('demo-sub-2', 4, '冷缓存先别追了，先把记忆合并做完吧', 'accepted', 'steer'),
+      demoSubmission('demo-sub-1', 12, '部署那边的重试，是不是和昨天说的配置顺序有关？', 'committed', 'append', 'demo-step-43'),
+      demoSubmission('demo-sub-2', 4, '冷缓存先别追了，先把记忆合并做完吧', 'committed', 'steer', 'demo-step-44'),
     ],
     draft: '',
     config_error: false,
@@ -137,6 +138,7 @@ function demoState(): UiState {
       available: true,
       items: [
         { task_id: 'demo-task-7f3a', kind: '记忆合并', state: 'running', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
+        { task_id: '3f2a91c0-demo-child', kind: 'model.child', state: 'running', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
         { task_id: 'demo-task-6c12', kind: '配置时序验证', state: 'succeeded', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
       ],
     },

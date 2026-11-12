@@ -355,20 +355,20 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A work's own page never runs with the shell's origin: opened directly or
-/// framed by a lens, the response itself sandboxes it to an opaque origin.
+/// A work's page is a trusted extension: served same-origin without a
+/// sandbox, its declared type pinned and its revision named, so the safety
+/// rope is rollback to a named revision (docs/specs/web-interface.md#5-1).
 #[tokio::test]
-async fn a_work_page_is_served_in_an_opaque_origin() {
-    let (root, store, _) = fixture("confined");
+async fn a_work_page_is_served_as_a_trusted_revision() {
+    let (root, store, _) = fixture("trusted");
     let pg = PlaygroundState::open(root.join("playground"), store).unwrap();
     let id = EntityId::new();
-    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/owner')</script>").unwrap();
+    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/self')</script>").unwrap();
     let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty()).unwrap())
         .await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let policy = response.headers().get(header::CONTENT_SECURITY_POLICY).unwrap().to_str().unwrap();
-    assert!(policy.starts_with("sandbox "), "{policy}");
-    assert!(policy.contains("allow-scripts"), "the work still runs: {policy}");
-    assert!(!policy.contains("allow-same-origin"), "but never as the shell: {policy}");
+    assert!(response.headers().get(header::CONTENT_SECURITY_POLICY).is_none(), "trusted by default, not sandboxed");
+    assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/html");
     assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+    assert_eq!(response.headers().get("x-artifact-revision").unwrap(), "1");
 }

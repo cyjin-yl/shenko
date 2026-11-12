@@ -121,37 +121,86 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
 
 ## 5.1 界面扩展：主体流与镜头（2026-11-12）
 
-默认界面只有一条固定的**主体流**（时间线 + 输入）。任务、记忆、Playground、配置
-以及作品都是**镜头（lens）**：在主体流旁打开，主体流不离开视野；窄屏时镜头覆盖
-主体流，关闭即回到原阅读位置。外壳没有常驻侧栏导航；镜头栏在顶部（手机在底部），
-Ctrl/⌘ 1–9 打开第 N 个镜头，Ctrl/⌘ 0 关闭。主体流左侧的竖线是主体连续的 thought
+界面有两个视图（见 [5.2](#5-2)）：**对话** 是默认的主要交互界面；**Inspect** 是主体
+连续思考的原始流（时间线 + 输入）。任务、记忆、Playground、配置以及作品都是
+**镜头（lens）**：在当前视图旁打开，不离开视野；窄屏时镜头覆盖视图，关闭即回到原
+阅读位置。外壳没有常驻侧栏导航；视图切换在顶部居中，镜头栏在顶部右侧（手机在底部），
+Ctrl/⌘ 1–9 打开第 N 个镜头，Ctrl/⌘ 0 关闭。Inspect 左侧的竖线是主体连续的 thought
 loop：每个已提交轮次是线上的一个实心点，未提交的流式内容是空心点，作品与文档从线上
 分出，用户输入落在线旁。顶部的注意力行只陈述事实：进行中的任务（不计结构性的
 `subject_root`）、最近已提交轮次和上报的主体状态。
 
 镜头由 `web/src/slots.ts` 的贡献注册表提供：外壳自己的页面与外部贡献走同一个
-`registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。信任按来源区分，而不是
-按注册表：
+`registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。
+
+**默认信任（所有者决定，2026-11-12）。** 作品与插件的界面是受信任的扩展：作品页与
+外壳同源、不加 sandbox；`/playground/{id}` 只固定声明的类型（`nosniff`）并给出
+`x-artifact-revision`。
 
 | 来源 | 呈现 | 权限 |
 | --- | --- | --- |
 | `shell` | 本 bundle 的组件 | 外壳自身 |
-| `work` | Playground 作品已发布的页面，放在 `sandbox="allow-scripts allow-forms allow-popups allow-modals"` 的 iframe 中 | 不授予 same-origin；服务端对 `/playground/{id}` 内容另发 CSP `sandbox` 与 `nosniff`，直接打开也是不透明 origin。作品读不到外壳 DOM、cookie、`/ws` 或 `/api`，要改变什么只能走作品声明的 action |
+| `work` | Playground 作品已发布的页面，同源 iframe | 与外壳相同；安全绳是命名修订与回退，以及安全模式 |
 
-Why：作品与 awareness/plugin 经常由主体自己写成，不能沿用“安装即信任”的同源模块
-模型；但同一扩展点仍应让它们成为一等界面。DeepSeek Harness 的 Web 客户端以 Cordis
-插件向类型化 slot（`ctx.slots.register/inject`，list/keyed/chain/hoc 与 priority
-覆盖）注册同源 React 组件，安装即信任；Shenko 采用同样的“外壳也是贡献者”结构，
-但对模型可写的来源加了 origin 隔离。
+Why：主体会在没有人盯着的情况下自己编写、在沙箱里自测并改进这些扩展，任何改变都是
+可指认、可回退的新修订（[内核 8](kernel.md#kernel-8)）；不加人类审批门、产品白名单
+或静态拒绝（[内核 9](kernel.md#kernel-9)、开发规则“不以硬拒绝替主体判断”）。所以
+默认信任，失败由回退和救援处理，而不是事前隔离。救援入口：地址加 `?safe=1` 时外壳
+不打开任何作品页（[§21.3](#spec-21-3) 的独立救援要求）。已知代价：受信任的作品页能
+以所有者会话调用 `/api`；如果一页由外部内容诱导写成，它在所有者打开时以所有者身份运行。
+这由主体的来源意识、自测与回退承担，记录在此以便日后按证据修订。
 
-尚未实现，按顺序推进：作品页与外壳之间的 `postMessage` 桥（只携带作品声明的 action，
-仍由服务端按 §43.2 认证、去重与入 inbox）；Rust/WASM 插件经版本化服务协议声明镜头
-与时间线条目贡献；仅主题 token 的皮肤贡献；经所有者安装、签名的同源代码插件作为
-第三档。
+DeepSeek Harness 的 Web 客户端以 Cordis 插件向类型化 slot（`ctx.slots.register/inject`，
+list/keyed/chain/hoc 与 priority 覆盖）注册同源 React 组件，安装即信任。Shenko 采用
+同样的“外壳也是贡献者”结构；插件的界面贡献按 [内核 7](kernel.md#kernel-7) 只经能力
+目录登记，外壳从能力目录发现，不另开扩展路径。
+
+尚未实现，按顺序推进：插件经能力目录声明镜头、会话来源与记录视图（见 5.2 的 slot）；
+插件界面以 Proto-UI Prototype 交付，由外壳经 adapter 渲染；仅主题 token 的皮肤贡献。
 
 HTML 作品在时间线中同时提供页面入口与“详情与操作”；动作绑定正文响应的 `x-artifact-revision`，不混用记录修订。
 作品列表尚未加载或暂时失败时保留已知镜头，仅依成功取得的列表移除已不存在的作品。
 浏览器拒绝写入偏好时，固定与取下仍在当前页面生效；镜头快捷键不抢占输入框与可编辑内容中的按键。
+
+<a id="5-2"></a>
+## 5.2 对话与 Inspect：群聊、委派与 Proto-UI slot（2026-11-12）
+
+**两个视图。** 对话（IM）是给所有者的主要交互界面，采用 Messages 的视觉惯例：左侧
+会话列表，右侧当前会话；查看者一侧为系统蓝气泡，其他参与者为灰气泡，连续同一发言者
+合并、末条带尾巴，群聊在首条上方标发言者、末条旁显示其字母头像，间隔超过 15 分钟显示
+时间，回执在末条下方（已发送 / 已送达 / 已读 / 已回复，分别对应 sent、accepted、
+selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.1 的原始思考流。
+
+**一切对话都是带参与者的会话。** `web/src/threads.ts` 用同一模型表示三类会话，差别只在
+参与者与查看者坐在哪一侧：
+
+| 会话 | 参与者 | 查看者一侧 | 每条消息的事实来源 |
+| --- | --- | --- | --- |
+| 直接对话 | 你、主体 | 你 | 你的提交与回执；主体的消息是**选入了你那条消息的已提交步骤**（回执的 `selected_step_id`），不猜测；主体自己思考的轮次合并为一行“独自思考了 N 轮”，可跳到 Inspect；只有真实持久流式内容显示为“正在输出” |
+| 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | `GET /api/tasks/{id}/trajectory`：任务的封存输入（委派内容）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），以及它拥有的子任务（工具 child） |
+| 渠道群聊/私聊 | 主体、群成员 | 主体（旁观） | `GET /api/conversations`：主体 inbox 中负载为 `ChannelEnvelope` 的消息，按回复对象 `account|kind|id` 归组，并与目标相同的已提交 publication 合并；发送状态取 publication 状态 |
+
+旁观的会话不显示输入框：网页还不能代主体在渠道里发言或给运行中的子代理发消息，界面
+如实说明。Inspect 中每个委派从发起它的已提交轮次分出（任务的 `created_by_step_id`），
+可就地展开同一条轨迹，或“在对话中打开”成为群聊。`subject_root` 自己拥有自己，不算
+父任务也不算子任务。
+
+**slot：外壳与插件走同一组扩展点。** 三个注册表，外壳自己的实现也经它们登记：
+
+| slot | 形状 | 用途 |
+| --- | --- | --- |
+| `registerLens` | list，按 `order` | 视图旁的镜头 |
+| `registerThreadSource` | list，按 `order` | 会话来源（直接对话、委派、渠道由外壳登记） |
+| `registerRecordView` | keyed，按 `operation_name` | 轨迹中一种封存记录的呈现；未登记的记录显示为名称与状态，不丢失 |
+
+**仍用 Proto-UI。** 会话列表、视图切换与镜头栏是上游 toggle-group（列表为 vertical
+方向，单选、方向键与 roving focus 由上游提供）；委派展开用上游 collapsible；气泡是
+Shenko 自己写的 `prototypes/message-bubble.proto.ts`，构建期由 Proto-UI compiler 编译
+为 React DOM 源码，`side/tail/tone` 由 Prototype 规则决定外观，消息内容走匿名 slot，
+因此正文更新是普通 React 内容，不会出现 transport-badge 那种文本不随 prop 刷新的问题。
+Proto-UI 的 slot 优势在于：Prototype 与宿主无关（React/Vue/Web Component/编译产物），
+anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界面交付 Prototype，外壳
+用 adapter 放进上表的 slot，同一份界面可被不同宿主渲染。
 
 ## 6. Proto-UI pin
 
