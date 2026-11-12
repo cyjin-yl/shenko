@@ -904,3 +904,11 @@ tmux send-keys、按回车确认、任意 shell、无端到端幂等承诺的消
 
 受控验证记录位于共享工作区 `build/obligation-lifecycle-20261105/actual-readers-20261105-112512/receipt.json`：分别编译的真实 schema-5/schema-6 Store reader 验证旧 reader 拒绝实际 schema-6 归档，新 reader 导入、重开、relay 后第二接收方保留同一已完成义务结算。旧 schema-5 导出再由新 reader 导入的来源为空 Store，该项只证明版本接纳，不证明有内容的历史归档恢复。原生回归与该合成 Store/CAS 场景不替代真实模型效能、断电、分区或长期运行验收。
 <!-- /migrated-contract: SPEC:50.4 -->
+
+## 实现记录：Notebook 复制与交接恢复（2026-11-13）
+
+`context_notes` 以 scope 下的完整修订日志作为冲突单位。共同修订的正文、来源、可见性和时间必须一致；缺少的修订保留原修订号补入。冲突不发布该 scope 的部分日志。裸摘要形式的正文声明为外部附件；缺少附件只报告对应的非阻塞缺口，不伪造正文。
+
+`context_rollover_requests` 属于本地控制状态，仅在保留本地边界的交接归档中携带。普通 peer 导入在写入行之前拒绝这类归档；同一请求的回答只向前推进。schema 6 的旧 reader 通过事实类准入拒绝新导出的 `context_notes`，不能将其静默忽略后报告完整恢复。旧导出未携带的 Notebook 事实不能由新 reader 推导补齐。
+
+交接的选择提交点是候选库的 selector CAS。恢复先完成已提交选择的镜像和 fence，再读取 selector 判断路径。fence 保留最后已提交 step 的 `committed_at`，在同一事务内推进 head 与计划 step 的 epoch，并按两个实体记录提交；被 fence 的副本可读取，但不能取得旧写入权。这些实现记录不改变上方迁移保存的合同原文。

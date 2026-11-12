@@ -62,6 +62,12 @@ impl MockChain {
         self.nodes.lock().unwrap().push(composition);
     }
 
+    /// Record a node the chain already holds without moving the head: an
+    /// older rollback target, or a composition an append will point at.
+    fn add_detached(&self, composition: RootComposition) {
+        self.nodes.lock().unwrap().push(composition);
+    }
+
     fn set_append_override(&self, node: AppendedNode) {
         *self.append_override.lock().unwrap() = Some(node);
     }
@@ -137,31 +143,90 @@ fn refused_msg(result: &Result<shenko_update::rollback::RollbackOutcome, Rollbac
     }
 }
 
-/// Register an agent in the store so `get_existing_agent_id` returns it.
+/// Make `agent` this store's local subject so `get_existing_agent_id`
+/// returns it. The local subject is the one whose genesis this ledger
+/// committed, so the test commits a real genesis.
 fn register_agent(store: &Store, agent: EntityId) {
-    // Use the Store's own API for creating a subject. The simplest way is
-    // to admit a memory intent which implicitly registers the agent.
-    let intent = EntityId::new();
-    let record = shenko_store::MemoryIntentRecord::accepted(
-        intent, agent, "save", "personal", "bootstrap", None, None,
+    use shenko_types::commit::CommitRef;
+    use shenko_types::ids::{BranchId, ControllerEpoch, LedgerSeq, RecordRevision, RuntimeGeneration};
+    use shenko_types::subject::{
+        GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
+    };
+
+    let ledger_id = store.ledger.ledger_id();
+    let branch_id = BranchId::new();
+    let genesis_id = EntityId::new();
+    let first_step_id = EntityId::new();
+    let seed = store
+        .cas
+        .seal_object(b"seed", "application/json", "test", "raw", 1)
+        .unwrap()
+        .object;
+    let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
+    let genesis = SubjectGenesis {
+        genesis_id,
+        subject_id: agent,
+        bootstrap_id: EntityId::new(),
+        launch_id: EntityId::new(),
+        seed_manifest_ref: seed.clone(),
+        initial_profile_ref: seed.clone(),
+        home_manifest_ref: seed.clone(),
+        bootstrap_event_ref: seed.clone(),
+        created_commit: genesis_commit,
+    };
+    let head = SubjectBranchHead {
+        agent_id: agent,
+        branch_id: branch_id.clone(),
+        subject_root_task_id: EntityId::new(),
+        controller_epoch: ControllerEpoch(1),
+        software_generation: RuntimeGeneration::default(),
+        genesis_ref: GenesisRef { ledger_id, genesis_id },
+        committed_step_no: 0,
+        committed_step_id: None,
+        committed_at: genesis_commit,
+        next_step_id: first_step_id,
+        mode: SubjectMode::Active,
+        mode_reason_ref: None,
+        record_revision: RecordRevision(0),
+    };
+    let first_step = SubjectStep {
+        step_id: first_step_id,
+        branch_id,
+        step_no: 1,
+        expected_parent_commit: genesis_commit,
+        controller_epoch: ControllerEpoch(1),
+        software_generation: RuntimeGeneration::default(),
+        state: SubjectStepState::Planned,
+        input_plan_ref: None,
+        context_revision: None,
+        active_request_id: None,
+        active_attempt_id: None,
+        model_result_ref: None,
+        model_outcome_ref: None,
+        decision_ref: None,
+        commit_ref: None,
+        retry_reason_ref: None,
+        record_revision: RecordRevision(0),
+        created_by_step_id: None,
+    };
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent,
+        seed,
+        genesis_commit,
     );
-    store.admit_memory_intent(&record, None).unwrap();
+    store.initialize_genesis(&genesis, &head, &first_step, &root_task).unwrap();
 }
 
 /// Seed CAS objects so `object_exists` / `object_size` return true.
-fn seed_cas_objects(store: &Store, objects: &[Digest]) {
-    for obj in objects {
-        // Write a tiny payload using the object's digest text as content
-        // so the CAS holds it.
-        let content = obj.0.as_bytes();
-        let _ = store.cas.seal_object(
-            content,
-            "application/octet-stream",
-            "test",
-            "test-object",
-            1,
-        );
-    }
+/// Seal `text` into the store's CAS and return the digest it is held under.
+fn seal_text(store: &Store, text: &str) -> Digest {
+    store
+        .cas
+        .seal_object(text.as_bytes(), "application/octet-stream", "test", "test-object", 1)
+        .unwrap()
+        .object
+        .digest
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +354,7 @@ fn rollback_refuses_when_cas_objects_missing() {
     register_agent(&store, agent);
     let chain = MockChain::new(agent);
 
-    let obj1 = digest_of("object-that-exists");
+    let obj1 = seal_text(&store, "object-that-exists");
     let obj2 = Digest("blake3:0000000000000000000000000000000000000000000000000000000000000001".into());
 
     let head = digest_of("head");
@@ -301,15 +366,14 @@ fn rollback_refuses_when_cas_objects_missing() {
     });
 
     let target = digest_of("old-node");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: full_classes(),
         objects: vec![obj1.clone(), obj2.clone()],
     });
 
-    // Only seed obj1 in CAS, not obj2.
-    seed_cas_objects(&store, &[obj1]);
+    // obj1 was sealed above; obj2 is not in the CAS.
 
     let request = RollbackRequest {
         target,
@@ -341,7 +405,7 @@ fn rollback_refuses_when_appended_node_classes_differ() {
     });
 
     let target = digest_of("old-node");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: full_classes(),
@@ -355,7 +419,7 @@ fn rollback_refuses_when_appended_node_classes_differ() {
         reused_objects: 0,
     });
     // Pre-register the bad node's composition with wrong classes.
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: bad_node.clone(),
         agent_id: agent,
         classes: partial_classes(),
@@ -392,7 +456,7 @@ fn rollback_refuses_when_append_returns_current_head() {
     });
 
     let target = digest_of("old-node");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: full_classes(),
@@ -426,9 +490,8 @@ fn successful_full_state_rollback() {
     register_agent(&store, agent);
     let chain = MockChain::new(agent);
 
-    let obj1 = digest_of("home-files-content");
-    let obj2 = digest_of("wasm-memory-content");
-    seed_cas_objects(&store, &[obj1.clone(), obj2.clone()]);
+    let obj1 = seal_text(&store, "home-files-content");
+    let obj2 = seal_text(&store, "wasm-memory-content");
 
     let head = digest_of("current-head");
     chain.add_node(RootComposition {
@@ -439,7 +502,7 @@ fn successful_full_state_rollback() {
     });
 
     let target = digest_of("historical-node");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: full_classes(),
@@ -493,7 +556,7 @@ fn partial_state_rollback_reports_missing_classes() {
     });
 
     let target = digest_of("old-partial-node");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: partial_classes(),
@@ -539,7 +602,7 @@ fn rollback_records_external_effects_in_outcome() {
     });
 
     let target = digest_of("target");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: full_classes(),
@@ -596,7 +659,7 @@ fn rollback_with_unobserved_effects_records_the_gap() {
     });
 
     let target = digest_of("target");
-    chain.add_node(RootComposition {
+    chain.add_detached(RootComposition {
         node: target.clone(),
         agent_id: agent,
         classes: full_classes(),

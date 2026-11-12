@@ -925,6 +925,26 @@ const TABLES: &[TableSpec] = &[
         local_seq: None,
         kind: RowKind::Verbatim,
     },
+    // The authored working-note journal of a branch scope
+    // (docs/specs/context-policies.md#spec-12-3-1). One scope's journal is one
+    // conflict unit, merged by `apply_context_notebook`.
+    TableSpec {
+        name: "context_notes",
+        key: &["scope_id", "revision"],
+        columns: &["scope_id", "revision", "body", "source", "written_at_ms", "visible"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    // The scope's explicit rollover request. Local control state: exported
+    // only by the declared same-installation handover and installed only
+    // when the importer declares one (see `LOCAL_CONTROL_CLASSES`).
+    TableSpec {
+        name: "context_rollover_requests",
+        key: &["scope_id"],
+        columns: &["scope_id", "request_id", "requested_at_ms", "consumed_window"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
     // Research cognition: one epoch, its candidates, intervention bank
     // entries and reminders form ONE conflict unit (`epoch/…`); tombstones
     // and archive moves are row facts.
@@ -1530,7 +1550,7 @@ impl Store {
         let git_history = collected.git_history.clone();
         let manifest = CognitionManifest {
             schema: crate::cognition_archive::ARCHIVE_SCHEMA,
-            fact_classes: local_fact_classes(),
+            fact_classes: local_fact_classes(options.local_boundary_preserved),
             fingerprint,
             source_ledger_id: self.ledger.ledger_id(),
             source_incarnation: self.capabilities.incarnation,
@@ -1614,6 +1634,19 @@ impl Store {
         // The archive's membership is checked against this reader's own
         // classes before a single row is applied.
         check_archive_membership(&manifest)?;
+        // Local control facts are installed only by a declared handover. The
+        // claim comes from the importer, never from the archive.
+        if !options.local_control_handover {
+            if let Some(class) = LOCAL_CONTROL_CLASSES.iter().find(|class| {
+                manifest.fact_classes.iter().any(|declared| declared == *class)
+                    || manifest.rows.iter().any(|row| row.table == **class)
+            }) {
+                bail!(
+                    "cognition archive carries the local control fact class {class}; \
+                     only a declared same-installation handover may install it"
+                );
+            }
+        }
         // A legacy archive is migrated to the current column layout first:
         // the layout only grew, so the migration is by name and keeps every
         // fact's identity.
@@ -2008,10 +2041,18 @@ impl Store {
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
         for row in &rows {
-            for (_, value) in &row.values {
+            for (name, value) in &row.values {
                 if let Some(value) = value.as_deref() {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
                         collect_references(&json, &mut roots, &mut external);
+                    } else if row.table == "context_notes" && name == "body" {
+                        // An authored note is free text. A body that is a
+                        // bare digest is read as a possible external
+                        // reference — a non-blocking reading, never a reason
+                        // to drop or rewrite the note's bytes.
+                        if let Some(digest) = parse_digest(value) {
+                            external.push(digest);
+                        }
                     }
                 }
             }
@@ -2170,6 +2211,9 @@ impl Store {
         };
         let mut rows: Vec<CognitionRow> = Vec::new();
         for spec in TABLES {
+            if !local_boundary_preserved && is_local_control_class(spec.name) {
+                continue;
+            }
             rows.extend(read_table(&tx, spec)?);
         }
         let derivatives = read_derivatives(&tx)?;
@@ -2436,6 +2480,7 @@ impl Store {
                 let mut task_closure_applied = false;
                 let mut task_owned_rows = HashSet::new();
                 let mut semantic_units_applied = false;
+                let mut notebook_applied = false;
                 let mut unit_owned_rows: HashSet<(&str, &str)> = HashSet::new();
                 for row in &ordered {
                     if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions"
@@ -2495,6 +2540,17 @@ impl Store {
                         conflicts.extend(outcome.conflicts);
                         unit_owned_rows = owned;
                         semantic_units_applied = true;
+                    }
+                    if matches!(row.table.as_str(), "context_notes" | "context_rollover_requests") {
+                        if !notebook_applied {
+                            let outcome = apply_context_notebook(&tx, &ordered)?;
+                            inserted += outcome.inserted;
+                            updated += outcome.updated;
+                            unchanged += outcome.unchanged;
+                            conflicts.extend(outcome.conflicts);
+                            notebook_applied = true;
+                        }
+                        continue;
                     }
                     if row.table == "memory_intents" || row.table == "memory_intent_bindings"
                         || (row.table == "memory_entries" && referenced_memory_entries.contains(row.key.as_str()))
@@ -3615,10 +3671,23 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
     TABLES.iter().find(|spec| spec.name == table)
 }
 
+/// Fact classes that are this installation's own control state rather than
+/// shared cognition. A peer archive never carries them; only the declared
+/// same-installation handover exports and installs them.
+const LOCAL_CONTROL_CLASSES: &[&str] = &["context_rollover_requests"];
+
+fn is_local_control_class(table: &str) -> bool {
+    LOCAL_CONTROL_CLASSES.contains(&table)
+}
+
 /// The fact classes this reader replicates: the membership every archive
 /// this build writes declares.
-fn local_fact_classes() -> Vec<String> {
-    let mut names: Vec<String> = TABLES.iter().map(|spec| spec.name.to_string()).collect();
+fn local_fact_classes(include_local_control: bool) -> Vec<String> {
+    let mut names: Vec<String> = TABLES
+        .iter()
+        .filter(|spec| include_local_control || !is_local_control_class(spec.name))
+        .map(|spec| spec.name.to_string())
+        .collect();
     names.sort();
     names.dedup();
     names
@@ -4421,6 +4490,149 @@ fn memory_retirement_admitted(
 ///
 /// A retirement the peer provably committed is admitted on top of that rule
 /// by `memory_retirement_admitted`.
+/// Merge the authored note journals and (in a handover) the rollover
+/// requests.
+///
+/// A scope's note journal is one conflict unit: every revision both sides
+/// hold must be byte-identical, and only then are the incoming revisions
+/// beyond the local head appended. A divergent revision refuses the whole
+/// incoming journal of that scope, so a peer tail never lands on a different
+/// local history. Revision numbers are kept exactly, so compare-and-append
+/// continues on the recovered head.
+///
+/// A rollover request may only move forward: the same request gains the
+/// window that answered it. A different request, or an answer that would be
+/// rewound or replaced, is a conflict and the local row is kept — an archive
+/// cannot discard a boundary this installation still owes the subject.
+fn apply_context_notebook(
+    tx: &Transaction<'_>,
+    rows: &[&CognitionRow],
+) -> Result<CognitionApplyOutcome> {
+    let mut outcome = CognitionApplyOutcome::default();
+    let mut journals: BTreeMap<&str, Vec<&CognitionRow>> = BTreeMap::new();
+    for row in rows.iter().filter(|row| row.table == "context_notes") {
+        journals.entry(row.value("scope_id").unwrap_or_default()).or_default().push(row);
+    }
+    for (scope, incoming) in journals {
+        let mut local: HashMap<i64, (String, String, i64, i64)> = HashMap::new();
+        {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT revision, body, source, written_at_ms, visible
+                     FROM context_notes WHERE scope_id = ?1",
+                )
+                .map_err(db)?;
+            let mut cursor = stmt.query([scope]).map_err(db)?;
+            while let Some(row) = cursor.next().map_err(db)? {
+                local.insert(
+                    row.get(0).map_err(db)?,
+                    (row.get(1).map_err(db)?, row.get(2).map_err(db)?, row.get(3).map_err(db)?, row.get(4).map_err(db)?),
+                );
+            }
+        }
+        let mut parsed = Vec::with_capacity(incoming.len());
+        for row in &incoming {
+            let int = |column: &str| -> Result<i64> {
+                row.value(column)
+                    .unwrap_or_default()
+                    .parse()
+                    .map_err(|_| anyhow!("invalid context_notes {column} for scope {scope}"))
+            };
+            parsed.push((
+                int("revision")?,
+                row.value("body").unwrap_or_default().to_string(),
+                row.value("source").unwrap_or_default().to_string(),
+                int("written_at_ms")?,
+                int("visible")?,
+            ));
+        }
+        let divergent = parsed.iter().find(|(revision, body, source, at, visible)| {
+            local
+                .get(revision)
+                .is_some_and(|existing| existing != &(body.clone(), source.clone(), *at, *visible))
+        });
+        if let Some((revision, ..)) = divergent {
+            outcome.conflicts.push(CognitionConflict {
+                table: "context_notes".into(),
+                key: scope.to_string(),
+                detail: format!(
+                    "authored revision {revision} differs from the local journal; \
+                     the incoming journal of this scope was not applied"
+                ),
+            });
+            continue;
+        }
+        for (revision, body, source, at, visible) in parsed {
+            if local.contains_key(&revision) {
+                outcome.unchanged += 1;
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO context_notes(scope_id, revision, body, source, written_at_ms, visible)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![scope, revision, body, source, at, visible],
+            )
+            .map_err(db)?;
+            outcome.inserted += 1;
+        }
+    }
+
+    for row in rows.iter().filter(|row| row.table == "context_rollover_requests") {
+        let scope = row.value("scope_id").unwrap_or_default();
+        let request_id = row.value("request_id").unwrap_or_default();
+        let requested_at: i64 = row
+            .value("requested_at_ms")
+            .unwrap_or_default()
+            .parse()
+            .map_err(|_| anyhow!("invalid rollover request time for scope {scope}"))?;
+        let consumed = row.value("consumed_window").filter(|value| !value.is_empty());
+        let local: Option<(String, Option<String>)> = tx
+            .query_row(
+                "SELECT request_id, consumed_window FROM context_rollover_requests WHERE scope_id = ?1",
+                [scope],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(db)?;
+        let conflict = |detail: &str| CognitionConflict {
+            table: "context_rollover_requests".into(),
+            key: scope.to_string(),
+            detail: detail.to_string(),
+        };
+        match local {
+            None => {
+                tx.execute(
+                    "INSERT INTO context_rollover_requests(scope_id, request_id, requested_at_ms, consumed_window)
+                     VALUES(?1, ?2, ?3, ?4)",
+                    rusqlite::params![scope, request_id, requested_at, consumed],
+                )
+                .map_err(db)?;
+                outcome.inserted += 1;
+            }
+            Some((local_request, _)) if local_request != request_id => {
+                outcome.conflicts.push(conflict(
+                    "a different rollover request is recorded locally; it is kept",
+                ));
+            }
+            Some((_, local_consumed)) => match (local_consumed.as_deref(), consumed) {
+                (a, b) if a == b => outcome.unchanged += 1,
+                (None, Some(window)) => {
+                    tx.execute(
+                        "UPDATE context_rollover_requests SET consumed_window = ?2 WHERE scope_id = ?1",
+                        rusqlite::params![scope, window],
+                    )
+                    .map_err(db)?;
+                    outcome.updated += 1;
+                }
+                _ => outcome.conflicts.push(conflict(
+                    "the local answer to this rollover request is final; it is kept",
+                )),
+            },
+        }
+    }
+    Ok(outcome)
+}
+
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<CognitionApplyOutcome> {

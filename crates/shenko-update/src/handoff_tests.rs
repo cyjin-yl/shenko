@@ -89,10 +89,13 @@ fn state_copy_json(slot_dir: &Path, generation: &RuntimeGeneration) -> serde_jso
 
 fn installation() -> Installation {
     let data_dir = std::env::temp_dir().join(format!("shenko-update-smoke-{}", EntityId::new()));
-    let live_slot = data_dir.join("live");
+    // The live slot sits where the launcher layout allows one and is named
+    // by the installation's current-slot pointer, as in a real install.
+    let live_slot = data_dir.join("versions").join("live");
     fs::create_dir_all(&live_slot).unwrap();
     let cas_dir = data_dir.join("cas");
     let store = Arc::new(Store::open(live_slot.join(SLOT_DB_FILENAME), cas_dir).unwrap());
+    slots::publish_current_slot(&data_dir, &live_slot).unwrap();
     let ledger_id = store.ledger.ledger_id();
     let generation = RuntimeGeneration::default();
 
