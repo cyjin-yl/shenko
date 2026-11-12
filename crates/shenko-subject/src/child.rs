@@ -106,9 +106,10 @@ enum Admission {
     Closed,
 }
 
-// The handler contract itself is kernel interface (docs/specs/kernel.md#kernel-7).
-// It is re-exported here because this module owns the registry that runs it.
-pub use shenko_kernel::task::{
+// The handler contract itself is kernel interface (docs/specs/kernel.md#kernel-7)
+// and it has exactly one owner: `shenko_kernel::task`. This module owns the
+// registry that runs the contract, not the contract itself.
+use shenko_kernel::task::{
     ChildToolCall, ChildToolOutcome, ChildToolRuntime, NativeTaskDescriptor, NativeTaskHandler,
     NativeTaskInvocation,
 };

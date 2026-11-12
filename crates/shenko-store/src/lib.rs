@@ -55,7 +55,7 @@ pub use config::*;
 pub use artifacts::*;
 
 pub mod external;
-pub use external::{InboxAdmission, TaskInvocation};
+pub use external::InboxAdmission;
 
 /// Receipt admission identity and source-event dedup — SPEC X04, docs/specs/plugins.md#spec-41-7-3.
 pub mod receipt_admission;

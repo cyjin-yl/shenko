@@ -34,7 +34,7 @@ pub struct UiServer {
     native: Option<Arc<shenko_subject::NativeChildService>>,
     inference: Option<api::InferenceStatus>,
     context: Option<api::ContextFacts>,
-    inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>>,
+    inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>>,
     /// Rich presentation service: document projection, degradation, caps.
     presentation: Option<Arc<PresentationService>>,
     /// Durable stream sink; absent = no real producer wired (UI reports
@@ -147,7 +147,7 @@ impl UiServer {
     /// Wire the subject inbox so UI messages reach the loop. docs/specs/subject-runtime.md#spec-5-1.
     pub fn with_inbox(
         mut self,
-        inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+        inbox_tx: tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>,
     ) -> Self {
         self.inbox_tx = Some(inbox_tx);
         self

@@ -36,7 +36,7 @@ use shenko_broker::{
     request::*,
 };
 use shenko_store::{
-    Store, TaskInvocation,
+    Store,
     child::DialogueDelivery,
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
@@ -61,7 +61,7 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::{
+use shenko_kernel::task::{
     ChildToolCall, ChildToolOutcome, ChildToolRuntime, NativeTaskDescriptor, NativeTaskHandler,
     NativeTaskInvocation,
 };

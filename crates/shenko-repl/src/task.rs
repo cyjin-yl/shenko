@@ -1560,7 +1560,7 @@ impl NativeTaskHandler for ReplCellHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shenko_store::TaskInvocation;
+    use shenko_types::task::TaskInvocation;
     use shenko_types::agent::CallContext;
     use shenko_types::store::WriteBatch;
 

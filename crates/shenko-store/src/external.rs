@@ -16,10 +16,6 @@ pub const MODEL_CHILD_RESULT_OPERATION: &str = "model.child.result.v1";
 /// The native definition kind of a model child task.
 pub const MODEL_CHILD_KIND: &str = "model.child";
 
-// Trusted executor context. The type is protocol data and is defined in
-// `shenko-types`; the ledger issues and checks it.
-pub use shenko_types::task::TaskInvocation;
-
 /// Result of a durable inbox admission: the caller learns whether its row
 /// was new or already admitted identically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -4016,6 +4016,7 @@ dependencies = [
  "serde_yaml_ng",
  "shenko-awareness-core",
  "shenko-compat",
+ "shenko-kernel",
  "shenko-node",
  "shenko-store",
  "shenko-subject",

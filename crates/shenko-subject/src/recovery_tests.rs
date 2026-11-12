@@ -255,15 +255,15 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-fn message(content: &str) -> crate::inbox::InboxEvent {
-    crate::inbox::InboxEvent {
-        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+fn message(content: &str) -> shenko_types::inbox::InboxEvent {
+    shenko_types::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":content}), created_at: chrono::Utc::now(),
         source: "web_ui".into(),
     }
 }
 
-fn admit_web_event(store: &Store, agent: EntityId, id: &str, event: &crate::inbox::InboxEvent) {
+fn admit_web_event(store: &Store, agent: EntityId, id: &str, event: &shenko_types::inbox::InboxEvent) {
     let original = serde_json::to_string(event).unwrap();
     let raw = shenko_types::store::RawInboxEvent {
         event_id: event.event_id, agent_id: agent,
@@ -426,7 +426,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
 async fn staged_input_recovers_before_s0_without_duplication() {
     let (_dir, store, agent) = fixture();
     let subject = state(store.clone(), agent).unwrap();
-    let original = crate::inbox::InboxEvent {
+    let original = shenko_types::inbox::InboxEvent {
         source: "napcat".into(), ..message("recover this exact input")
     };
     store.stage_subject_inputs(&subject.head, &subject.step, &[
@@ -439,7 +439,7 @@ async fn staged_input_recovers_before_s0_without_duplication() {
     drop(store);
     let store = Arc::new(Store::open(_dir.join("store.db"), _dir.join("cas")).unwrap());
     let mut reopened = state(store.clone(), agent).unwrap();
-    let replayed = crate::inbox::InboxEvent {
+    let replayed = shenko_types::inbox::InboxEvent {
         created_at: chrono::Utc::now() + chrono::Duration::seconds(5),
         ..original.clone()
     };
@@ -460,8 +460,8 @@ async fn staged_input_recovers_before_s0_without_duplication() {
 fn native_result_replay_keeps_first_delivery_metadata() {
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
-    let original = crate::inbox::InboxEvent {
-        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::TaskResult,
+    let original = shenko_types::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: shenko_types::inbox::InboxEventKind::TaskResult,
         payload: serde_json::json!({"result":"volatile-delivery-fixture"}),
         created_at: chrono::Utc::now(), source: "native-child".into(),
     };
@@ -471,7 +471,7 @@ fn native_result_replay_keeps_first_delivery_metadata() {
             data: serde_json::json!({"v":1,"text":"delivery fixture, not an execution receipt", "inbox_event":&original}),
         },
     ]).unwrap();
-    let replayed = crate::inbox::InboxEvent {
+    let replayed = shenko_types::inbox::InboxEvent {
         created_at: chrono::Utc::now() + chrono::Duration::seconds(5), ..original.clone()
     };
     let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed]).unwrap().expect("fixture projection must fit");
@@ -509,7 +509,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
     // The message mentions a word from the unit's own card, as ordinary
     // conversation would; retrieval must work from real input, not a keyword
     // command the user has to know.
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         source: "napcat".into(),
         ..message("上次的约定还算数吗？周末一起看展览")
     };
@@ -543,7 +543,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
     let mut subject = state(store, agent)
         .unwrap()
         .with_awareness(Arc::clone(&catalog));
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         source: "napcat".into(),
         ..message("上次的约定还算数吗？周末一起看展览")
     };
@@ -569,7 +569,7 @@ fn personality_stays_out_of_the_tool_contract() {
     subject = subject.with_native_capabilities(vec![
         "history.query/v1 只读检索已提交的原始历史".into(),
     ]);
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         source: "napcat".into(),
         ..message("你在吗")
     };
@@ -1015,8 +1015,8 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
             &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
     }
-    let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
-        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+    let events: Vec<_> = (0..12).map(|index| shenko_types::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":format!("fresh-{index}-{}", "z".repeat(80))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
@@ -1146,8 +1146,8 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
     ))).expect("install budget compact");
-    let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
-        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+    let events: Vec<_> = (0..12).map(|index| shenko_types::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
@@ -1539,9 +1539,9 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
 #[tokio::test]
 async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     let (dir, store, agent) = fixture();
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":"original frozen input"}),
         source: "fixture".into(),
         created_at: chrono::Utc::now(),
@@ -1810,9 +1810,9 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     let profile = store
         .initialize_identity(&Policy::genesis(agent, None))
         .unwrap();
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":"choose your name"}),
         source: "fixture".into(),
         created_at: chrono::Utc::now(),
@@ -2297,9 +2297,9 @@ fn record_result(
 #[tokio::test]
 async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     let (dir, store, agent) = fixture();
-    let selected = crate::inbox::InboxEvent {
+    let selected = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":"retain this selected input"}),
         source: "fixture".into(),
         created_at: chrono::Utc::now(),
@@ -2413,7 +2413,7 @@ async fn commit_output(
     store: &Arc<Store>,
     subject: &mut SubjectLoopState,
     seq: u64,
-    events: &[crate::inbox::InboxEvent],
+    events: &[shenko_types::inbox::InboxEvent],
     raw: &str,
 ) -> shenko_types::ids::EntityId {
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -2622,7 +2622,7 @@ impl GatedHandler {
             .object
     }
 
-    fn fixed_operation(&self, invocation: &crate::NativeTaskInvocation) -> (
+    fn fixed_operation(&self, invocation: &shenko_kernel::task::NativeTaskInvocation) -> (
         shenko_types::operation::OperationRecord,
         shenko_types::operation::AttemptRecord,
     ) {
@@ -2714,9 +2714,9 @@ impl GatedHandler {
 }
 
 #[async_trait::async_trait]
-impl crate::NativeTaskHandler for GatedHandler {
-    fn descriptor(&self) -> crate::NativeTaskDescriptor {
-        crate::NativeTaskDescriptor {
+impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
+    fn descriptor(&self) -> shenko_kernel::task::NativeTaskDescriptor {
+        shenko_kernel::task::NativeTaskDescriptor {
             kind: "fixture.gated".into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
@@ -2730,7 +2730,7 @@ impl crate::NativeTaskHandler for GatedHandler {
         }
     }
 
-    async fn execute(&self, invocation: crate::NativeTaskInvocation) -> anyhow::Result<OperationRecord> {
+    async fn execute(&self, invocation: shenko_kernel::task::NativeTaskInvocation) -> anyhow::Result<OperationRecord> {
         use shenko_types::{evidence::*, operation::*};
         let hold = invocation
             .input
@@ -3129,7 +3129,7 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
                 started: started.clone(),
                 release: release.clone(),
                 hold_reconcile: false,
-            }) as Arc<dyn crate::NativeTaskHandler>,
+            }) as Arc<dyn shenko_kernel::task::NativeTaskHandler>,
         )
         .await
         .unwrap();
@@ -3178,7 +3178,7 @@ async fn catalog_publication_does_not_recover_or_fence_a_live_dispatcher() {
     live.spawn(crate::NativeChildPlugin, (store.clone(), generation.clone())).await.unwrap();
     live.spawn(crate::NativeTaskHandlerPlugin, Arc::new(GatedHandler {
         store: store.clone(), started: started.clone(), release: release.clone(), hold_reconcile: false,
-    }) as Arc<dyn crate::NativeTaskHandler>).await.unwrap();
+    }) as Arc<dyn shenko_kernel::task::NativeTaskHandler>).await.unwrap();
     let service = live.context().try_service::<crate::NativeChildService>().unwrap();
     service.run_once().await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(5), started.notified()).await.unwrap();
@@ -3251,7 +3251,7 @@ async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
                 started: started.clone(),
                 release: release.clone(),
                 hold_reconcile: false,
-            }) as Arc<dyn crate::NativeTaskHandler>,
+            }) as Arc<dyn shenko_kernel::task::NativeTaskHandler>,
         )
         .await
         .unwrap();
@@ -3815,14 +3815,14 @@ async fn undecodable_admitted_input_does_not_block_unrelated_subject_work() {
 /// does not settle it for the subject, and the input keeps coming back.
 #[test]
 fn an_unmentioned_input_is_recorded_as_not_acted_on() {
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"v": 1, "text": "这条我还没想好"}),
         source: "napcat".into(),
         created_at: chrono::Utc::now(),
     };
-    let other = crate::inbox::InboxEvent {
+    let other = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
         ..event.clone()
     };
@@ -3873,7 +3873,7 @@ fn an_unmentioned_input_is_recorded_as_not_acted_on() {
 /// about the contract the subject actually uses.
 async fn commit_attention_policy(
     subject: &mut SubjectLoopState,
-    event: &crate::inbox::InboxEvent,
+    event: &shenko_types::inbox::InboxEvent,
     policy: AttentionPolicy,
 ) {
     commit_step_with_policy(subject, event, policy, vec![]).await
@@ -3883,7 +3883,7 @@ async fn commit_attention_policy(
 /// intents the subject asked for.
 async fn commit_step_with_policy(
     subject: &mut SubjectLoopState,
-    event: &crate::inbox::InboxEvent,
+    event: &shenko_types::inbox::InboxEvent,
     attention: AttentionPolicy,
     policy_intents: Vec<PolicyIntent>,
 ) {
@@ -3998,9 +3998,9 @@ async fn commit_step_with_policy(
 async fn a_paused_source_is_held_out_of_the_window() {
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"v": 1, "text": "群里在叫我"}),
         source: "napcat".into(),
         created_at: chrono::Utc::now(),
@@ -4042,9 +4042,9 @@ async fn a_paused_source_is_held_out_of_the_window() {
 async fn a_pause_that_ended_releases_the_held_fact() {
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"v": 1, "text": "群里在叫我"}),
         source: "napcat".into(),
         created_at: chrono::Utc::now(),
@@ -4082,9 +4082,9 @@ async fn a_pause_that_ended_releases_the_held_fact() {
 async fn a_policy_request_is_unbound_and_visible_not_blocked() {
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
-    let event = crate::inbox::InboxEvent {
+    let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
-        kind: crate::inbox::InboxEventKind::Message,
+        kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"v": 1, "text": "把更多算力分给探索任务"}),
         source: "napcat".into(),
         created_at: chrono::Utc::now(),

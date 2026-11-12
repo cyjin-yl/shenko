@@ -742,7 +742,7 @@ mod tests {
         std::path::PathBuf,
         WsState,
         Arc<WebInputService>,
-        tokio::sync::mpsc::Receiver<shenko_subject::inbox::InboxEvent>,
+        tokio::sync::mpsc::Receiver<shenko_types::inbox::InboxEvent>,
     ) {
         let dir = std::env::temp_dir().join(format!("shenko-web-input-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();

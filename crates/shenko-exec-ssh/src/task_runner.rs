@@ -4,7 +4,8 @@ use crate::native_transport::{NativeCommandLimits, NativeCommandObservation, Nat
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
-use shenko_store::{Store, TaskInvocation};
+use shenko_store::Store;
+use shenko_types::task::TaskInvocation;
 use shenko_types::{commit::CommitRef, evidence::*, ids::*, object::*, operation::*};
 
 const HELPER: &str = include_str!("remote_helper.py");

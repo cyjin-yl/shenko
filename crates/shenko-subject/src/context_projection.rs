@@ -11,7 +11,7 @@ use shenko_context_policy::{
 use shenko_store::{Store, SubjectContextRef, SubjectHistoryInput};
 use shenko_types::{error::ShenkoError, ids::EntityId, object::Digest, task::TaskResult};
 
-use crate::inbox::{InboxEvent, InboxEventKind};
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use crate::loop_runner::{SubjectLoopState, build_system_prompt, stable_system_prompt};
 
 /// The user turn the product adds when a step has no external event. It keeps

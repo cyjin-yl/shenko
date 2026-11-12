@@ -20,7 +20,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     contacts::*,

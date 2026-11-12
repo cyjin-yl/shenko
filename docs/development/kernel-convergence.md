@@ -56,8 +56,9 @@
 
 进度：
 
-- 第一部分已经写成源码，**尚未编译或运行**。任务处理器合同（`NativeTaskHandler`、`NativeTaskDescriptor`、`NativeTaskInvocation`、`ChildToolCall`、`ChildToolOutcome`、`ChildToolRuntime`）在 `shenko-kernel` 的 `task` 模块；`TaskInvocation` 与收件箱事件类型（`InboxEvent`、`InboxEventKind`）在 `shenko-types`。原位置保留再导出，其余调用者不需要改动。`shenko-compact-rollover`、`shenko-exec-ssh`、`shenko-media`、`shenko-mobile`、`shenko-repl`、`shenko-update` 六个 crate 改为依赖 `shenko-kernel`，不再依赖 `shenko-subject`。
-- 剩余部分：`shenko-compat`、`shenko-compat-mcp`、`shenko-compat-skill`、`shenko-ui` 还需要登记服务（`NativeChildService`、`NativeChildPlugin`、`NativeTaskHandlerPlugin`）与 `OutboxMessage`。登记服务持有账本，不能直接移动；需要在内核接口里定义一个“处理器宿主”的 trait，由主体实现并作为服务发布，插件只面向这个 trait。全部调用者迁完之后，删除 `shenko-subject` 与 `shenko-store` 里的再导出。
+- 第一部分已经写成源码，**尚未编译或运行**。任务处理器合同（`NativeTaskHandler`、`NativeTaskDescriptor`、`NativeTaskInvocation`、`ChildToolCall`、`ChildToolOutcome`、`ChildToolRuntime`）在 `shenko-kernel` 的 `task` 模块；`TaskInvocation` 与收件箱事件类型（`InboxEvent`、`InboxEventKind`）在 `shenko-types`。`shenko-compact-rollover`、`shenko-exec-ssh`、`shenko-media`、`shenko-mobile`、`shenko-repl`、`shenko-update` 六个 crate 改为依赖 `shenko-kernel`，不再依赖 `shenko-subject`。
+- 调用者已全部迁到规范拥有者，原位置的过渡性再导出已删除：所有生产代码、测试、示例与兼容层都直接引入 `shenko-kernel::task` 与 `shenko-types`（`shenko-store::child` 内部改为 `TaskInvocation` 的规范路径；`shenko-subject` 内部改为 `shenko_types::inbox` 与 `shenko_kernel::task`）。`shenko-compat`、`shenko-compat-mcp`、`shenko-compat-skill`、`shenko-ui`、`shenko-exec-host` 仍按合同保留对 `shenko-subject` 的依赖，只面向登记服务（`NativeChildService`、`NativeChildPlugin`、`NativeTaskHandlerPlugin`）；`shenko-compat-mcp` 与 `shenko-compat-skill` 正常依赖 `shenko-kernel`。
+- 剩余部分：`shenko-compat`、`shenko-compat-mcp`、`shenko-compat-skill`、`shenko-ui` 还需要登记服务（`NativeChildService`、`NativeChildPlugin`、`NativeTaskHandlerPlugin`）与 `OutboxMessage`。登记服务持有账本，不能直接移动；需要在内核接口里定义一个“处理器宿主”的 trait，由主体实现并作为服务发布，插件只面向这个 trait。
 
 ### 第 2 步：沙箱装配移出执行插件
 

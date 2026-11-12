@@ -145,7 +145,7 @@ async fn assert_failed_generation(truncated: bool) {
 
 #[tokio::test]
 async fn failed_generation_reopens_after_e1_without_a_second_send() {
-    use crate::{NativeTaskHandler, NativeTaskInvocation};
+    use shenko_kernel::task::{NativeTaskHandler, NativeTaskInvocation};
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1183,7 +1183,7 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
 /// generation for a run that already answered.
 #[tokio::test]
 async fn a_decided_run_reopens_without_a_second_generation() {
-    use crate::{NativeTaskHandler, NativeTaskInvocation};
+    use shenko_kernel::task::{NativeTaskHandler, NativeTaskInvocation};
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

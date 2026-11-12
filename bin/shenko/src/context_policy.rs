@@ -759,7 +759,7 @@ async fn spawn_resident(watch: &PolicyWatch, runtime: PolicyRuntime) -> Result<R
                     },
                 )
                 .await?;
-            let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            let handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
                 Arc::new(shenko_compact_rollover::ContextNotebookHandler::new(
                     Arc::clone(&watch.hosts.store),
                     Arc::clone(&watch.hosts.notes),

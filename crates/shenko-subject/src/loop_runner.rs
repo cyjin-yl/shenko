@@ -5,7 +5,7 @@
 //! attempt of the same sealed step after a bounded cancellable delay instead
 //! of ending the subject; unknown/lost dispatches and refusals still stop the
 //! loop for reconciliation.
-use crate::inbox::{Inbox, InboxEvent};
+use crate::inbox::Inbox;
 use crate::context_projection::{ContextPreparer, FrozenContextInput, estimate_payload_tokens, prepare_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
 use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
@@ -18,6 +18,7 @@ use shenko_types::identity::{
     IdentityIntent, IdentityOutcome, IdentityProfile, IdentityReceipt, IdentitySource,
 };
 use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
+use shenko_types::inbox::InboxEvent;
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::output::OutputAction;
 use shenko_types::subject::{

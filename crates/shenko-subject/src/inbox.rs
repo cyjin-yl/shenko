@@ -1,9 +1,9 @@
 //! Persistent subject inbox — docs/specs/subject-runtime.md#spec-5-1
 use tokio::sync::{mpsc, Mutex};
 
-// The event types are protocol data defined in `shenko-types`; they are
-// re-exported here because the queue below carries them.
-pub use shenko_types::inbox::{InboxEvent, InboxEventKind, SELF_WAKE_KIND, SUBJECT_WAKE_SOURCE};
+// The event types are protocol data defined in `shenko-types`; the queue
+// below carries them.
+use shenko_types::inbox::InboxEvent;
 
 /// Subject inbox — uses tokio::sync::Mutex so the guard is Send across .await.
 pub struct Inbox {

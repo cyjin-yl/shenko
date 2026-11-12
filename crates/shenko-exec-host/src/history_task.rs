@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_store::{SessionEventFilter, Store, StoredSessionEvent};
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     effect::{
@@ -662,7 +662,7 @@ pub(crate) fn read_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shenko_store::TaskInvocation;
+    use shenko_types::task::TaskInvocation;
     use shenko_types::agent::CallContext;
     use shenko_types::store::{RawSession, RawSessionEvent, WriteBatch};
     use shenko_types::task::{DispatchEligibility, RunMode, TaskOwner, TaskState};

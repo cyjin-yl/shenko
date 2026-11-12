@@ -42,12 +42,13 @@ use shenko_kernel::Supervisor;
 use shenko_node::{Node, TrialOutcome};
 use shenko_store::Store;
 use shenko_subject::dispatch::run_committed_dispatcher;
-use shenko_subject::inbox::{Inbox, InboxEvent, InboxEventKind};
+use shenko_subject::inbox::Inbox;
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_subject::loop_runner::{SubjectLoopState, run_subject_loop};
 use shenko_subject::{
-    NativeChildPlugin, NativeChildService, NativeTaskDescriptor, NativeTaskHandler,
-    NativeTaskHandlerPlugin, NativeTaskInvocation,
+    NativeChildPlugin, NativeChildService, NativeTaskHandlerPlugin,
 };
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::commit::CommitRef;
 use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 use shenko_types::ids::*;

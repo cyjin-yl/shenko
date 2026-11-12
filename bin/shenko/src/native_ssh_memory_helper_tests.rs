@@ -11,7 +11,7 @@ mod native_ssh_memory_helper {
     use shenko_exec_ssh::{NativeSessionOpener, NativeSshFileTargetConfig, NativeSshInstallation,
         SshBinding, SshTarget, native_transport::{NativeSshConnection, NativeSshError,
         NativeSshSession, NativeSshTarget}};
-    use shenko_subject::NativeTaskHandler;
+    use shenko_kernel::task::NativeTaskHandler;
     use shenko_types::object::Digest;
     use std::{os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
         sync::{Mutex, atomic::{AtomicUsize, Ordering}}, time::Duration};

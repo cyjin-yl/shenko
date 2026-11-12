@@ -15,7 +15,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::Serialize;
 use shenko_node::{Identity, Node};
-use shenko_store::TaskInvocation;
+use shenko_types::task::TaskInvocation;
 use shenko_types::{ids::EntityId, object::Digest, operation::AuthorityRef};
 use std::{fmt, sync::Mutex};
 

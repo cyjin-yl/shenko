@@ -17,7 +17,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
 use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission};
-use shenko_subject::inbox::{InboxEvent, InboxEventKind};
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::ids::EntityId;
 use shenko_types::store::RawInboxEvent;
 

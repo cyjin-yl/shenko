@@ -26,9 +26,10 @@ use shenko_store::{
     InterventionDecisionKind, ResearchBudget, ResearchClosure, ResearchEnvironment, Store,
 };
 use shenko_subject::{
-    InboxEvent, InboxEventKind, NativeChildPlugin, NativeChildService, NativeTaskHandler,
-    NativeTaskHandlerPlugin, PmaEvaluateHandler,
+    NativeChildPlugin, NativeChildService, NativeTaskHandlerPlugin, PmaEvaluateHandler,
 };
+use shenko_kernel::task::NativeTaskHandler;
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::*;
 use shenko_types::operation::{OperationOutcome, OperationState};

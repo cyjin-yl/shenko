@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_store::{Store, child::{NATIVE_INPUT, NATIVE_OPERATION_ID, memo_uuid}};
 use shenko_store::artifacts::ProcessIdentity;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef, evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*, object::*, operation::*, task::*,
@@ -490,9 +490,9 @@ impl PlaygroundState {
             residual_case_ids: vec![], created_by_step_id: None, dispatch_eligibility: DispatchEligibility::Ready,
             no_progress_crashes: 0, first_run_at: None, terminal_at: None, created_commit: zero, updated_commit: zero,
         };
-        let accepted_event = shenko_subject::InboxEvent {
+        let accepted_event = shenko_types::inbox::InboxEvent {
             event_id: stable_id(&format!("artifact-action-accepted/v2:{idempotency_id}")),
-            kind: shenko_subject::InboxEventKind::ArtifactChanged,
+            kind: shenko_types::inbox::InboxEventKind::ArtifactChanged,
             created_at: chrono::Utc::now(), source: "playground".into(),
             payload: json!({"kind":"artifact.action", "artifact_id":id,"artifact_revision":record.revision,
                 "task_id":idempotency_id,"request_id":request.request_id,"action":request.action,
@@ -1289,8 +1289,8 @@ impl PlaygroundBackendHandler {
 
     fn publish_unknown(&self, task: &TaskRecord, evidence: &EvidenceReceipt) -> Result<()> {
         let frozen = read_frozen(&self.store, task)?;
-        let event = shenko_subject::InboxEvent {
-            event_id: evidence.receipt_id, kind: shenko_subject::InboxEventKind::ArtifactChanged,
+        let event = shenko_types::inbox::InboxEvent {
+            event_id: evidence.receipt_id, kind: shenko_types::inbox::InboxEventKind::ArtifactChanged,
             created_at: evidence.observed_at.context("backend evidence timestamp missing")?, source: "playground".into(),
             payload: json!({"artifact_id": frozen.artifact_id, "request_id": frozen.request.request_id,
                 "task_id": task.task_id, "operation_id": evidence.operation_id, "attempt_id": evidence.attempt_id,

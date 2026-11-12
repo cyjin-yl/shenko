@@ -639,7 +639,7 @@ mod tests {
     use async_trait::async_trait;
     use crate::provider::SpeakerIdentity;
     use crate::runtime::MediaProviders;
-    use shenko_store::TaskInvocation;
+    use shenko_types::task::TaskInvocation;
     use shenko_types::inbox::{InboxEvent, InboxEventKind};
     use shenko_types::agent::CallContext;
     use shenko_types::error::{ErrorScope, ProtocolError};
