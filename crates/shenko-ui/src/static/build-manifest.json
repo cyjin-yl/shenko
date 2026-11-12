@@ -5,12 +5,12 @@
     "commit": "b25229a94251398bc2f375554fcb9622dc8e79ab",
     "previous_reviewed_commit": "971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/home/user/Proto-UI",
+    "source_checkout": "/tank/shared/projects/shenko/build/claude-prs-20261112/proto-upstream-b252-r2",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tmp/claude-0/sk/receipt.json",
-      "receipt_sha256": "bf08c79041d7b585e2570a99df918459beeb86e654ca9779e190f4de5ec3b547"
+      "receipt_path": "/tank/shared/projects/shenko/build/claude-prs-20261112/upstream-build-r1/upstream-build.json",
+      "receipt_sha256": "1f01b7e927a0e2c2a2a2a77bc85004c9afb4fe5cbd1ad8cfd7a0be01dc8c29aa"
     }
   },
   "packages": [
@@ -117,12 +117,12 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/home/user/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-12T13:24:10.403Z",
+  "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-ui-291-20261112/crates/shenko-ui/web",
+  "built_at": "2026-11-12T15:22:46.911Z",
   "artifacts": {
     "app.js": {
-      "bytes": 1075553,
-      "sha256": "188d18fa6364b06be0192a28396950d2b434d758b6a4ca9ec4be646b57dcca97"
+      "bytes": 1076053,
+      "sha256": "4a154dafeaec7e9596f0516a82f51e43f0f3dd781288f7d85c8732215e4b1eb6"
     },
     "app.css": {
       "bytes": 37606,

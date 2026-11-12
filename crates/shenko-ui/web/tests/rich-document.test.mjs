@@ -9,18 +9,20 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-// The bundle is written next to the sources so its `react` import resolves
-// to the SAME react instance the test renders with: a data URL would resolve
-// no module at all, and a second react copy would not accept the elements of
-// the first.
+// Keep each generated bundle in the ignored dependency cache. It resolves
+// the SAME react instance as the test without modifying authored sources or
+// sharing an output file with another test process.
 const webRoot = fileURLToPath(new URL('../', import.meta.url));
-const bundlePath = join(webRoot, 'tests', '.document-view-consumer.mjs');
+const cacheRoot = join(webRoot, 'node_modules', '.cache');
+mkdirSync(cacheRoot, { recursive: true });
+const bundlePath = join(mkdtempSync(join(cacheRoot, 'shenko-document-')), 'consumer.mjs');
 await build({
   stdin: {
     contents: "export { RichDocument } from '../src/document-view.tsx';",
