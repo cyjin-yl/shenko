@@ -16,7 +16,7 @@
 | 能力架（`PluginRuntime`：提供者、能力、效果合同、说明） | 在用；原生任务处理器经 `NativeTaskHandlerPlugin` 登记 |
 | 钩子架（`HookRegistry`：七个钩子点、五种模式） | 主体每步在四处派发，但生产装配没有登记任何处理器 |
 | 绕路一：主体直接读认知目录 | `shenko-subject` 持有 `shenko-awareness-core` 的 `CognitionCatalog`，按 `cap.subject-frame`、`cap.attention-policy`、`cap.idle-perception`、`cap.child-role-frame` 四个固定名字读取 |
-| 绕路二：独立的贡献注册表 | `shenko-context-policy` 的 `ContributionRegistry` 负责收集；`context.collect` 钩子点只有定义，主体没有派发它 |
+| 绕路二：平行的收集路径 | 主体直接调用 `shenko-context-policy` 的 `ContributionRegistry::collect`；`context.collect` 钩子点只有定义，主体没有派发它 |
 | 绕路三：装配写死 | `bin/shenko/src/lib.rs` 里有三十多处手写的处理器登记，启停不由安装单元的状态决定 |
 
 依赖方向的现状记录在[依赖边界基线](../state/kernel-boundary.json)：25 条“插件伸进内核内部”，7 条“内核依赖具体插件”。
@@ -25,7 +25,7 @@
 
 ## 原则
 
-- 每一步是一个可以独立构建和验证的小改动，在同一个改动里完成三件事：改代码，改写与之冲突的现行条款，更新依赖边界基线。
+- 每一步是一个可以独立构建和验证的小改动，在同一个改动里完成三件事：改代码，更新相关条款的“当前实现”，更新依赖边界基线。合同正文写的是目标，可以先于代码；“当前实现”必须跟着代码走。
 - 收拢，不重写。不新建平行框架；已有的门和架子就是目标形状。
 - 被替代的旧路径在同一步里删除，不保留双路径和兼容别名。原始数据、经历与回执通过明确的迁移保留。
 - 不为了让数字好看而拆分或合并 crate。
@@ -78,20 +78,24 @@
 
 对应[内核 7](../specs/kernel.md#kernel-7)。可与第 3 步并行。
 
-1. 主体在上下文投影阶段派发 `context.collect` 钩子点。合并规则已经在内核里（`merge_contributions`），只有一条。
-2. 记忆的干预贡献改为 `context.collect` 的收集处理器。
-3. 删除 `ContributionRegistry` 的收集路径。使用记录（哪次请求用了哪条贡献）保留为封存输入的一部分。
-4. 同步改写[上下文策略合同](../specs/context-policies.md)里关于贡献注册表的条款。
+贡献注册表的合同是有意设计的：生产者在请求之外提前准备材料，请求路径只读已经准备好的内容、从不调用生产者。这一点保留。要收拢的只是“主体怎样拿到这些材料”。
+
+1. 主体在上下文投影阶段派发 `context.collect` 钩子点，不再直接调用注册表。合并规则已经在内核里（`merge_contributions`），只有一条。
+2. 贡献注册表登记为 `context.collect` 的一个收集处理器，返回它已经准备好的材料。其他插件可以登记自己的收集处理器，不必经过注册表。
+3. 使用记录（哪次请求用了哪条贡献）保留为封存输入的一部分。
+4. 更新[上下文策略合同](../specs/context-policies.md)里的“当前实现”。
 
 ### 第 5 步：删除编译进去的人格文本
 
 对应[内核 9](../specs/kernel.md#kernel-9)。依赖第 3 步。
 
-`SUBJECT_CONTRACT`、`IDLE_CONTINUATION_PROMPT` 和 `ROLE_CONTRACT` 的内容已经以种子单元的形式存在（`subject-frame`、`idle-perception`、`subject-child-frame`）。删除这些常量；没有提供者时，运行时给出类型化的缺失事实，做法与“缺少钩子运行时是类型化拒绝，而不是封存一个空图”一致。
+提供 `cap.subject-frame`、`cap.idle-perception` 和 `cap.child-role-frame` 的默认单元已经在种子里（`subject-frame`、`idle-perception`、`subject-child-frame`）。删除 `SUBJECT_CONTRACT` 与 `ROLE_CONTRACT`；没有提供者时，提示里只有内核 ABI 的说明和一条缺失事实。两个单元同时提供同一能力的歧义按缺失处理，并报告给主体。`IDLE_CONTINUATION_PROMPT` 现在是一句带祈使语气的“继续”；改为只陈述“没有新的外部输入”的事实投影。
+
+动手之前先确认每条启动路径都会安装种子单元，包括测试夹具和移动端宿主；否则删除常量会让这些路径上的主体失去角色框。[本地模型行为验收](local-model-behavior.md)直接采样 `IDLE_CONTINUATION_PROMPT`，它的输入要一起更新。
 
 输出协议的说明（控制行语法）保留，它是内核 ABI 的说明。
 
-同步改写 [57.1](../specs/subject-runtime.md#spec-57-1) 与 [57.2](../specs/subject-runtime.md#spec-57-2) 里“没有提供者时用编译回退文本”的条款。按[本地模型行为验收](local-model-behavior.md)复测。
+更新 [57.1](../specs/subject-runtime.md#spec-57-1) 与 [57.2](../specs/subject-runtime.md#spec-57-2) 的“当前实现”。按[本地模型行为验收](local-model-behavior.md)复测。
 
 ### 第 6 步：主体不再引用具体插件
 
