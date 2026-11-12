@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
 use shenko_store::research::{ArchiveMoveRecord, RetentionTombstone};
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::ids::*;
 use shenko_types::object::*;
 use shenko_types::operation::{OperationOutcome, OperationRecord};

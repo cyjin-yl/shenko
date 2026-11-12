@@ -35,7 +35,7 @@ use shenko_types::ids::EntityId;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use crate::inbox::{InboxEvent, InboxEventKind};
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 
 /// The environment variable that names the local account configuration.
 ///

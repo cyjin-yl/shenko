@@ -1,5 +1,7 @@
 # Shenko 记忆 — 功能合同（memory.md）
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。记忆必须能回到原始事实（[内核 3](kernel.md#kernel-3)）；它向上下文提供材料的路径属于钩子架（[内核 7](kernel.md#kernel-7)）。
+
 
 <a id="why-5"></a>
 <!-- migrated-contract: WHY:5 -->

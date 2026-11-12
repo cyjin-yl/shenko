@@ -1,5 +1,7 @@
 # Remote seats — functional contract
 
+**内核定位。** 参考插件，登记在能力架上，建立在[内核合同](kernel.md)的[内核 5](kernel.md#kernel-5)、[内核 6](kernel.md#kernel-6)与[内核 7](kernel.md#kernel-7)之上。远端座位上结果未知的操作先对账，不盲目重发。
+
 [§17](remote-seats.md#spec-17)、[§17.5](remote-seats.md#spec-17-5)、[§35.5](remote-seats.md#spec-35-5)、[§41.11](remote-seats.md#spec-41-11); carries PR127 (native SSH transport) into
 installed task authority. Work package: `architecture-remote-seats-20261101`.
 

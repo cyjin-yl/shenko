@@ -21,7 +21,7 @@ binding: &shenko_broker::request::ProviderBinding,
 request_id: EntityId,
 cancel: &tokio_util::sync::CancellationToken,
 strategies: &shenko_quota::QuotaStrategies,
-native: Option<&shenko_store::TaskInvocation>,
+native: Option<&shenko_types::task::TaskInvocation>,
 subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> { use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
 
 let Some(policy) = store.latest_quota_policy()? else {

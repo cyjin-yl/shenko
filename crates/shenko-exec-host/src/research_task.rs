@@ -17,7 +17,7 @@ use shenko_store::research::{
     ResearchClosure, ResearchConstraint, ResearchEffect, ResearchEnvironment,
     ResearchEpochStatus, ResearchResetTrigger,
 };
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::commit::CommitRef;
 use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 use shenko_types::ids::*;

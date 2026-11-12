@@ -2,7 +2,7 @@
 use super::*;
 use rmcp::model::{ClientRequest, GetMeta, ProgressToken};
 use sha2::{Digest as _, Sha256};
-use shenko_subject::ChildToolOutcome;
+use shenko_kernel::task::ChildToolOutcome;
 
 const LEARNING_LEDGER: &[u8] = include_bytes!("../support/learning_workspace.py");
 

@@ -1,5 +1,7 @@
 # Subject runtime contract
 
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 1](kernel.md#kernel-1)、[内核 2](kernel.md#kernel-2)与[内核 4](kernel.md#kernel-4)的具体形状。角色框、空闲感知与注意力政策是可修订的单元内容（[内核 9](kernel.md#kernel-9)）。57.1、57.2 的既有合同正文持续有效；其后的结构迁移说明另记实现归属与差距，不替换旧义务。
+
 
 <a id="why-1"></a>
 <!-- migrated-contract: WHY:1 -->
@@ -530,6 +532,8 @@ child 进度、结果产物、任务终态、对话投递、渠道发送分别�
 
 <!-- /migrated-contract: SPEC:57.1 -->
 
+**结构迁移说明。** [内核 7](kernel.md#kernel-7) 与[内核 9](kernel.md#kernel-9) 允许把角色内容及其编译回退迁到可替换参考插件，经钩子图到达主体。上面的既有合同保持有效：精确提供者选择、缺失与歧义时的回退、歧义报告及下一有效 S0 生效的要求不能因此改变。当前仍由主体直接读取认知目录，并在缺失或歧义时使用 `SUBJECT_CONTRACT`；[收敛计划](../development/kernel-convergence.md)记录后续结构工作，不代表迁移完成。
+
 <a id="spec-57-2"></a>
 <!-- migrated-contract: SPEC:57.2 -->
 ## 57.2 空闲是感知，不是提示
@@ -539,6 +543,8 @@ child 进度、结果产物、任务终态、对话投递、渠道发送分别�
 **不变的部分。** [§5.1](subject-runtime.md#spec-5-1) 的持续接续与 600 秒语义等待不变；等待态是注意力状态，与推理/排队时间正交；真实容量等待、OS 挂起、主动暂停分别记账。"空闲不是停止的理由"仍然成立，但那是主体读到的内容，不是 harness 写死的台词。
 
 <!-- /migrated-contract: SPEC:57.2 -->
+
+**结构迁移说明。** [内核 9](kernel.md#kernel-9) 把空闲观察及其回退内容的所有权交给可替换单元或参考插件；这不取消上面的编译回退义务，也不改变持续接续与 600 秒语义等待。当前 `subject.idle_perception` 直接读取认知目录，缺失时仍使用 `IDLE_CONTINUATION_PROMPT`。迁移后仍须满足既有观察语义，不能把结构上的缺失事实冒充完整的空闲感知行为。
 
 <a id="spec-57-3"></a>
 <!-- migrated-contract: SPEC:57.3 -->

@@ -11,7 +11,7 @@ use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
 use shenko_node::Node;
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     effect::{
@@ -1071,7 +1071,7 @@ mod tests {
                 authority_refs: vec![],
                 trace_id: EntityId::new(),
             },
-            task_invocation: shenko_store::TaskInvocation {
+            task_invocation: shenko_types::task::TaskInvocation {
                 task_id,
                 task_revision: TaskRevision(1),
                 record_revision: RecordRevision(1),

@@ -1,5 +1,7 @@
 # 上下文策略、切窗事务与瞬态贡献合同
 
+**内核定位。** 参考插件，属于钩子架，建立在[内核合同](kernel.md)之上。策略只引用原始事件（[内核 3](kernel.md#kernel-3)），窗口随步封存（[内核 4](kernel.md#kernel-4)），经[内核 7](kernel.md#kernel-7)接入。目标是请求路径上只有一个收集点，即 `context.collect` 钩子点：贡献注册表保留“提前准备、请求路径只读”的合同，作为该钩子点的一个收集处理器接入。当前实现里主体直接调用注册表的 `collect`，没有派发这个钩子点；收敛步骤见[内核收敛计划](../development/kernel-convergence.md)第 4 步。
+
 本文是 [§12.3.1](context-policies.md#spec-12-3-1)–[§12.3.2](context-policies.md#spec-12-3-2)、[§37.7](context-policies.md#spec-37-7)、[§41.8](context-policies.md#spec-41-8) 的实现边界说明，描述**已存在的接口与行为**，不替换、不删减 SPEC 的任何要求。本领域现行合同与 `docs/requirements/requirements.json` 的 R022、R115、R116 与验收项 A44、A45、V1-12、H04、PG01、PV07 仍是行为依据；接口名随实现演进。
 
 涉及的代码单元：`shenko-context-policy`（合同、注册表、窗口账本、贡献注册表）、`shenko-compact-budget`（BudgetCompact 插件）、`shenko-compact-snap`（SnapCompact 插件）。策略实现不进入核心；核心只持有可替换合同。

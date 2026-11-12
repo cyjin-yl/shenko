@@ -24,7 +24,7 @@
 use anyhow::{Context, Result};
 use shenko_exec_ssh::{SshBinding, SshExecHandler, SshTarget, ensure_node_identity};
 use shenko_store::{Store, child::NATIVE_INPUT};
-use shenko_subject::{NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::{NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     agent::CallContext, commit::CommitRef, ids::*, operation::*,
     store::WriteBatch, subject::*, task::*,

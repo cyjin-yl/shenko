@@ -9,6 +9,7 @@ pub mod plugin;
 pub mod runtime;
 pub mod services;
 pub mod supervisor;
+pub mod task;
 
 pub use contribution::*;
 pub use errors::*;
@@ -18,6 +19,7 @@ pub use plugin::*;
 pub use runtime::*;
 pub use services::*;
 pub use supervisor::*;
+pub use task::*;
 
 // These are the actual upstream contracts, not Shenko aliases or adapters.
 pub use cordis_core::{Context, FiberHandle, InjectSpec, Plugin, PreparedPlugin, Service};

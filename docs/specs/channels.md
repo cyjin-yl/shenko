@@ -1,5 +1,7 @@
 # Channels — functional contract
 
+**内核定位。** 参考插件。入站是带来源的原始事实（[内核 3](kernel.md#kernel-3)），出站是外部效果（[内核 5](kernel.md#kernel-5)），经[内核 7](kernel.md#kernel-7)登记；总体边界见[内核合同](kernel.md)。增加一个渠道不需要改动内核。
+
 [§15](channels.md#spec-15)–[§16](channel-adapters.md#spec-16)、[§35.6](channels.md#spec-35-6)、[§41.6](channels.md#spec-41-6) · C13. This is the contract the channel slice
 implements; it names the exact types and runtime paths so a second channel
 can be added without touching the core.

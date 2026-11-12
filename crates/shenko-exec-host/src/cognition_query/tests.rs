@@ -4,7 +4,7 @@ use super::*;
 use crate::CognitionWriteHandler;
 use parking_lot::Mutex;
 use shenko_node::Node;
-use shenko_store::TaskInvocation;
+use shenko_types::task::TaskInvocation;
 use shenko_types::agent::CallContext;
 use shenko_types::ids::RuntimeGeneration;
 use shenko_types::store::WriteBatch;

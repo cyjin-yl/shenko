@@ -10,7 +10,7 @@ use crate::{SelectedSshUnavailable, SshTaskRunner, selected_task::check_task};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use shenko_node::{Identity, Node, NodeSelectionOutcome};
-use shenko_store::TaskInvocation;
+use shenko_types::task::TaskInvocation;
 use shenko_types::{ids::EntityId, object::Digest, operation::AuthorityRef};
 use std::sync::Mutex;
 

@@ -1,5 +1,7 @@
 # WASM 家园、挂载与恢复合同
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。家园里的执行是带回执的效果（[内核 5](kernel.md#kernel-5)），经[内核 7](kernel.md#kernel-7)登记，工件以单元的形式安装（[内核 8](kernel.md#kernel-8)）。
+
 
 <a id="why-4"></a>
 <!-- migrated-contract: WHY:4 -->

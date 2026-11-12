@@ -1,5 +1,7 @@
 # 模型 child：有限、多步、可调用真实能力的子 Agent
 
+**内核定位。** 参考插件：能力架上的委派执行者，建立在[内核合同](kernel.md)之上。委派是带回执的效果（[内核 5](kernel.md#kernel-5)）；child 与主体共用推理容量而互不饿死（[内核 2](kernel.md#kernel-2)）；经[内核 7](kernel.md#kernel-7)登记。child 的角色框是可修订的单元内容（[内核 9](kernel.md#kernel-9)）。
+
 
 <a id="why-2"></a>
 <!-- migrated-contract: WHY:2 -->
@@ -16,7 +18,8 @@ system prompt / 模型 / 上下文 / 工具 / 输出预算）、[§14.5](model-c
 [§41.5](subject-runtime.md#spec-41-5)（有限子任务）、R106/R107。
 
 实现位置：`crates/shenko-subject/src/model_child.rs`（运行时）、
-`crates/shenko-subject/src/child.rs`（共享 native runtime 与工具目录）、
+`crates/shenko-subject/src/child.rs`（共享 native runtime）、
+`crates/shenko-kernel/src/task.rs`（任务处理器与工具合同）、
 `crates/shenko-store/src/{external,intents,child}.rs`（账本与准入）、
 `crates/shenko-types/src/output.rs`（作者可见的 spec 类型）。
 
@@ -357,9 +360,10 @@ Store 在 T1 准入时复核这份计划：计划里的每一项都必须属于�
 * `shenko_store::Store`：`Store::claim_child_tool_task(...)`（原子创建并 claim 一个
   工具子任务）、`Store::commit_native_dispatch(ctx, operation_id, attempt_id)`（单次
   attempt 的发送边界）、`Store::admit_child_publication(...)`（child 发布准入）。
-* `shenko_subject`：`ChildToolRuntime` / `ChildToolCall` / `ChildToolOutcome` /
-  `NativeChildService::tool_runtime()` / `describe_tools()` / `call_tool()`；
-  `NativeTaskInvocation.child_tools`。
+* `shenko_kernel::task`：`ChildToolRuntime` / `ChildToolCall` / `ChildToolOutcome` /
+  `NativeTaskInvocation.child_tools`；
+* `shenko_subject`：`NativeChildService::tool_runtime()` / `describe_tools()` /
+  `call_tool()`。
 * `ModelChildHandler` 的 `descriptor().prompt_section` 现在描述多步 + 工具能力。
 
 ---

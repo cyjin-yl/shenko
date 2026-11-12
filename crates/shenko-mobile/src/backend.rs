@@ -24,7 +24,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
-use shenko_subject::NativeTaskInvocation;
+use shenko_kernel::NativeTaskInvocation;
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},

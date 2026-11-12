@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use shenko_exec_ssh::*;
-use shenko_store::{Store, TaskInvocation};
+use shenko_store::Store;
 use shenko_types::{
     commit::CommitRef, ids::*, object::*, operation::AuthorityRef, store::WriteBatch, task::*,
 };

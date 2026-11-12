@@ -5,7 +5,7 @@ mod native_ssh_installation {
     use async_trait::async_trait;
     use shenko_exec_ssh::{NativeSessionOpener, NativeSshInstallation, SshBinding, SshTarget,
         native_transport::{NativeSshConnection, NativeSshError, NativeSshSession, NativeSshTarget}};
-    use shenko_subject::NativeTaskHandler;
+    use shenko_kernel::task::NativeTaskHandler;
     use shenko_types::object::Digest;
     use russh::{server, Channel, ChannelId, ChannelMsg, keys::{PrivateKey, PrivateKeyWithHashAlg,
         ssh_key::private::Ed25519Keypair}};
@@ -323,7 +323,7 @@ mod native_ssh_installation {
     }
     // Real S1 + Store claim, with the same public NativeTaskInvocation contract
     // used by the installed registry. Only these negative tests detach fields.
-    fn claimed_invocation(f: &Fixture) -> shenko_subject::NativeTaskInvocation {
+    fn claimed_invocation(f: &Fixture) -> shenko_kernel::task::NativeTaskInvocation {
         submit(f);
         let descriptor = f.handler.descriptor();
         let claim = f.store.claim_native_task(f.task_id, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
@@ -343,7 +343,7 @@ mod native_ssh_installation {
         let authority = shenko_types::operation::AuthorityRef { delegation_id: f.task_id,
             delegation_revision: RecordRevision(claim.invocation.task_revision.0),
             decision_ref: claim.task.created_by_step_id.unwrap_or(claim.invocation.invocation_id) };
-        shenko_subject::NativeTaskInvocation { context, task_invocation: claim.invocation,
+        shenko_kernel::task::NativeTaskInvocation { context, task_invocation: claim.invocation,
             task: claim.task, operation_id: claim.operation_id, authority,
             input: serde_json::json!({"target_id":"owned-native-target","decision_id":f.decision_id,
                 "action":{"kind":"download","path":"/owned-fixture"},"timeout_secs":5}),

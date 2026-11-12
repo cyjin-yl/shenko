@@ -11,13 +11,14 @@
 ## 必读基线（所有实现者）
 
 1. [文档索引](INDEX.md) — 按领域进入现行合同和 Why；旧章节只作追踪标识
-2. [docs/specs/architecture.md](specs/architecture.md) — 当前功能边界与各层事实归属
-3. [docs/governance/COMPLETION.md](governance/COMPLETION.md) — 完整交付合同
-4. [docs/governance/AUTONOMY.md](governance/AUTONOMY.md) — 自主决策边界
-5. [docs/requirements/requirements.json](requirements/requirements.json)— 165 项 R 完整分母
-6. [docs/requirements/acceptance-cases.json](requirements/acceptance-cases.json)— 236 条验收 case
-7. [docs/state/coverage.json](state/coverage.json)— 需求级实现与证据状态
-8. [.agents/skills/shenko-dev/SKILL.md](../.agents/skills/shenko-dev/SKILL.md) — 开发原子与约束
+2. [docs/specs/kernel.md](specs/kernel.md) — 内核合同：九条不变量、每条的 Why 与当前实现状态
+3. [docs/specs/architecture.md](specs/architecture.md) — 当前功能边界与各层事实归属
+4. [docs/governance/COMPLETION.md](governance/COMPLETION.md) — 完整交付合同
+5. [docs/governance/AUTONOMY.md](governance/AUTONOMY.md) — 自主决策边界
+6. [docs/requirements/requirements.json](requirements/requirements.json)— 165 项 R 完整分母
+7. [docs/requirements/acceptance-cases.json](requirements/acceptance-cases.json)— 236 条验收 case
+8. [docs/state/coverage.json](state/coverage.json)— 需求级实现与证据状态
+9. [.agents/skills/shenko-dev/SKILL.md](../.agents/skills/shenko-dev/SKILL.md) — 开发原子与约束
 
 ## 装配根
 
@@ -98,6 +99,7 @@
 - **Hook API（HookRegistry）** — 已接线（`main.rs` 创建 registry 并注入 subject loop）
   - [§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md
+  - 2026-11-11 读 `dd28003` 的补充（在 `db3970e` 上复核）：主体每步在四处派发钩子，但生产装配没有登记任何处理器；`context.collect` 钩子点只有定义，主体没有派发它。见[内核收敛计划](development/kernel-convergence.md)。
   - docs/requirements/requirements.json（R086、R087）
 
 - **Effect Contract** — 仅源码（`shenko-kernel/effect_contract.rs` 有定义，运行时装配无消费点）
@@ -217,6 +219,22 @@
 - **跨节点认知复制（store/cognition.rs）** — 已接线（经 `shenko sync` 导出/接收/确认）
   - [§10.6](specs/durable-state.md#spec-10-6)
   - docs/specs/durable-state.md
+
+## 内核九条与代码
+
+[内核合同](specs/kernel.md)的九条在源码里的位置与状态。这里只记录阅读 `dd28003` 源码看到的事实（所引用的符号在 `db3970e` 上复核过），不是运行验收；差距怎样收敛见[内核收敛计划](development/kernel-convergence.md)。
+
+| 内核条目 | 主要位置 | 状态 |
+| --- | --- | --- |
+| [内核 1](specs/kernel.md#kernel-1) 一条决策线 | `shenko-store`：`commit_step_and_advance_head`、`runtime_boundary.rs` | 机制已有 |
+| [内核 2](specs/kernel.md#kernel-2) 循环不停 | `shenko-subject`：`run_subject_loop`、`attention_budget`；`shenko-types`：`MAX_WAIT_SECS` | 机制已有 |
+| [内核 3](specs/kernel.md#kernel-3) 经历不改写 | `shenko-store`：`raw_session.rs`、内容存储；`shenko-node`：单元版本历史与移除事实 | 机制已有 |
+| [内核 4](specs/kernel.md#kernel-4) 先封存，再行动 | `shenko-subject`：`FrozenStepInput`；`shenko-store`：`subject_request.rs` | 机制已有 |
+| [内核 5](specs/kernel.md#kernel-5) 效果有账 | `shenko-kernel`：`NativeTaskHandler` 的 `execute`、`reconcile`、`effect_contracts`（登记与派发在 `shenko-subject`）；`shenko-broker`；渠道出站台账 | 机制已有 |
+| [内核 6](specs/kernel.md#kernel-6) 权限来自事实 | 能力声明与认知材料的合同、注释 | 原则已写，入口尚未逐一核对 |
+| [内核 7](specs/kernel.md#kernel-7) 一个门，两个架子 | `shenko-kernel`：`PluginRegistry`、`PluginRuntime`、`HookRegistry` | 部分：钩子架没有处理器；主体直接读认知目录；贡献注册表与钩子点并存；[依赖边界](state/kernel-boundary.json)有 26 条违例 |
+| [内核 8](specs/kernel.md#kernel-8) 一个安装权威 | `shenko-node`：`units.rs`；`shenko-update` | 部分：原生处理器的启停不由单元状态决定；种子里没有元感知与元 awareness 单元 |
+| [内核 9](specs/kernel.md#kernel-9) 内核不做判断 | `shenko-awareness-core` 的种子单元；`shenko-subject` 的 `subject_frame`、`idle_perception` | 部分：编译回退文本仍在（`SUBJECT_CONTRACT`、`IDLE_CONTINUATION_PROMPT`、`ROLE_CONTRACT`） |
 
 ## 验证规则
 

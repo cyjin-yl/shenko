@@ -31,7 +31,7 @@ use shenko_types::operation::{
     AttemptDispatchStage, AttemptRecord, EffectStatus, OperationContractRef, OperationOutcome,
     OperationRecord, OperationState, ResourceBindings,
 };
-use shenko_subject::NativeTaskInvocation;
+use shenko_kernel::task::NativeTaskInvocation;
 use shenko_types::task::TaskRecord;
 use shenko_types::task::NativeTaskDefinition;
 
@@ -557,9 +557,9 @@ impl PlaygroundManageHandler {
 }
 
 #[async_trait]
-impl shenko_subject::NativeTaskHandler for PlaygroundManageHandler {
-    fn descriptor(&self) -> shenko_subject::NativeTaskDescriptor {
-        shenko_subject::NativeTaskDescriptor {
+impl shenko_kernel::task::NativeTaskHandler for PlaygroundManageHandler {
+    fn descriptor(&self) -> shenko_kernel::task::NativeTaskDescriptor {
+        shenko_kernel::task::NativeTaskDescriptor {
             kind: PLAYGROUND_MANAGE_KIND.into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {

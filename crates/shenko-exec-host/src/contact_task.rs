@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_channel_napcat::{ContactQuery, NapCatClient, SendError};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
@@ -714,7 +714,7 @@ mod tests {
     use futures::{SinkExt, StreamExt};
     use serde_json::json;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig};
-    use shenko_store::TaskInvocation;
+    use shenko_types::task::TaskInvocation;
     use shenko_types::agent::CallContext;
     use shenko_types::store::WriteBatch;
     use shenko_types::task::{DispatchEligibility, RunMode, TaskOwner, TaskState};

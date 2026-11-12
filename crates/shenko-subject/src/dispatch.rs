@@ -1,9 +1,9 @@
 //! Consumers of committed S1 work. Broadcasts/channels are only projections;
 //! durable ready indexes and per-event dispositions remain the recovery truth.
-use crate::{InboxEvent, InboxEventKind, NativeChildService};
-use crate::inbox::{SELF_WAKE_KIND, SUBJECT_WAKE_SOURCE};
+use crate::NativeChildService;
 use shenko_store::Store;
 use shenko_types::ids::EntityId;
+use shenko_types::inbox::{InboxEvent, InboxEventKind, SELF_WAKE_KIND, SUBJECT_WAKE_SOURCE};
 use shenko_types::subject::PendingObligation;
 use std::{collections::HashSet, sync::Arc};
 

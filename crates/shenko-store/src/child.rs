@@ -88,7 +88,7 @@ pub enum NativeDispatchTransition {
 #[derive(Debug, Clone)]
 pub struct NativeTaskClaim {
     pub task: TaskRecord,
-    pub invocation: crate::external::TaskInvocation,
+    pub invocation: TaskInvocation,
     pub operation_id: EntityId,
     pub result_id: EntityId,
     pub software_generation: RuntimeGeneration,
@@ -460,7 +460,7 @@ impl Store {
         let checkpoint = pending_checkpoint(&task.state);
         let seq = self.ledger.allocate_seq(tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-        let invocation = crate::external::TaskInvocation {
+        let invocation = TaskInvocation {
             task_id,
             task_revision: task.task_revision,
             record_revision: old_revision.next(),
@@ -811,7 +811,7 @@ impl Store {
     /// Recheck an armed, possibly queued inference at its actual send boundary.
     /// Record revision may have advanced at T1; invocation/task revision,
     /// controller generation and ownership are the authority, not the callback.
-    pub fn native_invocation_current(&self, ctx: &crate::external::TaskInvocation) -> Result<bool> {
+    pub fn native_invocation_current(&self, ctx: &TaskInvocation) -> Result<bool> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction()?;
         let Some(task) = read_task(&tx, ctx.task_id)? else { return Ok(false) };
@@ -827,7 +827,7 @@ impl Store {
     /// separate attempts even while sharing one task invocation.
     pub fn commit_native_dispatch(
         &self,
-        ctx: &crate::external::TaskInvocation,
+        ctx: &TaskInvocation,
         operation_id: EntityId,
         attempt_id: EntityId,
     ) -> Result<NativeDispatchTransition> {
@@ -899,7 +899,7 @@ impl Store {
     }
 
     pub(crate) fn native_invocation_current_tx(
-        &self, tx: &Transaction<'_>, task: &TaskRecord, ctx: &crate::external::TaskInvocation,
+        &self, tx: &Transaction<'_>, task: &TaskRecord, ctx: &TaskInvocation,
     ) -> Result<bool> {
         self.check_dispatch_owner(tx)?;
         let head = read_head(tx, task.agent_id)?;

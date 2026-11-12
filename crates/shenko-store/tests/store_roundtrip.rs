@@ -1134,7 +1134,7 @@ fn claimed_native_task(
 }
 
 fn arm_dispatch_probe(
-    store: &Store, invocation: &shenko_store::TaskInvocation, key: &str,
+    store: &Store, invocation: &shenko_types::task::TaskInvocation, key: &str,
 ) -> (shenko_types::ids::EntityId, shenko_types::ids::EntityId) {
     use shenko_types::{ids::*, object::*, operation::*};
     let task = store.external_task(invocation.task_id).unwrap();

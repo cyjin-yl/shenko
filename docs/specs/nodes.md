@@ -1,5 +1,7 @@
 # Node membership, election and authority — functional contract
 
+**内核定位。** 参考插件：成员、选主、同步与看门狗。[内核合同](kernel.md)只提供[内核 1](kernel.md#kernel-1)的围栏代号；单机部署不依赖本文的任何多节点机制。经历合并遵守[内核 3](kernel.md#kernel-3)，安装单元的事实遵守[内核 8](kernel.md#kernel-8)。
+
 
 <a id="why-7"></a>
 <!-- migrated-contract: WHY:7 -->

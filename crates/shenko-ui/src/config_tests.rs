@@ -21,9 +21,10 @@ use uuid::Uuid;
 use shenko_kernel::{FiberHandle, Supervisor};
 use shenko_store::child::NATIVE_INPUT;
 use shenko_subject::{
-    InboxEvent, InboxEventKind, NativeChildPlugin, NativeChildService, NativeTaskHandler,
-    NativeTaskHandlerPlugin,
+    NativeChildPlugin, NativeChildService, NativeTaskHandlerPlugin,
 };
+use shenko_kernel::task::NativeTaskHandler;
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::{
     commit::CommitRef,
     ids::*,

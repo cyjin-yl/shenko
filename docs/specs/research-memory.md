@@ -1,5 +1,7 @@
 # Research memory — functional contract
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。研究谱系与回到最佳点都依靠只增的原始经历（[内核 3](kernel.md#kernel-3)），经[内核 7](kernel.md#kernel-7)登记。
+
 [§14.2](research-memory.md#spec-14-2)、[§14.5](model-children.md#spec-14-5) (research epochs / reset-to-best), [§12.4](memory.md#spec-12-4) (PMA intervention),
 [§10.5](memory.md#spec-10-5) (context contracts). This module is the research slice: a subject's
 research lineages, their reset-to-best epochs, the durable bank that crosses

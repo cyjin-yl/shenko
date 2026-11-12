@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use shenko_store::Store;
-use shenko_subject::{
+use shenko_kernel::task::{
     NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation,
 };
 use shenko_types::{

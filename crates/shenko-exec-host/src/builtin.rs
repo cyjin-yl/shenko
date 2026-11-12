@@ -3,7 +3,7 @@
 //! runtime; model-backed PMA uses that root's broker and memory plugin.
 
 use shenko_store::Store;
-use shenko_subject::NativeTaskHandler;
+use shenko_kernel::task::NativeTaskHandler;
 use std::sync::Arc;
 
 use crate::research_task::{ResearchBankHandler, ResearchCandidateHandler, ResearchResetHandler};

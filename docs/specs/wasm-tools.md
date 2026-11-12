@@ -1,5 +1,7 @@
 # WASM 工具：真实工件、身份与安装合同
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。工具就是安装单元（[内核 8](kernel.md#kernel-8)），经[内核 7](kernel.md#kernel-7)登记到能力架。
+
 本文是 `crates/shenko-wasm` 工具层与 `shenko tool …` 安装面的功能合同，对应 [SPEC](../INDEX.md) [§8.2](wasm-tools.md#spec-8-2)、[§8.3](wasm-home.md#spec-8-3)、[§18.8](wasm-tools.md#spec-18-8)、[§35.8](self-update.md#spec-35-8)、[§44.2](plugins.md#spec-44-2) 与 [§44.7](plugins.md#spec-44-7)。它不替代 SPEC，也不放宽其中任何要求；文中区分“已经存在的接口”和“还没有运行证据的部分”。
 
 ## 一个权威，不另建工具登记表

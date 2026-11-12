@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use shenko_awareness_core::{AdoptionRecord, CognitionCatalog, CognitionUnit};
 use shenko_node::{AdoptionDecision, AdoptionEvidence, AdoptionMethod};
 use shenko_store::Store;
-use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt},

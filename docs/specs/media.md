@@ -1,5 +1,7 @@
 # 媒体能力功能合同 — [§15.2](contacts.md#spec-15-2)、[§20](media.md#spec-20)、[§21](web-interface.md#spec-21)、[§35.3](plugins.md#spec-35-3)、[§41.2.2](durable-state.md#spec-41-2-2)、[§41.3](durable-state.md#spec-41-3)、A16
 
+**内核定位。** 参考插件，建立在[内核合同](kernel.md)之上。媒体入站是原始事实（[内核 3](kernel.md#kernel-3)），转写与合成是带回执的效果（[内核 5](kernel.md#kernel-5)），处理器经[内核 7](kernel.md#kernel-7)登记。
+
 本文解释媒体实现边界，不替换、删减或放宽 `SPEC` 的任何要求。转写文本只来自真实引擎；本仓库内的 runtime 适配器是 FunASR websocket 与 OpenAI 兼容 `/v1/audio/speech` 两个有文档协议的具体实现，不是空 recognizer 占位。
 
 ## 一个事件模型，同一主体

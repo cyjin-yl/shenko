@@ -1,5 +1,7 @@
 # 插件运行时、Hook 图与能力目录
 
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 7](kernel.md#kernel-7)（一个门，两个架子）的具体形状：一个生命周期，能力目录与钩子图两处登记。当前实现还有三处绕路，列在[内核收敛计划](../development/kernel-convergence.md)里。
+
 本文是插件运行时的功能与接口合同，对应 [§7](plugins.md#spec-7)、[§18](plugins.md#spec-18)、[§36](durable-state.md#spec-36)、[§37](context-policies.md#spec-37)、[§41.2](durable-state.md#spec-41-2)、[§41.7](plugins.md#spec-41-7)、[§41.8](context-policies.md#spec-41-8)、[§45](cognition-units.md#spec-45)。
 它描述**目标行为与实际接口**，不声称任何运行期证据已经取得；真实能力、模型行为与长周期观察
 由 `docs/specs/verification.md` 的证据规则单独记录。

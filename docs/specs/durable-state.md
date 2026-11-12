@@ -1,5 +1,7 @@
 # Durable State — Ledger, Archive and Stream Journal
 
+**内核定位。** 本文承载[内核合同](kernel.md)中[内核 1](kernel.md#kernel-1)、[内核 3](kernel.md#kernel-3)、[内核 4](kernel.md#kernel-4)与[内核 5](kernel.md#kernel-5)的账本形状。目标是账本 crate 只保留决策线、封存的步、请求回执、效果台账、原始会话和内容存储；文中的认知档案等领域表是参考插件的状态，随各自的插件迁出。当前实现里这些表仍在 `shenko-store`；收敛步骤见[内核收敛计划](../development/kernel-convergence.md)第 8 步。
+
 Scope: the `shenko-store` ledger/commit surface, the `shenko-types` store and
 commit types, the store migrations, the cognition archive (schema, fact
 classes, conflict units) and the durable content stream journal.

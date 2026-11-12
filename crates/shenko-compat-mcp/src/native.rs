@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use shenko_compat::{installation::UnitRef, recorded::{RecordedCall, Workers, joined, reconcile_original}};
 use shenko_node::Node;
 use shenko_store::Store;
-use shenko_subject::{NativeChildService, NativeTaskDescriptor, NativeTaskHandler, NativeTaskHandlerPlugin, NativeTaskInvocation};
+use shenko_subject::{NativeChildService, NativeTaskHandlerPlugin};
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{effect::*, evidence::ObservationLevel, ids::EntityId, object::Digest, operation::*,
     plugin_runtime::NativeCapabilityDeclaration, task::TaskRecord};
 use tokio::sync::RwLock;

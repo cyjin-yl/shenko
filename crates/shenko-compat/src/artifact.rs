@@ -10,7 +10,8 @@ use cordis_core::{Context, InjectSpec, Plugin, Service};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_store::Store;
-use shenko_subject::{NativeChildService, NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_subject::NativeChildService;
+use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{effect::*, evidence::ObservationLevel, ids::EntityId, object::Digest,
     operation::*, plugin_runtime::NativeCapabilityDeclaration, task::TaskRecord};
 use crate::recorded::{RecordedCall, Workers, joined, reconcile_original};

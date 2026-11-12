@@ -14,7 +14,8 @@ use shenko_exec_ssh::{SeatFleetHandler, seat::runtime::SeatRuntime};
 use shenko_kernel::Supervisor;
 use shenko_node::Node;
 use shenko_store::{SeatLocation, Store};
-use shenko_subject::{NativeChildService, NativeTaskHandler, NativeTaskHandlerPlugin};
+use shenko_subject::{NativeChildService, NativeTaskHandlerPlugin};
+use shenko_kernel::task::NativeTaskHandler;
 use shenko_types::{
     ids::EntityId,
     object::{Digest, ObjectRef},
