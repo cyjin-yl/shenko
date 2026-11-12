@@ -455,6 +455,8 @@ class LiveController implements ProjectionController {
     void this.loadSelf();
     void this.loadTasks();
     void this.loadMemory();
+    // Works can be lenses beside the stream, so they are known from the start.
+    void this.loadPlayground();
     void this.loadHealth();
     void this.loadManifest();
   }
@@ -641,14 +643,14 @@ class LiveController implements ProjectionController {
         void this.applyConfigEntry(action.payload?.namespace, action.payload?.logical_key);
         break;
       case 'identity.name.draft':
-        this.state.name_draft = typeof action.payload?.value === 'string' ? action.payload.value : '';
+        this.state.name_draft = typeof intent.payload?.value === 'string' ? intent.payload.value : '';
         this.emit();
         break;
       case 'identity.name':
         void this.nameInstance();
         break;
       case 'owner.claim.draft':
-        this.state.claim_draft = typeof action.payload?.value === 'string' ? action.payload.value : '';
+        this.state.claim_draft = typeof intent.payload?.value === 'string' ? intent.payload.value : '';
         this.emit();
         break;
       case 'owner.claim':
@@ -1899,8 +1901,19 @@ class LiveController implements ProjectionController {
     if (typeof artifactId !== 'string' || artifactId === '') return;
     try {
       const [meta, content] = await Promise.all([
-        this.fetchJson(`/api/playground/${artifactId}/manifest`),
-        this.fetchJson(`/playground/${artifactId}`),
+        this.fetchJson(`/playground/${artifactId}/manifest`),
+        fetch(`/playground/${artifactId}`, {
+          cache: 'no-store',
+          signal: this.abort.signal,
+        }).then(async (response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const revisionHeader = response.headers.get('x-artifact-revision');
+          const revision = Number(revisionHeader);
+          if (!revisionHeader || !Number.isSafeInteger(revision) || revision < 1) {
+            throw new Error('invalid work content revision');
+          }
+          return { text: await response.text(), revision };
+        }),
       ]);
       if (!isObject(meta)) throw new Error('invalid work manifest');
       const record = isObject(meta.record) ? meta.record : {};
@@ -1912,14 +1925,14 @@ class LiveController implements ProjectionController {
           .filter((entry): entry is { digest: string } => entry !== null)
         : [];
       const versions = await this.fetchJson(`/playground/${artifactId}/versions`)
-        .then((value) => (Array.isArray(value) ? (value as number[]) : []))
+        .then((value) => (isObject(value) && Array.isArray(value.revisions) ? (value.revisions as number[]) : []))
         .catch(() => [] as number[]);
       this.state.work = {
         artifact_id: artifactId,
         title: typeof record.title === 'string' ? record.title : undefined,
-        revision: typeof record.revision === 'number' ? record.revision : undefined,
+        revision: content.revision,
         lifecycle: typeof record.lifecycle === 'string' ? record.lifecycle : undefined,
-        content: typeof content === 'string' ? content : undefined,
+        content: content.text,
         candidates,
         revisions: versions,
       };
@@ -1929,7 +1942,10 @@ class LiveController implements ProjectionController {
       this.state.work = undefined;
       this.state.work_error = true;
     }
-    if (!this.disposed) this.emit();
+    if (!this.disposed) {
+      this.state.display.panel_open = true;
+      this.emit();
+    }
   }
 
   /// One action on the opened work.
@@ -1954,7 +1970,7 @@ class LiveController implements ProjectionController {
     const requestId = this.workRequests.get(key) as string;
     try {
       if (op === 'publish') {
-        const candidate = work.candidates?.[0];
+        const candidate = work.candidates?.at(-1);
         if (!candidate) {
           this.state.display.notice = '这件作品还没有可采纳的候选';
           this.emit();
@@ -2067,8 +2083,17 @@ class LiveController implements ProjectionController {
       const namespaceList = isObject(namespaces) && 'namespaces' in namespaces && Array.isArray(namespaces.namespaces)
         ? namespaces.namespaces
         : undefined;
+      const roots: NonNullable<NonNullable<UiState['playground']>['roots']> = [];
+      if (Array.isArray(surface.roots)) {
+        for (const entry of surface.roots) {
+          if (!Array.isArray(entry) || entry.length !== 3
+            || typeof entry[0] !== 'string' || typeof entry[1] !== 'string' || typeof entry[2] !== 'string') continue;
+          roots.push({ artifact_id: entry[0], root: entry[1], identity: entry[2] });
+        }
+      }
       this.state.playground = {
         ...(surface as Record<string, unknown>),
+        roots,
         namespaces: namespaceList,
       } as UiState['playground'];
       this.state.playground_error = false;

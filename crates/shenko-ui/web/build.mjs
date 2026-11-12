@@ -44,6 +44,11 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/textarea/index.js',
   'packages/prototypes/shadcn/dist/scroll-area/index.js',
   'packages/prototypes/shadcn/dist/collapsible/index.js',
+  'packages/prototypes/shadcn/dist/drawer/index.js',
+  'packages/prototypes/shadcn/dist/toggle-group/index.js',
+  'packages/prototypes/shadcn/dist/input/index.js',
+  'packages/prototypes/shadcn/dist/separator/index.js',
+  'packages/prototypes/shadcn/dist/toggle/index.js',
   'packages/cli/bin/proto-ui.js',
   // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
   // re-audits these same inputs before bundling them for the build.
@@ -192,7 +197,7 @@ const manifest = {
   upstream: {
     repository: pin.repository,
     commit: pin.commit,
-    previous_reviewed_commit: '2962d4ee877f5a3544a13d4deaa09b6a2b038fb7',
+    previous_reviewed_commit: pin.migrated_from,
     lock_sha256: pin.lock_sha256,
     source_checkout: sourceRoot,
     build_receipt: upstreamBuild,
@@ -209,6 +214,11 @@ const manifest = {
       'packages/prototypes/shadcn/dist/textarea/index.js',
       'packages/prototypes/shadcn/dist/scroll-area/index.js',
       'packages/prototypes/shadcn/dist/collapsible/index.js',
+      'packages/prototypes/shadcn/dist/drawer/index.js',
+      'packages/prototypes/shadcn/dist/toggle-group/index.js',
+      'packages/prototypes/shadcn/dist/input/index.js',
+      'packages/prototypes/shadcn/dist/separator/index.js',
+      'packages/prototypes/shadcn/dist/toggle/index.js',
       'packages/cli/bin/proto-ui.js',
       'packages/compiler/package.json',
       'packages/compiler/src/index.ts',

@@ -2953,10 +2953,10 @@
         "crates/shenko-ui/src/playground_manage.rs:44",
         "crates/shenko-ui/src/playground_manage.rs:573",
         "crates/shenko-ui/src/playground.rs:61",
-        "crates/shenko-ui/web/src/react-renderer.tsx:656",
-        "crates/shenko-ui/web/src/react-renderer.tsx:670",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1276",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1346"
+        "crates/shenko-ui/web/src/react-renderer.tsx:870",
+        "crates/shenko-ui/web/src/react-renderer.tsx:893",
+        "crates/shenko-ui/web/src/surfaces.tsx:394",
+        "crates/shenko-ui/web/src/surfaces.tsx:407"
       ],
       "evidence_refs": [
         "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work：通过——主体经原生任务创建、迭代并采纳一件作品，版本/状态/事件按既有闭包入账，回滚保留较新状态",
@@ -3026,13 +3026,10 @@
         "crates/shenko-ui/src/index.html:2",
         "crates/shenko-ui/src/index.html:18",
         "crates/shenko-ui/src/index.html:23",
-        "crates/shenko-ui/src/static/app.css:48",
-        "crates/shenko-ui/src/static/app.css:164",
-        "crates/shenko-ui/src/static/app.css:265",
-        "crates/shenko-ui/web/src/react-renderer.tsx:275",
-        "crates/shenko-ui/web/src/react-renderer.tsx:328",
-        "crates/shenko-ui/web/src/react-renderer.tsx:336",
-        "crates/shenko-ui/web/src/react-renderer.tsx:550"
+        "crates/shenko-ui/src/static/app.css:51",
+        "crates/shenko-ui/src/static/app.css:74",
+        "crates/shenko-ui/web/src/react-renderer.tsx:95",
+        "crates/shenko-ui/web/src/react-renderer.tsx:199"
       ],
       "evidence_refs": [
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",

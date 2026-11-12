@@ -375,22 +375,32 @@ impl PlaygroundState {
     fn sync_durable(&self, version: &ArtifactVersion) -> anyhow::Result<ArtifactRecord> {
         let (manifest, manifest_ref, version_record_ref) = self.build_manifest(version)?;
         self.store.put_artifact_manifest(&manifest)?;
+        // A content head is an authored proposal. Only publish selects an
+        // active manifest; edits must also retain earlier staged proposals.
+        let (creator_task_id, active_manifest_ref, candidate_manifest_refs, lifecycle, runtime_instance_refs) =
+            match self.store.artifact_record(version.artifact_id)? {
+                Some(record) => (
+                    record.creator_task_id, record.active_manifest_ref,
+                    record.candidate_manifest_refs, record.lifecycle, record.runtime_instance_refs,
+                ),
+                None => (None, None, Vec::new(), "draft".into(), Vec::new()),
+            };
         let root = self.artifact_dir(version.artifact_id);
         let root_identity = directory_identity(&root);
         let record = ArtifactRecord {
             schema_version: 1,
             artifact_id: version.artifact_id,
             subject_id: self.agent_id,
-            creator_task_id: None,
+            creator_task_id,
             title: version.title.clone(),
             record_revision: 0,
-            active_manifest_ref: Some(manifest_ref.clone()),
-            candidate_manifest_refs: Vec::new(),
+            active_manifest_ref,
+            candidate_manifest_refs,
             state_revision: format!("{}:{}", version.revision, &manifest.version_digest.0[..16.min(manifest.version_digest.0.len())]),
             state_ref: version_record_ref.clone(),
-            lifecycle: "draft".into(),
-            runtime_instance_refs: Vec::new(),
-            desired_lifecycle_ref: manifest_ref.clone(),
+            lifecycle,
+            runtime_instance_refs,
+            desired_lifecycle_ref: manifest_ref,
             provenance_and_causation_ref: version_record_ref,
             artifact_root: root,
             root_identity,
@@ -402,16 +412,9 @@ impl PlaygroundState {
         self.commit_record(&record, Some(&event))
     }
 
-    /// Stage the current head as a candidate manifest without changing the
-    /// active one. Staging is durable and replicated; nothing here executes and
-    /// nothing is adopted: the candidate is a proposal, not the closure other
-    /// nodes must run (docs/specs/cognition-units.md#spec-51-1 "explicit adoption before content joins").
     /// Whether the work is still at the revision an action names.
-    ///
-    /// A work that has moved on refuses the stale action: the action is bound
-    /// to a revision, not to "whatever is there now".
-    pub fn check_revision(&self, id: EntityId, expected: u64) -> anyhow::Result<()> {
-        let current = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+    /// Called only while the record write guard protects the entire action.
+    fn check_revision(current: &ArtifactVersion, expected: u64) -> anyhow::Result<()> {
         anyhow::ensure!(
             current.revision == expected,
             "this action names revision {expected}, but the work is at revision {}",
@@ -420,13 +423,21 @@ impl PlaygroundState {
         Ok(())
     }
 
+    /// Stage the current head without adopting it. Native actions may choose
+    /// the current head; a reader's expected revision is checked under the
+    /// same guard as the proposal's durable transition.
     pub fn stage_artifact(
         &self,
         id: EntityId,
+        expected_revision: Option<u64>,
         request_id: Option<&str>,
     ) -> anyhow::Result<ArtifactRecord> {
-        let version = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
-        let (manifest, manifest_ref, _) = self.build_manifest(&version)?;
+        let records = self.records.write();
+        let version = records.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+        if let Some(expected) = expected_revision {
+            Self::check_revision(version, expected)?;
+        }
+        let (manifest, manifest_ref, _) = self.build_manifest(version)?;
         self.store.put_artifact_manifest(&manifest)?;
         let mut record = self.store.artifact_record(id)?
             .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
@@ -457,8 +468,14 @@ impl PlaygroundState {
         &self,
         id: EntityId,
         manifest_digest: &Digest,
+        expected_revision: Option<u64>,
         request_id: Option<&str>,
     ) -> anyhow::Result<ArtifactRecord> {
+        let records = self.records.write();
+        if let Some(expected) = expected_revision {
+            let version = records.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+            Self::check_revision(version, expected)?;
+        }
         let mut record = self.store.artifact_record(id)?
             .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
         if record.active_manifest_ref.as_ref().map(|reference| &reference.digest) == Some(manifest_digest) {
@@ -469,13 +486,16 @@ impl PlaygroundState {
         let published = record.candidate_manifest_refs.iter()
             .find(|reference| &reference.digest == manifest_digest).cloned()
             .ok_or_else(|| anyhow::anyhow!("publish requires a staged candidate manifest"))?;
-        let manifest = self.store.artifact_manifest(id, manifest_digest)?
-            .ok_or_else(|| anyhow::anyhow!("published manifest is not in the durable manifest set"))?;
         let bytes = self.store.cas.read_object(&published.digest)?;
         anyhow::ensure!(
             bytes.len() as u64 == published.bytes && Digest::blake3(&bytes) == published.digest,
             "published manifest reference does not resolve to its exact bytes"
         );
+        // The candidate names the CAS object. Its typed manifest carries the
+        // separate version digest used to index the durable manifest row.
+        let staged: ArtifactManifest = serde_json::from_slice(&bytes)?;
+        let manifest = self.store.artifact_manifest(id, &staged.version_digest)?
+            .ok_or_else(|| anyhow::anyhow!("published manifest is not in the durable manifest set"))?;
         anyhow::ensure!(
             serde_json::to_vec(&manifest)?.as_slice() == bytes.as_slice(),
             "durable manifest row and its CAS object describe different closures"
@@ -764,10 +784,7 @@ async fn stage_handler(
     AxumPath(id): AxumPath<EntityId>,
     Json(request): Json<WorkAction>,
 ) -> Response {
-    if let Err(error) = pg.check_revision(id, request.revision) {
-        return error_response(StatusCode::CONFLICT, &format!("artifact stage refused: {error:#}"));
-    }
-    match pg.stage_artifact(id, Some(&request.request_id)) {
+    match pg.stage_artifact(id, Some(request.revision), Some(&request.request_id)) {
         Ok(record) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "record": record})).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact stage failed: {e:#}")),
     }
@@ -783,10 +800,7 @@ struct PublishRequest {
 
 async fn publish_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
     Json(request): Json<PublishRequest>) -> Response {
-    if let Err(error) = pg.check_revision(id, request.revision) {
-        return error_response(StatusCode::CONFLICT, &format!("artifact publish refused: {error:#}"));
-    }
-    match pg.publish_artifact(id, &request.manifest_digest, Some(&request.request_id)) {
+    match pg.publish_artifact(id, &request.manifest_digest, Some(request.revision), Some(&request.request_id)) {
         Ok(record) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "record": record})).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact publish failed: {e:#}")),
     }
@@ -794,6 +808,21 @@ async fn publish_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPa
 
 async fn list_handler() -> Redirect {
     Redirect::temporary("/?view=playground")
+}
+
+/// A work's content is the subject's (or a plugin's) own code, never the
+/// shell's. Served same-origin without this, an HTML work opened directly
+/// would run with the admin UI's origin and could drive `/ws`, config and
+/// owner routes. The CSP `sandbox` directive gives the document an opaque
+/// origin whether it is opened directly or framed by a lens, so its scripts
+/// run but hold none of the shell's authority (docs/specs/web-interface.md#spec-21-3).
+pub(crate) fn confine_artifact_content(headers: &mut axum::http::HeaderMap) {
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox allow-scripts allow-forms allow-popups allow-modals"),
+    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
 }
 
 async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
@@ -805,6 +834,7 @@ async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<E
             response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(&record.mime)
                 .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
             if let Ok(value) = HeaderValue::from_str(&record.revision.to_string()) { response.headers_mut().insert("x-artifact-revision", value); }
+            confine_artifact_content(response.headers_mut());
             response
         }
     }

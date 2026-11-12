@@ -483,3 +483,43 @@ test('a block that cannot become a surface keeps its reason beside the step', as
     ['subject_part', 'document_error'],
   );
 });
+
+test('opening an HTML work reads its raw content and reveals its revision-bound details', async (t) => {
+  const { sockets } = environment(t);
+  const artifactId = 'html-work';
+  const html = '<!doctype html><h1>作品与 emoji 🌲</h1>';
+  const work = { artifact_id: artifactId, title: 'A page', mime: 'text/html', revision: 4 };
+  const olderCandidate = `blake3:${'a'.repeat(64)}`;
+  const latestCandidate = `blake3:${'b'.repeat(64)}`;
+  const published = [];
+  const json = (value) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
+  globalThis.fetch = async (path, options) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (path === '/api/playground') return json({ available: true, artifacts: [work], roots: [[artifactId, '/owned/work/root', 'blake3:root-identity']] });
+    if (path === `/playground/${artifactId}/manifest`) return json({ record: { title: work.title, record_revision: 9, candidate_manifest_refs: [{ digest: olderCandidate }, { digest: latestCandidate }] } });
+    if (path === `/playground/${artifactId}/versions`) return json({ ok: true, revisions: [1, 4] });
+    if (path === `/playground/${artifactId}`) return new Response(html, { headers: { 'Content-Type': 'text/html', 'X-Artifact-Revision': '4' } });
+    if (path === `/playground/${artifactId}/publish`) {
+      published.push(JSON.parse(options.body));
+      return json({ ok: true });
+    }
+    return new Response('not found', { status: 404 });
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  open(sockets[0]);
+  intent(controller, `work.${artifactId}`, `work.open.${artifactId}`);
+  await setImmediate();
+  const panel = controller.projection().nodes.find((node) => node.node_id === 'context');
+  assert.equal(panel.props.work?.content, html);
+  assert.equal(panel.props.work?.revision, 4);
+  assert.deepEqual(panel.props.work?.revisions, [1, 4]);
+  assert.equal(panel.props.work_error, false);
+  assert.equal(panel.props.open, true);
+  const playground = controller.projection().nodes.find((node) => node.props.playground)?.props.playground;
+  assert.deepEqual(playground?.roots, [{ artifact_id: artifactId, root: '/owned/work/root', identity: 'blake3:root-identity' }]);
+  intent(controller, 'context', `work.publish.${artifactId}`);
+  await setImmediate();
+  assert.deepEqual(published.map(({ manifest_digest, revision }) => ({ manifest_digest, revision })), [{ manifest_digest: latestCandidate, revision: 4 }]);
+});

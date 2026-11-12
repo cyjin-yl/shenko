@@ -2,11 +2,16 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e",
-    "previous_reviewed_commit": "2962d4ee877f5a3544a13d4deaa09b6a2b038fb7",
+    "commit": "35195a6e6f1ba6a7d800da0029f2683013abd18b",
+    "previous_reviewed_commit": "b25229a94251398bc2f375554fcb9622dc8e79ab",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/var/proto-ui-pinned/proto-ui-pinned",
-    "build_receipt": null
+    "source_checkout": "/tank/shared/projects/shenko/build/claude-prs-20261112/proto-upstream-3519-r3",
+    "build_receipt": {
+      "script": "scripts/build/public-packages.mjs",
+      "selected_package_count": 42,
+      "receipt_path": "/tank/shared/projects/shenko/build/claude-prs-20261112/upstream-build-r2/upstream-build.json",
+      "receipt_sha256": "5a0342d692c2b2bb8b793bb467fe5986a92e8d903cf828e0e81601f448e7a8ff"
+    }
   },
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.1",
@@ -17,7 +22,12 @@
     "button",
     "textarea",
     "scroll-area",
-    "collapsible"
+    "collapsible",
+    "drawer",
+    "toggle-group",
+    "input",
+    "separator",
+    "toggle"
   ],
   "adoption": {
     "runtime": "createReactAdapter({ ...React, createPortal })",
@@ -29,6 +39,11 @@
       "packages/prototypes/shadcn/dist/textarea/index.js",
       "packages/prototypes/shadcn/dist/scroll-area/index.js",
       "packages/prototypes/shadcn/dist/collapsible/index.js",
+      "packages/prototypes/shadcn/dist/drawer/index.js",
+      "packages/prototypes/shadcn/dist/toggle-group/index.js",
+      "packages/prototypes/shadcn/dist/input/index.js",
+      "packages/prototypes/shadcn/dist/separator/index.js",
+      "packages/prototypes/shadcn/dist/toggle/index.js",
       "packages/cli/bin/proto-ui.js",
       "packages/compiler/package.json",
       "packages/compiler/src/index.ts"
@@ -46,13 +61,13 @@
     "package": "packages/compiler",
     "package_sha256": "4d81f10128f809c79a3f7730d1f936171f9bff2713846333c88c56524483258e",
     "entry": "packages/compiler/src/index.ts",
-    "entry_sha256": "20121a358784ba6a6777a01f54addba823c2b662b68be0f48251e7524338e241",
-    "source_tree_sha256": "499fa3b1984f13948f2d68791570efde76c9490bb6b0d8b0fe2d41cc3cb1c56c",
+    "entry_sha256": "d44270de2799c5db59bc1675ed05e4061273c4f18a27808944a114920e2458a9",
+    "source_tree_sha256": "afb408ee980b27c2cf7ac5b989a9ed03d1f40873f75057d2bf2d283f970f44b9",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "8f4938fde9373edcf3db0e4669b00fc4fb585c8cefdb60ad98210ade9a9b3a4f",
-      "bytes": 1889205,
+      "sha256": "5631027311aa5b823f404ee144e7067a9cca1827a0a766bf136d324954a1bcef",
+      "bytes": 2277245,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -69,7 +84,7 @@
     ],
     "public_package_selection": {
       "script": "scripts/build/public-packages.mjs",
-      "selected_package_count": null,
+      "selected_package_count": 42,
       "includes_compiler": false,
       "note": "The compiler exports TypeScript source only and is private, so it is never one of the built public packages; Shenko compiles it at build time instead."
     },
@@ -82,13 +97,13 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "d0ee71033d51f2be9f16a966ee98e99ceb2e1607583bb672f328621299ff6abc",
+        "generated_sha256": "b4bf3e7362f9b170cec26dfd59ab0f70d9076dde825e42a35335012d5ea13ed1",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "aed48a2c49bf956c69b6063dd02526b2eef4c5ca6fd364791dd04ed300431d2a",
+        "provenance_sha256": "fee26259ce6ef516fe26c4fa472fc74c2e183cf67dac7f86dd69cbd3f9a79d5b",
         "compiler_ir_version": 5,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "9bf123c2bbf98a252547c68ae9d15f1608d04f50ca5645feebd170c9bd06025b"
@@ -96,30 +111,30 @@
     ]
   },
   "toolchain": {
-    "node": "v22.23.2",
+    "node": "v24.22.1",
     "pnpm": "10.32.1",
     "esbuild": "0.25.12",
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/var/idw/crates/shenko-ui/web",
-  "built_at": "2026-11-10T19:30:49.091Z",
+  "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-ui-291-20261112/crates/shenko-ui/web",
+  "built_at": "2026-11-12T17:23:42.854Z",
   "artifacts": {
     "app.js": {
-      "bytes": 978112,
-      "sha256": "12486d6a09583de1af6a8a234d58ddc92b8021872eec36643807a95fac68ec70"
+      "bytes": 1076451,
+      "sha256": "ca03b3335d6677b6b9e4b724c9ed1ff3fc0afc872941d5e19c6128d8b4739e8e"
     },
     "app.css": {
-      "bytes": 39845,
-      "sha256": "acbe2fcc31964ea6a9b1cc037fbc6c72da9c99227860184e1ca4dbb8c011f503"
+      "bytes": 37606,
+      "sha256": "cbf4cf3af3e39282294a316a802f8b939471f7b2c34d5f79ae7aa48793ccc6a8"
     },
     "proto-ui-style.css": {
       "bytes": 294,
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 141438,
-      "sha256": "fa9dd5eabb107f5e6d454ddc5271936ce99cc45c81a145e0c5d5cb1633343f8d"
+      "bytes": 166450,
+      "sha256": "4b5a817b46b1742607f6bcae326c2f8e2a60ee42a529a1a01aede2bfedc9dcc9"
     },
     "shadcn-theme.css": {
       "bytes": 6473,
@@ -130,8 +145,8 @@
       "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
     },
     "licenses/SHADCN-NOTICES.md": {
-      "bytes": 7729,
-      "sha256": "219186f51ff5f2708d5fb5bfacb4876440b8186b48a0ee858c0f8e2e279abc76"
+      "bytes": 8656,
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5"
     },
     "licenses/REACT-LICENSE": {
       "bytes": 1088,

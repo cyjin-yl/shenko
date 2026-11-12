@@ -1,7 +1,9 @@
 import {
   UI_INTENT_SCHEMA,
   buildProjection,
+  type DegradedDocument,
   type DisplayState,
+  type Submission,
   type ProjectionController,
   type TimelinePart,
   type UiIntent,
@@ -31,10 +33,42 @@ function demoPart(step: number, minutesAgo: number, content: string): TimelinePa
   };
 }
 
+function demoSubmission(id: string, minutesAgo: number, content: string, receipt: Submission['receipt'], mode: 'append' | 'steer' = 'append'): Submission {
+  return {
+    payload: {
+      schema_version: 2,
+      type: 'submit',
+      submission_id: id,
+      message_id: `${id}-message`,
+      subject_id: 'demo-subject',
+      mode,
+      content,
+      attachment_refs: [],
+    },
+    created_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+    receipt,
+    placement: receipt === 'committed' ? { requested: mode, actual: 'next_boundary' } : undefined,
+    send_epoch: 1,
+  };
+}
+
+const demoDocument: DegradedDocument = {
+  mode: 'card',
+  document_id: 'demo-document-1',
+  revision: 'demo-r1',
+  summary: '记忆合并有两种做法，选一个我就继续：',
+  source_step_id: 'demo-step-44',
+  options: [
+    { index: 1, action_id: 'merge-keep-sources', nonce: 'n1', revision: 'demo-r1', label: '合成一条，保留两次观察的来源', required_capabilities: [], payload: {} },
+    { index: 2, action_id: 'merge-later', nonce: 'n2', revision: 'demo-r1', label: '先不合并，等下一次部署再看', required_capabilities: [], payload: {} },
+  ],
+};
+
 function demoState(): UiState {
   const query = new URLSearchParams(location.search);
+  const view = query.get("view");
   const display: DisplayState = {
-    view: 'timeline',
+    view: (['tasks', 'memory', 'config', 'playground'].includes(view ?? '') ? view : 'timeline') as ViewName,
     panel_open: query.get('panel') === '1',
     open_sections: { status: true, activity: true, artifacts: false, devices: false },
     theme: query.get('theme') === 'light' ? 'light' : 'dark',
@@ -63,7 +97,7 @@ function demoState(): UiState {
     durable_receipts: false,
     committed_replay: false,
     streaming: false,
-    documents: [],
+    documents: [demoDocument],
     document_errors: [],
     action_receipts: [],
     subject_id: 'demo-subject',
@@ -92,14 +126,35 @@ function demoState(): UiState {
         '验证结果符合预期，重试次数归零。仍然有一个未解释的细节：第二次启动比第一次慢 300ms。可能只是冷缓存，不值得现在就追。\n\n接下来回到昨天未完成的记忆合并：保留两次观察的来源，合成一条更小的条目。',
       ),
     ],
-    submissions: [],
+    submissions: [
+      demoSubmission('demo-sub-1', 12, '部署那边的重试，是不是和昨天说的配置顺序有关？', 'committed'),
+      demoSubmission('demo-sub-2', 4, '冷缓存先别追了，先把记忆合并做完吧', 'accepted', 'steer'),
+    ],
     draft: '',
     config_error: false,
     self_error: false,
-    tasks: { available: true, items: [], note: '模拟投影不包含真实任务。' },
+    tasks: {
+      available: true,
+      items: [
+        { task_id: 'demo-task-7f3a', kind: '记忆合并', state: 'running', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
+        { task_id: 'demo-task-6c12', kind: '配置时序验证', state: 'succeeded', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
+      ],
+    },
     tasks_error: false,
-    memory: { items: [], note: '模拟投影不读取真实记忆。' },
+    memory: {
+      items: [
+        { id: 'demo-mem-1', kind: 'observation', content: '服务启动时数据目录在首次请求之后才解析，导致重试读到默认值。', created_at: new Date(Date.now() - 9 * 60_000).toISOString() },
+        { id: 'demo-mem-2', kind: 'tentative', content: '第二次启动比第一次慢约 300ms，可能是冷缓存；暂不追查。', created_at: new Date(Date.now() - 2 * 60_000).toISOString() },
+      ],
+    },
     memory_error: false,
+    playground: {
+      available: true,
+      artifacts: [
+        { artifact_id: 'demo-work-1', title: '启动时序对照表', mime: 'text/html', revision: 3, lifecycle: 'running', updated_at: new Date(Date.now() - 7 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-2', title: '记忆合并草稿', mime: 'text/markdown', revision: 1, lifecycle: 'draft', updated_at: new Date(Date.now() - 2 * 60_000).toISOString() },
+      ],
+    },
     playground_error: false,
     display,
   };
@@ -153,7 +208,7 @@ class DemoController implements ProjectionController {
     if (!action.enabled) return;
     switch (action.kind) {
       case 'view.select':
-        if (['timeline', 'tasks', 'memory', 'config'].includes(String(intent.payload.view))) {
+        if (['timeline', 'tasks', 'memory', 'config', 'playground'].includes(String(intent.payload.view))) {
           this.state.display.view = intent.payload.view as ViewName;
           this.state.display.panel_open = false;
           this.emit();

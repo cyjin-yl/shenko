@@ -146,23 +146,21 @@ fn a_readers_action_is_bound_to_a_revision_and_a_request() {
     pg.put(id, "first".into(), "text/plain".into(), b"first body").unwrap();
     let first = pg.get(&id).unwrap();
 
-    // The action names the revision the reader saw.
-    assert!(
-        pg.check_revision(id, first.revision).is_ok(),
-        "the action acts on the revision that is current"
-    );
+    // The complete mutation, not a separate preflight, binds the revision.
+    pg.stage_artifact(id, Some(first.revision), Some("reader-first")).unwrap();
     pg.put(id, "second".into(), "text/plain".into(), b"second body").unwrap();
     let stale = first.revision;
-    let refusal = pg.check_revision(id, stale).expect_err("the work moved on");
-    assert!(
-        refusal.to_string().contains("revision"),
-        "the refusal names the revision the action named: {refusal:#}"
-    );
+    let before_stale = pg.durable_record(id).unwrap().unwrap();
+    pg.stage_artifact(id, Some(stale), Some("reader-stale")).expect_err("the work moved on");
+    let after_stale = pg.durable_record(id).unwrap().unwrap();
+    assert_eq!(after_stale.updated_commit, before_stale.updated_commit);
+    assert_eq!(after_stale.candidate_manifest_refs, before_stale.candidate_manifest_refs);
 
     // A stage with the current revision succeeds, and the durable transition
     // names the request that asked for it.
     let request_id = "reader-request-1";
-    pg.stage_artifact(id, Some(request_id)).unwrap();
+    let revision = pg.get(&id).unwrap().revision;
+    pg.stage_artifact(id, Some(revision), Some(request_id)).unwrap();
     let record = pg.durable_record(id).unwrap().expect("the work has a durable record");
     let staged = pg.state_event(&record, "stage", Some(request_id));
     assert_eq!(
@@ -178,9 +176,9 @@ fn a_readers_action_is_bound_to_a_revision_and_a_request() {
 
     // A repeated submit of the same proposal produces no second transition:
     // the stage is the same fact, so the durable row is not written again.
-    let before = record.state_revision.clone();
-    pg.stage_artifact(id, Some(request_id)).unwrap();
-    let after = pg.durable_record(id).unwrap().unwrap().state_revision;
+    let before = record.updated_commit;
+    pg.stage_artifact(id, Some(revision), Some(request_id)).unwrap();
+    let after = pg.durable_record(id).unwrap().unwrap().updated_commit;
     assert_eq!(
         before, after,
         "a repeated submit produces no second effect: the durable row is not written again"
@@ -188,6 +186,57 @@ fn a_readers_action_is_bound_to_a_revision_and_a_request() {
     drop(pg);
     drop(store);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn concurrent_content_stage_and_publish_preserve_committed_facts() {
+    let (root, store, _) = fixture("concurrent-selection");
+    let pg = PlaygroundState::open(root.join("playground"), store.clone()).unwrap();
+    let id = EntityId::new();
+    pg.put(id, "first".into(), "text/plain".into(), b"first").unwrap();
+
+    let start = std::sync::Barrier::new(3);
+    let (staged, second) = std::thread::scope(|scope| {
+        let stage = scope.spawn(|| {
+            start.wait();
+            pg.stage_artifact(id, None, Some("concurrent-stage")).unwrap()
+        });
+        let put = scope.spawn(|| {
+            start.wait();
+            pg.put(id, "second".into(), "text/plain".into(), b"second").unwrap()
+        });
+        start.wait();
+        (stage.join().unwrap(), put.join().unwrap())
+    });
+    let candidate = staged.candidate_manifest_refs.last().unwrap().clone();
+    let record = pg.durable_record(id).unwrap().unwrap();
+    let version: ArtifactVersion = serde_json::from_slice(&store.cas.read_object(&record.state_ref.digest).unwrap()).unwrap();
+    assert_eq!(version.revision, second.revision);
+    assert_eq!(version.content_ref, second.content_ref);
+    assert_eq!(record.title, second.title);
+    assert!(record.candidate_manifest_refs.contains(&candidate));
+
+    let start = std::sync::Barrier::new(3);
+    let third = std::thread::scope(|scope| {
+        let publish = scope.spawn(|| {
+            start.wait();
+            pg.publish_artifact(id, &candidate.digest, None, Some("concurrent-publish")).unwrap()
+        });
+        let put = scope.spawn(|| {
+            start.wait();
+            pg.put(id, "third".into(), "text/plain".into(), b"third").unwrap()
+        });
+        start.wait();
+        publish.join().unwrap();
+        put.join().unwrap()
+    });
+    let record = pg.durable_record(id).unwrap().unwrap();
+    let version: ArtifactVersion = serde_json::from_slice(&store.cas.read_object(&record.state_ref.digest).unwrap()).unwrap();
+    assert_eq!(version.revision, third.revision);
+    assert_eq!(version.content_ref, third.content_ref);
+    assert_eq!(record.title, third.title);
+    assert_eq!(record.active_manifest_ref.as_ref(), Some(&candidate));
+    assert!(record.candidate_manifest_refs.contains(&candidate));
 }
 
 #[tokio::test]
@@ -304,4 +353,22 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
     assert!(!pg.artifact_dir(id).join("state/counter.bin").exists());
     drop(pg); drop(store);
     fs::remove_dir_all(root).unwrap();
+}
+
+/// A work's own page never runs with the shell's origin: opened directly or
+/// framed by a lens, the response itself sandboxes it to an opaque origin.
+#[tokio::test]
+async fn a_work_page_is_served_in_an_opaque_origin() {
+    let (root, store, _) = fixture("confined");
+    let pg = PlaygroundState::open(root.join("playground"), store).unwrap();
+    let id = EntityId::new();
+    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/owner')</script>").unwrap();
+    let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let policy = response.headers().get(header::CONTENT_SECURITY_POLICY).unwrap().to_str().unwrap();
+    assert!(policy.starts_with("sandbox "), "{policy}");
+    assert!(policy.contains("allow-scripts"), "the work still runs: {policy}");
+    assert!(!policy.contains("allow-same-origin"), "but never as the shell: {policy}");
+    assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
 }
