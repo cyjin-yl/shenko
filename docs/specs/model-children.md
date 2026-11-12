@@ -18,7 +18,8 @@ system prompt / 模型 / 上下文 / 工具 / 输出预算）、[§14.5](model-c
 [§41.5](subject-runtime.md#spec-41-5)（有限子任务）、R106/R107。
 
 实现位置：`crates/shenko-subject/src/model_child.rs`（运行时）、
-`crates/shenko-subject/src/child.rs`（共享 native runtime 与工具目录）、
+`crates/shenko-subject/src/child.rs`（共享 native runtime）、
+`crates/shenko-kernel/src/task.rs`（任务处理器与工具合同）、
 `crates/shenko-store/src/{external,intents,child}.rs`（账本与准入）、
 `crates/shenko-types/src/output.rs`（作者可见的 spec 类型）。
 
@@ -359,9 +360,10 @@ Store 在 T1 准入时复核这份计划：计划里的每一项都必须属于�
 * `shenko_store::Store`：`Store::claim_child_tool_task(...)`（原子创建并 claim 一个
   工具子任务）、`Store::commit_native_dispatch(ctx, operation_id, attempt_id)`（单次
   attempt 的发送边界）、`Store::admit_child_publication(...)`（child 发布准入）。
-* `shenko_subject`：`ChildToolRuntime` / `ChildToolCall` / `ChildToolOutcome` /
-  `NativeChildService::tool_runtime()` / `describe_tools()` / `call_tool()`；
-  `NativeTaskInvocation.child_tools`。
+* `shenko_kernel::task`：`ChildToolRuntime` / `ChildToolCall` / `ChildToolOutcome` /
+  `NativeTaskInvocation.child_tools`；
+* `shenko_subject`：`NativeChildService::tool_runtime()` / `describe_tools()` /
+  `call_tool()`。
 * `ModelChildHandler` 的 `descriptor().prompt_section` 现在描述多步 + 工具能力。
 
 ---
