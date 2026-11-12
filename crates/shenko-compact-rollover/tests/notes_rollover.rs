@@ -9,7 +9,7 @@ use shenko_compact_rollover::{NotesRollover, RolloverConfig};
 use shenko_context_policy::{
     CallStatus, ContextInput, ContextPolicy, HistoryItem, HistorySource, ItemKind, MemoryHistory,
     MemoryNotesJournal, MemoryRolloverJournal, ModelCaps, NoteRevision, NoteSource, NotesError,
-    NotesJournal, PolicyError, PolicyRegistry, PreparedWindow, Projected, RolloverJournal,
+    NotesJournal, PolicyError, PolicyRegistry, PublishError, PreparedWindow, Projected, RolloverJournal,
     WindowBase, WindowEntry, WindowLedger, units,
 };
 use shenko_types::ids::EntityId;
@@ -48,11 +48,11 @@ fn history(turns: usize, open: Option<&str>) -> MemoryHistory {
     history
 }
 
-fn base(history: &MemoryHistory) -> WindowBase {
+fn base(history: &MemoryHistory, source_window: EntityId, model_generation: u64) -> WindowBase {
     WindowBase {
-        source_window: EntityId::new(),
+        source_window,
         leaf_seq: history.leaf_seq().unwrap().unwrap_or(0),
-        model_generation: 1,
+        model_generation,
         policy_epoch: 1,
     }
 }
@@ -69,9 +69,30 @@ fn prepare(
     history: &MemoryHistory,
     rollover: bool,
 ) -> Result<PreparedWindow, PolicyError> {
+    prepare_against(base(history, EntityId::new(), 1), policy, history, rollover)
+}
+
+/// Prepare against the ledger's live head, so the window can be committed there.
+fn prepare_on(
+    ledger: &WindowLedger,
+    policy: &NotesRollover,
+    history: &MemoryHistory,
+    rollover: bool,
+) -> Result<PreparedWindow, PolicyError> {
+    let head = ledger.current().unwrap().id;
+    let generation = ledger.model_generation().unwrap();
+    prepare_against(base(history, head, generation), policy, history, rollover)
+}
+
+fn prepare_against(
+    base: WindowBase,
+    policy: &NotesRollover,
+    history: &MemoryHistory,
+    rollover: bool,
+) -> Result<PreparedWindow, PolicyError> {
     let items = history.snapshot();
     let input = ContextInput {
-        base: base(history),
+        base,
         items: &items,
         caps: &CAPS,
         used_tokens: items.iter().map(|item| item.tokens).sum(),
@@ -172,7 +193,8 @@ fn the_notebook_is_its_own_range_free_entry_and_coverage_is_exact() {
         .replace(0, "the failing test is store_commit_rejects_stale_head", NoteSource::Tool)
         .unwrap();
     let notes: Arc<dyn NotesJournal> = notes;
-    let prepared = prepare(&strategy(notes, 2), &history, false).unwrap();
+    let ledger = WindowLedger::default();
+    let prepared = prepare_on(&ledger, &strategy(notes, 2), &history, false).unwrap();
 
     // The notebook is carried once, as its own typed entry with the revision
     // and provenance it was read from, and it names no raw range: it is not a
@@ -223,7 +245,7 @@ fn the_notebook_is_its_own_range_free_entry_and_coverage_is_exact() {
 
     // The committed window stands for exactly the raw events its entries name,
     // the notebook adds no coverage, and it is projected once.
-    let window = WindowLedger::default().commit(prepared, &history).unwrap();
+    let window = ledger.commit(prepared, &history).unwrap();
     let expected: u64 = window
         .entries
         .iter()
@@ -298,7 +320,8 @@ fn explicit_rollover_cuts_a_boundary_window_that_drops_nothing() {
     // The notebook alone is not a reason to cut a window: a size-triggered
     // preparation that drops nothing stays a refusal.
     assert_eq!(prepare(&policy, &history, false), Err(PolicyError::NoReduction));
-    let prepared = prepare(&policy, &history, true).unwrap();
+    let ledger = WindowLedger::default();
+    let prepared = prepare_on(&ledger, &policy, &history, true).unwrap();
     assert!(prepared.entries.iter().all(|entry| matches!(
         entry,
         WindowEntry::Verbatim { .. } | WindowEntry::Note { .. }
@@ -316,7 +339,7 @@ fn explicit_rollover_cuts_a_boundary_window_that_drops_nothing() {
     assert_eq!(prepared.cost.model_calls, 0);
     // Every complete unit is present: a boundary is not a summary.
     assert_eq!(prepared.entries.len(), history.snapshot().len() + 1);
-    let window = WindowLedger::default().commit(prepared, &history).unwrap();
+    let window = ledger.commit(prepared, &history).unwrap();
     assert_eq!(window.cost.raw_events_covered, history.snapshot().len() as u64);
 }
 
@@ -397,7 +420,7 @@ fn a_dropped_candidate_leaves_the_request_pending_for_the_next_boundary() {
     let armed = registry.request_rollover(scope).unwrap();
     let items = history.snapshot();
     let used = items.iter().map(|item| item.tokens).sum::<u32>();
-    let mut candidate = registry.prepare_candidate(&history, &CAPS, used).unwrap();
+    let candidate = registry.prepare_candidate(&history, &CAPS, used).unwrap();
     assert!(candidate.rollover);
     // A strategy replaced after preparation cannot commit its window: the
     // candidate is dropped, and the request is still unanswered.
@@ -405,7 +428,10 @@ fn a_dropped_candidate_leaves_the_request_pending_for_the_next_boundary() {
         Arc::new(MemoryNotesJournal::new(scope)) as Arc<dyn NotesJournal>,
         2,
     )));
-    registry.publish(candidate).unwrap();
+    assert!(
+        matches!(registry.publish(candidate), Err(PublishError::StalePolicy { .. })),
+        "a candidate from a replaced strategy must be refused at publish"
+    );
     assert!(registry.adopt_prepared(&history).unwrap().is_none());
     assert_eq!(
         registry.rollover_request().unwrap().request_id,

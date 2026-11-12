@@ -127,7 +127,7 @@ fn a_reminder_threshold_belongs_to_the_installation_that_registered_it() {
     registry.set_reminder_threshold(3, 0.6);
     registry.clear_reminder_threshold(2);
     assert!(
-        registry.pending_rollover_reminder().is_none(),
+        registry.pending_rollover_reminder().is_some(),
         "a late cleanup of a replaced generation cannot remove its successor's threshold"
     );
 }

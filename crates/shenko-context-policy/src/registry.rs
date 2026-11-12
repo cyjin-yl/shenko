@@ -743,7 +743,12 @@ impl PolicyRegistry {
     /// replaced strategy all refuse the publication instead of letting a
     /// stale window overwrite a newer one.
     pub fn publish(&self, candidate: PreparedCandidate) -> Result<(), PublishError> {
-        self.verify_binding(&candidate)?;
+        if let Err(error) = self.verify_binding(&candidate) {
+            // A refused candidate answered nothing: an explicit request taken
+            // by its preparation goes back to pending.
+            self.drop_candidate(&candidate, PreparationOutcome::Stale, error.to_string());
+            return Err(error);
+        }
         let diagnostic = PreparationDiagnostic {
             policy: candidate.binding.policy_id.clone(),
             outcome: PreparationOutcome::Published,
