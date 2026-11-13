@@ -46,6 +46,8 @@ fn revisions(journal: &StoreNotesJournal, limit: u64) -> Vec<(u64, String, NoteS
         .revisions(limit)
         .unwrap()
         .into_iter()
+        // The journal pages newest first; compare in revision order.
+        .rev()
         .map(|note| (note.revision, note.text, note.source, note.visible))
         .collect()
 }
@@ -597,6 +599,8 @@ fn a_later_handover_advances_the_same_request_to_its_answering_window() {
     assert!(recovered.pending().unwrap().is_none());
 
     // The answer is final: a replayed pending archive can never rewind it.
+    // The older snapshot of the same source is refused whole by the durable
+    // import order before any row is compared.
     let replay = receiver
         .import_cognition_archive(
             &pending_bytes[..],
@@ -606,8 +610,8 @@ fn a_later_handover_advances_the_same_request_to_its_answering_window() {
                 ..Default::default()
             },
         )
-        .unwrap();
-    assert!(replay.conflicts.iter().any(|conflict| conflict.table == "context_rollover_requests"));
+        .unwrap_err();
+    assert!(replay.to_string().contains("stale cognition snapshot"), "{replay}");
     assert_eq!(
         receiver.context_rollover_request(scope).unwrap().unwrap().consumed_window,
         Some(window_id)
