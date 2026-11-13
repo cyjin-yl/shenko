@@ -34,8 +34,20 @@ class StableReferenceTests(unittest.TestCase):
 
     def test_rust_symbols_are_parsed_and_fully_qualified(self):
         text = '''pub struct Owner;
-impl Owner { pub fn dispatch(&self) {} }
+impl Owner {
+    pub fn dispatch(&self) {
+        let mut raw = (1, 2);
+        inspect(&raw);
+        let _field = &raw.0;
+        let _const_pointer = &raw const raw;
+        let _mut_pointer = &raw mut raw;
+        unsafe extern "C" { fn nested_foreign(value: i32) -> i32; }
+    }
+}
+fn inspect(_: &(i32, i32)) {}
 mod nested { pub fn dispatch() {} }
+unsafe extern "C" { fn foreign_call(value: i32) -> i32; }
+unsafe extern "system" { fn system_call(value: i32) -> i32; }
 // fn absent() {} is only a comment.
 const TEXT: &str = "fn absent() {}";
 '''
@@ -43,18 +55,26 @@ const TEXT: &str = "fn absent() {}";
         resolver = ReferenceResolver(self.root)
         resolver.resolve('owner.rs#Owner::dispatch')
         resolver.resolve('owner.rs#nested::dispatch')
+        resolver.resolve('owner.rs#Owner::dispatch::nested_foreign')
+        resolver.resolve('owner.rs#foreign_call')
+        resolver.resolve('owner.rs#system_call')
         self.put('owner.rs', '// unrelated inserted line\n' + text)
         ReferenceResolver(self.root).resolve('owner.rs#Owner::dispatch')
         with self.assertRaisesRegex(ReferenceError, 'missing or unsupported'):
             resolver.resolve('owner.rs#absent')
         with self.assertRaisesRegex(ReferenceError, 'missing or unsupported'):
             resolver.resolve('owner.rs#dispatch')
+        with self.assertRaisesRegex(ReferenceError, 'missing or unsupported'):
+            resolver.resolve('owner.rs#nested_foreign')
         self.put('ambiguous.rs', '#[cfg(unix)] fn same() {}\n#[cfg(windows)] fn same() {}')
         with self.assertRaisesRegex(ReferenceError, 'ambiguous'):
             resolver.resolve('ambiguous.rs#same')
         self.put('broken.rs', 'pub fn broken( {')
         with self.assertRaisesRegex(ReferenceError, 'unsupported'):
             resolver.resolve('broken.rs#broken')
+        self.put('broken_extern.rs', 'pub fn intact() {}\nunsafe extern "C" { fn broken() }')
+        with self.assertRaisesRegex(ReferenceError, 'unsupported'):
+            resolver.resolve('broken_extern.rs#intact')
 
     def test_tsx_declarations_and_javascript_tests_keep_semantic_names(self):
         self.put('view.tsx', 'export function View() { return <main/>; }\nclass Owner { render() { return <View/>; } }')

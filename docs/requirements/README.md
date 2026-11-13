@@ -23,3 +23,5 @@ Rust/TypeScript/JavaScript 使用 tree-sitter 的原生语法树，CSS 使用 ti
 空数组不代表无需验证；不能删项提高比例，不能以文档或符号存在代替运行结果。历史证据、原有内联引用和状态不因迁移改写或提升。R164/G60 中 `facts.rs#snapshot` 仅说明 forensic harness 如何读取并分类事实，不是对整个产品“没有审批门”的语义证明；原有有限 grep/diff 证据和未验收状态继续保留。T7 的源码注释迁移仍需独立建立覆盖证据。
 
 R 描述用户要求，B 说明行为，Ref 定位证据，case 给出可验证情境。遵循 [shenko-dev](../../.agents/skills/shenko-dev/SKILL.md)，复用有效证据，以相称的检查解决实际疑问。
+
+Rust 语法固定为 [tree-sitter-rust 0.24.2](https://pypi.org/project/tree-sitter-rust/0.24.2/)，包含[上游修复 #288](https://github.com/tree-sitter/tree-sitter-rust/commit/261b20226c04ef601adbdf185a800512a5f66291)：区分普通变量 `raw` 的 `&raw` 借用与 `&raw const`/`&raw mut` 原始指针，并识别 Rust 2024 的 `unsafe extern` 块。该版本生成的语法 ABI 为 15，与固定的 tree-sitter 0.25.2 支持范围一致；解析器仍消费未经改写的完整源码并拒绝含语法错误的树。Rust 消费者夹具同时覆盖这些语法、嵌套外部声明的完整归属，以及目标声明之外的畸形语法拒绝。

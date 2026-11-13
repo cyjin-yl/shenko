@@ -1,6 +1,7 @@
 # Supported source parsers for scripts/check_docs.py; no compiler is executed.
 tree-sitter==0.25.2
-tree-sitter-rust==0.24.0
+# Includes upstream #288: ordinary &raw borrows and Rust 2024 unsafe extern blocks.
+tree-sitter-rust==0.24.2
 tree-sitter-typescript==0.23.2
 tree-sitter-javascript==0.23.1
 tinycss2==1.4.0
