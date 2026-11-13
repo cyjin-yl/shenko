@@ -359,20 +359,25 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
 /// A work's page is a trusted extension: served same-origin without a
 /// sandbox, its declared type pinned and its revision named, so the safety
 /// rope is rollback to a named revision (docs/specs/web-interface.md#5-1).
-#[tokio::test]
-async fn a_work_page_is_served_as_a_trusted_revision() -> anyhow::Result<()> {
-    let (root, store, _) = fixture("trusted");
-    let pg = PlaygroundState::open(root.join("playground"), store)?;
-    let id = EntityId::new();
-    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/self')</script>")?;
-    let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty())?)
-        .await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(response.headers().get(header::CONTENT_SECURITY_POLICY).is_none(), "trusted by default, not sandboxed");
-    assert_eq!(response.headers().get(header::CONTENT_TYPE).context("work page has no content type")?.to_str()?, "text/html");
-    assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).context("work page has no nosniff header")?.to_str()?, "nosniff");
-    assert_eq!(response.headers().get("x-artifact-revision").context("work page has no revision header")?.to_str()?, "1");
-    Ok(())
+#[test]
+fn a_work_page_is_served_as_a_trusted_revision() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let (root, store, _) = fixture("trusted");
+            let pg = PlaygroundState::open(root.join("playground"), store)?;
+            let id = EntityId::new();
+            pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/self')</script>")?;
+            let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response.headers().get(header::CONTENT_SECURITY_POLICY).is_none(), "trusted by default, not sandboxed");
+            assert_eq!(response.headers().get(header::CONTENT_TYPE).context("work page has no content type")?.to_str()?, "text/html");
+            assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).context("work page has no nosniff header")?.to_str()?, "nosniff");
+            assert_eq!(response.headers().get("x-artifact-revision").context("work page has no revision header")?.to_str()?, "1");
+            Ok(())
+        })
 }
 
 /// A published work lens shows the adopted page, not a later draft head; with

@@ -594,112 +594,117 @@ async fn a_native_read_reports_the_capability_and_grants_nothing() -> Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn a_modeled_other_perspective_is_never_offered_as_this_subjects_observation() -> Result<()> {
-    let sandbox = Sandbox::open("perspective")?;
-    let selection = CapabilitySelection::host("awareness.host");
-    let host = sandbox.host(&selection);
-    sandbox.adopt_content("awareness.host", "adopt the host capability after reading its exact content")?;
-
-    // A perception unit that teaches reading one experience through another
-    // subject's perception.
-    let package = parse_cognition_entry(&custom_perception_entry("0.1.0"), Path::new("consumer/MODELED.md"))?;
-    sandbox.catalog.install(&package, &sandbox.package_root())?;
-    let fact = sandbox.fact(MODELED_UNIT)?;
-    let binding = PerceptionBinding::of(&fact);
-    let observation_bytes = b"the modeled other subject reported this reading";
-    let observation_digest = sandbox.observe_locally(MODELED_UNIT, observation_bytes, "consumer_check")?;
-    sandbox.adopt_content(MODELED_UNIT, "adopt the perspective-taking perception after reading its exact content")?;
-
-    // The source is bound in the modeled perspective and answers with that
-    // same attribution: the reading is admitted, as the other subject's view.
-    let modeled_fact = PerceptionFact {
-        binding: binding.clone(),
-        source: "consumer:modeled-source".into(),
-        target: format!("subject:{MODELED_SUBJECT}"),
-        observed_at: chrono::Utc::now().to_rfc3339(),
-        valid_until: None,
-        summary: "对方报告看到的连接状态与自己的观察不同".into(),
-        evidence_digest: Some(observation_digest.0.clone()),
-        perspective: Some(PerceptionPerspective::ModeledOther {
-            subject: MODELED_SUBJECT.into(),
-        }),
-    };
-    sandbox.catalog.perception().bind_as(
-        binding.clone(),
-        PerceptionPerspective::ModeledOther {
-            subject: MODELED_SUBJECT.into(),
-        },
-        Arc::new(Fixed(modeled_fact.clone())),
-    )?;
-    let status = sandbox.catalog.perception().observe(&binding);
-    ensure!(
-        matches!(status, shenko_awareness_core::PerceptionStatus::Observed { .. }),
-        "the modeled reading is admitted under its own perspective: {}",
-        status.line(chrono::Utc::now())
-    );
-
-    let notices = host.notices(8)?;
-    let modeled = notices
-        .iter()
-        .find(|notice| notice.atom.unit_id == MODELED_UNIT)
-        .context("the adopted perception atom is offered")?;
-    ensure!(
-        modeled.perspective_subject() == Some(MODELED_SUBJECT),
-        "the notice keeps the modeled subject: {modeled:?}"
-    );
-    ensure!(
-        modeled.attribution
-            == NoticeAttribution::ModeledOther {
-                subject: MODELED_SUBJECT.into()
-            },
-        "the attribution is modeled, not own: {modeled:?}"
-    );
-    match &modeled.reason {
-        NoticeReason::Observation { observation_digest: digest, observed_at, content_digest, .. } => {
+#[test]
+fn a_modeled_other_perspective_is_never_offered_as_this_subjects_observation() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let sandbox = Sandbox::open("perspective")?;
+            let selection = CapabilitySelection::host("awareness.host");
+            let host = sandbox.host(&selection);
+            sandbox.adopt_content("awareness.host", "adopt the host capability after reading its exact content")?;
+        
+            // A perception unit that teaches reading one experience through another
+            // subject's perception.
+            let package = parse_cognition_entry(&custom_perception_entry("0.1.0"), Path::new("consumer/MODELED.md"))?;
+            sandbox.catalog.install(&package, &sandbox.package_root())?;
+            let fact = sandbox.fact(MODELED_UNIT)?;
+            let binding = PerceptionBinding::of(&fact);
+            let observation_bytes = b"the modeled other subject reported this reading";
+            let observation_digest = sandbox.observe_locally(MODELED_UNIT, observation_bytes, "consumer_check")?;
+            sandbox.adopt_content(MODELED_UNIT, "adopt the perspective-taking perception after reading its exact content")?;
+        
+            // The source is bound in the modeled perspective and answers with that
+            // same attribution: the reading is admitted, as the other subject's view.
+            let modeled_fact = PerceptionFact {
+                binding: binding.clone(),
+                source: "consumer:modeled-source".into(),
+                target: format!("subject:{MODELED_SUBJECT}"),
+                observed_at: chrono::Utc::now().to_rfc3339(),
+                valid_until: None,
+                summary: "对方报告看到的连接状态与自己的观察不同".into(),
+                evidence_digest: Some(observation_digest.0.clone()),
+                perspective: Some(PerceptionPerspective::ModeledOther {
+                    subject: MODELED_SUBJECT.into(),
+                }),
+            };
+            sandbox.catalog.perception().bind_as(
+                binding.clone(),
+                PerceptionPerspective::ModeledOther {
+                    subject: MODELED_SUBJECT.into(),
+                },
+                Arc::new(Fixed(modeled_fact.clone())),
+            )?;
+            let status = sandbox.catalog.perception().observe(&binding);
             ensure!(
-                digest == &observation_digest.0,
-                "the reason stops at the observation this node registered"
+                matches!(status, shenko_awareness_core::PerceptionStatus::Observed { .. }),
+                "the modeled reading is admitted under its own perspective: {}",
+                status.line(chrono::Utc::now())
+            );
+        
+            let notices = host.notices(8)?;
+            let modeled = notices
+                .iter()
+                .find(|notice| notice.atom.unit_id == MODELED_UNIT)
+                .context("the adopted perception atom is offered")?;
+            ensure!(
+                modeled.perspective_subject() == Some(MODELED_SUBJECT),
+                "the notice keeps the modeled subject: {modeled:?}"
             );
             ensure!(
-                content_digest == &fact.artifact_digest.0 && observed_at == &modeled_fact.observed_at,
-                "the reading names the exact perception revision and observation time"
+                modeled.attribution
+                    == NoticeAttribution::ModeledOther {
+                        subject: MODELED_SUBJECT.into()
+                    },
+                "the attribution is modeled, not own: {modeled:?}"
             );
-        }
-        other => bail!("a perception notice rests on its observation: {other:?}"),
-    }
-    let line = modeled.render();
-    ensure!(
-        line.contains("模拟") && line.contains("不是本主体的观察"),
-        "the rendered line states the modeled perspective explicitly: {line}"
-    );
-
-    // The same reading may not be filed as this subject's own observation.
-    let own = shenko_awareness_core::PerceptionRegistry::new();
-    own.bind(
-        binding.clone(),
-        Arc::new(Fixed(modeled_fact)),
-    )?;
-    let refused = own.observe(&binding);
-    ensure!(
-        matches!(refused, shenko_awareness_core::PerceptionStatus::Unavailable { .. }),
-        "a modeled reading cannot become own by re-binding: {}",
-        refused.line(chrono::Utc::now())
-    );
-
-    let receipt = json!({
-        "schema_version": 1,
-        "consumer": "awareness-host-perspective",
-        "node_dir": sandbox.dir.join("node").display().to_string(),
-        "binding": binding,
-        "observation_digest": observation_digest,
-        "notice": modeled,
-        "rendered": line,
-        "refused_own_rebinding": refused.line(chrono::Utc::now()),
-    });
-    println!("RECEIPT:{}", serde_json::to_string(&receipt)?);
-    let _ = std::fs::remove_dir_all(&sandbox.dir);
-    Ok(())
+            match &modeled.reason {
+                NoticeReason::Observation { observation_digest: digest, observed_at, content_digest, .. } => {
+                    ensure!(
+                        digest == &observation_digest.0,
+                        "the reason stops at the observation this node registered"
+                    );
+                    ensure!(
+                        content_digest == &fact.artifact_digest.0 && observed_at == &modeled_fact.observed_at,
+                        "the reading names the exact perception revision and observation time"
+                    );
+                }
+                other => bail!("a perception notice rests on its observation: {other:?}"),
+            }
+            let line = modeled.render();
+            ensure!(
+                line.contains("模拟") && line.contains("不是本主体的观察"),
+                "the rendered line states the modeled perspective explicitly: {line}"
+            );
+        
+            // The same reading may not be filed as this subject's own observation.
+            let own = shenko_awareness_core::PerceptionRegistry::new();
+            own.bind(
+                binding.clone(),
+                Arc::new(Fixed(modeled_fact)),
+            )?;
+            let refused = own.observe(&binding);
+            ensure!(
+                matches!(refused, shenko_awareness_core::PerceptionStatus::Unavailable { .. }),
+                "a modeled reading cannot become own by re-binding: {}",
+                refused.line(chrono::Utc::now())
+            );
+        
+            let receipt = json!({
+                "schema_version": 1,
+                "consumer": "awareness-host-perspective",
+                "node_dir": sandbox.dir.join("node").display().to_string(),
+                "binding": binding,
+                "observation_digest": observation_digest,
+                "notice": modeled,
+                "rendered": line,
+                "refused_own_rebinding": refused.line(chrono::Utc::now()),
+            });
+            println!("RECEIPT:{}", serde_json::to_string(&receipt)?);
+            let _ = std::fs::remove_dir_all(&sandbox.dir);
+            Ok(())
+        })
 }
 
 async fn drive_until(service: &Arc<NativeChildService>, store: &Arc<Store>, task: EntityId) -> Result<()> {
