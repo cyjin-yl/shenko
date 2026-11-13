@@ -72,6 +72,8 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 
 开发入口与协作规则见 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 是指向它的符号链接）与 [shenko-dev Skill](.agents/skills/shenko-dev/SKILL.md)。
 
+拉取请求的六项原生 CI 门禁定义在 [ci.yml](.github/workflows/ci.yml)。容器中的 Git 步骤在 checkout 后为当前 `GITHUB_WORKSPACE` 注册精确的 `safe.directory`；checkout 在临时 `HOME` 下写入的配置不会自动保留到后续 shell。Clippy 与内核边界检查继续使用独立的不可变基线，既有警告不作为新增警告的预算。
+
 ## 文档导航
 
 从 [INDEX.md](docs/INDEX.md) 开始，按问题进入具体合同及其 Why。根 SPEC/WHY 不再是正文来源；引用行为时直接链接领域文档的相应段落。历史原文与用户来源仍保留，迁移不缩减产品范围，也不代表新增运行验收。
