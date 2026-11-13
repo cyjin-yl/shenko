@@ -329,3 +329,35 @@ WebUI 通道的 `PublicationTarget` 指向浏览器会话而非外部 IM 平台�
 - QQ 官方 Bot 的真实约束（被动回复窗口、群支持范围、卡片与主动触达额度）是平台事实，按实际可达能力记录，不写成产品权限门；能力表只列 `describe` 实际能产出的动作（[§57.4](channels.md#spec-57-4)、验收 RT19）。
 - [§56](../requirements/traceability.md#spec-56) 追踪矩阵里"SnowLuma/官方 QQ/Discord 适配未全部落地"那一行按本条理解：SnowLuma 一项不再是待做项，官方 QQ 一项升为下一条要真正做通的通道。
 <!-- /migrated-contract: SPEC:57.15 -->
+
+## Implementation appendix: built-in conversation reads (2026-11-13)
+
+`Store::channel_conversation_messages(agent_id, limit)` in
+`crates/shenko-store/src/trajectory.rs` projects existing facts without writing
+or acknowledging them. Staged input ownership follows `session_events.session_id`
+to `raw_sessions.agent_id`; publications use `subject_intents.agent_id`, and
+their evidence lookup remains correlated to that owned intent's operation id.
+The publication window remains the most recent requested number of that
+subject's publication rows. For staged inputs, it streams `session_events`
+newest first until the requested number of unique inbox event identities has
+passed envelope, reply-audience and echo
+admission, or the actual history is exhausted. Re-staged copies, unclassified
+payloads, envelopes without a reply audience and publication echoes do not spend
+that input window. It retains only the admitted identities and messages, without
+a raw-row multiplier or materializing the complete history.
+
+A receipt's provider message id identifies a possible echo only within that
+recent publication window and the exact canonical target's channel, account,
+audience kind and opaque audience id. The inbound plugin must also have stated
+`actor.own_account`; equal ids in other accounts, audiences or providers remain
+independent messages. The projection preserves the original inbox event id,
+payload text and platform/receive time, and the publication intent id, state and
+receipt observation time (else the recorded step start, else unknown). Timestamps
+use the canonical UTC representation, unknown times sort last, and malformed
+stored publication/evidence records or known timestamps return decoding errors.
+Only evidence declared as `channel_receipt` is decoded as a provider answer;
+generic recovery observations retain their own time and unknown effect facts.
+No writer, frozen schema, delivery verdict or input disposition changes.
+The existing Store roundtrip conversation
+regression covers these scopes, two real subjects sharing the Store and a small
+window behind re-staged and inapplicable inputs; runtime verification is separate.

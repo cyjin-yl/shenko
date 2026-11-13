@@ -2029,8 +2029,36 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         AudienceShape, ChannelActor, ChannelContent, ChannelEnvelope, ChannelReceipt,
         ChannelReplyTarget,
     };
+    use shenko_types::ids::{BranchId, EntityId};
     let (_dir, store, agent) = initialized_subject();
     store.start_subject_dispatcher().unwrap();
+
+    // A second real subject shares this Store, including its raw sessions
+    // and publication ledger. Channel accounts do not identify the subject.
+    let (mut foreign_head, mut foreign_first) = store.load_subject(agent).unwrap();
+    let mut foreign_genesis = store.get_subject_genesis(agent).unwrap().unwrap();
+    let foreign_agent = EntityId::new();
+    foreign_genesis.genesis_id = EntityId::new();
+    foreign_genesis.subject_id = foreign_agent;
+    foreign_genesis.bootstrap_id = EntityId::new();
+    foreign_genesis.launch_id = EntityId::new();
+    foreign_head.agent_id = foreign_agent;
+    foreign_head.branch_id = BranchId::new();
+    foreign_head.subject_root_task_id = EntityId::new();
+    foreign_head.genesis_ref.genesis_id = foreign_genesis.genesis_id;
+    foreign_head.next_step_id = EntityId::new();
+    foreign_first.step_id = foreign_head.next_step_id;
+    foreign_first.branch_id = foreign_head.branch_id.clone();
+    let foreign_root = shenko_types::task::TaskRecord::subject_root(
+        foreign_head.subject_root_task_id,
+        foreign_agent,
+        foreign_genesis.bootstrap_event_ref.clone(),
+        foreign_genesis.created_commit,
+    );
+    store
+        .initialize_genesis(&foreign_genesis, &foreign_head, &foreign_first, &foreign_root)
+        .unwrap();
+
     let intent = publication_intent();
     commit_publication_step(&store, agent, &intent);
     let armed = store
@@ -2038,6 +2066,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         .unwrap()
         .expect("the committed publication arms once");
     let sent_at = chrono::Utc::now();
+    let sent_at_text = sent_at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
     store
         .record_publication_receipt(
             &armed,
@@ -2052,14 +2081,28 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         )
         .unwrap();
 
-    let line = |message_id: &str, actor: &str, own_account: bool, text: &str| {
+    let audience = ChannelReplyTarget {
+        kind: "group".into(),
+        id: "123456789".into(),
+        label: "群 123456789".into(),
+        account: "qq:10001".into(),
+        tenant: None,
+        conversation: Some("123456789".into()),
+        shape: Some(AudienceShape::Group),
+    };
+    let line = |message_id: &str,
+                actor: &str,
+                own_account: bool,
+                text: &str,
+                provider: &str,
+                target: &ChannelReplyTarget| {
         let envelope = ChannelEnvelope {
             schema_version: 1,
-            provider: "qq".into(),
-            account: "qq:10001".into(),
-            tenant: None,
+            provider: provider.into(),
+            account: target.account.clone(),
+            tenant: target.tenant.clone(),
             transport_identity_domain: "onebot".into(),
-            conversation: Some("123456789".into()),
+            conversation: target.conversation.clone(),
             thread: None,
             message_id: message_id.into(),
             source_event_revision: None,
@@ -2080,15 +2123,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
                 mentions: vec![],
                 reply_to: None,
             },
-            reply_target: Some(ChannelReplyTarget {
-                kind: "group".into(),
-                id: "123456789".into(),
-                label: "群 123456789".into(),
-                account: "qq:10001".into(),
-                tenant: None,
-                conversation: Some("123456789".into()),
-                shape: Some(AudienceShape::Group),
-            }),
+            reply_target: Some(target.clone()),
             attachments: vec![],
             raw_ref: None,
         };
@@ -2097,7 +2132,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
             kind: shenko_types::inbox::InboxEventKind::Message,
             payload: serde_json::to_value(&envelope).unwrap(),
             created_at: sent_at,
-            source: "qq".into(),
+            source: provider.into(),
         };
         shenko_store::raw_session::SubjectHistoryInput {
             event_id: event.event_id,
@@ -2105,23 +2140,198 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
             data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
         }
     };
+    let counterpart = line("901", "20002", false, "有人在吗", "qq", &audience);
+    let same_id_counterpart = line("900", "20002", false, "对方的同号消息", "qq", &audience);
+    let echo = line("900", "10001", true, "已经提交的回复正文", "qq", &audience);
+    let other_account = line(
+        "900",
+        "30003",
+        true,
+        "另一账号的消息",
+        "qq",
+        &ChannelReplyTarget {
+            account: "qq:30003".into(),
+            ..audience.clone()
+        },
+    );
+    let other_audience = line(
+        "900",
+        "10001",
+        true,
+        "另一群的消息",
+        "qq",
+        &ChannelReplyTarget {
+            id: "987654321".into(),
+            label: "群 987654321".into(),
+            conversation: Some("987654321".into()),
+            ..audience.clone()
+        },
+    );
+    let other_kind = line(
+        "900",
+        "10001",
+        true,
+        "私聊的同号消息",
+        "qq",
+        &ChannelReplyTarget {
+            kind: "private".into(),
+            label: "私聊 123456789".into(),
+            shape: Some(AudienceShape::OneToOne),
+            ..audience.clone()
+        },
+    );
+    let other_provider = line("900", "10001", true, "另一通道的消息", "relay", &audience);
+    let mut own = line("902", "10001", true, "手机上补一句", "qq", &audience);
+    own.data["inbox_event"]["payload"]["occurred_at"] = serde_json::Value::Null;
     let (head, planned) = store.load_subject(agent).unwrap();
     store
         .stage_subject_inputs(
             &head,
             &planned,
             &[
-                line("901", "20002", false, "有人在吗"),
-                line("900", "10001", true, "已经提交的回复正文"),
-                line("902", "10001", true, "手机上补一句"),
+                counterpart.clone(),
+                same_id_counterpart.clone(),
+                echo,
+                other_account.clone(),
+                other_audience.clone(),
+                other_kind.clone(),
+                other_provider.clone(),
+                own.clone(),
             ],
         )
         .unwrap();
 
-    let rows: Vec<_> = store
-        .channel_conversation_messages(50)
+    // Two later steps each re-stage the same real message, followed by
+    // unclassified and audience-less message inputs. The six newest raw
+    // rows contain only one admissible identity: a three-message window
+    // must continue into the older step, past both noise and duplicates.
+    for _ in 0..2 {
+        let (head, planned) = store.load_subject(agent).unwrap();
+        let result = recorded_result(&store, &head, planned);
+        let next = shenko_types::ids::EntityId::new();
+        let committed = committed_candidate(&store, result, next);
+        store
+            .commit_step_and_advance_head(&committed, &head, next)
+            .unwrap();
+        let (head, planned) = store.load_subject(agent).unwrap();
+        let mut unclassified = line("903", "20002", false, "原始通知", "qq", &audience);
+        unclassified.data["inbox_event"]["payload"] = serde_json::json!({"notice":true});
+        let mut without_audience = line("904", "20002", false, "没有回复受众", "qq", &audience);
+        without_audience.data["inbox_event"]["payload"]["reply_target"] = serde_json::Value::Null;
+        store
+            .stage_subject_inputs(
+                &head,
+                &planned,
+                &[own.clone(), unclassified, without_audience],
+            )
+            .unwrap();
+    }
+
+    // The foreign publication deliberately shares the first subject's
+    // canonical channel target and its phone message's provider id. Its
+    // receipt must not suppress that phone line in the first subject's view.
+    let mut foreign_intent = publication_intent();
+    foreign_intent.content = "另一个主体的回复".into();
+    commit_publication_step(&store, foreign_agent, &foreign_intent);
+    let mut foreign_dispatch = publication_dispatch();
+    foreign_dispatch.params["message"] = serde_json::json!(foreign_intent.content);
+    let foreign_armed = store
+        .arm_publication(foreign_intent.intent_id, &foreign_dispatch)
         .unwrap()
-        .into_iter()
+        .expect("the foreign subject's own publication arms once");
+    store
+        .record_publication_receipt(
+            &foreign_armed,
+            &ChannelReceipt {
+                status: "ok".into(),
+                retcode: 0,
+                accepted: true,
+                provider_message_id: Some("902".into()),
+                raw: serde_json::json!({"status":"ok","retcode":0,"data":{"message_id":902}}),
+                observed_at: sent_at,
+            },
+        )
+        .unwrap();
+    let foreign_input = line("905", "40004", false, "另一个主体的来信", "qq", &audience);
+    let foreign_echo = line("902", "10001", true, &foreign_intent.content, "qq", &audience);
+    let (foreign_head, foreign_planned) = store.load_subject(foreign_agent).unwrap();
+    store
+        .stage_subject_inputs(
+            &foreign_head,
+            &foreign_planned,
+            &[foreign_input.clone(), foreign_echo],
+        )
+        .unwrap();
+
+    let before_read = store.current_commit_seq().unwrap();
+    let all_rows = store.channel_conversation_messages(agent, 50).unwrap();
+    assert_eq!(all_rows.len(), 8, "seven unique messages plus one publication");
+    for input in [
+        &counterpart,
+        &same_id_counterpart,
+        &other_account,
+        &other_audience,
+        &other_kind,
+        &other_provider,
+        &own,
+    ] {
+        let event_id = input.event_id.to_string();
+        let matches: Vec<_> = all_rows
+            .iter()
+            .filter(|row| row.message_id == event_id)
+            .collect();
+        assert_eq!(matches.len(), 1, "the original inbox identity appears once");
+        assert_eq!(
+            matches[0].text,
+            input.data["inbox_event"]["payload"]["content"]["text"].as_str().unwrap(),
+        );
+        assert_eq!(matches[0].at.as_deref(), Some(sent_at_text.as_str()));
+        assert_eq!(
+            matches[0].direction,
+            if input.data["inbox_event"]["payload"]["actor"]["own_account"].as_bool() == Some(true) {
+                "own"
+            } else {
+                "inbound"
+            },
+        );
+    }
+
+    let recent = store.channel_conversation_messages(agent, 3).unwrap();
+    let mut recent_ids: Vec<_> = recent
+        .iter()
+        .filter(|row| row.direction != "outbound")
+        .map(|row| row.message_id.clone())
+        .collect();
+    recent_ids.sort();
+    let mut expected_ids = vec![
+        own.event_id.to_string(),
+        other_provider.event_id.to_string(),
+        other_kind.event_id.to_string(),
+    ];
+    expected_ids.sort();
+    assert_eq!(
+        recent_ids,
+        expected_ids,
+        "fill the window with the most recent unique admitted messages",
+    );
+    let foreign_rows = store.channel_conversation_messages(foreign_agent, 50).unwrap();
+    assert_eq!(foreign_rows.len(), 2, "the foreign subject sees only its own messages");
+    let foreign_input_id = foreign_input.event_id.to_string();
+    assert!(foreign_rows.iter().any(|row| {
+        row.message_id == foreign_input_id && row.direction == "inbound"
+    }));
+    let foreign_intent_id = foreign_intent.intent_id.to_string();
+    assert!(foreign_rows.iter().any(|row| {
+        row.message_id == foreign_intent_id && row.direction == "outbound"
+    }));
+    assert_eq!(
+        store.current_commit_seq().unwrap(),
+        before_read,
+        "conversation reads do not commit facts",
+    );
+
+    let rows: Vec<_> = all_rows
+        .iter()
         .filter(|row| row.thread_key == "qq:10001|group|123456789")
         .collect();
     let lines: Vec<_> = rows.iter().map(|row| (row.direction, row.text.as_str())).collect();
@@ -2136,7 +2346,8 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         "the platform's echo of a publication is the publication itself"
     );
     let outbound = rows.iter().find(|row| row.direction == "outbound").unwrap();
-    assert_eq!(outbound.at.as_deref(), Some(sent_at.to_rfc3339().as_str()));
+    assert_eq!(outbound.message_id, intent.intent_id.to_string());
+    assert_eq!(outbound.at.as_deref(), Some(sent_at_text.as_str()));
     assert!(rows
         .iter()
         .filter(|row| row.direction != "outbound")

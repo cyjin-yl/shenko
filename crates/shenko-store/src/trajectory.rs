@@ -77,8 +77,7 @@ fn summary(task_id: String, data: &str, created_at: String) -> Result<TaskSummar
     Ok(TaskSummary {
         task_id,
         kind: text(v.get("kind")).unwrap_or_else(|| "unknown".into()),
-        state: text(v.get("state").and_then(|s| s.get("status")))
-            .unwrap_or_else(|| "unknown".into()),
+        state: text(v.get("state").and_then(|s| s.get("status"))).unwrap_or_else(|| "unknown".into()),
         parent_task_id,
         created_by_step_id: text(v.get("created_by_step_id")),
         created_at: utc_timestamp(&created_at)?,
@@ -121,8 +120,7 @@ impl Store {
             else {
                 return Ok(None);
             };
-            let input_ref = serde_json::from_str::<Value>(&task.1)
-                .ok()
+            let input_ref = serde_json::from_str::<Value>(&task.1).ok()
                 .and_then(|v| v.get("input_ref").cloned())
                 .and_then(|r| serde_json::from_value::<shenko_types::object::ObjectRef>(r).ok());
             let task = (summary(task.0, &task.1, task.2)?, input_ref);
@@ -159,18 +157,11 @@ impl Store {
             .filter_map(|data| serde_json::from_str::<OperationRecord>(data).ok())
             .map(|operation| self.trajectory_operation(operation))
             .collect();
-        Ok(Some(TaskTrajectory {
-            task,
-            input,
-            children,
-            operations,
-        }))
+        Ok(Some(TaskTrajectory { task, input, children, operations }))
     }
 
     fn trajectory_operation(&self, operation: OperationRecord) -> TrajectoryOperation {
-        let attempts = self
-            .external_operation_attempts(operation.operation_id)
-            .unwrap_or_default();
+        let attempts = self.external_operation_attempts(operation.operation_id).unwrap_or_default();
         let (record, record_status) = self.sealed_record(&operation, attempts.last());
         TrajectoryOperation {
             operation_id: operation.operation_id.to_string(),
@@ -262,47 +253,35 @@ struct PublicationRow {
 }
 
 impl Store {
-    /// Recent channel conversation messages in both directions, oldest first.
+    /// The subject's recent channel conversation messages, oldest first.
     ///
-    /// Each direction reads its own most recent `limit` rows. An own-account
-    /// line that echoes one of the subject's publications (the platform
-    /// reports the sent message back) is the publication itself and is not
-    /// listed twice.
-    pub fn channel_conversation_messages(&self, limit: usize) -> Result<Vec<ConversationMessage>> {
+    /// Publications keep their most recent `limit` rows. Staged inputs are
+    /// scanned newest first until `limit` unique, classified messages with a
+    /// reply audience have been admitted, or the history is exhausted. An
+    /// own-account line that echoes a publication in that window is omitted
+    /// only when its provider and exact reply audience also match.
+    pub fn channel_conversation_messages(
+        &self,
+        agent_id: EntityId,
+        limit: usize,
+    ) -> Result<Vec<ConversationMessage>> {
+        use chrono::SecondsFormat;
         use shenko_types::channel::{ChannelEnvelope, ChannelReceipt};
         use shenko_types::evidence::EvidenceReceipt;
-        let limit = limit.clamp(1, 2000) as i64;
-        let (inbound, publications) = {
+        let limit = limit.clamp(1, 2000);
+        let agent_key = agent_id.to_string();
+        let publications = {
             let conn = self.ledger.conn.lock();
-            // A channel message reaches the subject through its live inbox and
-            // is durably recorded as a staged input of the step that took it
-            // (`{"v":1,"inbox_event":…}`), not as an `inbox_events` row. A
-            // deferred message can be staged again by a later step, so the
-            // same inbox event may appear more than once here.
-            let mut stmt = conn.prepare(
-                "SELECT json_extract(data,'$.inbox_event.event_id'), \
-                        json_extract(data,'$.inbox_event.payload') \
-                 FROM session_events \
-                 WHERE event_type='user' AND json_extract(data,'$.inbox_event.kind')='message' \
-                 ORDER BY rowid DESC LIMIT ?1",
-            )?;
-            let inbound = stmt
-                .query_map([limit * 2], |r| {
-                    Ok((
-                        r.get::<_, Option<String>>(0)?,
-                        r.get::<_, Option<String>>(1)?,
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
             let mut stmt = conn.prepare(
                 "SELECT i.intent_id, i.payload, i.state, s.created_at, \
                    (SELECT e.data FROM evidence_receipts e WHERE e.operation_id = i.intent_id \
-                    ORDER BY e.updated_commit_seq DESC LIMIT 1) \
+                    ORDER BY e.updated_commit_seq DESC, e.receipt_id DESC LIMIT 1) \
                  FROM subject_intents i LEFT JOIN subject_steps s ON s.step_id = i.step_id \
-                 WHERE i.kind = 'publication' ORDER BY i.created_seq DESC LIMIT ?1",
+                 WHERE i.agent_id = ?1 AND i.kind = 'publication' \
+                 ORDER BY i.created_seq DESC, i.intent_id DESC LIMIT ?2",
             )?;
             let publications = stmt
-                .query_map([limit], |r| {
+                .query_map(rusqlite::params![agent_key, limit as i64], |r| {
                     Ok(PublicationRow {
                         intent_id: r.get(0)?,
                         payload: r.get(1)?,
@@ -312,33 +291,38 @@ impl Store {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            (inbound, publications)
+            publications
         };
 
         let mut out = Vec::new();
-        let mut published_ids = std::collections::HashSet::new();
+        let mut published_targets: std::collections::HashMap<
+            String,
+            Vec<shenko_types::output::PublicationTarget>,
+        > = std::collections::HashMap::new();
         for row in publications {
-            let Ok(publication) =
-                serde_json::from_str::<shenko_types::subject::PublicationIntent>(&row.payload)
-            else {
-                continue;
-            };
+            let publication: shenko_types::subject::PublicationIntent =
+                serde_json::from_str(&row.payload)?;
             let evidence = row
                 .receipt
                 .as_deref()
-                .and_then(|data| serde_json::from_str::<EvidenceReceipt>(data).ok());
-            if let Some(provider_id) = evidence
-                .as_ref()
-                .and_then(|evidence| self.cas.read_object(&evidence.raw_ref.digest).ok())
-                .and_then(|bytes| serde_json::from_slice::<ChannelReceipt>(&bytes).ok())
-                .and_then(|receipt| receipt.provider_message_id)
-            {
-                published_ids.insert(provider_id);
-            }
-            let at = evidence
-                .and_then(|evidence| evidence.observed_at)
-                .map(|at| at.to_rfc3339())
-                .or_else(|| row.step_started.as_deref().and_then(sqlite_time));
+                .map(serde_json::from_str::<EvidenceReceipt>)
+                .transpose()?;
+            // Recovery observations are also evidence, but their raw object
+            // is not a provider answer. Decode only the declared channel
+            // receipt schema, and propagate failures of that actual decoder.
+            let provider_id = match evidence.as_ref().filter(|evidence| {
+                evidence.producer_schema_version.as_deref() == Some("channel_receipt")
+            }) {
+                Some(evidence) => {
+                    let bytes = self.cas.read_object(&evidence.raw_ref.digest)?;
+                    serde_json::from_slice::<ChannelReceipt>(&bytes)?.provider_message_id
+                }
+                None => None,
+            };
+            let at = match evidence.and_then(|evidence| evidence.observed_at) {
+                Some(at) => Some(at.to_rfc3339_opts(SecondsFormat::Nanos, true)),
+                None => row.step_started.as_deref().map(utc_timestamp).transpose()?,
+            };
             let target = &publication.target;
             out.push(ConversationMessage {
                 thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
@@ -355,15 +339,46 @@ impl Store {
                 at,
                 state: Some(row.state),
             });
+            if let Some(provider_id) = provider_id {
+                published_targets
+                    .entry(provider_id)
+                    .or_default()
+                    .push(publication.target);
+            }
         }
+        // A channel message is a staged input of the step that took it
+        // (`{"v":1,"inbox_event":…}`), not an `inbox_events` row. Deferred
+        // inputs can appear in many later steps. Stream the durable rows so
+        // neither those copies nor inapplicable inputs consume the window;
+        // retaining only admitted event ids bounds memory by the limit. The
+        // immutable owning raw session, not the envelope's channel account,
+        // determines which subject may read the input.
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT json_extract(e.data,'$.inbox_event.event_id'), \
+                    json_extract(e.data,'$.inbox_event.payload') \
+             FROM session_events e \
+             WHERE e.event_type='user' \
+               AND json_extract(e.data,'$.inbox_event.kind')='message' \
+               AND EXISTS (SELECT 1 FROM raw_sessions r \
+                           WHERE r.session_id = e.session_id AND r.agent_id = ?1) \
+             ORDER BY e.rowid DESC",
+        )?;
+        let mut inbound = stmt.query([agent_key.as_str()])?;
         let mut seen = std::collections::HashSet::new();
-        for (event_id, payload) in inbound {
-            let (Some(event_id), Some(payload)) = (event_id, payload) else {
+        while seen.len() < limit {
+            let Some(row) = inbound.next()? else {
+                break;
+            };
+            let Some(event_id) = row.get::<_, Option<String>>(0)? else {
                 continue;
             };
-            if seen.len() >= limit as usize || !seen.insert(event_id.clone()) {
+            if seen.contains(&event_id) {
                 continue;
             }
+            let Some(payload) = row.get::<_, Option<String>>(1)? else {
+                continue;
+            };
             // Only classified envelopes carry a reply audience; other inputs
             // (the owner's web input, unclassified frames) are not channel threads.
             let Ok(envelope) = serde_json::from_str::<ChannelEnvelope>(&payload) else {
@@ -372,9 +387,21 @@ impl Store {
             let Some(target) = envelope.reply_target.as_ref() else {
                 continue;
             };
-            if envelope.actor.own_account && published_ids.contains(&envelope.message_id) {
+            if envelope.actor.own_account
+                && published_targets
+                    .get(&envelope.message_id)
+                    .is_some_and(|targets| {
+                        targets.iter().any(|published| {
+                            published.channel == envelope.provider
+                                && published.account == target.account
+                                && published.kind == target.kind
+                                && published.id == target.id
+                        })
+                    })
+            {
                 continue;
             }
+            seen.insert(event_id.clone());
             out.push(ConversationMessage {
                 thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
                 thread_label: Some(target.label.clone()).filter(|label| !label.is_empty()),
@@ -399,7 +426,7 @@ impl Store {
                     envelope
                         .occurred_at
                         .unwrap_or(envelope.received_at)
-                        .to_rfc3339(),
+                        .to_rfc3339_opts(SecondsFormat::Nanos, true),
                 ),
                 state: None,
             });
@@ -409,11 +436,4 @@ impl Store {
             .then_with(|| left.message_id.cmp(&right.message_id)));
         Ok(out)
     }
-}
-
-/// SQLite `datetime('now')` text (`YYYY-MM-DD HH:MM:SS`, UTC) as RFC 3339.
-fn sqlite_time(value: &str) -> Option<String> {
-    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
-        .ok()
-        .map(|naive| naive.and_utc().to_rfc3339())
 }
