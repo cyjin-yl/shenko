@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
             // Never overwrite an existing task or give this example a production
             // registry's identity. This mode is explicitly synthetic admission.
             ensure!(
-                store.list_recent_tasks(1)?.is_empty(),
+                store.list_task_summaries(1)?.is_empty(),
                 "fixture-init requires an empty ledger"
             );
             let object = store

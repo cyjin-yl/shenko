@@ -216,7 +216,7 @@ pub fn snapshot(data_dir: &Path, phase: &str) -> Result<Snapshot> {
 
     let mut tasks = BTreeMap::new();
     let mut task_errors = Vec::new();
-    for recent in store.list_recent_tasks(500)? {
+    for recent in store.list_task_summaries(500)? {
         if !recent.kind.starts_with("cognition.unit.") {
             continue;
         }
