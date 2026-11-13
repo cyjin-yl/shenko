@@ -42,7 +42,7 @@ export function ImView({
           }}
         >
           {threads.map((item) => (
-            <ToggleGroupItem key={item.id} value={item.id} className="im-row" data-kind={item.kind}>
+            <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
               <Avatar participants={item.participants} kind={item.kind} />
               <span className="im-row-text">
                 <span className="im-row-top">

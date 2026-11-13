@@ -21,6 +21,9 @@ export default definePrototype({
       tone: { type: 'string' },
     });
     def.props.setDefaults({ label: '', tone: 'offline' });
+    // Props changes do not imply a render commit (Proto-UI C-PROPS-0014);
+    // the label is template content, so a new label asks for one.
+    def.props.watch(['label'], (run) => run.update());
     def.feedback.style.use(tw('shenko-status-chip'));
     def.rule({
       when: (w) => w.prop('tone').eq('online'),

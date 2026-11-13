@@ -159,8 +159,8 @@ button, [role="button"], [data-pui-root][role="button"] { cursor: default !impor
 }
 .lens-item:hover { color: var(--ink) !important; }
 .lens-item[data-active] { background: var(--surface) !important; color: var(--ink) !important; box-shadow: 0 1px 2px oklch(0 0 0 / 0.08), 0 0 0 1px var(--line) !important; }
-.lens-item[data-source="work"] .lens-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lens-item[data-source="work"]::before {
+.lens-item.source-work .lens-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lens-item.source-work::before {
   content: ""; width: 1px; height: 14px; margin: 0 6px 0 -4px; background: var(--line-strong);
 }
 
@@ -654,7 +654,7 @@ code.row-sub, code.row-title { font-size: 12px; }
   .lens { position: absolute; inset: 0; z-index: 20; border-left: 0; }
   .lens-label { display: none; }
   .lens-item { padding: 0 9px !important; }
-  .lens-item[data-source="work"] .lens-label { display: none; }
+  .lens-item.source-work .lens-label { display: none; }
 }
 
 @media (max-width: 719px) {

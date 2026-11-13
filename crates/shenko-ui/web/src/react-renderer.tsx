@@ -238,7 +238,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
             }}
           >
             {lenses.map((lens, index) => (
-              <ToggleGroupItem key={lens.id} value={lens.id} className="lens-item" data-source={lens.source}>
+              <ToggleGroupItem key={lens.id} value={lens.id} className={`lens-item source-${lens.source}`}>
                 <Icon name={lens.icon} size={17} />
                 <span className="lens-label">{lens.title}</span>
                 <span className="sr-only">{index < 9 ? `（Ctrl/⌘ ${index + 1}）` : ''}</span>
