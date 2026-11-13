@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "35195a6e6f1ba6a7d800da0029f2683013abd18b",
-    "previous_reviewed_commit": "b25229a94251398bc2f375554fcb9622dc8e79ab",
+    "commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
+    "previous_reviewed_commit": "35195a6e6f1ba6a7d800da0029f2683013abd18b",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/tank/shared/projects/shenko/build/claude-prs-20261112/proto-upstream-3519-r3",
+    "source_checkout": "/tank/shared/projects/shenko/build/claude-followups-20261113/proto-pending-mount-update-1113",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/shenko/build/claude-prs-20261112/upstream-build-r2/upstream-build.json",
-      "receipt_sha256": "5a0342d692c2b2bb8b793bb467fe5986a92e8d903cf828e0e81601f448e7a8ff"
+      "receipt_path": "/tank/shared/projects/shenko/build/claude-followups-20261113/proto-public-41282-r1/build.json",
+      "receipt_sha256": "14d4067cb5c128195093294cd65e0985897ecae717cb38855cbfdf03bb1d3f48"
     }
   },
   "packages": [
@@ -62,12 +62,12 @@
     "package_sha256": "4d81f10128f809c79a3f7730d1f936171f9bff2713846333c88c56524483258e",
     "entry": "packages/compiler/src/index.ts",
     "entry_sha256": "d44270de2799c5db59bc1675ed05e4061273c4f18a27808944a114920e2458a9",
-    "source_tree_sha256": "afb408ee980b27c2cf7ac5b989a9ed03d1f40873f75057d2bf2d283f970f44b9",
+    "source_tree_sha256": "3b7f37ecddc4fdb1b858bc614c5ba470dee483289417d101560491f8fa3efa95",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "5631027311aa5b823f404ee144e7067a9cca1827a0a766bf136d324954a1bcef",
-      "bytes": 2277245,
+      "sha256": "b79b7c8bc2d15d02e5321c2fe110687e6dbd16238ad1b614c5e344444c322888",
+      "bytes": 2277438,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -97,13 +97,13 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "aead38199e3f80b16c7d416e95e322f0950717b3c43e77874a74787856606496",
+        "generated_sha256": "56b5bb54f2dda879d4086752c93c7261c68c4f76d11a638d8a75faf00674e107",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "4b6cc44f2159fe043a7687ff57ac2ee1331ee55fffa8602f9bd6a75b02d05ef9",
+        "provenance_sha256": "6ad1fba338c29fac6b29e39f939066e4f3a0e1ff2fadad53d48a8283d8ceaf43",
         "compiler_ir_version": 5,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
@@ -116,13 +116,13 @@
         "component_name": "CompiledMessageBubble",
         "output_directory": "generated/prototypes/message-bubble",
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
-        "generated_sha256": "475bbcf929a57683a3a40fe90383da1fd5b60f550ab618b79c1dc9753f959830",
+        "generated_sha256": "22e0215ad9f2b8dfd9d526ec73bbb578e4725004e8ea5e379ac37e8e50005968",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
-        "provenance_sha256": "f103cd1c855fd7276a552ebcef205cd3ec7f92323147aa20af58ae01d4f260ab",
+        "provenance_sha256": "23878e572c25b280e1e73c6b89660963139ba0cec7cc8162a62d26b2a5c720ba",
         "compiler_ir_version": 5,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "276686d95d44f9191bef18c29327a20e2b6aa9ec65ac3c61ec7a2c9941f40180"
@@ -137,11 +137,11 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-pr293-align-20261113/crates/shenko-ui/web",
-  "built_at": "2026-11-13T02:47:38.476Z",
+  "built_at": "2026-11-13T04:35:15.975Z",
   "artifacts": {
     "app.js": {
-      "bytes": 1129733,
-      "sha256": "a92c9e357202e5cf2c24e28332ca2e4510ea99d71c71bc4623863e254c183743"
+      "bytes": 1129753,
+      "sha256": "dd8d3c07e738be570d98c3f59268cf30cb32a5f1b14f6aaae4a8eee80c4dd2be"
     },
     "app.css": {
       "bytes": 50644,

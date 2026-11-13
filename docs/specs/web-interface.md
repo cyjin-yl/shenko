@@ -710,3 +710,9 @@ Task lists, trajectories and channel conversations require an explicit subject i
 Committed replay also requires an explicit subject through the Store and outbox readers. A socket without a resolved local subject does not replay parked replicas or advertise committed replay; other subjects' imported steps remain outside the local subject's timeline.
 
 Rendered subject parts and their copy actions use the original `(message_id, part_id)` pair, so different rounds' `text/0` parts retain independent identities. Work lenses observe the durable active manifest digest as well as the authored revision; adoption can therefore refresh a page without another content write. The adopted revision label comes from the actual adopted response header, and an unchanged page retains its frame.
+
+## Pending-mount compiler pin
+
+The current build pin advances from the section 6 build record's `35195a6e6f1ba6a7d800da0029f2683013abd18b` to the published commit `41282cb0ddc39283826e52e9932be123fc83eb47` ([Proto-UI PR #1459](https://github.com/Proto-UI/Proto-UI/pull/1459)). The upstream lock digest and package versions remain unchanged; the three public entry points have a freshly built 42-package dependency closure at this commit.
+
+The compiler preserves an explicit `run.update()` issued after the first mount frame is rendered and before that frame is acknowledged. Mount acknowledgement credits the pending dirty intent so the next frame can present the current value. Shenko retains its authored Props watcher and regenerates both Prototypes through the pinned compiler. This update does not settle the wider Adapter defaults, update-ownership and diagnostic questions in [Proto-UI issue #1453](https://github.com/Proto-UI/Proto-UI/issues/1453).
