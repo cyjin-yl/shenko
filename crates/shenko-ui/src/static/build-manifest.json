@@ -92,21 +92,21 @@
       {
         "name": "transport-badge",
         "entry": "prototypes/transport-badge.proto.ts",
-        "entry_sha256": "e19b9465bbef1099e59145c049089d40702bd81087530c5f18983c499aec36c3",
+        "entry_sha256": "2ee02ccc9ca4fdd8bb4d031d4d390ba4fe78113d290cd9f011735f77c1d272ae",
         "profile": "react-dom-source-v1",
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "b4bf3e7362f9b170cec26dfd59ab0f70d9076dde825e42a35335012d5ea13ed1",
+        "generated_sha256": "aead38199e3f80b16c7d416e95e322f0950717b3c43e77874a74787856606496",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "fee26259ce6ef516fe26c4fa472fc74c2e183cf67dac7f86dd69cbd3f9a79d5b",
+        "provenance_sha256": "4b6cc44f2159fe043a7687ff57ac2ee1331ee55fffa8602f9bd6a75b02d05ef9",
         "compiler_ir_version": 5,
         "compiler_backend": "react-dom-source-v1",
-        "compiler_source_sha256": "9bf123c2bbf98a252547c68ae9d15f1608d04f50ca5645feebd170c9bd06025b"
+        "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
       },
       {
         "name": "message-bubble",
@@ -137,15 +137,15 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-pr293-align-20261113/crates/shenko-ui/web",
-  "built_at": "2026-11-13T01:52:52.506Z",
+  "built_at": "2026-11-13T02:47:38.476Z",
   "artifacts": {
     "app.js": {
-      "bytes": 1129720,
-      "sha256": "237ffc7184ba8c98090818042bbbc52e6994d0b64b8e3a1b4775a203bc25418e"
+      "bytes": 1129733,
+      "sha256": "a92c9e357202e5cf2c24e28332ca2e4510ea99d71c71bc4623863e254c183743"
     },
     "app.css": {
-      "bytes": 50660,
-      "sha256": "d0e2b576e2c245d175ec55fe7ff7e8f9e7c82783f357ed95f52855996c26e616"
+      "bytes": 50644,
+      "sha256": "6fe487191233a1bc13d0824fda52d8ff1785dc701567001aaae09c1b75c498de"
     },
     "proto-ui-style.css": {
       "bytes": 294,

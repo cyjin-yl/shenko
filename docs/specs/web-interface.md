@@ -203,7 +203,7 @@ selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.
 方向，单选、方向键与 roving focus 由上游提供）；委派展开用上游 collapsible；气泡是
 Shenko 自己写的 `prototypes/message-bubble.proto.ts`，构建期由 Proto-UI compiler 编译
 为 React DOM 源码，`side/tail/tone` 由 Prototype 规则决定外观，消息内容走匿名 slot，
-因此正文更新是普通 React 内容，不会出现 transport-badge 那种文本不随 prop 刷新的问题。
+因此正文更新是普通 React 内容。注意 Proto-UI 规格 C-PROPS-0014：props 变化本身不触发重绘；模板直接读取 prop 的 Prototype 要 `def.props.watch([...], (run) => run.update())`（transport-badge 即如此），运行时 React adapter 默认 `autoUpdateOnPropsChange` 会掩盖这一点，编译产物不会。
 Proto-UI 的 slot 优势在于：Prototype 与宿主无关（React/Vue/Web Component/编译产物），
 anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界面交付 Prototype，外壳
 用 adapter 放进上表的 slot，同一份界面可被不同宿主渲染。
