@@ -877,3 +877,26 @@ These are source changes and consumer test definitions, not new runtime or
 model evidence. The integration owner rebuilds the frontend and exercises
 the parser, archive/reopen and structured thread consumers on the combined
 candidate; previously retained proofs are unchanged.
+
+## Conversation observation projection — implementation note
+
+`web/src/threads.ts` keeps channel provenance on each message. `own_account`
+is an optional observation: `Some(true)` identifies account origin, without
+identifying a client; `Some(false)` identifies a counterpart only when the
+provider established it; missing historical observations remain `unknown`.
+Unknown account origin is labeled on the message and is not assigned to the
+subject or used to name a proven counterpart. `im.tsx` renders each message's
+source annotation even inside a run of messages from the same displayed sender.
+
+The participant list contains observed senders, not a membership roster. Missing
+audience shape uses the group layout with an explicit unknown-type subtitle;
+group membership counts remain unknown. An envelope's administrative-grant
+observation stays on that message with its recorded time (or an explicit missing
+time), including in group conversations. It never changes the participant into
+the owner or claims current privileges, and display labels grant no authority.
+
+Feishu states audience shape only for recognized `p2p` and `group` values;
+missing or unfamiliar values remain absent. Its explicitly identified user
+sender establishes counterpart origin, while unfamiliar or missing sender types
+leave account ownership unknown. These are source changes; browser, provider,
+model and combined-candidate behavior still require the parent's verification.

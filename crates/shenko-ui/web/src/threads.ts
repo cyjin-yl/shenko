@@ -42,7 +42,7 @@ export interface ThreadMessage {
 
 export type ThreadKind = 'direct' | 'delegation' | 'channel';
 
-/** How many counterparts the viewer's side talks to in a thread. */
+/** The layout used for the source's audience shape. */
 export type ThreadAudience = 'one_to_one' | 'group';
 
 export interface Thread {
@@ -51,13 +51,14 @@ export interface Thread {
   /**
    * A one-to-one thread reads like a private chat: no sender names, one
    * avatar. It comes from facts the thread source holds (a channel plugin's
-   * declared audience shape); a thread whose shape is unknown is a group.
+   * declared audience shape). An unknown shape uses the group layout while
+   * its subtitle keeps the missing audience information explicit.
    */
   audience: ThreadAudience;
   title: string;
   /** One line under the title: where and with whom, in the source's words. */
   subtitle: string;
-  /** Who is in the thread, the viewer's side first. */
+  /** Known message senders, the viewer's side first; not a membership roster. */
   participants: Participant[];
   /** The participant whose messages sit on the viewer's (right) side. */
   viewer: string;
@@ -371,12 +372,12 @@ export interface ConversationRow {
   /** The channel plugin's declared audience shape, when it stated one. */
   thread_shape?: ThreadAudience | null;
   channel: string;
-  /** `own` is the channel account's own line sent from another client. */
-  direction: 'inbound' | 'outbound' | 'own';
+  /** `own` proves account origin; `unknown` leaves that attribution unresolved. */
+  direction: 'inbound' | 'outbound' | 'own' | 'unknown';
   message_id: string;
   sender_id?: string | null;
   sender_name?: string | null;
-  /** The sender holds an owner-set administrative grant on that channel. */
+  /** This message's envelope recorded an owner-set grant, not current authority. */
   sender_admin?: boolean;
   text: string;
   at?: string | null;
@@ -407,6 +408,9 @@ registerThreadSource({
     return [...groups.entries()].map(([key, rows]) => {
       const people = new Map<string, Participant>();
       const messages: ThreadMessage[] = rows.map((row) => {
+        const grant = row.sender_admin === true
+          ? `此消息当时记录有管理授权 · ${row.at || '消息时间未知'}`
+          : undefined;
         if (row.direction === 'outbound') {
           return {
             key: row.message_id, from: subject, kind: 'message', text: row.text, at: row.at ?? undefined,
@@ -414,31 +418,36 @@ registerThreadSource({
           } satisfies ThreadMessage;
         }
         if (row.direction === 'own') {
-          // The account the subject speaks as, used from another client.
+          // The platform identified this account, not which client sent it.
           return {
             key: row.message_id, from: subject, kind: 'message', text: row.text, at: row.at ?? undefined,
-            meta: '本账号从其他客户端发出',
+            meta: ['本账号发出', grant].filter(Boolean).join(' · '),
           } satisfies ThreadMessage;
         }
-        const id = `person:${row.sender_id ?? 'unknown'}`;
-        const person = people.get(id) ?? {
-          id, name: row.sender_name || row.sender_id || '未知成员', role: row.sender_admin ? 'owner' as const : 'person' as const,
+        const unknown = row.direction === 'unknown';
+        const id = `${unknown ? 'source' : 'person'}:${row.sender_id ?? 'unknown'}`;
+        const person: Participant = {
+          id, name: row.sender_name || row.sender_id || '发言者未知', role: 'person',
         };
-        people.set(id, person);
-        return { key: row.message_id, from: person, kind: 'message', text: row.text, at: row.at ?? undefined } satisfies ThreadMessage;
+        if (!unknown) people.set(id, person);
+        return {
+          key: row.message_id, from: person, kind: 'message', text: row.text, at: row.at ?? undefined,
+          meta: [unknown ? '账号归属未知' : undefined, grant].filter(Boolean).join(' · ') || undefined,
+        } satisfies ThreadMessage;
       });
       const label = rows.find((row) => row.thread_label)?.thread_label;
       const shape = rows.find((row) => row.thread_shape)?.thread_shape;
       const audience: ThreadAudience = shape === 'one_to_one' ? 'one_to_one' : 'group';
-      const counterpart = [...people.values()][0];
+      const inbound = rows.find((row) => row.direction === 'inbound');
+      const counterpart = inbound ? people.get(`person:${inbound.sender_id ?? 'unknown'}`) : undefined;
       const channel = rows[0].channel;
       const last = messages[messages.length - 1];
       return {
         id: `channel:${key}`, kind: 'channel', audience,
         title: (audience === 'one_to_one' && counterpart?.name) || label || `${channel} ${rows[0].thread_kind} ${key.split('|').pop()}`,
         subtitle: audience === 'one_to_one'
-          ? `${channel} · 私聊${counterpart?.role === 'owner' ? ' · 管理员' : ''}`
-          : `${channel} · ${people.size + 1} 位参与者`,
+          ? `${channel} · 私聊`
+          : `${channel} · ${shape === 'group' ? '群聊' : '会话类型未知'} · 成员人数未知`,
         participants: [subject, ...people.values()], viewer: subject.id,
         preview: last ? `${last.from.role === 'subject' || audience === 'one_to_one' ? '' : `${last.from.name}：`}${last.text}` : '',
         updated_at: [...messages].reverse().find((message) => message.at)?.at,

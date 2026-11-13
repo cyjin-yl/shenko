@@ -6,14 +6,14 @@
 
 use std::sync::Arc;
 
-use shenko_types::channel::{ChannelAction, ChannelError, ChannelPlugin};
+use shenko_types::channel::{AudienceShape, ChannelAction, ChannelError, ChannelPlugin};
 use shenko_types::output::PublicationTarget;
 
 use crate::common::{HealthState, PlatformHttp, ReplyContextCache};
 use crate::feishu::api::FeishuApi;
 use crate::feishu::auth::TenantAuth;
 use crate::feishu::config::FeishuConfig;
-use crate::feishu::events::{FEISHU_KIND_CHAT, FEISHU_KIND_EDIT, FEISHU_KIND_RECALL};
+use crate::feishu::events::{FEISHU_KIND_CHAT, FEISHU_KIND_EDIT, FEISHU_KIND_RECALL, classify};
 use crate::feishu::plugin::FeishuChannel;
 
 fn plugin() -> FeishuChannel {
@@ -121,4 +121,41 @@ fn the_ordinary_reply_kinds_still_resolve() {
         .expect("the ordinary kind resolves");
     assert_eq!(target.kind, FEISHU_KIND_CHAT);
     assert_eq!(target.id, "chat-4");
+}
+
+#[test]
+fn message_facts_require_recognized_audience_and_sender_types() {
+    let config = FeishuConfig::for_app("app", None);
+    let mut frame = serde_json::json!({
+        "header": {"event_type": "im.message.receive_v1", "event_id": "event-1"},
+        "event": {
+            "sender": {"sender_type": "user", "sender_id": {"open_id": "user-1"}},
+            "message": {
+                "message_id": "message-1", "chat_id": "chat-1",
+                "message_type": "text", "content": "{\"text\":\"hello\"}"
+            }
+        }
+    });
+    for (chat_type, shape) in [
+        (Some("p2p"), Some(AudienceShape::OneToOne)),
+        (Some("group"), Some(AudienceShape::Group)),
+        (Some("future-chat-type"), None),
+        (None, None),
+    ] {
+        let message = frame["event"]["message"].as_object_mut().unwrap();
+        if let Some(chat_type) = chat_type {
+            message.insert("chat_type".to_string(), serde_json::json!(chat_type));
+        } else {
+            message.remove("chat_type");
+        }
+        let envelope = classify(&config, &frame).expect("the event is still a message");
+        assert_eq!(envelope.reply_target.unwrap().shape, shape);
+        assert_eq!(envelope.actor.own_account, Some(false));
+    }
+    frame["event"]["sender"]["sender_type"] = serde_json::json!("future-sender-type");
+    assert_eq!(classify(&config, &frame).unwrap().actor.own_account, None);
+    frame["event"]["sender"].as_object_mut().unwrap().remove("sender_type");
+    assert_eq!(classify(&config, &frame).unwrap().actor.own_account, None);
+    frame["event"]["sender"]["sender_type"] = serde_json::json!("app");
+    assert!(classify(&config, &frame).is_none());
 }

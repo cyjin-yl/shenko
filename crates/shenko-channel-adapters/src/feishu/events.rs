@@ -77,7 +77,8 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
     }
     // A message the bot itself produced is not an inbound event.
     let sender = event.get("sender").cloned().unwrap_or(Value::Null);
-    if text_field(&sender, "sender_type").as_deref() == Some("app") {
+    let sender_type = text_field(&sender, "sender_type");
+    if sender_type.as_deref() == Some("app") {
         return None;
     }
 
@@ -97,8 +98,9 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
     };
     let label = match kind {
         FEISHU_KIND_THREAD => format!("话题 {audience_id}"),
-        _ if chat_type == "p2p" => format!("单聊 {platform_id}"),
-        _ => format!("群 {audience_id}"),
+        _ if chat_type == "p2p" => format!("单聊 {audience_id}"),
+        _ if chat_type == "group" => format!("群 {audience_id}"),
+        _ => format!("会话 {audience_id}"),
     };
     let reply_target = if audience_id.is_empty() {
         None
@@ -110,11 +112,11 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
             account: account.clone(),
             tenant: None,
             conversation: Some(audience_id.to_string()),
-            shape: Some(if chat_type == "p2p" {
-                AudienceShape::OneToOne
-            } else {
-                AudienceShape::Group
-            }),
+            shape: match chat_type.as_str() {
+                "p2p" => Some(AudienceShape::OneToOne),
+                "group" => Some(AudienceShape::Group),
+                _ => None,
+            },
         })
     };
 
@@ -173,8 +175,12 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
                 .is_admin(&platform_id)
                 .then(|| format!("feishu-admin:{platform_id}")),
             group_role: None,
-            // The platform drops the bot's own messages before they reach here.
-            own_account: false,
+            // An explicitly identified user is a counterpart of this app.
+            // Missing or unfamiliar sender types establish no account origin.
+            own_account: match sender_type.as_deref() {
+                Some("user") => Some(false),
+                _ => None,
+            },
         },
         content: ChannelContent {
             text,

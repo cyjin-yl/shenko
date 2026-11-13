@@ -285,6 +285,7 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
     const first = !same(previous);
     const tail = !same(next);
     const attachment = message.text === '' && message.node ? renderAttachment(message) : null;
+    const actions = messageActions(message);
     out.push(
       <div
         className={`im-msg ${self ? 'is-self' : 'is-other'}${first ? ' is-first' : ''}${tail ? ' is-tail' : ''}`}
@@ -306,10 +307,10 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
             </CompiledMessageBubble>
           )}
         </div>
-        {(message.meta || messageActions(message).length > 0) && tail && (
+        {(message.meta || tail && actions.length > 0) && (
           <div className="im-meta">
             {message.meta && <span>{message.meta}</span>}
-            {messageActions(message).map((action) => (
+            {tail && actions.map((action) => (
               <button key={action.id} type="button" className="im-link" onClick={() => message.node && emit(message.node.node_id, action.id)}>
                 {action.label}
               </button>
