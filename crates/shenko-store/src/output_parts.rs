@@ -1,7 +1,7 @@
 //! Durable ordered public-text output parts — docs/specs/web-interface.md#spec-21-11 流数据与显示状态.
 //!
-//! Real streaming starts at the provider stream (ArchBroker), is redacted to
-//! public text by the subject (`public_text_prefix` in shenko-subject), and is
+//! Real streaming starts at the provider stream (ArchBroker), is gated to
+//! public text using the canonical output source boundaries, and is
 //! persisted here as ordered bounded batches BEFORE the terminal S1 decision.
 //! The UI replays parts by a durable `(commit_seq, chunk_seq)` cursor, so a
 //! reconnect resumes without re-deriving keys from text length or wall clock.

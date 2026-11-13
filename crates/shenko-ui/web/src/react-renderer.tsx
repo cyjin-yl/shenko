@@ -12,6 +12,7 @@ import {
   type ReadingAnchor,
   type ReadingSelection,
   type Submission,
+  type TaskSummary,
   type TimelinePart,
   type UiNode,
   type UiProjection,
@@ -45,6 +46,7 @@ import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSur
 import { ImView } from './im';
 import {
   collectThreads,
+  isAttentionTask,
   isDelegation,
   subjectParticipant,
   trajectoryMessages,
@@ -163,7 +165,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as Array<Record<string, unknown>>;
+  const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as TaskSummary[];
 
   // Two views of the same subject: 对话 is where the owner talks with it and
   // watches the groups it is in; Inspect is its raw stream of thought. The
@@ -331,12 +333,9 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
  * the last committed round, the reported status. Nothing is inferred; with no
  * facts the line says so.
  */
-function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: Array<Record<string, unknown>> }) {
-  // `subject_root` is the structural owner of all the subject's work (the
-  // subject itself, whose status is reported separately), not a thing it is
-  // doing; only work beneath it is attention.
-  const active = tasks.filter((task) => task.kind !== 'subject_root'
-    && ['running', 'pending', 'waiting', 'queued'].includes(String(task.state)));
+function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: TaskSummary[] }) {
+  // The subject's own status is shown separately from the work it owns.
+  const active = tasks.filter(isAttentionTask);
   const facts: string[] = [];
   if (active.length === 1) facts.push(`在做：${String(active[0].kind ?? active[0].task_id)}`);
   else if (active.length > 1) facts.push(`${active.length} 件事进行中`);
@@ -421,7 +420,7 @@ const SAFE_MODE = new URLSearchParams(location.search).get('safe') === '1';
 /// What Inspect needs beyond the projection: the task list (to find the
 /// delegations a round started) and a way to open a thread in 对话.
 const InspectContext = React.createContext<{
-  tasks: Array<Record<string, unknown>>;
+  tasks: TaskSummary[];
   openThread: (id: string) => void;
   subject: ReturnType<typeof subjectParticipant>;
   demo: boolean;

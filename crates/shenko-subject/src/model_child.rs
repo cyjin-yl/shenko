@@ -83,7 +83,7 @@ const CONTRACT_SCHEMA: u32 = 3;
 const LEGACY_CONTRACT_SCHEMA: u32 = 2;
 /// The frozen step input version.
 const STEP_SCHEMA: u32 = 2;
-/// Bounded text kept from one model result.
+/// Public display text retained after decoding the complete model result.
 const MAX_STEP_TEXT_BYTES: usize = 64 * 1024;
 /// Bounded tool result handed back to the model.
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
@@ -380,6 +380,10 @@ struct ModelChildStepRecord {
     request_id: EntityId,
     provider_binding: ProviderBinding,
     stop_reason: String,
+    /// The recorded child parser's public display text. New records retain
+    /// a UTF-8 prefix only after the complete source is decoded.
+    /// Controls are stored separately below; readers must not strip or
+    /// reinterpret this field, including in archived version-1 records.
     text: String,
     text_truncated: bool,
     tool_calls: Vec<ModelChildToolCall>,
@@ -638,8 +642,16 @@ fn parse_output(text: &str) -> ModelChildOutput {
     let mut reply: Option<ModelChildReply> = None;
     let mut question: Option<String> = None;
     let mut rest = String::new();
+    let source = shenko_types::output::OutputSource::new(text);
+    let mut offset = 0;
     for line in text.split_inclusive('\n') {
         let trimmed = line.trim_end_matches(['\r', '\n']);
+        let start = offset;
+        offset += line.len();
+        if !source.is_control_line(start, trimmed) {
+            rest.push_str(line);
+            continue;
+        }
         if let Some(body) = trimmed.strip_prefix("[tool:") {
             if let Some((header, body)) = body.split_once(']') {
                 if let Some((kind, version)) = header.rsplit_once(':') {
@@ -2516,18 +2528,12 @@ impl InferenceReceiptSink for ChildStepSink {
             self.store.close_external_writer();
             error
         })?;
-        let text = result.response.as_ref().map(|response| {
-            let end = response
-                .content
-                .char_indices()
-                .map(|(index, _)| index)
-                .find(|index| *index > MAX_STEP_TEXT_BYTES)
-                .unwrap_or(response.content.len());
-            &response.content[..end]
-        });
-        let (tool_calls, reply, question, answer_text) = match text {
-            Some(text) => {
-                let parsed = parse_output(text);
+        // Markdown classification depends on the complete original response:
+        // a later reference definition can make an earlier header literal.
+        // Retention must never manufacture an EOF before that definition.
+        let (tool_calls, reply, question, mut answer_text) = match &result.response {
+            Some(response) => {
+                let parsed = parse_output(&response.content);
                 let mut calls = parsed.tool_calls;
                 for (index, call) in calls.iter_mut().enumerate() {
                     let input_digest = Digest::blake3(&serde_json::to_vec(&call.input)?);
@@ -2542,6 +2548,12 @@ impl InferenceReceiptSink for ChildStepSink {
             }
             None => (vec![], None, None, String::new()),
         };
+        let mut display_end = MAX_STEP_TEXT_BYTES.min(answer_text.len());
+        while !answer_text.is_char_boundary(display_end) {
+            display_end -= 1;
+        }
+        let text_truncated = display_end < answer_text.len();
+        answer_text.truncate(display_end);
         let record = ModelChildStepRecord {
             schema_version: 1,
             task_id: self.contract.task_id,
@@ -2554,9 +2566,7 @@ impl InferenceReceiptSink for ChildStepSink {
                 .map(|response| response.stop_reason.clone())
                 .unwrap_or_default(),
             text: answer_text,
-            text_truncated: result.response.as_ref().is_some_and(|response| {
-                text.is_some_and(|text| text.len() != response.content.len())
-            }),
+            text_truncated,
             tool_calls,
             reply,
             question,
@@ -2868,6 +2878,26 @@ fn cognition_grant(
 #[cfg(test)]
 mod grant_account_tests {
     use super::*;
+
+    #[test]
+    fn parsed_child_display_keeps_literals_separate_from_controls() {
+        let literal = concat!(
+            "  literal whitespace\r\n",
+            "```text\n[tool:example.read:1] {}\n[reply] example reply\n```\n\n",
+            "> quoted example\n[ask] literal question\n\n",
+            "Example <!--\n[tool:example.read:1] {}\n[reply] HTML reply\n[ask] HTML question\n-->\n\n",
+            "[delegate] literal child data\n",
+            "[tool:broken:zero] this remains data\n",
+        );
+        let raw = format!("{literal}[tool:actual.read:1] {{\"path\":\"evidence\"}}\n[ask] Which source?\n[reply] Granted reply\n");
+        let parsed = parse_output(&raw);
+        assert_eq!(parsed.text, literal);
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].kind, "actual.read");
+        assert_eq!(parsed.tool_calls[0].input, serde_json::json!({"path":"evidence"}));
+        assert_eq!(parsed.question.as_deref(), Some("Which source?"));
+        assert_eq!(parsed.reply.unwrap().body, "Granted reply");
+    }
 
     fn binding() -> ProviderBinding {
         ProviderBinding::Local {

@@ -59,6 +59,73 @@ fn child_step(store: &Store, task_id: EntityId) -> shenko_types::operation::Oper
         .expect("the child run has at least one model step")
 }
 
+/// The receipt sink decodes the complete response before bounding public
+/// display text. Late reference definitions and real controls both survive.
+#[tokio::test]
+async fn child_step_decodes_late_references_before_bounding_display_text() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let display_limit = 64 * 1024;
+    let leading = "[tool:example.read:1] {}\n\n";
+    let padding = "x".repeat(display_limit - 1 - leading.len());
+    // The display bound falls inside this multibyte character. The reference
+    // definition and genuine controls are all beyond the retention bound.
+    let literal = format!("{leading}{padding}界 continued evidence\n\n[tool:example.read:1]: /original\n\n");
+    let raw = format!("{literal}[reply] Retained reply\n[ask] Which source?\n");
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let body = serde_json::json!({"choices":[{"message":{"role":"assistant",
+        "content":raw},"finish_reason":"stop"}],
+        "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let wire = read_wire(&mut socket).await;
+        socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+        wire
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(&store, &mut subject, 1, &[], &delegation(
+        "literal-review", "Keep source examples literal.", "Review the complete source.", 64,
+    )).await;
+    let native = service(&store, handle, subject.head.software_generation.clone());
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let run = tokio::spawn(broker.run());
+    drive_until(&native, || store.native_task_result(task.task_id).is_ok_and(|result| result.is_some()),
+        || format!("operations={:?}", store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).map(|rows| rows.len()))).await;
+    assert_eq!(server.await.unwrap()["model"], "literal-review");
+
+    let step = child_step(&store, task.task_id);
+    let attempt = store.external_operation_attempt(step.operation_id).unwrap();
+    let receipt = store.external_evidence(attempt.final_receipt_id.unwrap()).unwrap();
+    let original: serde_json::Value = serde_json::from_slice(
+        &store.cas.read_object(&receipt.raw_ref.digest).unwrap()).unwrap();
+    assert_eq!(original["response"]["content"].as_str(), Some(raw.as_str()));
+    let normalized = receipt.normalized_ref.as_ref().unwrap();
+    let record: serde_json::Value = serde_json::from_slice(
+        &store.cas.read_object(&normalized.digest).unwrap()).unwrap();
+    assert_eq!(record["text"].as_str(), Some(&literal[..display_limit - 1]));
+    assert_eq!(record["text_truncated"], true);
+    assert_eq!(record["complete"], true);
+    assert_eq!(record["tool_calls"], serde_json::json!([]));
+    assert_eq!(record["reply"]["body"], "Retained reply");
+    assert_eq!(record["question"], "Which source?");
+    let output_ref: shenko_types::object::ObjectRef = serde_json::from_value(record["output_ref"].clone()).unwrap();
+    assert_eq!(output_ref.bytes, raw.len() as u64);
+    assert_eq!(output_ref.digest, shenko_types::object::Digest::blake3(raw.as_bytes()));
+    assert_eq!(store.cas.read_object(&output_ref.digest).unwrap(), raw.as_bytes());
+    let result = store.native_task_result(task.task_id).unwrap().unwrap();
+    assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+    let result = result.result.as_ref().unwrap();
+    assert_eq!(result["termination"], "needs_decision");
+    assert_eq!(result["question"], "Which source?");
+    assert_eq!(result["transcript"][0], record);
+    assert_eq!(store.external_operation_attempts(step.operation_id).unwrap().len(), 1);
+    native.close_and_join(0).await;
+    run.abort(); let _ = run.await;
+}
+
 /// A terminal provider refusal is a Failed generation, never an empty
 /// successful run. The step keeps its original E1 and the run-result
 /// operation settles Failed with the refusal as its durable record.

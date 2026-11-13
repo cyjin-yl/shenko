@@ -9,6 +9,118 @@ pub struct OutputSpan {
     pub line: u64,
 }
 
+/// Source-level control boundaries shared by complete decoders and streams.
+/// This classifies syntax only; the subject/child decoder still owns the
+/// control's schema, authority and canonical public text.
+pub struct OutputSource<'a> {
+    source: &'a str,
+    literal_ranges: std::cell::OnceCell<Vec<std::ops::Range<usize>>>,
+}
+
+impl<'a> OutputSource<'a> {
+    pub fn new(source: &'a str) -> Self {
+        Self { source, literal_ranges: std::cell::OnceCell::new() }
+    }
+
+    fn literal_ranges(&self) -> &[std::ops::Range<usize>] {
+        self.literal_ranges.get_or_init(|| {
+            use pulldown_cmark::{Event, Parser, Tag};
+
+            let mut literal_ranges: Vec<_> = Parser::new(self.source)
+                .into_offset_iter()
+                .filter_map(|(event, range)| match event {
+                    Event::Start(
+                        Tag::BlockQuote(_)
+                        | Tag::List(_)
+                        | Tag::CodeBlock(_)
+                        | Tag::HtmlBlock
+                        | Tag::Link { .. }
+                        | Tag::Image { .. },
+                    )
+                    | Event::Code(_)
+                    | Event::InlineHtml(_) => Some(range),
+                    _ => None,
+                })
+                .collect();
+            literal_ranges.sort_unstable_by_key(|range| range.start);
+            // Merge nested/overlapping ranges once, so each line lookup is a
+            // binary search rather than a new Markdown parse or a linear scan.
+            let mut kept = 0;
+            for index in 0..literal_ranges.len() {
+                let start = literal_ranges[index].start;
+                let end = literal_ranges[index].end;
+                if kept > 0 && start <= literal_ranges[kept - 1].end {
+                    literal_ranges[kept - 1].end = literal_ranges[kept - 1].end.max(end);
+                } else {
+                    literal_ranges[kept] = start..end;
+                    kept += 1;
+                }
+            }
+            literal_ranges.truncate(kept);
+            literal_ranges
+        })
+    }
+
+    /// `offset` and `line` refer to the same source line; `line` omits CR/LF.
+    /// Lazy quote/list continuations and resolved reference links are literal
+    /// according to CommonMark, even when their bytes begin at column zero.
+    pub fn is_control_line(&self, offset: usize, line: &str) -> bool {
+        if line.starts_with([' ', '\t']) {
+            return false;
+        }
+        let tag = line.strip_prefix('[')
+            .and_then(|value| value.split_once(']').map(|(header, _)| header));
+        let markdown_reference = line.split_once(']')
+            .is_some_and(|(_, suffix)| suffix.starts_with(['(', '[', ':']));
+        let candidate = !markdown_reference && (
+            tag.is_some_and(|header| {
+                // Only the structural tag has an alphabet. The decoder and
+                // owning channel resolve the remaining fields, including
+                // opaque platform reply identities.
+                let name = header.split_once(':').map_or(header, |(name, _)| name);
+                name.bytes().next().is_some_and(|byte| byte.is_ascii_alphabetic())
+                    && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
+            })
+            || (tag.is_none() && line.strip_prefix('[')
+                .is_some_and(|value| value.bytes().next().is_some_and(|byte| byte.is_ascii_lowercase())))
+            || line.starts_with("dispatch:")
+        );
+        if !candidate {
+            return false;
+        }
+        let literal_ranges = self.literal_ranges();
+        let preceding = literal_ranges.partition_point(|range| range.start <= offset);
+        preceding == 0 || !literal_ranges[preceding - 1].contains(&offset)
+    }
+
+    /// Raw-source bound whose display classification cannot change when a
+    /// stream grows. A later reference definition or lazy block continuation
+    /// can change an earlier apparent control into literal data. Until EOF,
+    /// retain the tail from the first possible control instead of publishing
+    /// text that would later need to be deleted, inserted or reparsed by UI.
+    /// The stream owner keeps the complete source; EOF fixes every boundary.
+    pub fn stable_prefix_end(&self, eof: bool) -> usize {
+        if eof {
+            return self.source.len();
+        }
+        let mut offset = 0;
+        for chunk in self.source.split_inclusive('\n') {
+            let line = chunk.trim_end_matches(['\r', '\n']);
+            let bracket = line.strip_prefix('[').is_some_and(|tail| {
+                tail.is_empty() || tail.bytes().next().is_some_and(|byte| byte.is_ascii_alphabetic())
+            });
+            let dispatch = !line.is_empty()
+                && (line.starts_with("dispatch:")
+                    || (!chunk.ends_with('\n') && "dispatch:".starts_with(line)));
+            if bracket || dispatch {
+                return offset;
+            }
+            offset += chunk.len();
+        }
+        self.source.len()
+    }
+}
+
 /// The sealed format version of a publication target.
 pub const PUBLICATION_TARGET_SCHEMA_VERSION: u32 = 2;
 
@@ -156,7 +268,47 @@ impl<'de> Deserialize<'de> for PublicationTarget {
 
 #[cfg(test)]
 mod tests {
-    use super::{ModelChildReplyGrant, PublicationTarget};
+    use super::{ModelChildReplyGrant, OutputSource, PublicationTarget};
+
+    #[test]
+    fn control_boundaries_preserve_commonmark_literals() {
+        let raw = concat!(
+            "```text\n[tool:literal:1] {}\n```\n\n",
+            "> quoted example\n[reply] lazy quote data\n\n",
+            "- listed example\n[ask] lazy list data\n\n",
+            "`inline\n[reply] code data\n`\n\n",
+            "Example <!--\n[tool:literal:1] {}\n[remember] comment data\n-->\n\n",
+            "[remember] link data\n\n[remember]: /evidence\n\n",
+            "[tool:actual:1] {}\n",
+        );
+        let source = OutputSource::new(raw);
+        let mut offset = 0;
+        let controls: Vec<_> = raw.split_inclusive('\n').filter_map(|chunk| {
+            let start = offset;
+            offset += chunk.len();
+            let line = chunk.trim_end_matches(['\r', '\n']);
+            source.is_control_line(start, line).then_some(line)
+        }).collect();
+        assert_eq!(controls, vec!["[tool:actual:1] {}"]);
+    }
+
+    #[test]
+    fn streamed_reference_tail_stays_unpublished_until_eof() {
+        let prose = "观察记录\n";
+        let prefix = format!("{prose}[reply] evidence\n");
+        let before = OutputSource::new(&prefix);
+        assert!(before.is_control_line(prose.len(), "[reply] evidence"));
+        assert_eq!(before.stable_prefix_end(false), prose.len());
+
+        let complete = format!("{prefix}\n[reply]: /original\n");
+        let after = OutputSource::new(&complete);
+        assert!(!after.is_control_line(prose.len(), "[reply] evidence"));
+        assert_eq!(after.stable_prefix_end(false), prose.len());
+        assert_eq!(after.stable_prefix_end(true), complete.len());
+        let partial_prose = "观察记录：内容仍在继续";
+        assert_eq!(OutputSource::new(partial_prose).stable_prefix_end(false), partial_prose.len());
+        assert_eq!(OutputSource::new("观察\ndi").stable_prefix_end(false), "观察\n".len());
+    }
 
     /// The versioned target round-trips; older shapes are only readable
     /// through the explicit legacy reader used by the Store migration.

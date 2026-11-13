@@ -1594,6 +1594,85 @@ fn inspection_projections_keep_each_subjects_tasks_and_messages_private() {
     assert!(store.get_existing_agent_id().is_err());
 }
 
+#[test]
+fn structural_task_roles_survive_reopen_and_archive_without_kind_inference() {
+    use shenko_types::{ids::EntityId, subject::*, task::*};
+
+    let (dir, store, agent) = initialized_subject();
+    let (head, first) = store.load_subject(agent).unwrap();
+    let next = EntityId::new();
+    let result = recorded_result(&store, &head, first);
+    let mut step = committed_candidate(&store, result, next);
+    let mut decision: StepDecision = serde_json::from_slice(
+        &store.cas.read_object(&step.decision_ref.as_ref().unwrap().digest).unwrap(),
+    ).unwrap();
+    let delegation_id = EntityId::new();
+    decision.delegated_task_intents.push(DelegationIntent {
+        intent_id: delegation_id,
+        goal: "Observe through a future plugin".into(),
+        system_prompt: String::new(), model: None, capabilities: vec![],
+        budget_hint: None, reply_grant: None,
+        definition: Some(NativeTaskDefinition {
+            kind: "future.plugin.observe".into(), definition_version: 7,
+            input: serde_json::json!({"source":"retained evidence"}),
+        }),
+    });
+    step.decision_ref = Some(store.cas.seal_object(
+        &serde_json::to_vec(&decision).unwrap(), "application/json", "test", "StepDecision", 8,
+    ).unwrap().object);
+    store.commit_step_and_advance_head(&step, &head, next).unwrap();
+    store.start_subject_dispatcher().unwrap();
+    let delegated = store.external_task(delegation_id).unwrap();
+    let implementation = delegated.implementation_ref.clone();
+    let parent = store.claim_native_task(delegation_id, implementation.clone(), false).unwrap().unwrap();
+    let tool_id = EntityId::new();
+    let input = store.cas.seal_object(b"{}", "application/json", "test", "tool", 1).unwrap().object;
+    store.claim_child_tool_task(&parent.task, tool_id, "future.plugin.tool", 3, input, implementation)
+        .unwrap().unwrap();
+
+    // A familiar definition name, or ownership by the root alone, is no
+    // evidence that an older task was delegated or invoked as a tool.
+    let mut unclassified = recovery_task(&store, agent, 0x296, false);
+    unclassified.kind = "model.child".into();
+    unclassified.owner = TaskOwner::Task { id: head.subject_root_task_id };
+    let unknown_id = unclassified.task_id;
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(unclassified);
+    store.commit(batch).unwrap();
+
+    let roles = |store: &Store| store.list_task_summaries(agent, 100).unwrap().into_iter()
+        .map(|task| (task.task_id, task.role)).collect::<std::collections::BTreeMap<_, _>>();
+    let expected = [
+        (head.subject_root_task_id.to_string(), TaskRole::SubjectRoot),
+        (delegation_id.to_string(), TaskRole::Delegation),
+        (tool_id.to_string(), TaskRole::Tool),
+        (unknown_id.to_string(), TaskRole::Unknown),
+    ].into_iter().collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(roles(&store), expected);
+    let trajectory = store.task_trajectory(agent, delegation_id).unwrap().unwrap();
+    assert_eq!(trajectory.task.role, TaskRole::Delegation);
+    assert_eq!(trajectory.children.len(), 1);
+    assert_eq!(trajectory.children[0].role, TaskRole::Tool);
+    assert_eq!(trajectory.children[0].parent_task_id.as_deref(), Some(delegation_id.to_string().as_str()));
+    assert_eq!(serde_json::to_value(&trajectory).unwrap()["task"]["role"], "delegation");
+    let root = store.task_trajectory(agent, head.subject_root_task_id).unwrap().unwrap();
+    assert!(root.task.parent_task_id.is_none());
+    assert!(!root.children.iter().any(|task| task.task_id == root.task.task_id));
+
+    let mut archive = Vec::new();
+    store.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    assert_eq!(roles(&reopened), expected);
+    let receiver = Store::open(dir.join("role-receiver.db"), dir.join("role-receiver-cas")).unwrap();
+    receiver.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    assert_eq!(roles(&receiver), expected);
+    let imported = receiver.task_trajectory(agent, delegation_id).unwrap().unwrap();
+    assert_eq!(imported.task.role, TaskRole::Delegation);
+    assert_eq!(imported.children[0].role, TaskRole::Tool);
+    assert_eq!(receiver.external_task(delegation_id).unwrap().input_ref, delegated.input_ref);
+}
+
 fn publication_state(store: &Store, intent_id: shenko_types::ids::EntityId) -> String {
     store
         .committed_intents(Some("publication"), None, 16)

@@ -185,13 +185,3 @@ pub(super) fn parse_reconcile(value: &str, line_no: u64) -> Result<ReconcileSpec
     Ok(spec)
 }
 
-/// The public prefix of one result: the natural-language text the subject
-/// actually thought, before any control syntax is removed. Output streaming
-/// (ArchWeb/ArchBroker parts) publishes this verbatim; it never re-derives
-/// text from controls.
-pub fn public_text_prefix(raw: &str) -> String {
-    // Placeholder until the stream wiring lands: the full decoded public text
-    // of the parsed result. The function stays pure and total so parts can
-    // prefix-incrementally once OutputPart chunking is wired.
-    raw.to_owned()
-}

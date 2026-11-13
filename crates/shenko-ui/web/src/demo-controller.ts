@@ -137,9 +137,9 @@ function demoState(): UiState {
     tasks: {
       available: true,
       items: [
-        { task_id: 'demo-task-7f3a', kind: '记忆合并', state: 'running', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
-        { task_id: '3f2a91c0-demo-child', kind: 'model.child', state: 'running', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
-        { task_id: 'demo-task-6c12', kind: '配置时序验证', state: 'succeeded', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
+        { task_id: 'demo-task-7f3a', kind: '记忆合并', role: 'delegation', state: 'running', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
+        { task_id: '3f2a91c0-demo-child', kind: 'model.child', role: 'delegation', state: 'running', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
+        { task_id: 'demo-task-6c12', kind: '配置时序验证', role: 'delegation', state: 'succeeded', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
       ],
     },
     tasks_error: false,

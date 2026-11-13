@@ -1,8 +1,8 @@
 //! Durable stream sink — docs/specs/web-interface.md#spec-21-11 流数据与显示状态, docs/specs/web-interface.md#spec-21-9.
 //!
-//! Real streaming starts at the provider stream (ArchBroker), is redacted to
-//! public text by the subject (`public_text_prefix`), and lands here. Each
-//! chunk is persisted with `Store::append_output_part` BEFORE it is broadcast
+//! Real streaming starts at the provider stream (ArchBroker), is gated to
+//! public text using the canonical output source boundaries, and lands here.
+//! Each chunk is persisted with `Store::append_output_part` BEFORE it is broadcast
 //! to browsers, so "durable" always precedes "visible" and a reconnect resumes
 //! from a durable cursor instead of a guessed snapshot.
 //!

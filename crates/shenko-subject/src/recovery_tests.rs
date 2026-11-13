@@ -2433,6 +2433,36 @@ async fn commit_output(
 }
 
 #[tokio::test]
+async fn canonical_root_json_text_survives_reopen_and_archive() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let raw = serde_json::to_string("[remember] literal JSON data\n[reply] still data").unwrap();
+    let step_id = commit_output(&store, &mut subject, 1, &[], &raw).await;
+    let original = crate::outbox::committed_after(&store, agent, 0, None, 8).unwrap();
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].step_id, step_id);
+    assert_eq!(original[0].text, raw);
+    let decision = store.committed_decisions_after(agent, 0, None, 8).unwrap().pop().unwrap().2;
+    assert!(decision.output.controls.is_empty());
+    assert_eq!(store.cas.read_object(&decision.output.raw_ref.digest).unwrap(), raw.as_bytes());
+    let mut archive = Vec::new();
+    store.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    drop(subject);
+    drop(store);
+
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    assert_eq!(crate::outbox::committed_after(&reopened, agent, 0, None, 8).unwrap()[0].text, raw);
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
+    receiver.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    let imported = crate::outbox::committed_after(&receiver, agent, 0, None, 8).unwrap();
+    assert_eq!(imported[0].text, raw);
+    assert_eq!(imported[0].commit_ref, original[0].commit_ref);
+    let retained = receiver.committed_decisions_after(agent, 0, None, 8).unwrap().pop().unwrap().2;
+    assert_eq!(retained.output.raw_ref, decision.output.raw_ref);
+    assert!(retained.output.controls.is_empty());
+}
+
+#[tokio::test]
 async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     let (dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();

@@ -12,9 +12,13 @@
 use crate::Store;
 use anyhow::Result;
 use rusqlite::OptionalExtension;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shenko_types::{ids::EntityId, operation::OperationRecord};
+use shenko_types::{
+    ids::EntityId,
+    operation::OperationRecord,
+    task::{TaskOwner, TaskRole},
+};
 
 /// Records above this size are summarized by reference instead of inlined.
 pub const TRAJECTORY_RECORD_LIMIT: u64 = 64 * 1024;
@@ -23,6 +27,7 @@ pub const TRAJECTORY_RECORD_LIMIT: u64 = 64 * 1024;
 pub struct TaskSummary {
     pub task_id: String,
     pub kind: String,
+    pub role: TaskRole,
     pub state: String,
     pub parent_task_id: Option<String>,
     pub created_by_step_id: Option<String>,
@@ -65,23 +70,49 @@ pub(crate) fn utc_timestamp(value: &str) -> Result<String> {
     Ok(time.to_rfc3339_opts(SecondsFormat::Nanos, true))
 }
 
-fn summary(task_id: String, data: &str, created_at: String) -> Result<TaskSummary> {
-    let v: Value = serde_json::from_str(data).unwrap_or_default();
+fn summary(
+    task_id: String,
+    data: &str,
+    created_at: String,
+    subject_root: Option<String>,
+    intent_kind: Option<String>,
+) -> Result<TaskSummary> {
+    let value: Value = serde_json::from_str(data)?;
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
-    let owner = v.get("owner");
+    let owner: Option<TaskOwner> = value.get("owner")
+        .and_then(|owner| TaskOwner::deserialize(owner).ok());
     // The subject root owns itself; a self-owner is not a parent.
-    let parent_task_id = (owner.and_then(|o| o.get("kind")).and_then(Value::as_str) == Some("task"))
-        .then(|| text(owner.and_then(|o| o.get("id"))))
-        .flatten()
-        .filter(|parent| *parent != task_id);
+    let parent_task_id = match &owner {
+        Some(TaskOwner::Task { id }) => Some(id.to_string()).filter(|id| *id != task_id),
+        _ => None,
+    };
+    let self_owned = matches!(&owner, Some(TaskOwner::Task { .. })) && parent_task_id.is_none();
+    let known_record = value.get("record_schema_version").and_then(Value::as_u64) == Some(1)
+        && value.get("task_id").and_then(Value::as_str) == Some(task_id.as_str());
+    let role = if !known_record {
+        TaskRole::Unknown
+    } else if subject_root.as_deref() == Some(task_id.as_str())
+        && self_owned
+    {
+        TaskRole::SubjectRoot
+    } else if owner.is_some() && intent_kind.as_deref() == Some("delegation") {
+        TaskRole::Delegation
+    } else if parent_task_id.as_deref().is_some_and(|parent| {
+        value.pointer("/memos/child_tool_parent").and_then(Value::as_str) == Some(parent)
+    }) {
+        TaskRole::Tool
+    } else {
+        TaskRole::Unknown
+    };
     Ok(TaskSummary {
         task_id,
-        kind: text(v.get("kind")).unwrap_or_else(|| "unknown".into()),
-        state: text(v.get("state").and_then(|s| s.get("status"))).unwrap_or_else(|| "unknown".into()),
+        kind: text(value.get("kind")).unwrap_or_else(|| "unknown".into()),
+        role,
+        state: text(value.pointer("/state/status")).unwrap_or_else(|| "unknown".into()),
         parent_task_id,
-        created_by_step_id: text(v.get("created_by_step_id")),
+        created_by_step_id: text(value.get("created_by_step_id")),
         created_at: utc_timestamp(&created_at)?,
-        terminal_at: v.get("terminal_at").and_then(Value::as_str).map(utc_timestamp).transpose()?,
+        terminal_at: value.get("terminal_at").and_then(Value::as_str).map(utc_timestamp).transpose()?,
     })
 }
 
@@ -90,16 +121,21 @@ impl Store {
     pub fn list_task_summaries(&self, agent_id: EntityId, limit: usize) -> Result<Vec<TaskSummary>> {
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT task_id, data, created_at FROM tasks WHERE json_extract(data,'$.agent_id')=?1 \
-             ORDER BY created_at DESC, task_id DESC LIMIT ?2",
+            "SELECT t.task_id, t.data, t.created_at, json_extract(h.data,'$.subject_root_task_id'), i.kind \
+             FROM tasks t \
+             LEFT JOIN subject_branch_heads h ON h.agent_id=json_extract(t.data,'$.agent_id') \
+             LEFT JOIN subject_intents i ON i.intent_id=t.task_id AND i.agent_id=json_extract(t.data,'$.agent_id') \
+             WHERE json_extract(t.data,'$.agent_id')=?1 \
+             ORDER BY t.created_at DESC, t.task_id DESC LIMIT ?2",
         )?;
         let rows = stmt.query_map(rusqlite::params![agent_id.to_string(), limit.clamp(1, 500) as i64], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, data, created_at) = row?;
-            out.push(summary(id, &data, created_at)?);
+            let (id, data, created_at, root, intent) = row?;
+            out.push(summary(id, &data, created_at, root, intent)?);
         }
         Ok(out)
     }
@@ -112,9 +148,14 @@ impl Store {
             let conn = self.ledger.conn.lock();
             let Some(task) = conn
                 .query_row(
-                    "SELECT task_id, data, created_at FROM tasks WHERE task_id=?1 AND json_extract(data,'$.agent_id')=?2",
+                    "SELECT t.task_id, t.data, t.created_at, json_extract(h.data,'$.subject_root_task_id'), i.kind \
+                     FROM tasks t \
+                     LEFT JOIN subject_branch_heads h ON h.agent_id=json_extract(t.data,'$.agent_id') \
+                     LEFT JOIN subject_intents i ON i.intent_id=t.task_id AND i.agent_id=json_extract(t.data,'$.agent_id') \
+                     WHERE t.task_id=?1 AND json_extract(t.data,'$.agent_id')=?2",
                     rusqlite::params![task_key, agent_key],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
+                        r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?)),
                 )
                 .optional()?
             else {
@@ -123,20 +164,24 @@ impl Store {
             let input_ref = serde_json::from_str::<Value>(&task.1).ok()
                 .and_then(|v| v.get("input_ref").cloned())
                 .and_then(|r| serde_json::from_value::<shenko_types::object::ObjectRef>(r).ok());
-            let task = (summary(task.0, &task.1, task.2)?, input_ref);
+            let task = (summary(task.0, &task.1, task.2, task.3, task.4)?, input_ref);
             let mut stmt = conn.prepare(
-                "SELECT task_id, data, created_at FROM tasks \
-                 WHERE json_extract(data,'$.owner.kind')='task' AND json_extract(data,'$.owner.id')=?1 AND task_id<>?1 \
-                 AND json_extract(data,'$.agent_id')=?2 \
-                 ORDER BY created_at, rowid",
+                "SELECT t.task_id, t.data, t.created_at, json_extract(h.data,'$.subject_root_task_id'), i.kind \
+                 FROM tasks t \
+                 LEFT JOIN subject_branch_heads h ON h.agent_id=json_extract(t.data,'$.agent_id') \
+                 LEFT JOIN subject_intents i ON i.intent_id=t.task_id AND i.agent_id=json_extract(t.data,'$.agent_id') \
+                 WHERE json_extract(t.data,'$.owner.kind')='task' AND json_extract(t.data,'$.owner.id')=?1 AND t.task_id<>?1 \
+                 AND json_extract(t.data,'$.agent_id')=?2 \
+                 ORDER BY t.created_at, t.rowid",
             )?;
             let children = stmt
                 .query_map(rusqlite::params![task_key, agent_key], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
+                        r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?))
                 })?
                 .map(|row| {
-                    let (id, data, at) = row?;
-                    summary(id, &data, at)
+                    let (id, data, at, root, intent) = row?;
+                    summary(id, &data, at, root, intent)
                 })
                 .collect::<Result<Vec<_>>>()?;
             let mut stmt = conn.prepare(

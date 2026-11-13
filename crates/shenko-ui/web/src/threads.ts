@@ -1,4 +1,4 @@
-import type { Submission, TimelinePart, UiNode, UiProjection } from './projection';
+import type { Submission, TaskSummary, TimelinePart, UiNode, UiProjection } from './projection';
 
 /**
  * Conversations as one model (docs/specs/web-interface.md#5-2).
@@ -76,7 +76,7 @@ export interface Thread {
 
 export interface ThreadInputs {
   projection: UiProjection;
-  tasks: Array<Record<string, unknown>>;
+  tasks: TaskSummary[];
   conversations: ConversationRow[];
 }
 
@@ -199,19 +199,22 @@ registerThreadSource({
 });
 
 export interface TrajectoryResponse {
-  task: { task_id: string; kind: string; state: string; created_at: string; created_by_step_id?: string | null };
+  task: TaskSummary;
   input?: Record<string, unknown> | null;
-  children: Array<{ task_id: string; kind: string; state: string; created_at: string }>;
+  children: TaskSummary[];
   operations: Array<{
     operation_id: string; operation_name: string; logical_key: string; state: unknown;
     outcome: unknown; attempts: number; record: Record<string, unknown> | null; record_status: string;
   }>;
 }
 
-const DELEGATION_KINDS = new Set(['model.child']);
+export function isDelegation(task: { role?: unknown }): boolean {
+  return task.role === 'delegation';
+}
 
-export function isDelegation(task: Record<string, unknown>): boolean {
-  return DELEGATION_KINDS.has(String(task.kind));
+export function isAttentionTask(task: { role?: unknown; state?: unknown }): boolean {
+  return task.role !== 'subject_root'
+    && ['running', 'pending', 'waiting', 'queued'].includes(String(task.state));
 }
 
 export function shortId(id: string): string {
@@ -240,7 +243,7 @@ export function trajectoryMessages(trajectory: TrajectoryResponse, subject: Part
     key: `brief-${trajectory.task.task_id}`, from: subject, kind: 'message', text: briefOf(trajectory.input),
     at: trajectory.task.created_at, tag: '委派',
   }];
-  const tools = [...trajectory.children];
+  const tools = trajectory.children.filter((task) => task.role === 'tool');
   for (const operation of trajectory.operations) {
     const view = recordViews.get(operation.operation_name);
     if (view) {
@@ -254,6 +257,12 @@ export function trajectoryMessages(trajectory: TrajectoryResponse, subject: Part
   }
   for (const tool of tools) {
     messages.push({ key: `tool-${tool.task_id}`, from: toolParticipant(tool.kind), kind: 'system', text: `${tool.kind} · ${tool.state}` });
+  }
+  for (const task of trajectory.children.filter((task) => task.role !== 'tool')) {
+    messages.push({
+      key: `task-${task.task_id}`, from: task.role === 'delegation' ? childParticipant(task.task_id) : subject,
+      kind: 'system', text: `${task.kind} · ${task.state}${task.role === 'unknown' ? ' · 角色资料不可用' : ''}`,
+    });
   }
   return messages;
 }
@@ -282,18 +291,22 @@ export function registerRecordView(operationName: string, view: RecordView): () 
   return () => { if (recordViews.get(operationName) === view) recordViews.delete(operationName); };
 }
 
-const CONTROL_LINE = /^\s*\[(tool|reply|question|delegate)[^\]]*\].*$/gm;
-
 registerRecordView('model.child.generate.v1', ({ operation, subject, child, tools }) => {
   const record = operation.record;
   if (!record) {
     return [{ key: operation.operation_id, from: child, kind: 'message', tone: 'pending', text: '', meta: operation.record_status === 'unsettled' ? '这一步还在进行' : `记录不可读：${operation.record_status}` }];
   }
+  // Version 1 records already store the canonical parser's public text
+  // separately from tool/reply/question controls. Other historical formats
+  // stay inspectable through the API; raw output is never a display fallback.
+  if (record.schema_version !== 1 || typeof record.text !== 'string') {
+    return [{ key: `${operation.operation_id}-unavailable`, from: child, kind: 'system', text: '这一步的公开正文不可用，原始记录仍保留' }];
+  }
   const out: ThreadMessage[] = [];
   for (const [index, turn] of ((record.dialogue as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
     out.push({ key: `${operation.operation_id}-dialogue-${index}`, from: subject, kind: 'message', text: String(turn.message ?? '') });
   }
-  const text = String(record.text ?? '').replace(CONTROL_LINE, '').trim();
+  const text = record.text;
   const usage = record.usage as Record<string, unknown> | undefined;
   const meta = [`第 ${Number(record.step_index ?? 0) + 1} 步`, usage?.output_tokens != null ? `${usage.output_tokens} tokens` : null, record.text_truncated ? '正文截断' : null]
     .filter(Boolean).join(' · ');
@@ -443,12 +456,12 @@ export function demoTrajectory(taskId: string): TrajectoryResponse {
   const step = (index: number, record: Record<string, unknown>) => ({
     operation_id: `${taskId}-step-${index}`, operation_name: 'model.child.generate.v1', logical_key: `step/${index}`,
     state: 'resolved', outcome: 'succeeded', attempts: 1, record_status: 'sealed',
-    record: { step_index: index, ...record },
+    record: { schema_version: 1, step_index: index, ...record },
   });
   return {
-    task: { task_id: taskId, kind: 'model.child', state: 'running', created_at: at },
+    task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at },
     input: { goal: '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。' },
-    children: [{ task_id: `${taskId}-tool`, kind: 'memory.recall', state: 'succeeded', created_at: at }],
+    children: [{ task_id: `${taskId}-tool`, kind: 'memory.recall', role: 'tool', state: 'succeeded', created_at: at }],
     operations: [
       step(0, { text: '先找出两条观察的原文和来源。', tool_calls: [{ kind: 'memory.recall' }], usage: { output_tokens: 42 } }),
       step(1, { text: '两条都来自 11 月 12 日的部署日志。合并后保留两个来源引用；冷缓存那条仍标为暂定。', question: '要把“暂定”这条也并进去吗？', usage: { output_tokens: 88 } }),

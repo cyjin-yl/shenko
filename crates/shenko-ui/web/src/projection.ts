@@ -78,6 +78,21 @@ export interface PlaygroundView {
 }
 export type ReadingState = 'following_latest' | 'reading_history' | 'selecting_or_interacting';
 export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
+
+/** Derived by the ledger from ownership and admission, never a plugin name. */
+export type TaskRole = 'subject_root' | 'delegation' | 'tool' | 'unknown';
+
+export type TaskSummary = {
+  task_id: string;
+  kind: string;
+  role: TaskRole;
+  state: string;
+  parent_task_id?: string | null;
+  created_by_step_id?: string | null;
+  created_at: string;
+  terminal_at?: string | null;
+};
+
 // Durable admission stages — docs/specs/web-interface.md#spec-41-18: accepted/selected/committed are
 // separate fact receipts, never a single progress bar.
 export type ReceiptState =
@@ -427,7 +442,7 @@ export interface UiState {
   config_drafts?: Record<string, string>;
   self?: SelfView;
   self_error: boolean;
-  tasks?: { available?: boolean; items?: Array<Record<string, unknown>>; note?: string };
+  tasks?: { available?: boolean; items?: TaskSummary[]; note?: string };
   tasks_error: boolean;
   memory?: { items?: Array<Record<string, unknown>>; note?: string };
   memory_error: boolean;

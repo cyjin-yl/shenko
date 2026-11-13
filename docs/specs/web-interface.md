@@ -830,3 +830,50 @@ Rendered subject parts and their copy actions use the original `(message_id, par
 The current build pin advances from the section 6 build record's `35195a6e6f1ba6a7d800da0029f2683013abd18b` to the published commit `41282cb0ddc39283826e52e9932be123fc83eb47` ([Proto-UI PR #1459](https://github.com/Proto-UI/Proto-UI/pull/1459)). The upstream lock digest and package versions remain unchanged; the three public entry points have a freshly built 42-package dependency closure at this commit.
 
 The compiler preserves an explicit `run.update()` issued after the first mount frame is rendered and before that frame is acknowledged. Mount acknowledgement credits the pending dirty intent so the next frame can present the current value. Shenko retains its authored Props watcher and regenerates both Prototypes through the pinned compiler. This update does not settle the wider Adapter defaults, update-ownership and diagnostic questions in [Proto-UI issue #1453](https://github.com/Proto-UI/Proto-UI/issues/1453).
+
+## Task roles and canonical display implementation
+
+`TaskSummary.role` is a typed read-model field shared by `/api/tasks` and
+`/api/tasks/{id}/trajectory`: `subject_root`, `delegation`, `tool` or `unknown`.
+The root requires the subject head's recorded root identity and self-ownership.
+A delegation requires that task's subject-owned `subject_intents` delegation
+fact. A tool requires the existing `child_tool_parent` admission fact to agree
+with `TaskOwner`. Definition names do not establish any of these roles; a new
+plugin delegated through the same task contract is projected immediately.
+Missing or unrecognized historical provenance stays `unknown` and the row
+remains visible. The task record, frozen inputs and archive schemas gain no
+presentation-only field: the existing head, task and intent facts already
+travel in the recovery archive and supply the same roles after import/reopen.
+
+The recognized model-child step record is schema 1. Its existing `text` is
+the recorded child parser's public display text. New records retain a UTF-8
+prefix of at most 64 KiB; `text_truncated` reports whether that display text
+was shortened. The receipt sink classifies and decodes the complete original
+response before applying this bound: a reference definition after 64 KiB
+can make an earlier apparent control literal, and genuine controls beyond
+the display bound still reach the owning decoder. `tool_calls`, `reply` and
+`question` hold separate parsed controls, while `output_ref` and E1 preserve
+the complete original evidence. The thread renders retained text verbatim,
+including its whitespace, JSON strings and control-like literal examples.
+Missing or unknown
+record schemas report unavailable public text and retain the original record
+for inspection; they are never reinterpreted with a newer parser. The root
+timeline similarly consumes the already-parsed `ParsedOutput.text` from S1.
+
+`shenko_types::output::OutputSource` owns the shared CommonMark source
+classifier used by subject/child decoders and the stream gate. It preserves
+quoted/list continuations, fenced/inline code, block and inline HTML
+(including multiline comments), and resolved reference links. It classifies
+the structural control tag without constraining the opaque platform reply
+identity; the owning channel resolver retains target validation.
+Its byte-based `stable_prefix_end(false)` allows ordinary partial
+prose to stream, but retains the tail from the first possible control while
+future Markdown/reference input could still change its classification.
+Only genuine EOF fixes that tail; interrupted or unknown responses do not
+acquire a false EOF. Markdown ranges are computed lazily on first complete
+classification, rather than on each incremental prefix query.
+
+These are source changes and consumer test definitions, not new runtime or
+model evidence. The integration owner rebuilds the frontend and exercises
+the parser, archive/reopen and structured thread consumers on the combined
+candidate; previously retained proofs are unchanged.
