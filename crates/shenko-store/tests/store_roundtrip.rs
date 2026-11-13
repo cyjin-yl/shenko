@@ -341,17 +341,22 @@ fn recorded_result_with_docket(
     let profile = shenko_types::object::Digest::blake3(b"store-roundtrip-profile");
     ledger.rebind_model(1, &profile.0).unwrap();
     let window = ledger.current().unwrap();
-    store.stage_subject_inputs(head, &step, &[]).unwrap();
+    let staged = store.stage_subject_inputs(head, &step, &[]).unwrap();
+    let input_raw_event_ids: Vec<_> = staged.iter().map(|record| record.event_id).collect();
+    let events: Vec<_> = staged.iter().map(|record| {
+        let data: serde_json::Value = serde_json::from_str(&record.data).unwrap();
+        data["inbox_event"].clone()
+    }).collect();
     let plan_schema = if reconciliation_docket.is_empty() { 12 } else { 13 };
     let plan = serde_json::json!({
         "schema_version":plan_schema, "reconciliation_docket":reconciliation_docket,
-        "step_id":step.step_id, "step_no":step.step_no, "events":[], "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
+        "step_id":step.step_id, "step_no":step.step_no, "events":events, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
             "source_commit_seq":store.current_commit_seq().unwrap(),
             "leaf_seq":store.session_leaf_seq(EntityId(head.branch_id.0)).unwrap(),
-            "input_raw_event_ids":[], "window_id":window.id,
+            "input_raw_event_ids":input_raw_event_ids, "window_id":window.id,
             "window_generation":window.generation, "model_generation":1},
         "profile_digest":profile,
         "estimated_input_tokens":null, "budget_input_tokens":null,
