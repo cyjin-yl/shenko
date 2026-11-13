@@ -1837,3 +1837,128 @@ fn unreadable_ready_native_result_keeps_its_identity_and_the_row() {
     assert!(pending.iter().any(|(event_id, _)| *event_id == unreadable_id));
 }
 
+
+/// The built-in IM lists the subject's external conversations from its own
+/// records. A channel message is read where the runtime keeps it (the staged
+/// input of the step that took it); the plugin's audience shape travels with
+/// the thread; a publication carries the time the provider answered; and the
+/// platform's echo of that publication is the publication, not a second line.
+#[test]
+fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
+    use shenko_types::channel::{
+        AudienceShape, ChannelActor, ChannelContent, ChannelEnvelope, ChannelReceipt,
+        ChannelReplyTarget,
+    };
+    let (_dir, store, agent) = initialized_subject();
+    store.start_subject_dispatcher().unwrap();
+    let intent = publication_intent();
+    commit_publication_step(&store, agent, &intent);
+    let armed = store
+        .arm_publication(intent.intent_id, &publication_dispatch())
+        .unwrap()
+        .expect("the committed publication arms once");
+    let sent_at = chrono::Utc::now();
+    store
+        .record_publication_receipt(
+            &armed,
+            &ChannelReceipt {
+                status: "ok".into(),
+                retcode: 0,
+                accepted: true,
+                provider_message_id: Some("900".into()),
+                raw: serde_json::json!({"status":"ok","retcode":0,"data":{"message_id":900}}),
+                observed_at: sent_at,
+            },
+        )
+        .unwrap();
+
+    let line = |message_id: &str, actor: &str, own_account: bool, text: &str| {
+        let envelope = ChannelEnvelope {
+            schema_version: 1,
+            provider: "qq".into(),
+            account: "qq:10001".into(),
+            tenant: None,
+            transport_identity_domain: "onebot".into(),
+            conversation: Some("123456789".into()),
+            thread: None,
+            message_id: message_id.into(),
+            source_event_revision: None,
+            occurred_at: Some(sent_at),
+            received_at: sent_at,
+            actor: ChannelActor {
+                platform_id: actor.into(),
+                display_name: Some(actor.into()),
+                alias: None,
+                person_ref: None,
+                role_grant_ref: None,
+                group_role: None,
+                own_account,
+            },
+            content: ChannelContent {
+                text: text.into(),
+                segments: vec![],
+                mentions: vec![],
+                reply_to: None,
+            },
+            reply_target: Some(ChannelReplyTarget {
+                kind: "group".into(),
+                id: "123456789".into(),
+                label: "群 123456789".into(),
+                account: "qq:10001".into(),
+                tenant: None,
+                conversation: Some("123456789".into()),
+                shape: Some(AudienceShape::Group),
+            }),
+            attachments: vec![],
+            raw_ref: None,
+        };
+        let event = shenko_types::inbox::InboxEvent {
+            event_id: shenko_types::ids::EntityId::new(),
+            kind: shenko_types::inbox::InboxEventKind::Message,
+            payload: serde_json::to_value(&envelope).unwrap(),
+            created_at: sent_at,
+            source: "qq".into(),
+        };
+        shenko_store::raw_session::SubjectHistoryInput {
+            event_id: event.event_id,
+            event_type: "user".into(),
+            data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
+        }
+    };
+    let (head, planned) = store.load_subject(agent).unwrap();
+    store
+        .stage_subject_inputs(
+            &head,
+            &planned,
+            &[
+                line("901", "20002", false, "有人在吗"),
+                line("900", "10001", true, "已经提交的回复正文"),
+                line("902", "10001", true, "手机上补一句"),
+            ],
+        )
+        .unwrap();
+
+    let rows: Vec<_> = store
+        .channel_conversation_messages(50)
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.thread_key == "qq:10001|group|123456789")
+        .collect();
+    let lines: Vec<_> = rows.iter().map(|row| (row.direction, row.text.as_str())).collect();
+    assert!(lines.contains(&("inbound", "有人在吗")), "{lines:?}");
+    assert!(lines.contains(&("own", "手机上补一句")), "{lines:?}");
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.text == "已经提交的回复正文")
+            .map(|row| row.direction)
+            .collect::<Vec<_>>(),
+        vec!["outbound"],
+        "the platform's echo of a publication is the publication itself"
+    );
+    let outbound = rows.iter().find(|row| row.direction == "outbound").unwrap();
+    assert_eq!(outbound.at.as_deref(), Some(sent_at.to_rfc3339().as_str()));
+    assert!(rows
+        .iter()
+        .filter(|row| row.direction != "outbound")
+        .all(|row| row.thread_shape == Some(AudienceShape::Group)));
+}

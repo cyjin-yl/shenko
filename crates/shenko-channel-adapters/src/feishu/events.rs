@@ -15,8 +15,8 @@ use serde_json::Value;
 
 use crate::common::{ADAPTER_ENVELOPE_SCHEMA_VERSION, integer_field, text_field};
 use shenko_types::channel::{
-    ChannelActor, ChannelAttachment, ChannelContent, ChannelEnvelope, ChannelReplyTarget,
-    ChannelSegment,
+    AudienceShape, ChannelActor, ChannelAttachment, ChannelContent, ChannelEnvelope,
+    ChannelReplyTarget, ChannelSegment,
 };
 
 use super::config::FeishuConfig;
@@ -110,6 +110,11 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
             account: account.clone(),
             tenant: None,
             conversation: Some(audience_id.to_string()),
+            shape: Some(if chat_type == "p2p" {
+                AudienceShape::OneToOne
+            } else {
+                AudienceShape::Group
+            }),
         })
     };
 
@@ -168,6 +173,8 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
                 .is_admin(&platform_id)
                 .then(|| format!("feishu-admin:{platform_id}")),
             group_role: None,
+            // The platform drops the bot's own messages before they reach here.
+            own_account: false,
         },
         content: ChannelContent {
             text,

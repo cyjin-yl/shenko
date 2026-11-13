@@ -13,8 +13,8 @@ use serde_json::Value;
 
 use crate::common::{ADAPTER_ENVELOPE_SCHEMA_VERSION, integer_field, text_field};
 use shenko_types::channel::{
-    ChannelActor, ChannelAttachment, ChannelContent, ChannelEnvelope, ChannelReplyTarget,
-    ChannelSegment,
+    AudienceShape, ChannelActor, ChannelAttachment, ChannelContent, ChannelEnvelope,
+    ChannelReplyTarget, ChannelSegment,
 };
 
 use super::config::QqOfficialConfig;
@@ -101,6 +101,7 @@ pub fn classify(config: &QqOfficialConfig, raw: &Value) -> Option<ChannelEnvelop
                     account: account.clone(),
                     tenant: None,
                     conversation: None,
+                    shape: Some(AudienceShape::OneToOne),
                 }),
             )
         }
@@ -115,6 +116,7 @@ pub fn classify(config: &QqOfficialConfig, raw: &Value) -> Option<ChannelEnvelop
                     account: account.clone(),
                     tenant: None,
                     conversation: Some(group),
+                    shape: Some(AudienceShape::Group),
                 }),
             )
         }
@@ -129,6 +131,7 @@ pub fn classify(config: &QqOfficialConfig, raw: &Value) -> Option<ChannelEnvelop
                     account: account.clone(),
                     tenant: None,
                     conversation: Some(channel),
+                    shape: Some(AudienceShape::Group),
                 }),
             )
         }
@@ -191,6 +194,8 @@ pub fn classify(config: &QqOfficialConfig, raw: &Value) -> Option<ChannelEnvelop
                 .is_admin(&platform_id)
                 .then(|| format!("qq-official-admin:{platform_id}")),
             group_role,
+            // The platform drops the bot's own messages before they reach here.
+            own_account: false,
         },
         content: ChannelContent {
             text,

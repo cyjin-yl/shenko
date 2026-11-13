@@ -132,6 +132,11 @@ pub struct ChannelActor {
     /// Platform group role (`owner`/`admin`/`member`), informational only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_role: Option<String>,
+    /// The platform reports this event as sent by the account the channel
+    /// speaks as (for example from another client of the same account), so
+    /// it is the account's own line, never a person's message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own_account: bool,
 }
 
 /// The body of one inbound message.
@@ -425,6 +430,25 @@ pub struct ChannelReplyTarget {
     /// The conversation identity, when it differs from `id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
+    /// How many counterparts this audience reaches, as the platform event
+    /// states it. `None` when the plugin cannot tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<AudienceShape>,
+}
+
+/// How many counterparts a reply audience reaches.
+///
+/// This is structure the platform reports, not a judgement: a private chat
+/// or direct message reaches one counterpart; a group, channel or topic
+/// reaches several. It is a property of the audience, not of the reply kind,
+/// because one kind can name both (a Feishu chat id is a p2p chat or a group).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudienceShape {
+    /// One counterpart: a private chat or direct message.
+    OneToOne,
+    /// Several participants: a group, channel or topic.
+    Group,
 }
 
 /// The kind of outbound action a plugin describes.

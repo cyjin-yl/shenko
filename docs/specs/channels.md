@@ -88,6 +88,22 @@ send whose owner died is local loss-of-control evidence, recorded `unknown`
   is identical at admission and replay (an envelope classifies to itself).
   Payloads the plugin does not classify (notices, meta) keep the raw frame
   and stage with a plain `[source]` header.
+- Two structural facts the plugin states at classification, and nobody
+  re-derives later:
+  - `reply_target.shape` (`one_to_one` | `group`) says how many counterparts
+    the audience reaches. It is a property of this audience, not of the reply
+    kind: a Feishu chat id is either a p2p chat or a group.
+  - `actor.own_account` says the platform reported the line as sent by the
+    account this channel speaks as. For NapCat that is a `message_sent`
+    frame, for example sent from another client of the same account. The
+    shipped bot APIs (QQ official, Feishu, iLink) drop the bot's own messages,
+    so their lines are never own-account.
+
+  The built-in IM depends on both facts ([web §5.2](web-interface.md#5-2-external)).
+- The durable record of a delivered channel message is the staged input of
+  the step that took it (`session_events`, `{"v":1,"inbox_event":…}`). It is
+  not an `inbox_events` row: that table holds web, playground, wake and media
+  inputs.
 - Attachments: `parse_message` produces `ChannelAttachment` values whose
   `locator` is confined to the configured NapCat-host `file_root`
   (`NapCatConfig::file_root`, host name `file_host`). At admission the runtime

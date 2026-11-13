@@ -61,14 +61,16 @@ fn summary(task_id: String, data: &str, created_at: String) -> TaskSummary {
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
     let owner = v.get("owner");
     // The subject root owns itself; a self-owner is not a parent.
-    let parent_task_id = (owner.and_then(|o| o.get("kind")).and_then(Value::as_str) == Some("task"))
-        .then(|| text(owner.and_then(|o| o.get("id"))))
-        .flatten()
-        .filter(|parent| *parent != task_id);
+    let parent_task_id = (owner.and_then(|o| o.get("kind")).and_then(Value::as_str)
+        == Some("task"))
+    .then(|| text(owner.and_then(|o| o.get("id"))))
+    .flatten()
+    .filter(|parent| *parent != task_id);
     TaskSummary {
         task_id,
         kind: text(v.get("kind")).unwrap_or_else(|| "unknown".into()),
-        state: text(v.get("state").and_then(|s| s.get("status"))).unwrap_or_else(|| "unknown".into()),
+        state: text(v.get("state").and_then(|s| s.get("status")))
+            .unwrap_or_else(|| "unknown".into()),
         parent_task_id,
         created_by_step_id: text(v.get("created_by_step_id")),
         created_at,
@@ -84,7 +86,11 @@ impl Store {
             "SELECT task_id, data, created_at FROM tasks ORDER BY created_at DESC, task_id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map([limit.clamp(1, 500) as i64], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })?;
         let mut out = Vec::new();
         for row in rows {
@@ -102,13 +108,20 @@ impl Store {
                 .query_row(
                     "SELECT task_id, data, created_at FROM tasks WHERE task_id=?1",
                     [task_id.to_string()],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                        ))
+                    },
                 )
                 .optional()?
             else {
                 return Ok(None);
             };
-            let input_ref = serde_json::from_str::<Value>(&task.1).ok()
+            let input_ref = serde_json::from_str::<Value>(&task.1)
+                .ok()
                 .and_then(|v| v.get("input_ref").cloned())
                 .and_then(|r| serde_json::from_value::<shenko_types::object::ObjectRef>(r).ok());
             let task = (summary(task.0, &task.1, task.2), input_ref);
@@ -119,7 +132,11 @@ impl Store {
             )?;
             let children = stmt
                 .query_map([task_id.to_string()], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
                 })?
                 .map(|row| row.map(|(id, data, at)| summary(id, &data, at)))
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -141,11 +158,18 @@ impl Store {
             .filter_map(|data| serde_json::from_str::<OperationRecord>(data).ok())
             .map(|operation| self.trajectory_operation(operation))
             .collect();
-        Ok(Some(TaskTrajectory { task, input, children, operations }))
+        Ok(Some(TaskTrajectory {
+            task,
+            input,
+            children,
+            operations,
+        }))
     }
 
     fn trajectory_operation(&self, operation: OperationRecord) -> TrajectoryOperation {
-        let attempts = self.external_operation_attempts(operation.operation_id).unwrap_or_default();
+        let attempts = self
+            .external_operation_attempts(operation.operation_id)
+            .unwrap_or_default();
         let (record, record_status) = self.sealed_record(&operation, attempts.last());
         TrajectoryOperation {
             operation_id: operation.operation_id.to_string(),
@@ -197,6 +221,10 @@ impl Store {
 /// keyed by the reply audience (`account|kind|id`), the same identity a
 /// publication target carries, so both directions meet in one thread.
 ///
+/// Every channel plugin reaches this view the same way: an IM platform, a
+/// relay to another Shenko on the local network or an embodied robot's
+/// channel is one more provider, not a special case.
+///
 /// [`ChannelEnvelope`]: shenko_types::channel::ChannelEnvelope
 #[derive(Debug, Clone, Serialize)]
 pub struct ConversationMessage {
@@ -204,73 +232,185 @@ pub struct ConversationMessage {
     /// The plugin's human label for the audience, when it gave one.
     pub thread_label: Option<String>,
     pub thread_kind: String,
+    /// How many counterparts the audience reaches, as the plugin stated it.
+    pub thread_shape: Option<shenko_types::channel::AudienceShape>,
     pub channel: String,
+    /// `inbound` from a counterpart, `own` for the account's own line sent
+    /// from another client, `outbound` for the subject's publication.
     pub direction: &'static str,
     pub message_id: String,
     pub sender_id: Option<String>,
     pub sender_name: Option<String>,
+    /// The sender holds an owner-set administrative grant on this channel.
+    pub sender_admin: bool,
     pub text: String,
+    /// When the platform says an inbound line happened; for a publication,
+    /// when the provider answered the send, else when the deciding step began.
     pub at: Option<String>,
     /// Publication state for outbound messages (`ready`, `claimed`, `done`…).
     pub state: Option<String>,
 }
 
+/// A publication with the facts the conversation view needs.
+struct PublicationRow {
+    intent_id: String,
+    payload: String,
+    state: String,
+    step_started: Option<String>,
+    receipt: Option<String>,
+}
+
 impl Store {
     /// Recent channel conversation messages in both directions, oldest first.
+    ///
+    /// Each direction reads its own most recent `limit` rows. An own-account
+    /// line that echoes one of the subject's publications (the platform
+    /// reports the sent message back) is the publication itself and is not
+    /// listed twice.
     pub fn channel_conversation_messages(&self, limit: usize) -> Result<Vec<ConversationMessage>> {
-        use shenko_types::channel::ChannelEnvelope;
+        use shenko_types::channel::{ChannelEnvelope, ChannelReceipt};
+        use shenko_types::evidence::EvidenceReceipt;
         let limit = limit.clamp(1, 2000) as i64;
-        let inbound = {
+        let (inbound, publications) = {
             let conn = self.ledger.conn.lock();
+            // A channel message reaches the subject through its live inbox and
+            // is durably recorded as a staged input of the step that took it
+            // (`{"v":1,"inbox_event":…}`), not as an `inbox_events` row. A
+            // deferred message can be staged again by a later step, so the
+            // same inbox event may appear more than once here.
             let mut stmt = conn.prepare(
-                "SELECT event_id, data FROM inbox_events \
-                 WHERE kind='message' ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+                "SELECT json_extract(data,'$.inbox_event.event_id'), \
+                        json_extract(data,'$.inbox_event.payload') \
+                 FROM session_events \
+                 WHERE event_type='user' AND json_extract(data,'$.inbox_event.kind')='message' \
+                 ORDER BY rowid DESC LIMIT ?1",
             )?;
-            stmt.query_map([limit], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?
+            let inbound = stmt
+                .query_map([limit * 2], |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut stmt = conn.prepare(
+                "SELECT i.intent_id, i.payload, i.state, s.created_at, \
+                   (SELECT e.data FROM evidence_receipts e WHERE e.operation_id = i.intent_id \
+                    ORDER BY e.updated_commit_seq DESC LIMIT 1) \
+                 FROM subject_intents i LEFT JOIN subject_steps s ON s.step_id = i.step_id \
+                 WHERE i.kind = 'publication' ORDER BY i.created_seq DESC LIMIT ?1",
+            )?;
+            let publications = stmt
+                .query_map([limit], |r| {
+                    Ok(PublicationRow {
+                        intent_id: r.get(0)?,
+                        payload: r.get(1)?,
+                        state: r.get(2)?,
+                        step_started: r.get(3)?,
+                        receipt: r.get(4)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            (inbound, publications)
         };
+
         let mut out = Vec::new();
-        for (event_id, data) in inbound {
-            // Only classified envelopes carry a reply audience; other inputs
-            // (the owner's web input, legacy frames) are not channel threads.
-            let Ok(envelope) = serde_json::from_str::<ChannelEnvelope>(&data) else { continue };
-            let Some(target) = envelope.reply_target.as_ref() else { continue };
-            out.push(ConversationMessage {
-                thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
-                thread_label: Some(target.label.clone()).filter(|label| !label.is_empty()),
-                thread_kind: target.kind.clone(),
-                channel: envelope.provider.clone(),
-                direction: "inbound",
-                message_id: event_id,
-                sender_id: Some(envelope.actor.platform_id.clone()),
-                sender_name: envelope.actor.display_name.clone().or_else(|| envelope.actor.alias.clone()),
-                text: envelope.content.text.clone(),
-                at: Some(envelope.occurred_at.unwrap_or(envelope.received_at).to_rfc3339()),
-                state: None,
-            });
-        }
-        for intent in self.committed_intents(Some("publication"), None, limit as usize)? {
-            let Ok(publication) = serde_json::from_value::<shenko_types::subject::PublicationIntent>(intent.payload.clone()) else {
+        let mut published_ids = std::collections::HashSet::new();
+        for row in publications {
+            let Ok(publication) =
+                serde_json::from_str::<shenko_types::subject::PublicationIntent>(&row.payload)
+            else {
                 continue;
             };
+            let evidence = row
+                .receipt
+                .as_deref()
+                .and_then(|data| serde_json::from_str::<EvidenceReceipt>(data).ok());
+            if let Some(provider_id) = evidence
+                .as_ref()
+                .and_then(|evidence| self.cas.read_object(&evidence.raw_ref.digest).ok())
+                .and_then(|bytes| serde_json::from_slice::<ChannelReceipt>(&bytes).ok())
+                .and_then(|receipt| receipt.provider_message_id)
+            {
+                published_ids.insert(provider_id);
+            }
+            let at = evidence
+                .and_then(|evidence| evidence.observed_at)
+                .map(|at| at.to_rfc3339())
+                .or_else(|| row.step_started.as_deref().and_then(sqlite_time));
             let target = &publication.target;
             out.push(ConversationMessage {
                 thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
                 thread_label: None,
                 thread_kind: target.kind.clone(),
+                thread_shape: None,
                 channel: target.channel.clone(),
                 direction: "outbound",
-                message_id: intent.intent_id.to_string(),
+                message_id: row.intent_id,
                 sender_id: None,
                 sender_name: None,
+                sender_admin: false,
                 text: publication.content.clone(),
-                at: None,
-                state: Some(intent.state.clone()),
+                at,
+                state: Some(row.state),
+            });
+        }
+        let mut seen = std::collections::HashSet::new();
+        for (event_id, payload) in inbound {
+            let (Some(event_id), Some(payload)) = (event_id, payload) else {
+                continue;
+            };
+            if seen.len() >= limit as usize || !seen.insert(event_id.clone()) {
+                continue;
+            }
+            // Only classified envelopes carry a reply audience; other inputs
+            // (the owner's web input, unclassified frames) are not channel threads.
+            let Ok(envelope) = serde_json::from_str::<ChannelEnvelope>(&payload) else {
+                continue;
+            };
+            let Some(target) = envelope.reply_target.as_ref() else {
+                continue;
+            };
+            if envelope.actor.own_account && published_ids.contains(&envelope.message_id) {
+                continue;
+            }
+            out.push(ConversationMessage {
+                thread_key: format!("{}|{}|{}", target.account, target.kind, target.id),
+                thread_label: Some(target.label.clone()).filter(|label| !label.is_empty()),
+                thread_kind: target.kind.clone(),
+                thread_shape: target.shape,
+                channel: envelope.provider.clone(),
+                direction: if envelope.actor.own_account {
+                    "own"
+                } else {
+                    "inbound"
+                },
+                message_id: event_id,
+                sender_id: Some(envelope.actor.platform_id.clone()),
+                sender_name: envelope
+                    .actor
+                    .display_name
+                    .clone()
+                    .or_else(|| envelope.actor.alias.clone()),
+                sender_admin: envelope.actor.role_grant_ref.is_some(),
+                text: envelope.content.text.clone(),
+                at: Some(
+                    envelope
+                        .occurred_at
+                        .unwrap_or(envelope.received_at)
+                        .to_rfc3339(),
+                ),
+                state: None,
             });
         }
         out.sort_by(|left, right| left.at.cmp(&right.at));
         Ok(out)
     }
+}
+
+/// SQLite `datetime('now')` text (`YYYY-MM-DD HH:MM:SS`, UTC) as RFC 3339.
+fn sqlite_time(value: &str) -> Option<String> {
+    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|naive| naive.and_utc().to_rfc3339())
 }

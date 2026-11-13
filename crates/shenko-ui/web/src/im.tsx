@@ -43,7 +43,7 @@ export function ImView({
         >
           {threads.map((item) => (
             <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
-              <Avatar participants={item.participants} kind={item.kind} />
+              <Avatar participants={item.participants} audience={item.audience} />
               <span className="im-row-text">
                 <span className="im-row-top">
                   <span className="im-row-title">{item.title}</span>
@@ -74,10 +74,10 @@ function initials(name: string): string {
   return Array.from(name.trim())[0] ?? '·';
 }
 
-/// A monogram, as Messages draws a contact without a photo; a group shows
-/// up to two members overlapped.
-function Avatar({ participants, kind, size = 40 }: { participants: Participant[]; kind: string; size?: number }) {
-  const shown = kind === 'direct' ? participants.slice(1, 2) : participants.slice(0, 2);
+/// A monogram, as Messages draws a contact without a photo: a one-to-one
+/// thread shows the counterpart, a group up to two members overlapped.
+function Avatar({ participants, audience, size = 40 }: { participants: Participant[]; audience: Thread['audience']; size?: number }) {
+  const shown = audience === 'one_to_one' ? participants.slice(1, 2) : participants.slice(0, 2);
   return (
     <span className={`avatar avatar-${shown.length > 1 ? 'group' : 'single'}`} style={{ width: size, height: size }} aria-hidden="true">
       {shown.map((participant) => (
@@ -120,15 +120,15 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, d
     const element = scroller.current;
     if (element && atEnd.current) element.scrollTop = element.scrollHeight;
   }, [messages]);
-  const group = thread.participants.length > 2 || thread.kind !== 'direct';
+  const group = thread.audience === 'group';
   return (
     <section className="im-thread" aria-label={thread.title}>
       <header className="im-head">
-        <Avatar participants={thread.participants} kind={thread.kind} size={28} />
+        <Avatar participants={thread.participants} audience={thread.audience} size={28} />
         <span className="im-head-text">
           <span className="im-head-title">{thread.title}</span>
           <span className="im-head-sub">
-            {thread.kind === 'direct' ? '直接对话' : `${thread.participants.length} 位参与者`}
+            {thread.subtitle}
             {thread.state ? ` · ${thread.state}` : ''}
           </span>
         </span>

@@ -136,6 +136,7 @@ impl ChannelPlugin for StubChannel {
                 person_ref: None,
                 role_grant_ref: None,
                 group_role: None,
+                own_account: false,
             },
             content: shenko_types::channel::ChannelContent {
                 text,
@@ -150,6 +151,7 @@ impl ChannelPlugin for StubChannel {
                 account: "relay:local".to_string(),
                 tenant: None,
                 conversation: Some(id),
+                shape: None,
             }),
             attachments: vec![],
             raw_ref: None,
