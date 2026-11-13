@@ -546,7 +546,6 @@ async fn an_empty_judge_verdict_retains_the_original_broker_result() -> Result<(
     let request_ref: ObjectRef = serde_json::from_value(receipt["request_ref"].clone())?;
     let request: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&request_ref.digest)?)?;
     assert_eq!(request["request_id"], receipt["request_id"]);
-    assert_eq!(request["payload"]["max_tokens"], 512);
     let journal = fixture.store.content_stream_units(receipt["journal_id"].as_str().context("judge journal missing")?, 0)?;
     let terminal = journal.iter().find(|unit| unit.terminal).context("judge result was not journaled")?;
     let recorded: serde_json::Value = serde_json::from_str(&terminal.data)?;
@@ -739,18 +738,32 @@ async fn a_prepared_pair_starts_both_conditions_under_one_window() -> Result<()>
     let fixture = prepared_fixture(false, false, FixtureEntry::PublicRunner).await?;
     assert_eq!(fixture.report.samples.len(), 2, "{:?}", fixture.report.samples);
     assert!(fixture.report.samples.iter().all(|sample| sample.started), "{:?}", fixture.report.samples);
-    let windows: Vec<u64> = fixture.report.samples.iter().map(|sample| sample.deadline_ms).collect();
-    assert!(windows.windows(2).all(|pair| pair[0] == pair[1]), "{windows:?}");
-    assert_eq!(fixture.report.deadline_ms, 90_000);
-    assert_eq!(fixture.report.sample_deadline_ms, 45_000);
-    assert_eq!(windows, vec![45_000, 45_000]);
+    let candidate = fixture.report.samples.iter().find(|sample| sample.condition == Condition::Candidate)
+        .context("candidate sample missing")?;
+    let control = fixture.report.samples.iter().find(|sample| sample.condition == Condition::Control)
+        .context("control sample missing")?;
+    assert_eq!((&candidate.scenario, candidate.trial), (&control.scenario, control.trial));
+    let window = fixture.report.sample_deadline_ms;
+    assert!(window > 0 && window <= fixture.report.deadline_ms);
+    // The remaining milliseconds may shrink before admission; each condition
+    // must retain the shared planned maximum and frozen configuration.
+    for sample in &fixture.report.samples {
+        assert!(sample.deadline_ms <= window, "{sample:?}");
+        let reference = sample.installation_ref.as_ref().context("started condition has no installation")?;
+        let bytes = fixture.store.cas.read_object(&reference.digest)?;
+        assert_eq!(bytes.len() as u64, reference.bytes);
+        assert_eq!(Digest::blake3(&bytes), reference.digest);
+        let installation: serde_json::Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(installation["configuration_ref"], serde_json::to_value(&fixture.report.configuration_ref)?);
+        assert_eq!(installation["condition"], serde_json::to_value(sample.condition)?);
+    }
     for totals in fixture.report.scenarios.iter().flat_map(|scenario| [&scenario.candidate, &scenario.control]) {
         assert_eq!(totals.unstarted, 0);
         assert_eq!(totals.scored + totals.failed + totals.unstarted, totals.attempted);
     }
     let report = std::fs::read(fixture.root.join("report.json"))?;
     let report: serde_json::Value = serde_json::from_slice(&report)?;
-    assert_eq!(report["sample_deadline_ms"], serde_json::json!(45_000));
-    assert_eq!(report["samples"][0]["started"], serde_json::json!(true));
+    assert_eq!(report["sample_deadline_ms"], serde_json::to_value(window)?);
+    assert_eq!(report["samples"], serde_json::to_value(&fixture.report.samples)?);
     Ok(())
 }

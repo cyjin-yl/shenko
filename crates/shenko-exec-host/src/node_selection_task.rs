@@ -228,6 +228,16 @@ impl NodeSelectionHandler {
         {
             return Ok(operation.clone());
         }
+        // Missing-receipt observations and original journal receipts are
+        // distinct source events. Preserve the existing absence key so an
+        // already durable Unknown can admit its later original receipt.
+        // All originals for this attempt still share one key: different
+        // original bytes must remain a receipt conflict.
+        let source_event_key = if receipt.is_some() {
+            format!("node-selection-receipt:{}", attempt.attempt_id)
+        } else {
+            format!("node-selection:{}", attempt.attempt_id)
+        };
         let (result, outcome, effect) = match receipt {
             Some(receipt) => {
                 let outcome = match &receipt.outcome {
@@ -263,7 +273,7 @@ impl NodeSelectionHandler {
             attempt_id: Some(attempt.attempt_id),
             source_id: "node.selection.record.v1".into(),
             source_instance_id: frozen.observer_node_id.to_string(),
-            source_event_key: Some(format!("node-selection:{}", attempt.attempt_id)),
+            source_event_key: Some(source_event_key),
             producer_epoch: Some(attempt.epoch.0),
             producer_schema_version: Some("1".into()),
             raw_ref: sealed.clone(),
@@ -546,19 +556,59 @@ mod tests {
         assert_eq!(unknown.state, OperationState::Reconciling);
         assert_eq!(unknown.outcome, None);
         assert_eq!(unknown.effect_status, EffectStatus::Unknown);
-        recovered.reconcile(&task, operation_id).await.unwrap();
+        let unknown_evidence = store.external_operation_evidence(operation_id).unwrap();
+        assert_eq!(unknown_evidence.len(), 1);
+        assert_eq!(unknown_evidence[0].source_event_key, Some(format!("node-selection:{attempt_id}")));
+        drop(recovered); drop(store);
+        // Reopen the durable Unknown, including its original absence key.
+        // Another recovery must neither write a choice nor append evidence.
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+        let recovered = NodeSelectionHandler::new(store.clone(), Node::open(&dir.join("node")).unwrap());
+        let still_unknown = recovered.reconcile(&task, operation_id).await.unwrap();
+        assert_eq!(serde_json::to_value(still_unknown).unwrap(), serde_json::to_value(unknown).unwrap());
         assert_eq!(store.external_operation_evidence(operation_id).unwrap().len(), 1);
         assert!(recovered.receipt(&frozen).unwrap().is_none());
         // A delayed original writer, NOT the recovering handler, completes its
         // already-armed local write. The original attempt may now reconcile.
         let mut original_writer = Node::open(&dir.join("node")).unwrap();
-        original_writer.record_node_selection_for_subject(
+        let original = original_writer.record_node_selection_for_subject(
             frozen.selection.clone(), frozen.observer_node_id, &frozen.subject,
         ).unwrap();
+        assert!(matches!(original.outcome, NodeSelectionOutcome::Recorded));
         let resolved = recovered.reconcile(&task, operation_id).await.unwrap();
         assert_eq!(resolved.state, OperationState::Resolved);
         assert_eq!(resolved.outcome, Some(OperationOutcome::Succeeded));
-        assert_eq!(store.external_operation_evidence(operation_id).unwrap().len(), 2);
+        assert_eq!(resolved.effect_status, EffectStatus::Complete);
+        let evidence = store.external_operation_evidence(operation_id).unwrap();
+        assert_eq!(evidence.len(), 2);
+        let retained_unknown = evidence.iter().find(|receipt| receipt.receipt_id == unknown_evidence[0].receipt_id).unwrap();
+        assert_eq!(serde_json::to_value(retained_unknown).unwrap(), serde_json::to_value(&unknown_evidence[0]).unwrap());
+        let receipt_evidence = evidence.iter().find(|receipt| receipt.receipt_id != retained_unknown.receipt_id).unwrap();
+        assert_eq!(receipt_evidence.source_event_key, Some(format!("node-selection-receipt:{attempt_id}")));
+        assert!(evidence.iter().all(|receipt| receipt.operation_id == Some(operation_id) && receipt.attempt_id == Some(attempt_id)));
+        let result: serde_json::Value = serde_json::from_slice(&store.cas.read_object(
+            &receipt_evidence.normalized_ref.as_ref().unwrap().digest,
+        ).unwrap()).unwrap();
+        assert_eq!(result["receipt"], serde_json::to_value(&original).unwrap());
+        let attempt = store.external_operation_attempt(operation_id).unwrap();
+        // Re-reporting this same original is a replay, but a different
+        // original under its stable receipt key must still be refused.
+        let replay = recovered.observe(&resolved, &attempt, &frozen, Some(original.clone())).unwrap();
+        assert_eq!(serde_json::to_value(replay).unwrap(), serde_json::to_value(&resolved).unwrap());
+        let mut divergent = original;
+        divergent.outcome = NodeSelectionOutcome::Unavailable { reason: SelectionUnavailable::ObservationChanged };
+        let error = recovered.observe(&resolved, &attempt, &frozen, Some(divergent)).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<shenko_types::error::ShenkoError>(),
+            Some(shenko_types::error::ShenkoError::Protocol(protocol)) if protocol.code == "RECEIPT_KEY_CONFLICT"
+        ));
+        let conflicts = store.external_receipt_conflicts(operation_id).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].original_receipt_id, receipt_evidence.receipt_id);
+        assert_eq!(conflicts[0].source_event_key, receipt_evidence.source_event_key.as_deref().unwrap());
+        let unchanged = recovered.reconcile(&task, operation_id).await.unwrap();
+        assert_eq!(serde_json::to_value(unchanged).unwrap(), serde_json::to_value(resolved).unwrap());
+        assert_eq!(serde_json::to_value(store.external_operation_evidence(operation_id).unwrap()).unwrap(), serde_json::to_value(evidence).unwrap());
         assert_eq!(store.external_operation_attempts(operation_id).unwrap().len(), 1);
         assert_eq!(store.external_operation_attempt(operation_id).unwrap().attempt_id, attempt_id);
         drop(original_writer); drop(recovered); drop(store);

@@ -74,6 +74,8 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 
 拉取请求的六项原生 CI 门禁定义在 [ci.yml](.github/workflows/ci.yml)。容器中的 Git 步骤在 checkout 后为当前 `GITHUB_WORKSPACE` 注册精确的 `safe.directory`；checkout 在临时 `HOME` 下写入的配置不会自动保留到后续 shell。Clippy 与内核边界检查继续使用独立的不可变基线，既有警告不作为新增警告的预算。
 
+Clippy 比较前会绑定同一个编译器，按 workspace edition 枚举默认 warning lint ID，并对这些 ID 和 `clippy::all`、`clippy::unwrap_used`、`clippy::expect_used` 使用 `--force-warn`，使源码中的 `allow` / `expect` 不能隐藏这些诊断。基线与候选的 production、all-targets 使用同一组 flags，分别按 package、lint 身份比较数量；编译器的默认 deny 不降级。编译器身份、原始 lint 列表与共享 flags 随诊断工件保留。
+
 ## 文档导航
 
 从 [INDEX.md](docs/INDEX.md) 开始，按问题进入具体合同及其 Why。根 SPEC/WHY 不再是正文来源；引用行为时直接链接领域文档的相应段落。历史原文与用户来源仍保留，迁移不缩减产品范围，也不代表新增运行验收。

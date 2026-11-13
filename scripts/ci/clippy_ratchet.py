@@ -2,9 +2,10 @@
 """Compare real same-tool workspace diagnostics with an immutable PR baseline.
 
 Production and all-target diagnostics have separate per-package/per-lint counts.
-No checked-in warning budget is used. Force-warn keeps Clippy's selected lints
-visible through allow/expect attributes; the source-policy comparison also
-rejects new suppressions, ignored tests and lint-configuration changes.
+No checked-in warning budget is used. The same compiler enumerates its default
+Rust warnings for the workspace edition once. Force-warn keeps those warnings
+and Clippy's selected lints visible through allow/expect attributes; the source-
+policy comparison also rejects new suppressions, ignored tests and lint changes.
 """
 import argparse
 from collections import Counter
@@ -18,10 +19,53 @@ import tomllib
 from base_ref import ROOT, resolve_base
 
 TOOLCHAIN = tomllib.loads((ROOT / 'rust-toolchain.toml').read_text())['toolchain']['channel']
-LINT_FLAGS = [
-    '--force-warn', 'warnings', '--force-warn', 'clippy::all',
-    '--force-warn', 'clippy::unwrap_used', '--force-warn', 'clippy::expect_used',
-]
+EDITION = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['edition']
+CLIPPY_LINTS = ('clippy::all', 'clippy::unwrap_used', 'clippy::expect_used')
+
+
+def lint_policy(output):
+    # Bind discovery and both source graphs to one native compiler. Inherited
+    # flags or wrappers must not replace that compiler or suppress its lints.
+    environment = dict(os.environ, RUSTUP_TOOLCHAIN=TOOLCHAIN)
+    for key in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CLIPPY_ARGS',
+                'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'):
+        environment.pop(key, None)
+    rustc = subprocess.check_output(
+        ['rustup', 'which', '--toolchain', TOOLCHAIN, 'rustc'], cwd=ROOT, env=environment, text=True).strip()
+    environment['RUSTC'] = rustc
+    command = [rustc, '--edition', EDITION, '-W', 'help']
+    listing = subprocess.check_output(command, cwd=ROOT, env=environment, text=True)
+    listing_path = output / 'rustc-lints.log'
+    listing_path.write_text(listing)
+    _, start, table = listing.partition('Lint checks provided by rustc:\n')
+    table, end, _ = table.partition('\nLint groups provided by rustc:')
+    rows = [line.split(None, 2) for line in table.splitlines() if line.strip()]
+    if not start or not end or rows[:2] != [['name', 'default', 'meaning'], ['----', '-------', '-------']]:
+        raise RuntimeError(f'Unrecognized rustc lint table; retained {listing_path}')
+    levels = {}
+    for row in rows[2:]:
+        if (len(row) != 3 or not re.fullmatch(r'[a-z][a-z0-9-]*', row[0])
+                or row[1] not in ('allow', 'expect', 'warn', 'force-warn', 'deny', 'forbid')
+                or row[0] in levels):
+            raise RuntimeError(f'Unrecognized rustc lint row {row!r}; retained {listing_path}')
+        levels[row[0]] = row[1]
+    # The special `warnings` group cannot be force-warned. Enumerate individual
+    # warn-by-default IDs instead: plain -W warnings permits source-level allow.
+    # Use this edition's defaults so deny-by-default lints are not downgraded.
+    warnings = sorted(name for name, level in levels.items() if level == 'warn' and name != 'warnings')
+    if not warnings:
+        raise RuntimeError(f'No default Rust warning lints discovered; retained {listing_path}')
+    flags = [argument for name in (*warnings, *CLIPPY_LINTS) for argument in ('--force-warn', name)]
+    policy = {
+        'toolchain': TOOLCHAIN, 'edition': EDITION, 'rustc_path': rustc,
+        'rustc': subprocess.check_output([rustc, '-Vv'], cwd=ROOT, env=environment, text=True),
+        'clippy': subprocess.check_output(
+            ['cargo', 'clippy', '--version'], cwd=ROOT, env=environment, text=True).strip(),
+        'lint_discovery_command': command, 'rust_warning_lints': warnings, 'flags': flags,
+    }
+    # Retain the shared policy even if the first compilation fails.
+    (output / 'lint-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
+    return environment, policy
 
 
 def tracked(root):
@@ -113,17 +157,13 @@ def source_policy(root):
     return controls, configuration
 
 
-def collect(root, target, output, selection):
-    # RUSTUP_TOOLCHAIN takes precedence over either checkout's toolchain file.
-    # A toolchain-changing PR must still compare both trees with the same tool.
-    environment = dict(os.environ, CARGO_TARGET_DIR=str(target), RUSTUP_TOOLCHAIN=TOOLCHAIN)
-    for key in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CLIPPY_ARGS'):
-        environment.pop(key, None)
+def collect(root, target, output, selection, environment, lint_flags):
+    environment = dict(environment, CARGO_TARGET_DIR=str(target))
     metadata = json.loads(subprocess.check_output(
         ['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], cwd=root, env=environment, text=True))
     members = set(metadata['workspace_members'])
     packages = {package['id']: package['name'] for package in metadata['packages'] if package['id'] in members}
-    command = ['cargo', 'clippy', '--workspace', '--locked', '-j2', '--message-format=json', *selection, '--', *LINT_FLAGS]
+    command = ['cargo', 'clippy', '--workspace', '--locked', '-j2', '--message-format=json', *selection, '--', *lint_flags]
     counts = Counter()
     artifacts = set()
     finished = False
@@ -162,6 +202,7 @@ def main():
     base = resolve_base(args.base)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    environment, policy = lint_policy(output)
     baseline = output / 'baseline'
     subprocess.run(['git', 'worktree', 'add', '--detach', str(baseline), base], cwd=ROOT, check=True)
     base_controls, base_configuration = source_policy(baseline)
@@ -172,8 +213,10 @@ def main():
         errors.append('Clippy/Cargo configuration differs from the immutable baseline; lint policy cannot lower its own gate')
     comparisons = {}
     for scope, selection in [('production', ['--lib', '--bins']), ('all-targets', ['--all-targets'])]:
-        old = collect(baseline, args.target_root.resolve() / 'baseline' / scope, output / f'base-{scope}', selection)
-        new = collect(ROOT, args.target_root.resolve() / 'candidate' / scope, output / f'candidate-{scope}', selection)
+        old = collect(baseline, args.target_root.resolve() / 'baseline' / scope, output / f'base-{scope}', selection,
+                      environment, policy['flags'])
+        new = collect(ROOT, args.target_root.resolve() / 'candidate' / scope, output / f'candidate-{scope}', selection,
+                      environment, policy['flags'])
         comparisons[scope] = {
             'baseline': [{'package': key[0], 'lint': key[1], 'count': count} for key, count in sorted(old.items())],
             'candidate': [{'package': key[0], 'lint': key[1], 'count': count} for key, count in sorted(new.items())],
@@ -182,9 +225,7 @@ def main():
                       for (package, lint), count in sorted((new - old).items()))
     receipt = {'baseline': base, 'candidate': subprocess.check_output(
         ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-        'rustc': subprocess.check_output(['rustc', '+' + TOOLCHAIN, '-Vv'], text=True),
-        'clippy': subprocess.check_output(['cargo', '+' + TOOLCHAIN, 'clippy', '--version'], text=True).strip(),
-        'flags': LINT_FLAGS, 'comparisons': comparisons, 'errors': errors}
+        **policy, 'comparisons': comparisons, 'errors': errors}
     (output / 'ratchet.json').write_text(json.dumps(receipt, indent=2) + '\n')
     if errors:
         raise SystemExit('\n'.join(errors))

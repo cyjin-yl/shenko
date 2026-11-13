@@ -338,6 +338,27 @@ subject task could not yet retain its explicit node choice. Node `Register`
 still has only ID/digest metadata, not authoritative SSH grants/resources; this
 change records intent without inventing a resolver or taking #114/#91 work.
 
+### Receipt source events — 2026-11-13 correction, unrun
+
+The local observation that an original receipt is missing and the later Node
+journal receipt are distinct source events on the same operation and attempt.
+The absence observation keeps its existing `node-selection:<attempt_id>` key;
+the original journal receipt uses `node-selection-receipt:<attempt_id>`. This
+allows an already durable Unknown to accept the later original without
+rewriting its absence evidence, changing its frozen decision, or arming again.
+No database migration is required: after reopen, continued absence returns the
+same Unknown; a later exact journal receipt adds its distinct receipt event and
+resolves that original attempt. Existing absence rows and any previously
+refused receipt conflict facts remain intact.
+All reports of that original receipt keep the same key. Identical original
+bytes are a replay; different bytes still produce `RECEIPT_KEY_CONFLICT` under
+the Store's unchanged receipt admission contract.
+
+The existing absent-choice recovery test now also reopens the durable Unknown,
+checks retention of both original evidence facts, and exercises identical
+receipt replay plus rejection of a divergent original. These source changes
+are **UNRUN**; the earlier evidence above does not validate this correction.
+
 ### Previous installed-reader evidence, fixed 5e8c463 only
 
 On 2026-10-31 16:30–16:31 UTC, fixed `5e8c463` passed three query-handler tests,
