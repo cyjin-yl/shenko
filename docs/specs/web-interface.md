@@ -249,6 +249,76 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 `label`/`tone` 与 token 样式），连接事实、文案与推理仍留在
 `react-renderer.tsx`，没有搬进 compiler 或 Prototype。
 
+<a id="6-compiler-mode"></a>
+### compiler 模式是目标（owner 决定，2026-11-13）
+
+owner 决定：Shenko 的界面以 compiler 模式交付。运行时 adapter 是过渡桥，只用在
+pin 的 compiler 还编译不了的上游 family 上，不是终点。
+
+**Why（实测，候选 `c0497fb`，Proto-UI `35195a6`，React 19.3.1 production，
+headless Chromium）：**
+
+- **体积。** `app.js` 压缩后 1092.5 KiB（gzip 312 KiB）。其中 Proto-UI 的
+  runtime、adapter、modules、prototypes 及其依赖约 680 KiB；react-dom 是 205 KiB，
+  Shenko 自己的源码是 152 KiB。
+- **同一个 Prototype，两种宿主。** `message-bubble` 挂载 150 个：
+  - 编译产物和纯 DOM 在误差之内；
+  - 经 adapter 多 83 ms。
+- **上游 shadcn family 经 adapter 的开销。**
+  - button：每个实例挂载约 2 ms。
+  - toggle-group：挂载是超线性的（150 项要 6.0 s）。根因在上游，见下文。
+- **真实界面（demo 数据）。** 对话与 Inspect 来回切换，每次 50–138 ms。十次切换里，
+  Proto-UI 的 JS 时间是 693 ms，React 是 130 ms，Shenko 是 71 ms。
+
+**为什么还不能全部切换。** pin 的 compiler 能编译的 shadcn 文件是 0/216。界面用到的
+每个 family 都在 compiler 里有具体阻塞，见下表（`react-dom-source-v1`，第一处诊断）。
+shadcn 层先全部卡在 `PUI1003 Unsupported source package @proto.ui/prototypes-base/*`；
+解决之后，base 层还有：
+
+| family | base 层阻塞 |
+| --- | --- |
+| button | 无，base 可编译；shadcn 层只差包解析 |
+| toggle | `PUI1004` 子节点里的三元表达式 |
+| toggle-group | `PUI1004` 模块级运行时绑定；context 嵌套崩溃（#295 F1） |
+| collapsible | `PUI1003 defineHook`；context 嵌套崩溃 |
+| scroll-area | `PUI1006` context 值类型、非原始 prop、语义句柄进入数组 |
+| input、textarea | `PUI1003 asControlLabel` |
+| separator | `PUI1006` 只准入已声明的原始 prop |
+| drawer | `defineHook`、`asAxisInput`、数据类型、模板插值 |
+
+**禁止的捷径。** 在 Shenko 里用 compiler 可编译的子集重写这些 family，或者构建前把
+shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、无障碍和 collection 行为就和
+上游分叉了，也正是 #295 审计列出的禁止做法。
+
+**迁移规则。**
+
+- **切换条件。** 某个 family 同时满足下面两点时，才在 `ui-kit.tsx` 这一处边界换成
+  编译产物：
+  - pin 的 compiler 能编译上游的 shadcn 版本；
+  - 差分一致性注册表覆盖了它的行为，包括焦点与 disabled（F7）、props 更新（F5）、
+    context（F1、F4）。
+- **记录。** 切换时记录前后的实测数字。
+- **顺序。** 按实测成本排：
+  1. toggle-group（会话列表、视图切换、镜头栏）；
+  2. button；
+  3. collapsible；
+  4. scroll-area；
+  5. input、textarea；
+  6. toggle、separator、drawer。
+- **体积。** 编译产物现在每个组件各带一份辅助运行时：两个小组件就是 40 KiB（#295 F6）。
+  所以体积要等 F6 解决后再比较，不能假设 compiler 一定更小（§21.2）。
+- **插件界面。** 插件界面以 Prototype 交付。目标是在安装时编译；在此之前，插件界面
+  经 adapter 渲染。
+
+**过渡期的上游修复。** toggle-group 超线性的根因在上游：
+- anatomy 每次查询都按 `compareDocumentPosition` 重排整个域；
+- collection item 的 meta 通道又会算自己的位置；
+- 一次结构变化时，域里每个监听实例都各自重排一遍。
+
+修复让一轮通知内每个域只排一次序，并且只返回 meta。150 项从 6.0 s 降到 0.42 s，
+300 项是 1.34 s。修复已在本地提交为 Proto-UI 会话分支上的 `5db86b49`，但这次会话没有向上游推送的
+权限，所以还没有上游 PR。合入主线后随 pin 升级采用；在那之前 Shenko 仍按本节的 pin 构建。
+
 界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
 或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
 主体、provider、持久输入和流式接线验收。
@@ -310,6 +380,8 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 应用的领域模型、交互状态、无障碍语义和设计 token 与 renderer 分开；UiProjection 提供语义组件、事件、布局约束和资源引用。当前 React/runtime adapter 实现投影，未来 compiler adapter 接收同一应用语义并返回编译产物。只允许边界层依赖不稳定 compiler API；不在各页面散布其内部实现细节。
 
 compiler 迁移门槛包括状态一致、事件/焦点、SSR/离线静态部署需求、插件 UI、CSP、无障碍、国际化与主题回归。不能假设 compiler 必然更快更小，届时比较实际构建和运行成本。
+
+2026-11-13 owner 决定以 compiler 模式为目标，adapter 只作过渡。实测成本、逐 family 的阻塞、迁移规则和过渡期的上游修复见 [§6 compiler 模式](web-interface.md#6-compiler-mode)。
 
 <!-- /migrated-contract: SPEC:21.2 -->
 
