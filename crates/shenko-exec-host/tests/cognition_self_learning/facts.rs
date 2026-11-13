@@ -112,6 +112,8 @@ pub struct TaskFacts {
     pub result: Option<Value>,
     pub result_error: Option<String>,
     pub operations: Vec<OperationFacts>,
+    /// Failure to enumerate operations; an empty list is incomplete when set.
+    pub operations_error: Option<String>,
 }
 
 /// Everything one installation start left behind, read after it stopped.
@@ -157,7 +159,7 @@ fn capture_task(store: &Store, task_id: &str, kind: &str, created_at: &str) -> R
         Err(error) => (None, Some(format!("{error:#}"))),
     };
     let operation_name = format!("{kind}.v{}", task.definition_version);
-    let (operations, attempt_error) = match store.external_task_operations(id, &operation_name) {
+    let (operations, operations_error) = match store.external_task_operations(id, &operation_name) {
         Ok(records) => {
             let mut captured = Vec::new();
             for record in records {
@@ -197,6 +199,7 @@ fn capture_task(store: &Store, task_id: &str, kind: &str, created_at: &str) -> R
         result,
         result_error,
         operations,
+        operations_error,
     })
 }
 
