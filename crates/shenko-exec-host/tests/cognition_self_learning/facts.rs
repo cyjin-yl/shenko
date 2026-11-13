@@ -212,20 +212,32 @@ pub fn snapshot(data_dir: &Path, phase: &str) -> Result<Snapshot> {
         .with_context(|| format!("open the installation store {}", paths.db_path.display()))?;
     let binding = store.installation_binding()?;
     let ledger_id = Some(binding.ledger_id.to_string());
-    let subject_agent_id = binding.subject.as_ref().map(|subject| subject.agent_id.to_string());
+    // The installation's own bound subject is the only scope in which its
+    // durable cognition tasks and operations may be read. A missing subject is
+    // an incomplete capture, never a clean empty installation.
+    let bound_subject = binding.subject.as_ref().map(|subject| subject.agent_id);
+    let subject_agent_id = bound_subject.map(|agent_id| agent_id.to_string());
 
     let mut tasks = BTreeMap::new();
     let mut task_errors = Vec::new();
-    for recent in store.list_task_summaries(500)? {
-        if !recent.kind.starts_with("cognition.unit.") {
-            continue;
-        }
-        match capture_task(&store, &recent.task_id, &recent.kind, &recent.created_at) {
-            Ok(facts) => {
-                tasks.insert(recent.task_id.clone(), facts);
+    match bound_subject {
+        Some(agent_id) => {
+            for recent in store.list_task_summaries(agent_id, 500)? {
+                if !recent.kind.starts_with("cognition.unit.") {
+                    continue;
+                }
+                match capture_task(&store, &recent.task_id, &recent.kind, &recent.created_at) {
+                    Ok(facts) => {
+                        tasks.insert(recent.task_id.clone(), facts);
+                    }
+                    Err(error) => task_errors.push(format!("{} ({}): {error:#}", recent.task_id, recent.kind)),
+                }
             }
-            Err(error) => task_errors.push(format!("{} ({}): {error:#}", recent.task_id, recent.kind)),
         }
+        None => task_errors.push(
+            "the stopped installation has no bound subject; durable task/operation capture is incomplete"
+                .to_owned(),
+        ),
     }
 
     let node = Arc::new(parking_lot::Mutex::new(

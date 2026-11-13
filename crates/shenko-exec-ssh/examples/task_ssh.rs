@@ -38,9 +38,15 @@ async fn main() -> Result<()> {
         "fixture-init" => {
             // Never overwrite an existing task or give this example a production
             // registry's identity. This mode is explicitly synthetic admission.
+            // `current_commit_seq` is the ledger's canonical, unscoped
+            // mutation boundary: every committed mutation line (any subject,
+            // any state, any history, including terminal tasks and foreign
+            // provenance) appends one, so zero means a genuinely empty ledger.
+            // A subject-scoped task reader would miss other subjects' tasks
+            // and could never prove this invariant.
             ensure!(
-                store.list_task_summaries(1)?.is_empty(),
-                "fixture-init requires an empty ledger"
+                store.current_commit_seq()? == 0,
+                "fixture-init requires an empty ledger (found committed mutations for another subject or earlier history)"
             );
             let object = store
                 .cas
