@@ -6473,7 +6473,7 @@
       "source_row": "| UI-S12 | 系统偏好浅色 | 首屏不出现暗色闪烁；样式来自单一来源，构建产物与源无偏差 |",
       "verification_status": "unverified",
       "implementation_refs": [
-        "crates/shenko-ui/src/index.html#script:inline",
+        "crates/shenko-ui/src/index.html#id:theme-bootstrap",
         "crates/shenko-ui/src/static/app.css#selector::root::property:--radius",
         "crates/shenko-ui/web/tests/prototypes.test.mjs#test::every declared Shenko prototype was compiled from the authored source bytes"
       ],
