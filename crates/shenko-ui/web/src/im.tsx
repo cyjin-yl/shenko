@@ -16,7 +16,7 @@ import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } fro
  * `message-bubble` Prototype with the message content in its slot.
  */
 export function ImView({
-  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, historyControl, historyLoading, demo,
+  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, historyControl, demo,
 }: {
   threads: Thread[];
   selected: string;
@@ -26,7 +26,6 @@ export function ImView({
   emit: Emit;
   onOpenInspect: () => void;
   historyControl?: (beforeLoad: () => void) => React.ReactNode;
-  historyLoading?: boolean;
   demo: boolean;
 }) {
   const thread = threads.find((item) => item.id === selected) ?? threads[0];
@@ -66,7 +65,6 @@ export function ImView({
           emit={emit}
           onOpenInspect={onOpenInspect}
           historyControl={historyControl}
-          historyLoading={historyLoading}
           demo={demo}
         />
         : <div className="im-empty">还没有会话。</div>}
@@ -100,14 +98,13 @@ function shortWhen(value: string | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, historyLoading, demo }: {
+function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo }: {
   thread: Thread;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
   onOpenInspect: () => void;
   historyControl?: (beforeLoad: () => void) => React.ReactNode;
-  historyLoading?: boolean;
   demo: boolean;
 }) {
   const [loaded, setLoaded] = React.useState<ThreadMessage[] | null>(null);
@@ -134,7 +131,7 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
           </span>
         </span>
       </header>
-      <MessageViewport ref={viewport} historyLoading={historyLoading === true}>
+      <MessageViewport ref={viewport}>
         <div className="im-messages">
           {thread.kind === 'direct' && historyControl?.(() => viewport.current?.beginBackfill())}
           {thread.note && <p className="im-note">{thread.note}</p>}
@@ -162,30 +159,40 @@ interface MessageAnchor {
   scrollTop: number;
 }
 
-// Capture the old DOM before mutation, as the Inspect timeline does. A page
-// load keeps its original anchor through the intermediate loading control.
-class MessageViewport extends React.Component<{ historyLoading: boolean; children: React.ReactNode }> {
+// Compiled bubbles publish their hosts after the parent React commit. Keep
+// the reading anchor through those content resizes, until the reader moves.
+class MessageViewport extends React.Component<{ children: React.ReactNode }> {
   private element = React.createRef<HTMLDivElement>();
   private following = true;
-  private backfillAnchor: MessageAnchor | null = null;
+  private readingAnchor: MessageAnchor | null = null;
   private lastScrollTop = 0;
+  private resizeObserver: ResizeObserver | null = null;
 
   componentDidMount() {
+    const content = this.element.current?.firstElementChild;
+    if (content) {
+      this.resizeObserver = new ResizeObserver(() => this.restore(this.readingAnchor));
+      this.resizeObserver.observe(content);
+    }
     this.restore(null);
+  }
+
+  componentWillUnmount() {
+    this.resizeObserver?.disconnect();
   }
 
   beginBackfill = () => {
     this.following = false;
-    this.backfillAnchor = this.captureAnchor();
+    this.readingAnchor = this.captureAnchor();
   };
 
   getSnapshotBeforeUpdate(): MessageAnchor | null {
-    return this.following ? null : this.backfillAnchor ?? this.captureAnchor();
+    return this.following ? null : this.readingAnchor ?? this.captureAnchor();
   }
 
   componentDidUpdate(_previous: unknown, _state: unknown, snapshot: MessageAnchor | null) {
+    this.readingAnchor = snapshot;
     this.restore(snapshot);
-    if (!this.props.historyLoading) this.backfillAnchor = null;
   }
 
   private captureAnchor(): MessageAnchor | null {
@@ -233,7 +240,7 @@ class MessageViewport extends React.Component<{ historyLoading: boolean; childre
     const element = event.currentTarget;
     if (element.scrollTop === this.lastScrollTop) return;
     this.following = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
-    this.backfillAnchor = null;
+    this.readingAnchor = this.following ? null : this.captureAnchor();
     this.lastScrollTop = element.scrollTop;
   };
 

@@ -279,7 +279,6 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
               emit={emit}
               onOpenInspect={() => setTab('inspect')}
               historyControl={(beforeLoad) => <SubmissionHistory node={timeline} emit={emit} beforeLoad={beforeLoad} />}
-              historyLoading={timeline.props.submission_history?.loading === true}
               demo={demo}
             />
             : <InspectContext.Provider value={inspect}>

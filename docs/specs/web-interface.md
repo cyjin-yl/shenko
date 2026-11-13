@@ -701,6 +701,8 @@ Timeline and stream DTOs carry the receiving-ledger `commit_seq` separately from
 
 The reading anchor prefers a visible concrete message over a temporary unpaired-round summary, because history hydration can replace that summary while retaining the message. Transport `observed_at` remains available as an observation fact and is not printed as a reply's historical creation time; an unknown reply time stays unknown. The conversation list retains the latest known message time instead of inventing a timestamp for the replayed reply.
 
+Compiled message hosts can mount after the parent React commit. The IM viewport observes its message content and reapplies the reading anchor when that content changes size, including native host publication. Scrolling selects a new reading anchor, and following the tail continues through those later mounts. Unmounting the thread disconnects its observer.
+
 Task lists, trajectories and channel conversations require an explicit subject in their Store readers. The API resolves the installation's existing local subject for each read, and fails on missing or ambiguous identity rather than falling back to all rows. Foreign task IDs are absent from that subject's trajectory surface, including child lookups. Inspection times are normalized RFC3339 UTC; a failed conversation read preserves previously known messages and reports the unavailable state.
 
 Committed replay also requires an explicit subject through the Store and outbox readers. A socket without a resolved local subject does not replay parked replicas or advertise committed replay; other subjects' imported steps remain outside the local subject's timeline.
