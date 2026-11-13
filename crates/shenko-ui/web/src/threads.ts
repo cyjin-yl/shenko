@@ -129,10 +129,10 @@ registerThreadSource({
     const messages: ThreadMessage[] = [];
     let quiet = 0;
     let quietKey = '';
-    const flushQuiet = (at?: string) => {
+    const flushQuiet = () => {
       if (quiet === 0) return;
       messages.push({
-        key: `quiet-${quietKey}`, from: subject, kind: 'system', at,
+        key: `quiet-${quietKey}`, from: subject, kind: 'system',
         text: historyIncomplete ? `其他 ${quiet} 轮（输入历史尚未全部读取）` : `${subject.name} 独自思考了 ${quiet} 轮`,
         link: { label: '在 Inspect 查看', target: 'inspect' },
       });
@@ -141,7 +141,7 @@ registerThreadSource({
     for (const entry of entries) {
       if (entry.kind === 'user_submission') {
         const submission = entry.props.submission as Submission;
-        flushQuiet(submission.created_at);
+        flushQuiet();
         messages.push({
           key: entry.node_id, from: OWNER, kind: 'message', at: submission.created_at,
           text: submission.payload.content,
@@ -155,11 +155,13 @@ registerThreadSource({
       } else if (entry.kind === 'subject_part') {
         const part = entry.props.part as TimelinePart;
         if (part.committed && replySteps.has(part.step_id)) {
-          flushQuiet(part.observed_at);
-          messages.push({ key: entry.node_id, from: subject, kind: 'message', at: part.observed_at, text: part.content, node: entry });
+          flushQuiet();
+          // observed_at is transport/replay arrival, not when the subject
+          // wrote this message. No historical wall clock is supplied here.
+          messages.push({ key: entry.node_id, from: subject, kind: 'message', text: part.content, node: entry });
         } else if (!part.committed && part.stream_id && !part.terminal) {
           // Real durable streamed text: the only "typing" the thread shows.
-          messages.push({ key: entry.node_id, from: subject, kind: 'message', at: part.observed_at, text: part.content, tone: 'pending', node: entry });
+          messages.push({ key: entry.node_id, from: subject, kind: 'message', text: part.content, tone: 'pending', node: entry });
         } else {
           quiet += 1;
           quietKey = entry.node_id;
@@ -169,12 +171,18 @@ registerThreadSource({
       }
     }
     flushQuiet();
-    const last = [...messages].reverse().find((message) => message.kind === 'message' && message.text);
+    let last: ThreadMessage | undefined;
+    let updatedAt: string | undefined;
+    for (let index = messages.length - 1; index >= 0 && (!last || !updatedAt); index -= 1) {
+      const message = messages[index];
+      if (!last && message.kind === 'message' && message.text) last = message;
+      if (!updatedAt && message.at) updatedAt = message.at;
+    }
     return [{
       id: 'direct', kind: 'direct', title: subject.name,
       participants: [OWNER, subject], viewer: OWNER.id,
       preview: last ? last.text : '还没有消息',
-      updated_at: last?.at, messages, composer: true,
+      updated_at: updatedAt, messages, composer: true,
     }];
   },
 });

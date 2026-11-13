@@ -191,13 +191,24 @@ class MessageViewport extends React.Component<{ historyLoading: boolean; childre
   private captureAnchor(): MessageAnchor | null {
     const element = this.element.current;
     if (!element) return null;
-    const top = element.getBoundingClientRect().top;
+    const viewport = element.getBoundingClientRect();
+    let summary: HTMLElement | undefined;
     for (const row of element.querySelectorAll<HTMLElement>('[data-message-key]')) {
       const bounds = row.getBoundingClientRect();
-      if (bounds.bottom > top) return {
-        key: row.dataset.messageKey, offset: bounds.top - top, scrollTop: element.scrollTop,
+      if (bounds.bottom <= viewport.top) continue;
+      if (bounds.top >= viewport.bottom) break;
+      // An unpaired-round summary becomes real messages when history loads.
+      // Anchor the visible message that survives that classification change.
+      if (row.classList.contains('im-msg')) return {
+        key: row.dataset.messageKey, offset: bounds.top - viewport.top, scrollTop: element.scrollTop,
       };
+      summary ??= row;
     }
+    if (summary) return {
+      key: summary.dataset.messageKey,
+      offset: summary.getBoundingClientRect().top - viewport.top,
+      scrollTop: element.scrollTop,
+    };
     return { scrollTop: element.scrollTop };
   }
 

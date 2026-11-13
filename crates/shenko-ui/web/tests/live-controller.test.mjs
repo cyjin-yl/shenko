@@ -567,6 +567,9 @@ test('replayed replies keep local ledger order ahead of newer unselected owner i
   const direct = () => collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
   assert.deepEqual(direct().messages.map((message) => message.text),
     ['原始输入 3', '原先已提交的回复', '原始输入 12']);
+  assert.equal(direct().messages.find((message) => message.text === '原先已提交的回复').at, undefined,
+    'a replay arrival in 2099 is not a historical message timestamp');
+  assert.equal(direct().updated_at, pending.created_at);
 
   intent(controller, 'composer', 'composer.draft', { value: '本页新发送的输入' });
   intent(controller, 'composer', 'composer.append');
