@@ -1,0 +1,121 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -e -o pipefail {0}
+
+jobs:
+  rust-long:
+    name: nightly-rust-long
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.ci/target/nightly
+      SHENKO_COMPAT_EVIDENCE_ROOT: ${{ github.workspace }}/.ci/evidence/compat
+      SHENKO_OBLIGATION_PARTITION_ROOT: ${{ github.workspace }}/.ci/evidence/partition
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install native development prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev libseccomp2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> .ci/target/nightly
+          shared-key: rust-1.98.1-nightly
+      - name: Run the full workspace feature suite and doctests
+        run: cargo test --workspace --all-features --locked -j2
+      # Existing ignored OS-process fixtures require explicit fresh roots or
+      # fixed local helper execution. Provision them here; never add ignores to
+      # make the per-PR gate green. Hardware-only /dev/uinput proofs still need
+      # their actual dedicated device and remain distinct from this evidence.
+      - name: Run the real process partition/recovery proof
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/ci/ignored_test.py --package shenko-subject
+          --name recovery_tests::obligation_partition_tests::partition_orchestrator
+      # Build outside the filter, then restrict only each actual test executable
+      # and its normal CLI/Python descendants. Anonymous AF_UNIX socketpair IPC
+      # remains available for subprocess startup; socket endpoints are denied.
+      - name: Build and install the normal CLI for the restricted helper proofs
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/native_ssh_memory_helper.py prepare
+      - name: Run the native helper lost-reply recovery proof
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/ci/native_ssh_memory_helper.py run
+          --name recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay
+      - name: Run the native helper identity refusal proof
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/ci/native_ssh_memory_helper.py run
+          --name recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper
+      - name: Retain native long-suite receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-native-evidence
+          path: .ci/evidence
+          if-no-files-found: ignore
+
+  compiler-full:
+    name: nightly-compiler-full
+    runs-on: ubuntu-24.04
+    container: node:24.22.1-bookworm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the pinned-source driver prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3
+      - name: Preserve the consumer and obtain its immutable upstream source
+        run: python3 scripts/ci/web_assets.py prepare
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/shenko-ui/web/package.json
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: .ci/web/proto-ui/pnpm-lock.yaml
+      - name: Install the actual upstream lock without changing test expectations
+        working-directory: .ci/web/proto-ui
+        env:
+          HUSKY: '0'
+        run: pnpm install --frozen-lockfile
+      # The full compiler's reported failures are debt, not a passing curated
+      # subset. No skips, diagnostic repinning or warning allowance is applied.
+      - name: Run the complete pinned compiler suite
+        working-directory: .ci/web/proto-ui
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.ci/evidence"
+          pnpm exec vitest run packages/compiler 2>&1 | tee "$GITHUB_WORKSPACE/.ci/evidence/compiler-vitest.log"
+      - name: Retain the full compiler output and source pin
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-compiler-evidence
+          path: |
+            .ci/evidence
+            .ci/web/inputs.json
+            .ci/web/*.log
+          if-no-files-found: error
