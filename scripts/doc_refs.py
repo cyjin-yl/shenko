@@ -227,7 +227,10 @@ def _tree_symbols(text, suffix):
                         'property_identifier', 'private_property_identifier'}:
                     name = spelling(name_node)
                     child_owners = owners + [name]
-                    symbols['::'.join(child_owners)] += 1
+                    identity = ('::'.join(owners) + '.' + name
+                                if suffix == '.rs' and node.type == 'field_declaration'
+                                else '::'.join(child_owners))
+                    symbols[identity] += 1
             # Node's native test API has semantic names even when the callback
             # is anonymous. Only literal names and the actual test callee shape
             # are supported, not arbitrary calls or source-text matches.

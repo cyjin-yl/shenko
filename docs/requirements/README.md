@@ -10,7 +10,7 @@ schema 3 的每条记录以 `source_path`、`source_anchor` 和记录自身的 R
 
 [coverage](../state/coverage.json) 使用 schema 2，记录各义务的实现与证据状态。coverage 和验收索引的 `implementation_refs` 共用一种 `仓库相对路径#身份` 形式，由 [解析器](../../scripts/doc_refs.py) 验证实际声明、唯一性和归属：
 
-- Rust：`path.rs#Type::method`；内联模块用 `module::symbol`，trait 实现用 `<Type as Trait>::method`。trait 名按该实现的实际源码限定名书写。宏生成、动态名称或同名多定义无法唯一解析时明确失败，不猜选某个配置分支。
+- Rust：`path.rs#Type::method`；字段用 `Type.field`，与同名方法保持不同身份；内联模块用 `module::symbol`，trait 实现用 `<Type as Trait>::method`。trait 名按该实现的实际源码限定名书写。宏生成、动态名称或同名多定义无法唯一解析时明确失败，不猜选某个配置分支。
 - TypeScript/TSX、JavaScript：`path.tsx#Component`、`Class::method`；Node 测试用 `path.test.mjs#test::完整字面测试名`。重载或重复定义不能被悄悄选成第一项。
 - Python：`path.py#Class::method`，以标准库 AST 定位，字符串和注释中的声明不算目标。
 - HTML：`index.html#id:app`、唯一的 `element:html` 或 `script:inline`；CSS：`app.css#selector::root::property:--radius`，选择器或属性归属重复时失败。

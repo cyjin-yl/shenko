@@ -111,3 +111,14 @@ README 介绍产品、安装、使用和扩展，不再重复易过期的完整�
 `docs/contracts.json` 是现行文档清单。证据索引和自我知识从清单读取当前全文；`docs/contract-migration.json` 只用于迁移保全审计。新增 R/B/验收项无论在旧迁移标记内外都必须被计入，并同步需求机器索引；新增领域文档必须加入清单。新条目无需旧源码行或迁移来源。
 
 普通 `scripts/check_docs.py` 检查现行全文与索引，并保全原始归档。一次性迁移 checkpoint 额外使用 `--verify-migration` 校验搬迁时块摘要；此模式不是未来修改合同的冻结门槛。原始用户原话仍不得改写。
+
+<a id="documentation-implementation-20261113"></a>
+## 索引与 CI 实现补充（2026-11-13）
+
+现行需求、行为、来源与验收索引采用 schema 3，以文档路径、唯一显式锚点及 R/B/Ref/case 身份定位完整定义；coverage 采用 schema 2。来源原行仍逐字保留，在解析出的身份处核对。历史行号保存在迁移来源中，当前行号只用于错误诊断。正文上方插入内容不会改变条目的身份或归属。
+
+实现引用由 `scripts/doc_refs.py` 根据实际语言的结构解析器验证唯一声明。Rust 方法使用 `Type::method`，字段使用 `Type.field`；其他语言和结构化文件的身份形式见 [索引说明](../requirements/README.md)。缺失、重复或不支持的目标必须明确报错。原生 `shenko-evidence` 逐篇解析现行合同，验证锚点归属并合并语义索引，分析与报告直接消费已验证索引。
+
+PR 准入约定包含两个独立检查名：`docs` 执行普通 `scripts/check_docs.py`，核对完整现行合同、索引与实现引用；`docs-migration` 执行 `scripts/check_docs.py --verify-migration`，在同样的现行检查之外校验原始冻结迁移块。两个检查都使用 [固定解析依赖](../../scripts/requirements-ci.txt)，并需由仓库的分支保护或规则集要求成功。本地退出成功只记录本地结果，平台强制状态以实际仓库规则为准。
+
+新增义务追加在原始冻结块之外，并进入现行文档清单与索引，两道检查均包含新增内容。原始用户话语、已有义务、迁移块与归档摘要继续保全。上述检查的 `product_tested` 保持 `false`；源码追踪完整性与产品运行验收分别保存证据。

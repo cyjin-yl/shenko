@@ -3134,7 +3134,7 @@
       ],
       "implementation_refs": [
         "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events",
-        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::held_inputs"
+        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState.held_inputs"
       ],
       "evidence_refs": [],
       "blockers": [
@@ -3385,7 +3385,7 @@
         "crates/shenko-ui/src/playground_manage.rs#PLAYGROUND_MANAGE_KIND",
         "crates/shenko-ui/src/playground_manage.rs#CONTRACT",
         "crates/shenko-ui/src/playground_manage.rs#<PlaygroundManageHandler as shenko_kernel::task::NativeTaskHandler>::descriptor",
-        "crates/shenko-ui/src/playground.rs#PlaygroundState::native",
+        "crates/shenko-ui/src/playground.rs#PlaygroundState.native",
         "crates/shenko-ui/web/src/react-renderer.tsx#WorkEntry",
         "crates/shenko-ui/web/src/surfaces.tsx#OpenedWorkPanel"
       ],

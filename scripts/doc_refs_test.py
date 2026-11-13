@@ -33,8 +33,9 @@ class StableReferenceTests(unittest.TestCase):
         self.assertFalse(ContractDocument('````\n' + text + '\n```\n' + row + '\n````').rows)
 
     def test_rust_symbols_are_parsed_and_fully_qualified(self):
-        text = '''pub struct Owner;
+        text = '''pub struct Owner { native: () }
 impl Owner {
+    pub fn native(&self) {}
     pub fn dispatch(&self) {
         let mut raw = (1, 2);
         inspect(&raw);
@@ -53,6 +54,8 @@ const TEXT: &str = "fn absent() {}";
 '''
         self.put('owner.rs', text)
         resolver = ReferenceResolver(self.root)
+        resolver.resolve('owner.rs#Owner.native')
+        resolver.resolve('owner.rs#Owner::native')
         resolver.resolve('owner.rs#Owner::dispatch')
         resolver.resolve('owner.rs#nested::dispatch')
         resolver.resolve('owner.rs#Owner::dispatch::nested_foreign')
