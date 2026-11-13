@@ -53,6 +53,10 @@
   native 查询。单元提供视角，模型可采纳、改写或忽略；元数据和正文都不授予执行权限。
 - 不执行：能力卡与读出的正文不触发任何业务分支。已停用的 learned Candidate 仍可能
   保留能力卡并可读取正文，因此沙箱对照会移除候选 unit id 的所有版本，而非仅停用。
+- 宿主与原子材料分别声明：只提供 `cap.awareness.host/1` 而没有声明
+  `cap.awareness.attention/1` 的提供者，不会仅因 `kind: awareness` 就成为 notice
+  材料。同一单元可以同时声明两个契约；其精确内容被本机采纳后，既可提供宿主，也可
+  提供自己的原子注意。判断依据是能力声明，不是单元名字；采纳与感知来源的核实仍各自成立。
 - 自解释（2026-10-29 接入）：`self.knowledge.query/v1` 作为有限 native child 注册，
   模型可委派只读查询自身资料（`op`：`search` / `list` / `get`，均只读 `self://`
   资源）。`self://runtime/capabilities` 不再写死：启动时由真实注册表快照生成——

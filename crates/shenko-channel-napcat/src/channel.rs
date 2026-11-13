@@ -703,6 +703,7 @@ pub fn qq_test_registry() -> ChannelRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Context;
     use serde_json::json;
 
     fn channel(config: NapCatConfig) -> NapCatChannel {
@@ -725,7 +726,7 @@ mod tests {
     /// the account, keeps the same conversation identity as the peer's side,
     /// and never becomes a person's line in the staged text.
     #[test]
-    fn own_sent_messages_are_the_accounts_own_line() {
+    fn own_sent_messages_are_the_accounts_own_line() -> anyhow::Result<()> {
         let plugin = channel(group_config());
         let group = json!({
             "post_type": "message_sent",
@@ -753,8 +754,10 @@ mod tests {
         let mut without_sender_id = envelope.clone();
         without_sender_id.actor.platform_id.clear();
         assert_eq!(plugin.staged_text(&without_sender_id), plugin.staged_text(&envelope));
-        let canonical = serde_json::to_value(&envelope).unwrap();
-        let replayed = plugin.classify(QQ_SOURCE, &canonical).unwrap();
+        let canonical = serde_json::to_value(&envelope)?;
+        let replayed = plugin
+            .classify(QQ_SOURCE, &canonical)
+            .context("the canonical own-message envelope classifies")?;
         assert_eq!(replayed, envelope);
         // It is not administration: the account is not an owner-set admin.
         assert_eq!(envelope.actor.role_grant_ref, None);
@@ -771,7 +774,7 @@ mod tests {
         });
         let envelope = plugin.classify(QQ_SOURCE, &incoming).unwrap();
         assert_eq!(envelope.actor.own_account, Some(false));
-        assert_eq!(serde_json::to_value(&envelope).unwrap()["actor"]["own_account"], false);
+        assert_eq!(serde_json::to_value(&envelope)?["actor"]["own_account"], false);
         assert_eq!(plugin.staged_text(&envelope), "[甲 · 群 7] 在吗");
         let mut misleading_sender_id = envelope.clone();
         misleading_sender_id.actor.platform_id = "10000".into();
@@ -794,6 +797,7 @@ mod tests {
             envelope.actor.role_grant_ref.as_deref(),
             Some("qq-admin:20002")
         );
+        Ok(())
     }
 
     /// Rich OneBot content keeps a readable rendering: a shared card, a

@@ -124,7 +124,7 @@ fn the_ordinary_reply_kinds_still_resolve() {
 }
 
 #[test]
-fn message_facts_require_recognized_audience_and_sender_types() {
+fn message_facts_require_recognized_audience_and_sender_types() -> Result<(), String> {
     let config = FeishuConfig::for_app("app", None);
     let mut frame = serde_json::json!({
         "header": {"event_type": "im.message.receive_v1", "event_id": "event-1"},
@@ -142,20 +142,41 @@ fn message_facts_require_recognized_audience_and_sender_types() {
         (Some("future-chat-type"), None),
         (None, None),
     ] {
-        let message = frame["event"]["message"].as_object_mut().unwrap();
+        let message = frame["event"]["message"]
+            .as_object_mut()
+            .ok_or("the fixture message is an object")?;
         if let Some(chat_type) = chat_type {
             message.insert("chat_type".to_string(), serde_json::json!(chat_type));
         } else {
             message.remove("chat_type");
         }
-        let envelope = classify(&config, &frame).expect("the event is still a message");
-        assert_eq!(envelope.reply_target.unwrap().shape, shape);
+        let envelope = classify(&config, &frame).ok_or("the event is still a message")?;
+        assert_eq!(
+            envelope.reply_target.ok_or("the message has a reply target")?.shape,
+            shape
+        );
         assert_eq!(envelope.actor.own_account, Some(false));
     }
     frame["event"]["sender"]["sender_type"] = serde_json::json!("future-sender-type");
-    assert_eq!(classify(&config, &frame).unwrap().actor.own_account, None);
-    frame["event"]["sender"].as_object_mut().unwrap().remove("sender_type");
-    assert_eq!(classify(&config, &frame).unwrap().actor.own_account, None);
+    assert_eq!(
+        classify(&config, &frame)
+            .ok_or("the unknown sender type remains a message")?
+            .actor
+            .own_account,
+        None
+    );
+    frame["event"]["sender"]
+        .as_object_mut()
+        .ok_or("the fixture sender is an object")?
+        .remove("sender_type");
+    assert_eq!(
+        classify(&config, &frame)
+            .ok_or("the absent sender type remains a message")?
+            .actor
+            .own_account,
+        None
+    );
     frame["event"]["sender"]["sender_type"] = serde_json::json!("app");
     assert!(classify(&config, &frame).is_none());
+    Ok(())
 }

@@ -1,6 +1,7 @@
 //! S1 验证：SQLite WAL store round-trip + CAS seal/read
 //! 验证 docs/specs/durable-state.md#spec-41-2: 单 mutation line, CAS object seal/read, FTS5 detection
 
+use anyhow::{Context, Result};
 use shenko_store::store::Store;
 use shenko_types::store::WriteBatch;
 use std::path::PathBuf;
@@ -215,13 +216,13 @@ fn bootstrap_owner_projection_resolves_the_committed_grant_after_reopen() {
 }
 
 #[test]
-fn boundary_waits_for_recorded_step_and_survives_reopen() {
+fn boundary_waits_for_recorded_step_and_survives_reopen() -> Result<()> {
     use shenko_store::runtime_boundary::SubjectQuiesceState;
     use shenko_types::{ids::*, subject::*};
 
     let (dir, store, agent) = initialized_subject();
     let (head, step) = store.load_subject(agent).unwrap();
-    let recorded = recorded_result(&store, &head, step);
+    let recorded = recorded_result(&store, &head, step)?;
     let request_id = EntityId::new();
     let request = store.request_subject_quiesce(agent, request_id).unwrap();
     assert_eq!(request.state, SubjectQuiesceState::Requested);
@@ -261,10 +262,11 @@ fn boundary_waits_for_recorded_step_and_survives_reopen() {
     assert!(reopened.export_cognition(&Default::default()).is_ok());
     drop(reopened);
     std::fs::remove_dir_all(dir).unwrap();
+    Ok(())
 }
 
 #[test]
-fn peer_cannot_advance_successor_of_a_locally_paused_head() {
+fn peer_cannot_advance_successor_of_a_locally_paused_head() -> Result<()> {
     use shenko_store::cognition::CognitionImportOptions;
     use shenko_types::ids::EntityId;
     use shenko_types::subject::{SubjectMode, SubjectStepState};
@@ -288,7 +290,7 @@ fn peer_cannot_advance_successor_of_a_locally_paused_head() {
     // retains a different local head. The old row-by-row merge could apply the
     // source step despite keeping the conflicting paused head.
     let (source_head, source_step) = source.load_subject(agent).unwrap();
-    let recorded = recorded_result(&source, &source_head, source_step);
+    let recorded = recorded_result(&source, &source_head, source_step)?;
     assert_eq!(recorded.state, SubjectStepState::ResultRecorded);
     let mut newer = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut newer).unwrap();
@@ -299,6 +301,7 @@ fn peer_cannot_advance_successor_of_a_locally_paused_head() {
     assert_eq!(serde_json::to_value(&step).unwrap(), serde_json::to_value(&successor).unwrap());
     receiver.resume_subject_quiesce(agent, request).unwrap();
     assert_eq!(receiver.load_subject(agent).unwrap().1.state, SubjectStepState::Planned);
+    Ok(())
 }
 
 
@@ -306,7 +309,7 @@ fn recorded_result(
     store: &Arc<Store>,
     head: &shenko_types::subject::SubjectBranchHead,
     step: shenko_types::subject::SubjectStep,
-) -> shenko_types::subject::SubjectStep {
+) -> Result<shenko_types::subject::SubjectStep> {
     recorded_result_with_wait(store, head, step, None)
 }
 
@@ -317,7 +320,7 @@ fn recorded_result_with_wait(
     head: &shenko_types::subject::SubjectBranchHead,
     step: shenko_types::subject::SubjectStep,
     semantic_wait: Option<shenko_types::subject::SemanticWait>,
-) -> shenko_types::subject::SubjectStep {
+) -> Result<shenko_types::subject::SubjectStep> {
     recorded_result_with_docket(store, head, step, semantic_wait, &[])
 }
 
@@ -333,7 +336,7 @@ fn recorded_result_with_docket(
     mut step: shenko_types::subject::SubjectStep,
     semantic_wait: Option<shenko_types::subject::SemanticWait>,
     reconciliation_docket: &[serde_json::Value],
-) -> shenko_types::subject::SubjectStep {
+) -> Result<shenko_types::subject::SubjectStep> {
     use shenko_types::{ids::*, subject::*};
     let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
         shenko_context_policy::StoreWindowLog::new(Arc::clone(store), EntityId(head.branch_id.0)),
@@ -341,12 +344,12 @@ fn recorded_result_with_docket(
     let profile = shenko_types::object::Digest::blake3(b"store-roundtrip-profile");
     ledger.rebind_model(1, &profile.0).unwrap();
     let window = ledger.current().unwrap();
-    let staged = store.stage_subject_inputs(head, &step, &[]).unwrap();
+    let staged = store.stage_subject_inputs(head, &step, &[])?;
     let input_raw_event_ids: Vec<_> = staged.iter().map(|record| record.event_id).collect();
-    let events: Vec<_> = staged.iter().map(|record| {
-        let data: serde_json::Value = serde_json::from_str(&record.data).unwrap();
-        data["inbox_event"].clone()
-    }).collect();
+    let events = staged.iter().map(|record| {
+        serde_json::from_str::<serde_json::Value>(&record.data)
+            .map(|data| data["inbox_event"].clone())
+    }).collect::<serde_json::Result<Vec<_>>>()?;
     let plan_schema = if reconciliation_docket.is_empty() { 12 } else { 13 };
     let plan = serde_json::json!({
         "schema_version":plan_schema, "reconciliation_docket":reconciliation_docket,
@@ -412,7 +415,7 @@ fn recorded_result_with_docket(
             .object,
     );
     store.upsert_step(&step, head, RecordRevision(2)).unwrap();
-    step
+    Ok(step)
 }
 
 fn committed_candidate(
@@ -531,7 +534,7 @@ fn attach_wait(
 }
 
 #[test]
-fn s1_commit_advances_branch_head() {
+fn s1_commit_advances_branch_head() -> Result<()> {
     use shenko_types::{ids::*, subject::*};
     let (dir, store, agent_id) = initialized_subject();
     let (head, first_step) = store.load_subject(agent_id).unwrap();
@@ -550,7 +553,7 @@ fn s1_commit_advances_branch_head() {
     assert_eq!(first_step.expected_parent_commit, genesis.created_commit);
     assert!(genesis.created_commit.seq.0 > 0);
     let second_step_id = EntityId::new();
-    let result = recorded_result(&store, &head, first_step);
+    let result = recorded_result(&store, &head, first_step)?;
     let step = committed_candidate(&store, result, second_step_id);
     assert!(
         store
@@ -615,10 +618,11 @@ fn s1_commit_advances_branch_head() {
     assert_eq!(count, 1);
     let next = reopened.commit(WriteBatch::new()).unwrap();
     assert!(next.commit_ref.seq.0 > receipt.commit_ref.seq.0);
+    Ok(())
 }
 
 #[test]
-fn imported_committed_steps_replay_in_step_order_with_a_one_item_page() {
+fn imported_committed_steps_replay_in_step_order_with_a_one_item_page() -> Result<()> {
     use shenko_store::cognition::{CognitionImportOptions, CognitionSnapshotOptions};
     use shenko_types::ids::EntityId;
 
@@ -628,48 +632,49 @@ fn imported_committed_steps_replay_in_step_order_with_a_one_item_page() {
     // local import sequence + UUID would deterministically return step 2 first.
     let second_id: EntityId = "00000000-0000-0000-0000-000000000001".parse().unwrap();
     let first_id = first.step_id;
-    let result = recorded_result(&source, &head, first);
+    let result = recorded_result(&source, &head, first)?;
     let first = committed_candidate(&source, result, second_id);
     let first_receipt = source.commit_step_and_advance_head(&first, &head, second_id).unwrap();
     let (head, second) = source.load_subject(agent).unwrap();
     let third_id = EntityId::new();
-    let result = recorded_result(&source, &head, second);
+    let result = recorded_result(&source, &head, second)?;
     let second = committed_candidate(&source, result, third_id);
     let second_receipt = source.commit_step_and_advance_head(&second, &head, third_id).unwrap();
     let mut archive = Vec::new();
     source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive).unwrap();
-    let target = Arc::new(Store::open(dir.join("replay.db"), dir.join("replay-cas")).unwrap());
+    let target = Arc::new(Store::open(dir.join("replay.db"), dir.join("replay-cas"))?);
     let local_agent = initialize_subject_in(&target, b"local replay owner");
-    let (local_head, local_step) = target.load_subject(local_agent).unwrap();
+    let (local_head, local_step) = target.load_subject(local_agent)?;
     let local_step_id = local_step.step_id;
     let local_next = EntityId::new();
-    let local_result = recorded_result(&target, &local_head, local_step);
+    let local_result = recorded_result(&target, &local_head, local_step)?;
     let local_committed = committed_candidate(&target, local_result, local_next);
-    target.commit_step_and_advance_head(&local_committed, &local_head, local_next).unwrap();
+    target.commit_step_and_advance_head(&local_committed, &local_head, local_next)?;
     target.import_cognition_archive(&archive[..], &CognitionImportOptions::default()).unwrap();
 
-    assert_eq!(target.get_existing_agent_id().unwrap(), Some(local_agent));
-    let local = target.committed_decisions_after(local_agent, 0, None, 64).unwrap();
+    assert_eq!(target.get_existing_agent_id()?, Some(local_agent));
+    let local = target.committed_decisions_after(local_agent, 0, None, 64)?;
     assert_eq!(local.iter().map(|(_, step, _)| step.step_id).collect::<Vec<_>>(), [local_step_id]);
-    assert!(target.committed_decisions_after(EntityId::new(), 0, None, 64).unwrap().is_empty());
-    let first_page = target.committed_decisions_after(agent, 0, None, 1).unwrap();
+    assert!(target.committed_decisions_after(EntityId::new(), 0, None, 64)?.is_empty());
+    let first_page = target.committed_decisions_after(agent, 0, None, 1)?;
     assert_eq!(first_page.len(), 1);
     let (local_seq, first, _) = &first_page[0];
     assert_eq!(first.step_id, first_id);
     assert_eq!(first.step_no, 1);
     assert_eq!(first.commit_ref, Some(first_receipt.commit_ref));
-    let second_page = target.committed_decisions_after(agent, *local_seq, Some(first.step_id), 1).unwrap();
+    let second_page = target.committed_decisions_after(agent, *local_seq, Some(first.step_id), 1)?;
     assert_eq!(second_page.len(), 1);
     let (next_seq, second, _) = &second_page[0];
     assert_eq!(*next_seq, *local_seq);
     assert_eq!(second.step_id, second_id);
     assert_eq!(second.step_no, 2);
     assert_eq!(second.commit_ref, Some(second_receipt.commit_ref));
-    assert!(target.committed_decisions_after(agent, *next_seq, Some(second.step_id), 1).unwrap().is_empty());
+    assert!(target.committed_decisions_after(agent, *next_seq, Some(second.step_id), 1)?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn imported_owner_inputs_page_through_one_shared_commit_without_loss() {
+fn imported_owner_inputs_page_through_one_shared_commit_without_loss() -> Result<()> {
     use shenko_store::cognition::{CognitionImportOptions, CognitionSnapshotOptions};
     use shenko_store::web_input::{WEB_INPUT_SOURCE, WebAdmission};
     use shenko_types::inbox::{InboxEvent, InboxEventKind};
@@ -691,44 +696,45 @@ fn imported_owner_inputs_page_through_one_shared_commit_without_loss() {
         };
         let raw = RawInboxEvent {
             event_id: event.event_id, agent_id: agent, source: event.source.clone(),
-            kind: "message".into(), payload_json: serde_json::to_string(&event).unwrap(),
+            kind: "message".into(), payload_json: serde_json::to_string(&event)?,
             received_at_ms: event.created_at.timestamp_millis(),
         };
-        assert!(matches!(source.admit_web_submission(agent, id, &payload.to_string(), &raw).unwrap(),
+        assert!(matches!(source.admit_web_submission(agent, id, &payload.to_string(), &raw)?,
             WebAdmission::Admitted(_)));
     }
     let mut archive = Vec::new();
-    source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive).unwrap();
-    let target = Store::open(dir.join("owner-history.db"), dir.join("owner-history-cas")).unwrap();
-    target.import_cognition_archive(&archive[..], &CognitionImportOptions::default()).unwrap();
-    let imported_seq = target.web_submissions_page(agent, None, 10).unwrap();
+    source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive)?;
+    let target = Store::open(dir.join("owner-history.db"), dir.join("owner-history-cas"))?;
+    target.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+    let imported_seq = target.web_submissions_page(agent, None, 10)?;
     assert_eq!(imported_seq.items.len(), 3);
     let seq = imported_seq.items[0].record.accepted_commit.seq.0;
     assert!(imported_seq.items.iter().all(|row| row.record.accepted_commit.seq.0 == seq));
     let mut before = None;
     let mut recovered = Vec::new();
     loop {
-        let page = target.web_submissions_page(agent, before.as_ref(), 1).unwrap();
+        let page = target.web_submissions_page(agent, before.as_ref(), 1)?;
         assert_eq!(page.total, 3);
         recovered.extend(page.items.into_iter().map(|row| row.record.submission_id));
         if !page.has_older { assert_eq!(page.next_before, None); break; }
         before = page.next_before;
     }
     assert_eq!(recovered, ids.into_iter().rev().collect::<Vec<_>>());
-    assert_eq!(target.web_submissions_page(EntityId::new(), None, 1).unwrap().total, 0);
+    assert_eq!(target.web_submissions_page(EntityId::new(), None, 1)?.total, 0);
     drop(target);
-    let reopened = Store::open(dir.join("owner-history.db"), dir.join("owner-history-cas")).unwrap();
-    assert_eq!(reopened.web_submissions_page(agent, before.as_ref(), 1).unwrap()
+    let reopened = Store::open(dir.join("owner-history.db"), dir.join("owner-history-cas"))?;
+    assert_eq!(reopened.web_submissions_page(agent, before.as_ref(), 1)?
         .items[0].record.submission_id, ids[0]);
+    Ok(())
 }
 
 #[test]
-fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
+fn memory_receipt_resolves_the_same_raw_call_after_reopen() -> Result<()> {
     use shenko_context_policy::{CallStatus, HistorySource, ItemKind, StoreHistory, estimate_tokens};
     use shenko_types::{ids::*, subject::*};
     let (_dir, store, agent) = initialized_subject();
     let (head, planned) = store.load_subject(agent).unwrap();
-    let result = recorded_result(&store, &head, planned);
+    let result = recorded_result(&store, &head, planned)?;
     let next = EntityId::new();
     let mut step = committed_candidate(&store, result, next);
     let mut decision: StepDecision = serde_json::from_slice(
@@ -766,15 +772,16 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
     }
     assert!(settled.iter().any(|item| matches!(&item.kind,
         ItemKind::ToolResult { call_id, .. } if *call_id == intent_id.to_string())));
+    Ok(())
 }
 
 #[test]
-fn competing_s1_rejects_stale_writer_without_partial_commit() {
+fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
     use shenko_types::{error::ShenkoError, ids::*};
     use std::sync::{Arc, Barrier};
     let (dir, store, agent) = initialized_subject();
     let (head, planned) = store.load_subject(agent).unwrap();
-    let result = recorded_result(&store, &head, planned);
+    let result = recorded_result(&store, &head, planned)?;
     let next_a = EntityId::new();
     let next_b = EntityId::new();
     let step_a = committed_candidate(&store, result.clone(), next_a);
@@ -838,10 +845,11 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() {
         .unwrap()
         .unwrap();
     assert_eq!(committed.commit_ref, Some(head.committed_at));
+    Ok(())
 }
 
 #[test]
-fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
+fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() -> Result<()> {
     use shenko_types::{ids::*, subject::*};
     let (dir, store, agent) = initialized_subject();
     let (head, planned) = store.load_subject(agent).unwrap();
@@ -850,7 +858,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     let condition = "实验出现足以判断的结果".to_string();
 
     // S1 #1 — the subject starts a semantic wait.
-    let result = recorded_result_with_wait(&store, &head, planned, None);
+    let result = recorded_result_with_wait(&store, &head, planned, None)?;
     let mut step = committed_candidate(&store, result, next);
     attach_wait(
         &mut step,
@@ -904,7 +912,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     assert!(after_observe > before);
     assert_eq!(store.load_subject(agent).unwrap().0.record_revision, head2.record_revision);
 
-    let result2 = recorded_result_with_wait(&store, &head2, second, Some(observed));
+    let result2 = recorded_result_with_wait(&store, &head2, second, Some(observed))?;
     let next2 = EntityId::new();
     let mut step2 = committed_candidate(&store, result2, next2);
     attach_wait(
@@ -941,7 +949,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     // reviving it.
     std::thread::sleep(std::time::Duration::from_millis(3100));
     let (head4, third) = store.load_subject(agent).unwrap();
-    let result3 = recorded_result_with_wait(&store, &head4, third, Some(wait2.clone()));
+    let result3 = recorded_result_with_wait(&store, &head4, third, Some(wait2.clone()))?;
     let next3 = EntityId::new();
     let mut step3 = committed_candidate(&store, result3, next3);
     attach_wait(
@@ -992,7 +1000,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     // A fresh id must not turn the just-expired identical condition into an
     // automatic renewal, even when it is proposed in a later committed step.
     let (head, planned) = reopened.load_subject(agent).unwrap();
-    let result = recorded_result_with_wait(&reopened, &head, planned, Some(restored.clone()));
+    let result = recorded_result_with_wait(&reopened, &head, planned, Some(restored.clone()))?;
     let next = EntityId::new();
     let mut repeated = committed_candidate(&reopened, result, next);
     attach_wait(&mut repeated, &reopened, &SemanticWaitChange::Start {
@@ -1007,7 +1015,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     // must carry both wait records and choose the later one on the receiver,
     // even though all imported rows receive the same local import sequence.
     let (head, planned) = reopened.load_subject(agent).unwrap();
-    let result = recorded_result_with_wait(&reopened, &head, planned, Some(restored));
+    let result = recorded_result_with_wait(&reopened, &head, planned, Some(restored))?;
     let next = EntityId::new();
     let mut distinct = committed_candidate(&reopened, result, next);
     let next_wait_id = EntityId::new();
@@ -1031,6 +1039,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     assert_eq!(migrated.deadline_at, before_migration.deadline_at);
     assert!(matches!(receiver.semantic_wait_receipt(distinct.step_id).unwrap().unwrap().outcome,
         SemanticWaitOutcome::Started));
+    Ok(())
 }
 
 #[test]
@@ -1477,29 +1486,30 @@ fn commit_publication_step(
     store: &Arc<Store>,
     agent: shenko_types::ids::EntityId,
     intent: &shenko_types::subject::PublicationIntent,
-) -> shenko_types::subject::SubjectStep {
+) -> Result<shenko_types::subject::SubjectStep> {
     let (head, first) = store.load_subject(agent).unwrap();
     let next = shenko_types::ids::EntityId::new();
-    let result = recorded_result(store, &head, first);
+    let result = recorded_result(store, &head, first)?;
     let step = committed_candidate_with(store, result, next, vec![intent.clone()]);
     store
         .commit_step_and_advance_head(&step, &head, next)
         .unwrap();
-    step
+    Ok(step)
 }
 
 #[test]
-fn channel_conversations_interleave_publications_with_recorded_message_times() {
+fn channel_conversations_interleave_publications_with_recorded_message_times() -> Result<()> {
     use chrono::{DateTime, Duration};
     use shenko_types::{channel::ChannelEnvelope, ids::EntityId, inbox::{InboxEvent, InboxEventKind}};
 
     let (dir, store, agent) = initialized_subject();
     let publication = publication_intent();
-    commit_publication_step(&store, agent, &publication);
-    let task = store.list_task_summaries(agent, 100).unwrap().into_iter()
-        .find(|task| task.task_id == publication.intent_id.to_string()).unwrap();
-    let published = DateTime::parse_from_rfc3339(&task.created_at).unwrap().to_utc();
-    let admit = |text: &str, at: chrono::DateTime<chrono::Utc>| {
+    commit_publication_step(&store, agent, &publication)?;
+    let task = store.list_task_summaries(agent, 100)?.into_iter()
+        .find(|task| task.task_id == publication.intent_id.to_string())
+        .context("the committed publication must have a task summary")?;
+    let published = DateTime::parse_from_rfc3339(&task.created_at)?.to_utc();
+    let admit = |text: &str, at: chrono::DateTime<chrono::Utc>| -> Result<EntityId> {
         let event_id = EntityId::new();
         let envelope: ChannelEnvelope = serde_json::from_value(serde_json::json!({
             "schema_version": 1, "provider": "qq", "account": "qq:10001",
@@ -1508,24 +1518,24 @@ fn channel_conversations_interleave_publications_with_recorded_message_times() {
             "actor": {"platform_id": "member", "display_name": "成员"},
             "content": {"text": text},
             "reply_target": {"kind": "group", "id": "123456789", "label": "群聊", "account": "qq:10001"}
-        })).unwrap();
+        }))?;
         let event = InboxEvent {
-            event_id, kind: InboxEventKind::Message, payload: serde_json::to_value(envelope).unwrap(),
+            event_id, kind: InboxEventKind::Message, payload: serde_json::to_value(envelope)?,
             created_at: at, source: "channel/qq".into(),
         };
-        let (head, planned) = store.load_subject(agent).unwrap();
+        let (head, planned) = store.load_subject(agent)?;
         store.stage_subject_inputs(&head, &planned, &[shenko_store::raw_session::SubjectHistoryInput {
             event_id, event_type: "user".into(),
             data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
-        }]).unwrap();
-        event_id
+        }])?;
+        Ok(event_id)
     };
     // A delayed delivery can precede an already committed publication in
     // event time. The later message must follow that same publication.
-    let before = admit("较早的来信", published - Duration::seconds(1));
-    let after = admit("较后的来信", published + Duration::seconds(1));
+    let before = admit("较早的来信", published - Duration::seconds(1))?;
+    let after = admit("较后的来信", published + Duration::seconds(1))?;
     let expected = vec![before.to_string(), publication.intent_id.to_string(), after.to_string()];
-    let messages = store.channel_conversation_messages(agent, 10).unwrap();
+    let messages = store.channel_conversation_messages(agent, 10)?;
     assert_eq!(messages.iter().map(|message| message.message_id.clone()).collect::<Vec<_>>(), expected);
     assert_eq!(messages.iter().map(|message| message.direction).collect::<Vec<_>>(),
         vec!["unknown", "outbound", "unknown"],
@@ -1533,35 +1543,37 @@ fn channel_conversations_interleave_publications_with_recorded_message_times() {
     assert!(messages.iter().all(|message| message.thread_key == "qq:10001|group|123456789"));
     drop(store);
     let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
-    assert_eq!(reopened.channel_conversation_messages(agent, 10).unwrap().into_iter()
+    assert_eq!(reopened.channel_conversation_messages(agent, 10)?.into_iter()
         .map(|message| message.message_id).collect::<Vec<_>>(), expected);
+    Ok(())
 }
 
 #[test]
-fn channel_conversations_limit_selects_latest_publications() {
+fn channel_conversations_limit_selects_latest_publications() -> Result<()> {
     let (_dir, store, agent) = initialized_subject();
     let first = publication_intent();
     let second = publication_intent();
     let third = publication_intent();
     for intent in [&first, &second, &third] {
-        commit_publication_step(&store, agent, intent);
+        commit_publication_step(&store, agent, intent)?;
     }
-    let actual = store.channel_conversation_messages(agent, 2).unwrap().into_iter()
+    let actual = store.channel_conversation_messages(agent, 2)?.into_iter()
         .map(|message| message.message_id).collect::<std::collections::BTreeSet<_>>();
     let expected = [second.intent_id.to_string(), third.intent_id.to_string()]
         .into_iter().collect::<std::collections::BTreeSet<_>>();
     assert_eq!(actual, expected);
+    Ok(())
 }
 
 #[test]
-fn inspection_projections_keep_each_subjects_tasks_and_messages_private() {
+fn inspection_projections_keep_each_subjects_tasks_and_messages_private() -> Result<()> {
     use shenko_types::{channel::ChannelEnvelope, ids::EntityId, inbox::{InboxEvent, InboxEventKind}};
     let (_dir, store, first) = initialized_subject();
     let second = initialize_subject_in(&store, b"second subject");
     let first_publication = publication_intent();
     let second_publication = publication_intent();
-    commit_publication_step(&store, first, &first_publication);
-    commit_publication_step(&store, second, &second_publication);
+    commit_publication_step(&store, first, &first_publication)?;
+    commit_publication_step(&store, second, &second_publication)?;
     let mut events = Vec::new();
     for (agent, text) in [(first, "first private input"), (second, "second private input")] {
         let event_id = EntityId::new();
@@ -1572,52 +1584,55 @@ fn inspection_projections_keep_each_subjects_tasks_and_messages_private() {
             "message_id": event_id, "received_at": at, "actor": {"platform_id": "member"},
             "content": {"text": text},
             "reply_target": {"kind": "group", "id": "123456789", "label": "", "account": "qq:10001"}
-        })).unwrap();
+        }))?;
         let event = InboxEvent {
-            event_id, kind: InboxEventKind::Message, payload: serde_json::to_value(envelope).unwrap(),
+            event_id, kind: InboxEventKind::Message, payload: serde_json::to_value(envelope)?,
             created_at: at, source: "channel/qq".into(),
         };
-        let (head, planned) = store.load_subject(agent).unwrap();
+        let (head, planned) = store.load_subject(agent)?;
         store.stage_subject_inputs(&head, &planned, &[shenko_store::raw_session::SubjectHistoryInput {
             event_id, event_type: "user".into(),
             data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
-        }]).unwrap();
+        }])?;
         events.push(event_id);
     }
     for (agent, publication, foreign, event) in [
         (first, &first_publication, &second_publication, events[0]),
         (second, &second_publication, &first_publication, events[1]),
     ] {
-        let (head, _) = store.load_subject(agent).unwrap();
-        let ids = store.list_task_summaries(agent, 100).unwrap().into_iter()
+        let (head, _) = store.load_subject(agent)?;
+        let ids = store.list_task_summaries(agent, 100)?.into_iter()
             .map(|task| task.task_id).collect::<std::collections::BTreeSet<_>>();
         assert_eq!(ids, [head.subject_root_task_id.to_string(), publication.intent_id.to_string()]
             .into_iter().collect());
-        assert!(store.task_trajectory(agent, foreign.intent_id).unwrap().is_none());
-        let own = store.task_trajectory(agent, publication.intent_id).unwrap().unwrap();
+        assert!(store.task_trajectory(agent, foreign.intent_id)?.is_none());
+        let own = store.task_trajectory(agent, publication.intent_id)?
+            .context("the subject must see its own publication trajectory")?;
         assert_eq!(own.task.task_id, publication.intent_id.to_string());
         assert!(own.children.is_empty());
-        let messages = store.channel_conversation_messages(agent, 100).unwrap().into_iter()
+        let messages = store.channel_conversation_messages(agent, 100)?.into_iter()
             .map(|message| message.message_id).collect::<std::collections::BTreeSet<_>>();
         assert_eq!(messages, [event.to_string(), publication.intent_id.to_string()].into_iter().collect());
     }
     // The installation cannot select an arbitrary local subject for an API
     // request: ambiguous identity is an error, never an unscoped fallback.
     assert!(store.get_existing_agent_id().is_err());
+    Ok(())
 }
 
 #[test]
-fn structural_task_roles_survive_reopen_and_archive_without_kind_inference() {
+fn structural_task_roles_survive_reopen_and_archive_without_kind_inference() -> Result<()> {
     use shenko_types::{ids::EntityId, subject::*, task::*};
 
     let (dir, store, agent) = initialized_subject();
-    let (head, first) = store.load_subject(agent).unwrap();
+    let (head, first) = store.load_subject(agent)?;
     let next = EntityId::new();
-    let result = recorded_result(&store, &head, first);
+    let result = recorded_result(&store, &head, first)?;
     let mut step = committed_candidate(&store, result, next);
+    let decision_ref = step.decision_ref.as_ref().context("the committed candidate must seal its decision")?;
     let mut decision: StepDecision = serde_json::from_slice(
-        &store.cas.read_object(&step.decision_ref.as_ref().unwrap().digest).unwrap(),
-    ).unwrap();
+        &store.cas.read_object(&decision_ref.digest)?,
+    )?;
     let delegation_id = EntityId::new();
     decision.delegated_task_intents.push(DelegationIntent {
         intent_id: delegation_id,
@@ -1630,17 +1645,18 @@ fn structural_task_roles_survive_reopen_and_archive_without_kind_inference() {
         }),
     });
     step.decision_ref = Some(store.cas.seal_object(
-        &serde_json::to_vec(&decision).unwrap(), "application/json", "test", "StepDecision", 8,
-    ).unwrap().object);
-    store.commit_step_and_advance_head(&step, &head, next).unwrap();
+        &serde_json::to_vec(&decision)?, "application/json", "test", "StepDecision", 8,
+    )?.object);
+    store.commit_step_and_advance_head(&step, &head, next)?;
     store.start_subject_dispatcher().unwrap();
-    let delegated = store.external_task(delegation_id).unwrap();
+    let delegated = store.external_task(delegation_id)?;
     let implementation = delegated.implementation_ref.clone();
-    let parent = store.claim_native_task(delegation_id, implementation.clone(), false).unwrap().unwrap();
+    let parent = store.claim_native_task(delegation_id, implementation.clone(), false)?
+        .context("the delegated task must be claimable")?;
     let tool_id = EntityId::new();
-    let input = store.cas.seal_object(b"{}", "application/json", "test", "tool", 1).unwrap().object;
-    store.claim_child_tool_task(&parent.task, tool_id, "future.plugin.tool", 3, input, implementation)
-        .unwrap().unwrap();
+    let input = store.cas.seal_object(b"{}", "application/json", "test", "tool", 1)?.object;
+    store.claim_child_tool_task(&parent.task, tool_id, "future.plugin.tool", 3, input, implementation)?
+        .context("the delegated task must claim its child tool")?;
 
     // A familiar definition name, or ownership by the root alone, is no
     // evidence that an older task was delegated or invoked as a tool.
@@ -1650,39 +1666,45 @@ fn structural_task_roles_survive_reopen_and_archive_without_kind_inference() {
     let unknown_id = unclassified.task_id;
     let mut batch = WriteBatch::new();
     batch.task_upserts.push(unclassified);
-    store.commit(batch).unwrap();
+    store.commit(batch)?;
 
-    let roles = |store: &Store| store.list_task_summaries(agent, 100).unwrap().into_iter()
-        .map(|task| (task.task_id, task.role)).collect::<std::collections::BTreeMap<_, _>>();
+    let roles = |store: &Store| -> Result<std::collections::BTreeMap<String, TaskRole>> {
+        Ok(store.list_task_summaries(agent, 100)?.into_iter()
+            .map(|task| (task.task_id, task.role)).collect())
+    };
     let expected = [
         (head.subject_root_task_id.to_string(), TaskRole::SubjectRoot),
         (delegation_id.to_string(), TaskRole::Delegation),
         (tool_id.to_string(), TaskRole::Tool),
         (unknown_id.to_string(), TaskRole::Unknown),
     ].into_iter().collect::<std::collections::BTreeMap<_, _>>();
-    assert_eq!(roles(&store), expected);
-    let trajectory = store.task_trajectory(agent, delegation_id).unwrap().unwrap();
+    assert_eq!(roles(&store)?, expected);
+    let trajectory = store.task_trajectory(agent, delegation_id)?
+        .context("the delegated task must have a trajectory")?;
     assert_eq!(trajectory.task.role, TaskRole::Delegation);
     assert_eq!(trajectory.children.len(), 1);
     assert_eq!(trajectory.children[0].role, TaskRole::Tool);
     assert_eq!(trajectory.children[0].parent_task_id.as_deref(), Some(delegation_id.to_string().as_str()));
-    assert_eq!(serde_json::to_value(&trajectory).unwrap()["task"]["role"], "delegation");
-    let root = store.task_trajectory(agent, head.subject_root_task_id).unwrap().unwrap();
+    assert_eq!(serde_json::to_value(&trajectory)?["task"]["role"], "delegation");
+    let root = store.task_trajectory(agent, head.subject_root_task_id)?
+        .context("the subject root must have a trajectory")?;
     assert!(root.task.parent_task_id.is_none());
     assert!(!root.children.iter().any(|task| task.task_id == root.task.task_id));
 
     let mut archive = Vec::new();
-    store.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    store.write_cognition_archive(&Default::default(), None, &mut archive)?;
     drop(store);
-    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
-    assert_eq!(roles(&reopened), expected);
-    let receiver = Store::open(dir.join("role-receiver.db"), dir.join("role-receiver-cas")).unwrap();
-    receiver.import_cognition_archive(&archive[..], &Default::default()).unwrap();
-    assert_eq!(roles(&receiver), expected);
-    let imported = receiver.task_trajectory(agent, delegation_id).unwrap().unwrap();
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert_eq!(roles(&reopened)?, expected);
+    let receiver = Store::open(dir.join("role-receiver.db"), dir.join("role-receiver-cas"))?;
+    receiver.import_cognition_archive(&archive[..], &Default::default())?;
+    assert_eq!(roles(&receiver)?, expected);
+    let imported = receiver.task_trajectory(agent, delegation_id)?
+        .context("the imported delegation must retain its trajectory")?;
     assert_eq!(imported.task.role, TaskRole::Delegation);
     assert_eq!(imported.children[0].role, TaskRole::Tool);
-    assert_eq!(receiver.external_task(delegation_id).unwrap().input_ref, delegated.input_ref);
+    assert_eq!(receiver.external_task(delegation_id)?.input_ref, delegated.input_ref);
+    Ok(())
 }
 
 fn publication_state(store: &Store, intent_id: shenko_types::ids::EntityId) -> String {
@@ -1696,7 +1718,7 @@ fn publication_state(store: &Store, intent_id: shenko_types::ids::EntityId) -> S
 }
 
 #[test]
-fn publication_t1_claims_and_arms_in_one_commit() {
+fn publication_t1_claims_and_arms_in_one_commit() -> Result<()> {
     use shenko_types::ids::*;
     use shenko_types::operation::{AttemptDispatchStage, OperationState};
     use shenko_types::task::TaskState;
@@ -1705,7 +1727,7 @@ fn publication_t1_claims_and_arms_in_one_commit() {
     store.start_subject_dispatcher().unwrap();
     let intent = publication_intent();
     let intent_id = intent.intent_id;
-    let step = commit_publication_step(&store, agent, &intent);
+    let step = commit_publication_step(&store, agent, &intent)?;
 
     // S1 already exposed the intent and its task together: never a half outbox.
     assert_eq!(store.ready_publications(8).unwrap().len(), 1);
@@ -1763,10 +1785,11 @@ fn publication_t1_claims_and_arms_in_one_commit() {
     assert!(store.ready_publications(8).unwrap().is_empty());
     assert_eq!(store.external_operation_attempts(intent_id).unwrap().len(), 1);
     assert_eq!(store.current_commit_seq().unwrap(), after);
+    Ok(())
 }
 
 #[test]
-fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch() {
+fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch() -> Result<()> {
     use shenko_types::ids::*;
     use shenko_types::task::{AbortScope, TaskState};
 
@@ -1774,7 +1797,7 @@ fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch()
     store.start_subject_dispatcher().unwrap();
     let intent = publication_intent();
     let intent_id = intent.intent_id;
-    commit_publication_step(&store, agent, &intent);
+    commit_publication_step(&store, agent, &intent)?;
 
     // The owner withdraws the reply before any T1: a real, committed fact.
     let cancellation = store
@@ -1827,7 +1850,7 @@ fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch()
 
     // Durable: a reopen reads the same settlement and still refuses to send.
     drop(store);
-    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
     reopened.start_subject_dispatcher().unwrap();
     assert_eq!(publication_state(&reopened, intent_id), "blocked");
     assert!(
@@ -1836,10 +1859,11 @@ fn cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch()
             .unwrap()
             .is_none()
     );
+    Ok(())
 }
 
 #[test]
-fn superseded_authority_is_settled_never_dispatched_instead_of_failing() {
+fn superseded_authority_is_settled_never_dispatched_instead_of_failing() -> Result<()> {
     use shenko_types::ids::*;
     use shenko_types::task::TaskState;
 
@@ -1847,7 +1871,7 @@ fn superseded_authority_is_settled_never_dispatched_instead_of_failing() {
     store.start_subject_dispatcher().unwrap();
     let intent = publication_intent();
     let intent_id = intent.intent_id;
-    commit_publication_step(&store, agent, &intent);
+    commit_publication_step(&store, agent, &intent)?;
 
     // A real controller handoff advances the branch epoch; a reply authored by
     // the previous epoch can never be sent by the new controller.
@@ -1880,6 +1904,7 @@ fn superseded_authority_is_settled_never_dispatched_instead_of_failing() {
         serde_json::from_slice(&store.cas.read_object(&outcome_ref.digest).unwrap()).unwrap();
     assert_eq!(detail["reason_kind"], "authority_superseded");
     assert_eq!(detail["effect_status"], "none");
+    Ok(())
 }
 
 /// Real process boundary: one process arms the send and dies; the next open
@@ -1887,7 +1912,7 @@ fn superseded_authority_is_settled_never_dispatched_instead_of_failing() {
 /// never arm a second send, and accept the platform's late answer for that
 /// original attempt.
 #[test]
-fn armed_publication_survives_a_real_process_death_without_a_second_send() {
+fn armed_publication_survives_a_real_process_death_without_a_second_send() -> Result<()> {
     use shenko_types::ids::*;
     use shenko_types::operation::{AttemptDispatchStage, EffectStatus, OperationState};
     use shenko_types::task::TaskState;
@@ -1939,7 +1964,7 @@ fn armed_publication_survives_a_real_process_death_without_a_second_send() {
     store.start_subject_dispatcher().unwrap();
     let intent = publication_intent();
     let intent_id = intent.intent_id;
-    commit_publication_step(&store, agent, &intent);
+    commit_publication_step(&store, agent, &intent)?;
     std::fs::write(dir.join("intent"), intent_id.to_string()).unwrap();
     drop(store);
 
@@ -1968,7 +1993,7 @@ fn armed_publication_survives_a_real_process_death_without_a_second_send() {
     // process: that is local loss of control, never proof the platform did not
     // receive it.
     let store = Arc::new(Store::open(dir.join("head.db"), dir.join("cas")).unwrap());
-    store.start_subject_dispatcher().unwrap();
+    store.start_subject_dispatcher()?;
     assert_eq!(publication_state(&store, intent_id), "unknown");
     assert!(
         store
@@ -2040,6 +2065,7 @@ fn armed_publication_survives_a_real_process_death_without_a_second_send() {
         2
     );
     assert_eq!(store.external_operation_attempts(intent_id).unwrap().len(), 1);
+    Ok(())
 }
 
 /// The durable ready lane keeps row identity next to the original bytes, so a
@@ -2115,19 +2141,20 @@ fn unreadable_ready_native_result_keeps_its_identity_and_the_row() {
 /// the thread; a publication carries the time the provider answered; and the
 /// platform's echo of that publication is the publication, not a second line.
 #[test]
-fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
+fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() -> Result<()> {
     use shenko_types::channel::{
         AudienceShape, ChannelActor, ChannelContent, ChannelEnvelope, ChannelReceipt,
         ChannelReplyTarget,
     };
     use shenko_types::ids::{BranchId, EntityId};
     let (_dir, store, agent) = initialized_subject();
-    store.start_subject_dispatcher().unwrap();
+    store.start_subject_dispatcher()?;
 
     // A second real subject shares this Store, including its raw sessions
     // and publication ledger. Channel accounts do not identify the subject.
-    let (mut foreign_head, mut foreign_first) = store.load_subject(agent).unwrap();
-    let mut foreign_genesis = store.get_subject_genesis(agent).unwrap().unwrap();
+    let (mut foreign_head, mut foreign_first) = store.load_subject(agent)?;
+    let mut foreign_genesis = store.get_subject_genesis(agent)?
+        .context("the original subject must retain its genesis")?;
     let foreign_agent = EntityId::new();
     foreign_genesis.genesis_id = EntityId::new();
     foreign_genesis.subject_id = foreign_agent;
@@ -2147,15 +2174,13 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         foreign_genesis.created_commit,
     );
     store
-        .initialize_genesis(&foreign_genesis, &foreign_head, &foreign_first, &foreign_root)
-        .unwrap();
+        .initialize_genesis(&foreign_genesis, &foreign_head, &foreign_first, &foreign_root)?;
 
     let intent = publication_intent();
-    commit_publication_step(&store, agent, &intent);
+    commit_publication_step(&store, agent, &intent)?;
     let armed = store
-        .arm_publication(intent.intent_id, &publication_dispatch())
-        .unwrap()
-        .expect("the committed publication arms once");
+        .arm_publication(intent.intent_id, &publication_dispatch())?
+        .context("the committed publication arms once")?;
     let sent_at = chrono::Utc::now();
     let sent_at_text = sent_at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
     store
@@ -2169,8 +2194,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
                 raw: serde_json::json!({"status":"ok","retcode":0,"data":{"message_id":900}}),
                 observed_at: sent_at,
             },
-        )
-        .unwrap();
+        )?;
 
     let audience = ChannelReplyTarget {
         kind: "group".into(),
@@ -2186,7 +2210,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
                 own_account: bool,
                 text: &str,
                 provider: &str,
-                target: &ChannelReplyTarget| {
+                target: &ChannelReplyTarget| -> Result<shenko_store::raw_session::SubjectHistoryInput> {
         let envelope = ChannelEnvelope {
             schema_version: 1,
             provider: provider.into(),
@@ -2221,19 +2245,19 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         let event = shenko_types::inbox::InboxEvent {
             event_id: shenko_types::ids::EntityId::new(),
             kind: shenko_types::inbox::InboxEventKind::Message,
-            payload: serde_json::to_value(&envelope).unwrap(),
+            payload: serde_json::to_value(&envelope)?,
             created_at: sent_at,
             source: provider.into(),
         };
-        shenko_store::raw_session::SubjectHistoryInput {
+        Ok(shenko_store::raw_session::SubjectHistoryInput {
             event_id: event.event_id,
             event_type: "user".into(),
             data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
-        }
+        })
     };
-    let counterpart = line("901", "20002", false, "有人在吗", "qq", &audience);
-    let same_id_counterpart = line("900", "20002", false, "对方的同号消息", "qq", &audience);
-    let echo = line("900", "10001", true, "已经提交的回复正文", "qq", &audience);
+    let counterpart = line("901", "20002", false, "有人在吗", "qq", &audience)?;
+    let same_id_counterpart = line("900", "20002", false, "对方的同号消息", "qq", &audience)?;
+    let echo = line("900", "10001", true, "已经提交的回复正文", "qq", &audience)?;
     let other_account = line(
         "900",
         "30003",
@@ -2244,7 +2268,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
             account: "qq:30003".into(),
             ..audience.clone()
         },
-    );
+    )?;
     let other_audience = line(
         "900",
         "10001",
@@ -2257,7 +2281,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
             conversation: Some("987654321".into()),
             ..audience.clone()
         },
-    );
+    )?;
     let other_kind = line(
         "900",
         "10001",
@@ -2270,11 +2294,11 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
             shape: Some(AudienceShape::OneToOne),
             ..audience.clone()
         },
-    );
-    let other_provider = line("900", "10001", true, "另一通道的消息", "relay", &audience);
-    let mut own = line("902", "10001", true, "手机上补一句", "qq", &audience);
+    )?;
+    let other_provider = line("900", "10001", true, "另一通道的消息", "relay", &audience)?;
+    let mut own = line("902", "10001", true, "手机上补一句", "qq", &audience)?;
     own.data["inbox_event"]["payload"]["occurred_at"] = serde_json::Value::Null;
-    let (head, planned) = store.load_subject(agent).unwrap();
+    let (head, planned) = store.load_subject(agent)?;
     store
         .stage_subject_inputs(
             &head,
@@ -2289,33 +2313,30 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
                 other_provider.clone(),
                 own.clone(),
             ],
-        )
-        .unwrap();
+        )?;
 
     // Two later steps each re-stage the same real message, followed by
     // unclassified and audience-less message inputs. The six newest raw
     // rows contain only one admissible identity: a three-message window
     // must continue into the older step, past both noise and duplicates.
     for _ in 0..2 {
-        let (head, planned) = store.load_subject(agent).unwrap();
-        let result = recorded_result(&store, &head, planned);
+        let (head, planned) = store.load_subject(agent)?;
+        let result = recorded_result(&store, &head, planned)?;
         let next = shenko_types::ids::EntityId::new();
         let committed = committed_candidate(&store, result, next);
         store
-            .commit_step_and_advance_head(&committed, &head, next)
-            .unwrap();
-        let (head, planned) = store.load_subject(agent).unwrap();
-        let mut unclassified = line("903", "20002", false, "原始通知", "qq", &audience);
+            .commit_step_and_advance_head(&committed, &head, next)?;
+        let (head, planned) = store.load_subject(agent)?;
+        let mut unclassified = line("903", "20002", false, "原始通知", "qq", &audience)?;
         unclassified.data["inbox_event"]["payload"] = serde_json::json!({"notice":true});
-        let mut without_audience = line("904", "20002", false, "没有回复受众", "qq", &audience);
+        let mut without_audience = line("904", "20002", false, "没有回复受众", "qq", &audience)?;
         without_audience.data["inbox_event"]["payload"]["reply_target"] = serde_json::Value::Null;
         store
             .stage_subject_inputs(
                 &head,
                 &planned,
                 &[own.clone(), unclassified, without_audience],
-            )
-            .unwrap();
+            )?;
     }
 
     // The foreign publication deliberately shares the first subject's
@@ -2323,13 +2344,12 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
     // receipt must not suppress that phone line in the first subject's view.
     let mut foreign_intent = publication_intent();
     foreign_intent.content = "另一个主体的回复".into();
-    commit_publication_step(&store, foreign_agent, &foreign_intent);
+    commit_publication_step(&store, foreign_agent, &foreign_intent)?;
     let mut foreign_dispatch = publication_dispatch();
     foreign_dispatch.params["message"] = serde_json::json!(foreign_intent.content);
     let foreign_armed = store
-        .arm_publication(foreign_intent.intent_id, &foreign_dispatch)
-        .unwrap()
-        .expect("the foreign subject's own publication arms once");
+        .arm_publication(foreign_intent.intent_id, &foreign_dispatch)?
+        .context("the foreign subject's own publication arms once")?;
     store
         .record_publication_receipt(
             &foreign_armed,
@@ -2341,21 +2361,19 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
                 raw: serde_json::json!({"status":"ok","retcode":0,"data":{"message_id":902}}),
                 observed_at: sent_at,
             },
-        )
-        .unwrap();
-    let foreign_input = line("905", "40004", false, "另一个主体的来信", "qq", &audience);
-    let foreign_echo = line("902", "10001", true, &foreign_intent.content, "qq", &audience);
-    let (foreign_head, foreign_planned) = store.load_subject(foreign_agent).unwrap();
+        )?;
+    let foreign_input = line("905", "40004", false, "另一个主体的来信", "qq", &audience)?;
+    let foreign_echo = line("902", "10001", true, &foreign_intent.content, "qq", &audience)?;
+    let (foreign_head, foreign_planned) = store.load_subject(foreign_agent)?;
     store
         .stage_subject_inputs(
             &foreign_head,
             &foreign_planned,
             &[foreign_input.clone(), foreign_echo],
-        )
-        .unwrap();
+        )?;
 
-    let before_read = store.current_commit_seq().unwrap();
-    let all_rows = store.channel_conversation_messages(agent, 50).unwrap();
+    let before_read = store.current_commit_seq()?;
+    let all_rows = store.channel_conversation_messages(agent, 50)?;
     assert_eq!(all_rows.len(), 8, "seven unique messages plus one publication");
     for input in [
         &counterpart,
@@ -2374,7 +2392,8 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         assert_eq!(matches.len(), 1, "the original inbox identity appears once");
         assert_eq!(
             matches[0].text,
-            input.data["inbox_event"]["payload"]["content"]["text"].as_str().unwrap(),
+            input.data["inbox_event"]["payload"]["content"]["text"].as_str()
+                .context("the staged channel message must retain its text")?,
         );
         assert_eq!(matches[0].at.as_deref(), Some(sent_at_text.as_str()));
         assert_eq!(
@@ -2387,7 +2406,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         );
     }
 
-    let recent = store.channel_conversation_messages(agent, 3).unwrap();
+    let recent = store.channel_conversation_messages(agent, 3)?;
     let mut recent_ids: Vec<_> = recent
         .iter()
         .filter(|row| row.direction != "outbound")
@@ -2405,7 +2424,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         expected_ids,
         "fill the window with the most recent unique admitted messages",
     );
-    let foreign_rows = store.channel_conversation_messages(foreign_agent, 50).unwrap();
+    let foreign_rows = store.channel_conversation_messages(foreign_agent, 50)?;
     assert_eq!(foreign_rows.len(), 2, "the foreign subject sees only its own messages");
     let foreign_input_id = foreign_input.event_id.to_string();
     assert!(foreign_rows.iter().any(|row| {
@@ -2416,7 +2435,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         row.message_id == foreign_intent_id && row.direction == "outbound"
     }));
     assert_eq!(
-        store.current_commit_seq().unwrap(),
+        store.current_commit_seq()?,
         before_read,
         "conversation reads do not commit facts",
     );
@@ -2436,11 +2455,13 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
         vec!["outbound"],
         "the platform's echo of a publication is the publication itself"
     );
-    let outbound = rows.iter().find(|row| row.direction == "outbound").unwrap();
+    let outbound = rows.iter().find(|row| row.direction == "outbound")
+        .context("the subject's publication must remain in the conversation")?;
     assert_eq!(outbound.message_id, intent.intent_id.to_string());
     assert_eq!(outbound.at.as_deref(), Some(sent_at_text.as_str()));
     assert!(rows
         .iter()
         .filter(|row| row.direction != "outbound")
         .all(|row| row.thread_shape == Some(AudienceShape::Group)));
+    Ok(())
 }

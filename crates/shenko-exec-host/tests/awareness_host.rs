@@ -42,6 +42,7 @@ use shenko_store::Store;
 use shenko_subject::{NativeChildPlugin, NativeChildService, NativeTaskHandlerPlugin};
 use shenko_kernel::task::NativeTaskHandler;
 use shenko_types::commit::CommitRef;
+use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::ids::*;
 use shenko_types::object::Digest;
 use shenko_types::subject::*;
@@ -109,11 +110,20 @@ impl Sandbox {
         Ok(digest)
     }
 
-    /// Record this installation's own adoption attitude for one unit version,
-    /// citing the observation bytes it actually holds.
-    fn adopt(&self, unit_id: &str, observation: &Digest, notes: &str) -> Result<()> {
+    /// Read and register this exact installed artifact before recording this
+    /// installation's adoption attitude. The citation is the content actually
+    /// read, not a statement about checking it or a claim of model efficacy.
+    fn adopt_content(&self, unit_id: &str, notes: &str) -> Result<()> {
         let fact = self.fact(unit_id)?;
         let mut node = self.node.lock();
+        let content = node.unit_content(unit_id, &fact.revision, Some(&fact.artifact_digest))?;
+        node.handle_unit_request(UnitRequest::RegisterObservation {
+            unit_id: unit_id.to_string(),
+            revision: fact.revision.clone(),
+            artifact_digest: fact.artifact_digest.clone(),
+            kind: "content_read".into(),
+            bytes: content.bytes,
+        })?;
         node.handle_unit_request(UnitRequest::RecordAdoption {
             unit_id: unit_id.to_string(),
             revision: fact.revision.clone(),
@@ -121,7 +131,7 @@ impl Sandbox {
             decision: AdoptionDecision::Adopted,
             method: AdoptionMethod::OperatorStatement,
             evidence: vec![AdoptionEvidence::StoredObservation {
-                digest: observation.clone(),
+                digest: content.artifact_digest,
             }],
             confidence: None,
             notes: Some(notes.to_string()),
@@ -245,13 +255,20 @@ fn admit_notice_task(
         created_commit: zero,
         updated_commit: zero,
     };
-    let raw = shenko_types::store::RawInboxEvent {
+    let event = InboxEvent {
         event_id: EntityId::new(),
-        agent_id: agent,
+        kind: InboxEventKind::ArtifactChanged,
+        created_at: chrono::Utc::now(),
         source: "awareness-host-test".into(),
+        payload: json!({"task_id": task_id}),
+    };
+    let raw = shenko_types::store::RawInboxEvent {
+        event_id: event.event_id,
+        agent_id: agent,
+        source: event.source.clone(),
         kind: "artifact_changed".into(),
-        payload_json: serde_json::to_string(&json!({"task_id": task_id}))?,
-        received_at_ms: chrono::Utc::now().timestamp_millis(),
+        payload_json: serde_json::to_string(&event)?,
+        received_at_ms: event.created_at.timestamp_millis(),
     };
     ensure!(
         store.admit_native_task(&task, &raw)?.is_none(),
@@ -306,12 +323,10 @@ async fn the_capability_is_absent_until_this_installation_adopts_it() -> Result<
     );
 
     // The provider's own authenticated adoption for this exact revision.
-    let observation = sandbox.observe_locally(
+    sandbox.adopt_content(
         "awareness.host",
-        b"consumer checked that the provider body is readable at its exact revision",
-        "consumer_check",
+        "consumer adopted its own host capability after reading its exact content",
     )?;
-    sandbox.adopt("awareness.host", &observation, "consumer adopted its own host capability")?;
     let resident = host.state()?;
     ensure!(
         resident.resident,
@@ -328,17 +343,12 @@ async fn the_capability_is_absent_until_this_installation_adopts_it() -> Result<
     // One atom is adopted, the other is not: the un-adopted one is not offered
     // merely because the metapackage shipped it.
     let atom = "awareness.foundation-cognition";
-    let atom_observation = sandbox.observe_locally(
-        atom,
-        b"consumer checked the atom body at its exact revision",
-        "consumer_check",
-    )?;
     let without_atom = host.notices(8)?;
     ensure!(
         without_atom.is_empty(),
         "no atom joins the material before its own adoption: {without_atom:?}"
     );
-    sandbox.adopt(atom, &atom_observation, "consumer adopted the foundation attention")?;
+    sandbox.adopt_content(atom, "consumer adopted the foundation attention after reading its exact content")?;
     let notices = host.notices(8)?;
     ensure!(notices.len() == 1, "exactly the adopted atom is offered: {notices:?}");
     let notice = &notices[0];
@@ -415,19 +425,66 @@ async fn the_capability_is_absent_until_this_installation_adopts_it() -> Result<
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn a_host_provider_offers_an_atom_only_with_the_attention_contract() -> Result<()> {
+    let sandbox = Sandbox::open("provider-attention")?;
+    let provider_id = "consumer.attention-provider";
+    let entry = |revision: &str, provides: &str| format!(
+        "---\nid: {provider_id}\nversion: {revision}\nkind: awareness\n\
+         title: Provider and attention separation\n\
+         capability_card: An observation has the scope of its source\n\
+         why: A host capability and one attention are separate declarations\n\
+         applicability: When interpreting an observation from a bounded source\n\
+         provides: [{provides}]\nprovenance: [consumer-fixture]\n---\n\
+         An observation establishes what its source observed within that source's scope.\n"
+    );
+    let host_only = parse_cognition_entry(
+        &entry("0.1.0", "cap.awareness.host/1, cap.awareness.attention/2"),
+        Path::new("consumer/HOST.md"),
+    )?;
+    sandbox.catalog.install(&host_only, &sandbox.package_root())?;
+    let host = sandbox.host(&CapabilitySelection::host(provider_id));
+    sandbox.adopt_content(provider_id, "adopt the exact host-only content")?;
+    ensure!(host.state()?.resident, "the replacement provider supplies the host capability");
+    ensure!(
+        !shenko_awareness_core::is_attention_material(&sandbox.fact(provider_id)?),
+        "the version-1 host needs version-1 attention to supply an atom"
+    );
+    ensure!(host.notices(8)?.is_empty(), "host residency alone offers no atom");
+
+    let dual = parse_cognition_entry(
+        &entry("0.2.0", "cap.awareness.host/1, cap.awareness.attention/1"),
+        Path::new("consumer/HOST-AND-ATTENTION.md"),
+    )?;
+    sandbox.catalog.install(&dual, &sandbox.package_root())?;
+    ensure!(!host.state()?.resident, "the replacement revision needs its own adoption");
+    sandbox.adopt_content(provider_id, "adopt the exact host and attention content")?;
+    ensure!(host.state()?.resident, "the dual provider supplies the host capability");
+    let fact = sandbox.fact(provider_id)?;
+    ensure!(
+        shenko_awareness_core::is_attention_material(&fact),
+        "the explicit attention contract also supplies an atom"
+    );
+    let notices = host.notices(8)?;
+    ensure!(notices.len() == 1, "the dual provider offers its adopted atom: {notices:?}");
+    let notice = notices.first().context("missing explicitly declared attention")?;
+    ensure!(
+        notice.atom.unit_id == provider_id && notice.atom.revision == fact.revision
+            && notice.atom.content_digest == fact.artifact_digest.0,
+        "the attention names the adopted dual provider's exact content: {notice:?}"
+    );
+    ensure!(notice.authority == NOTICE_AUTHORITY, "the dual capability grants no authority");
+    let _ = std::fs::remove_dir_all(&sandbox.dir);
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn a_native_read_reports_the_capability_and_grants_nothing() -> Result<()> {
     let sandbox = Sandbox::open("native")?;
     let selection = CapabilitySelection::host("awareness.host");
     let host = sandbox.host(&selection);
-    let provider_observation = sandbox.observe_locally(
-        "awareness.host",
-        b"consumer checked the provider body before adopting it",
-        "consumer_check",
-    )?;
-    sandbox.adopt("awareness.host", &provider_observation, "adopt the host capability")?;
+    sandbox.adopt_content("awareness.host", "adopt the host capability after reading its exact content")?;
     let atom = "awareness.foundation-cognition";
-    let atom_observation = sandbox.observe_locally(atom, b"atom body check", "consumer_check")?;
-    sandbox.adopt(atom, &atom_observation, "adopt the foundation attention")?;
+    sandbox.adopt_content(atom, "adopt the foundation attention after reading its exact content")?;
 
     let handler: Arc<dyn NativeTaskHandler> =
         Arc::new(AwarenessNoticeHandler::new(Arc::clone(&sandbox.store), Arc::clone(&host)));
@@ -449,9 +506,11 @@ async fn a_native_read_reports_the_capability_and_grants_nothing() -> Result<()>
     native_supervisor
         .spawn(NativeTaskHandlerPlugin, Arc::clone(&handler) as Arc<dyn NativeTaskHandler>)
         .await?;
+    // Recovery checks the real dispatcher owner even when this installation
+    // has no finite work yet; acquire it before querying recovery candidates.
+    sandbox.store.start_subject_dispatcher()?;
     native.recover()?;
     let (head, _) = sandbox.store.load_subject(sandbox.agent)?;
-    sandbox.store.start_subject_dispatcher()?;
     let task = admit_notice_task(
         &sandbox.store,
         sandbox.agent,
@@ -540,9 +599,7 @@ async fn a_modeled_other_perspective_is_never_offered_as_this_subjects_observati
     let sandbox = Sandbox::open("perspective")?;
     let selection = CapabilitySelection::host("awareness.host");
     let host = sandbox.host(&selection);
-    let provider_observation =
-        sandbox.observe_locally("awareness.host", b"provider body check", "consumer_check")?;
-    sandbox.adopt("awareness.host", &provider_observation, "adopt the host capability")?;
+    sandbox.adopt_content("awareness.host", "adopt the host capability after reading its exact content")?;
 
     // A perception unit that teaches reading one experience through another
     // subject's perception.
@@ -552,7 +609,7 @@ async fn a_modeled_other_perspective_is_never_offered_as_this_subjects_observati
     let binding = PerceptionBinding::of(&fact);
     let observation_bytes = b"the modeled other subject reported this reading";
     let observation_digest = sandbox.observe_locally(MODELED_UNIT, observation_bytes, "consumer_check")?;
-    sandbox.adopt(MODELED_UNIT, &observation_digest, "adopt the perspective-taking perception")?;
+    sandbox.adopt_content(MODELED_UNIT, "adopt the perspective-taking perception after reading its exact content")?;
 
     // The source is bound in the modeled perspective and answers with that
     // same attribution: the reading is admitted, as the other subject's view.
@@ -621,10 +678,7 @@ async fn a_modeled_other_perspective_is_never_offered_as_this_subjects_observati
     let own = shenko_awareness_core::PerceptionRegistry::new();
     own.bind(
         binding.clone(),
-        Arc::new(Fixed(PerceptionFact {
-            perspective: Some(PerceptionPerspective::Own),
-            ..modeled_fact
-        })),
+        Arc::new(Fixed(modeled_fact)),
     )?;
     let refused = own.observe(&binding);
     ensure!(
@@ -668,5 +722,8 @@ async fn drive_until(service: &Arc<NativeChildService>, store: &Arc<Store>, task
             Ok(Err(error)) => return Err(error),
             Err(_) => bail!("one dispatch pass exceeded 30s"),
         }
+        // A pass spawns managed executions without awaiting their handlers.
+        // Let those workers run on this test's current-thread runtime.
+        tokio::task::yield_now().await;
     }
 }

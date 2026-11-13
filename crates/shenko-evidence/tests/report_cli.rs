@@ -139,10 +139,11 @@ fn cli_refuses_missing_arguments_and_unreadable_specs() {
 }
 
 #[test]
-fn cli_keeps_appended_obligations_and_requires_document_local_owners() {
+fn cli_keeps_appended_obligations_and_requires_document_local_owners()
+-> Result<(), Box<dyn std::error::Error>> {
     let root = tempfile::tempdir().unwrap();
     let docs = root.path().join("docs");
-    fs::create_dir(&docs).unwrap();
+    fs::create_dir(&docs)?;
     let evidence = root.path().join("evidence");
     fs::create_dir(&evidence).unwrap();
     let current = docs.join("current.md");
@@ -167,17 +168,17 @@ fn cli_keeps_appended_obligations_and_requires_document_local_owners() {
 | A02 | appended scenario | appended condition |
 
 ```` unclosed fence stays in this document
-"#)).unwrap();
+"#))?;
     let next = docs.join("next.md");
     // Reusing a name in a different document does not duplicate its owner.
-    fs::write(&next, "<a id=\"fixture\"></a>\n| R003 | new document | current | B03 |\n| B03 new | R003 | contract | A01/A03 |\n| A03 | new scenario | new condition |\n").unwrap();
+    fs::write(&next, "<a id=\"fixture\"></a>\n| R003 | new document | current | B03 |\n| B03 new | R003 | contract | A01/A03 |\n| A03 | new scenario | new condition |\n")?;
     let inventory = docs.join("contracts.json");
     fs::write(&inventory, serde_json::to_vec(&serde_json::json!({
         "schema_version": 1,
         "documents": ["docs/current.md", "docs/next.md"],
-    })).unwrap()).unwrap();
+    }))?)?;
     let out = root.path().join("report.json");
-    let run = report_command(&inventory, &evidence, &out).output().unwrap();
+    let run = report_command(&inventory, &evidence, &out).output()?;
     assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
     let report = read_report(&out);
     for collection in ["requirements", "behaviors", "acceptance_cases"] {
@@ -194,39 +195,40 @@ fn cli_keeps_appended_obligations_and_requires_document_local_owners() {
     assert_eq!(report["unmet_requirement_count"].as_u64(), Some(3));
     assert_eq!(report["case_status_counts"]["unproven"].as_u64(), Some(3));
     assert_eq!(report["evidence_inventory"]["complete"].as_bool(), Some(true));
-    assert!(report["evidence_inventory"]["entries"].as_array().unwrap().is_empty());
+    assert!(report["evidence_inventory"]["entries"].as_array().is_some_and(Vec::is_empty));
 
     // Neither the inventory nor explicit Markdown route may infer an owner
     // from the preceding document, a later anchor or the source line.
-    fs::write(&next, "| A03 | unowned case | condition |\n<a id=\"appended\"></a>\n").unwrap();
+    fs::write(&next, "| A03 | unowned case | condition |\n<a id=\"appended\"></a>\n")?;
     let invalid_out = root.path().join("invalid-report.json");
-    let run = report_command(&inventory, &evidence, &invalid_out).output().unwrap();
+    let run = report_command(&inventory, &evidence, &invalid_out).output()?;
     assert_eq!(run.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains("InvalidOwner"), "{stderr}");
     assert!(stderr.contains("docs/next.md"), "{stderr}");
     assert!(!invalid_out.exists());
-    let run = report_command(&next, &evidence, &invalid_out).output().unwrap();
+    let run = report_command(&next, &evidence, &invalid_out).output()?;
     assert_eq!(run.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&run.stderr).contains("InvalidOwner"));
     assert!(!invalid_out.exists());
 
-    fs::write(&next, "<a id=\"fixture\"></a>\n| A03 | ambiguous case | condition |\n<span name='fixture'></span>\n").unwrap();
-    let run = report_command(&inventory, &evidence, &invalid_out).output().unwrap();
+    fs::write(&next, "<a id=\"fixture\"></a>\n| A03 | ambiguous case | condition |\n<span name='fixture'></span>\n")?;
+    let run = report_command(&inventory, &evidence, &invalid_out).output()?;
     assert_eq!(run.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains("InvalidOwner"), "{stderr}");
     assert!(stderr.contains("definitions: 2"), "{stderr}");
     assert!(!invalid_out.exists());
+    Ok(())
 }
 
 #[test]
-fn cli_discloses_a_rejected_long_run_report_without_dropping_its_windows() {
-    let root = tempfile::tempdir().unwrap();
+fn cli_discloses_a_rejected_long_run_report_without_dropping_its_windows() -> std::io::Result<()> {
+    let root = tempfile::tempdir()?;
     let spec = root.path().join("SPEC.md");
     fs::write(&spec, SPEC_TEXT).unwrap();
     let evidence = root.path().join("evidence");
-    fs::create_dir(&evidence).unwrap();
+    fs::create_dir(&evidence)?;
     let sampler = root.path().join("sampler.json");
     let bytes = serde_json::to_vec(&sealed_run_report()).unwrap();
     fs::write(&sampler, &bytes).unwrap();
@@ -272,4 +274,5 @@ fn cli_discloses_a_rejected_long_run_report_without_dropping_its_windows() {
         report["long_run_observation"]["duration_status"].as_str(),
         Some("unobserved")
     );
+    Ok(())
 }

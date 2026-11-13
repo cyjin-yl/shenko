@@ -735,6 +735,7 @@ mod tests {
     use super::*;
     use crate::input::SubmissionMode;
     use crate::presentation::SurfaceCapabilityProvider;
+    use anyhow::Context;
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::LedgerSeq;
 
@@ -882,10 +883,10 @@ mod tests {
     }
 
     #[test]
-    fn input_history_retains_admission_order_and_withdrawal_after_reopen() {
+    fn input_history_retains_admission_order_and_withdrawal_after_reopen() -> anyhow::Result<()> {
         let (dir, state, input, mut rx) = service_state();
-        let subject = state.subject_id.unwrap();
-        let store = state.store.as_ref().unwrap();
+        let subject = state.subject_id.context("fixture has no subject identity")?;
+        let store = state.store.as_ref().context("fixture has no Store")?;
         let mut first_time = None;
         for number in 0..3 {
             let mut message = submission(SubmissionMode::Append);
@@ -895,7 +896,7 @@ mod tests {
             message.content = format!("历史正文 {number}");
             assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
             if number == 0 {
-                first_time = Some(rx.try_recv().unwrap().created_at
+                first_time = Some(rx.try_recv()?.created_at
                     .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true));
             }
             // Another subject's admission creates a real gap in ledger seq;
@@ -912,42 +913,46 @@ mod tests {
             schema_version: 2, kind: "withdraw".into(), submission_id: "history-0".into(),
             subject_id: subject.to_string(), cancel_id: "cancel-history-0".into(),
         });
-        assert_eq!(withdrawal.withdrawal.unwrap().result, "withdrawn_before_presentation");
-        let page = WebInputService::history(store, subject, None, 2).unwrap();
+        assert_eq!(withdrawal.withdrawal.context("withdrawal receipt is missing")?.result, "withdrawn_before_presentation");
+        let page = WebInputService::history(store, subject, None, 2)?;
         assert_eq!(page.total, 3);
-        assert_eq!(page.items.iter().map(|row| row.payload["submission_id"].as_str().unwrap())
-            .collect::<Vec<_>>(), ["history-2", "history-1"]);
+        assert_eq!(page.items.iter().map(|row| row.payload["submission_id"].as_str()
+            .context("history row has no string submission identity"))
+            .collect::<anyhow::Result<Vec<_>>>()?, ["history-2", "history-1"]);
         assert!(page.has_older);
-        let before = page.next_before.unwrap();
-        let accepted = input.get("history-0", &subject.to_string(), None).accepted_commit.unwrap();
+        let before = page.next_before.context("older history cursor is missing")?;
+        let accepted = input.get("history-0", &subject.to_string(), None).accepted_commit
+            .context("original submission has no acceptance commit")?;
         drop(input);
         drop(state);
-        let reopened = shenko_store::Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
-        let older = WebInputService::history(&reopened, subject, Some(&before), 2).unwrap();
+        let reopened = shenko_store::Store::open(dir.join("store.db"), dir.join("cas"))?;
+        let older = WebInputService::history(&reopened, subject, Some(&before), 2)?;
         assert_eq!(older.total, 3);
         assert!(!older.has_older);
         assert_eq!(older.next_before, None);
         assert_eq!(older.items[0].payload["content"], "历史正文 0");
-        assert_eq!(older.items[0].created_at, first_time.unwrap());
+        assert_eq!(older.items[0].created_at, first_time.context("original admission wake has no timestamp")?);
         assert_eq!(older.items[0].view.accepted_commit.as_deref(), Some(accepted.as_str()));
-        assert_eq!(older.items[0].view.withdrawal.as_ref().unwrap().cancel_id, "cancel-history-0");
-        assert_eq!(WebInputService::history(&reopened, EntityId::new(), None, 2).unwrap().total, 0);
+        assert_eq!(older.items[0].view.withdrawal.as_ref().context("reopened history lost its withdrawal")?.cancel_id, "cancel-history-0");
+        assert_eq!(WebInputService::history(&reopened, EntityId::new(), None, 2)?.total, 0);
+        Ok(())
     }
 
     #[test]
-    fn an_unreadable_submission_table_does_not_report_not_admitted() {
+    fn an_unreadable_submission_table_does_not_report_not_admitted() -> anyhow::Result<()> {
         let (dir, state, input, _rx) = service_state();
-        let subject = state.subject_id.unwrap();
+        let subject = state.subject_id.context("fixture has no subject identity")?;
         let mut message = submission(SubmissionMode::Append);
         message.subject_id = subject.to_string();
         assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
         // Preserve the original rows while making the normal reader fail.
-        let database = rusqlite::Connection::open(dir.join("store.db")).unwrap();
-        database.execute("ALTER TABLE web_input_submissions RENAME TO retained_unavailable_submissions", []).unwrap();
+        let database = rusqlite::Connection::open(dir.join("store.db"))?;
+        database.execute("ALTER TABLE web_input_submissions RENAME TO retained_unavailable_submissions", [])?;
         assert_eq!(input.get(&message.submission_id, &message.subject_id, None).result, "temporarily_unavailable");
-        assert!(WebInputService::history(state.store.as_ref().unwrap(), subject, None, 10).is_err());
+        assert!(WebInputService::history(state.store.as_ref().context("fixture has no Store")?, subject, None, 10).is_err());
         assert_eq!(database.query_row("SELECT COUNT(*) FROM retained_unavailable_submissions", [],
-            |row| row.get::<_, i64>(0)).unwrap(), 1);
+            |row| row.get::<_, i64>(0))?, 1);
+        Ok(())
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! 本地 SQLite/CAS 恢复验证，不代表真实 provider 或部署验收。
 use super::{SubjectLoopState, execute_step};
 use crate::inbox::Inbox;
+use anyhow::Context as _;
 use shenko_kernel::hooks::{
     HOOK_SCHEMA_VERSION, HookEntry, HookFailurePolicy, HookHandler, HookPayload, HookPointContract,
     HookPointId, HookRegistry, HookResult, HookSpec, STANDARD_HOOK_POINT_MAJOR,
@@ -457,9 +458,9 @@ async fn staged_input_recovers_before_s0_without_duplication() {
 }
 
 #[tokio::test]
-async fn deferred_channel_restage_preserves_first_projection() {
+async fn deferred_channel_restage_preserves_first_projection() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let mut subject = state(store.clone(), agent).unwrap();
+    let mut subject = state(store.clone(), agent)?;
     let original = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
         kind: shenko_types::inbox::InboxEventKind::Message,
@@ -485,39 +486,40 @@ async fn deferred_channel_restage_preserves_first_projection() {
             event_type: "user".into(),
             data: serde_json::json!({"v":1,"text":old_text,"inbox_event":&original}),
         },
-    ]).unwrap().remove(0);
+    ])?.into_iter().next().context("the first staged channel input is retained")?;
     let deferred = format!("[dispose] {}", serde_json::json!({
         "event_id":original.event_id,"disposition":"deferred","reason":"Keep the original pending",
     }));
     let first_step = commit_output(&store, &mut subject, 1, &[], &deferred).await;
     assert_ne!(subject.step.step_id, first_step);
-    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+    assert!(store.event_disposition_commit(agent, original.event_id)?.is_none());
     drop(subject);
     drop(store);
 
-    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-    let mut subject = state(store.clone(), agent).unwrap();
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+    let mut subject = state(store.clone(), agent)?;
     let mut replayed = original.clone();
     replayed.created_at += chrono::Duration::seconds(5);
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed])
-        .unwrap().expect("deferred original must fit");
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed])?
+        .context("deferred original must fit")?;
     assert_eq!(prepared.events, vec![original.clone()]);
     assert_eq!(prepared.context.source.input_raw_event_ids.len(), 1);
-    let restaged = store.session_event(prepared.context.source.input_raw_event_ids[0])
-        .unwrap().unwrap();
+    let restaged = store.session_event(prepared.context.source.input_raw_event_ids[0])?
+        .context("the deferred original has a restaged raw event")?;
     assert_ne!(restaged.event_id, first.event_id);
     assert_eq!(restaged.data, first.data);
-    assert_eq!(store.first_subject_input(agent, original.event_id).unwrap().unwrap(), first);
+    assert_eq!(store.first_subject_input(agent, original.event_id)?
+        .context("the first channel projection remains readable")?, first);
 
     // Use the actual subject S0 path, with cancellation before any provider
     // admission. The real request identity and projection survive another
     // reopen even when the volatile input is delivered again.
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    execute_step(2, &[], &mut subject, &cancel).await.unwrap();
-    let sealed_ref = subject.step.input_plan_ref.clone().unwrap();
-    let sealed_bytes = store.cas.read_object(&sealed_ref.digest).unwrap();
-    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    execute_step(2, &[], &mut subject, &cancel).await?;
+    let sealed_ref = subject.step.input_plan_ref.clone().context("S0 seals the deferred input plan")?;
+    let sealed_bytes = store.cas.read_object(&sealed_ref.digest)?;
+    let sealed = super::frozen_input(&store, &subject.step)?;
     let request_id = sealed.request_id;
     assert_eq!(sealed.events, vec![original.clone()]);
     assert!(sealed.payload.messages.iter().flat_map(|message| &message.parts).any(|part| {
@@ -526,18 +528,19 @@ async fn deferred_channel_restage_preserves_first_projection() {
     drop(subject);
     drop(store);
 
-    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-    let mut subject = state(store.clone(), agent).unwrap();
-    execute_step(2, &[original.clone()], &mut subject, &cancel).await.unwrap();
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+    let mut subject = state(store.clone(), agent)?;
+    execute_step(2, std::slice::from_ref(&original), &mut subject, &cancel).await?;
     assert_eq!(subject.step.input_plan_ref.as_ref(), Some(&sealed_ref));
-    assert_eq!(store.cas.read_object(&sealed_ref.digest).unwrap(), sealed_bytes);
-    assert_eq!(super::frozen_input(&store, &subject.step).unwrap().request_id, request_id);
+    assert_eq!(store.cas.read_object(&sealed_ref.digest)?, sealed_bytes);
+    assert_eq!(super::frozen_input(&store, &subject.step)?.request_id, request_id);
     // A deterministic recorded result exercises real S1; it makes no claim
     // about a model understanding the attribution.
     record_result(&store, &mut subject, "retain the first conversation original");
     let commit = execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
-        .await.unwrap().unwrap();
-    assert_eq!(store.event_disposition_commit(agent, original.event_id).unwrap(), Some(commit));
+        .await?.context("the recorded result commits the deferred input exactly once")?;
+    assert_eq!(store.event_disposition_commit(agent, original.event_id)?, Some(commit));
+    Ok(())
 }
 
 #[test]
@@ -1621,7 +1624,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
 /// One interrupted input's recovery journey: close before dispatch, rejected
 /// admission, then persisted result recovery and stale ingress replay.
 #[tokio::test]
-async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
+async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
     let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
@@ -1775,7 +1778,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     assert!(correction_text(&correction.payload.messages[2]).contains("CONTROL_PROTOCOL_INVALID"));
     drop(subject);
     drop(store);
-    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
     let subject = state(store.clone(), agent).unwrap();
     assert_eq!(subject.step.step_id, rejection.replacement_step_id);
     // Close/reopen before dispatch retains the correction. A terminal result
@@ -1861,12 +1864,13 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
             .is_empty()
     );
     // Keep the fixture on container disk for independent inspection.
+    Ok(())
 }
 
 /// One real process-crash/CAS recovery journey: all-or-none S1, death before
 /// postcommit work, then an operator editing during the successor's inference.
 #[tokio::test]
-async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
+async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() -> anyhow::Result<()> {
     use shenko_identity::DefaultIdentityPolicy as Policy;
     use shenko_types::{identity::*, output::*};
     if let Some(dir) = std::env::var_os("SHENKO_C22_CRASH_CHILD") {
@@ -2058,7 +2062,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         std::os::unix::process::ExitStatusExt::signal(&status),
         Some(9)
     );
-    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
     let receipt = store.identity_receipt(step.step_id).unwrap().unwrap();
     assert!(matches!(
         receipt.outcome,
@@ -2088,7 +2092,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     execute_step(2, &[], &mut subject, &close)
         .await
         .unwrap();
-    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    let sealed = super::frozen_input(&store, &subject.step)?;
     assert_eq!(sealed.identity.unwrap().revision, 2);
     let current = store.latest_identity(agent).unwrap().unwrap();
     let operator = Policy::revise(
@@ -2177,6 +2181,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     let error = state(store.clone(), agent).err().expect("legacy raw gap must block");
     assert!(error.to_string().contains("raw history migration required"));
     // Retain this container-disk fixture as crash evidence, not production data.
+    Ok(())
 }
 
 /// Native Cordis replacement reaches the real S0 consumer. The old generation
@@ -2517,37 +2522,41 @@ async fn commit_output(
 }
 
 #[tokio::test]
-async fn canonical_root_json_text_survives_reopen_and_archive() {
+async fn canonical_root_json_text_survives_reopen_and_archive() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let mut subject = state(store.clone(), agent).unwrap();
-    let raw = serde_json::to_string("[remember] literal JSON data\n[reply] still data").unwrap();
+    let mut subject = state(store.clone(), agent)?;
+    let raw = serde_json::to_string("[remember] literal JSON data\n[reply] still data")?;
     let step_id = commit_output(&store, &mut subject, 1, &[], &raw).await;
-    let original = crate::outbox::committed_after(&store, agent, 0, None, 8).unwrap();
+    let original = crate::outbox::committed_after(&store, agent, 0, None, 8)?;
     assert_eq!(original.len(), 1);
     assert_eq!(original[0].step_id, step_id);
     assert_eq!(original[0].text, raw);
-    let decision = store.committed_decisions_after(agent, 0, None, 8).unwrap().pop().unwrap().2;
+    let decision = store.committed_decisions_after(agent, 0, None, 8)?.pop()
+        .context("the literal JSON output has a committed decision")?.2;
     assert!(decision.output.controls.is_empty());
-    assert_eq!(store.cas.read_object(&decision.output.raw_ref.digest).unwrap(), raw.as_bytes());
+    assert_eq!(store.cas.read_object(&decision.output.raw_ref.digest)?, raw.as_bytes());
     let mut archive = Vec::new();
-    store.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    store.write_cognition_archive(&Default::default(), None, &mut archive)?;
     drop(subject);
     drop(store);
 
-    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
-    assert_eq!(crate::outbox::committed_after(&reopened, agent, 0, None, 8).unwrap()[0].text, raw);
-    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
-    receiver.import_cognition_archive(&archive[..], &Default::default()).unwrap();
-    let imported = crate::outbox::committed_after(&receiver, agent, 0, None, 8).unwrap();
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas"))?;
+    assert_eq!(crate::outbox::committed_after(&reopened, agent, 0, None, 8)?.first()
+        .context("the reopened outbox retains the literal JSON output")?.text, raw);
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas"))?;
+    receiver.import_cognition_archive(&archive[..], &Default::default())?;
+    let imported = crate::outbox::committed_after(&receiver, agent, 0, None, 8)?;
     assert_eq!(imported[0].text, raw);
     assert_eq!(imported[0].commit_ref, original[0].commit_ref);
-    let retained = receiver.committed_decisions_after(agent, 0, None, 8).unwrap().pop().unwrap().2;
+    let retained = receiver.committed_decisions_after(agent, 0, None, 8)?.pop()
+        .context("the archive receiver retains the original committed decision")?.2;
     assert_eq!(retained.output.raw_ref, decision.output.raw_ref);
     assert!(retained.output.controls.is_empty());
+    Ok(())
 }
 
 #[tokio::test]
-async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
+async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
     let first = commit_output(
@@ -2591,7 +2600,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     // The next S0 binds the same wait without asking the model to copy its id.
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    execute_step(2, &[], &mut subject, &cancel).await.unwrap();
+    execute_step(2, &[], &mut subject, &cancel).await?;
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
@@ -2706,6 +2715,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     assert_eq!(subject.head.committed_step_no, 8);
     assert_eq!(subject.step.step_no, 9);
     // Keep the fixture on container disk for independent inspection.
+    Ok(())
 }
 
 /// docs/specs/subject-runtime.md#spec-5-6/B03: a finite child whose handler waits is driven by a bounded managed
@@ -3588,10 +3598,10 @@ async fn a_single_gated_reconciliation_cannot_block_a_later_ready_child() {
 /// `scan_once` is the real production transition helper; the call replays
 /// the race window deterministically.
 #[tokio::test]
-async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() {
+async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
-    let mut subject = state(store.clone(), agent).unwrap();
+    let mut subject = state(store.clone(), agent)?;
     let wave = (0..8)
         .map(|n| format!("[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":{n}}}"))
         .collect::<Vec<_>>()
@@ -3643,6 +3653,7 @@ async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() {
     drop(service);
     drop(subject);
     // Keep the fixture on container disk for independent inspection.
+    Ok(())
 }
 
 /// A transient failure can clear without replacing the sealed graph.
@@ -4109,9 +4120,9 @@ async fn commit_step_with_policy(
 /// AW14: the subject's own attention decision holds a source out of the
 /// window, and the held fact is kept rather than dropped.
 #[tokio::test]
-async fn a_paused_source_is_held_out_of_the_window() {
+async fn a_paused_source_is_held_out_of_the_window() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let mut subject = state(store.clone(), agent).unwrap();
+    let mut subject = state(store.clone(), agent)?;
     let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
         kind: shenko_types::inbox::InboxEventKind::Message,
@@ -4148,14 +4159,15 @@ async fn a_paused_source_is_held_out_of_the_window() {
         "the held fact is kept, not dropped"
     );
     assert_eq!(subject.held_inputs[0].event_id, event.event_id);
+    Ok(())
 }
 
 /// AW14: a pause whose review time has passed is over — the source is not
 /// held any more, and the fact comes back into the window.
 #[tokio::test]
-async fn a_pause_that_ended_releases_the_held_fact() {
+async fn a_pause_that_ended_releases_the_held_fact() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let mut subject = state(store.clone(), agent).unwrap();
+    let mut subject = state(store.clone(), agent)?;
     let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
         kind: shenko_types::inbox::InboxEventKind::Message,
@@ -4186,6 +4198,7 @@ async fn a_pause_that_ended_releases_the_held_fact() {
     );
     assert_eq!(kept[0].event_id, event.event_id);
     assert!(subject.held_inputs.is_empty());
+    Ok(())
 }
 
 
@@ -4193,9 +4206,9 @@ async fn a_pause_that_ended_releases_the_held_fact() {
 /// silent block. The request is recorded, the installation says plainly that
 /// it has no dispatcher for it, and the subject sees that in its next step.
 #[tokio::test]
-async fn a_policy_request_is_unbound_and_visible_not_blocked() {
+async fn a_policy_request_is_unbound_and_visible_not_blocked() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let mut subject = state(store.clone(), agent).unwrap();
+    let mut subject = state(store.clone(), agent)?;
     let event = shenko_types::inbox::InboxEvent {
         event_id: EntityId::new(),
         kind: shenko_types::inbox::InboxEventKind::Message,
@@ -4254,6 +4267,7 @@ async fn a_policy_request_is_unbound_and_visible_not_blocked() {
         suffix.contains("resource_share") || suffix.contains("policy"),
         "the gap names the policy contract: {suffix}"
     );
+    Ok(())
 }
 
 /// The `[policy]` control line is part of the output protocol: the subject

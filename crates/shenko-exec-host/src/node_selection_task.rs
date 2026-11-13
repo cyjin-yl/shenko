@@ -547,71 +547,79 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn absent_choice_stays_unknown_until_original_receipt_arrives_without_replay() {
+    async fn absent_choice_stays_unknown_until_original_receipt_arrives_without_replay() -> Result<()> {
         let (dir, store, handler, subject) = fixture();
         let (task, operation_id, attempt_id, frozen) = arm(&handler, &store, &subject, choice(&handler));
         drop(handler);
-        let recovered = NodeSelectionHandler::new(store.clone(), Node::open(&dir.join("node")).unwrap());
-        let unknown = recovered.reconcile(&task, operation_id).await.unwrap();
+        let recovered = NodeSelectionHandler::new(store.clone(), Node::open(&dir.join("node"))?);
+        let unknown = recovered.reconcile(&task, operation_id).await?;
         assert_eq!(unknown.state, OperationState::Reconciling);
         assert_eq!(unknown.outcome, None);
         assert_eq!(unknown.effect_status, EffectStatus::Unknown);
-        let unknown_evidence = store.external_operation_evidence(operation_id).unwrap();
+        let unknown_evidence = store.external_operation_evidence(operation_id)?;
         assert_eq!(unknown_evidence.len(), 1);
-        assert_eq!(unknown_evidence[0].source_event_key, Some(format!("node-selection:{attempt_id}")));
+        let unknown_receipt = unknown_evidence.first().context("missing original Unknown evidence")?;
+        assert_eq!(unknown_receipt.source_event_key, Some(format!("node-selection:{attempt_id}")));
         drop(recovered); drop(store);
         // Reopen the durable Unknown, including its original absence key.
         // Another recovery must neither write a choice nor append evidence.
-        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-        let recovered = NodeSelectionHandler::new(store.clone(), Node::open(&dir.join("node")).unwrap());
-        let still_unknown = recovered.reconcile(&task, operation_id).await.unwrap();
-        assert_eq!(serde_json::to_value(still_unknown).unwrap(), serde_json::to_value(unknown).unwrap());
-        assert_eq!(store.external_operation_evidence(operation_id).unwrap().len(), 1);
-        assert!(recovered.receipt(&frozen).unwrap().is_none());
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+        let recovered = NodeSelectionHandler::new(store.clone(), Node::open(&dir.join("node"))?);
+        let still_unknown = recovered.reconcile(&task, operation_id).await?;
+        assert_eq!(serde_json::to_value(still_unknown)?, serde_json::to_value(unknown)?);
+        assert_eq!(store.external_operation_evidence(operation_id)?.len(), 1);
+        assert!(recovered.receipt(&frozen)?.is_none());
         // A delayed original writer, NOT the recovering handler, completes its
         // already-armed local write. The original attempt may now reconcile.
-        let mut original_writer = Node::open(&dir.join("node")).unwrap();
+        let mut original_writer = Node::open(&dir.join("node"))?;
         let original = original_writer.record_node_selection_for_subject(
             frozen.selection.clone(), frozen.observer_node_id, &frozen.subject,
-        ).unwrap();
+        )?;
         assert!(matches!(original.outcome, NodeSelectionOutcome::Recorded));
-        let resolved = recovered.reconcile(&task, operation_id).await.unwrap();
+        let resolved = recovered.reconcile(&task, operation_id).await?;
         assert_eq!(resolved.state, OperationState::Resolved);
         assert_eq!(resolved.outcome, Some(OperationOutcome::Succeeded));
         assert_eq!(resolved.effect_status, EffectStatus::Complete);
-        let evidence = store.external_operation_evidence(operation_id).unwrap();
+        let evidence = store.external_operation_evidence(operation_id)?;
         assert_eq!(evidence.len(), 2);
-        let retained_unknown = evidence.iter().find(|receipt| receipt.receipt_id == unknown_evidence[0].receipt_id).unwrap();
-        assert_eq!(serde_json::to_value(retained_unknown).unwrap(), serde_json::to_value(&unknown_evidence[0]).unwrap());
-        let receipt_evidence = evidence.iter().find(|receipt| receipt.receipt_id != retained_unknown.receipt_id).unwrap();
+        let retained_unknown = evidence.iter().find(|receipt| receipt.receipt_id == unknown_receipt.receipt_id)
+            .context("original Unknown evidence was not retained")?;
+        assert_eq!(serde_json::to_value(retained_unknown)?, serde_json::to_value(unknown_receipt)?);
+        let receipt_evidence = evidence.iter().find(|receipt| receipt.receipt_id != retained_unknown.receipt_id)
+            .context("missing delayed original receipt evidence")?;
         assert_eq!(receipt_evidence.source_event_key, Some(format!("node-selection-receipt:{attempt_id}")));
         assert!(evidence.iter().all(|receipt| receipt.operation_id == Some(operation_id) && receipt.attempt_id == Some(attempt_id)));
+        let normalized = receipt_evidence.normalized_ref.as_ref().context("original receipt has no normalized result")?;
         let result: serde_json::Value = serde_json::from_slice(&store.cas.read_object(
-            &receipt_evidence.normalized_ref.as_ref().unwrap().digest,
-        ).unwrap()).unwrap();
-        assert_eq!(result["receipt"], serde_json::to_value(&original).unwrap());
-        let attempt = store.external_operation_attempt(operation_id).unwrap();
+            &normalized.digest,
+        )?)?;
+        assert_eq!(result["receipt"], serde_json::to_value(&original)?);
+        let attempt = store.external_operation_attempt(operation_id)?;
         // Re-reporting this same original is a replay, but a different
         // original under its stable receipt key must still be refused.
-        let replay = recovered.observe(&resolved, &attempt, &frozen, Some(original.clone())).unwrap();
-        assert_eq!(serde_json::to_value(replay).unwrap(), serde_json::to_value(&resolved).unwrap());
+        let replay = recovered.observe(&resolved, &attempt, &frozen, Some(original.clone()))?;
+        assert_eq!(serde_json::to_value(replay)?, serde_json::to_value(&resolved)?);
         let mut divergent = original;
         divergent.outcome = NodeSelectionOutcome::Unavailable { reason: SelectionUnavailable::ObservationChanged };
-        let error = recovered.observe(&resolved, &attempt, &frozen, Some(divergent)).unwrap_err();
+        let error = recovered.observe(&resolved, &attempt, &frozen, Some(divergent)).err()
+            .context("divergent original receipt was accepted")?;
         assert!(matches!(
             error.downcast_ref::<shenko_types::error::ShenkoError>(),
             Some(shenko_types::error::ShenkoError::Protocol(protocol)) if protocol.code == "RECEIPT_KEY_CONFLICT"
         ));
-        let conflicts = store.external_receipt_conflicts(operation_id).unwrap();
+        let conflicts = store.external_receipt_conflicts(operation_id)?;
         assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].original_receipt_id, receipt_evidence.receipt_id);
-        assert_eq!(conflicts[0].source_event_key, receipt_evidence.source_event_key.as_deref().unwrap());
-        let unchanged = recovered.reconcile(&task, operation_id).await.unwrap();
-        assert_eq!(serde_json::to_value(unchanged).unwrap(), serde_json::to_value(resolved).unwrap());
-        assert_eq!(serde_json::to_value(store.external_operation_evidence(operation_id).unwrap()).unwrap(), serde_json::to_value(evidence).unwrap());
-        assert_eq!(store.external_operation_attempts(operation_id).unwrap().len(), 1);
-        assert_eq!(store.external_operation_attempt(operation_id).unwrap().attempt_id, attempt_id);
+        let conflict = conflicts.first().context("missing original receipt conflict")?;
+        assert_eq!(conflict.original_receipt_id, receipt_evidence.receipt_id);
+        assert_eq!(conflict.source_event_key, receipt_evidence.source_event_key.as_deref()
+            .context("original receipt has no source event key")?);
+        let unchanged = recovered.reconcile(&task, operation_id).await?;
+        assert_eq!(serde_json::to_value(unchanged)?, serde_json::to_value(resolved)?);
+        assert_eq!(serde_json::to_value(store.external_operation_evidence(operation_id)?)?, serde_json::to_value(evidence)?);
+        assert_eq!(store.external_operation_attempts(operation_id)?.len(), 1);
+        assert_eq!(store.external_operation_attempt(operation_id)?.attempt_id, attempt_id);
         drop(original_writer); drop(recovered); drop(store);
-        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
     }
 }

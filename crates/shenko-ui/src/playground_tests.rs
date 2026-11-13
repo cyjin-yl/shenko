@@ -5,6 +5,7 @@
 //! (8) unknown original-attempt recovery, (9) unavailable runtime admission.
 use super::*;
 use crate::playground_backend::{ArtifactActor, BackendActionRequest, PlaygroundBackendHandler};
+use anyhow::Context;
 use axum::{body::to_bytes, http::Request};
 use shenko_kernel::{FiberHandle, Supervisor};
 use shenko_subject::{NativeChildPlugin, NativeTaskHandlerPlugin};
@@ -359,37 +360,41 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
 /// sandbox, its declared type pinned and its revision named, so the safety
 /// rope is rollback to a named revision (docs/specs/web-interface.md#5-1).
 #[tokio::test]
-async fn a_work_page_is_served_as_a_trusted_revision() {
+async fn a_work_page_is_served_as_a_trusted_revision() -> anyhow::Result<()> {
     let (root, store, _) = fixture("trusted");
-    let pg = PlaygroundState::open(root.join("playground"), store).unwrap();
+    let pg = PlaygroundState::open(root.join("playground"), store)?;
     let id = EntityId::new();
-    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/self')</script>").unwrap();
-    let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty()).unwrap())
-        .await.unwrap();
+    pg.put(id, "page".into(), "text/html".into(), b"<script>fetch('/api/self')</script>")?;
+    let response = router(pg).oneshot(Request::builder().uri(format!("/playground/{id}")).body(Body::empty())?)
+        .await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().get(header::CONTENT_SECURITY_POLICY).is_none(), "trusted by default, not sandboxed");
-    assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/html");
-    assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
-    assert_eq!(response.headers().get("x-artifact-revision").unwrap(), "1");
+    assert_eq!(response.headers().get(header::CONTENT_TYPE).context("work page has no content type")?.to_str()?, "text/html");
+    assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).context("work page has no nosniff header")?.to_str()?, "nosniff");
+    assert_eq!(response.headers().get("x-artifact-revision").context("work page has no revision header")?.to_str()?, "1");
+    Ok(())
 }
 
 /// A published work lens shows the adopted page, not a later draft head; with
 /// nothing adopted there is no adopted page (docs/specs/web-interface.md#5-1).
 #[tokio::test]
-async fn the_adopted_page_is_served_until_a_new_publication() {
+async fn the_adopted_page_is_served_until_a_new_publication() -> anyhow::Result<()> {
     let (root, store, _) = fixture("adopted");
-    let pg = PlaygroundState::open(root.join("playground"), store).unwrap();
+    let pg = PlaygroundState::open(root.join("playground"), store)?;
     let id = EntityId::new();
-    pg.put(id, "page".into(), "text/html".into(), b"<p>r1</p>").unwrap();
+    pg.put(id, "page".into(), "text/html".into(), b"<p>r1</p>")?;
     let app = router(pg.clone());
-    let get = |uri: String| app.clone().oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap());
-    assert_eq!(get(format!("/playground/{id}/adopted")).await.unwrap().status(), StatusCode::NOT_FOUND);
-    let staged = pg.stage_artifact(id, Some(1), Some("stage-r1")).unwrap();
-    pg.publish_artifact(id, &staged.candidate_manifest_refs.last().unwrap().digest, Some(1), Some("publish-r1")).unwrap();
-    pg.put(id, "page".into(), "text/html".into(), b"<p>r2 draft</p>").unwrap();
-    let adopted = get(format!("/playground/{id}/adopted")).await.unwrap();
-    assert_eq!(adopted.headers().get("x-artifact-revision").unwrap(), "1");
-    assert_eq!(to_bytes(adopted.into_body(), 1024).await.unwrap().as_ref(), b"<p>r1</p>");
-    let head = get(format!("/playground/{id}")).await.unwrap();
-    assert_eq!(head.headers().get("x-artifact-revision").unwrap(), "2", "the draft head is still readable as such");
+    let get = |uri: String| -> anyhow::Result<_> {
+        Ok(app.clone().oneshot(Request::builder().uri(uri).body(Body::empty())?))
+    };
+    assert_eq!(get(format!("/playground/{id}/adopted"))?.await?.status(), StatusCode::NOT_FOUND);
+    let staged = pg.stage_artifact(id, Some(1), Some("stage-r1"))?;
+    pg.publish_artifact(id, &staged.candidate_manifest_refs.last().context("stage produced no candidate manifest")?.digest, Some(1), Some("publish-r1"))?;
+    pg.put(id, "page".into(), "text/html".into(), b"<p>r2 draft</p>")?;
+    let adopted = get(format!("/playground/{id}/adopted"))?.await?;
+    assert_eq!(adopted.headers().get("x-artifact-revision").context("adopted page has no revision header")?.to_str()?, "1");
+    assert_eq!(to_bytes(adopted.into_body(), 1024).await?.as_ref(), b"<p>r1</p>");
+    let head = get(format!("/playground/{id}"))?.await?;
+    assert_eq!(head.headers().get("x-artifact-revision").context("draft page has no revision header")?.to_str()?, "2", "the draft head is still readable as such");
+    Ok(())
 }

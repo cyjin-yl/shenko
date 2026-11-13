@@ -66,7 +66,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn fixture(root: &Path) -> std::path::PathBuf {
+    fn fixture(root: &Path) -> std::io::Result<std::path::PathBuf> {
         let docs = root.join("docs");
         std::fs::create_dir(&docs).unwrap();
         let document = r#"# Current
@@ -112,21 +112,22 @@ mod tests {
 "#;
         std::fs::write(docs.join("current.md"), document).unwrap();
         // This document has no historical mapping or migration markers.
-        std::fs::write(docs.join("new-domain.md"), "# New domain\n\n<a id=\"new-domain\"></a>\n| R003 | new domain | current | B03 |\n| B03 new | R003 | contract | A03 |\n| A03 | new domain scenario | condition |\n").unwrap();
+        std::fs::write(docs.join("new-domain.md"), "# New domain\n\n<a id=\"new-domain\"></a>\n| R003 | new domain | current | B03 |\n| B03 new | R003 | contract | A03 |\n| A03 | new domain scenario | condition |\n")?;
         let inventory = json!({
             "schema_version": 1,
             "documents": ["docs/current.md", "docs/new-domain.md"],
         });
         let path = docs.join("contracts.json");
         std::fs::write(&path, serde_json::to_vec(&inventory).unwrap()).unwrap();
-        path
+        Ok(path)
     }
 
     #[test]
-    fn current_inventory_includes_new_rows_and_documents_without_migration_history() {
+    fn current_inventory_includes_new_rows_and_documents_without_migration_history()
+    -> Result<(), Box<dyn std::error::Error>> {
         let directory = tempfile::tempdir().unwrap();
-        let path = fixture(directory.path());
-        let index = read_contract_input(&path).unwrap();
+        let path = fixture(directory.path())?;
+        let index = read_contract_input(&path)?;
         assert_eq!(index.counts().requirements, 3);
         assert_eq!(index.counts().behaviors, 3);
         assert_eq!(index.counts().acceptance_cases, 3);
@@ -146,84 +147,104 @@ mod tests {
         assert!(requirements[0].get("source_markdown_line").is_none());
         assert!(requirements[0].get("spec_line").is_none());
         let document = directory.path().join("docs/current.md");
-        let text = std::fs::read_to_string(&document).unwrap();
-        std::fs::write(&document, format!("Unrelated inserted prose.\n\n{text}")).unwrap();
-        let moved_index = read_contract_input(&path).unwrap();
+        let text = std::fs::read_to_string(&document)?;
+        std::fs::write(&document, format!("Unrelated inserted prose.\n\n{text}"))?;
+        let moved_index = read_contract_input(&path)?;
         let moved_report = json!({"spec_index": crate::spec_index::index_to_json(&moved_index)});
         assert_eq!(report, moved_report);
+        Ok(())
     }
 
     #[test]
-    fn missing_repeated_and_cross_document_anchors_are_rejected() {
+    fn missing_repeated_and_cross_document_anchors_are_rejected()
+    -> Result<(), Box<dyn std::error::Error>> {
         let directory = tempfile::tempdir().unwrap();
-        let path = fixture(directory.path());
+        let path = fixture(directory.path())?;
         let document = directory.path().join("docs/new-domain.md");
-        std::fs::write(&document, "# Unowned\n\n| R003 | missing owner | current | B03 |\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "# Unowned\n\n| R003 | missing owner | current | B03 |\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("a requirement with no document-local anchor was admitted")?;
         assert!(error.contains("InvalidOwner"), "{error}");
         assert!(error.contains("docs/new-domain.md"), "{error}");
         assert!(error.contains("anchor: None"), "{error}");
 
         // An anchor after the row cannot retroactively own it, even when the
         // preceding document had an anchor with this same name.
-        std::fs::write(&document, "| A03 | unowned case | condition |\n<a id=\"appended\"></a>\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "| A03 | unowned case | condition |\n<a id=\"appended\"></a>\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("an acceptance case with only a later anchor was admitted")?;
         assert!(error.contains("InvalidOwner"), "{error}");
         assert!(error.contains("A03"), "{error}");
         assert!(error.contains("anchor: None"), "{error}");
 
-        std::fs::write(&document, "<a id=\"repeated\"></a>\n| B03 repeated | R003 | contract | A03 |\n<span name='repeated'></span>\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "<a id=\"repeated\"></a>\n| B03 repeated | R003 | contract | A03 |\n<span name='repeated'></span>\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("a behavior with a repeated document-local anchor was admitted")?;
         assert!(error.contains("InvalidOwner"), "{error}");
         assert!(error.contains("repeated"), "{error}");
         assert!(error.contains("definitions: 2"), "{error}");
 
         // Explicit names are unique within their own document, not across
         // unrelated source paths. Multiple anchors on a line are all counted.
-        std::fs::write(&document, "<a id=\"first\"></a><span name='appended'></span>\n| A03 | local owner | condition |\n").unwrap();
-        let index = read_contract_input(&path).unwrap();
+        std::fs::write(&document, "<a id=\"first\"></a><span name='appended'></span>\n| A03 | local owner | condition |\n")?;
+        let index = read_contract_input(&path)?;
         assert_eq!(index.acceptance_cases["A03"].source_path, "docs/new-domain.md");
         assert_eq!(index.acceptance_cases["A03"].source_anchor, "appended");
 
-        std::fs::write(&document, "<a id=\"same\"></a><span name='same'></span>\n| A03 | ambiguous owner | condition |\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "<a id=\"same\"></a><span name='same'></span>\n| A03 | ambiguous owner | condition |\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("an acceptance case with duplicate anchors on one line was admitted")?;
         assert!(error.contains("InvalidOwner"), "{error}");
         assert!(error.contains("definitions: 2"), "{error}");
+        Ok(())
     }
 
     #[test]
-    fn document_merge_rejects_duplicate_ids_and_resolves_cross_document_references() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = fixture(directory.path());
+    fn document_merge_rejects_duplicate_ids_and_resolves_cross_document_references()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let path = fixture(directory.path())?;
         let document = directory.path().join("docs/new-domain.md");
-        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| B03 new | R001 | contract | A01/A02 |\n").unwrap();
-        let index = read_contract_input(&path).unwrap();
+        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| B03 new | R001 | contract | A01/A02 |\n")?;
+        let index = read_contract_input(&path)?;
         assert_eq!(index.behaviors["B03"].acceptance_cases, ["A01", "A02"]);
         assert!(index.behaviors["B03"].unresolved_case_refs.is_empty());
 
-        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| R001 | duplicate requirement | current | B03 |\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| R001 | duplicate requirement | current | B03 |\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("a requirement ID repeated across documents was admitted")?;
         assert!(error.contains("DuplicateDefinition"), "{error}");
         assert!(error.contains("requirement"), "{error}");
         assert!(error.contains("R001"), "{error}");
 
-        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| B01 duplicate | R003 | contract | A03 |\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| B01 duplicate | R003 | contract | A03 |\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("a behavior ID repeated across documents was admitted")?;
         assert!(error.contains("DuplicateDefinition"), "{error}");
         assert!(error.contains("behavior"), "{error}");
         assert!(error.contains("B01"), "{error}");
 
-        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| A01 | duplicate case | condition |\n").unwrap();
-        let error = read_contract_input(&path).unwrap_err();
+        std::fs::write(&document, "<a id=\"new-domain\"></a>\n| A01 | duplicate case | condition |\n")?;
+        let error = read_contract_input(&path)
+            .err()
+            .ok_or("an acceptance case ID repeated across documents was admitted")?;
         assert!(error.contains("DuplicateDefinition"), "{error}");
         assert!(error.contains("acceptance case"), "{error}");
         assert!(error.contains("A01"), "{error}");
+        Ok(())
     }
 
     #[test]
-    fn duplicate_or_missing_documents_do_not_produce_a_partial_denominator() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = fixture(directory.path());
+    fn duplicate_or_missing_documents_do_not_produce_a_partial_denominator()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let path = fixture(directory.path())?;
         let mut inventory: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         inventory["documents"][1] = Value::String("docs/current.md".into());
         std::fs::write(&path, serde_json::to_vec(&inventory).unwrap()).unwrap();
@@ -231,5 +252,6 @@ mod tests {
         inventory["documents"][1] = Value::String("docs/missing.md".into());
         std::fs::write(&path, serde_json::to_vec(&inventory).unwrap()).unwrap();
         assert!(matches!(read_contract_input(&path), Err(error) if error.contains("cannot locate contract")));
+        Ok(())
     }
 }

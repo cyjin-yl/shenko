@@ -2880,7 +2880,7 @@ mod grant_account_tests {
     use super::*;
 
     #[test]
-    fn parsed_child_display_keeps_literals_separate_from_controls() {
+    fn parsed_child_display_keeps_literals_separate_from_controls() -> Result<()> {
         let literal = concat!(
             "  literal whitespace\r\n",
             "```text\n[tool:example.read:1] {}\n[reply] example reply\n```\n\n",
@@ -2896,7 +2896,8 @@ mod grant_account_tests {
         assert_eq!(parsed.tool_calls[0].kind, "actual.read");
         assert_eq!(parsed.tool_calls[0].input, serde_json::json!({"path":"evidence"}));
         assert_eq!(parsed.question.as_deref(), Some("Which source?"));
-        assert_eq!(parsed.reply.unwrap().body, "Granted reply");
+        assert_eq!(parsed.reply.context("parsed child reply is present")?.body, "Granted reply");
+        Ok(())
     }
 
     fn binding() -> ProviderBinding {

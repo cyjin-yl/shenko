@@ -405,18 +405,16 @@ impl Store {
                  WHERE i.agent_id = ?1 AND i.kind = 'publication' \
                  ORDER BY i.created_seq DESC, i.intent_id DESC LIMIT ?2",
             )?;
-            let publications = stmt
-                .query_map(rusqlite::params![agent_key, limit as i64], |r| {
-                    Ok(PublicationRow {
-                        intent_id: r.get(0)?,
-                        payload: r.get(1)?,
-                        state: r.get(2)?,
-                        recorded_at: r.get(3)?,
-                        receipt: r.get(4)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            publications
+            let rows = stmt.query_map(rusqlite::params![agent_key, limit as i64], |r| {
+                Ok(PublicationRow {
+                    intent_id: r.get(0)?,
+                    payload: r.get(1)?,
+                    state: r.get(2)?,
+                    recorded_at: r.get(3)?,
+                    receipt: r.get(4)?,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
         };
 
         let mut out = Vec::new();
@@ -566,6 +564,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Context;
     use serde_json::json;
     use shenko_types::{object::SchemaRef, output::ParsedOutput, subject::DelegationIntent};
 
@@ -588,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn delegation_brief_matches_one_bound_intent_and_leaves_missing_or_ambiguous_goals_unavailable() {
+    fn delegation_brief_matches_one_bound_intent_and_leaves_missing_or_ambiguous_goals_unavailable() -> Result<()> {
         let first_id = EntityId::new();
         let current_id = EntityId::new();
         let step_id = EntityId::new();
@@ -612,9 +611,9 @@ mod tests {
             publication_intents: vec![], pending_obligations: vec![], unknown_acknowledgements: vec![],
             attention_policy: None, evidence_refs: vec![], successor_step_id: EntityId::new(),
         };
-        let input = serde_json::to_value(&decision).unwrap();
-        let sealed = reference(&serde_json::to_vec(&input).unwrap());
-        let sealed_json = serde_json::to_string(&sealed).unwrap();
+        let input = serde_json::to_value(&decision)?;
+        let sealed = reference(&serde_json::to_vec(&input)?);
+        let sealed_json = serde_json::to_string(&sealed)?;
         let step_key = step_id.to_string();
         let record = |task: &TaskSummary| json!({"memos": {
             "intent_id": task.task_id, "native_input": "subject_decision",
@@ -628,7 +627,9 @@ mod tests {
         assert!(project(&task(EntityId::new(), step_id), &input).is_none());
 
         let mut ambiguous = input.clone();
-        ambiguous["delegated_task_intents"].as_array_mut().unwrap().push(json!(decision.delegated_task_intents[1]));
+        ambiguous["delegated_task_intents"].as_array_mut()
+            .context("the sealed decision must contain a delegation intent array")?
+            .push(json!(decision.delegated_task_intents[1]));
         assert!(project(&current, &ambiguous).is_none());
         let mut malformed = input.clone();
         malformed["delegated_task_intents"][1]["goal"] = json!({"private": "not text"});
@@ -642,17 +643,18 @@ mod tests {
 
         let unavailable = input_source(&current, &record(&current), Some(&sealed), None, Some(&sealed_json));
         assert!(brief_of(&current, &input, unavailable).is_none());
-        let other_seal = serde_json::to_string(&reference(b"another decision")).unwrap();
+        let other_seal = serde_json::to_string(&reference(b"another decision"))?;
         let unavailable = input_source(&current, &record(&current), Some(&sealed), Some(&step_key), Some(&other_seal));
         assert!(brief_of(&current, &input, unavailable).is_none());
         let mut missing_role = current;
         missing_role.role = TaskRole::Unknown;
         assert!(project(&missing_role, &input).is_none());
-        assert_eq!(input, serde_json::to_value(&decision).unwrap(), "projection retains the original decision");
+        assert_eq!(input, serde_json::to_value(&decision)?, "projection retains the original decision");
+        Ok(())
     }
 
     #[test]
-    fn ordinary_task_briefs_preserve_text_shapes_without_serializing_private_input() {
+    fn ordinary_task_briefs_preserve_text_shapes_without_serializing_private_input() -> Result<()> {
         let task = task(EntityId::new(), EntityId::new());
         let record = json!({"memos": {"native_input": "object"}});
         let source = input_source(&task, &record, None, None, None);
@@ -662,8 +664,8 @@ mod tests {
             assert_eq!(brief_of(&task, &input, source).as_deref(), Some(text));
         }
         assert_eq!(brief_of(&task, &json!({"spec": {"goal": text}}), source).as_deref(), Some(text));
-        let sealed = reference(&serde_json::to_vec(&json!({"goal": text})).unwrap());
-        let sealed_json = serde_json::to_string(&sealed).unwrap();
+        let sealed = reference(&serde_json::to_vec(&json!({"goal": text}))?);
+        let sealed_json = serde_json::to_string(&sealed)?;
         let explicit_object = input_source(&task, &record, Some(&sealed), task.created_by_step_id.as_deref(), Some(&sealed_json));
         assert_eq!(brief_of(&task, &json!({"goal": text}), explicit_object).as_deref(), Some(text));
         assert!(brief_of(&task, &json!({"private_context": "not a brief"}), source).is_none());
@@ -671,5 +673,6 @@ mod tests {
         assert!(brief_of(&task, &json!("PRIVATE_RAW_INPUT"), source).is_none());
         let unknown_source = input_source(&task, &json!({"memos": {"native_input": 17}}), None, None, None);
         assert!(brief_of(&task, &json!({"goal": text}), unknown_source).is_none());
+        Ok(())
     }
 }

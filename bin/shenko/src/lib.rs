@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shenko_identity::IdentityService;
-use shenko_types::channel::ChannelPlugin as _;
 use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -4964,7 +4963,7 @@ mod recovery_integration_tests {
     // Planned and after sealing, then S1 is processed once before I mirrors
     // its ACK. This is native I/L/CAS mechanics, not model-behavior proof.
     #[tokio::test]
-    async fn reopen_reconciles_spool_from_committed_subject_disposition() {
+    async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-continuity-{}", EntityId::new()));
         std::fs::create_dir(&dir).unwrap();
         let spool_path = dir.join("ingress.sqlite");
@@ -4974,10 +4973,9 @@ mod recovery_integration_tests {
                 "post_type":"message_sent", "message_type":"group", "group_id":7,
                 "self_id":9, "user_id":9, "message_id":42, "raw_message":"continue",
                 "sender":{"user_id":9,"nickname":"深刻"}
-            }))
-            .unwrap()
+            }))?
             .event()
-            .unwrap();
+            .context("fixture ingress did not produce an event")?;
         drop(spool);
 
         let config = NapCatConfig {
@@ -5023,18 +5021,21 @@ mod recovery_integration_tests {
         let inbox_event = shenko_types::inbox::InboxEvent {
             event_id: received.spool_id,
             kind: shenko_types::inbox::InboxEventKind::Message,
-            created_at: serde_json::from_value(old_payload["received_at"].clone()).unwrap(),
+            created_at: serde_json::from_value(old_payload["received_at"].clone())?,
             payload: old_payload,
             source: shenko_channel_napcat::QQ_SOURCE.into(),
         };
-        let old_event_bytes = serde_json::to_vec(&inbox_event).unwrap();
-        let historical = plugin.classify(&inbox_event.source, &inbox_event.payload).unwrap();
+        let old_event_bytes = serde_json::to_vec(&inbox_event)?;
+        let historical = plugin.classify(&inbox_event.source, &inbox_event.payload)
+            .context("historical inbox event was not classified")?;
         assert_eq!(historical.actor.own_account, None);
-        assert_eq!(serde_json::to_value(&historical).unwrap(), inbox_event.payload);
+        assert_eq!(serde_json::to_value(&historical)?, inbox_event.payload);
         assert!(plugin.staged_text(&historical).contains("是否本账号发出未记录"));
-        let newly_classified = plugin.classify(&inbox_event.source, &received.raw).unwrap();
+        let newly_classified = plugin.classify(&inbox_event.source, &received.raw)
+            .context("original wire event was not classified")?;
         assert_eq!(newly_classified.actor.own_account, Some(true));
-        assert!(newly_classified.reply_target.as_ref().unwrap().shape.is_some());
+        assert!(newly_classified.reply_target.as_ref()
+            .context("newly classified event has no reply target")?.shape.is_some());
 
         let store = Arc::new(shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
         let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
@@ -5051,7 +5052,7 @@ mod recovery_integration_tests {
             &model_profile,
         )
         .unwrap();
-        let (head, step) = store.load_subject(agent).unwrap();
+        let (head, step) = store.load_subject(agent)?;
         assert!(
             store
                 .event_disposition_commit(agent, inbox_event.event_id)
@@ -5069,44 +5070,48 @@ mod recovery_integration_tests {
             event_id: inbox_event.event_id, event_type: "user".into(),
             data: serde_json::json!({"v":1,"text":old_text,"inbox_event":&inbox_event}),
         };
-        let staged = store.stage_subject_inputs(&head, &step, &[history_input.clone()]).unwrap();
+        let staged = store.stage_subject_inputs(&head, &step, std::slice::from_ref(&history_input))?;
         let first_raw_id = staged[0].event_id;
         let first_raw_bytes = staged[0].data.clone();
-        assert!(store.first_subject_input(EntityId::new(), inbox_event.event_id).unwrap().is_none());
+        assert!(store.first_subject_input(EntityId::new(), inbox_event.event_id)?.is_none());
         drop(store);
 
         let store = Arc::new(open_native_fixture(&dir));
         let (head, mut step) = store.load_subject(agent).unwrap();
         let admitted = napcat_inbox_event(&store, agent, &client.spool, &plugin, replayed.clone())
-            .await.unwrap().unwrap();
-        assert_eq!(serde_json::to_vec(&admitted).unwrap(), old_event_bytes);
-        assert_eq!(store.first_subject_input(agent, admitted.event_id).unwrap().unwrap().data, first_raw_bytes);
-        assert_eq!(store.session_event(first_raw_id).unwrap().unwrap().data, first_raw_bytes);
+            .await?.context("planned replay did not retain its inbox event")?;
+        assert_eq!(serde_json::to_vec(&admitted)?, old_event_bytes);
+        assert_eq!(store.first_subject_input(agent, admitted.event_id)?
+            .context("planned replay lost its first subject input")?.data, first_raw_bytes);
+        assert_eq!(store.session_event(first_raw_id)?
+            .context("planned replay lost its original session event")?.data, first_raw_bytes);
         assert!(!client.spool.event(received.spool_id).unwrap().consumed);
         // The original conflict fence still rejects new facts under this id.
         let mut changed = history_input;
-        changed.data["inbox_event"]["payload"] = serde_json::to_value(&newly_classified).unwrap();
-        let error = store.stage_subject_inputs(&head, &step, &[changed]).unwrap_err();
+        changed.data["inbox_event"]["payload"] = serde_json::to_value(&newly_classified)?;
+        let error = store.stage_subject_inputs(&head, &step, &[changed]).err()
+            .context("different inbox facts were unexpectedly accepted under the original event id")?;
         assert!(error.to_string().contains("already staged with different facts"));
         step.input_plan_ref = Some(prepare_fixture_s0(&store, &head, &step));
-        let sealed_ref = step.input_plan_ref.clone().unwrap();
-        let sealed_bytes = store.cas.read_object(&sealed_ref.digest).unwrap();
+        let sealed_ref = step.input_plan_ref.clone().context("fixture S0 input plan was not retained")?;
+        let sealed_bytes = store.cas.read_object(&sealed_ref.digest)?;
         step.state = SubjectStepState::Preparing;
         step.record_revision = RecordRevision(1);
         store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
         drop(store);
 
         let store = Arc::new(open_native_fixture(&dir));
-        let (head, mut step) = store.load_subject(agent).unwrap();
+        let (head, mut step) = store.load_subject(agent)?;
         let sealed_replay = napcat_inbox_event(&store, agent, &client.spool, &plugin, replayed.clone())
-            .await.unwrap().unwrap();
-        assert_eq!(serde_json::to_vec(&sealed_replay).unwrap(), old_event_bytes);
+            .await?.context("sealed replay did not retain its inbox event")?;
+        assert_eq!(serde_json::to_vec(&sealed_replay)?, old_event_bytes);
         assert_eq!(step.input_plan_ref.as_ref(), Some(&sealed_ref));
-        assert_eq!(store.cas.read_object(&sealed_ref.digest).unwrap(), sealed_bytes);
-        let frozen: serde_json::Value = serde_json::from_slice(&sealed_bytes).unwrap();
+        assert_eq!(store.cas.read_object(&sealed_ref.digest)?, sealed_bytes);
+        let frozen: serde_json::Value = serde_json::from_slice(&sealed_bytes)?;
         assert_eq!(frozen["events"], serde_json::json!([&inbox_event]));
         assert_eq!(frozen["payload"]["messages"][0]["parts"][0]["text"], old_text);
-        assert_eq!(store.session_event(first_raw_id).unwrap().unwrap().data, first_raw_bytes);
+        assert_eq!(store.session_event(first_raw_id)?
+            .context("sealed replay lost its original session event")?.data, first_raw_bytes);
         step.state = SubjectStepState::AwaitingModel;
         step.active_request_id = Some(EntityId::new());
         step.record_revision = RecordRevision(2);
@@ -5195,7 +5200,7 @@ mod recovery_integration_tests {
             .commit_step_and_advance_head(&step, &head, next)
             .unwrap();
         // Intentionally omit ACK: model-side processing committed, I mirror is stale.
-        assert!(!client.spool.event(received.spool_id).unwrap().consumed);
+        assert!(!client.spool.event(received.spool_id)?.consumed);
         drop(store);
         drop(plugin);
         drop(client);
@@ -5219,7 +5224,7 @@ mod recovery_integration_tests {
         assert_eq!(restored.head.committed_at, receipt.commit_ref);
         assert_eq!(restored.step.step_id, next);
         assert_eq!(restored.step.state, SubjectStepState::Planned);
-        let (client, _events, _actions) = NapCatClient::open_persistent(config.clone(), &spool_path).unwrap();
+        let (client, _events, _actions) = NapCatClient::open_persistent(config.clone(), &spool_path)?;
         let client = Arc::new(client);
         let spool = client.spool.clone();
         let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> = Arc::new(
@@ -5232,12 +5237,13 @@ mod recovery_integration_tests {
             .unwrap()
             .unwrap();
         assert_eq!(commit, receipt.commit_ref);
-        assert!(napcat_inbox_event(&store, agent, &spool, &plugin, replayed).await.unwrap().is_none());
-        assert_eq!(store.load_subject(agent).unwrap().0.committed_step_no, 1);
+        assert!(napcat_inbox_event(&store, agent, &spool, &plugin, replayed).await?.is_none());
+        assert_eq!(store.load_subject(agent)?.0.committed_step_no, 1);
         assert_eq!(spool.pending_count().unwrap(), 0);
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
         assert!(spool.ingest(received.raw).unwrap().event().is_none());
         // Temporary evidence files are deliberately retained for inspection.
+        Ok(())
     }
 
     fn open_native_fixture(dir: &std::path::Path) -> shenko_store::store::Store {
