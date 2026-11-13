@@ -2,7 +2,7 @@
 //! `fixture-init` exclusively creates a new SQLite destination for an isolated
 //! synthetic task. Every preexisting database path is rejected, even if empty.
 //! A claimed destination is retained if initialization later fails.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use shenko_exec_ssh::*;
 use shenko_store::Store;
@@ -34,6 +34,14 @@ async fn main() -> Result<()> {
     let file = args.next().context("JSON input path")?;
     let input: Input = serde_json::from_slice(&std::fs::read(file)?)?;
     if mode == "fixture-init" {
+        let destination = input.db.as_os_str().as_encoded_bytes();
+        ensure!(
+            !destination.eq_ignore_ascii_case(b":memory:")
+                && !destination
+                    .get(..5)
+                    .is_some_and(|scheme| scheme.eq_ignore_ascii_case(b"file:")),
+            "fixture-init requires a persistent filesystem path, not a SQLite URI or in-memory database"
+        );
         // Claim before Store::open can initialize or migrate the database.
         // Sequence zero does not exclude durable recovery or archive history.
         // Leave this artifact in place on every subsequent error.
