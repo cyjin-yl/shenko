@@ -1463,7 +1463,7 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
     // adds no third task at all.
     let parent = subject.head.subject_root_task_id.to_string();
     let children = store
-        .list_recent_tasks(64)
+        .list_task_summaries(64)
         .unwrap()
         .into_iter()
         .filter(|recent| recent.task_id != task.task_id.to_string() && recent.task_id != parent)
