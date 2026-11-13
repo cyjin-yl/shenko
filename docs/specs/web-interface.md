@@ -900,3 +900,22 @@ missing or unfamiliar values remain absent. Its explicitly identified user
 sender establishes counterpart origin, while unfamiliar or missing sender types
 leave account ownership unknown. These are source changes; browser, provider,
 model and combined-candidate behavior still require the parent's verification.
+
+## Theme bootstrap and CSP — implementation note
+
+`src/index.html` loads `/assets/theme-bootstrap.js` as a blocking classic script
+before both stylesheets. Its single authored source is
+`web/src/theme-bootstrap.js`, moved from the former inline initializer with the
+same query, stored preference, system preference, dark default and error handling.
+`UiServer` serves the embedded asset through the usual static response helper;
+`script-src 'self'` continues to apply.
+
+The normal full `web/build.mjs` copies that source into
+`src/static/theme-bootstrap.js` and records its byte count and SHA-256 in the
+schema-1 manifest's `artifacts` map. The existing freshness consumer
+`scripts/ci/web_assets.py` inventories every static file and compares the entire
+artifact map and rebuilt payload bytes, so this script joins the same membership
+contract as the other embedded assets. The integration owner must regenerate with
+`pnpm run build` using the pinned upstream and its build receipt, then rebuild
+the Rust server before exercising real CSP and the theme before first paint.
+This source change adds no browser or runtime evidence.
