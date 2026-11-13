@@ -429,9 +429,9 @@ shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、
 
 compiler 迁移门槛包括状态一致、事件/焦点、SSR/离线静态部署需求、插件 UI、CSP、无障碍、国际化与主题回归。不能假设 compiler 必然更快更小，届时比较实际构建和运行成本。
 
-2026-11-13 owner 决定以 compiler 模式为目标，adapter 只作过渡。实测成本、逐 family 的阻塞、迁移规则和过渡期的上游修复见 [§6 compiler 模式](web-interface.md#6-compiler-mode)。
-
 <!-- /migrated-contract: SPEC:21.2 -->
+
+2026-11-13 owner 决定以 compiler 模式为目标，adapter 只作过渡。实测成本、逐 family 的阻塞、迁移规则和过渡期的上游修复见 [§6 compiler 模式](web-interface.md#6-compiler-mode)。
 
 <a id="spec-21-3"></a>
 <!-- migrated-contract: SPEC:21.3 -->
