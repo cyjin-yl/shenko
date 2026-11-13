@@ -623,6 +623,7 @@ mod tests {
                 person_ref: None,
                 role_grant_ref: None,
                 group_role: None,
+                own_account: false,
             },
             content: ChannelContent {
                 text: "在吗".to_string(),
@@ -637,6 +638,7 @@ mod tests {
                 account: account.to_string(),
                 tenant: None,
                 conversation: Some("chat-1".to_string()),
+                shape: None,
             }),
             attachments: vec![],
             raw_ref: None,

@@ -18,8 +18,8 @@ use serde_json::Value;
 
 use crate::common::{ADAPTER_ENVELOPE_SCHEMA_VERSION, integer_field, text_field};
 use shenko_types::channel::{
-    ChannelActor, ChannelAttachment, ChannelContent, ChannelEnvelope, ChannelReplyTarget,
-    ChannelSegment,
+    AudienceShape, ChannelActor, ChannelAttachment, ChannelContent, ChannelEnvelope,
+    ChannelReplyTarget, ChannelSegment,
 };
 
 use super::config::ILinkConfig;
@@ -154,6 +154,7 @@ pub fn classify(config: &ILinkConfig, raw: &Value) -> Option<ChannelEnvelope> {
             account: account.clone(),
             tenant: None,
             conversation: Some(from_user_id.clone()),
+            shape: Some(AudienceShape::OneToOne),
         })
     };
 
@@ -179,6 +180,8 @@ pub fn classify(config: &ILinkConfig, raw: &Value) -> Option<ChannelEnvelope> {
                 .is_admin(&from_user_id)
                 .then(|| format!("ilink-admin:{from_user_id}")),
             group_role: None,
+            // The platform drops the bot's own messages before they reach here.
+            own_account: false,
         },
         content: ChannelContent {
             text,

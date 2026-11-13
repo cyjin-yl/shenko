@@ -16,8 +16,8 @@ use serde_json::Value;
 use shenko_types::capabilities::ChannelCapabilities;
 use shenko_types::channel::{
     AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
-    ChannelError, ChannelPlugin, ChannelReceipt, ChannelReplyTarget, ChannelRegistry, ReplyKind,
-    ResolvedAttachment,
+    AudienceShape, ChannelError, ChannelPlugin, ChannelReceipt, ChannelReplyTarget, ChannelRegistry,
+    ReplyKind, ResolvedAttachment,
 };
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
@@ -139,6 +139,7 @@ impl NapCatChannel {
                 account: account.clone(),
                 tenant: None,
                 conversation: Some(group.clone()),
+                shape: Some(AudienceShape::Group),
             }),
             (None, Some(peer)) => Some(ChannelReplyTarget {
                 kind: "private".to_string(),
@@ -147,6 +148,7 @@ impl NapCatChannel {
                 account: account.clone(),
                 tenant: None,
                 conversation: Some(peer.clone()),
+                shape: Some(AudienceShape::OneToOne),
             }),
             (None, None) => None,
         };
@@ -161,6 +163,8 @@ impl NapCatChannel {
                 .filter(|number| self.config.is_admin(*number))
                 .map(|number| format!("qq-admin:{number}")),
             group_role: None,
+            own_account: actor_id.as_deref().and_then(NapCatChannel::qq_number)
+                == Some(self.config.bot_qq),
         };
         // The event identity must be stable across a redelivery and distinct
         // per event: the same recall seen twice is one observation.
@@ -319,6 +323,7 @@ impl ChannelPlugin for NapCatChannel {
                         account: account.clone(),
                         tenant: None,
                         conversation: Some(group_id.clone()),
+                        shape: Some(AudienceShape::Group),
                     }),
                     Some(group_id),
                 )
@@ -342,6 +347,7 @@ impl ChannelPlugin for NapCatChannel {
                         account: account.clone(),
                         tenant: None,
                         conversation: Some(peer.clone()),
+                        shape: Some(AudienceShape::OneToOne),
                     }),
                     Some(peer),
                 )
@@ -394,6 +400,7 @@ impl ChannelPlugin for NapCatChannel {
                 .filter(|account| self.config.is_admin(*account))
                 .map(|account| format!("qq-admin:{account}")),
             group_role,
+            own_account: own_message,
         };
         Some(ChannelEnvelope {
             schema_version: 1,

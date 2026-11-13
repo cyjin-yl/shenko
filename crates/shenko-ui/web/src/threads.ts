@@ -42,10 +42,21 @@ export interface ThreadMessage {
 
 export type ThreadKind = 'direct' | 'delegation' | 'channel';
 
+/** How many counterparts the viewer's side talks to in a thread. */
+export type ThreadAudience = 'one_to_one' | 'group';
+
 export interface Thread {
   id: string;
   kind: ThreadKind;
+  /**
+   * A one-to-one thread reads like a private chat: no sender names, one
+   * avatar. It comes from facts the thread source holds (a channel plugin's
+   * declared audience shape); a thread whose shape is unknown is a group.
+   */
+  audience: ThreadAudience;
   title: string;
+  /** One line under the title: where and with whom, in the source's words. */
+  subtitle: string;
   /** Who is in the thread, the viewer's side first. */
   participants: Participant[];
   /** The participant whose messages sit on the viewer's (right) side. */
@@ -179,7 +190,7 @@ registerThreadSource({
       if (!updatedAt && message.at) updatedAt = message.at;
     }
     return [{
-      id: 'direct', kind: 'direct', title: subject.name,
+      id: 'direct', kind: 'direct', audience: 'one_to_one', title: subject.name, subtitle: '直接对话',
       participants: [OWNER, subject], viewer: OWNER.id,
       preview: last ? last.text : '还没有消息',
       updated_at: updatedAt, messages, composer: true,
@@ -324,8 +335,8 @@ registerThreadSource({
       const id = String(task.task_id);
       const child = childParticipant(id);
       return {
-        id: `delegation:${id}`, kind: 'delegation', title: `${subject.name} 与 ${child.name}`,
-        participants: [subject, child], viewer: subject.id,
+        id: `delegation:${id}`, kind: 'delegation', audience: 'group', title: `${subject.name} 与 ${child.name}`,
+        subtitle: '委派', participants: [subject, child], viewer: subject.id,
         preview: `委派 · ${String(task.state)}`, updated_at: String(task.created_at ?? ''),
         messages: projection.source === 'demo' ? trajectoryMessages(demoTrajectory(id), subject) : [],
         composer: false, state: String(task.state),
@@ -344,11 +355,16 @@ export interface ConversationRow {
   thread_key: string;
   thread_label?: string | null;
   thread_kind: string;
+  /** The channel plugin's declared audience shape, when it stated one. */
+  thread_shape?: ThreadAudience | null;
   channel: string;
-  direction: 'inbound' | 'outbound';
+  /** `own` is the channel account's own line sent from another client. */
+  direction: 'inbound' | 'outbound' | 'own';
   message_id: string;
   sender_id?: string | null;
   sender_name?: string | null;
+  /** The sender holds an owner-set administrative grant on that channel. */
+  sender_admin?: boolean;
   text: string;
   at?: string | null;
   state?: string | null;
@@ -359,8 +375,11 @@ const PUBLICATION_WORDS: Record<string, string> = {
   blocked: '未发送', unknown: '发送结果未知',
 };
 
-/// Channel conversations — groups and direct chats on other platforms — from
-/// the subject's inbox envelopes and its committed publications.
+/// Every conversation the subject has with the outside, over any channel
+/// plugin — IM platforms, a relay to another Shenko on the local network, an
+/// embodied robot's channel — from its inbox envelopes and its committed
+/// publications. One reply audience is one thread; a private chat is a
+/// one-to-one thread when the plugin declared the audience shape.
 registerThreadSource({
   id: 'channels',
   order: 20,
@@ -381,21 +400,37 @@ registerThreadSource({
             meta: row.state ? PUBLICATION_WORDS[row.state] ?? row.state : undefined,
           } satisfies ThreadMessage;
         }
+        if (row.direction === 'own') {
+          // The account the subject speaks as, used from another client.
+          return {
+            key: row.message_id, from: subject, kind: 'message', text: row.text, at: row.at ?? undefined,
+            meta: '本账号从其他客户端发出',
+          } satisfies ThreadMessage;
+        }
         const id = `person:${row.sender_id ?? 'unknown'}`;
-        const person = people.get(id) ?? { id, name: row.sender_name || row.sender_id || '未知成员', role: 'person' as const };
+        const person = people.get(id) ?? {
+          id, name: row.sender_name || row.sender_id || '未知成员', role: row.sender_admin ? 'owner' as const : 'person' as const,
+        };
         people.set(id, person);
         return { key: row.message_id, from: person, kind: 'message', text: row.text, at: row.at ?? undefined } satisfies ThreadMessage;
       });
       const label = rows.find((row) => row.thread_label)?.thread_label;
+      const shape = rows.find((row) => row.thread_shape)?.thread_shape;
+      const audience: ThreadAudience = shape === 'one_to_one' ? 'one_to_one' : 'group';
+      const counterpart = [...people.values()][0];
+      const channel = rows[0].channel;
       const last = messages[messages.length - 1];
       return {
-        id: `channel:${key}`, kind: 'channel',
-        title: label || `${rows[0].channel} ${rows[0].thread_kind} ${key.split('|').pop()}`,
+        id: `channel:${key}`, kind: 'channel', audience,
+        title: (audience === 'one_to_one' && counterpart?.name) || label || `${channel} ${rows[0].thread_kind} ${key.split('|').pop()}`,
+        subtitle: audience === 'one_to_one'
+          ? `${channel} · 私聊${counterpart?.role === 'owner' ? ' · 管理员' : ''}`
+          : `${channel} · ${people.size + 1} 位参与者`,
         participants: [subject, ...people.values()], viewer: subject.id,
-        preview: last ? `${last.from.role === 'subject' ? '' : `${last.from.name}：`}${last.text}` : '',
+        preview: last ? `${last.from.role === 'subject' || audience === 'one_to_one' ? '' : `${last.from.name}：`}${last.text}` : '',
         updated_at: [...messages].reverse().find((message) => message.at)?.at,
         messages, composer: false,
-        note: `旁观中 · ${subject.name} 在 ${rows[0].channel} 的会话；网页暂不能代它发言`,
+        note: `旁观中 · ${subject.name} 在 ${channel} 的会话；网页暂不能代它发言`,
       } satisfies Thread;
     });
   },

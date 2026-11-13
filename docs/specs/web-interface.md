@@ -184,7 +184,49 @@ selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.
 | --- | --- | --- | --- |
 | 直接对话 | 你、主体 | 你 | 你的提交与回执；主体的消息是**选入了你那条消息的已提交步骤**（回执的 `selected_step_id`），不猜测；主体自己思考的轮次合并为一行“独自思考了 N 轮”，可跳到 Inspect；只有真实持久流式内容显示为“正在输出” |
 | 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | `GET /api/tasks/{id}/trajectory`：任务的封存输入（委派内容）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），以及它拥有的子任务（工具 child） |
-| 渠道群聊/私聊 | 主体、群成员 | 主体（旁观） | `GET /api/conversations`：主体 inbox 中负载为 `ChannelEnvelope` 的消息，按回复对象 `account|kind|id` 归组，并与目标相同的已提交 publication 合并；发送状态取 publication 状态 |
+| 渠道群聊/私聊 | 主体、对方或群成员 | 主体（旁观） | `GET /api/conversations`，见下文“主体全部对外沟通” |
+
+<a id="5-2-external"></a>
+**主体全部对外沟通（owner 决定，2026-11-13）。** 对话界面展示主体对外的全部沟通，不只是
+它和你的对话：
+
+- **任何渠道插件都一样。** IM 平台、内网里接触到的其他节点、具身机器人的通道，都只是又
+  一个渠道插件，不是特例。
+- **对方是谁都一样。** 对方可以是人、机器人，也可以是不同主体的另一个 Shenko。
+- **私聊。** 渠道支持私聊时，私聊是一对一会话：没有发言者名字，只显示一个头像。
+- **委派。** 委派群聊仍然列在其中，那是主体的内部协作。
+- **同一主体的其他节点。** 它们是同一个自我（见 [nodes](nodes.md)），不是会话对象。
+
+Why：主动主体的对外行为是你最需要看见、也最难从思考流里拼出来的东西。一个会话列表能
+回答“它在和谁说话、说了什么、送到了没有”。
+
+会话的事实来源：
+
+- **入站。** 每条入站消息读自它真正的持久位置：取走它的那一步的暂存输入
+  （`session_events` 中 `{"v":1,"inbox_event":…}`，负载为 `ChannelEnvelope`）。渠道消息
+  不经 `inbox_events` 表。被延后的消息可能由后续步骤再次暂存，按入站事件 id 去重。
+- **出站。** 已提交的 publication 按最近读取。时间优先取平台回执的 `observed_at`，没有
+  回执时取做出决定的那一步的开始时间。状态取 publication 状态。
+- **归组。** 两个方向按回复对象 `account|kind|id` 归为同一会话。
+- **一对一还是群。** 由插件在 `ChannelReplyTarget.shape` 里声明（`one_to_one` /
+  `group`）。它是受众的性质而不是回复类型的性质：同一个飞书 chat id 可能是单聊，也可能是
+  群。没有声明的会话按群显示，界面不按 `private` 之类的词表猜。
+- **本账号的消息。** 平台回报“本账号从其他客户端发出”的消息，由插件标为
+  `ChannelActor.own_account`，显示在主体一侧并注明来源。若它的平台消息 id 与某条
+  publication 回执的 `provider_message_id` 相同，它就是那条 publication 的回声，不再列出
+  第二次。
+- **对方是谁。** 只按事实认定：持有所有者设定的管理授权（`role_grant_ref`）的发言者标为
+  管理员；联系人目录（[contacts](contacts.md)）中的身份按其证实状态显示。“对方是另一个
+  Shenko 主体”同样必须是一条有来源的事实，例如经验证的对等身份或目录中的已证实关系，
+  绝不按昵称、头像或消息正文的自称判断。
+
+尚未具备，依次推进：
+
+1. **其他 Shenko 主体的身份事实。** 目录还没有“对方是 Shenko 主体”这一类关系，对等身份
+   也还没有验证协议。在那之前，另一个 Shenko 显示为它在该渠道的名字。
+2. **内网和具身机器人的渠道插件。** 目前还没有。它们接入后无需改界面。
+3. **以主体名义在渠道里发言。** 网页还不能这样做：你在会话里写的话，应当作为给主体的消息，
+   由它决定是否转达，而不是代它发言。
 
 旁观的会话不显示输入框：网页还不能代主体在渠道里发言或给运行中的子代理发消息，界面
 如实说明。Inspect 中每个委派从发起它的已提交轮次分出（任务的 `created_by_step_id`），
@@ -255,6 +297,76 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 `label`/`tone` 与 token 样式），连接事实、文案与推理仍留在
 `react-renderer.tsx`，没有搬进 compiler 或 Prototype。
 
+<a id="6-compiler-mode"></a>
+### compiler 模式是目标（owner 决定，2026-11-13）
+
+owner 决定：Shenko 的界面以 compiler 模式交付。运行时 adapter 是过渡桥，只用在
+pin 的 compiler 还编译不了的上游 family 上，不是终点。
+
+**Why（实测，候选 `c0497fb`，Proto-UI `35195a6`，React 19.3.1 production，
+headless Chromium）：**
+
+- **体积。** `app.js` 压缩后 1092.5 KiB（gzip 312 KiB）。其中 Proto-UI 的
+  runtime、adapter、modules、prototypes 及其依赖约 680 KiB；react-dom 是 205 KiB，
+  Shenko 自己的源码是 152 KiB。
+- **同一个 Prototype，两种宿主。** `message-bubble` 挂载 150 个：
+  - 编译产物和纯 DOM 在误差之内；
+  - 经 adapter 多 83 ms。
+- **上游 shadcn family 经 adapter 的开销。**
+  - button：每个实例挂载约 2 ms。
+  - toggle-group：挂载是超线性的（150 项要 6.0 s）。根因在上游，见下文。
+- **真实界面（demo 数据）。** 对话与 Inspect 来回切换，每次 50–138 ms。十次切换里，
+  Proto-UI 的 JS 时间是 693 ms，React 是 130 ms，Shenko 是 71 ms。
+
+**为什么还不能全部切换。** pin 的 compiler 能编译的 shadcn 文件是 0/216。界面用到的
+每个 family 都在 compiler 里有具体阻塞，见下表（`react-dom-source-v1`，第一处诊断）。
+shadcn 层先全部卡在 `PUI1003 Unsupported source package @proto.ui/prototypes-base/*`；
+解决之后，base 层还有：
+
+| family | base 层阻塞 |
+| --- | --- |
+| button | 无，base 可编译；shadcn 层只差包解析 |
+| toggle | `PUI1004` 子节点里的三元表达式 |
+| toggle-group | `PUI1004` 模块级运行时绑定；context 嵌套崩溃（#295 F1） |
+| collapsible | `PUI1003 defineHook`；context 嵌套崩溃 |
+| scroll-area | `PUI1006` context 值类型、非原始 prop、语义句柄进入数组 |
+| input、textarea | `PUI1003 asControlLabel` |
+| separator | `PUI1006` 只准入已声明的原始 prop |
+| drawer | `defineHook`、`asAxisInput`、数据类型、模板插值 |
+
+**禁止的捷径。** 在 Shenko 里用 compiler 可编译的子集重写这些 family，或者构建前把
+shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、无障碍和 collection 行为就和
+上游分叉了，也正是 #295 审计列出的禁止做法。
+
+**迁移规则。**
+
+- **切换条件。** 某个 family 同时满足下面两点时，才在 `ui-kit.tsx` 这一处边界换成
+  编译产物：
+  - pin 的 compiler 能编译上游的 shadcn 版本；
+  - 差分一致性注册表覆盖了它的行为，包括焦点与 disabled（F7）、props 更新（F5）、
+    context（F1、F4）。
+- **记录。** 切换时记录前后的实测数字。
+- **顺序。** 按实测成本排：
+  1. toggle-group（会话列表、视图切换、镜头栏）；
+  2. button；
+  3. collapsible；
+  4. scroll-area；
+  5. input、textarea；
+  6. toggle、separator、drawer。
+- **体积。** 编译产物现在每个组件各带一份辅助运行时：两个小组件就是 40 KiB（#295 F6）。
+  所以体积要等 F6 解决后再比较，不能假设 compiler 一定更小（§21.2）。
+- **插件界面。** 插件界面以 Prototype 交付。目标是在安装时编译；在此之前，插件界面
+  经 adapter 渲染。
+
+**过渡期的上游修复。** toggle-group 超线性的根因在上游：
+- anatomy 每次查询都按 `compareDocumentPosition` 重排整个域；
+- collection item 的 meta 通道又会算自己的位置；
+- 一次结构变化时，域里每个监听实例都各自重排一遍。
+
+修复让一轮通知内每个域只排一次序，并且只返回 meta。150 项从 6.0 s 降到 0.42 s，
+300 项是 1.34 s。修复已在本地提交为 Proto-UI 会话分支上的 `5db86b49`，但这次会话没有向上游推送的
+权限，所以还没有上游 PR。合入主线后随 pin 升级采用；在那之前 Shenko 仍按本节的 pin 构建。
+
 界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
 或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
 主体、provider、持久输入和流式接线验收。
@@ -316,6 +428,8 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 应用的领域模型、交互状态、无障碍语义和设计 token 与 renderer 分开；UiProjection 提供语义组件、事件、布局约束和资源引用。当前 React/runtime adapter 实现投影，未来 compiler adapter 接收同一应用语义并返回编译产物。只允许边界层依赖不稳定 compiler API；不在各页面散布其内部实现细节。
 
 compiler 迁移门槛包括状态一致、事件/焦点、SSR/离线静态部署需求、插件 UI、CSP、无障碍、国际化与主题回归。不能假设 compiler 必然更快更小，届时比较实际构建和运行成本。
+
+2026-11-13 owner 决定以 compiler 模式为目标，adapter 只作过渡。实测成本、逐 family 的阻塞、迁移规则和过渡期的上游修复见 [§6 compiler 模式](web-interface.md#6-compiler-mode)。
 
 <!-- /migrated-contract: SPEC:21.2 -->
 
