@@ -3488,13 +3488,18 @@
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",
         "web 全量：node --test tests/*.test.mjs → 21 passed / 0 failed",
         "node --test crates/shenko-ui/web/tests/live-controller.test.mjs：8 条全通过（流式 prefix 不标 committed、block 保留原因）",
-        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs：4 条全通过 + live-controller.test.mjs：8 条全通过（阅读锚点、动作绑定、重复提交幂等）"
+        "node --test crates/shenko-ui/web/tests/timeline-state.test.mjs：4 条全通过 + live-controller.test.mjs：8 条全通过（阅读锚点、动作绑定、重复提交幂等）",
+        "build/claude-followups-20261113/pr293-frontend-brief-r1/receipt.json 与 step-3.log；pr293-conversation-embed-r2/receipt.json：正常资源生成、类型检查/34 Node 用例、fe75f8459fac97b83a56a6298bc8deb2d1402fd6 的 Rust 嵌入与真实 UiServer consumer 构建；不是首屏视觉证明。",
+        "build/claude-followups-20261113/pr293-conversation-firstpaint-r1.json、pr293-conversation-firstpaint-r1.trace.json 与 pr293-conversation-firstpaint-frames-r1.json：Chromium 156.0.8078.79、1280×900、系统浅色；self bootstrap 先于 CSS，无观测到的 CSP violation，十个原生帧样本均无暗帧；对应 pr293-conversation-firstpaint-light-r1.png、pr293-conversation-firstpaint-frame-0.jpg 和 pr293-conversation-firstpaint-frame-9.jpg。",
+        "build/claude-followups-20261113/pr293-conversation-app-r2/runtime.json 与 pr293-conversation-chrome-r1/runtime.json：consumer SHA-256 5dae96bba5736afb1622ad4a7e9aaeea5c83f22a76bc88a25c23972f057125be，served manifest SHA-256 ed60b34441fdd5e39c43ca47b48318df5b012bb940a983b57c6078fc8e4f16e8；均已停止且清理有据，无模型/provider/真实 QQ 发送。",
+        "docs/specs/web-interface.md#current-ui-evidence-20261113：当前运行/视觉证据、单次首载范围、独立的样式来源义务与原失败回执位置。"
       ],
       "blockers": [
-        "UI-S12/13/14 缺首帧主题、无障碍宣布与实际阅读锚点证据。"
+        "UI-S12 已有单次 Chromium 浅色首载和 bootstrap 来源证据；全体样式单一来源、全部样式产物与源无偏差的完整验收仍未完成。",
+        "UI-S13 的屏幕阅读器有界宣布、UI-S14 的正文/作品/动作组合阅读锚点仍缺完整实际界面验收；此次首载与会话机制观察不补齐这两项。"
       ],
       "satisfied": false,
-      "note": "仅关联 UI-S12/13/14。既有 Node 与构建记录保留；浅色首帧、屏幕阅读器有界宣布及正文/作品/动作阅读锚点的实际界面行为仍未验证。",
+      "note": "仅关联 UI-S12/13/14。保留既有 Node/构建记录、全部历史结果及当前状态。新增 fe75 真 Store/UiServer/Chromium 的首载浅色/CSP 有界证据，不等于全体样式来源验收；UI-S12 仍 unverified。UI-S13/14 的独立义务保持，evidence_state 不作整项升级，satisfied=false；无模型行为、真实 QQ 发送或物理平台保证。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-ui/src/index.html:2",

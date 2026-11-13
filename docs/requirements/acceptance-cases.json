@@ -6479,9 +6479,14 @@
       ],
       "evidence": [
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",
-        "web 全量：node --test tests/*.test.mjs → 21 passed / 0 failed"
+        "web 全量：node --test tests/*.test.mjs → 21 passed / 0 failed",
+        "build/claude-followups-20261113/pr293-frontend-brief-r1/receipt.json 与 step-3.log：正常 frontend 构建、类型检查及 34 passed / 0 failed / 0 skipped；记录 Proto-UI 41282cb0ddc39283826e52e9932be123fc83eb47、42 包闭包和 770 字节 theme-bootstrap.js 的来源/产物摘要。仅构建与组件证据。",
+        "build/claude-followups-20261113/pr293-conversation-embed-r2/receipt.json：源码 fe75f8459fac97b83a56a6298bc8deb2d1402fd6，真实 Store/UiServer consumer SHA-256 5dae96bba5736afb1622ad4a7e9aaeea5c83f22a76bc88a25c23972f057125be；该回执中的 docs 两模式通过先于本次文档更新。",
+        "build/claude-followups-20261113/pr293-conversation-firstpaint-r1.json：Chromium 156.0.8078.79、实测 viewport 1280×900、系统浅色偏好；self 外部 bootstrap 在 CSS 前返回 200/770 字节，SHA-256 6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d，无观测到的 CSP violation；DOM ready/first paint/FCP 均为 light。",
+        "build/claude-followups-20261113/pr293-conversation-firstpaint-r1.trace.json、pr293-conversation-firstpaint-frames-r1.json、pr293-conversation-firstpaint-frame-0.jpg、pr293-conversation-firstpaint-frame-9.jpg 与 pr293-conversation-firstpaint-light-r1.png：同一次首载的十个原生 JPEG 样本从白色到浅色界面，每帧记录的 dark_fraction=0；仅此观测窗口。",
+        "build/claude-followups-20261113/pr293-conversation-app-r2/runtime.json 与 pr293-conversation-chrome-r1/runtime.json：实际服务的 manifest SHA-256 ed60b34441fdd5e39c43ca47b48318df5b012bb940a983b57c6078fc8e4f16e8；无模型端点/调用及真实 QQ 发送，二者已 stopped 且 cleanup.proven_clean=true。范围与早期失败见 docs/specs/web-interface.md#current-ui-evidence-20261113。"
       ],
-      "applicability": "既有构建和 Node 用例覆盖产物与源码一致性；没有观察浅色偏好下首屏是否暗闪，也没有据此完成实际样式来源验收。完整 UI-S12 未验证。",
+      "applicability": "既有构建与 Node 证据原样保留。当前 fe75 候选的真实 UiServer/Chromium 首载已观察系统浅色偏好、self 外部 bootstrap 先于 CSS、无 CSP violation 和十个白色到浅色原生帧样本；这是此浏览器/viewport/首载窗口未见暗闪的有界事实。bootstrap 的单一 authored source 与生成摘要不能证明全体样式的单一来源、全部样式产物与源无偏差，也不能外推所有加载/浏览器/物理设备。UI-S12 全部义务仍适用且 verification_status 保持 unverified；不据此提升整例、R160 或全 SPEC。",
       "migration_source": {
         "source_path": "SPEC.md",
         "source_markdown_line": 6670,

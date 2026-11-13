@@ -873,10 +873,42 @@ Only genuine EOF fixes that tail; interrupted or unknown responses do not
 acquire a false EOF. Markdown ranges are computed lazily on first complete
 classification, rather than on each incremental prefix query.
 
-These are source changes and consumer test definitions, not new runtime or
-model evidence. The integration owner rebuilds the frontend and exercises
-the parser, archive/reopen and structured thread consumers on the combined
-candidate; previously retained proofs are unchanged.
+<a id="current-ui-evidence-20261113"></a>
+Current evidence (2026-11-13) binds the observations below to Shenko source
+`fe75f8459fac97b83a56a6298bc8deb2d1402fd6`. Receipt paths in these implementation
+notes are relative to the retained evidence root
+`/tank/shared/projects/shenko/build/claude-followups-20261113/`, outside this
+worktree's `build/` directory.
+
+`pr293-frontend-brief-r1/receipt.json` records the normal frontend build, type
+check and 34 Node cases (0 failed, 0 skipped; `step-3.log`), using Proto-UI
+`41282cb0ddc39283826e52e9932be123fc83eb47` and its recorded 42-package build
+closure. `pr293-conversation-embed-r2/receipt.json` binds the unchanged source,
+the two exact Store brief cases, the rebuilt default CLI and the new genuine
+Store/UiServer consumer. Its two successful documentation modes precede this
+evidence-note update and do not validate the updated notes.
+
+The actual browser used that consumer, SHA-256
+`5dae96bba5736afb1622ad4a7e9aaeea5c83f22a76bc88a25c23972f057125be`,
+with served manifest SHA-256
+`ed60b34441fdd5e39c43ca47b48318df5b012bb940a983b57c6078fc8e4f16e8`.
+The retained fixture has 106 genuine owner admissions, two S1 commits and four
+tasks; its staged channel envelopes and publication produce ten API messages
+across three channel thread keys. The fixture fork is bound by
+`pr293-conversation-fixture-fork-r2.json`; the browser/API observations below
+read the real Store and UiServer, using scripted mechanism data. No model
+endpoint, provider call, subject-loop inference or real QQ send was used.
+These observations do not establish model behavior, physical platform support
+or whole-case/SPEC acceptance; earlier parser, archive/reopen and history
+proofs retain their original candidates and outcomes.
+
+`pr293-conversation-app-r2/runtime.json` and
+`pr293-conversation-chrome-r1/runtime.json` are terminal records: both report
+`status=stopped`, `cleanup.proven_clean=true`, no residual owned processes,
+no unknown residuals or unproven groups, and no failed process scan. The app
+stopped at its window deadline; Chromium stopped on request. Their former
+loopback URLs identify the captured observations, not a currently running
+instance.
 
 ## Delegation brief projection
 
@@ -899,9 +931,23 @@ digest before projecting it. Unreadable inputs, missing or inconsistent
 bindings, unsupported schemas, malformed fields and absent or duplicate
 matches return an unavailable brief. The browser renders the projected
 text verbatim and labels an unavailable brief explicitly. It does not
-decode controls or expose an S0/S1 JSON prefix. This implementation note
-records source behavior; new native and browser verification remains with
-the integration owner.
+decode controls or expose an S0/S1 JSON prefix.
+
+The current native receipt `pr293-conversation-embed-r2/receipt.json` records
+one exact pass each for
+`trajectory::tests::delegation_brief_matches_one_bound_intent_and_leaves_missing_or_ambiguous_goals_unavailable`
+and
+`trajectory::tests::ordinary_task_briefs_preserve_text_shapes_without_serializing_private_input`.
+The frontend receipt above includes the shared thread projection case.
+Actual Chromium observation
+`pr293-conversation-delegation-facts-r1.json` and
+`pr293-conversation-delegation-r1.png` show task
+`29316201-0000-0000-0000-000000000001` with the exact S1 goal
+`C29316:DELEGATION — SCRIPTED MECHANISM ONLY；只保留委派/工具结构，不运行处理器。`
+and its typed `pr293.fixture.tool_observer · running` child. The conversation
+shows that brief verbatim, without raw decision JSON. This is evidence for
+the goal and task-role projection; the fixture does not run that handler or
+measure a model's delegation quality.
 
 ## Conversation observation projection — implementation note
 
@@ -923,8 +969,29 @@ the owner or claims current privileges, and display labels grant no authority.
 Feishu states audience shape only for recognized `p2p` and `group` values;
 missing or unfamiliar values remain absent. Its explicitly identified user
 sender establishes counterpart origin, while unfamiliar or missing sender types
-leave account ownership unknown. These are source changes; browser, provider,
-model and combined-candidate behavior still require the parent's verification.
+leave account ownership unknown. This source rule does not itself prove live
+Feishu behavior.
+
+`pr293-conversation-group-facts-r1.json` records the actual
+`GET /api/conversations` response (`available=true`, ten messages, three
+channel thread keys), the corresponding DOM and
+`pr293-conversation-group-r1.png`. The observed own-account message is labeled
+`本账号发出`, without attributing it to another client or a proven subject
+action. A historical message with the same sender ID but no ownership
+observation retains `账号归属未知`. The grant-bearing message shows
+`此消息当时记录有管理授权 · 2026-11-13T12:00:03.000000000Z`; this is the
+message's historical observation, not current privilege. The platform group
+owner without that grant has no administrative label. The publication's own
+echo is absent while the counterpart with the same platform message ID remains;
+control-looking quotes, fences, inline/indented code and HTML text remain
+literal channel content. `pr293-conversation-group-observation-r1.json`
+retains the selected group control and its actual viewport.
+
+`pr293-conversation-shape-facts-r1.json` records native conversation selection
+and the resulting DOM: absent shape with `kind=private` shows
+`会话类型未知 · 成员人数未知` with the group layout; explicit `one_to_one`
+with `kind=group` shows `私聊`. These are actual UI projections of durable
+fixture facts, with the model/provider/real-channel limits stated above.
 
 ## Theme bootstrap and CSP — implementation note
 
@@ -940,7 +1007,43 @@ The normal full `web/build.mjs` copies that source into
 schema-1 manifest's `artifacts` map. The existing freshness consumer
 `scripts/ci/web_assets.py` inventories every static file and compares the entire
 artifact map and rebuilt payload bytes, so this script joins the same membership
-contract as the other embedded assets. The integration owner must regenerate with
-`pnpm run build` using the pinned upstream and its build receipt, then rebuild
-the Rust server before exercising real CSP and the theme before first paint.
-This source change adds no browser or runtime evidence.
+contract as the other embedded assets. The frontend and Rust embed receipts
+above record the completed normal regeneration and compilation; they are
+distinct from observing the server's actual CSP and first load.
+
+`pr293-conversation-firstpaint-r1.json` records the first navigation in
+Chromium `156.0.8078.79`, with an observed 1280 × 900 CSS-pixel viewport and
+an emulated system light preference, without a query/storage/DOM theme
+override. The actual page and bootstrap return HTTP 200 under the recorded
+`script-src 'self'` policy. The blocking script precedes both stylesheets;
+the response is 770 bytes with SHA-256
+`6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d`,
+matching the authored/generated asset recorded by the builder. No CSP
+violation was observed. DOM ready (1000.3 ms), first paint (1200 ms) and first
+contentful paint (2140 ms) all report light theme/class and canvas
+`oklch(0.992 0 0)`.
+
+The same capture's `pr293-conversation-firstpaint-r1.trace.json` and
+`pr293-conversation-firstpaint-frames-r1.json` retain ten native JPEG samples
+(500 × 352), progressing from white to the light interface; each recorded
+dark fraction is zero. The first and last samples are
+`pr293-conversation-firstpaint-frame-0.jpg` and
+`pr293-conversation-firstpaint-frame-9.jpg`; the full screenshot is
+`pr293-conversation-firstpaint-light-r1.png`. No dark frame appears in this
+observed load. The ten sampled frames and one browser/preference/viewport
+do not guarantee every load, browser or physical device.
+
+For UI-S12, this supplies bounded first-load and bootstrap-origin evidence.
+The script's one authored source, generated artifact identity and absence of
+an observed dark flash do not establish the broader requirement that all
+styles have one source and that every built style matches that source.
+UI-S12 remains `unverified`; R160 remains unsatisfied, and UI-S13/UI-S14 retain
+their separate accessibility and body/work/action reading obligations.
+
+Earlier failures remain in `pr293-frontend-t15-r1/receipt.json` (bundle write
+permission; no type check or tests ran),
+`pr293-conversation-embed-r1/receipt.json` and its `step-1.log` (the two obsolete
+inline-script source references; no Rust build/tests ran), and
+`pr293-conversation-app-r1/runtime.json` (failed before HTTP readiness).
+The later successful receipts do not rewrite those outcomes or the historical
+acceptance ledger.
