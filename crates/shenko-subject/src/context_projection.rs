@@ -279,6 +279,22 @@ pub fn staged_message_text(
 }
 
 fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHistoryInput, ShenkoError> {
+    // A deferred channel message may enter a later step after a projector
+    // upgrade. Keep the first exact source original AND its visible text;
+    // missing historical attribution must not be reinterpreted by new code.
+    if event.kind == InboxEventKind::Message
+        && state.channels.channel_for_source(&event.source).is_some()
+    {
+        if let Some(staged) = state.store.first_subject_input(state.agent_id, event.event_id)? {
+            if same_source_delivery(&staged_original(&staged.data)?, event) {
+                return Ok(SubjectHistoryInput {
+                    event_id: event.event_id,
+                    event_type: staged.event_type,
+                    data: serde_json::from_str(&staged.data)?,
+                });
+            }
+        }
+    }
     let mut data = serde_json::json!({"v":1, "inbox_event":event});
     let event_type = match (&event.kind, event.source.as_str()) {
         (InboxEventKind::TaskResult, "native-child") => {

@@ -180,8 +180,10 @@ pub fn classify(config: &ILinkConfig, raw: &Value) -> Option<ChannelEnvelope> {
                 .is_admin(&from_user_id)
                 .then(|| format!("ilink-admin:{from_user_id}")),
             group_role: None,
-            // The platform drops the bot's own messages before they reach here.
-            own_account: false,
+            // Type 1 is a user message; a missing/unknown type establishes no
+            // attribution. Type 2 was excluded above as the bot's own line.
+            own_account: (integer_field(&message, "message_type") == Some(1))
+                .then_some(false),
         },
         content: ChannelContent {
             text,

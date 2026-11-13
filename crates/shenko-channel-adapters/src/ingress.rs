@@ -623,7 +623,7 @@ mod tests {
                 person_ref: None,
                 role_grant_ref: None,
                 group_role: None,
-                own_account: false,
+                own_account: None,
             },
             content: ChannelContent {
                 text: "在吗".to_string(),

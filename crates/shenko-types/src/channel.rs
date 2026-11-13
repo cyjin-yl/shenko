@@ -132,11 +132,12 @@ pub struct ChannelActor {
     /// Platform group role (`owner`/`admin`/`member`), informational only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_role: Option<String>,
-    /// The platform reports this event as sent by the account the channel
-    /// speaks as (for example from another client of the same account), so
-    /// it is the account's own line, never a person's message.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub own_account: bool,
+    /// The platform's account-origin fact: `Some(true)` is the account this
+    /// channel speaks as, `Some(false)` is an observed counterpart, and `None`
+    /// means the original did not record which. In particular, historical
+    /// absence is not evidence that the line came from somebody else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_account: Option<bool>,
 }
 
 /// The body of one inbound message.

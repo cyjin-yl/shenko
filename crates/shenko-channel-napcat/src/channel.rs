@@ -163,8 +163,8 @@ impl NapCatChannel {
                 .filter(|number| self.config.is_admin(*number))
                 .map(|number| format!("qq-admin:{number}")),
             group_role: None,
-            own_account: actor_id.as_deref().and_then(NapCatChannel::qq_number)
-                == Some(self.config.bot_qq),
+            // A notice reports an action, not the origin of a sent line.
+            own_account: None,
         };
         // The event identity must be stable across a redelivery and distinct
         // per event: the same recall seen twice is one observation.
@@ -400,7 +400,7 @@ impl ChannelPlugin for NapCatChannel {
                 .filter(|account| self.config.is_admin(*account))
                 .map(|account| format!("qq-admin:{account}")),
             group_role,
-            own_account: own_message,
+            own_account: Some(own_message),
         };
         Some(ChannelEnvelope {
             schema_version: 1,
@@ -438,16 +438,13 @@ impl ChannelPlugin for NapCatChannel {
             .map(str::trim)
             .filter(|name| !name.is_empty())
             .unwrap_or(envelope.actor.platform_id.as_str());
-        // The account's own line (a `message_sent` event, e.g. sent from
-        // another client) is attributed to the account, never to a person: a
-        // multi-speaker group must not read the bot's own words as somebody
-        // else's message.
-        let own = NapCatChannel::qq_number(&envelope.actor.platform_id)
-            == Some(self.config.bot_qq);
-        let who = if own {
-            format!("{who}（本账号发出）")
-        } else {
-            who.to_string()
+        // Classification owns attribution. A historical missing fact stays
+        // unknown; the runtime reuses its prior staged projection when one
+        // exists, rather than reconstructing it from today's account config.
+        let who = match envelope.actor.own_account {
+            Some(true) => format!("{who}（本账号发出）"),
+            Some(false) => who.to_string(),
+            None => format!("{who}（是否本账号发出未记录）"),
         };
         let body = envelope.content.text.trim();
         let attachments = if envelope.attachments.is_empty() {
@@ -746,10 +743,19 @@ mod tests {
         assert_eq!(envelope.conversation.as_deref(), Some("7"));
         assert_eq!(envelope.message_id, "900");
         assert_eq!(envelope.actor.platform_id, "10000");
+        assert_eq!(envelope.actor.own_account, Some(true));
         assert_eq!(
             plugin.staged_text(&envelope),
             "[深刻（本账号发出） · 群 7] 我先看一下"
         );
+        // The recorded fact, not a current account-number comparison, owns
+        // the projection even when no numeric sender id was available.
+        let mut without_sender_id = envelope.clone();
+        without_sender_id.actor.platform_id.clear();
+        assert_eq!(plugin.staged_text(&without_sender_id), plugin.staged_text(&envelope));
+        let canonical = serde_json::to_value(&envelope).unwrap();
+        let replayed = plugin.classify(QQ_SOURCE, &canonical).unwrap();
+        assert_eq!(replayed, envelope);
         // It is not administration: the account is not an owner-set admin.
         assert_eq!(envelope.actor.role_grant_ref, None);
         // The peer's own messages keep the original wording.
@@ -764,7 +770,12 @@ mod tests {
             "message": [{"type": "text", "data": {"text": "在吗"}}]
         });
         let envelope = plugin.classify(QQ_SOURCE, &incoming).unwrap();
+        assert_eq!(envelope.actor.own_account, Some(false));
+        assert_eq!(serde_json::to_value(&envelope).unwrap()["actor"]["own_account"], false);
         assert_eq!(plugin.staged_text(&envelope), "[甲 · 群 7] 在吗");
+        let mut misleading_sender_id = envelope.clone();
+        misleading_sender_id.actor.platform_id = "10000".into();
+        assert_eq!(plugin.staged_text(&misleading_sender_id), "[甲 · 群 7] 在吗");
         // A platform group role is not an administrative grant either; only
         // the owner-configured admin list is.
         assert_eq!(envelope.actor.role_grant_ref, None);

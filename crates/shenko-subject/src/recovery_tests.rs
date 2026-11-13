@@ -456,6 +456,90 @@ async fn staged_input_recovers_before_s0_without_duplication() {
     assert!(text.contains("recover this exact input"));
 }
 
+#[tokio::test]
+async fn deferred_channel_restage_preserves_first_projection() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let original = shenko_types::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: shenko_types::inbox::InboxEventKind::Message,
+        source: "napcat".into(),
+        created_at: chrono::Utc::now(),
+        // Literal historical envelope: absence records no ownership claim.
+        payload: serde_json::json!({
+            "schema_version":1,"provider":"qq","account":"qq:10000",
+            "transport_identity_domain":"onebot_v11","conversation":"7",
+            "message_id":"42","received_at":"2026-11-12T00:00:00Z",
+            "actor":{"platform_id":"10000","display_name":"深刻"},
+            "content":{"text":"continue"},
+            "reply_target":{"kind":"group","id":"7","label":"群 7",
+                "account":"qq:10000","conversation":"7"}
+        }),
+    };
+    let old_text = format!("[event {}] [深刻（本账号发出） · 群 7] continue", original.event_id);
+    assert!(crate::staged_message_text(&original.payload, &original.source, &subject.channels)
+        .contains("是否本账号发出未记录"));
+    let first = store.stage_subject_inputs(&subject.head, &subject.step, &[
+        shenko_store::SubjectHistoryInput {
+            event_id: original.event_id,
+            event_type: "user".into(),
+            data: serde_json::json!({"v":1,"text":old_text,"inbox_event":&original}),
+        },
+    ]).unwrap().remove(0);
+    let deferred = format!("[dispose] {}", serde_json::json!({
+        "event_id":original.event_id,"disposition":"deferred","reason":"Keep the original pending",
+    }));
+    let first_step = commit_output(&store, &mut subject, 1, &[], &deferred).await;
+    assert_ne!(subject.step.step_id, first_step);
+    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+    drop(subject);
+    drop(store);
+
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap();
+    let mut replayed = original.clone();
+    replayed.created_at += chrono::Duration::seconds(5);
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed])
+        .unwrap().expect("deferred original must fit");
+    assert_eq!(prepared.events, vec![original.clone()]);
+    assert_eq!(prepared.context.source.input_raw_event_ids.len(), 1);
+    let restaged = store.session_event(prepared.context.source.input_raw_event_ids[0])
+        .unwrap().unwrap();
+    assert_ne!(restaged.event_id, first.event_id);
+    assert_eq!(restaged.data, first.data);
+    assert_eq!(store.first_subject_input(agent, original.event_id).unwrap().unwrap(), first);
+
+    // Use the actual subject S0 path, with cancellation before any provider
+    // admission. The real request identity and projection survive another
+    // reopen even when the volatile input is delivered again.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(2, &[], &mut subject, &cancel).await.unwrap();
+    let sealed_ref = subject.step.input_plan_ref.clone().unwrap();
+    let sealed_bytes = store.cas.read_object(&sealed_ref.digest).unwrap();
+    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    let request_id = sealed.request_id;
+    assert_eq!(sealed.events, vec![original.clone()]);
+    assert!(sealed.payload.messages.iter().flat_map(|message| &message.parts).any(|part| {
+        matches!(part, shenko_broker::request::InferencePart::Text { text } if text == &old_text)
+    }));
+    drop(subject);
+    drop(store);
+
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap();
+    execute_step(2, &[original.clone()], &mut subject, &cancel).await.unwrap();
+    assert_eq!(subject.step.input_plan_ref.as_ref(), Some(&sealed_ref));
+    assert_eq!(store.cas.read_object(&sealed_ref.digest).unwrap(), sealed_bytes);
+    assert_eq!(super::frozen_input(&store, &subject.step).unwrap().request_id, request_id);
+    // A deterministic recorded result exercises real S1; it makes no claim
+    // about a model understanding the attribution.
+    record_result(&store, &mut subject, "retain the first conversation original");
+    let commit = execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().unwrap();
+    assert_eq!(store.event_disposition_commit(agent, original.event_id).unwrap(), Some(commit));
+}
+
 #[test]
 fn native_result_replay_keeps_first_delivery_metadata() {
     let (_dir, store, agent) = fixture();

@@ -195,7 +195,7 @@ pub fn classify(config: &QqOfficialConfig, raw: &Value) -> Option<ChannelEnvelop
                 .then(|| format!("qq-official-admin:{platform_id}")),
             group_role,
             // The platform drops the bot's own messages before they reach here.
-            own_account: false,
+            own_account: Some(false),
         },
         content: ChannelContent {
             text,

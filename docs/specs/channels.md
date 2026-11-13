@@ -361,3 +361,45 @@ No writer, frozen schema, delivery verdict or input disposition changes.
 The existing Store roundtrip conversation
 regression covers these scopes, two real subjects sharing the Store and a small
 window behind re-staged and inapplicable inputs; runtime verification is separate.
+
+## Implementation appendix: canonical originals across upgrades
+
+`ChannelActor::own_account` preserves the presence of the platform fact:
+`Some(true)` records the served account's line, `Some(false)` records an
+observed counterpart, and `None` records missing attribution. Historical
+envelopes that omitted the field remain absent when serialized again. New
+NapCat message classification records the `message_sent` / `message` fact;
+notice events do not assert the origin of a sent line. iLink records a
+counterpart only for its explicit user-message type. A projector does not
+reconstruct missing ownership from the current account configuration.
+
+The native NapCat admission path (`bin/shenko/src/lib.rs`,
+`napcat_inbox_event`) first reads the event's original account-bound spool
+row and the control ledger's disposition. An existing S1 disposition alone
+permits the spool acknowledgement. For an unresolved event,
+`Store::first_subject_input(agent_id, source_event_id)` reads the earliest
+staged original from that agent's current branch, including a sealed or
+deferred step. This is a pure read of `subject_raw_inputs` and
+`session_events`, supported by an index on source identity and session; it
+does not stage, enrich, acknowledge or change a sealed input. Admission
+reuses that complete inbox original, including its payload and timestamps,
+before running any newer classifier or attachment resolver. A fresh event
+uses the spool's first wire original and reception time. Repeat/conflict
+wire observations remain in the ingress ledger.
+
+`context_projection::stage_input` reuses the first staged channel projection
+when the complete stable source fields still match. This also preserves the
+old text when a deferred event enters a later step. Without retained text,
+NapCat renders missing attribution explicitly as unknown. A recorded
+ownership fact controls new projections even when the actor id differs from
+the current configured account. The existing full-fact staging conflict
+fence remains in force; no input identity, S0 schema, sealed request or
+external-effect outcome is rewritten to make a replay fit.
+
+The bounded regression sources cover literal old envelopes through native
+spool delivery, staged/sealed reopen, the unchanged staging conflict, and
+S1-based acknowledgement; the subject regression separately uses real S0
+sealing and deferred re-staging to retain the original text and request
+identity. These source changes have not been executed by the coding worker.
+Parent verification must bind the combined candidate and distinguish native
+durability mechanisms from actual model behavior.
