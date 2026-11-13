@@ -5,12 +5,12 @@
     "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
     "previous_reviewed_commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/var/idw-target/receipts/taste-web-r1/proto-ui",
+    "source_checkout": "/home/user/Proto-UI",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/var/idw-target/receipts/taste-web-r2/upstream-build.json",
-      "receipt_sha256": "0abba0dedfe3ca88f311ccbbee42e8e0de7c143e7e51cdfd8324622ca0c16172"
+      "receipt_path": "/tmp/claude-0/sk/receipt.json",
+      "receipt_sha256": "b5148f34648f20bb38baf627619e1e663488edc2363a84293fe60cb7539479f5"
     }
   },
   "packages": [
@@ -136,24 +136,24 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/shenko/worktrees/taste-integration-20261116/crates/shenko-ui/web",
-  "built_at": "2026-11-16T11:20:44.301Z",
+  "web_root": "/home/user/shenko/crates/shenko-ui/web",
+  "built_at": "2026-11-18T11:24:51.682Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1102956,
-      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693"
+      "bytes": 1104656,
+      "sha256": "18c75bd9127d9a398497a55f0de2b22efdc9c77858e510c4a6159f80f670f81f"
     },
-    "chunks/chunk-TJPYHGM5.js": {
-      "bytes": 58903,
-      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d"
+    "chunks/chunk-R2KHDUQA.js": {
+      "bytes": 59695,
+      "sha256": "75ef1ca301f57cad050a1054687d5ee9169c491de092163b34c29fa2abdcd3fd"
     },
-    "chunks/demo-controller-3CZCHCX4.js": {
-      "bytes": 11495,
-      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0"
+    "chunks/demo-controller-DG2CHFZW.js": {
+      "bytes": 13249,
+      "sha256": "ee79b6d121b5bab82f230f2dd817e72682b1971d196b9f96c9537f3b0543787b"
     },
     "app.css": {
       "bytes": 48531,

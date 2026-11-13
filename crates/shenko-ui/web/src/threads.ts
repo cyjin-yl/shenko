@@ -216,6 +216,8 @@ export interface TrajectoryResponse {
   operations: Array<{
     operation_id: string; operation_name: string; logical_key: string; state: unknown;
     outcome: unknown; attempts: number; record: Record<string, unknown> | null; record_status: string;
+    /** When the step's final evidence was observed. */
+    observed_at?: string | null;
   }>;
 }
 
@@ -232,8 +234,9 @@ export function shortId(id: string): string {
   return id.slice(0, 4);
 }
 
-export function childParticipant(taskId: string): Participant {
-  return { id: `child:${taskId}`, name: t('delegation.child', { id: shortId(taskId) }), role: 'child' };
+/** A child is named by its delegator when it was given a name. */
+export function childParticipant(taskId: string, name?: string | null): Participant {
+  return { id: `child:${taskId}`, name: name || t('delegation.child', { id: shortId(taskId) }), role: 'child' };
 }
 
 function briefOf(trajectory: TrajectoryResponse): string {
@@ -244,10 +247,11 @@ function briefOf(trajectory: TrajectoryResponse): string {
 
 /// Turn one sealed trajectory into a delegation thread's messages.
 export function trajectoryMessages(trajectory: TrajectoryResponse, subject: Participant): ThreadMessage[] {
-  const child = childParticipant(trajectory.task.task_id);
+  const name = trajectory.task.name;
+  const child = childParticipant(trajectory.task.task_id, name);
   const messages: ThreadMessage[] = [{
     key: `brief-${trajectory.task.task_id}`, from: subject, kind: 'message', text: briefOf(trajectory),
-    at: trajectory.task.created_at, tag: t('delegation.label'),
+    at: trajectory.task.created_at, tag: name ? t('delegation.labelNamed', { name }) : t('delegation.label'),
   }];
   const tools = trajectory.children.filter((task) => task.role === 'tool');
   for (const operation of trajectory.operations) {
@@ -297,10 +301,15 @@ export function registerRecordView(operationName: string, view: RecordView): () 
   return () => { if (recordViews.get(operationName) === view) recordViews.delete(operationName); };
 }
 
+/// A child step reads from its sealed record's structured fields: the parsed
+/// text, tool calls, messages it told team peers and a wait; nothing is
+/// re-parsed here. Steps carry their evidence time so a team's members can
+/// be read in the order things happened.
 registerRecordView('model.child.generate.v1', ({ operation, subject, child, tools }) => {
   const record = operation.record;
+  const at = operation.observed_at ?? undefined;
   if (!record) {
-    return [{ key: operation.operation_id, from: child, kind: 'message', tone: 'pending', text: '', meta: operation.record_status === 'unsettled' ? t('delegation.stepPending') : t('delegation.recordError', { status: operation.record_status }) }];
+    return [{ key: operation.operation_id, from: child, kind: 'message', tone: 'pending', text: '', at, meta: operation.record_status === 'unsettled' ? t('delegation.stepPending') : t('delegation.recordError', { status: operation.record_status }) }];
   }
   // Version 1 records already store the canonical parser's public text
   // separately from tool/reply/question controls. Other historical formats
@@ -310,15 +319,23 @@ registerRecordView('model.child.generate.v1', ({ operation, subject, child, tool
   }
   const out: ThreadMessage[] = [];
   for (const [index, turn] of ((record.dialogue as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
-    out.push({ key: `${operation.operation_id}-dialogue-${index}`, from: subject, kind: 'message', text: String(turn.message ?? '') });
+    // A peer's message is shown once, where its sender said it.
+    if (turn.sender_name) continue;
+    out.push({ key: `${operation.operation_id}-dialogue-${index}`, from: subject, kind: 'message', text: String(turn.message ?? ''), at });
   }
   const text = record.text;
   const usage = record.usage as Record<string, unknown> | undefined;
   const meta = [t('delegation.step', { step: Number(record.step_index ?? 0) + 1 }), usage?.output_tokens != null ? `${usage.output_tokens} tokens` : null, record.text_truncated ? t('delegation.truncated') : null]
     .filter(Boolean).join(' · ');
-  if (text) out.push({ key: `${operation.operation_id}-text`, from: child, kind: 'message', text, meta });
+  if (text) out.push({ key: `${operation.operation_id}-text`, from: child, kind: 'message', text, meta, at });
+  for (const [index, tell] of ((record.tells as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
+    out.push({ key: `${operation.operation_id}-tell-${index}`, from: child, kind: 'message', text: String(tell.message ?? ''), tag: t('delegation.tellTo', { name: String(tell.to ?? '') }), at });
+  }
   if (typeof record.question === 'string' && record.question) {
-    out.push({ key: `${operation.operation_id}-question`, from: child, kind: 'message', text: record.question, tag: t('delegation.question') });
+    out.push({ key: `${operation.operation_id}-question`, from: child, kind: 'message', text: record.question, tag: t('delegation.question'), at });
+  }
+  if (typeof record.wait === 'string') {
+    out.push({ key: `${operation.operation_id}-wait`, from: child, kind: 'system', text: t('delegation.waiting', { child: child.name, reason: record.wait ? `：${record.wait}` : '' }), at });
   }
   const calls = (record.tool_calls as Array<Record<string, unknown>> | undefined) ?? [];
   for (const [index, call] of calls.entries()) {
@@ -326,11 +343,11 @@ registerRecordView('model.child.generate.v1', ({ operation, subject, child, tool
     const name = String(call.kind ?? call.tool ?? tool?.kind ?? t('delegation.tool'));
     out.push({
       key: `${operation.operation_id}-tool-${index}`, from: toolParticipant(name), kind: 'system',
-      text: t('delegation.call', { child: child.name, tool: name, state: tool ? ` · ${tool.state}` : '' }),
+      text: t('delegation.call', { child: child.name, tool: name, state: tool ? ` · ${tool.state}` : '' }), at,
     });
   }
-  if (!text && calls.length === 0 && !record.question) {
-    out.push({ key: `${operation.operation_id}-empty`, from: child, kind: 'system', text: t('delegation.noOutput', { meta }) });
+  if (out.length === 0) {
+    out.push({ key: `${operation.operation_id}-empty`, from: child, kind: 'system', text: t('delegation.noOutput', { meta }), at });
   }
   return out;
 });
@@ -344,15 +361,48 @@ registerRecordView('model.child.result.v1', ({ operation, child }) => {
   }];
 });
 
-/// Delegations: one group per model child the subject started.
+/// Delegations: one thread per child the subject started, and one group
+/// thread per team — the children one decision started with the same team
+/// label, which talk to each other directly.
 registerThreadSource({
   id: 'delegations',
   order: 10,
   threads({ projection, tasks, demo }) {
     const subject = subjectParticipant(projection);
-    return tasks.filter(isDelegation).map((task) => {
+    const trajectory = async (id: string): Promise<TrajectoryResponse> => {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(id)}/trajectory`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`trajectory ${response.status}`);
+      return await response.json() as TrajectoryResponse;
+    };
+    const teams = new Map<string, TaskSummary[]>();
+    const singles: TaskSummary[] = [];
+    for (const task of tasks.filter(isDelegation)) {
+      if (task.team) {
+        const key = `${task.created_by_step_id ?? ''}|${task.team}`;
+        teams.set(key, [...(teams.get(key) ?? []), task]);
+      } else {
+        singles.push(task);
+      }
+    }
+    const team = [...teams.entries()].map(([key, members]) => {
+      const people = members.map((task) => childParticipant(task.task_id, task.name));
+      const running = members.filter((task) => !['succeeded', 'failed', 'cancelled'].includes(task.state)).length;
+      return {
+        id: `team:${key}`, kind: 'delegation', audience: 'group', title: members[0].team ?? '',
+        subtitle: t('delegation.teamSubtitle', { count: people.length, running: running ? t('delegation.teamRunning', { count: running }) : '' }),
+        participants: [subject, ...people], viewer: subject.id,
+        preview: people.map((person) => person.name).join('、'),
+        updated_at: members.map((task) => task.created_at).sort().pop(),
+        messages: demo ? teamMessages(members.map((task) => demo.trajectory(task.task_id)), subject) : [],
+        composer: false,
+        note: t('delegation.teamReadonly'),
+        load: projection.source === 'demo' ? undefined
+          : async () => teamMessages(await Promise.all(members.map((task) => trajectory(task.task_id))), subject),
+      } satisfies Thread;
+    });
+    return [...team, ...singles.map((task) => {
       const id = String(task.task_id);
-      const child = childParticipant(id);
+      const child = childParticipant(id, task.name);
       return {
         id: `delegation:${id}`, kind: 'delegation', audience: 'group', title: t('delegation.groupTitle', { subject: subject.name, child: child.name }),
         subtitle: t('delegation.label'), participants: [subject, child], viewer: subject.id,
@@ -366,9 +416,26 @@ registerThreadSource({
           return trajectoryMessages(await response.json() as TrajectoryResponse, subject);
         },
       } satisfies Thread;
-    });
+    })];
   },
 });
+
+/// One team's trajectories as one discussion: every member's brief first, in
+/// the order the decision wrote them, then every step by its observed time.
+export function teamMessages(trajectories: TrajectoryResponse[], subject: Participant): ThreadMessage[] {
+  const briefs: ThreadMessage[] = [];
+  const steps: ThreadMessage[] = [];
+  for (const trajectory of trajectories) {
+    const [brief, ...rest] = trajectoryMessages(trajectory, subject);
+    briefs.push(brief);
+    steps.push(...rest);
+  }
+  const time = (message: ThreadMessage) => (message.at ? Date.parse(message.at) : Number.POSITIVE_INFINITY);
+  // A stable sort keeps each member's own order where times tie or are unknown.
+  return [...briefs, ...steps.map((message, index) => ({ message, index }))
+    .sort((a, b) => time(a.message) - time(b.message) || a.index - b.index)
+    .map(({ message }) => message)];
+}
 
 export interface ConversationRow {
   thread_key: string;

@@ -93,6 +93,10 @@ export type TaskSummary = {
   created_by_step_id?: string | null;
   created_at: string;
   terminal_at?: string | null;
+  /** The name the delegator gave a delegated task, from its frozen input. */
+  name?: string | null;
+  /** Its team: tasks one decision started with the same team are peers. */
+  team?: string | null;
 };
 
 // Durable admission stages: accepted/selected/committed are

@@ -752,10 +752,19 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     // first step made, and the final answer.
     let trajectory = store.task_trajectory(task.agent_id, task.task_id)?.context("the run has a trajectory")?;
     assert_eq!(trajectory.task.kind, crate::model_child::MODEL_CHILD_KIND);
-    assert!(trajectory.input.as_ref().is_some_and(|input| input.to_string().contains("Observe prepared context.")),
-        "the delegation brief is readable: {:?}", trajectory.input);
-    let steps: Vec<_> = trajectory.operations.iter()
-        .filter(|operation| operation.operation_name == MODEL_CHILD_STEP_OPERATION).collect();
+    assert!(
+        trajectory
+            .input
+            .as_ref()
+            .is_some_and(|input| input.to_string().contains("Observe prepared context.")),
+        "the delegation brief is readable: {:?}",
+        trajectory.input
+    );
+    let steps: Vec<_> = trajectory
+        .operations
+        .iter()
+        .filter(|operation| operation.operation_name == MODEL_CHILD_STEP_OPERATION)
+        .collect();
     assert_eq!(steps.len(), 2, "{:?}", trajectory.operations);
     let first = steps[0].record.as_ref().context("first step record is sealed")?;
     assert_eq!(first["tool_calls"].as_array().map(Vec::len), Some(1), "{first}");
@@ -1649,4 +1658,201 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() -> anyhow::Resu
         result => result??,
     }
     Ok(())
+}
+
+/// Children one decision started as a team talk to each other directly: a
+/// message reaches its peer's durable inbox without the subject relaying it,
+/// a waiting peer wakes on it, the sender reads honest receipts (a name no
+/// peer has is undelivered, never guessed), and the members' system prompts
+/// differ only in their last line, so one prefix can serve the whole team.
+#[tokio::test]
+async fn team_members_talk_directly_and_share_one_prompt_prefix() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
+    // The scripted provider answers like a cooperating model: each member
+    // reacts to what its own discussion actually contains, so the run
+    // converges whichever member the broker serves first.
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut socket, wire) = read_wire(&listener).await;
+            let body = wire.to_string();
+            let text = match wire["model"].as_str().unwrap_or_default() {
+                "team-a" if body.contains("来自 乙 的消息") => {
+                    "完成：第 3 列需要补齐，乙已确认。"
+                }
+                "team-a" => {
+                    "我先把检查结果告诉乙。\n[tell:乙] alpha 数据集第 3 列有缺失。\n[tell:丙] 你好\n[wait] 乙的复核"
+                }
+                _ if body.contains("来自 甲 的消息") => {
+                    "[tell:甲] 收到，复核一致：第 3 列需要补齐。\n结论：补齐第 3 列。"
+                }
+                _ => "[wait] 甲的检查结果",
+            };
+            wires_tx.send(wire).unwrap();
+            let raw = serde_json::json!({
+                "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":12,"completion_tokens":7},
+            })
+            .to_string();
+            socket
+                .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes())
+                .await
+                .unwrap();
+            socket.shutdown().await.unwrap();
+        }
+    });
+    let (broker, handle) =
+        Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1)
+            .unwrap();
+    let mut subject = state(store.clone(), agent)
+        .unwrap()
+        .with_broker(handle.clone());
+    let member = |model: &str, name: &str, goal: &str| {
+        format!(
+            "[delegate] {}",
+            serde_json::json!({"goal":goal,"system_prompt":"一起核对数据集。","model":model,
+                "max_tokens":64,"name":name,"team":"核对组"})
+        )
+    };
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        &format!(
+            "{}\n{}",
+            member("team-a", "甲", "检查 alpha 数据集的缺失值。"),
+            member("team-b", "乙", "复核甲的检查结果。"),
+        ),
+    )
+    .await;
+    let tasks: Vec<TaskRecord> = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task)
+        .collect();
+    assert_eq!(tasks.len(), 2, "one decision started two team members");
+    let native = service(
+        &store,
+        handle.clone(),
+        subject.head.software_generation.clone(),
+    );
+    let run = tokio::spawn(broker.run());
+    drive_until(
+        &native,
+        || {
+            tasks
+                .iter()
+                .all(|task| store.native_task_result(task.task_id).unwrap().is_some())
+        },
+        || {
+            tasks
+                .iter()
+                .map(|task| {
+                    format!(
+                        "{} steps={:?} inbox={:?}",
+                        task.task_id,
+                        store
+                            .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)
+                            .map(|rows| rows.len()),
+                        store
+                            .pending_child_dialogue(task.task_id)
+                            .map(|rows| rows.len()),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        },
+    )
+    .await;
+
+    let mut wires = Vec::new();
+    while let Ok(wire) = wires_rx.try_recv() {
+        wires.push(wire);
+    }
+    let of = |model: &str| -> Vec<&serde_json::Value> {
+        wires.iter().filter(|wire| wire["model"] == model).collect()
+    };
+    let system = |wire: &serde_json::Value| -> String {
+        wire["messages"][0]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let (a, b) = (of("team-a"), of("team-b"));
+    assert_eq!(a.len(), 2, "甲: tell and wait, then the answer");
+    assert_eq!(b.len(), 2, "乙: one step to wait or answer, one to finish");
+
+    // One prefix for the team: the prompts differ only in the last line.
+    let (prompt_a, prompt_b) = (system(a[0]), system(b[0]));
+    let (head_a, last_a) = prompt_a.trim_end().rsplit_once('\n').unwrap();
+    let (head_b, last_b) = prompt_b.trim_end().rsplit_once('\n').unwrap();
+    assert_eq!(
+        head_a, head_b,
+        "team members share every byte before their own name"
+    );
+    assert_eq!((last_a, last_b), ("你是「甲」。", "你是「乙」。"));
+    assert!(
+        head_a.contains("- 甲：检查 alpha 数据集的缺失值。")
+            && head_a.contains("- 乙：复核甲的检查结果。")
+    );
+
+    // 甲's message reached 乙 without the subject, and 乙's answer reached 甲.
+    let sender = tasks
+        .iter()
+        .find(|task| {
+            store
+                .peer_outbox(task.task_id)
+                .unwrap()
+                .iter()
+                .any(|sent| sent.to == "丙")
+        })
+        .expect("甲 recorded its sends");
+    let outbox = store.peer_outbox(sender.task_id).unwrap();
+    let to_b = outbox.iter().find(|sent| sent.to == "乙").unwrap();
+    assert_eq!(to_b.state, "delivered");
+    let to_c = outbox.iter().find(|sent| sent.to == "丙").unwrap();
+    assert_eq!(
+        (to_c.state.as_str(), to_c.reason.as_deref()),
+        ("undelivered", Some("unknown_name"))
+    );
+    let b_read = b.iter().any(|wire| {
+        wire.to_string().contains("alpha 数据集第 3 列有缺失。")
+            && wire.to_string().contains("[来自 甲 的消息 msg:")
+    });
+    assert!(b_read, "乙 never read 甲's message");
+    let final_a = a[1].to_string();
+    assert!(
+        final_a.contains("[来自 乙 的消息 msg:"),
+        "甲 never read 乙's answer"
+    );
+    assert!(
+        final_a.contains("[投递回执] 给 乙：已送达；给 丙：未送达（团队里没有这个名字）"),
+        "甲 never read honest receipts: {final_a}"
+    );
+    assert!(
+        store
+            .committed_intents(Some("dialogue"), None, 8)
+            .unwrap()
+            .is_empty(),
+        "no subject intent relayed the conversation"
+    );
+    for task in &tasks {
+        let result = store.native_task_result(task.task_id).unwrap().unwrap();
+        assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+        assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+    }
+
+    native.close_and_join(0).await;
+    drop(native);
+    drop(subject);
+    drop(handle);
+    run.abort();
+    let _ = run.await;
+    server.abort();
+    let _ = server.await;
 }
