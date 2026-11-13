@@ -22,8 +22,8 @@ fn bound_file(root: &Path, name: &str, contents: &[u8]) -> Value {
 }
 
 fn spec(case_id: &str) -> SpecIndex {
-    SpecIndex::parse(&format!(
-        "| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | {case_id} |\n| {case_id} | scenario | condition |\n"
+    SpecIndex::parse("fixture.md", &format!(
+        "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | {case_id} |\n| {case_id} | scenario | condition |\n"
     )).unwrap()
 }
 
@@ -64,7 +64,7 @@ fn publish(root: &Path, receipt: &Value) -> EvidenceRecord {
 
 #[test]
 fn range_holes_remain_unresolved_instead_of_shrinking_the_obligation() {
-    let index = SpecIndex::parse("| R001 | range | §45 | U01;B01 |\n| B01 range | R001 | contract | AW01–03 |\n| AW01 | first | condition |\n| AW03 | last | condition |\n").unwrap();
+    let index = SpecIndex::parse("range.md", "<a id=\"range\"></a>\n| R001 | range | §45 | U01;B01 |\n| B01 range | R001 | contract | AW01–03 |\n| AW01 | first | condition |\n| AW03 | last | condition |\n").unwrap();
     assert_eq!(index.behaviors["B01"].acceptance_cases, ["AW01", "AW03"]);
     assert_eq!(index.behaviors["B01"].unresolved_case_refs, ["AW01–03"]);
     let report = build_report(&index, &[], Some(CANDIDATE));
@@ -77,17 +77,21 @@ fn range_holes_remain_unresolved_instead_of_shrinking_the_obligation() {
 
 #[test]
 fn qualified_ids_cannot_replace_parent_definitions() {
-    let index = SpecIndex::parse("| B15 memory | R001 | contract | A01 |\n| B15.Q1 detail | upstream | comparison |\n| A01 | parent scenario | parent condition |\n| A01.detail | child scenario | child condition |\n").unwrap();
+    let index = SpecIndex::parse("qualified.md", "<a id=\"qualified\"></a>\n| B15 memory | R001 | contract | A01 |\n| B15.Q1 detail | upstream | comparison |\n| A01 | parent scenario | parent condition |\n| A01.detail | child scenario | child condition |\n").unwrap();
     assert_eq!(index.behaviors["B15"].acceptance_cases, ["A01"]);
     assert_eq!(
         index.acceptance_cases["A01"].pass_condition,
         "parent condition"
     );
+    assert!(matches!(
+        SpecIndex::parse("duplicate.md", "<a id=\"duplicate\"></a>\n| A01 | first | condition |\n| A01 | second | different condition |\n"),
+        Err(shenko_evidence::IndexError::DuplicateDefinition { kind: "acceptance case", id, .. }) if id == "A01"
+    ));
 }
 
 #[test]
 fn unknown_case_family_stays_visible_as_unclassified() {
-    let index = SpecIndex::parse("| R001 | unknown family | §23 | B01 |\n| B01 extension | R001 | contract | ZZ01 |\n\n| Case | scenario | result |\n| --- | --- | --- |\n| ZZ01 | new family | condition |\n").unwrap();
+    let index = SpecIndex::parse("unknown-family.md", "<a id=\"unknown-family\"></a>\n| R001 | unknown family | §23 | B01 |\n| B01 extension | R001 | contract | ZZ01 |\n\n| Case | scenario | result |\n| --- | --- | --- |\n| ZZ01 | new family | condition |\n").unwrap();
     let report = build_report(&index, &[], Some(CANDIDATE));
     assert_eq!(report.requirements[0].acceptance_cases, ["ZZ01"]);
     assert!(
@@ -471,15 +475,15 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
         sha256: &sha256,
     };
     let spec_text =
-        "| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+        "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+    let index = SpecIndex::parse("fixture.md", spec_text).unwrap();
 
-    let observed = analyze(&ReportInputs {
-        spec_text,
+    let observed = analyze(ReportInputs {
+        spec_index: index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: std::slice::from_ref(&input),
-    })
-    .unwrap();
+    });
     let json = observed.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -494,13 +498,12 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
 
     // No report is the normal state: the obligation report must not infer
     // duration from the existence of the tooling.
-    let unobserved = analyze(&ReportInputs {
-        spec_text,
+    let unobserved = analyze(ReportInputs {
+        spec_index: observed.index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: &[],
-    })
-    .unwrap();
+    });
     let json = unobserved.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -525,13 +528,12 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
         path: &demo_path,
         sha256: &demo_sha,
     };
-    let demo = analyze(&ReportInputs {
-        spec_text,
+    let demo = analyze(ReportInputs {
+        spec_index: unobserved.index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: std::slice::from_ref(&demo_input),
-    })
-    .unwrap();
+    });
     let json = demo.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -622,14 +624,14 @@ fn duration_windows_only_add_up_for_one_binary_and_profile() {
     let evidence = root.path().join("evidence-conflict");
     fs::create_dir(&evidence).unwrap();
     let spec_text =
-        "| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
-    let analysis = analyze(&ReportInputs {
-        spec_text,
+        "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+    let index = SpecIndex::parse("fixture.md", spec_text).unwrap();
+    let analysis = analyze(ReportInputs {
+        spec_index: index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: &[seven_input, other_input],
-    })
-    .unwrap();
+    });
     let json = analysis.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),

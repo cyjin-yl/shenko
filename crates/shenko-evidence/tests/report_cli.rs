@@ -14,7 +14,7 @@ mod support;
 
 use support::{BINARY, CANDIDATE, sealed_run_report};
 
-const SPEC_TEXT: &str = "| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+const SPEC_TEXT: &str = "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
 
 fn report_command(spec: &Path, evidence: &Path, out: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_shenko-evidence"));
@@ -136,6 +136,88 @@ fn cli_refuses_missing_arguments_and_unreadable_specs() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(!out.exists());
+}
+
+#[test]
+fn cli_keeps_appended_obligations_and_requires_document_local_owners() {
+    let root = tempfile::tempdir().unwrap();
+    let docs = root.path().join("docs");
+    fs::create_dir(&docs).unwrap();
+    let evidence = root.path().join("evidence");
+    fs::create_dir(&evidence).unwrap();
+    let current = docs.join("current.md");
+    fs::write(&current, format!("{SPEC_TEXT}{}", r#"
+````markdown
+```example
+<a id="fixture"></a>
+| R901 | fenced example | example | B91 |
+| B91 example | R901 | example | A91 |
+| A91 | example | example |
+````
+
+~~~markdown
+| R902 | tilde example | example | B92 |
+| B92 example | R902 | example | A92 |
+| A92 | example | example |
+~~~
+
+<a id="appended"></a>
+| R002 | appended obligation | current | B02 |
+| B02 appended | R002 | contract | A02 |
+| A02 | appended scenario | appended condition |
+
+```` unclosed fence stays in this document
+"#)).unwrap();
+    let next = docs.join("next.md");
+    // Reusing a name in a different document does not duplicate its owner.
+    fs::write(&next, "<a id=\"fixture\"></a>\n| R003 | new document | current | B03 |\n| B03 new | R003 | contract | A01/A03 |\n| A03 | new scenario | new condition |\n").unwrap();
+    let inventory = docs.join("contracts.json");
+    fs::write(&inventory, serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "documents": ["docs/current.md", "docs/next.md"],
+    })).unwrap()).unwrap();
+    let out = root.path().join("report.json");
+    let run = report_command(&inventory, &evidence, &out).output().unwrap();
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    let report = read_report(&out);
+    for collection in ["requirements", "behaviors", "acceptance_cases"] {
+        assert_eq!(report["spec_index_counts"][collection].as_u64(), Some(3));
+        assert_eq!(report["spec_index"][collection][0]["source_path"], "docs/current.md");
+        assert_eq!(report["spec_index"][collection][0]["source_anchor"], "fixture");
+        assert_eq!(report["spec_index"][collection][1]["source_anchor"], "appended");
+        assert_eq!(report["spec_index"][collection][2]["source_path"], "docs/next.md");
+        assert_eq!(report["spec_index"][collection][2]["source_anchor"], "fixture");
+    }
+    assert_eq!(report["spec_index"]["requirements"][0]["summary"], "fixture");
+    assert_eq!(report["spec_index"]["requirements"][1]["summary"], "appended obligation");
+    assert_eq!(report["spec_index"]["behaviors"][2]["acceptance_cases"], serde_json::json!(["A01", "A03"]));
+    assert_eq!(report["unmet_requirement_count"].as_u64(), Some(3));
+    assert_eq!(report["case_status_counts"]["unproven"].as_u64(), Some(3));
+    assert_eq!(report["evidence_inventory"]["complete"].as_bool(), Some(true));
+    assert!(report["evidence_inventory"]["entries"].as_array().unwrap().is_empty());
+
+    // Neither the inventory nor explicit Markdown route may infer an owner
+    // from the preceding document, a later anchor or the source line.
+    fs::write(&next, "| A03 | unowned case | condition |\n<a id=\"appended\"></a>\n").unwrap();
+    let invalid_out = root.path().join("invalid-report.json");
+    let run = report_command(&inventory, &evidence, &invalid_out).output().unwrap();
+    assert_eq!(run.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(stderr.contains("InvalidOwner"), "{stderr}");
+    assert!(stderr.contains("docs/next.md"), "{stderr}");
+    assert!(!invalid_out.exists());
+    let run = report_command(&next, &evidence, &invalid_out).output().unwrap();
+    assert_eq!(run.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("InvalidOwner"));
+    assert!(!invalid_out.exists());
+
+    fs::write(&next, "<a id=\"fixture\"></a>\n| A03 | ambiguous case | condition |\n<span name='fixture'></span>\n").unwrap();
+    let run = report_command(&inventory, &evidence, &invalid_out).output().unwrap();
+    assert_eq!(run.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(stderr.contains("InvalidOwner"), "{stderr}");
+    assert!(stderr.contains("definitions: 2"), "{stderr}");
+    assert!(!invalid_out.exists());
 }
 
 #[test]

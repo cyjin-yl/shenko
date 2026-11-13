@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "spec_version": "0.6.2",
   "spec_path": "docs/INDEX.md",
   "count": 59,
@@ -19,8 +19,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 32,
-      "source_row": "| REF-USER | USER；用户原话 | [§33](user-sources.md#spec-33) U01–U62；[§28](../decisions/product-rulings.md#spec-28)、[§46](../governance/COMPLETION.md#spec-46)–[§47](../specs/inference.md#spec-47) 裁决记录 | 原始需求、澄清与优先级。用户原创不伪配外部上游；新裁决覆盖旧建议，旧原文保留。 |"
+      "source_row": "| REF-USER | USER；用户原话 | [§33](user-sources.md#spec-33) U01–U62；[§28](../decisions/product-rulings.md#spec-28)、[§46](../governance/COMPLETION.md#spec-46)–[§47](../specs/inference.md#spec-47) 裁决记录 | 原始需求、澄清与优先级。用户原创不伪配外部上游；新裁决覆盖旧建议，旧原文保留。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 32
+      }
     },
     {
       "id": "REF-DESIGN",
@@ -37,8 +41,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 33,
-      "source_row": "| REF-DESIGN | DERIVED；规格推导 | 本 SPEC v0.6.2 的相应章节与 B01–B55 | 本产品的组合协议、算法候选和工程推导；逐行写明上游与差异，尚未实现不能记为已验证。 |"
+      "source_row": "| REF-DESIGN | DERIVED；规格推导 | 本 SPEC v0.6.2 的相应章节与 B01–B55 | 本产品的组合协议、算法候选和工程推导；逐行写明上游与差异，尚未实现不能记为已验证。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 33
+      }
     },
     {
       "id": "REF-PI",
@@ -55,8 +63,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 34,
-      "source_row": "| REF-PI | UPSTREAM；固定源码＋相应文档 | [固定树 74f4686](https://github.com/earendil-works/pi/tree/74f46864025c68504cd10c89eeb626b7e3d64cea)；[session-format.md](https://github.com/earendil-works/pi/blob/74f46864025c68504cd10c89eeb626b7e3d64cea/packages/coding-agent/docs/session-format.md) | 最小 coding harness、树形 session、扩展与 operations。作为个人框架的结构启发，不要求复制 coding 产品全部功能。 |"
+      "source_row": "| REF-PI | UPSTREAM；固定源码＋相应文档 | [固定树 74f4686](https://github.com/earendil-works/pi/tree/74f46864025c68504cd10c89eeb626b7e3d64cea)；[session-format.md](https://github.com/earendil-works/pi/blob/74f46864025c68504cd10c89eeb626b7e3d64cea/packages/coding-agent/docs/session-format.md) | 最小 coding harness、树形 session、扩展与 operations。作为个人框架的结构启发，不要求复制 coding 产品全部功能。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 34
+      }
     },
     {
       "id": "REF-OMP",
@@ -73,8 +85,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 35,
-      "source_row": "| REF-OMP | UPSTREAM；固定源码＋相应文档 | [固定树 0b5c27a](https://github.com/can1357/oh-my-pi/tree/0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0)；README、docs/extensions.md、docs/rpc.md，具体自解释与 compact 路径见 [§12.3](../specs/context-policies.md#spec-12-3)、[§38](../specs/cognition-units.md#spec-38) | 工具、资源 URI、SSH、子 Agent、memory、RPC、自解释与 compact 分别对照；只引用根仓库不能证明某一行为。 |"
+      "source_row": "| REF-OMP | UPSTREAM；固定源码＋相应文档 | [固定树 0b5c27a](https://github.com/can1357/oh-my-pi/tree/0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0)；README、docs/extensions.md、docs/rpc.md，具体自解释与 compact 路径见 [§12.3](../specs/context-policies.md#spec-12-3)、[§38](../specs/cognition-units.md#spec-38) | 工具、资源 URI、SSH、子 Agent、memory、RPC、自解释与 compact 分别对照；只引用根仓库不能证明某一行为。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 35
+      }
     },
     {
       "id": "REF-DSH",
@@ -91,8 +107,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 36,
-      "source_row": "| REF-DSH | UPSTREAM；固定源码＋相应文档 | [0.2.1-rc.2 / 687f282](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/architecture.md) | model/tools/session/agent loop 可替换与生命周期。Rust/WASM 的可恢复自替换是本产品扩展。 |"
+      "source_row": "| REF-DSH | UPSTREAM；固定源码＋相应文档 | [0.2.1-rc.2 / 687f282](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/architecture.md) | model/tools/session/agent loop 可替换与生命周期。Rust/WASM 的可恢复自替换是本产品扩展。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 36
+      }
     },
     {
       "id": "REF-CORDIS",
@@ -109,8 +129,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 37,
-      "source_row": "| REF-CORDIS | UPSTREAM；固定源码＋相应文档 | [1754062 README](https://github.com/dshbox/cordis-rs/blob/1754062cef67cfc119fc7a2084c0321a231b9092/README.md)；[同提交 effect.rs](https://github.com/dshbox/cordis-rs/blob/1754062cef67cfc119fc7a2084c0321a231b9092/crates/cordis-core/src/effect.rs)；U45 确认主干 | 用户指定的插件化主干；采用 typed services/events、Plugin/Context、generation 生命周期与清理。进程内清理不提供任意外部效果撤销或断电事务保证；Shenko hook/持久协议为本 SPEC 扩展。 |"
+      "source_row": "| REF-CORDIS | UPSTREAM；固定源码＋相应文档 | [1754062 README](https://github.com/dshbox/cordis-rs/blob/1754062cef67cfc119fc7a2084c0321a231b9092/README.md)；[同提交 effect.rs](https://github.com/dshbox/cordis-rs/blob/1754062cef67cfc119fc7a2084c0321a231b9092/crates/cordis-core/src/effect.rs)；U45 确认主干 | 用户指定的插件化主干；采用 typed services/events、Plugin/Context、generation 生命周期与清理。进程内清理不提供任意外部效果撤销或断电事务保证；Shenko hook/持久协议为本 SPEC 扩展。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 37
+      }
     },
     {
       "id": "REF-COLIBRI",
@@ -127,8 +151,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 38,
-      "source_row": "| REF-COLIBRI | USER；用户更正 | U35 原始拼写；U45 明确更正为 cordis-rs；现行来源见 REF-CORDIS | 仅保留历史拼写/登记身份的追溯别名，不是另一个依赖、待确认项目或独立上游。 |"
+      "source_row": "| REF-COLIBRI | USER；用户更正 | U35 原始拼写；U45 明确更正为 cordis-rs；现行来源见 REF-CORDIS | 仅保留历史拼写/登记身份的追溯别名，不是另一个依赖、待确认项目或独立上游。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 38
+      }
     },
     {
       "id": "REF-FABRIC",
@@ -145,8 +173,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 39,
-      "source_row": "| REF-FABRIC | UPSTREAM；固定源码＋相应文档 | [Events 文档](https://docs.fabricmc.net/develop/events/)；[固定 Event.java a335c35](https://github.com/FabricMC/fabric-api/blob/a335c35c0b9a489c7f4e5dd0fe36f1974845f1e1/fabric-api-base/src/main/java/net/fabricmc/fabric/api/event/Event.java)；[phase API](https://maven.fabricmc.net/docs/fabric-api-0.102.0+1.21/net/fabricmc/fabric/api/event/Event.html) | 类型化扩展点、phase 与相对顺序；产品拒绝有环候选、版本固定与恢复机制不归为 Fabric 已有保证。 |"
+      "source_row": "| REF-FABRIC | UPSTREAM；固定源码＋相应文档 | [Events 文档](https://docs.fabricmc.net/develop/events/)；[固定 Event.java a335c35](https://github.com/FabricMC/fabric-api/blob/a335c35c0b9a489c7f4e5dd0fe36f1974845f1e1/fabric-api-base/src/main/java/net/fabricmc/fabric/api/event/Event.java)；[phase API](https://maven.fabricmc.net/docs/fabric-api-0.102.0+1.21/net/fabricmc/fabric/api/event/Event.html) | 类型化扩展点、phase 与相对顺序；产品拒绝有环候选、版本固定与恢复机制不归为 Fabric 已有保证。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 39
+      }
     },
     {
       "id": "REF-DURABLE",
@@ -163,8 +195,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 40,
-      "source_row": "| REF-DURABLE | UPSTREAM；固定源码＋相应文档 | [Pi Durable 1.4.0 / c60de42 规范](https://github.com/earendil-works/pi/blob/c60de42e98428dc1ef7440d78c23f5915966cdb3/packages/durable/docs/spec.md)；重点 [§2](../specs/architecture.md#spec-2)、[§4](../specs/subject-runtime.md#spec-4)、[§5](../specs/subject-runtime.md#spec-5)、[§6](../specs/subject-runtime.md#spec-6)、[§7](../specs/plugins.md#spec-7)、[§10.1](../specs/durable-state.md#spec-10-1)、[§11](../specs/remote-seats.md#spec-11)；同包 README、src/harness/tool.ts | 记录、mutation line、已提交可见、effect sandwich、持久取消、工具重放和重开恢复。全部实现可替换、原生 KV broker、A/B 与多节点是 Shenko 扩展；JSONL fsync:true 不等于每个已确认尾部掉电不丢。 |"
+      "source_row": "| REF-DURABLE | UPSTREAM；固定源码＋相应文档 | [Pi Durable 1.4.0 / c60de42 规范](https://github.com/earendil-works/pi/blob/c60de42e98428dc1ef7440d78c23f5915966cdb3/packages/durable/docs/spec.md)；重点 [§2](../specs/architecture.md#spec-2)、[§4](../specs/subject-runtime.md#spec-4)、[§5](../specs/subject-runtime.md#spec-5)、[§6](../specs/subject-runtime.md#spec-6)、[§7](../specs/plugins.md#spec-7)、[§10.1](../specs/durable-state.md#spec-10-1)、[§11](../specs/remote-seats.md#spec-11)；同包 README、src/harness/tool.ts | 记录、mutation line、已提交可见、effect sandwich、持久取消、工具重放和重开恢复。全部实现可替换、原生 KV broker、A/B 与多节点是 Shenko 扩展；JSONL fsync:true 不等于每个已确认尾部掉电不丢。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 40
+      }
     },
     {
       "id": "REF-CODEX",
@@ -181,8 +217,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 41,
-      "source_row": "| REF-CODEX | UPSTREAM；固定源码＋相应文档 | [budget compact a3d93e1](https://github.com/openai/codex/blob/a3d93e1e692f1144cf8685175a5d1f6bf7294f57/codex-rs/core/src/compact_token_budget.rs)；[history-notes tools](https://github.com/openai/codex/blob/a3d93e1e692f1144cf8685175a5d1f6bf7294f57/codex-rs/ext/history-notes/src/tools.rs) | 预算切窗与原始历史/notes 分离；provider 条件、读取一致性与本地实现分别记录。 |"
+      "source_row": "| REF-CODEX | UPSTREAM；固定源码＋相应文档 | [budget compact a3d93e1](https://github.com/openai/codex/blob/a3d93e1e692f1144cf8685175a5d1f6bf7294f57/codex-rs/core/src/compact_token_budget.rs)；[history-notes tools](https://github.com/openai/codex/blob/a3d93e1e692f1144cf8685175a5d1f6bf7294f57/codex-rs/ext/history-notes/src/tools.rs) | 预算切窗与原始历史/notes 分离；provider 条件、读取一致性与本地实现分别记录。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 41
+      }
     },
     {
       "id": "REF-WASI",
@@ -199,8 +239,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 42,
-      "source_row": "| REF-WASI | UPSTREAM；官方规范/文档/产品说明 | [WASI 0.3 发布说明，2026-06-11](https://bytecodealliance.org/articles/WASI-0.3)；[WASIX 功能](https://www.wasix.org/docs/explanation/features/) | 接口/异步/进程兼容边界；Linux ELF、fork、动态链接、native 扩展不能由名字推导。 |"
+      "source_row": "| REF-WASI | UPSTREAM；官方规范/文档/产品说明 | [WASI 0.3 发布说明，2026-06-11](https://bytecodealliance.org/articles/WASI-0.3)；[WASIX 功能](https://www.wasix.org/docs/explanation/features/) | 接口/异步/进程兼容边界；Linux ELF、fork、动态链接、native 扩展不能由名字推导。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 42
+      }
     },
     {
       "id": "REF-RUNTIME",
@@ -217,8 +261,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 43,
-      "source_row": "| REF-RUNTIME | UPSTREAM；官方规范/文档/产品说明 | [Wasmtime 50.0.0](https://github.com/bytecodealliance/wasmtime/releases/tag/v50.0.0)；[Wasmer 7.5.0](https://github.com/wasmerio/wasmer/releases/tag/v7.5.0)；[WAMR 2.4.5](https://github.com/bytecodealliance/wasm-micro-runtime/releases/tag/WAMR-2.4.5) | runtime、目标架构、AOT/JIT 与设备 profile 的候选基线，实际体积/驻留/Android 与路由器覆盖待测。 |"
+      "source_row": "| REF-RUNTIME | UPSTREAM；官方规范/文档/产品说明 | [Wasmtime 50.0.0](https://github.com/bytecodealliance/wasmtime/releases/tag/v50.0.0)；[Wasmer 7.5.0](https://github.com/wasmerio/wasmer/releases/tag/v7.5.0)；[WAMR 2.4.5](https://github.com/bytecodealliance/wasm-micro-runtime/releases/tag/WAMR-2.4.5) | runtime、目标架构、AOT/JIT 与设备 profile 的候选基线，实际体积/驻留/Android 与路由器覆盖待测。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 43
+      }
     },
     {
       "id": "REF-PORTS",
@@ -235,8 +283,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 44,
-      "source_row": "| REF-PORTS | UPSTREAM；候选文档/局部实现 | [wasi-gh](https://github.com/ai-ecoverse/homescoop/blob/main/packages/wasi-gh/package/README.md)；[OpenSSH WASIX port](https://github.com/ai-ecoverse/homescoop/blob/main/packages/wasix-openssh/package/README.md)；[slicc-kernel](https://github.com/ai-ecoverse/slicc-kernel)，2026-10-22 读取的动态入口 | 工具移植线索及特定 host 依赖；未锁实现 commit，不能宣称已有通用 daemon 或所有 gh/tea/toybox/gcc 目标已成立。 |"
+      "source_row": "| REF-PORTS | UPSTREAM；候选文档/局部实现 | [wasi-gh](https://github.com/ai-ecoverse/homescoop/blob/main/packages/wasi-gh/package/README.md)；[OpenSSH WASIX port](https://github.com/ai-ecoverse/homescoop/blob/main/packages/wasix-openssh/package/README.md)；[slicc-kernel](https://github.com/ai-ecoverse/slicc-kernel)，2026-10-22 读取的动态入口 | 工具移植线索及特定 host 依赖；未锁实现 commit，不能宣称已有通用 daemon 或所有 gh/tea/toybox/gcc 目标已成立。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 44
+      }
     },
     {
       "id": "REF-NIX",
@@ -253,8 +305,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 45,
-      "source_row": "| REF-NIX | UPSTREAM；官方规范/文档/产品说明 | [Nix 2.35 profiles](https://nix.dev/manual/nix/2.35/package-management/profiles)；[远程构建](https://nix.dev/manual/nix/2.35/advanced-topics/distributed-builds)；[Cargo target](https://doc.rust-lang.org/cargo/commands/cargo-build.html) | 声明式闭包、generation、回滚与异机构建；WASM 内完整 Nix 不由此得到证明。 |"
+      "source_row": "| REF-NIX | UPSTREAM；官方规范/文档/产品说明 | [Nix 2.35 profiles](https://nix.dev/manual/nix/2.35/package-management/profiles)；[远程构建](https://nix.dev/manual/nix/2.35/advanced-topics/distributed-builds)；[Cargo target](https://doc.rust-lang.org/cargo/commands/cargo-build.html) | 声明式闭包、generation、回滚与异机构建；WASM 内完整 Nix 不由此得到证明。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 45
+      }
     },
     {
       "id": "REF-LAYERFS",
@@ -271,8 +327,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 46,
-      "source_row": "| REF-LAYERFS | UPSTREAM；固定源码＋相应文档 | [v1.0.0 / 2aaf255 SDK](https://github.com/Ephemeral-AI-Lab/layerfs/blob/2aaf2552ce21154928b9f9c83582e41a637f5910/sdk/js/README.md)；同提交 Store guard、Docker backend、persistence README；主线 b5814bf 见 [§31](research-sources.md#spec-31) | 真实 Linux VM 内复用原版；Store、workspace、Disposable/persistence 各按自身条件比较。 |"
+      "source_row": "| REF-LAYERFS | UPSTREAM；固定源码＋相应文档 | [v1.0.0 / 2aaf255 SDK](https://github.com/Ephemeral-AI-Lab/layerfs/blob/2aaf2552ce21154928b9f9c83582e41a637f5910/sdk/js/README.md)；同提交 Store guard、Docker backend、persistence README；主线 b5814bf 见 [§31](research-sources.md#spec-31) | 真实 Linux VM 内复用原版；Store、workspace、Disposable/persistence 各按自身条件比较。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 46
+      }
     },
     {
       "id": "REF-BOXLITE",
@@ -289,8 +349,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 47,
-      "source_row": "| REF-BOXLITE | UPSTREAM；固定源码＋相应文档 | [v0.10.7](https://github.com/boxlite-ai/boxlite/releases/tag/v0.10.7)；[固定树 b59b8c1](https://github.com/boxlite-ai/boxlite/tree/b59b8c1f39e45e49adede56a65749a431d1380e7)；[§34](../specs/desktop-runtime.md#spec-34) 列出的 rootfs、snapshot、GUI、REST 路径 | 可选完整 Linux microVM 与 Computer Use；磁盘快照不等于进程/内存快照，宿主挂载另算。 |"
+      "source_row": "| REF-BOXLITE | UPSTREAM；固定源码＋相应文档 | [v0.10.7](https://github.com/boxlite-ai/boxlite/releases/tag/v0.10.7)；[固定树 b59b8c1](https://github.com/boxlite-ai/boxlite/tree/b59b8c1f39e45e49adede56a65749a431d1380e7)；[§34](../specs/desktop-runtime.md#spec-34) 列出的 rootfs、snapshot、GUI、REST 路径 | 可选完整 Linux microVM 与 Computer Use；磁盘快照不等于进程/内存快照，宿主挂载另算。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 47
+      }
     },
     {
       "id": "REF-STORAGE",
@@ -307,8 +371,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 48,
-      "source_row": "| REF-STORAGE | UPSTREAM；固定源码＋相应文档 | [SQLite 原子提交](https://www.sqlite.org/atomiccommit.html)、[WAL](https://sqlite.org/wal.html)、[备份](https://sqlite.org/backup.html)；[Git LFS spec](https://github.com/git-lfs/git-lfs/blob/main/docs/spec.md)；[wasi-vfs 0.6.3](https://github.com/kateinoigakukun/wasi-vfs/blob/0f4db4b64882db50ef8c04018e7e98bf59a63f92/README.md)；[SQLite synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous) | 原子提交、WAL/同步等级、一致备份、二进制指针、只读 VFS 限制；本产品可写 CAS/树/恢复协议属 DERIVED。[§41](../specs/architecture.md#spec-41) 默认 WAL+FULL 与已修复 SQLite；动态文档读取日期 2026-10-22。 |"
+      "source_row": "| REF-STORAGE | UPSTREAM；固定源码＋相应文档 | [SQLite 原子提交](https://www.sqlite.org/atomiccommit.html)、[WAL](https://sqlite.org/wal.html)、[备份](https://sqlite.org/backup.html)；[Git LFS spec](https://github.com/git-lfs/git-lfs/blob/main/docs/spec.md)；[wasi-vfs 0.6.3](https://github.com/kateinoigakukun/wasi-vfs/blob/0f4db4b64882db50ef8c04018e7e98bf59a63f92/README.md)；[SQLite synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous) | 原子提交、WAL/同步等级、一致备份、二进制指针、只读 VFS 限制；本产品可写 CAS/树/恢复协议属 DERIVED。[§41](../specs/architecture.md#spec-41) 默认 WAL+FULL 与已修复 SQLite；动态文档读取日期 2026-10-22。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 48
+      }
     },
     {
       "id": "REF-FTS",
@@ -325,8 +393,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 49,
-      "source_row": "| REF-FTS | UPSTREAM；官方规范/文档/产品说明 | [SQLite FTS5](https://sqlite.org/fts5.html)，2026-10-22；[§12.1](../specs/memory.md#spec-12-1)–[§12.3](../specs/context-policies.md#spec-12-3) | 原始 session 与可重建全文索引；中文短词覆盖和本地读取一致性是产品额外验收。 |"
+      "source_row": "| REF-FTS | UPSTREAM；官方规范/文档/产品说明 | [SQLite FTS5](https://sqlite.org/fts5.html)，2026-10-22；[§12.1](../specs/memory.md#spec-12-1)–[§12.3](../specs/context-policies.md#spec-12-3) | 原始 session 与可重建全文索引；中文短词覆盖和本地读取一致性是产品额外验收。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 49
+      }
     },
     {
       "id": "REF-SSH",
@@ -343,8 +415,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 50,
-      "source_row": "| REF-SSH | UPSTREAM；官方规范/文档/产品说明 | [OpenSSH ssh-keygen](https://man.openbsd.org/ssh-keygen)，2026-10-22；REF-OMP 的 SSH 工具；REF-PORTS 的 WASIX port | keygen/公钥/指纹、认证与结构化远端操作；真实 WASM、host bridge 和 remote service 分开标示。 |"
+      "source_row": "| REF-SSH | UPSTREAM；官方规范/文档/产品说明 | [OpenSSH ssh-keygen](https://man.openbsd.org/ssh-keygen)，2026-10-22；REF-OMP 的 SSH 工具；REF-PORTS 的 WASIX port | keygen/公钥/指纹、认证与结构化远端操作；真实 WASM、host bridge 和 remote service 分开标示。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 50
+      }
     },
     {
       "id": "REF-QMD",
@@ -361,8 +437,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 51,
-      "source_row": "| REF-QMD | UPSTREAM；固定源码＋相应文档 | [README / 86d2365](https://github.com/tobi/qmd/blob/86d2365d17fc682e491c2c53d1e4a884aee8682a/README.md)；[查询语法](https://github.com/tobi/qmd/blob/86d2365d17fc682e491c2c53d1e4a884aee8682a/docs/SYNTAX.md)，2026-10-22 | BM25/向量/typed expansion/RRF/rerank、命中后按path/docid取原文、索引与embedding维护的可选参考；Node/Bun+native模型依赖另算。 |"
+      "source_row": "| REF-QMD | UPSTREAM；固定源码＋相应文档 | [README / 86d2365](https://github.com/tobi/qmd/blob/86d2365d17fc682e491c2c53d1e4a884aee8682a/README.md)；[查询语法](https://github.com/tobi/qmd/blob/86d2365d17fc682e491c2c53d1e4a884aee8682a/docs/SYNTAX.md)，2026-10-22 | BM25/向量/typed expansion/RRF/rerank、命中后按path/docid取原文、索引与embedding维护的可选参考；Node/Bun+native模型依赖另算。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 51
+      }
     },
     {
       "id": "REF-OPENVIKING",
@@ -379,8 +459,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 52,
-      "source_row": "| REF-OPENVIKING | UPSTREAM；固定源码＋相应文档 | [检索 / 824e9c7](https://github.com/volcengine/OpenViking/blob/824e9c7ff5e7cebbc36f55257c39f8bbe75d5a24/docs/en/concepts/07-retrieval.md)；[层次内容](https://github.com/volcengine/OpenViking/blob/824e9c7ff5e7cebbc36f55257c39f8bbe75d5a24/docs/en/concepts/03-context-layers.md)；[session](https://github.com/volcengine/OpenViking/blob/824e9c7ff5e7cebbc36f55257c39f8bbe75d5a24/docs/en/concepts/08-session.md) | L0/L1目录sidecar、来源/陈旧状态、session先归档后异步提取及memory_diff；每query全局向量检索可选rerank；已移除旧递归目录检索。为选装后端，不引入第二主体。 |"
+      "source_row": "| REF-OPENVIKING | UPSTREAM；固定源码＋相应文档 | [检索 / 824e9c7](https://github.com/volcengine/OpenViking/blob/824e9c7ff5e7cebbc36f55257c39f8bbe75d5a24/docs/en/concepts/07-retrieval.md)；[层次内容](https://github.com/volcengine/OpenViking/blob/824e9c7ff5e7cebbc36f55257c39f8bbe75d5a24/docs/en/concepts/03-context-layers.md)；[session](https://github.com/volcengine/OpenViking/blob/824e9c7ff5e7cebbc36f55257c39f8bbe75d5a24/docs/en/concepts/08-session.md) | L0/L1目录sidecar、来源/陈旧状态、session先归档后异步提取及memory_diff；每query全局向量检索可选rerank；已移除旧递归目录检索。为选装后端，不引入第二主体。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 52
+      }
     },
     {
       "id": "REF-PMA",
@@ -397,8 +481,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 53,
-      "source_row": "| REF-PMA | PAPER；论文＋代码 | [2607.08716v1](https://arxiv.org/abs/2607.08716v1)；[代码 89e5c0d](https://github.com/yifannnwu/proactive-memory-agent/tree/89e5c0d6aadfe531a1aee42fd290d48be89973dd) | 更新 bank、选择提醒/沉默与消融；严格 transient 投影是本产品差异，原始注入证据仍保存。 |"
+      "source_row": "| REF-PMA | PAPER；论文＋代码 | [2607.08716v1](https://arxiv.org/abs/2607.08716v1)；[代码 89e5c0d](https://github.com/yifannnwu/proactive-memory-agent/tree/89e5c0d6aadfe531a1aee42fd290d48be89973dd) | 更新 bank、选择提醒/沉默与消融；严格 transient 投影是本产品差异，原始注入证据仍保存。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 53
+      }
     },
     {
       "id": "REF-RESET",
@@ -415,8 +503,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 54,
-      "source_row": "| REF-RESET | PAPER；论文/原作者研究 | [Scaling Discovery Requires Forgetting 2610.20563v1](https://arxiv.org/abs/2610.20563v1) | 有评测器的 research worker 从 best seed 重启；额外失败笔记单独消融，不清空个人主体身份/真实历史。 |"
+      "source_row": "| REF-RESET | PAPER；论文/原作者研究 | [Scaling Discovery Requires Forgetting 2610.20563v1](https://arxiv.org/abs/2610.20563v1) | 有评测器的 research worker 从 best seed 重启；额外失败笔记单独消融，不清空个人主体身份/真实历史。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 54
+      }
     },
     {
       "id": "REF-TOOL-RESEARCH",
@@ -433,8 +525,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 55,
-      "source_row": "| REF-TOOL-RESEARCH | PAPER；论文/原作者研究 | [SkillsBench v4](https://arxiv.org/abs/2602.12670v4)；[ToolRet v2](https://arxiv.org/abs/2503.01763v2)；[ToolScout v1](https://arxiv.org/abs/2608.16502v1)；[FitText v4](https://arxiv.org/abs/2605.02411v4)；[Tool-DE v1](https://arxiv.org/abs/2510.22670v1) | 分别支持过程知识、工具召回、来源偏差、预算内检索和描述增强的研究问题；[§18](../specs/plugins.md#spec-18) 分别验收，不把论文收益照搬到 27B/C=1。 |"
+      "source_row": "| REF-TOOL-RESEARCH | PAPER；论文/原作者研究 | [SkillsBench v4](https://arxiv.org/abs/2602.12670v4)；[ToolRet v2](https://arxiv.org/abs/2503.01763v2)；[ToolScout v1](https://arxiv.org/abs/2608.16502v1)；[FitText v4](https://arxiv.org/abs/2605.02411v4)；[Tool-DE v1](https://arxiv.org/abs/2510.22670v1) | 分别支持过程知识、工具召回、来源偏差、预算内检索和描述增强的研究问题；[§18](../specs/plugins.md#spec-18) 分别验收，不把论文收益照搬到 27B/C=1。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 55
+      }
     },
     {
       "id": "REF-SKILLS-MCP",
@@ -451,8 +547,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 56,
-      "source_row": "| REF-SKILLS-MCP | UPSTREAM；官方规范/文档/产品说明 | [Agent Skills 格式与渐进披露](https://agentskills.io/specification)；[Anthropic 工具工程](https://www.anthropic.com/engineering/advanced-tool-use)；[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28) | 兼容入口、按需加载与工具协议；MCP 的可选扩展逐项协商，市场安装不等于安全性或任务有效性证明。 |"
+      "source_row": "| REF-SKILLS-MCP | UPSTREAM；官方规范/文档/产品说明 | [Agent Skills 格式与渐进披露](https://agentskills.io/specification)；[Anthropic 工具工程](https://www.anthropic.com/engineering/advanced-tool-use)；[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28) | 兼容入口、按需加载与工具协议；MCP 的可选扩展逐项协商，市场安装不等于安全性或任务有效性证明。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 56
+      }
     },
     {
       "id": "REF-NINFER",
@@ -469,8 +569,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 57,
-      "source_row": "| REF-NINFER | UPSTREAM；固定源码＋相应文档 | [64d10fb 调度与 context cache](https://github.com/Neroued/ninfer/blob/64d10fbf9f8e6bfc79ab0570b94674c5b9997929/docs/maintainer/resource-scheduling-and-context-cache.md)；同提交 docs/serving.md | lanes、KV、StateImages、Host backing、稳定暂停边界、Replay 与视觉上限分开透传。 |"
+      "source_row": "| REF-NINFER | UPSTREAM；固定源码＋相应文档 | [64d10fb 调度与 context cache](https://github.com/Neroued/ninfer/blob/64d10fbf9f8e6bfc79ab0570b94674c5b9997929/docs/maintainer/resource-scheduling-and-context-cache.md)；同提交 docs/serving.md | lanes、KV、StateImages、Host backing、稳定暂停边界、Replay 与视觉上限分开透传。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 57
+      }
     },
     {
       "id": "REF-STRATA",
@@ -487,8 +591,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 58,
-      "source_row": "| REF-STRATA | UPSTREAM；固定源码＋相应文档 | [011c9e6 BATCHING.md](https://github.com/Niko1221/Strata/blob/011c9e600a93bbc9fd451c563501b5831c32bbca/docs/BATCHING.md)，app 0.2.2 / engine 0.1.47 | Host conversation parking、GPU 驻留和并行 decode 不合并为单一缓存开关；并行收益以部署测量为准。 |"
+      "source_row": "| REF-STRATA | UPSTREAM；固定源码＋相应文档 | [011c9e6 BATCHING.md](https://github.com/Niko1221/Strata/blob/011c9e600a93bbc9fd451c563501b5831c32bbca/docs/BATCHING.md)，app 0.2.2 / engine 0.1.47 | Host conversation parking、GPU 驻留和并行 decode 不合并为单一缓存开关；并行收益以部署测量为准。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 58
+      }
     },
     {
       "id": "REF-VLLM",
@@ -505,8 +613,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 59,
-      "source_row": "| REF-VLLM | UPSTREAM；固定源码＋相应文档 | [c722f3a 固定树](https://github.com/vllm-project/vllm/tree/c722f3a5368a9eed2b90c1a14b8eaf17acba3e93)，正式 v0.32.0；[§13.6](../specs/inference.md#spec-13-6)–[§13.7](../specs/inference.md#spec-13-7) 的具体接口 | KV hints/原生传输/取消/回执与服务配置按实际支持程度记录，不发明统一 slot。 |"
+      "source_row": "| REF-VLLM | UPSTREAM；固定源码＋相应文档 | [c722f3a 固定树](https://github.com/vllm-project/vllm/tree/c722f3a5368a9eed2b90c1a14b8eaf17acba3e93)，正式 v0.32.0；[§13.6](../specs/inference.md#spec-13-6)–[§13.7](../specs/inference.md#spec-13-7) 的具体接口 | KV hints/原生传输/取消/回执与服务配置按实际支持程度记录，不发明统一 slot。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 59
+      }
     },
     {
       "id": "REF-1CAT",
@@ -523,8 +635,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 60,
-      "source_row": "| REF-1CAT | UPSTREAM；固定源码＋相应文档 | [1d7321b 固定树](https://github.com/1CatAI/1Cat-vLLM/tree/1d7321bf2d35ac8970870dc51bc1f7405517c3ca)，正式 v1.5.1；REF-LIFE 的生产版本另列 | fork 能力、忽略字段和用户生产 patch 的差异；不把最新源码当作用户已部署版本。 |"
+      "source_row": "| REF-1CAT | UPSTREAM；固定源码＋相应文档 | [1d7321b 固定树](https://github.com/1CatAI/1Cat-vLLM/tree/1d7321bf2d35ac8970870dc51bc1f7405517c3ca)，正式 v1.5.1；REF-LIFE 的生产版本另列 | fork 能力、忽略字段和用户生产 patch 的差异；不把最新源码当作用户已部署版本。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 60
+      }
     },
     {
       "id": "REF-LIFE",
@@ -541,8 +657,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 61,
-      "source_row": "| REF-LIFE | UPSTREAM；固定源码＋相应文档 | [people / 618f0dc](https://github.com/cyjin-yl/life/blob/618f0dcb13eea858b36c7a3f9a802208b56378e6/catalog/people/README.md)；[voiceprints](https://github.com/cyjin-yl/life/blob/618f0dcb13eea858b36c7a3f9a802208b56378e6/catalog/voiceprints/README.md)；[§22.1](../specs/nodes.md#spec-22-1) 固定推理记录 | 用户私有来源：稳定身份、录音内 rank、候选/确认/修订；推理资料按 U21 四流 128K 更正。不向公开文档复制私密素材。 |"
+      "source_row": "| REF-LIFE | UPSTREAM；固定源码＋相应文档 | [people / 618f0dc](https://github.com/cyjin-yl/life/blob/618f0dcb13eea858b36c7a3f9a802208b56378e6/catalog/people/README.md)；[voiceprints](https://github.com/cyjin-yl/life/blob/618f0dcb13eea858b36c7a3f9a802208b56378e6/catalog/voiceprints/README.md)；[§22.1](../specs/nodes.md#spec-22-1) 固定推理记录 | 用户私有来源：稳定身份、录音内 rank、候选/确认/修订；推理资料按 U21 四流 128K 更正。不向公开文档复制私密素材。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 61
+      }
     },
     {
       "id": "REF-NAPCAT",
@@ -559,8 +679,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 62,
-      "source_row": "| REF-NAPCAT | UPSTREAM；固定源码＋相应文档 | [NapCat 3420f0b WebSocket](https://github.com/NapNeko/NapCatQQ/blob/3420f0b76d7dc0ac92cde1663f21ea27f61e13bb/packages/napcat-onebot/network/websocket-server.ts)；[OneBot WS](https://github.com/botuniverse/onebot-11/blob/master/communication/ws.md)；[napcat-cli 3da08c0](https://github.com/cyjin-yl/napcat-cli/blob/3da08c03ff491cb8b86896102b0eab06c9b0c145/napcat_cli/lib/events_sqlite.py) | 收发/账号/附件/重连与事件缺口；echo 不是幂等键，since 时间戳不是完整游标，按 [§35](../specs/self-update.md#spec-35) 对照。 |"
+      "source_row": "| REF-NAPCAT | UPSTREAM；固定源码＋相应文档 | [NapCat 3420f0b WebSocket](https://github.com/NapNeko/NapCatQQ/blob/3420f0b76d7dc0ac92cde1663f21ea27f61e13bb/packages/napcat-onebot/network/websocket-server.ts)；[OneBot WS](https://github.com/botuniverse/onebot-11/blob/master/communication/ws.md)；[napcat-cli 3da08c0](https://github.com/cyjin-yl/napcat-cli/blob/3da08c03ff491cb8b86896102b0eab06c9b0c145/napcat_cli/lib/events_sqlite.py) | 收发/账号/附件/重连与事件缺口；echo 不是幂等键，since 时间戳不是完整游标，按 [§35](../specs/self-update.md#spec-35) 对照。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 62
+      }
     },
     {
       "id": "REF-QQ",
@@ -577,8 +701,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 63,
-      "source_row": "| REF-QQ | UPSTREAM；官方规范/文档/产品说明 | [QQ 消息总览](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)，2026-10-22 | 官方事件、媒体、回复/主动投递及平台权限；与 NapCat 账号命名空间分离。 |"
+      "source_row": "| REF-QQ | UPSTREAM；官方规范/文档/产品说明 | [QQ 消息总览](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)，2026-10-22 | 官方事件、媒体、回复/主动投递及平台权限；与 NapCat 账号命名空间分离。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 63
+      }
     },
     {
       "id": "REF-ILINK",
@@ -595,8 +723,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 64,
-      "source_row": "| REF-ILINK | UPSTREAM；固定源码＋相应文档 | [Tencent iLink 协议](https://github.com/Tencent/openclaw-weixin/blob/main/docs/ilink-bot-protocol.md)；[channel.ts](https://github.com/Tencent/openclaw-weixin/blob/main/src/channel.ts)，2026-10-22 动态入口 | direct、游标、context token、附件与认证；不能据名称承诺微信群，具体 iLinkBot wrapper 仍按版本适配。 |"
+      "source_row": "| REF-ILINK | UPSTREAM；固定源码＋相应文档 | [Tencent iLink 协议](https://github.com/Tencent/openclaw-weixin/blob/main/docs/ilink-bot-protocol.md)；[channel.ts](https://github.com/Tencent/openclaw-weixin/blob/main/src/channel.ts)，2026-10-22 动态入口 | direct、游标、context token、附件与认证；不能据名称承诺微信群，具体 iLinkBot wrapper 仍按版本适配。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 64
+      }
     },
     {
       "id": "REF-FEISHU",
@@ -613,8 +745,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 65,
-      "source_row": "| REF-FEISHU | UPSTREAM；官方规范/文档/产品说明 | [飞书消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive?lang=zh-CN)，2026-10-22 | 私聊/群/线程/卡片/文件、长连接或回调；tenant/App 权限和国际 Lark 差异。 |"
+      "source_row": "| REF-FEISHU | UPSTREAM；官方规范/文档/产品说明 | [飞书消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive?lang=zh-CN)，2026-10-22 | 私聊/群/线程/卡片/文件、长连接或回调；tenant/App 权限和国际 Lark 差异。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 65
+      }
     },
     {
       "id": "REF-ASTRBOT",
@@ -631,8 +767,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 66,
-      "source_row": "| REF-ASTRBOT | UPSTREAM；官方规范/文档/产品说明 | [AstrBot 主动任务](https://docs.astrbot.app/use/proactive-agent.html)，2026-10-22 | 多渠道与主动任务的产品比较入口；定时任务与永续主体差异明确，不继承无关默认限制。 |"
+      "source_row": "| REF-ASTRBOT | UPSTREAM；官方规范/文档/产品说明 | [AstrBot 主动任务](https://docs.astrbot.app/use/proactive-agent.html)，2026-10-22 | 多渠道与主动任务的产品比较入口；定时任务与永续主体差异明确，不继承无关默认限制。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 66
+      }
     },
     {
       "id": "REF-OPENCLAW",
@@ -649,8 +789,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 67,
-      "source_row": "| REF-OPENCLAW | UPSTREAM；官方规范/文档/产品说明 | [队列](https://docs.openclaw.ai/concepts/queue)、[Gateway 策略](https://docs.openclaw.ai/gateway/security)，2026-10-22 | 节点/消息/渠道启发与开放策略对照；本产品默认开放聊天，管理员另行登记。 |"
+      "source_row": "| REF-OPENCLAW | UPSTREAM；官方规范/文档/产品说明 | [队列](https://docs.openclaw.ai/concepts/queue)、[Gateway 策略](https://docs.openclaw.ai/gateway/security)，2026-10-22 | 节点/消息/渠道启发与开放策略对照；本产品默认开放聊天，管理员另行登记。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 67
+      }
     },
     {
       "id": "REF-CLAUDE",
@@ -667,8 +811,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 68,
-      "source_row": "| REF-CLAUDE | UPSTREAM；官方规范/文档/产品说明 | [Agent SDK user-input](https://code.claude.com/docs/en/agent-sdk/user-input)、[CLI](https://code.claude.com/docs/en/cli-reference)、[hooks](https://code.claude.com/docs/en/hooks)，2026-10-22 | 结构化 question/permission、CLI 运行/恢复、hook 边界；不把已有交互 TUI 冒充任意 SDK 可 attach 会话。 |"
+      "source_row": "| REF-CLAUDE | UPSTREAM；官方规范/文档/产品说明 | [Agent SDK user-input](https://code.claude.com/docs/en/agent-sdk/user-input)、[CLI](https://code.claude.com/docs/en/cli-reference)、[hooks](https://code.claude.com/docs/en/hooks)，2026-10-22 | 结构化 question/permission、CLI 运行/恢复、hook 边界；不把已有交互 TUI 冒充任意 SDK 可 attach 会话。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 68
+      }
     },
     {
       "id": "REF-TMUX",
@@ -685,8 +833,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 69,
-      "source_row": "| REF-TMUX | UPSTREAM；固定源码＋相应文档 | [manual 1c418f0](https://github.com/tmux/tmux/blob/1c418f0b62d131b57d2e113362c2911867102652/tmux.1)；[Control Mode](https://github.com/tmux/tmux/wiki/Control-Mode)；[vt100 crate](https://docs.rs/vt100/latest/vt100/) | 属性/屏幕/cursor/控制流与语义观察；终端 parser 不自动识别所有应用问题，send-keys 无条件重放不安全。 |"
+      "source_row": "| REF-TMUX | UPSTREAM；固定源码＋相应文档 | [manual 1c418f0](https://github.com/tmux/tmux/blob/1c418f0b62d131b57d2e113362c2911867102652/tmux.1)；[Control Mode](https://github.com/tmux/tmux/wiki/Control-Mode)；[vt100 crate](https://docs.rs/vt100/latest/vt100/) | 属性/屏幕/cursor/控制流与语义观察；终端 parser 不自动识别所有应用问题，send-keys 无条件重放不安全。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 69
+      }
     },
     {
       "id": "REF-REPL",
@@ -703,8 +855,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 70,
-      "source_row": "| REF-REPL | UPSTREAM；候选文档/局部实现 | [CPython WASI](https://github.com/python/cpython/tree/main/Platforms/WASI)、[Pyodide packages](https://pyodide.org/en/stable/usage/loading-packages.html)、[Javy](https://github.com/bytecodealliance/javy)、[ComponentizeJS](https://github.com/bytecodealliance/ComponentizeJS)、[Node targets](https://github.com/nodejs/node/blob/main/BUILDING.md)、[Bun](https://github.com/oven-sh/bun)，2026-10-22 动态入口 | 分别核验解释器、包与恢复等级；JS engine、宿主 Node/Bun 不冒充 Node/Bun in WASM。 |"
+      "source_row": "| REF-REPL | UPSTREAM；候选文档/局部实现 | [CPython WASI](https://github.com/python/cpython/tree/main/Platforms/WASI)、[Pyodide packages](https://pyodide.org/en/stable/usage/loading-packages.html)、[Javy](https://github.com/bytecodealliance/javy)、[ComponentizeJS](https://github.com/bytecodealliance/ComponentizeJS)、[Node targets](https://github.com/nodejs/node/blob/main/BUILDING.md)、[Bun](https://github.com/oven-sh/bun)，2026-10-22 动态入口 | 分别核验解释器、包与恢复等级；JS engine、宿主 Node/Bun 不冒充 Node/Bun in WASM。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 70
+      }
     },
     {
       "id": "REF-OS",
@@ -721,8 +877,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 71,
-      "source_row": "| REF-OS | UPSTREAM；官方规范/文档/产品说明 | [Windows containers](https://learn.microsoft.com/en-us/virtualization/windowscontainers/quick-start/lift-shift-to-containers)、[macOS VM](https://developer.apple.com/documentation/virtualization/running-macos-in-a-virtual-machine-on-apple-silicon)、[屏幕录制](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)、[Accessibility](https://support.apple.com/guide/mac-help/allow-accessibility-apps-to-access-your-mac-mh43185/mac)，2026-10-22 | 桌面会话/VM/授权的真实平台边界；不将 Linux 容器等同所有 OS 的桌面。 |"
+      "source_row": "| REF-OS | UPSTREAM；官方规范/文档/产品说明 | [Windows containers](https://learn.microsoft.com/en-us/virtualization/windowscontainers/quick-start/lift-shift-to-containers)、[macOS VM](https://developer.apple.com/documentation/virtualization/running-macos-in-a-virtual-machine-on-apple-silicon)、[屏幕录制](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)、[Accessibility](https://support.apple.com/guide/mac-help/allow-accessibility-apps-to-access-your-mac-mh43185/mac)，2026-10-22 | 桌面会话/VM/授权的真实平台边界；不将 Linux 容器等同所有 OS 的桌面。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 71
+      }
     },
     {
       "id": "REF-RAFT",
@@ -739,8 +899,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 72,
-      "source_row": "| REF-RAFT | PAPER；论文/原作者研究 | [Raft 原论文](https://raft.github.io/raft.pdf)；[fencing 原作者分析](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html) | 多数与目标端 fencing 的依据；在线优先分支、重连合并与个人连续性属本产品协议。 |"
+      "source_row": "| REF-RAFT | PAPER；论文/原作者研究 | [Raft 原论文](https://raft.github.io/raft.pdf)；[fencing 原作者分析](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html) | 多数与目标端 fencing 的依据；在线优先分支、重连合并与个人连续性属本产品协议。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 72
+      }
     },
     {
       "id": "REF-PROTO",
@@ -757,8 +921,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 73,
-      "source_row": "| REF-PROTO | UPSTREAM；固定源码＋相应文档 | [b928a56 React manifest](https://github.com/Proto-UI/Proto-UI/blob/b928a56c6909835771fc2131503b4a7139db738c/packages/adapters/react/package.json)；[compiler manifest](https://github.com/Proto-UI/Proto-UI/blob/b928a56c6909835771fc2131503b4a7139db738c/packages/compiler/package.json) | 本轮真实 React adapter 0.3.0-alpha.1、compiler private；每开发任务追最新主线并 pin；compiler seam 是产品合同。 |"
+      "source_row": "| REF-PROTO | UPSTREAM；固定源码＋相应文档 | [b928a56 React manifest](https://github.com/Proto-UI/Proto-UI/blob/b928a56c6909835771fc2131503b4a7139db738c/packages/adapters/react/package.json)；[compiler manifest](https://github.com/Proto-UI/Proto-UI/blob/b928a56c6909835771fc2131503b4a7139db738c/packages/compiler/package.json) | 本轮真实 React adapter 0.3.0-alpha.1、compiler private；每开发任务追最新主线并 pin；compiler seam 是产品合同。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 73
+      }
     },
     {
       "id": "REF-SHADCN",
@@ -775,8 +943,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 74,
-      "source_row": "| REF-SHADCN | UPSTREAM；官方规范/文档/产品说明 | [shadcn changelog](https://ui.shadcn.com/docs/changelog)，2026-10-22 | 组件/token 与当期 AI 交互参考；不虚构唯一的 2026 视觉标准。 |"
+      "source_row": "| REF-SHADCN | UPSTREAM；官方规范/文档/产品说明 | [shadcn changelog](https://ui.shadcn.com/docs/changelog)，2026-10-22 | 组件/token 与当期 AI 交互参考；不虚构唯一的 2026 视觉标准。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 74
+      }
     },
     {
       "id": "REF-DYNAMIC-UI",
@@ -793,8 +965,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 75,
-      "source_row": "| REF-DYNAMIC-UI | UPSTREAM；官方规范/文档/产品说明 | [Intelligent UI 发布](https://openai.com/index/gpt-6-for-everyone/)、[官方帮助](https://help.openai.com/en/articles/20001598-intelligent-ui-in-chatgpt)、[Plugins UI](https://developers.openai.com/plugins/build/chatgpt-ui)、[ChatKit widgets](https://developers.openai.com/api/docs/guides/chatkit-widgets) 与 [actions](https://developers.openai.com/api/docs/guides/chatkit-actions) | 生成式界面产品方向与公开开发原语分开；本产品跨渠道 DSL/动作账本/降级为 DERIVED。 |"
+      "source_row": "| REF-DYNAMIC-UI | UPSTREAM；官方规范/文档/产品说明 | [Intelligent UI 发布](https://openai.com/index/gpt-6-for-everyone/)、[官方帮助](https://help.openai.com/en/articles/20001598-intelligent-ui-in-chatgpt)、[Plugins UI](https://developers.openai.com/plugins/build/chatgpt-ui)、[ChatKit widgets](https://developers.openai.com/api/docs/guides/chatkit-widgets) 与 [actions](https://developers.openai.com/api/docs/guides/chatkit-actions) | 生成式界面产品方向与公开开发原语分开；本产品跨渠道 DSL/动作账本/降级为 DERIVED。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 75
+      }
     },
     {
       "id": "REF-MAGPIE",
@@ -811,8 +987,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 76,
-      "source_row": "| REF-MAGPIE | UPSTREAM；官方截图＋源码入口 | [yetone/magpie 398803e](https://github.com/yetone/magpie/tree/398803e3f575dcafc20573f674a98d71105c9694)；site/public/img/agents-light.png、panel-light.png、picker-light.png；[§21.10](../specs/web-interface.md#spec-21-10) 精确链接 | 工作视觉参照；三个官方截图已观察。用户未给确切链接，身份作为高相关候选；运行交互/动画未在本轮实测。 |"
+      "source_row": "| REF-MAGPIE | UPSTREAM；官方截图＋源码入口 | [yetone/magpie 398803e](https://github.com/yetone/magpie/tree/398803e3f575dcafc20573f674a98d71105c9694)；site/public/img/agents-light.png、panel-light.png、picker-light.png；[§21.10](../specs/web-interface.md#spec-21-10) 精确链接 | 工作视觉参照；三个官方截图已观察。用户未给确切链接，身份作为高相关候选；运行交互/动画未在本轮实测。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 76
+      }
     },
     {
       "id": "REF-DOTS",
@@ -829,8 +1009,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 77,
-      "source_row": "| REF-DOTS | UPSTREAM；官方规范/文档/产品说明 | [OpenAI dots 发布，2026-09-29](https://openai.com/index/introducing-dots/) | 产品方向：持续任务、活动与成果。官方介绍层级，不作为本地资源或实现性能证据。 |"
+      "source_row": "| REF-DOTS | UPSTREAM；官方规范/文档/产品说明 | [OpenAI dots 发布，2026-09-29](https://openai.com/index/introducing-dots/) | 产品方向：持续任务、活动与成果。官方介绍层级，不作为本地资源或实现性能证据。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 77
+      }
     },
     {
       "id": "REF-DUET",
@@ -847,8 +1031,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 78,
-      "source_row": "| REF-DUET | UPSTREAM；官方规范/文档/产品说明 | [Claude Duet，2026-10-21](https://claude.com/resources/articles/claude-duet)；[帮助](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet) | 产品方向：主对话、工作区、共同记忆与历史。UI/命名灵感不等于要求全面克隆。 |"
+      "source_row": "| REF-DUET | UPSTREAM；官方规范/文档/产品说明 | [Claude Duet，2026-10-21](https://claude.com/resources/articles/claude-duet)；[帮助](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet) | 产品方向：主对话、工作区、共同记忆与历史。UI/命名灵感不等于要求全面克隆。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 78
+      }
     },
     {
       "id": "REF-MUSE",
@@ -865,8 +1053,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 79,
-      "source_row": "| REF-MUSE | UPSTREAM；官方规范/文档/产品说明 | [Muse 发布](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/)；[运行架构](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse) | 持续自主、子 Agent、自建工具、运行环境与身份分离的对照；本产品本地可改协议另行验证。 |"
+      "source_row": "| REF-MUSE | UPSTREAM；官方规范/文档/产品说明 | [Muse 发布](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/)；[运行架构](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse) | 持续自主、子 Agent、自建工具、运行环境与身份分离的对照；本产品本地可改协议另行验证。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 79
+      }
     },
     {
       "id": "REF-NAME",
@@ -883,8 +1075,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 80,
-      "source_row": "| REF-NAME | UPSTREAM；官方规范/文档/产品说明 | [Sonzai / Mind Layer 官网](https://sonz.ai/)，2026-10-22 | 历史候选 Sonzai 的同领域命名排查；用户已于 U39 正式选择 Shenko。仅保留历史出处，不是 Shenko 的命名来源或可用性判断。 |"
+      "source_row": "| REF-NAME | UPSTREAM；官方规范/文档/产品说明 | [Sonzai / Mind Layer 官网](https://sonz.ai/)，2026-10-22 | 历史候选 Sonzai 的同领域命名排查；用户已于 U39 正式选择 Shenko。仅保留历史出处，不是 Shenko 的命名来源或可用性判断。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 80
+      }
     },
     {
       "id": "REF-HINDSIGHT",
@@ -901,8 +1097,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 81,
-      "source_row": "| REF-HINDSIGHT | UPSTREAM；候选文档/局部实现 | [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight)，2026-10-22；未锁源码行为基线 | 已识别候选项目，尚未建立与本产品 retain/recall/reflect 全合同的逐行为对照；不宣称已适配。 |"
+      "source_row": "| REF-HINDSIGHT | UPSTREAM；候选文档/局部实现 | [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight)，2026-10-22；未锁源码行为基线 | 已识别候选项目，尚未建立与本产品 retain/recall/reflect 全合同的逐行为对照；不宣称已适配。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 81
+      }
     },
     {
       "id": "REF-LLAMACPP",
@@ -919,8 +1119,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 82,
-      "source_row": "| REF-LLAMACPP | UPSTREAM；候选文档/局部实现 | [server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，2026-10-22 动态入口 | [§13.6](../specs/inference.md#spec-13-6) 的 slot/cache 附加接口参考；实际启用与缓存回执需部署验收，未锁 commit 不作严格版本等价结论。 |"
+      "source_row": "| REF-LLAMACPP | UPSTREAM；候选文档/局部实现 | [server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，2026-10-22 动态入口 | [§13.6](../specs/inference.md#spec-13-6) 的 slot/cache 附加接口参考；实际启用与缓存回执需部署验收，未锁 commit 不作严格版本等价结论。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 82
+      }
     },
     {
       "id": "REF-DYNAMO",
@@ -937,8 +1141,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 83,
-      "source_row": "| REF-DYNAMO | UPSTREAM；官方规范/文档/产品说明 | [SGLang for Agentic Workloads](https://docs.nvidia.com/dynamo/latest/knowledge-base/modular-components/backends/sg-lang/agents-on-sg-lang)，读取时标 v1.5.1，2026-10-22 | priority hints 与实验性 session control 参考；精确 backend 配置/限制保留，不自动成为首版依赖。 |"
+      "source_row": "| REF-DYNAMO | UPSTREAM；官方规范/文档/产品说明 | [SGLang for Agentic Workloads](https://docs.nvidia.com/dynamo/latest/knowledge-base/modular-components/backends/sg-lang/agents-on-sg-lang)，读取时标 v1.5.1，2026-10-22 | priority hints 与实验性 session control 参考；精确 backend 配置/限制保留，不自动成为首版依赖。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 83
+      }
     },
     {
       "id": "REF-GIT-WORKTREE",
@@ -955,8 +1163,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 84,
-      "source_row": "| REF-GIT-WORKTREE | UPSTREAM；官方规范/文档/产品说明 | [Git worktree 手册](https://git-scm.com/docs/git-worktree)，读取时最后修改版 2.56.0，2026-10-22 | 并行候选工作树与清理/恢复的接口参考；共享仓库对象与宿主权限不构成安全隔离。 |"
+      "source_row": "| REF-GIT-WORKTREE | UPSTREAM；官方规范/文档/产品说明 | [Git worktree 手册](https://git-scm.com/docs/git-worktree)，读取时最后修改版 2.56.0，2026-10-22 | 并行候选工作树与清理/恢复的接口参考；共享仓库对象与宿主权限不构成安全隔离。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 84
+      }
     },
     {
       "id": "REF-QWEN",
@@ -973,8 +1185,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 85,
-      "source_row": "| REF-QWEN | UPSTREAM；官方规范/文档/产品说明 | [Qwen3.8-27B 模型卡](https://huggingface.co/Qwen/Qwen3.8-27B)；U20/U21 的用户实际配置 | 模型识别与待测画像；实际量化、模板、四流上下文以部署manifest为准，不能从参数量推出固定能力结论。 |"
+      "source_row": "| REF-QWEN | UPSTREAM；官方规范/文档/产品说明 | [Qwen3.8-27B 模型卡](https://huggingface.co/Qwen/Qwen3.8-27B)；U20/U21 的用户实际配置 | 模型识别与待测画像；实际量化、模板、四流上下文以部署manifest为准，不能从参数量推出固定能力结论。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 85
+      }
     },
     {
       "id": "REF-ALMA",
@@ -991,8 +1207,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 86,
-      "source_row": "| REF-ALMA | UPSTREAM；官方文档与发布记录 | [Alma 官网](https://alma.now/)、[Chat Interface](https://alma.now/docs/guide/chat)；[v0.4.211](https://github.com/yetone/alma-releases/releases/tag/v0.4.211)、[v0.4.202](https://github.com/yetone/alma-releases/releases/tag/v0.4.202)，2026-10-22 核验 | 流式阅读、Markdown/代码/产物交互、retry 与局部渲染故障参考。官方文字/发布说明不证明实测零抖动；Shenko 的流协议与性能门槛为推导设计。 |"
+      "source_row": "| REF-ALMA | UPSTREAM；官方文档与发布记录 | [Alma 官网](https://alma.now/)、[Chat Interface](https://alma.now/docs/guide/chat)；[v0.4.211](https://github.com/yetone/alma-releases/releases/tag/v0.4.211)、[v0.4.202](https://github.com/yetone/alma-releases/releases/tag/v0.4.202)，2026-10-22 核验 | 流式阅读、Markdown/代码/产物交互、retry 与局部渲染故障参考。官方文字/发布说明不证明实测零抖动；Shenko 的流协议与性能门槛为推导设计。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 86
+      }
     },
     {
       "id": "REF-QUOTA",
@@ -1009,8 +1229,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 87,
-      "source_row": "| REF-QUOTA | UPSTREAM；官方服务合同与字段文档 | [Claude Code statusline](https://code.claude.com/docs/en/statusline)、[Usage limits](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work)、[API rate limits](https://platform.claude.com/docs/en/api/rate-limits)；[§42.8](../specs/quota-resources.md#spec-42-8) 完整官方入口，2026-10-22 | 周期用量观测、缺省/陈旧/共享消耗、API 与订阅限额区别；没有通用精确余额保证。跨 provider 预测、准入节奏与模型路由是 Shenko 设计，后于本地 AI 核心交付。 |"
+      "source_row": "| REF-QUOTA | UPSTREAM；官方服务合同与字段文档 | [Claude Code statusline](https://code.claude.com/docs/en/statusline)、[Usage limits](https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work)、[API rate limits](https://platform.claude.com/docs/en/api/rate-limits)；[§42.8](../specs/quota-resources.md#spec-42-8) 完整官方入口，2026-10-22 | 周期用量观测、缺省/陈旧/共享消耗、API 与订阅限额区别；没有通用精确余额保证。跨 provider 预测、准入节奏与模型路由是 Shenko 设计，后于本地 AI 核心交付。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 87
+      }
     },
     {
       "id": "REF-DEV-GOV",
@@ -1027,8 +1251,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 88,
-      "source_row": "| REF-DEV-GOV | UPSTREAM 与 DERIVED 分列；固定源码＋官方文档 | [八组治理上游的固定版本登记](../research/agent-development-governance.md)；[Claude/GitHub 官方能力核验](../research/claude-handoff.md)，2026-10-22 | 任务接续、隔离并行、候选证据、完整度收敛、实际 /goal/ultracode/账号与 PR 语义；Shenko 自主交付规则为用户委托下的组合，不照搬上游人工 gate。 |"
+      "source_row": "| REF-DEV-GOV | UPSTREAM 与 DERIVED 分列；固定源码＋官方文档 | [八组治理上游的固定版本登记](../research/agent-development-governance.md)；[Claude/GitHub 官方能力核验](../research/claude-handoff.md)，2026-10-22 | 任务接续、隔离并行、候选证据、完整度收敛、实际 /goal/ultracode/账号与 PR 语义；Shenko 自主交付规则为用户委托下的组合，不照搬上游人工 gate。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 88
+      }
     },
     {
       "id": "REF-CLAUDE-API",
@@ -1045,8 +1273,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 89,
-      "source_row": "| REF-CLAUDE-API | UPSTREAM；官方版本/迁移/发布说明与固定 release | [Versions](https://platform.claude.com/docs/en/api/versioning)、[2026-10-21 migration](https://platform.claude.com/docs/en/api/migration-2026-10-21)、[发布说明](https://platform.claude.com/docs/en/release-notes/overview)、[Python v2.0.0 ecfee6c](https://github.com/anthropics/anthropic-sdk-python/commit/ecfee6cd504cfbf634919bdbd058fb74afdbd533)；核验 2026-10-22 | API/SDK/模型/平台分别版本化；采样和角色约束、Bearer 默认、条件适用的管理字段等按原始资料。Shenko 的绑定/迁移/感知合同为推导，尚未实际调用验证。 |"
+      "source_row": "| REF-CLAUDE-API | UPSTREAM；官方版本/迁移/发布说明与固定 release | [Versions](https://platform.claude.com/docs/en/api/versioning)、[2026-10-21 migration](https://platform.claude.com/docs/en/api/migration-2026-10-21)、[发布说明](https://platform.claude.com/docs/en/release-notes/overview)、[Python v2.0.0 ecfee6c](https://github.com/anthropics/anthropic-sdk-python/commit/ecfee6cd504cfbf634919bdbd058fb74afdbd533)；核验 2026-10-22 | API/SDK/模型/平台分别版本化；采样和角色约束、Bearer 默认、条件适用的管理字段等按原始资料。Shenko 的绑定/迁移/感知合同为推导，尚未实际调用验证。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 89
+      }
     },
     {
       "id": "REF-AGENT-SKILLS",
@@ -1063,8 +1295,12 @@
         "source_commit": "ec37e7b458cd9243892763d75da716c1e126e435"
       },
       "source_path": "docs/requirements/design-provenance.md",
-      "source_markdown_line": 90,
-      "source_row": "| REF-AGENT-SKILLS | UPSTREAM；官方 Agent Skills 与仓库指令文档 | [OpenAI Skills](https://developers.openai.com/codex/skills)、[OpenAI AGENTS.md](https://developers.openai.com/codex/guides/agents-md)、[Claude Skills](https://code.claude.com/docs/en/skills)、[Claude memory](https://code.claude.com/docs/en/memory)、[Agent Skills 规范](https://agentskills.io/specification)；核验 2026-10-22 | SKILL.md/name/description 的共同格式、宿主目录发现、符号链接与必读入口；具体哲学/原子分工和无人工 gate 为用户要求及 Shenko 设计。写入文件不等于两个宿主已实际运行。 |"
+      "source_row": "| REF-AGENT-SKILLS | UPSTREAM；官方 Agent Skills 与仓库指令文档 | [OpenAI Skills](https://developers.openai.com/codex/skills)、[OpenAI AGENTS.md](https://developers.openai.com/codex/guides/agents-md)、[Claude Skills](https://code.claude.com/docs/en/skills)、[Claude memory](https://code.claude.com/docs/en/memory)、[Agent Skills 规范](https://agentskills.io/specification)；核验 2026-10-22 | SKILL.md/name/description 的共同格式、宿主目录发现、符号链接与必读入口；具体哲学/原子分工和无人工 gate 为用户要求及 Shenko 设计。写入文件不等于两个宿主已实际运行。 |",
+      "source_anchor": "spec-39-2",
+      "reference_migration": {
+        "index_schema_version": 2,
+        "source_markdown_line": 90
+      }
     }
   ],
   "contract_manifest": "docs/contracts.json"

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "goal_id": "shenko-complete-product",
   "spec_version": "0.6.2",
   "coverage_status": "s1_s2_partial_verified",
@@ -15,14 +15,22 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-channel-napcat/src/client.rs",
-        "crates/shenko-channel-napcat/src/adapter.rs",
-        "crates/shenko-channel-napcat/src/outbound.rs"
+        "crates/shenko-channel-napcat/src/client.rs#NapCatClient",
+        "crates/shenko-channel-napcat/src/channel.rs#NapCatChannel",
+        "crates/shenko-channel-napcat/src/outbound.rs#build_outbound"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "OneBot WS接入 + IngressSpool持久游标/dedup + QQ出站OutboundLedger(intent→ack→unknown→reconcile，15s超时=Unknown，不盲重发)"
+      "note": "OneBot WS接入 + IngressSpool持久游标/dedup + QQ出站OutboundLedger(intent→ack→unknown→reconcile，15s超时=Unknown，不盲重发)",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-channel-napcat/src/client.rs",
+          "crates/shenko-channel-napcat/src/adapter.rs",
+          "crates/shenko-channel-napcat/src/outbound.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R002",
@@ -50,13 +58,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-subject/src/loop_runner.rs",
-        "crates/shenko-subject/src/inbox.rs"
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "crates/shenko-subject/src/inbox.rs#Inbox"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "S0/S1状态机实现，持续主体，每步登记唯一后继"
+      "note": "S0/S1状态机实现，持续主体，每步登记唯一后继",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/loop_runner.rs",
+          "crates/shenko-subject/src/inbox.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R004",
@@ -68,12 +83,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-wasm/src/runtime.rs"
+        "crates/shenko-wasm/src/runtime.rs#WasmRuntime"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "wasmtime 45 Engine/Module 实例化与 call_func 可用；checkpoint/restore 仅写/读标记文件，WASI/VFS/宿主挂载未实现"
+      "note": "wasmtime 45 Engine/Module 实例化与 call_func 可用；checkpoint/restore 仅写/读标记文件，WASI/VFS/宿主挂载未实现",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-wasm/src/runtime.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R005",
@@ -86,12 +107,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-subject/src/loop_runner.rs"
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "语义等待 max_semantic_wait_secs=600 已实现"
+      "note": "语义等待 max_semantic_wait_secs=600 已实现",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/loop_runner.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R006",
@@ -136,13 +163,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-broker/src/provider.rs",
-        "crates/shenko-broker/src/broker.rs"
+        "crates/shenko-broker/src/provider.rs#AnthropicProvider",
+        "crates/shenko-broker/src/broker.rs#Broker"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "Anthropic API 2026-10-21, claude-opus-5-5, no temperature"
+      "note": "Anthropic API 2026-10-21, claude-opus-5-5, no temperature",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-broker/src/provider.rs",
+          "crates/shenko-broker/src/broker.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R009",
@@ -154,13 +188,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-broker/src/broker.rs",
-        "crates/shenko-update/src/lib.rs"
+        "crates/shenko-broker/src/broker.rs#Broker",
+        "crates/shenko-update/src/lib.rs#handoff"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "BrokerHandle submit/dispatch + shenko-update A/B 自升级/回滚状态机（runtime 接线待做）"
+      "note": "BrokerHandle submit/dispatch + shenko-update A/B 自升级/回滚状态机（runtime 接线待做）",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-broker/src/broker.rs",
+          "crates/shenko-update/src/lib.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R010",
@@ -220,13 +261,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "bin/shenko/src/main.rs",
-        "crates/shenko-store/src/store.rs"
+        "bin/shenko/src/main.rs#main",
+        "crates/shenko-store/src/store.rs#Store"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "§44.6 genesis atomic commit: SubjectGenesis+BranchHead+FirstStep in one TX"
+      "note": "§44.6 genesis atomic commit: SubjectGenesis+BranchHead+FirstStep in one TX",
+      "reference_migration": {
+        "implementation_refs": [
+          "bin/shenko/src/main.rs",
+          "crates/shenko-store/src/store.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R014",
@@ -239,12 +287,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-channel-napcat/src/spool.rs"
+        "crates/shenko-channel-napcat/src/spool.rs#IngressSpool"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "IngressSpool dedup napcat:account:conversation:message_id, gap recording"
+      "note": "IngressSpool dedup napcat:account:conversation:message_id, gap recording",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-channel-napcat/src/spool.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R015",
@@ -306,10 +360,10 @@
       ],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-exec-ssh/src/executor.rs",
-        "crates/shenko-exec-ssh/src/task_runner.rs",
-        "crates/shenko-exec-ssh/src/remote_helper.py",
-        "crates/shenko-store/src/external.rs"
+        "crates/shenko-exec-ssh/src/executor.rs#SshExecutor",
+        "crates/shenko-exec-ssh/src/task_runner.rs#SshTaskRunner",
+        "crates/shenko-exec-ssh/src/remote_helper.py#write_atomic",
+        "crates/shenko-store/src/external.rs#Store::admit_inbox_event"
       ],
       "evidence_refs": [
         "docs/evidence/c07-native-ssh-20261025.json",
@@ -317,7 +371,16 @@
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。 PR35 修复并实测局部 writer 排队封闭/提交排序、CAS 迁移 trust、0600 upload 和持久 terminal conflict；仍不是全局 writer fencing、完整 C07 或掉电验收。"
+      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。 PR35 修复并实测局部 writer 排队封闭/提交排序、CAS 迁移 trust、0600 upload 和持久 terminal conflict；仍不是全局 writer fencing、完整 C07 或掉电验收。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-exec-ssh/src/executor.rs",
+          "crates/shenko-exec-ssh/src/task_runner.rs",
+          "crates/shenko-exec-ssh/src/remote_helper.py",
+          "crates/shenko-store/src/external.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R019",
@@ -330,12 +393,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-ui/src/ws.rs"
+        "crates/shenko-ui/src/ws.rs#ws_handler"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "broadcast WsState, select! loop"
+      "note": "broadcast WsState, select! loop",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-ui/src/ws.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R020",
@@ -363,15 +432,22 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "scripts/observe_longrun.py",
-        "docs/development/long-run-observation.md"
+        "scripts/observe_longrun.py#cmd_report",
+        "scripts/observe_longrun.py#run_integrity"
       ],
       "evidence_refs": [
         "docs/evidence/c19-longrun-observation-tooling-20261029.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "长跑观察采集/报告工具 schema 2 源码修复待父级执行验证：完整 header/manifest/身份与同 boot uptime 才可准入，任何已知采样缺口或损坏证据使全部窗口 unobserved；撕裂日志拒绝追加并保留原字节。尚无候选 7/30 天长跑结果；RSS/路由器/多设备实测与§22拟定数值目标未测量。工具源码/旧自检记录不冒称长期验收。"
+      "note": "长跑观察采集/报告工具 schema 2 源码修复待父级执行验证：完整 header/manifest/身份与同 boot uptime 才可准入，任何已知采样缺口或损坏证据使全部窗口 unobserved；撕裂日志拒绝追加并保留原字节。尚无候选 7/30 天长跑结果；RSS/路由器/多设备实测与§22拟定数值目标未测量。工具源码/旧自检记录不冒称长期验收。",
+      "reference_migration": {
+        "implementation_refs": [
+          "scripts/observe_longrun.py",
+          "docs/development/long-run-observation.md"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R022",
@@ -450,15 +526,22 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-node/src/lib.rs",
-        "scripts/managed_node.py"
+        "crates/shenko-node/src/lib.rs#Node",
+        "scripts/managed_node.py#deploy"
       ],
       "evidence_refs": [
         "docs/evidence/c17-native-first-journey-20261025.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
+      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-node/src/lib.rs",
+          "scripts/managed_node.py"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R027",
@@ -501,13 +584,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-types/src/ids.rs",
-        "crates/shenko-types/src/subject.rs"
+        "crates/shenko-types/src/ids.rs#EntityId",
+        "crates/shenko-types/src/subject.rs#SubjectStep"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "EntityId/LedgerSeq/CommitRef/SubjectStep/SubjectBranchHead types"
+      "note": "EntityId/LedgerSeq/CommitRef/SubjectStep/SubjectBranchHead types",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-types/src/ids.rs",
+          "crates/shenko-types/src/subject.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R030",
@@ -519,13 +609,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-store/src/store.rs",
-        "crates/shenko-store/src/migrations.rs"
+        "crates/shenko-store/src/store.rs#Store",
+        "crates/shenko-store/src/migrations.rs#run_migrations"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SQLite WAL+FULL sync+foreign_keys, CAS, ledger"
+      "note": "SQLite WAL+FULL sync+foreign_keys, CAS, ledger",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-store/src/store.rs",
+          "crates/shenko-store/src/migrations.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R031",
@@ -537,12 +634,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-store/src/ledger.rs"
+        "crates/shenko-store/src/ledger.rs#Ledger"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "Single writer, monotonic seq, tokio Mutex"
+      "note": "Single writer, monotonic seq, tokio Mutex",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-store/src/ledger.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R032",
@@ -697,10 +800,10 @@
       ],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-exec-ssh/src/executor.rs",
-        "crates/shenko-exec-ssh/src/task_runner.rs",
-        "crates/shenko-exec-ssh/src/remote_helper.py",
-        "crates/shenko-store/src/external.rs"
+        "crates/shenko-exec-ssh/src/executor.rs#SshExecutor",
+        "crates/shenko-exec-ssh/src/task_runner.rs#SshTaskRunner",
+        "crates/shenko-exec-ssh/src/remote_helper.py#write_atomic",
+        "crates/shenko-store/src/external.rs#Store::admit_inbox_event"
       ],
       "evidence_refs": [
         "docs/evidence/c07-native-ssh-20261025.json",
@@ -708,7 +811,16 @@
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。 PR35 修复并实测局部 writer 排队封闭/提交排序、CAS 迁移 trust、0600 upload 和持久 terminal conflict；仍不是全局 writer fencing、完整 C07 或掉电验收。"
+      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。 PR35 修复并实测局部 writer 排队封闭/提交排序、CAS 迁移 trust、0600 upload 和持久 terminal conflict；仍不是全局 writer fencing、完整 C07 或掉电验收。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-exec-ssh/src/executor.rs",
+          "crates/shenko-exec-ssh/src/task_runner.rs",
+          "crates/shenko-exec-ssh/src/remote_helper.py",
+          "crates/shenko-store/src/external.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R042",
@@ -867,12 +979,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-exec-host/src/build_provider.rs"
+        "crates/shenko-exec-host/src/build_provider.rs#BuildProvider"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "BuildProvider: git worktree isolation, cargo check/build/test, patch"
+      "note": "BuildProvider: git worktree isolation, cargo check/build/test, patch",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-exec-host/src/build_provider.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R052",
@@ -903,16 +1021,26 @@
         "A46"
       ],
       "implementation_refs": [
-        "crates/shenko-types/src/identity.rs",
-        "crates/shenko-identity/src/lib.rs",
-        "crates/shenko-store/src/identity.rs",
-        "crates/shenko-subject/src/loop_runner.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-types/src/identity.rs#IdentityProfile",
+        "crates/shenko-identity/src/lib.rs#IdentityService",
+        "crates/shenko-store/src/identity.rs#read_latest",
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C22：版本化 IdentityProfile 在固定运行合同之后装配，仅在 S0 边界重载；revision+digest 封入输入计划，可追溯。fixture 验证，未在真实模型上观察。"
+      "note": "C22：版本化 IdentityProfile 在固定运行合同之后装配，仅在 S0 边界重载；revision+digest 封入输入计划，可追溯。fixture 验证，未在真实模型上观察。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-types/src/identity.rs",
+          "crates/shenko-identity/src/lib.rs",
+          "crates/shenko-store/src/identity.rs",
+          "crates/shenko-subject/src/loop_runner.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R054",
@@ -928,16 +1056,26 @@
         "A46"
       ],
       "implementation_refs": [
-        "crates/shenko-types/src/identity.rs",
-        "crates/shenko-identity/src/lib.rs",
-        "crates/shenko-store/src/identity.rs",
-        "crates/shenko-subject/src/loop_runner.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-types/src/identity.rs#IdentityProfile",
+        "crates/shenko-identity/src/lib.rs#IdentityService",
+        "crates/shenko-store/src/identity.rs#read_latest",
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C22：人格段落只追加在 SUBJECT_CONTRACT 之后，不含工具 schema/权限/资源字段；[identity:*] 只能改 name/soul/personality。"
+      "note": "C22：人格段落只追加在 SUBJECT_CONTRACT 之后，不含工具 schema/权限/资源字段；[identity:*] 只能改 name/soul/personality。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-types/src/identity.rs",
+          "crates/shenko-identity/src/lib.rs",
+          "crates/shenko-store/src/identity.rs",
+          "crates/shenko-subject/src/loop_runner.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R055",
@@ -1013,14 +1151,22 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-broker/src/broker.rs",
-        "crates/shenko-channel-napcat/src/client.rs",
-        "crates/shenko-exec-host/src/contact_task.rs"
+        "crates/shenko-broker/src/broker.rs#Broker",
+        "crates/shenko-channel-napcat/src/client.rs#NapCatClient",
+        "crates/shenko-exec-host/src/contact_task.rs#NapCatContactsHandler"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C=1 admission, submit/receive oneshot; napcat.contacts/v1 只读 native handler（ContactQuery allowlist get_login_info/friend/stranger/group_list/member_list/member_info）经同一 echo 关联+durable task/evidence 提供真实联系人/群/身份读取，账号绑定与拒绝/unknown 类型化；person 级联系人修订/别名/跨平台映射仍欠"
+      "note": "C=1 admission, submit/receive oneshot; napcat.contacts/v1 只读 native handler（ContactQuery allowlist get_login_info/friend/stranger/group_list/member_list/member_info）经同一 echo 关联+durable task/evidence 提供真实联系人/群/身份读取，账号绑定与拒绝/unknown 类型化；person 级联系人修订/别名/跨平台映射仍欠",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-broker/src/broker.rs",
+          "crates/shenko-channel-napcat/src/client.rs",
+          "crates/shenko-exec-host/src/contact_task.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R060",
@@ -1110,12 +1256,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-exec-ssh/src/ssh_exec.rs"
+        "crates/shenko-exec-ssh/src/ssh_exec.rs#TmuxSeat"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "TmuxSeat: list_panes, capture_pane -e, send_keys, seat discovery"
+      "note": "TmuxSeat: list_panes, capture_pane -e, send_keys, seat discovery",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-exec-ssh/src/ssh_exec.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R066",
@@ -1128,12 +1280,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-exec-ssh/src/ssh_exec.rs"
+        "crates/shenko-exec-ssh/src/ssh_exec.rs#TmuxSeat"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SshExecutor: connect, exec, shell, sftp placeholder"
+      "note": "SshExecutor: connect, exec, shell, sftp placeholder",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-exec-ssh/src/ssh_exec.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R067",
@@ -1306,19 +1464,30 @@
         "K05"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/tests/local_model_behavior.rs",
-        "crates/shenko-exec-host/tests/awareness_efficacy.rs",
-        "crates/shenko-subject/src/output.rs",
-        "crates/shenko-subject/src/loop_runner.rs",
-        "crates/shenko-awareness-core/src/awareness_unit.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-subject/tests/local_model_behavior.rs#local_model_follows_the_shipped_control_protocol",
+        "crates/shenko-exec-host/tests/awareness_efficacy.rs#awareness_units_earn_their_place_in_the_sandbox",
+        "crates/shenko-subject/src/output.rs#parse_output",
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "crates/shenko-awareness-core/src/cognition.rs#CognitionPackage",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [
         "docs/evidence/local-model-and-awareness-20261027.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Local 27B-class baseline is now measured, not assumed: the shipped system prompt, staged message text, provider wire and parser are sampled against the real served model, and each behaviour must reach a success rate. The measurement changed the product (the reply control had no reachable account; a literal header template made the model echo the header) and the control protocol now passes at 0.85. Retained 2026-10-27 model evidence left both units tentative. The current runner freezes the full typed export, compares the enabled candidate against a control excluding every version of its unit id, and retains configuration, installation, committed-output and original judge request/result coordinates. All current consumer scenarios remain accepted:false; efficacy of this revised path has not been established. K04/K05 remain reference only."
+      "note": "Local 27B-class baseline is now measured, not assumed: the shipped system prompt, staged message text, provider wire and parser are sampled against the real served model, and each behaviour must reach a success rate. The measurement changed the product (the reply control had no reachable account; a literal header template made the model echo the header) and the control protocol now passes at 0.85. Retained 2026-10-27 model evidence left both units tentative. The current runner freezes the full typed export, compares the enabled candidate against a control excluding every version of its unit id, and retains configuration, installation, committed-output and original judge request/result coordinates. All current consumer scenarios remain accepted:false; efficacy of this revised path has not been established. K04/K05 remain reference only.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/tests/local_model_behavior.rs",
+          "crates/shenko-exec-host/tests/awareness_efficacy.rs",
+          "crates/shenko-subject/src/output.rs",
+          "crates/shenko-subject/src/loop_runner.rs",
+          "crates/shenko-awareness-core/src/awareness_unit.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R078",
@@ -1392,12 +1561,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-kernel/src/effect_contract.rs"
+        "crates/shenko-types/src/effect.rs#EffectContract"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "EffectContract 5 distinct action kinds per §36.2"
+      "note": "EffectContract 5 distinct action kinds per §36.2",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-kernel/src/effect_contract.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R083",
@@ -1410,12 +1585,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-kernel/src/effect_contract.rs"
+        "crates/shenko-types/src/effect.rs#EffectContract"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "ResourceScope, IdempotencyGuarantee, CancelContract, CompensationContract"
+      "note": "ResourceScope, IdempotencyGuarantee, CancelContract, CompensationContract",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-kernel/src/effect_contract.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R084",
@@ -1460,12 +1641,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-kernel/src/hooks.rs"
+        "crates/shenko-kernel/src/hooks.rs#HookRegistry"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "HookRegistry 6 phases, HookPayload, check_allowed"
+      "note": "HookRegistry 6 phases, HookPayload, check_allowed",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-kernel/src/hooks.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R087",
@@ -1478,12 +1665,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-kernel/src/hooks.rs"
+        "crates/shenko-kernel/src/hooks.rs#HookRegistry"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "Deterministic phase order per §37"
+      "note": "Deterministic phase order per §37",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-kernel/src/hooks.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R088",
@@ -1560,12 +1753,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/self_knowledge.rs"
+        "crates/shenko-awareness-core/src/self_knowledge.rs#SelfKnowledgeProvider"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "SelfKnowledgeProvider: self://runtime/docs/source/design URIs, 4 default resources"
+      "note": "SelfKnowledgeProvider: self://runtime/docs/source/design URIs, 4 default resources",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/self_knowledge.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R093",
@@ -1578,12 +1777,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/self_knowledge.rs"
+        "crates/shenko-awareness-core/src/self_knowledge.rs#SelfKnowledgeProvider"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "BuildManifest, ResourceStatus, install_resource"
+      "note": "BuildManifest, ResourceStatus, install_resource",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/self_knowledge.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R094",
@@ -1768,16 +1973,26 @@
         "A46"
       ],
       "implementation_refs": [
-        "crates/shenko-types/src/identity.rs",
-        "crates/shenko-identity/src/lib.rs",
-        "crates/shenko-store/src/identity.rs",
-        "crates/shenko-subject/src/loop_runner.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-types/src/identity.rs#IdentityProfile",
+        "crates/shenko-identity/src/lib.rs#IdentityService",
+        "crates/shenko-store/src/identity.rs#read_latest",
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C22：身份策略由原生 Cordis IdentityService 提供；S0 固定 profile/provider revision，S1 同事务保存身份意图、profile 或 conflict 回执、head/后继，下一边界采用。有限 child 的灵魂文件提升与真实模型验证仍未完成。"
+      "note": "C22：身份策略由原生 Cordis IdentityService 提供；S0 固定 profile/provider revision，S1 同事务保存身份意图、profile 或 conflict 回执、head/后继，下一边界采用。有限 child 的灵魂文件提升与真实模型验证仍未完成。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-types/src/identity.rs",
+          "crates/shenko-identity/src/lib.rs",
+          "crates/shenko-store/src/identity.rs",
+          "crates/shenko-subject/src/loop_runner.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R106",
@@ -1899,15 +2114,22 @@
         "A42"
       ],
       "implementation_refs": [
-        "crates/shenko-node/src/lib.rs",
-        "scripts/managed_node.py"
+        "crates/shenko-node/src/lib.rs#Node",
+        "scripts/managed_node.py#deploy"
       ],
       "evidence_refs": [
         "docs/evidence/c17-native-first-journey-20261025.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
+      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-node/src/lib.rs",
+          "scripts/managed_node.py"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R114",
@@ -1943,13 +2165,13 @@
         "V1-12"
       ],
       "implementation_refs": [
-        "crates/shenko-context-policy/src/window.rs",
-        "crates/shenko-compact-budget/src/lib.rs",
-        "crates/shenko-compact-snap/src/lib.rs",
-        "crates/shenko-compact-snap/src/render.rs",
-        "crates/shenko-context-policy/src/store_history.rs",
-        "crates/shenko-store/src/session_events.rs",
-        "crates/shenko-store/src/context_windows.rs"
+        "crates/shenko-context-policy/src/window.rs#WindowLedger",
+        "crates/shenko-compact-budget/src/lib.rs#BudgetCompact",
+        "crates/shenko-compact-snap/src/lib.rs#SnapCompact",
+        "crates/shenko-compact-snap/src/render.rs#render",
+        "crates/shenko-context-policy/src/store_history.rs#StoreHistory",
+        "crates/shenko-store/src/session_events.rs#StoredSessionEvent",
+        "crates/shenko-store/src/context_windows.rs#StoredContextWindow"
       ],
       "evidence_refs": [
         "crates/shenko-compact-budget/tests/budget_plugin.rs",
@@ -1962,7 +2184,19 @@
         "BMP 外字符（emoji 等）无字形，按记录判不可读并回退"
       ],
       "satisfied": false,
-      "note": "C20 切片1：budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG；窗口保留原始引用/未完成调用单元，前缀复用按逐项相同计算。成本中 vision token 为 patch 估算，非实测。 帧字形为 GNU Unifont 15.1.05（BMP 全覆盖，CJK 16×16），中英数字路径混排人工目检可读；模型读图正确率未测。 切片2：原始历史经 session_events 只读、窗口链持久化于 context_windows（帧 BLOB 同事务、blake3 读回校验），重开存储后不经插件仍可物化并寻址全部原始 seq；调用状态以执行 ledger OperationRecord 为准，缺失/不确定一律 Unknown。"
+      "note": "C20 切片1：budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG；窗口保留原始引用/未完成调用单元，前缀复用按逐项相同计算。成本中 vision token 为 patch 估算，非实测。 帧字形为 GNU Unifont 15.1.05（BMP 全覆盖，CJK 16×16），中英数字路径混排人工目检可读；模型读图正确率未测。 切片2：原始历史经 session_events 只读、窗口链持久化于 context_windows（帧 BLOB 同事务、blake3 读回校验），重开存储后不经插件仍可物化并寻址全部原始 seq；调用状态以执行 ledger OperationRecord 为准，缺失/不确定一律 Unknown。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-context-policy/src/window.rs",
+          "crates/shenko-compact-budget/src/lib.rs",
+          "crates/shenko-compact-snap/src/lib.rs",
+          "crates/shenko-compact-snap/src/render.rs",
+          "crates/shenko-context-policy/src/store_history.rs",
+          "crates/shenko-store/src/session_events.rs",
+          "crates/shenko-store/src/context_windows.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R116",
@@ -1983,9 +2217,9 @@
         "V1-12"
       ],
       "implementation_refs": [
-        "crates/shenko-context-policy/src/registry.rs",
-        "crates/shenko-compact-budget/src/lib.rs",
-        "crates/shenko-compact-snap/src/lib.rs"
+        "crates/shenko-context-policy/src/registry.rs#PolicyRegistry",
+        "crates/shenko-compact-budget/src/lib.rs#BudgetCompact",
+        "crates/shenko-compact-snap/src/lib.rs#SnapCompact"
       ],
       "evidence_refs": [
         "crates/shenko-compact-budget/tests/budget_plugin.rs",
@@ -1996,7 +2230,15 @@
         "未在正式运行时或真实模型上启用"
       ],
       "satisfied": false,
-      "note": "C20 切片1：两个独立 cordis Plugin，经已合入 PluginRegistry 分别 spawn/restart/dispose；替换后旧 epoch 窗口提交被拒；卸载后已提交窗口仍可物化。无视觉/帧不可读时报告并回退 budget。 已提交窗口及其派生帧持久化于 store，插件卸载/替换后仍可恢复。"
+      "note": "C20 切片1：两个独立 cordis Plugin，经已合入 PluginRegistry 分别 spawn/restart/dispose；替换后旧 epoch 窗口提交被拒；卸载后已提交窗口仍可物化。无视觉/帧不可读时报告并回退 budget。 已提交窗口及其派生帧持久化于 store，插件卸载/替换后仍可恢复。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-context-policy/src/registry.rs",
+          "crates/shenko-compact-budget/src/lib.rs",
+          "crates/shenko-compact-snap/src/lib.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R117",
@@ -2011,18 +2253,30 @@
         "A46"
       ],
       "implementation_refs": [
-        "crates/shenko-types/src/identity.rs",
-        "crates/shenko-identity/src/lib.rs",
-        "crates/shenko-store/src/identity.rs",
-        "crates/shenko-subject/src/loop_runner.rs",
-        "bin/shenko/src/main.rs",
-        "crates/shenko-ui/src/api.rs",
-        "crates/shenko-ui/src/index.html"
+        "crates/shenko-types/src/identity.rs#IdentityProfile",
+        "crates/shenko-identity/src/lib.rs#IdentityService",
+        "crates/shenko-store/src/identity.rs#read_latest",
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "bin/shenko/src/main.rs#main",
+        "crates/shenko-ui/src/api.rs#identity_name_handler",
+        "crates/shenko-ui/src/index.html#id:app"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C22：框架名与实例名分离；--name 仅初始化，既有编辑须 expected revision；命名/人格/灵魂解析与装配在可替换原生 Cordis IdentityService，主体在 S0 解析能力，仍为同一 agent_id。控制正文分离且原文/来源归档。UI 使用 S1 真实回执 revision。完整跨节点及真实模型验收未完成。"
+      "note": "C22：框架名与实例名分离；--name 仅初始化，既有编辑须 expected revision；命名/人格/灵魂解析与装配在可替换原生 Cordis IdentityService，主体在 S0 解析能力，仍为同一 agent_id。控制正文分离且原文/来源归档。UI 使用 S1 真实回执 revision。完整跨节点及真实模型验收未完成。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-types/src/identity.rs",
+          "crates/shenko-identity/src/lib.rs",
+          "crates/shenko-store/src/identity.rs",
+          "crates/shenko-subject/src/loop_runner.rs",
+          "bin/shenko/src/main.rs",
+          "crates/shenko-ui/src/api.rs",
+          "crates/shenko-ui/src/index.html"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R118",
@@ -2065,13 +2319,20 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-update/src/lib.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-update/src/lib.rs#handoff",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "自升级 A/B 状态机与一致性 SQLite 备份已实现(crates/shenko-update)；runtime quiesce/catch-up/epoch 切换与真实端到端升级待做"
+      "note": "自升级 A/B 状态机与一致性 SQLite 备份已实现(crates/shenko-update)；runtime quiesce/catch-up/epoch 切换与真实端到端升级待做",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-update/src/lib.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R121",
@@ -2116,15 +2377,22 @@
       ],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-kernel/src/plugin.rs",
-        "crates/shenko-kernel/src/supervisor.rs"
+        "crates/shenko-kernel/src/plugin.rs#PluginRegistry",
+        "crates/shenko-kernel/src/supervisor.rs#Supervisor"
       ],
       "evidence_refs": [
         "crates/shenko-kernel/tests/cordis_lifecycle.rs"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Supervisor start/restart/stop 由 pinned cordis Context/PreparedPlugin/FiberHandle/effect 实际承载；两个真实库集成测试覆盖取消等待、generation换代、Service/effect清理及失败闭锁。bin默认业务闭包尚未装配；typed依赖绑定、版本化hook图和持久activation/handoff未完成；不是完整R123/A18/H08验收。"
+      "note": "Supervisor start/restart/stop 由 pinned cordis Context/PreparedPlugin/FiberHandle/effect 实际承载；两个真实库集成测试覆盖取消等待、generation换代、Service/effect清理及失败闭锁。bin默认业务闭包尚未装配；typed依赖绑定、版本化hook图和持久activation/handoff未完成；不是完整R123/A18/H08验收。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-kernel/src/plugin.rs",
+          "crates/shenko-kernel/src/supervisor.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R124",
@@ -2246,11 +2514,11 @@
         "QA06"
       ],
       "implementation_refs": [
-        "crates/shenko-quota/src/model.rs",
-        "crates/shenko-quota/src/observe.rs",
-        "crates/shenko-quota/src/forecast.rs",
-        "crates/shenko-quota/src/policy.rs",
-        "crates/shenko-quota/src/admission.rs"
+        "crates/shenko-quota/src/model.rs#QuotaSnapshot",
+        "crates/shenko-quota/src/observe.rs#from_api_headers",
+        "crates/shenko-quota/src/forecast.rs#forecast",
+        "crates/shenko-quota/src/policy.rs#decide",
+        "crates/shenko-quota/src/admission.rs#admit"
       ],
       "evidence_refs": [
         "crates/shenko-quota/tests/quota.rs",
@@ -2264,7 +2532,17 @@
         "未对真实 CLI statusline 或 API 响应采集（fixture 按文档字段形态）"
       ],
       "satisfied": false,
-      "note": "C18 观察/预测切片：缺失、过期、失败与无效值保持 unknown，token remaining 按官方千位舍入保守表示；账户/单位/ledger 不混合。策略库按每窗单位、调用方报告的 backend 状态与来源预测生成绑定 policy digest 的有限决策；冲突或不可比较保持 unknown，额外付费明确未实现。单 writer 准入保留 request/window/ledger-bound reservation，区分未发送释放与 armed unknown，pace 按窗和周期，已计入费用不重复扣减；可序列化回放并有模拟 consumer 证据，但 Store CAS、broker、真实来源与完整 QA05/06 均未完成。"
+      "note": "C18 观察/预测切片：缺失、过期、失败与无效值保持 unknown，token remaining 按官方千位舍入保守表示；账户/单位/ledger 不混合。策略库按每窗单位、调用方报告的 backend 状态与来源预测生成绑定 policy digest 的有限决策；冲突或不可比较保持 unknown，额外付费明确未实现。单 writer 准入保留 request/window/ledger-bound reservation，区分未发送释放与 armed unknown，pace 按窗和周期，已计入费用不重复扣减；可序列化回放并有模拟 consumer 证据，但 Store CAS、broker、真实来源与完整 QA05/06 均未完成。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-quota/src/model.rs",
+          "crates/shenko-quota/src/observe.rs",
+          "crates/shenko-quota/src/forecast.rs",
+          "crates/shenko-quota/src/policy.rs",
+          "crates/shenko-quota/src/admission.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R131",
@@ -2294,14 +2572,22 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-subject/src/outbox.rs",
-        "crates/shenko-ui/src/ws.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-subject/src/outbox.rs#committed_after",
+        "crates/shenko-ui/src/ws.rs#ws_handler",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "subject outbox broadcast → UI WS 时间线；UI 输入经 inbox 回主体；前端与持久 outbox ledger 未完成"
+      "note": "subject outbox broadcast → UI WS 时间线；UI 输入经 inbox 回主体；前端与持久 outbox ledger 未完成",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/outbox.rs",
+          "crates/shenko-ui/src/ws.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R133",
@@ -2337,15 +2623,22 @@
         "PG07"
       ],
       "implementation_refs": [
-        "crates/shenko-ui/src/playground.rs",
-        "crates/shenko-ui/src/server.rs"
+        "crates/shenko-ui/src/playground.rs#PlaygroundState",
+        "crates/shenko-ui/src/server.rs#UiServer"
       ],
       "evidence_refs": [
         "shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Playground /playground CRUD、原子写、artifact_changed inbox 事件；真实进程后端仍为 canned echo(TODO §43)。PG07 已在合并后 main 上真跑通过（shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request）；后端仍是 canned echo，故 satisfied=false。"
+      "note": "Playground /playground CRUD、原子写、artifact_changed inbox 事件；真实进程后端仍为 canned echo(TODO §43)。PG07 已在合并后 main 上真跑通过（shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request）；后端仍是 canned echo，故 satisfied=false。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-ui/src/playground.rs",
+          "crates/shenko-ui/src/server.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R135",
@@ -2359,12 +2652,18 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "bin/shenko/src/main.rs"
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "bootstrap_genesis 经 CAS seal_object 封存 seed_manifest/profile/home/bootstrap_event 并原子初始化 genesis/head/firstStep；完整 seed 装配、WASM 家园与首启 probe 未完成"
+      "note": "bootstrap_genesis 经 CAS seal_object 封存 seed_manifest/profile/home/bootstrap_event 并原子初始化 genesis/head/firstStep；完整 seed 装配、WASM 家园与首启 probe 未完成",
+      "reference_migration": {
+        "implementation_refs": [
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R136",
@@ -2386,16 +2685,24 @@
         "AW09"
       ],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/awareness_unit.rs",
-        "crates/shenko-subject/src/context_projection.rs",
-        "bin/shenko/src/main.rs"
+        "crates/shenko-awareness-core/src/cognition.rs#CognitionPackage",
+        "crates/shenko-subject/src/context_projection.rs#prepare_context",
+        "bin/shenko/src/main.rs#main"
       ],
       "evidence_refs": [
         "docs/evidence/local-model-and-awareness-20261027.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Installable awareness units now reach the running subject as a bounded per-step perspective (enabled units only, index beyond the budget), which they never did before: the registry had no production caller. Units are advisory text, not dispatch. Awareness arising from arbitrary input and being autonomously distilled remains unimplemented, so this stays partial."
+      "note": "Installable awareness units now reach the running subject as a bounded per-step perspective (enabled units only, index beyond the budget), which they never did before: the registry had no production caller. Units are advisory text, not dispatch. Awareness arising from arbitrary input and being autonomously distilled remains unimplemented, so this stays partial.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/awareness_unit.rs",
+          "crates/shenko-subject/src/context_projection.rs",
+          "bin/shenko/src/main.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R137",
@@ -2434,15 +2741,22 @@
         "DEP03"
       ],
       "implementation_refs": [
-        "crates/shenko-node/src/units.rs",
-        "bin/shenko/src/node_sync.rs"
+        "crates/shenko-node/src/units.rs#Node::handle_unit_request",
+        "bin/shenko/src/node_sync.rs#spawn_runtime"
       ],
       "evidence_refs": [
         "docs/evidence/node-sync-cognition-20261026.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "#71 focused main-app installation synchronization: exact authored bytes/config, versioned required/recommended closure, later dependency resolution and local artifact/environment-bound readiness. Unknown platform labels permit real trials; foreign evidence is not local readiness. Full provider runtime assembly, ecology and DEP01–DEP03 remain incomplete."
+      "note": "#71 focused main-app installation synchronization: exact authored bytes/config, versioned required/recommended closure, later dependency resolution and local artifact/environment-bound readiness. Unknown platform labels permit real trials; foreign evidence is not local readiness. Full provider runtime assembly, ecology and DEP01–DEP03 remain incomplete.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-node/src/units.rs",
+          "bin/shenko/src/node_sync.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R139",
@@ -2576,13 +2890,13 @@
         "A48"
       ],
       "implementation_refs": [
-        "crates/shenko-node/src/lib.rs",
-        "scripts/managed_node.py",
-        "crates/shenko-node/src/roles.rs",
-        "crates/shenko-node/src/units.rs",
-        "crates/shenko-node/src/peers.rs",
-        "crates/shenko-store/src/cognition.rs",
-        "bin/shenko/src/node_sync.rs"
+        "crates/shenko-node/src/lib.rs#Node",
+        "scripts/managed_node.py#deploy",
+        "crates/shenko-node/src/roles.rs#NodeRole",
+        "crates/shenko-node/src/units.rs#Node::handle_unit_request",
+        "crates/shenko-node/src/peers.rs#SyncPeer",
+        "crates/shenko-store/src/cognition.rs#CognitionSnapshotOptions",
+        "bin/shenko/src/node_sync.rs#spawn_runtime"
       ],
       "evidence_refs": [
         "docs/evidence/c17-native-first-journey-20261025.json",
@@ -2590,7 +2904,19 @@
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Earlier isolated pure-task journey retained; #71 adds one installation Node, mutable role intent versus actual runtime observations, main-app strict-SSH package/cognition replication, local readiness and debt/high-water reconciliation. Native source and Fedora receiver remain in one PVE failure domain. Full election, partition authority/merge, heterogeneous model placement, all platforms, physical-machine and long-run cases remain incomplete."
+      "note": "Earlier isolated pure-task journey retained; #71 adds one installation Node, mutable role intent versus actual runtime observations, main-app strict-SSH package/cognition replication, local readiness and debt/high-water reconciliation. Native source and Fedora receiver remain in one PVE failure domain. Full election, partition authority/merge, heterogeneous model placement, all platforms, physical-machine and long-run cases remain incomplete.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-node/src/lib.rs",
+          "scripts/managed_node.py",
+          "crates/shenko-node/src/roles.rs",
+          "crates/shenko-node/src/units.rs",
+          "crates/shenko-node/src/peers.rs",
+          "crates/shenko-store/src/cognition.rs",
+          "bin/shenko/src/node_sync.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R146",
@@ -2630,12 +2956,12 @@
         "A49"
       ],
       "implementation_refs": [
-        "crates/shenko-node/src/lib.rs",
-        "scripts/managed_node.py",
-        "crates/shenko-store/src/cognition.rs",
-        "crates/shenko-store/src/recovery_sources.rs",
-        "crates/shenko-store/src/intents.rs",
-        "bin/shenko/src/node_sync.rs"
+        "crates/shenko-node/src/lib.rs#Node",
+        "scripts/managed_node.py#deploy",
+        "crates/shenko-store/src/cognition.rs#CognitionSnapshotOptions",
+        "crates/shenko-store/src/recovery_sources.rs#RecoverySource",
+        "crates/shenko-store/src/intents.rs#CommittedIntent",
+        "bin/shenko/src/node_sync.rs#spawn_runtime"
       ],
       "evidence_refs": [
         "docs/evidence/c17-native-first-journey-20261025.json",
@@ -2643,7 +2969,18 @@
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "#71 adds model-independent main-app export/import of durable cognition and recursive CAS, Git memory, original S1 receipts, declared live NapCat ingress committed WAL and verified extraction without provider activation. Unavailable-source native recovery is a bounded same-PVE observation, not encrypted disk-image resurrection, arbitrary provider-store discovery, zero loss or full A49 completion."
+      "note": "#71 adds model-independent main-app export/import of durable cognition and recursive CAS, Git memory, original S1 receipts, declared live NapCat ingress committed WAL and verified extraction without provider activation. Unavailable-source native recovery is a bounded same-PVE observation, not encrypted disk-image resurrection, arbitrary provider-store discovery, zero loss or full A49 completion.",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-node/src/lib.rs",
+          "scripts/managed_node.py",
+          "crates/shenko-store/src/cognition.rs",
+          "crates/shenko-store/src/recovery_sources.rs",
+          "crates/shenko-store/src/intents.rs",
+          "bin/shenko/src/node_sync.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R148",
@@ -2659,18 +2996,28 @@
         "AW10"
       ],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/cognition.rs:536",
-        "crates/shenko-awareness-core/src/cognition.rs:601",
-        "crates/shenko-subject/src/loop_runner.rs:635",
-        "crates/shenko-subject/src/lib.rs:50",
-        "crates/shenko-awareness-core/seed-awareness/subject-frame/AWARENESS.md"
+        "crates/shenko-awareness-core/src/cognition.rs#CAP_SUBJECT_FRAME",
+        "crates/shenko-awareness-core/src/cognition.rs#CognitionCatalog::capability_unit",
+        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::subject_frame",
+        "crates/shenko-subject/src/lib.rs#subject_prompt_with_frame",
+        "crates/shenko-awareness-core/seed-awareness/subject-frame/AWARENESS.md#unit:subject.frame"
       ],
       "evidence_refs": [],
       "blockers": [
         "AW10 未完成具名运行判定及不可变收据绑定；主体内容修订闭包未验证。"
       ],
       "satisfied": false,
-      "note": "源码已接入主体角色框能力解析、提示组装与种子单元；AW10 的本行判定仍待运行与收据绑定。内容修订路径的完整行为另需验证，不引用 playground、通道或 UI 测试代证。"
+      "note": "源码已接入主体角色框能力解析、提示组装与种子单元；AW10 的本行判定仍待运行与收据绑定。内容修订路径的完整行为另需验证，不引用 playground、通道或 UI 测试代证。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/cognition.rs:536",
+          "crates/shenko-awareness-core/src/cognition.rs:601",
+          "crates/shenko-subject/src/loop_runner.rs:635",
+          "crates/shenko-subject/src/lib.rs:50",
+          "crates/shenko-awareness-core/seed-awareness/subject-frame/AWARENESS.md"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R149",
@@ -2687,15 +3034,21 @@
         "AW12"
       ],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/cognition.rs:609",
-        "crates/shenko-awareness-core/src/cognition.rs:619"
+        "crates/shenko-awareness-core/src/cognition.rs#CognitionCatalog::capability_unit"
       ],
       "evidence_refs": [],
       "blockers": [
         "AW10/AW12 未完成具名运行判定。"
       ],
       "satisfied": false,
-      "note": "源码具有 Absent/Installed/Ambiguous 分支；仅关联角色框回退与歧义的 AW10/AW12。具名用例仍未判定，其他领域已通过的组件测试不构成本需求证据。"
+      "note": "源码具有 Absent/Installed/Ambiguous 分支；仅关联角色框回退与歧义的 AW10/AW12。具名用例仍未判定，其他领域已通过的组件测试不构成本需求证据。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/cognition.rs:609",
+          "crates/shenko-awareness-core/src/cognition.rs:619"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R150",
@@ -2711,16 +3064,24 @@
         "AW11"
       ],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/cognition.rs:541",
-        "crates/shenko-subject/src/loop_runner.rs:699",
-        "crates/shenko-awareness-core/seed-awareness/idle-perception/AWARENESS.md"
+        "crates/shenko-awareness-core/src/cognition.rs#CAP_IDLE_PERCEPTION",
+        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::idle_perception",
+        "crates/shenko-awareness-core/seed-awareness/idle-perception/AWARENESS.md#unit:subject.idle"
       ],
       "evidence_refs": [],
       "blockers": [
         "AW11 未完成具名运行判定。"
       ],
       "satisfied": false,
-      "note": "源码已接入 idle_perception 与编译回退；AW11 的内容观察及无提供者回退仍待具名用例判定，不引用其他领域测试代证。"
+      "note": "源码已接入 idle_perception 与编译回退；AW11 的内容观察及无提供者回退仍待具名用例判定，不引用其他领域测试代证。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/cognition.rs:541",
+          "crates/shenko-subject/src/loop_runner.rs:699",
+          "crates/shenko-awareness-core/seed-awareness/idle-perception/AWARENESS.md"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R151",
@@ -2736,18 +3097,27 @@
         "AW14"
       ],
       "implementation_refs": [
-        "crates/shenko-awareness-core/src/cognition.rs:557",
-        "crates/shenko-subject/src/loop_runner.rs:665",
-        "crates/shenko-subject/src/loop_runner.rs:671",
-        "crates/shenko-subject/src/loop_runner.rs:808",
-        "crates/shenko-awareness-core/seed-awareness/subject-attention/AWARENESS.md"
+        "crates/shenko-awareness-core/src/cognition.rs#CAP_ATTENTION_POLICY",
+        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::attention_budget",
+        "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
+        "crates/shenko-awareness-core/seed-awareness/subject-attention/AWARENESS.md#unit:subject.attention"
       ],
       "evidence_refs": [],
       "blockers": [
         "AW14 未判定；事件预算、空等、防饿死与批处理上界尚无完整具名验证。"
       ],
       "satisfied": false,
-      "note": "源码具有注意力预算解析及上界；AW14 仅关联来源暂停可见性，仍待判定。现有具名 case 未完整覆盖事件预算、空等、防饿死与批处理上界，不能据此宣布全部满足。"
+      "note": "源码具有注意力预算解析及上界；AW14 仅关联来源暂停可见性，仍待判定。现有具名 case 未完整覆盖事件预算、空等、防饿死与批处理上界，不能据此宣布全部满足。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-awareness-core/src/cognition.rs:557",
+          "crates/shenko-subject/src/loop_runner.rs:665",
+          "crates/shenko-subject/src/loop_runner.rs:671",
+          "crates/shenko-subject/src/loop_runner.rs:808",
+          "crates/shenko-awareness-core/seed-awareness/subject-attention/AWARENESS.md"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R152",
@@ -2763,8 +3133,8 @@
         "AW13"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/loop_runner.rs:264",
-        "crates/shenko-subject/src/loop_runner.rs:461"
+        "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events",
+        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::held_inputs"
       ],
       "evidence_refs": [],
       "blockers": [
@@ -2772,7 +3142,14 @@
         "AW13 未完成具名运行判定；不能以 ignored 实现满足 R152 的默认 deferred。"
       ],
       "satisfied": false,
-      "note": "定义冲突未解决：本需求原文要求默认 deferred；领域正文 §57.3、B58 原文与 AW13 规定未处置为 ignored + 理由，显式 deferred 才留队。当前 dispositions_for_events() 实现后者。保留两份原定义及迁移来源，不改写 R152，不以该实现宣称本需求满足。"
+      "note": "定义冲突未解决：本需求原文要求默认 deferred；领域正文 §57.3、B58 原文与 AW13 规定未处置为 ignored + 理由，显式 deferred 才留队。当前 dispositions_for_events() 实现后者。保留两份原定义及迁移来源，不改写 R152，不以该实现宣称本需求满足。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/loop_runner.rs:264",
+          "crates/shenko-subject/src/loop_runner.rs:461"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R153",
@@ -2788,17 +3165,24 @@
         "AW14"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/loop_runner.rs:294",
-        "crates/shenko-subject/src/loop_runner.rs:314",
-        "crates/shenko-subject/src/loop_runner.rs:321",
-        "crates/shenko-subject/src/authored_controls.rs:118"
+        "crates/shenko-subject/src/loop_runner.rs#hold_paused_sources",
+        "crates/shenko-subject/src/authored_controls.rs#parse_dnd"
       ],
       "evidence_refs": [],
       "blockers": [
         "AW14 未完成主体暂停至到期复审的运行判定。"
       ],
       "satisfied": false,
-      "note": "源码包含来源暂停、held 事实与 review_after 到期释放；仅关联 AW14，尚缺主体收到到期复审结果的具名运行判定。"
+      "note": "源码包含来源暂停、held 事实与 review_after 到期释放；仅关联 AW14，尚缺主体收到到期复审结果的具名运行判定。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/loop_runner.rs:294",
+          "crates/shenko-subject/src/loop_runner.rs:314",
+          "crates/shenko-subject/src/loop_runner.rs:321",
+          "crates/shenko-subject/src/authored_controls.rs:118"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R154",
@@ -2815,17 +3199,15 @@
         "RT17"
       ],
       "implementation_refs": [
-        "crates/shenko-channel-napcat/src/outbound.rs:61",
-        "crates/shenko-channel-napcat/src/outbound.rs:72",
-        "crates/shenko-channel-napcat/src/outbound.rs:85",
-        "crates/shenko-channel-napcat/src/outbound.rs:105",
-        "crates/shenko-channel-napcat/src/outbound.rs:147",
-        "crates/shenko-channel-napcat/src/channel.rs:94",
-        "crates/shenko-channel-napcat/src/channel.rs:309",
-        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:8",
-        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:93",
-        "crates/shenko-channel-adapters/src/qq_official/outbound.rs:108",
-        "crates/shenko-channel-adapters/src/qq_official/plugin.rs:625"
+        "crates/shenko-channel-napcat/src/outbound.rs#build_outbound",
+        "crates/shenko-channel-napcat/src/outbound.rs#downgrade_markdown",
+        "crates/shenko-channel-napcat/src/outbound.rs#strip_inline_markdown",
+        "crates/shenko-channel-napcat/src/channel.rs#NapCatChannel::classify_notice",
+        "crates/shenko-channel-napcat/src/channel.rs#<NapCatChannel as ChannelPlugin>::classify",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs#OutboundScope::mention_markup",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs#OfficialOutbound::wire_body",
+        "crates/shenko-channel-adapters/src/qq_official/outbound.rs#build_outbound",
+        "crates/shenko-channel-adapters/src/qq_official/plugin.rs#<QqOfficialChannel as ChannelPlugin>::dispatch"
       ],
       "evidence_refs": [
         "shenko-channel-napcat --lib outbound::tests：8 条全通过（a_plain_body_stays_one_text_segment / a_leading_mention_becomes_an_at_segment / a_mention_and_a_quote_keep_their_order / a_quote_becomes_a_reply_segment / a_link_keeps_its_label_and_its_target / a_mention_that_is_not_a_number_stays_text / markdown_markers_do_not_reach_the_user / code_fences_lose_the_fence_and_keep_the_content）——合并后 main 375238a，容器内 cargo test --offline --locked",
@@ -2835,7 +3217,23 @@
         "既有记录覆盖 NapCat；其他已安装通道的行内渲染合同及内核回复动词保持不变尚未完成逐项判定。"
       ],
       "satisfied": false,
-      "note": "RT17 既有 main 375238a 容器运行记录证明 NapCat 出站语法翻译与降级组件。不能将其外推为 QQ 官方及其他已安装插件均完成同一渲染合同；实际平台投递不是本行新增的验收条件。"
+      "note": "RT17 既有 main 375238a 容器运行记录证明 NapCat 出站语法翻译与降级组件。不能将其外推为 QQ 官方及其他已安装插件均完成同一渲染合同；实际平台投递不是本行新增的验收条件。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-channel-napcat/src/outbound.rs:61",
+          "crates/shenko-channel-napcat/src/outbound.rs:72",
+          "crates/shenko-channel-napcat/src/outbound.rs:85",
+          "crates/shenko-channel-napcat/src/outbound.rs:105",
+          "crates/shenko-channel-napcat/src/outbound.rs:147",
+          "crates/shenko-channel-napcat/src/channel.rs:94",
+          "crates/shenko-channel-napcat/src/channel.rs:309",
+          "crates/shenko-channel-adapters/src/qq_official/outbound.rs:8",
+          "crates/shenko-channel-adapters/src/qq_official/outbound.rs:93",
+          "crates/shenko-channel-adapters/src/qq_official/outbound.rs:108",
+          "crates/shenko-channel-adapters/src/qq_official/plugin.rs:625"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R155",
@@ -2851,10 +3249,10 @@
         "RT18"
       ],
       "implementation_refs": [
-        "crates/shenko-channel-napcat/src/channel.rs:94",
-        "crates/shenko-channel-napcat/src/notice_tests.rs:47",
-        "crates/shenko-channel-napcat/src/notice_tests.rs:79",
-        "crates/shenko-channel-napcat/src/notice_tests.rs:109"
+        "crates/shenko-channel-napcat/src/channel.rs#NapCatChannel::classify_notice",
+        "crates/shenko-channel-napcat/src/notice_tests.rs#a_recall_is_classified_as_an_observation",
+        "crates/shenko-channel-napcat/src/notice_tests.rs#member_events_classify_and_unknown_notices_do_not",
+        "crates/shenko-channel-napcat/src/notice_tests.rs#ordinary_messages_still_classify"
       ],
       "evidence_refs": [
         "shenko-channel-napcat --lib notice_tests：3 条全通过（a_recall_is_classified_as_an_observation / member_events_classify_and_unknown_notices_do_not / ordinary_messages_still_classify）——合并后 main 375238a，容器内 cargo test --offline --locked"
@@ -2863,7 +3261,16 @@
         "RT18 缺主体输入序列与撤回后主体行为证据。"
       ],
       "satisfied": false,
-      "note": "RT18 既有 main 375238a notice_tests 记录只证明事件分类。来源与消息标识进入主体输入、主体不再引用撤回消息的后续行为仍未验证。"
+      "note": "RT18 既有 main 375238a notice_tests 记录只证明事件分类。来源与消息标识进入主体输入、主体不再引用撤回消息的后续行为仍未验证。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-channel-napcat/src/channel.rs:94",
+          "crates/shenko-channel-napcat/src/notice_tests.rs:47",
+          "crates/shenko-channel-napcat/src/notice_tests.rs:79",
+          "crates/shenko-channel-napcat/src/notice_tests.rs:109"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R156",
@@ -2880,13 +3287,13 @@
         "RT19"
       ],
       "implementation_refs": [
-        "crates/shenko-channel-adapters/src/qq_official/plugin.rs:240",
-        "crates/shenko-channel-adapters/src/qq_official/plugin.rs:762",
-        "crates/shenko-channel-adapters/src/feishu/plugin.rs:51",
-        "crates/shenko-channel-adapters/src/feishu/plugin.rs:53",
-        "crates/shenko-channel-adapters/src/feishu/plugin.rs:399",
-        "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs",
-        "crates/shenko-channel-adapters/src/feishu/capability_tests.rs"
+        "crates/shenko-channel-adapters/src/qq_official/plugin.rs#QqOfficialChannel::media_scope",
+        "crates/shenko-channel-adapters/src/qq_official/plugin.rs#<QqOfficialChannel as ChannelPlugin>::dispatch",
+        "crates/shenko-channel-adapters/src/feishu/plugin.rs#ACTION_EDIT",
+        "crates/shenko-channel-adapters/src/feishu/plugin.rs#ACTION_RETRACT",
+        "crates/shenko-channel-adapters/src/feishu/plugin.rs#<FeishuChannel as ChannelPlugin>::describe",
+        "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs#the_capability_table_only_lists_reachable_actions",
+        "crates/shenko-channel-adapters/src/feishu/capability_tests.rs#the_capability_table_only_lists_reachable_actions"
       ],
       "evidence_refs": [
         "docs/evidence/qq-official-capability-audit-20261110.md",
@@ -2897,7 +3304,19 @@
         "既有记录限 QQ 官方与飞书 describe 可达性，尚未完成所有已安装通道声明的逐项判定。"
       ],
       "satisfied": false,
-      "note": "RT19 既有 main 375238a 能力表/describe 组件记录及 QQ 能力审计属于本需求。验收边界是声明动作的 describe 可达性；不额外要求真实平台发送或模型效果，也不把两个插件的记录外推至全部已安装通道。"
+      "note": "RT19 既有 main 375238a 能力表/describe 组件记录及 QQ 能力审计属于本需求。验收边界是声明动作的 describe 可达性；不额外要求真实平台发送或模型效果，也不把两个插件的记录外推至全部已安装通道。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-channel-adapters/src/qq_official/plugin.rs:240",
+          "crates/shenko-channel-adapters/src/qq_official/plugin.rs:762",
+          "crates/shenko-channel-adapters/src/feishu/plugin.rs:51",
+          "crates/shenko-channel-adapters/src/feishu/plugin.rs:53",
+          "crates/shenko-channel-adapters/src/feishu/plugin.rs:399",
+          "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs",
+          "crates/shenko-channel-adapters/src/feishu/capability_tests.rs"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R157",
@@ -2913,16 +3332,15 @@
         "RT20"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/stream_journal.rs",
-        "crates/shenko-ui/src/stream.rs:80",
-        "crates/shenko-ui/src/stream.rs:103",
-        "crates/shenko-ui/src/stream.rs:176",
-        "crates/shenko-ui/src/stream.rs:186",
-        "crates/shenko-broker/src/broker.rs:460",
-        "crates/shenko-broker/src/stream.rs:266",
-        "crates/shenko-broker/src/stream.rs:277",
-        "crates/shenko-subject/src/loop_runner.rs:1656",
-        "crates/shenko-subject/src/loop_runner.rs:1668"
+        "crates/shenko-subject/src/stream_journal.rs#SubjectStreamJournal",
+        "crates/shenko-ui/src/stream.rs#StreamSink",
+        "crates/shenko-ui/src/stream.rs#StreamSink::publish",
+        "crates/shenko-ui/src/stream.rs#UiPublicStreamSink",
+        "crates/shenko-ui/src/stream.rs#<UiPublicStreamSink as shenko_broker::stream::PublicStreamSink>::publish_text",
+        "crates/shenko-broker/src/broker.rs#BrokerHandle::submit_stream_recorded",
+        "crates/shenko-broker/src/stream.rs#ControlGate::classify_line",
+        "crates/shenko-broker/src/stream.rs#is_control_line",
+        "crates/shenko-subject/src/loop_runner.rs#execute_step"
       ],
       "evidence_refs": [
         "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner：1 条通过——合并后 main 375238a，容器内 cargo test --offline --locked",
@@ -2932,7 +3350,22 @@
         "RT20 缺真实 provider、主体、持久 journal、公开提交与无生产者界面的完整证据。"
       ],
       "satisfied": false,
-      "note": "源码已接入 journal、公开流与控制行过滤；RT20 既有脚本化 broker 测试只证明组件路径，真实 provider/主体至已提交公开正文及无生产者 UI 的完整运行仍未验证。"
+      "note": "源码已接入 journal、公开流与控制行过滤；RT20 既有脚本化 broker 测试只证明组件路径，真实 provider/主体至已提交公开正文及无生产者 UI 的完整运行仍未验证。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/stream_journal.rs",
+          "crates/shenko-ui/src/stream.rs:80",
+          "crates/shenko-ui/src/stream.rs:103",
+          "crates/shenko-ui/src/stream.rs:176",
+          "crates/shenko-ui/src/stream.rs:186",
+          "crates/shenko-broker/src/broker.rs:460",
+          "crates/shenko-broker/src/stream.rs:266",
+          "crates/shenko-broker/src/stream.rs:277",
+          "crates/shenko-subject/src/loop_runner.rs:1656",
+          "crates/shenko-subject/src/loop_runner.rs:1668"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R158",
@@ -2949,14 +3382,12 @@
         "PG07"
       ],
       "implementation_refs": [
-        "crates/shenko-ui/src/playground_manage.rs:41",
-        "crates/shenko-ui/src/playground_manage.rs:44",
-        "crates/shenko-ui/src/playground_manage.rs:573",
-        "crates/shenko-ui/src/playground.rs:61",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1098",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1117",
-        "crates/shenko-ui/web/src/surfaces.tsx:394",
-        "crates/shenko-ui/web/src/surfaces.tsx:407"
+        "crates/shenko-ui/src/playground_manage.rs#PLAYGROUND_MANAGE_KIND",
+        "crates/shenko-ui/src/playground_manage.rs#CONTRACT",
+        "crates/shenko-ui/src/playground_manage.rs#<PlaygroundManageHandler as shenko_kernel::task::NativeTaskHandler>::descriptor",
+        "crates/shenko-ui/src/playground.rs#PlaygroundState::native",
+        "crates/shenko-ui/web/src/react-renderer.tsx#WorkEntry",
+        "crates/shenko-ui/web/src/surfaces.tsx#OpenedWorkPanel"
       ],
       "evidence_refs": [
         "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work：通过——主体经原生任务创建、迭代并采纳一件作品，版本/状态/事件按既有闭包入账，回滚保留较新状态",
@@ -2966,7 +3397,20 @@
         "PG06/PG07 缺完整原生管理任务、inbox、回滚及实际时间线操作证据。"
       ],
       "satisfied": false,
-      "note": "源码具有 playground 原生管理与界面动作入口；PG06/PG07 既有 helper 和动作绑定记录保留。真实原生任务发布、同一 inbox、回滚与时间线操作的完整闭包仍未验证，不引用无关通道测试。"
+      "note": "源码具有 playground 原生管理与界面动作入口；PG06/PG07 既有 helper 和动作绑定记录保留。真实原生任务发布、同一 inbox、回滚与时间线操作的完整闭包仍未验证，不引用无关通道测试。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-ui/src/playground_manage.rs:41",
+          "crates/shenko-ui/src/playground_manage.rs:44",
+          "crates/shenko-ui/src/playground_manage.rs:573",
+          "crates/shenko-ui/src/playground.rs:61",
+          "crates/shenko-ui/web/src/react-renderer.tsx:1098",
+          "crates/shenko-ui/web/src/react-renderer.tsx:1117",
+          "crates/shenko-ui/web/src/surfaces.tsx:394",
+          "crates/shenko-ui/web/src/surfaces.tsx:407"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R159",
@@ -2982,21 +3426,10 @@
         "UI-S11"
       ],
       "implementation_refs": [
-        "crates/shenko-ui/web/src/document-view.tsx:207",
-        "crates/shenko-ui/web/src/document-view.tsx:258",
-        "crates/shenko-ui/web/src/document-view.tsx:265",
-        "crates/shenko-ui/web/src/document-view.tsx:269",
-        "crates/shenko-ui/web/src/document-view.tsx:273",
-        "crates/shenko-ui/web/src/document-view.tsx:280",
-        "crates/shenko-ui/web/src/document-view.tsx:299",
-        "crates/shenko-ui/web/src/document-view.tsx:313",
-        "crates/shenko-ui/web/src/document-view.tsx:334",
-        "crates/shenko-ui/web/src/document-view.tsx:360",
-        "crates/shenko-ui/web/src/document-view.tsx:377",
-        "crates/shenko-ui/web/src/document-view.tsx:388",
-        "crates/shenko-ui/web/src/document-view.tsx:404",
-        "crates/shenko-ui/src/presentation.rs:222",
-        "crates/shenko-ui/src/presentation.rs:480"
+        "crates/shenko-ui/web/src/document-view.tsx#RichDocument",
+        "crates/shenko-ui/web/src/document-view.tsx#DocumentNode",
+        "crates/shenko-ui/src/presentation.rs#validate_document",
+        "crates/shenko-ui/src/presentation.rs#degrade"
       ],
       "evidence_refs": [
         "node --test crates/shenko-ui/web/tests/rich-document.test.mjs：5 条全通过——合并后 main 375238a 的 web 源码在容器内真实构建（Proto-UI 钉住提交 971cd35a）后跑的 node 测试"
@@ -3005,7 +3438,27 @@
         "UI-S11 缺真实浏览器界面证据。"
       ],
       "satisfied": false,
-      "note": "仅关联 UI-S11。既有 web 构建与 Node 文档用例证明数据及降级逻辑；真实浏览器组件、语义降级和动作身份仍未验证。"
+      "note": "仅关联 UI-S11。既有 web 构建与 Node 文档用例证明数据及降级逻辑；真实浏览器组件、语义降级和动作身份仍未验证。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-ui/web/src/document-view.tsx:207",
+          "crates/shenko-ui/web/src/document-view.tsx:258",
+          "crates/shenko-ui/web/src/document-view.tsx:265",
+          "crates/shenko-ui/web/src/document-view.tsx:269",
+          "crates/shenko-ui/web/src/document-view.tsx:273",
+          "crates/shenko-ui/web/src/document-view.tsx:280",
+          "crates/shenko-ui/web/src/document-view.tsx:299",
+          "crates/shenko-ui/web/src/document-view.tsx:313",
+          "crates/shenko-ui/web/src/document-view.tsx:334",
+          "crates/shenko-ui/web/src/document-view.tsx:360",
+          "crates/shenko-ui/web/src/document-view.tsx:377",
+          "crates/shenko-ui/web/src/document-view.tsx:388",
+          "crates/shenko-ui/web/src/document-view.tsx:404",
+          "crates/shenko-ui/src/presentation.rs:222",
+          "crates/shenko-ui/src/presentation.rs:480"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R160",
@@ -3023,15 +3476,13 @@
         "UI-S14"
       ],
       "implementation_refs": [
-        "crates/shenko-ui/src/index.html:2",
-        "crates/shenko-ui/src/index.html:18",
-        "crates/shenko-ui/src/index.html:23",
-        "crates/shenko-ui/src/static/app.css:51",
-        "crates/shenko-ui/src/static/app.css:74",
-        "crates/shenko-ui/web/src/react-renderer.tsx:107",
-        "crates/shenko-ui/web/src/react-renderer.tsx:260",
-        "crates/shenko-ui/web/src/react-renderer.tsx:835",
-        "crates/shenko-ui/web/src/react-renderer.tsx:1098"
+        "crates/shenko-ui/src/index.html#element:html",
+        "crates/shenko-ui/src/index.html#script:inline",
+        "crates/shenko-ui/src/static/app.css#selector::root[data-theme=\"dark\"]::property:--canvas",
+        "crates/shenko-ui/src/static/app.css#selector::root, :root[data-theme=\"dark\"]::property:--accent-color",
+        "crates/shenko-ui/web/src/react-renderer.tsx#ProjectionView",
+        "crates/shenko-ui/web/src/react-renderer.tsx#TimelineSurface::render",
+        "crates/shenko-ui/web/src/react-renderer.tsx#WorkEntry"
       ],
       "evidence_refs": [
         "node --test crates/shenko-ui/web/tests/prototypes.test.mjs：4 条全通过（构建产物与源无偏差、编译器溯源）——同上真实构建",
@@ -3043,7 +3494,21 @@
         "UI-S12/13/14 缺首帧主题、无障碍宣布与实际阅读锚点证据。"
       ],
       "satisfied": false,
-      "note": "仅关联 UI-S12/13/14。既有 Node 与构建记录保留；浅色首帧、屏幕阅读器有界宣布及正文/作品/动作阅读锚点的实际界面行为仍未验证。"
+      "note": "仅关联 UI-S12/13/14。既有 Node 与构建记录保留；浅色首帧、屏幕阅读器有界宣布及正文/作品/动作阅读锚点的实际界面行为仍未验证。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-ui/src/index.html:2",
+          "crates/shenko-ui/src/index.html:18",
+          "crates/shenko-ui/src/index.html:23",
+          "crates/shenko-ui/src/static/app.css:51",
+          "crates/shenko-ui/src/static/app.css:74",
+          "crates/shenko-ui/web/src/react-renderer.tsx:107",
+          "crates/shenko-ui/web/src/react-renderer.tsx:260",
+          "crates/shenko-ui/web/src/react-renderer.tsx:835",
+          "crates/shenko-ui/web/src/react-renderer.tsx:1098"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R161",
@@ -3059,16 +3524,24 @@
         "G57"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/output.rs:41",
-        "crates/shenko-subject/src/loop_runner.rs:1114",
-        "crates/shenko-subject/src/loop_runner.rs:2041"
+        "crates/shenko-subject/src/output.rs#OUTPUT_CONTRACT_SUFFIX",
+        "crates/shenko-subject/src/loop_runner.rs#system_prompt_suffix",
+        "crates/shenko-subject/src/loop_runner.rs#execute_step"
       ],
       "evidence_refs": [],
       "blockers": [
         "G57 未完成具名运行判定。"
       ],
       "satisfied": false,
-      "note": "源码具有持久 PolicyIntent 与未绑定意图可见性；仅关联 G57，其真实主体运行判定仍待完成。无关 playground、通道或 UI 测试不能证明缺派发器的处理。"
+      "note": "源码具有持久 PolicyIntent 与未绑定意图可见性；仅关联 G57，其真实主体运行判定仍待完成。无关 playground、通道或 UI 测试不能证明缺派发器的处理。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/output.rs:41",
+          "crates/shenko-subject/src/loop_runner.rs:1114",
+          "crates/shenko-subject/src/loop_runner.rs:2041"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R162",
@@ -3084,9 +3557,9 @@
         "G58"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/loop_runner.rs:2025",
-        "crates/shenko-ui/src/playground_manage.rs:574",
-        "crates/shenko-awareness-core/src/cognition.rs:611"
+        "crates/shenko-subject/src/loop_runner.rs#execute_step",
+        "crates/shenko-ui/src/playground_manage.rs#<PlaygroundManageHandler as shenko_kernel::task::NativeTaskHandler>::descriptor",
+        "crates/shenko-awareness-core/src/cognition.rs#CognitionCatalog::capability_unit"
       ],
       "evidence_refs": [
         "shenko-ui --lib the_subject_can_create_iterate_and_adopt_a_work：通过——修订留下带理由的态度记录、采纳与回滚按只增版本链执行",
@@ -3097,7 +3570,15 @@
         "G58 缺主体自身心智框架修订与回滚证据。"
       ],
       "satisfied": false,
-      "note": "仅关联 G58。playground 作品版本与回滚通过记录不等于主体心智框架的态度记录、只增修订、旧字节保留及外部副作用边界；本需求仍缺完整证据。"
+      "note": "仅关联 G58。playground 作品版本与回滚通过记录不等于主体心智框架的态度记录、只增修订、旧字节保留及外部副作用边界；本需求仍缺完整证据。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/loop_runner.rs:2025",
+          "crates/shenko-ui/src/playground_manage.rs:574",
+          "crates/shenko-awareness-core/src/cognition.rs:611"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R163",
@@ -3113,16 +3594,23 @@
         "G59"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/frame_tests.rs:99",
-        "crates/shenko-awareness-core/src/cognition.rs:601",
-        "crates/shenko-awareness-core/src/cognition.rs:619"
+        "crates/shenko-subject/src/frame_tests.rs#the_subject_switches_between_two_providers_without_a_restart",
+        "crates/shenko-awareness-core/src/cognition.rs#CognitionCatalog::capability_unit"
       ],
       "evidence_refs": [],
       "blockers": [
         "G59 未完成具名运行判定。"
       ],
       "satisfied": false,
-      "note": "源码具有能力提供者歧义与启停解析；仅关联 G59。运行时共存、切换与使用方无需重启的具名运行判定仍待完成。"
+      "note": "源码具有能力提供者歧义与启停解析；仅关联 G59。运行时共存、切换与使用方无需重启的具名运行判定仍待完成。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/frame_tests.rs:99",
+          "crates/shenko-awareness-core/src/cognition.rs:601",
+          "crates/shenko-awareness-core/src/cognition.rs:619"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R164",
@@ -3138,14 +3626,14 @@
         "G60"
       ],
       "implementation_refs": [
-        "crates/shenko-node/src/units.rs:4879",
-        "crates/shenko-ui/src/config_service.rs:5",
-        "crates/shenko-ui/src/config_task.rs:43",
-        "crates/shenko-ui/src/api.rs:173",
-        "crates/shenko-exec-host/tests/desktop_native_macos_proof.rs:25",
-        "crates/shenko-exec-host/tests/desktop_native_windows_proof.rs:24",
-        "crates/shenko-exec-host/src/contact_task.rs:7",
-        "crates/shenko-awareness-core/src/cognition_self_learning/facts.rs:11"
+        "crates/shenko-node/src/units.rs#Node::unit_trial",
+        "crates/shenko-ui/src/config_service.rs#ConfigService",
+        "crates/shenko-ui/src/config_task.rs#CONTRACT",
+        "crates/shenko-ui/src/api.rs#config_apply_handler",
+        "crates/shenko-exec-host/tests/desktop_native_macos_proof.rs#unobserved",
+        "crates/shenko-exec-host/tests/desktop_native_windows_proof.rs#unobserved",
+        "crates/shenko-exec-host/src/contact_task.rs#NapCatContactsHandler",
+        "crates/shenko-exec-host/tests/cognition_self_learning/facts.rs#snapshot"
       ],
       "evidence_refs": [
         "负面元要求复核：全仓 grep（allowlist / approval gate / 人工审批 / hard deny）只命中两类上下文——(a) 明确声明不使用审批门（shenko-ui/src/api.rs:173、config_service.rs:5、config_task.rs:43、shenko-awareness-core/src/cognition_self_learning/facts.rs:11、shenko-exec-host/tests/desktop_native_*_proof.rs、shenko-node/src/units.rs:4879）；(b) 早于本章的既有类型级 allowlist（shenko-channel-napcat/src/client.rs、attachments.rs、shenko-exec-host/src/contact_task.rs —— 那里 allowlist 就是类型本身，commit acb5c46 早于本章）",
@@ -3156,7 +3644,27 @@
         "G60 缺覆盖全部新增机制的语义复核；grep 只保留为有界辅助观察。"
       ],
       "satisfied": false,
-      "note": "仅关联 G60。保留指定范围 grep/diff 与平台事实记录；词形未命中不能证明所有新增机制不存在语义上的审批、allowlist 或 hard deny。完整要求未验证。"
+      "note": "仅关联 G60。保留指定范围 grep/diff 与平台事实记录；词形未命中不能证明所有新增机制不存在语义上的审批、allowlist 或 hard deny。完整要求未验证。",
+      "trace_notes": [
+        {
+          "reference": "crates/shenko-exec-host/tests/cognition_self_learning/facts.rs#snapshot",
+          "scope": "forensic-harness disclosure only",
+          "limitation": "The helper captures and classifies installation facts; it is not product-wide semantic proof that no approval gate exists. Original bounded grep/diff evidence and unverified/unsatisfied status are retained."
+        }
+      ],
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-node/src/units.rs:4879",
+          "crates/shenko-ui/src/config_service.rs:5",
+          "crates/shenko-ui/src/config_task.rs:43",
+          "crates/shenko-ui/src/api.rs:173",
+          "crates/shenko-exec-host/tests/desktop_native_macos_proof.rs:25",
+          "crates/shenko-exec-host/tests/desktop_native_windows_proof.rs:24",
+          "crates/shenko-exec-host/src/contact_task.rs:7",
+          "crates/shenko-awareness-core/src/cognition_self_learning/facts.rs:11"
+        ],
+        "coverage_schema_version": 1
+      }
     },
     {
       "requirement_id": "R165",
@@ -3175,8 +3683,8 @@
         "AW15"
       ],
       "implementation_refs": [
-        "crates/shenko-subject/src/model_child.rs::ModelChildHandler::role_frame",
-        "crates/shenko-awareness-core/src/cognition.rs::CAP_CHILD_ROLE_FRAME"
+        "crates/shenko-subject/src/model_child.rs#ModelChildHandler::role_frame",
+        "crates/shenko-awareness-core/src/cognition.rs#CAP_CHILD_ROLE_FRAME"
       ],
       "evidence_refs": [
         "shenko-subject --lib the_childs_role_frame_comes_from_the_installed_unit: 单元正文成为孩子角色前缀，编译合同被替换而非追加；无目录时回退到编译合同",
@@ -3187,7 +3695,14 @@
         "AW15 只覆盖角色前缀机制；同一目录、插件体系与主体修订的完整路径未验证。"
       ],
       "satisfied": false,
-      "note": "AW15 保留 child 角色前缀、回退与停用解析的单元级机制通过记录；这只是本需求的一部分。同一能力目录、插件体系以及主体修订 child 角色框的完整行为尚缺证据，implementation_state 维持 partial，satisfied=false。"
+      "note": "AW15 保留 child 角色前缀、回退与停用解析的单元级机制通过记录；这只是本需求的一部分。同一能力目录、插件体系以及主体修订 child 角色框的完整行为尚缺证据，implementation_state 维持 partial，satisfied=false。",
+      "reference_migration": {
+        "implementation_refs": [
+          "crates/shenko-subject/src/model_child.rs::ModelChildHandler::role_frame",
+          "crates/shenko-awareness-core/src/cognition.rs::CAP_CHILD_ROLE_FRAME"
+        ],
+        "coverage_schema_version": 1
+      }
     }
   ],
   "count": 165
