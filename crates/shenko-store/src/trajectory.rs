@@ -272,8 +272,9 @@ pub struct ConversationMessage {
     /// How many counterparts the audience reaches, as the plugin stated it.
     pub thread_shape: Option<shenko_types::channel::AudienceShape>,
     pub channel: String,
-    /// `inbound` from a counterpart, `own` for the account's own line sent
-    /// from another client, `outbound` for the subject's publication.
+    /// `inbound` from an observed counterpart, `own` for observed account
+    /// origin, `unknown` when attribution was not recorded, and `outbound`
+    /// for the subject's publication. Account origin does not name a client.
     pub direction: &'static str,
     pub message_id: String,
     pub sender_id: Option<String>,
@@ -282,7 +283,7 @@ pub struct ConversationMessage {
     pub sender_admin: bool,
     pub text: String,
     /// When the platform says an inbound line happened; for a publication,
-    /// when the provider answered the send, else when the deciding step began.
+    /// the receipt observation, recorded task creation, or deciding step time.
     pub at: Option<String>,
     /// The publication ledger's actual state for outbound messages.
     pub state: Option<String>,
@@ -293,7 +294,7 @@ struct PublicationRow {
     intent_id: String,
     payload: String,
     state: String,
-    step_started: Option<String>,
+    recorded_at: Option<String>,
     receipt: Option<String>,
 }
 
@@ -318,10 +319,11 @@ impl Store {
         let publications = {
             let conn = self.ledger.conn.lock();
             let mut stmt = conn.prepare(
-                "SELECT i.intent_id, i.payload, i.state, s.created_at, \
+                "SELECT i.intent_id, i.payload, i.state, COALESCE(t.created_at, s.created_at), \
                    (SELECT e.data FROM evidence_receipts e WHERE e.operation_id = i.intent_id \
                     ORDER BY e.updated_commit_seq DESC, e.receipt_id DESC LIMIT 1) \
                  FROM subject_intents i LEFT JOIN subject_steps s ON s.step_id = i.step_id \
+                 LEFT JOIN tasks t ON t.task_id = i.intent_id AND json_extract(t.data,'$.agent_id') = i.agent_id \
                  WHERE i.agent_id = ?1 AND i.kind = 'publication' \
                  ORDER BY i.created_seq DESC, i.intent_id DESC LIMIT ?2",
             )?;
@@ -331,7 +333,7 @@ impl Store {
                         intent_id: r.get(0)?,
                         payload: r.get(1)?,
                         state: r.get(2)?,
-                        step_started: r.get(3)?,
+                        recorded_at: r.get(3)?,
                         receipt: r.get(4)?,
                     })
                 })?
@@ -366,7 +368,7 @@ impl Store {
             };
             let at = match evidence.and_then(|evidence| evidence.observed_at) {
                 Some(at) => Some(at.to_rfc3339_opts(SecondsFormat::Nanos, true)),
-                None => row.step_started.as_deref().map(utc_timestamp).transpose()?,
+                None => row.recorded_at.as_deref().map(utc_timestamp).transpose()?,
             };
             let target = &publication.target;
             out.push(ConversationMessage {
@@ -432,7 +434,7 @@ impl Store {
             let Some(target) = envelope.reply_target.as_ref() else {
                 continue;
             };
-            if envelope.actor.own_account
+            if envelope.actor.own_account == Some(true)
                 && published_targets
                     .get(&envelope.message_id)
                     .is_some_and(|targets| {
@@ -453,10 +455,10 @@ impl Store {
                 thread_kind: target.kind.clone(),
                 thread_shape: target.shape,
                 channel: envelope.provider.clone(),
-                direction: if envelope.actor.own_account {
-                    "own"
-                } else {
-                    "inbound"
+                direction: match envelope.actor.own_account {
+                    Some(true) => "own",
+                    Some(false) => "inbound",
+                    None => "unknown",
                 },
                 message_id: event_id,
                 sender_id: Some(envelope.actor.platform_id.clone()),

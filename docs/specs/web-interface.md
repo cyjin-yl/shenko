@@ -801,7 +801,7 @@ and the UI's adoption action selects the newest retained candidate.
 
 ## Conversation publication facts
 
-Channel conversations combine classified inbox envelopes with committed publication intents. Each direction selects its newest bounded history. A publication's displayed time comes from the task created in the same S1 transaction, which also covers publications created by a delegated child. Imported task metadata keeps its recorded time; an older publication without that metadata retains an unknown time. Messages use normalized UTC timestamps and stable message identities for ordering. Existing inbox rows do not carry a cross-table commit sequence, so the projection does not infer a causal order from unrelated row numbers.
+Channel conversations combine canonically staged inbox envelopes with committed publication intents. Each direction selects its newest bounded history. A publication's displayed time uses its receipt observation when available, then the task created in the same S1 transaction, then the recorded deciding step time. The task fallback also covers publications created by a delegated child. Imported metadata keeps its recorded time; a publication without any of these recorded times retains an unknown time. Messages use normalized UTC timestamps and stable message identities for ordering. Existing inbox rows do not carry a cross-table commit sequence, so the projection does not infer a causal order from unrelated row numbers.
 
 Publication labels follow the actual `ready`, `claimed`, `acknowledged`, `settled`, `blocked` and `unknown` ledger states. `settled` is displayed as an ended operation: cancellation can settle a publication that was never dispatched, so this state alone does not prove that a message was sent or read.
 

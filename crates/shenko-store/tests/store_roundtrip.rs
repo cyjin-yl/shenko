@@ -1486,7 +1486,7 @@ fn commit_publication_step(
 #[test]
 fn channel_conversations_interleave_publications_with_recorded_message_times() {
     use chrono::{DateTime, Duration};
-    use shenko_types::{channel::ChannelEnvelope, ids::EntityId, store::RawInboxEvent};
+    use shenko_types::{channel::ChannelEnvelope, ids::EntityId, inbox::{InboxEvent, InboxEventKind}};
 
     let (dir, store, agent) = initialized_subject();
     let publication = publication_intent();
@@ -1504,12 +1504,15 @@ fn channel_conversations_interleave_publications_with_recorded_message_times() {
             "content": {"text": text},
             "reply_target": {"kind": "group", "id": "123456789", "label": "群聊", "account": "qq:10001"}
         })).unwrap();
-        let mut batch = WriteBatch::new();
-        batch.inbox_event_upserts.push(RawInboxEvent {
-            event_id, agent_id: agent, source: "channel/qq".into(), kind: "message".into(),
-            payload_json: serde_json::to_string(&envelope).unwrap(), received_at_ms: at.timestamp_millis(),
-        });
-        store.commit(batch).unwrap();
+        let event = InboxEvent {
+            event_id, kind: InboxEventKind::Message, payload: serde_json::to_value(envelope).unwrap(),
+            created_at: at, source: "channel/qq".into(),
+        };
+        let (head, planned) = store.load_subject(agent).unwrap();
+        store.stage_subject_inputs(&head, &planned, &[shenko_store::raw_session::SubjectHistoryInput {
+            event_id, event_type: "user".into(),
+            data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
+        }]).unwrap();
         event_id
     };
     // A delayed delivery can precede an already committed publication in
@@ -1520,7 +1523,8 @@ fn channel_conversations_interleave_publications_with_recorded_message_times() {
     let messages = store.channel_conversation_messages(agent, 10).unwrap();
     assert_eq!(messages.iter().map(|message| message.message_id.clone()).collect::<Vec<_>>(), expected);
     assert_eq!(messages.iter().map(|message| message.direction).collect::<Vec<_>>(),
-        vec!["inbound", "outbound", "inbound"]);
+        vec!["unknown", "outbound", "unknown"],
+        "historical envelopes without ownership facts do not assert a counterpart");
     assert!(messages.iter().all(|message| message.thread_key == "qq:10001|group|123456789"));
     drop(store);
     let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
@@ -1546,7 +1550,7 @@ fn channel_conversations_limit_selects_latest_publications() {
 
 #[test]
 fn inspection_projections_keep_each_subjects_tasks_and_messages_private() {
-    use shenko_types::{channel::ChannelEnvelope, ids::EntityId, store::RawInboxEvent};
+    use shenko_types::{channel::ChannelEnvelope, ids::EntityId, inbox::{InboxEvent, InboxEventKind}};
     let (_dir, store, first) = initialized_subject();
     let second = initialize_subject_in(&store, b"second subject");
     let first_publication = publication_intent();
@@ -1564,12 +1568,15 @@ fn inspection_projections_keep_each_subjects_tasks_and_messages_private() {
             "content": {"text": text},
             "reply_target": {"kind": "group", "id": "123456789", "label": "", "account": "qq:10001"}
         })).unwrap();
-        let mut batch = WriteBatch::new();
-        batch.inbox_event_upserts.push(RawInboxEvent {
-            event_id, agent_id: agent, source: "channel/qq".into(), kind: "message".into(),
-            payload_json: serde_json::to_string(&envelope).unwrap(), received_at_ms: at.timestamp_millis(),
-        });
-        store.commit(batch).unwrap();
+        let event = InboxEvent {
+            event_id, kind: InboxEventKind::Message, payload: serde_json::to_value(envelope).unwrap(),
+            created_at: at, source: "channel/qq".into(),
+        };
+        let (head, planned) = store.load_subject(agent).unwrap();
+        store.stage_subject_inputs(&head, &planned, &[shenko_store::raw_session::SubjectHistoryInput {
+            event_id, event_type: "user".into(),
+            data: serde_json::json!({"v":1, "inbox_event": event, "text": text}),
+        }]).unwrap();
         events.push(event_id);
     }
     for (agent, publication, foreign, event) in [
@@ -2194,7 +2201,7 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() {
                 person_ref: None,
                 role_grant_ref: None,
                 group_role: None,
-                own_account,
+                own_account: Some(own_account),
             },
             content: ChannelContent {
                 text: text.into(),

@@ -352,7 +352,7 @@ audience kind and opaque audience id. The inbound plugin must also have stated
 `actor.own_account`; equal ids in other accounts, audiences or providers remain
 independent messages. The projection preserves the original inbox event id,
 payload text and platform/receive time, and the publication intent id, state and
-receipt observation time (else the recorded step start, else unknown). Timestamps
+receipt observation time (else recorded task creation, then step start, else unknown). Timestamps
 use the canonical UTC representation, unknown times sort last, and malformed
 stored publication/evidence records or known timestamps return decoding errors.
 Only evidence declared as `channel_receipt` is decoded as a provider answer;
