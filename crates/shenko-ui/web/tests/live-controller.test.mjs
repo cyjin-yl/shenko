@@ -682,6 +682,60 @@ test('reopened owner history pairs each reply, loads earlier pages and keeps cop
   assert.equal(restored.receipt, 'committed');
 });
 
+test('a committed reply cannot use an earlier history snapshot to claim independent thought', async (t) => {
+  const { sockets } = environment(t);
+  const pages = [];
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (String(path).startsWith('/api/submissions?')) {
+      return new Promise((resolve) => pages.push(resolve));
+    }
+    return json({});
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  const reply = committedPart('step-99', 99, '新输入的真实回复');
+  socket.receive(reply);
+  t.mock.timers.tick(600);
+  const olderView = historicalInput(30);
+  olderView.view.stage = 'accepted';
+  delete olderView.view.selected_step_id;
+  delete olderView.view.committed_at;
+  const page = (row) => json({ available: true, subject_id: 'fixture-subject', total: 1,
+    items: [row], has_older: false, next_before: null });
+  pages[0](page(olderView));
+  await setImmediate();
+  assert.equal(pages.length, 2, 'the latest refresh remains owed after the in-flight page');
+  assert.equal(timelineNode(controller).props.submission_history.stale, true);
+  const direct = () => collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
+  assert.equal(direct().messages.some((message) => message.text.includes('独自思考')), false);
+  pages[1](page(historicalInput(30, 'step-99')));
+  await setImmediate();
+  assert.equal(timelineNode(controller).props.submission_history.stale, false);
+  assert.deepEqual(direct().messages.filter((message) => message.kind === 'message').map((message) => message.text),
+    ['原始输入 30', '新输入的真实回复']);
+  socket.receive(reply);
+  t.mock.timers.tick(600);
+  await setImmediate();
+  assert.equal(pages.length, 2, 'replay of an already committed identity does not invalidate history');
+  assert.equal(timelineNode(controller).props.submission_history.stale, false);
+  socket.receive(committedPart('step-100', 100, '下一轮回复'));
+  t.mock.timers.tick(600);
+  await setImmediate();
+  pages[2](new Response('history unavailable', { status: 503 }));
+  await setImmediate();
+  assert.match(timelineNode(controller).props.submission_history.error, /503/);
+  assert.equal(timelineNode(controller).props.submission_history.loading, false);
+  t.mock.timers.tick(600);
+  await setImmediate();
+  assert.equal(pages.length, 3, 'a failed history request keeps its error instead of retrying itself');
+});
+
 test('unavailable and invalid history pages preserve both admitted and pending inputs', async (t) => {
   const { sockets } = environment(t);
   let phase = 'first';

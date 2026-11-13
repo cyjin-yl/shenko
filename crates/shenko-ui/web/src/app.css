@@ -652,9 +652,7 @@ code.row-sub, code.row-title { font-size: 12px; }
 @media (max-width: 1099px) {
   .shell:not([data-lens="none"]) .body { grid-template-columns: minmax(0, 1fr); }
   .lens { position: absolute; inset: 0; z-index: 20; border-left: 0; }
-  .lens-label { display: none; }
   .lens-item { padding: 0 9px !important; }
-  .lens-item[data-source="work"] .lens-label { display: none; }
 }
 
 @media (max-width: 719px) {
@@ -707,7 +705,13 @@ code.row-sub, code.row-title { font-size: 12px; }
   display: inline-flex !important; align-items: center !important;
 }
 .tab-item[data-active] { background: var(--surface) !important; color: var(--ink) !important; box-shadow: 0 1px 2px oklch(0 0 0 / 0.08), 0 0 0 1px var(--line) !important; }
-@media (max-width: 1399px) { .lens-label { display: none; } .lens-item { padding: 0 9px !important; } }
+@media (max-width: 1399px) {
+  .lens-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .lens-item { padding: 0 9px !important; }
+}
 
 :root {
   --im-blue: #0a7cff;
@@ -856,7 +860,10 @@ code.row-sub, code.row-title { font-size: 12px; }
 
 @media (max-width: 1099px) {
   .im { grid-template-columns: 76px minmax(0, 1fr); }
-  .im-row-text { display: none; }
+  .im-row-text {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
   .im-row { justify-content: center !important; min-height: 56px; padding: 6px !important; }
 }
 @media (max-width: 719px) {

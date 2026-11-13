@@ -125,7 +125,7 @@ registerThreadSource({
       .filter((id): id is string => typeof id === 'string'));
     const history = timeline?.props.submission_history;
     const historyIncomplete = projection.source === 'live'
-      && (!history || history.loading || history.error || history.has_older);
+      && (!history || history.loading || history.error || history.has_older || history.stale === true);
     const messages: ThreadMessage[] = [];
     let quiet = 0;
     let quietKey = '';

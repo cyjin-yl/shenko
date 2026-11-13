@@ -703,6 +703,8 @@ The reading anchor prefers a visible concrete message over a temporary unpaired-
 
 Compiled message hosts can mount after the parent React commit. The IM viewport observes its message content and reapplies the reading anchor when that content changes size, including native host publication. Scrolling selects a new reading anchor, and following the tail continues through those later mounts. Unmounting the thread disconnects its observer.
 
+The completeness of cached owner history is also bound to the committed parts already rendered. A new committed identity keeps an unpaired round neutral until a newest-page request started after that identity has been applied. A newer refresh requested during an existing load is retained once; failure keeps the error surface without retrying itself. Duplicate committed replay does not invalidate the snapshot. Responsive icon-only navigation clips its descriptive labels visually while retaining them in the accessibility tree.
+
 Task lists, trajectories and channel conversations require an explicit subject in their Store readers. The API resolves the installation's existing local subject for each read, and fails on missing or ambiguous identity rather than falling back to all rows. Foreign task IDs are absent from that subject's trajectory surface, including child lookups. Inspection times are normalized RFC3339 UTC; a failed conversation read preserves previously known messages and reports the unavailable state.
 
 Committed replay also requires an explicit subject through the Store and outbox readers. A socket without a resolved local subject does not replay parked replicas or advertise committed replay; other subjects' imported steps remain outside the local subject's timeline.

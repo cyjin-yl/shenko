@@ -448,6 +448,9 @@ class LiveController implements ProjectionController {
   private selfApplied = 0;
   private abort = new AbortController();
   private submissionHistoryLoading = false;
+  private committedPartsSeen = 0;
+  private historySnapshotAt = 0;
+  private newestHistoryPending = false;
   private pendingChunks = new Map<string, Map<number, TimelineChunk>>();
   /// One durable origin identity per (key, exact desired bytes): pressing save
   /// again for the same value resolves the original change instead of
@@ -1442,8 +1445,14 @@ class LiveController implements ProjectionController {
 
   private async loadSubmissionHistory(before?: SubmissionCursor): Promise<void> {
     const subject = this.state.subject_id;
-    if (!subject || this.disposed || this.submissionHistoryLoading) return;
+    if (!subject || this.disposed) return;
+    if (this.submissionHistoryLoading) {
+      if (before === undefined) this.newestHistoryPending = true;
+      return;
+    }
     this.submissionHistoryLoading = true;
+    if (before === undefined) this.newestHistoryPending = false;
+    const snapshotAt = this.committedPartsSeen;
     const previous = this.state.submission_history;
     this.state.submission_history = { has_older: false, ...previous, loading: true, error: undefined };
     this.emit();
@@ -1513,8 +1522,10 @@ class LiveController implements ProjectionController {
         submission.accepted_seq = row.seq;
         this.applySubmissionView(submission, row.view, false);
       }
+      if (before === undefined) this.historySnapshotAt = snapshotAt;
       this.state.submission_history = {
         loading: false, total: page.total,
+        stale: this.committedPartsSeen > this.historySnapshotAt,
         has_older: overlaps ? previous!.has_older : page.has_older,
         next_before: overlaps ? previous!.next_before : page.has_older ? {
           seq: items[items.length - 1].seq, submission_id: items[items.length - 1].payload.submission_id,
@@ -1526,11 +1537,22 @@ class LiveController implements ProjectionController {
     } catch (error) {
       if (this.disposed || subject !== this.state.subject_id) return;
       this.state.submission_history = { has_older: false, ...previous, loading: false,
+        stale: this.committedPartsSeen > this.historySnapshotAt,
         error: error instanceof Error ? error.message : '输入历史暂不可用' };
     } finally {
       this.submissionHistoryLoading = false;
     }
+    // Consume a newer demand once; a failed attempt does not retry itself.
+    if (!this.disposed && this.newestHistoryPending) void this.loadSubmissionHistory();
     if (!this.disposed) this.emit();
+  }
+
+  private noteFreshlyCommitted(): void {
+    this.committedPartsSeen += 1;
+    const history = this.state.submission_history;
+    if (history && !history.stale) this.state.submission_history = { ...history, stale: true };
+    if (this.submissionHistoryLoading) this.newestHistoryPending = true;
+    this.scheduleTaskRefresh();
   }
 
   // The same durable query answers for an admitted action. Its view proves
@@ -1656,6 +1678,7 @@ class LiveController implements ProjectionController {
           streamed.step = data.step;
           streamed.step_id = data.step_id;
           streamed.terminal = true;
+          if (!streamed.committed) this.noteFreshlyCommitted();
           streamed.committed = true;
           streamed.gap = false;
           this.pendingChunks.delete(key);
@@ -1672,6 +1695,7 @@ class LiveController implements ProjectionController {
         streamed.step = data.step;
         streamed.step_id = data.step_id;
         streamed.terminal = true;
+        if (!streamed.committed) this.noteFreshlyCommitted();
         streamed.committed = true;
         streamed.gap = false;
         this.pendingChunks.delete(key);
@@ -1732,6 +1756,7 @@ class LiveController implements ProjectionController {
       if (!isStream) {
         // This chunk came from the committed projection: the text now has an
         // S1 step, so the view may label it committed from here on.
+        if (!existing.committed) this.noteFreshlyCommitted();
         existing.committed = true;
         existing.step = data.step;
         if (typeof data.step_id === 'string') existing.step_id = data.step_id;
@@ -1740,6 +1765,7 @@ class LiveController implements ProjectionController {
       this.applyPending(existing, key);
       this.state.timeline = this.state.timeline.map((part) => (part === existing ? { ...existing } : part));
     } else {
+      if (!isStream) this.noteFreshlyCommitted();
       const part: TimelinePart = {
         role: 'subject',
         content: appended,

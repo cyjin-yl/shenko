@@ -232,6 +232,8 @@ export function compareSubmissionOrder(leftSeq: number, leftId: string, rightSeq
 
 export interface SubmissionHistoryState {
   loading: boolean;
+  /** A rendered commit is newer than the applied newest-page snapshot. */
+  stale?: boolean;
   total?: number;
   has_older: boolean;
   next_before?: SubmissionCursor;
