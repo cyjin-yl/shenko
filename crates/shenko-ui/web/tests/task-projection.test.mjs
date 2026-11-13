@@ -26,6 +26,7 @@ function trajectory(record) {
   return {
     task,
     input: { goal: 'Read the retained source.' },
+    brief: 'Read the retained source.',
     children: [{ task_id: 'tool-one', kind: 'future.plugin.read', role: 'tool', state: 'succeeded', created_at: at }],
     operations: [{
       operation_id: 'step-one', operation_name: 'model.child.generate.v1', logical_key: 'step/0',
@@ -68,6 +69,29 @@ test('canonical child display is rendered verbatim and controls use their struct
   assert.ok(messages.some((message) => message.from.role === 'tool' && message.text.includes('future.plugin.read')));
   assert.ok(!messages.some((message) => message.text.includes('PRIVATE_CONTROL_PAYLOAD')));
   assert.deepEqual(trace, original, 'rendering never rewrites sealed evidence');
+});
+
+test('delegation threads use only the current task brief and never render sealed context as a goal', () => {
+  const brief = '  Inspect the retained source.\n`[delegate]` remains literal.\n';
+  const trace = {
+    task, brief,
+    input: {
+      goal: 'PRIVATE_TOP_LEVEL_CONTEXT',
+      delegated_task_intents: [
+        { intent_id: 'other-task', goal: 'PRIVATE_OTHER_TASK_GOAL' },
+        { intent_id: task.task_id, goal: brief },
+      ],
+      input_plan_ref: { digest: 'private-s0-reference' },
+    },
+    children: [], operations: [],
+  };
+  assert.equal(trajectoryMessages(trace, subject)[0].text, brief);
+  const unavailable = trajectoryMessages({ ...trace, brief: null }, subject)[0];
+  assert.ok(!unavailable.text.includes(brief));
+  assert.ok(!unavailable.text.includes('PRIVATE_'));
+  assert.ok(!unavailable.text.includes('private-s0-reference'));
+  assert.equal(trajectoryMessages({ ...trace, brief: { goal: brief } }, subject)[0].text, unavailable.text);
+  assert.equal(trajectoryMessages({ ...trace, task: { ...task, role: 'unknown' } }, subject)[0].text, unavailable.text);
 });
 
 test('missing or unknown historical display schemas expose unavailability without showing raw text', () => {

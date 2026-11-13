@@ -201,7 +201,9 @@ registerThreadSource({
 
 export interface TrajectoryResponse {
   task: TaskSummary;
-  input?: Record<string, unknown> | null;
+  input?: unknown;
+  /** The Store's text projection for this task, separate from its sealed input. */
+  brief: string | null;
   children: TaskSummary[];
   operations: Array<{
     operation_id: string; operation_name: string; logical_key: string; state: unknown;
@@ -226,22 +228,17 @@ export function childParticipant(taskId: string): Participant {
   return { id: `child:${taskId}`, name: `子代理 ${shortId(taskId)}`, role: 'child' };
 }
 
-function briefOf(input: Record<string, unknown> | null | undefined): string {
-  if (!input) return '（委派内容未读取）';
-  for (const key of ['goal', 'prompt', 'task', 'instruction']) {
-    const value = input[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  const spec = input.spec as Record<string, unknown> | undefined;
-  if (spec && typeof spec.goal === 'string') return spec.goal;
-  return JSON.stringify(input).slice(0, 400);
+function briefOf(trajectory: TrajectoryResponse): string {
+  return isDelegation(trajectory.task) && typeof trajectory.brief === 'string' && trajectory.brief.trim()
+    ? trajectory.brief
+    : '（委派内容不可用）';
 }
 
 /// Turn one sealed trajectory into a delegation thread's messages.
 export function trajectoryMessages(trajectory: TrajectoryResponse, subject: Participant): ThreadMessage[] {
   const child = childParticipant(trajectory.task.task_id);
   const messages: ThreadMessage[] = [{
-    key: `brief-${trajectory.task.task_id}`, from: subject, kind: 'message', text: briefOf(trajectory.input),
+    key: `brief-${trajectory.task.task_id}`, from: subject, kind: 'message', text: briefOf(trajectory),
     at: trajectory.task.created_at, tag: '委派',
   }];
   const tools = trajectory.children.filter((task) => task.role === 'tool');
@@ -462,6 +459,7 @@ registerThreadSource({
 /// thread; it is never used for a live subject.
 export function demoTrajectory(taskId: string): TrajectoryResponse {
   const at = new Date(Date.now() - 60_000).toISOString();
+  const goal = '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。';
   const step = (index: number, record: Record<string, unknown>) => ({
     operation_id: `${taskId}-step-${index}`, operation_name: 'model.child.generate.v1', logical_key: `step/${index}`,
     state: 'resolved', outcome: 'succeeded', attempts: 1, record_status: 'sealed',
@@ -469,7 +467,7 @@ export function demoTrajectory(taskId: string): TrajectoryResponse {
   });
   return {
     task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at },
-    input: { goal: '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。' },
+    input: { goal }, brief: goal,
     children: [{ task_id: `${taskId}-tool`, kind: 'memory.recall', role: 'tool', state: 'succeeded', created_at: at }],
     operations: [
       step(0, { text: '先找出两条观察的原文和来源。', tool_calls: [{ kind: 'memory.recall' }], usage: { output_tokens: 42 } }),

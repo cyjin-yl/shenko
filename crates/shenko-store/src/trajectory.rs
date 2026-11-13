@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shenko_types::{
     ids::EntityId,
+    object::{Digest, ObjectRef},
     operation::OperationRecord,
+    subject::StepDecision,
     task::{TaskOwner, TaskRole},
 };
 
@@ -54,11 +56,80 @@ pub struct TrajectoryOperation {
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskTrajectory {
     pub task: TaskSummary,
-    /// The task's sealed input when it is JSON within the record limit: for
-    /// a delegation, the brief the delegator wrote.
+    /// The complete sealed input when it is JSON within the record limit.
+    /// A subject delegation retains its whole S1 decision here.
     pub input: Option<Value>,
+    /// Display text from this task's bound delegation or ordinary input.
+    /// Missing, malformed or ambiguous provenance leaves it unavailable.
+    pub brief: Option<String>,
     pub children: Vec<TaskSummary>,
     pub operations: Vec<TrajectoryOperation>,
+}
+
+#[derive(Clone, Copy)]
+enum TrajectoryInputSource {
+    SubjectDecision,
+    Object,
+    Unavailable,
+}
+
+fn input_source(
+    task: &TaskSummary,
+    record: &Value,
+    input_ref: Option<&ObjectRef>,
+    intent_step: Option<&str>,
+    intent_decision: Option<&str>,
+) -> TrajectoryInputSource {
+    match record.pointer("/memos/native_input") {
+        Some(Value::String(encoding)) if encoding == "object" => {
+            return TrajectoryInputSource::Object;
+        }
+        None => {}
+        Some(Value::String(encoding)) if encoding == "subject_decision" => {}
+        _ => return TrajectoryInputSource::Unavailable,
+    }
+    // A delegation without a native definition also retains its S1 input.
+    // The subject-owned intent, not a definition name, binds that source.
+    if task.role != TaskRole::Delegation
+        || !task.created_by_step_id.as_deref().is_some_and(|step| Some(step) == intent_step)
+        || record.pointer("/memos/intent_id").and_then(Value::as_str) != Some(task.task_id.as_str())
+        || input_ref.is_none()
+    {
+        return TrajectoryInputSource::Unavailable;
+    }
+    let decision_ref = intent_decision
+        .and_then(|data| serde_json::from_str::<ObjectRef>(data).ok());
+    if input_ref.is_some_and(|reference| Some(reference) == decision_ref.as_ref()) {
+        TrajectoryInputSource::SubjectDecision
+    } else {
+        TrajectoryInputSource::Unavailable
+    }
+}
+
+fn brief_of(task: &TaskSummary, input: &Value, source: TrajectoryInputSource) -> Option<String> {
+    match source {
+        TrajectoryInputSource::SubjectDecision => {
+            let decision = StepDecision::deserialize(input).ok()?;
+            if !crate::channel::ADMITTED_DECISION_SCHEMA_VERSIONS.contains(&decision.schema_version)
+                || Some(decision.step_id) != task.created_by_step_id.as_deref()?.parse::<EntityId>().ok()
+            {
+                return None;
+            }
+            let task_id = task.task_id.parse::<EntityId>().ok()?;
+            let mut intents = decision.delegated_task_intents.into_iter()
+                .filter(|intent| intent.intent_id == task_id);
+            let intent = intents.next()?;
+            if intents.next().is_some() || intent.goal.trim().is_empty() {
+                return None;
+            }
+            Some(intent.goal)
+        }
+        TrajectoryInputSource::Object => ["goal", "prompt", "task", "instruction"].into_iter()
+            .filter_map(|key| input.get(key).and_then(Value::as_str))
+            .chain(input.pointer("/spec/goal").and_then(Value::as_str))
+            .find(|text| !text.trim().is_empty()).map(str::to_owned),
+        TrajectoryInputSource::Unavailable => None,
+    }
 }
 
 pub(crate) fn utc_timestamp(value: &str) -> Result<String> {
@@ -148,23 +219,26 @@ impl Store {
             let conn = self.ledger.conn.lock();
             let Some(task) = conn
                 .query_row(
-                    "SELECT t.task_id, t.data, t.created_at, json_extract(h.data,'$.subject_root_task_id'), i.kind \
+                    "SELECT t.task_id, t.data, t.created_at, json_extract(h.data,'$.subject_root_task_id'), i.kind, i.step_id, i.decision_ref \
                      FROM tasks t \
                      LEFT JOIN subject_branch_heads h ON h.agent_id=json_extract(t.data,'$.agent_id') \
                      LEFT JOIN subject_intents i ON i.intent_id=t.task_id AND i.agent_id=json_extract(t.data,'$.agent_id') \
                      WHERE t.task_id=?1 AND json_extract(t.data,'$.agent_id')=?2",
                     rusqlite::params![task_key, agent_key],
                     |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
-                        r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?)),
+                        r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?,
+                        r.get::<_, Option<String>>(5)?, r.get::<_, Option<String>>(6)?)),
                 )
                 .optional()?
             else {
                 return Ok(None);
             };
-            let input_ref = serde_json::from_str::<Value>(&task.1).ok()
-                .and_then(|v| v.get("input_ref").cloned())
-                .and_then(|r| serde_json::from_value::<shenko_types::object::ObjectRef>(r).ok());
-            let task = (summary(task.0, &task.1, task.2, task.3, task.4)?, input_ref);
+            let record: Value = serde_json::from_str(&task.1)?;
+            let input_ref = record.get("input_ref")
+                .and_then(|reference| ObjectRef::deserialize(reference).ok());
+            let task_summary = summary(task.0, &task.1, task.2, task.3, task.4)?;
+            let source = input_source(&task_summary, &record, input_ref.as_ref(), task.5.as_deref(), task.6.as_deref());
+            let task = (task_summary, input_ref, source);
             let mut stmt = conn.prepare(
                 "SELECT t.task_id, t.data, t.created_at, json_extract(h.data,'$.subject_root_task_id'), i.kind \
                  FROM tasks t \
@@ -192,17 +266,21 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             (task, children, operations)
         };
-        let (task, input_ref) = task;
+        let (task, input_ref, source) = task;
         let input = input_ref
             .filter(|object| object.bytes <= TRAJECTORY_RECORD_LIMIT)
-            .and_then(|object| self.cas.read_object(&object.digest).ok())
+            .and_then(|object| self.cas.read_object(&object.digest).ok().filter(|bytes| {
+                bytes.len() as u64 == object.bytes
+                    && Digest::blake3(bytes) == object.digest
+            }))
             .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        let brief = input.as_ref().and_then(|input| brief_of(&task, input, source));
         let operations = operations
             .iter()
             .filter_map(|data| serde_json::from_str::<OperationRecord>(data).ok())
             .map(|operation| self.trajectory_operation(operation))
             .collect();
-        Ok(Some(TaskTrajectory { task, input, children, operations }))
+        Ok(Some(TaskTrajectory { task, input, brief, children, operations }))
     }
 
     fn trajectory_operation(&self, operation: OperationRecord) -> TrajectoryOperation {
@@ -482,5 +560,116 @@ impl Store {
             .then_with(|| left.at.cmp(&right.at))
             .then_with(|| left.message_id.cmp(&right.message_id)));
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use shenko_types::{object::SchemaRef, output::ParsedOutput, subject::DelegationIntent};
+
+    fn reference(bytes: &[u8]) -> ObjectRef {
+        let digest = Digest::blake3(bytes);
+        ObjectRef {
+            digest: digest.clone(), bytes: bytes.len() as u64,
+            media_type: "application/json".into(), store_namespace: "trajectory-test".into(),
+            locator: digest.to_string(),
+            codec: SchemaRef { name: "StepDecision".into(), major: crate::channel::DECISION_SCHEMA_VERSION, digest },
+        }
+    }
+
+    fn task(task_id: EntityId, step_id: EntityId) -> TaskSummary {
+        TaskSummary {
+            task_id: task_id.to_string(), kind: "future.plugin.observe".into(), role: TaskRole::Delegation,
+            state: "running".into(), parent_task_id: None, created_by_step_id: Some(step_id.to_string()),
+            created_at: "2026-11-13T00:00:00Z".into(), terminal_at: None,
+        }
+    }
+
+    #[test]
+    fn delegation_brief_matches_one_bound_intent_and_leaves_missing_or_ambiguous_goals_unavailable() {
+        let first_id = EntityId::new();
+        let current_id = EntityId::new();
+        let step_id = EntityId::new();
+        let current = task(current_id, step_id);
+        let goal = "  Read this task's retained source.\n`[delegate]` is literal.\n";
+        let original = reference(b"retained S0 and raw output identities");
+        let intent = |intent_id, goal: &str| DelegationIntent {
+            intent_id, goal: goal.into(), system_prompt: "PRIVATE_SYSTEM_PROMPT".into(),
+            model: None, capabilities: vec![], budget_hint: None, reply_grant: None, definition: None,
+        };
+        let decision = StepDecision {
+            schema_version: crate::channel::DECISION_SCHEMA_VERSION, step_id,
+            output: ParsedOutput {
+                schema_version: crate::channel::OUTPUT_SCHEMA_VERSION, step_id,
+                raw_ref: original.clone(), text: "PRIVATE_OTHER_OUTPUT".into(), controls: vec![],
+            },
+            identity_intent: None, input_plan_ref: original, model_result_ref: None,
+            applied_steering_refs: vec![], event_dispositions: vec![],
+            delegated_task_intents: vec![intent(first_id, "A different task's goal"), intent(current_id, goal)],
+            child_dialogue_intents: vec![], memory_intents: vec![], policy_intents: vec![],
+            publication_intents: vec![], pending_obligations: vec![], unknown_acknowledgements: vec![],
+            attention_policy: None, evidence_refs: vec![], successor_step_id: EntityId::new(),
+        };
+        let input = serde_json::to_value(&decision).unwrap();
+        let sealed = reference(&serde_json::to_vec(&input).unwrap());
+        let sealed_json = serde_json::to_string(&sealed).unwrap();
+        let step_key = step_id.to_string();
+        let record = |task: &TaskSummary| json!({"memos": {
+            "intent_id": task.task_id, "native_input": "subject_decision",
+        }});
+        let project = |task: &TaskSummary, input: &Value| {
+            let source = input_source(task, &record(task), Some(&sealed), Some(&step_key), Some(&sealed_json));
+            brief_of(task, input, source)
+        };
+        assert_eq!(project(&current, &input).as_deref(), Some(goal));
+        assert_eq!(project(&task(first_id, step_id), &input).as_deref(), Some("A different task's goal"));
+        assert!(project(&task(EntityId::new(), step_id), &input).is_none());
+
+        let mut ambiguous = input.clone();
+        ambiguous["delegated_task_intents"].as_array_mut().unwrap().push(json!(decision.delegated_task_intents[1]));
+        assert!(project(&current, &ambiguous).is_none());
+        let mut malformed = input.clone();
+        malformed["delegated_task_intents"][1]["goal"] = json!({"private": "not text"});
+        assert!(project(&current, &malformed).is_none());
+        let mut wrong_step = input.clone();
+        wrong_step["step_id"] = json!(EntityId::new());
+        assert!(project(&current, &wrong_step).is_none());
+        let mut unknown_schema = input.clone();
+        unknown_schema["schema_version"] = json!(99);
+        assert!(project(&current, &unknown_schema).is_none());
+
+        let unavailable = input_source(&current, &record(&current), Some(&sealed), None, Some(&sealed_json));
+        assert!(brief_of(&current, &input, unavailable).is_none());
+        let other_seal = serde_json::to_string(&reference(b"another decision")).unwrap();
+        let unavailable = input_source(&current, &record(&current), Some(&sealed), Some(&step_key), Some(&other_seal));
+        assert!(brief_of(&current, &input, unavailable).is_none());
+        let mut missing_role = current;
+        missing_role.role = TaskRole::Unknown;
+        assert!(project(&missing_role, &input).is_none());
+        assert_eq!(input, serde_json::to_value(&decision).unwrap(), "projection retains the original decision");
+    }
+
+    #[test]
+    fn ordinary_task_briefs_preserve_text_shapes_without_serializing_private_input() {
+        let task = task(EntityId::new(), EntityId::new());
+        let record = json!({"memos": {"native_input": "object"}});
+        let source = input_source(&task, &record, None, None, None);
+        let text = "  Keep exact input text.\r\n[reply] literal example\n";
+        for key in ["goal", "prompt", "task", "instruction"] {
+            let input = Value::Object(serde_json::Map::from_iter([(key.into(), json!(text))]));
+            assert_eq!(brief_of(&task, &input, source).as_deref(), Some(text));
+        }
+        assert_eq!(brief_of(&task, &json!({"spec": {"goal": text}}), source).as_deref(), Some(text));
+        let sealed = reference(&serde_json::to_vec(&json!({"goal": text})).unwrap());
+        let sealed_json = serde_json::to_string(&sealed).unwrap();
+        let explicit_object = input_source(&task, &record, Some(&sealed), task.created_by_step_id.as_deref(), Some(&sealed_json));
+        assert_eq!(brief_of(&task, &json!({"goal": text}), explicit_object).as_deref(), Some(text));
+        assert!(brief_of(&task, &json!({"private_context": "not a brief"}), source).is_none());
+        assert!(brief_of(&task, &json!({"goal": "  ", "spec": {"goal": 17}}), source).is_none());
+        assert!(brief_of(&task, &json!("PRIVATE_RAW_INPUT"), source).is_none());
+        let unknown_source = input_source(&task, &json!({"memos": {"native_input": 17}}), None, None, None);
+        assert!(brief_of(&task, &json!({"goal": text}), unknown_source).is_none());
     }
 }

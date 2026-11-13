@@ -878,6 +878,31 @@ model evidence. The integration owner rebuilds the frontend and exercises
 the parser, archive/reopen and structured thread consumers on the combined
 candidate; previously retained proofs are unchanged.
 
+## Delegation brief projection
+
+`TaskTrajectory.brief` is the Store-owned text projection consumed by both
+the conversation thread and its inline Inspect branch. `input` still holds
+the complete sealed JSON for inspection; it is never a display fallback.
+For an S1 delegation, the task's structural role, `memos.intent_id`,
+`created_by_step_id` and `input_ref` must agree with that subject's committed
+delegation row. The admitted decision schema and its step identity must
+then agree, and exactly one `delegated_task_intents[].intent_id` must equal
+the current `task_id`. Only that intent's nonblank `goal` becomes the brief;
+array position, another intent's goal and plugin definition names provide
+no correlation. The reader uses the existing `StepDecision` decoder and
+the Store's admitted decision schema set.
+
+Ordinary native inputs retain their `native_input=object` contract and
+their existing nonblank `goal`, `prompt`, `task`, `instruction` or
+`spec.goal` text shapes. The reader verifies the sealed input's length and
+digest before projecting it. Unreadable inputs, missing or inconsistent
+bindings, unsupported schemas, malformed fields and absent or duplicate
+matches return an unavailable brief. The browser renders the projected
+text verbatim and labels an unavailable brief explicitly. It does not
+decode controls or expose an S0/S1 JSON prefix. This implementation note
+records source behavior; new native and browser verification remains with
+the integration owner.
+
 ## Conversation observation projection — implementation note
 
 `web/src/threads.ts` keeps channel provenance on each message. `own_account`
