@@ -1599,15 +1599,23 @@ mod tests {
             generation,
             expected_revision: 0,
         })?;
+        let before_stale = node.environment_report(8)?;
+        // Use verified closure bytes so this refusal reaches the selector CAS,
+        // independently of the absent-artifact refusal above.
         let stale = node
             .handle_unit_request(UnitRequest::ActivateEnvironment {
-                generation: external_generation,
+                generation,
                 expected_revision: 7,
             })
             .expect_err("a stale selector revision must be refused");
         assert!(
             format!("{stale:#}").contains("UNIT_ENVIRONMENT_CONFLICT"),
             "{stale:#}"
+        );
+        assert_eq!(
+            node.environment_report(8)?,
+            before_stale,
+            "a stale activation must leave the selector and environment state unchanged"
         );
 
         // A tool imported after the generation exists is not silently usable
