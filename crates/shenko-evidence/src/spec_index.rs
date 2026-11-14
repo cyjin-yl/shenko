@@ -8,7 +8,7 @@
 //! a stale coverage ID cannot silently drop an obligation.
 
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 /// One acceptance case row from a SPEC acceptance table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,9 +21,12 @@ pub struct AcceptanceCase {
     /// True when the SPEC row merges scenario and pass condition into one
     /// cell, so no separate pass condition can be read from the table.
     pub merged_row: bool,
-    /// Line in the parsed contract text (1-based). Inventory reports also carry
-    /// the actual document path and Markdown line.
-    pub spec_line: usize,
+    /// Current coordinate used only to diagnose duplicate definitions.
+    pub(crate) spec_line: usize,
+    /// The current document containing this semantic definition.
+    pub source_path: String,
+    /// The unique explicit anchor owning this semantic case ID.
+    pub source_anchor: String,
     /// The verbatim SPEC row.
     pub source_row: String,
 }
@@ -39,7 +42,10 @@ pub struct Requirement {
     pub user_source: String,
     /// Behavior IDs named by the requirement row.
     pub behaviors: Vec<String>,
-    pub spec_line: usize,
+    /// Current coordinate used only to diagnose duplicate definitions.
+    pub(crate) spec_line: usize,
+    pub source_path: String,
+    pub source_anchor: String,
     pub source_row: String,
 }
 
@@ -56,7 +62,10 @@ pub struct Behavior {
     pub acceptance_cases: Vec<String>,
     /// Explicit IDs or ranges that cannot be resolved completely.
     pub unresolved_case_refs: Vec<String>,
-    pub spec_line: usize,
+    /// Current coordinate used only to diagnose duplicate definitions.
+    pub(crate) spec_line: usize,
+    pub source_path: String,
+    pub source_anchor: String,
     pub source_row: String,
 }
 
@@ -77,27 +86,58 @@ pub struct IndexCounts {
 }
 
 impl SpecIndex {
-    /// Parse the SPEC markdown text.
+    /// Parse one current contract document with its explicit source path.
     ///
-    /// `spec_text` contains current contract tables (one document or complete
-    /// documents composed in inventory order). Rows are recognised by their
-    /// leading ID cell, so the parser follows the SPEC's own table structure
-    /// instead of a fixed list of IDs.
-    pub fn parse(spec_text: &str) -> Result<SpecIndex, IndexError> {
+    /// Rows are recognised by their leading ID cell, so the parser follows
+    /// the contract's own tables instead of a fixed list of IDs.
+    pub fn parse(source_path: &str, spec_text: &str) -> Result<SpecIndex, IndexError> {
+        Self::parse_documents([(source_path, spec_text)])
+    }
+
+    /// Parse documents independently, rejecting duplicate semantic definitions
+    /// across the whole inventory before resolving references between documents.
+    pub fn parse_documents<'a>(
+        documents: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Result<SpecIndex, IndexError> {
         let mut index = SpecIndex::default();
-        let mut in_fence = false;
+        for (source_path, spec_text) in documents {
+            let mut document = SpecIndex::default();
+            document.add_document(source_path, spec_text)?;
+            merge_definitions(
+                &mut index.requirements, document.requirements,
+                "requirement", source_path, |item| item.spec_line,
+            )?;
+            merge_definitions(
+                &mut index.behaviors, document.behaviors,
+                "behavior", source_path, |item| item.spec_line,
+            )?;
+            merge_definitions(
+                &mut index.acceptance_cases, document.acceptance_cases,
+                "acceptance case", source_path, |item| item.spec_line,
+            )?;
+        }
+        for behavior in index.behaviors.values_mut() {
+            (behavior.acceptance_cases, behavior.unresolved_case_refs) =
+                acceptance_case_refs(&behavior.verification, &index.acceptance_cases);
+        }
+        Ok(index)
+    }
+
+    fn add_document(&mut self, source_path: &str, spec_text: &str) -> Result<(), IndexError> {
+        // Count the whole document first: a later duplicate also makes the
+        // anchor ambiguous for rows that appeared before it.
+        let mut anchors = BTreeMap::new();
+        for (_, line) in outside_fences(spec_text) {
+            for anchor in explicit_anchors(line) {
+                *anchors.entry(anchor).or_insert(0usize) += 1;
+            }
+        }
         let mut previous_table_row = None;
         let mut acceptance_table = None;
-        for (offset, line) in spec_text.lines().enumerate() {
-            let line_no = offset + 1;
-            if line.trim_start().starts_with("```") {
-                in_fence = !in_fence;
-                previous_table_row = None;
-                acceptance_table = None;
-                continue;
-            }
-            if in_fence {
-                continue;
+        let mut source_anchor = None;
+        for (line_no, line) in outside_fences(spec_text) {
+            for anchor in explicit_anchors(line) {
+                source_anchor = Some(anchor);
             }
             let Some(cells) = split_table_row(line) else {
                 previous_table_row = None;
@@ -120,10 +160,12 @@ impl SpecIndex {
             if head.starts_with('R') && is_requirement_id(head) {
                 if cells.len() < 4 {
                     return Err(IndexError::MalformedRow {
+                        source_path: source_path.to_string(),
                         line: line_no,
                         id: head.to_string(),
                     });
                 }
+                let source_anchor = owning_anchor(&anchors, source_anchor, source_path, line_no, head)?;
                 let requirement = Requirement {
                     id: head.to_string(),
                     summary: cells[1].trim().to_string(),
@@ -131,20 +173,28 @@ impl SpecIndex {
                     user_source: cells[3].trim().to_string(),
                     behaviors: behavior_refs(&cells[3]),
                     spec_line: line_no,
+                    source_path: source_path.to_string(),
+                    source_anchor: source_anchor.to_string(),
                     source_row: line.to_string(),
                 };
-                index
-                    .requirements
-                    .insert(requirement.id.clone(), requirement);
+                match self.requirements.entry(requirement.id.clone()) {
+                    Entry::Vacant(entry) => { entry.insert(requirement); }
+                    Entry::Occupied(_) => return Err(IndexError::DuplicateDefinition {
+                        kind: "requirement", id: requirement.id,
+                        source_path: source_path.to_string(), line: line_no,
+                    }),
+                }
                 continue;
             }
             if let Some((behavior_id, title)) = split_behavior_id(head) {
                 if cells.len() < 4 {
                     return Err(IndexError::MalformedRow {
+                        source_path: source_path.to_string(),
                         line: line_no,
                         id: behavior_id.clone(),
                     });
                 }
+                let source_anchor = owning_anchor(&anchors, source_anchor, source_path, line_no, &behavior_id)?;
                 let verification = cells[3].trim().to_string();
                 let behavior = Behavior {
                     id: behavior_id.clone(),
@@ -155,27 +205,43 @@ impl SpecIndex {
                     unresolved_case_refs: Vec::new(),
                     verification,
                     spec_line: line_no,
+                    source_path: source_path.to_string(),
+                    source_anchor: source_anchor.to_string(),
                     source_row: line.to_string(),
                 };
-                index.behaviors.insert(behavior.id.clone(), behavior);
+                match self.behaviors.entry(behavior.id.clone()) {
+                    Entry::Vacant(entry) => { entry.insert(behavior); }
+                    Entry::Occupied(_) => return Err(IndexError::DuplicateDefinition {
+                        kind: "behavior", id: behavior.id,
+                        source_path: source_path.to_string(), line: line_no,
+                    }),
+                }
                 continue;
             }
             if acceptance_table != Some(false)
-                && let Some(case) = parse_acceptance_case_row(&cells)
+                && let Some((case_id, scenario, pass_condition, merged_row)) = parse_acceptance_case_row(&cells)
             {
+                let source_anchor = owning_anchor(&anchors, source_anchor, source_path, line_no, &case_id)?;
                 let case = AcceptanceCase {
-                    source_row: line.to_string(),
+                    case_id,
+                    scenario,
+                    pass_condition,
+                    merged_row,
                     spec_line: line_no,
-                    ..case
+                    source_row: line.to_string(),
+                    source_path: source_path.to_string(),
+                    source_anchor: source_anchor.to_string(),
                 };
-                index.acceptance_cases.insert(case.case_id.clone(), case);
+                match self.acceptance_cases.entry(case.case_id.clone()) {
+                    Entry::Vacant(entry) => { entry.insert(case); }
+                    Entry::Occupied(_) => return Err(IndexError::DuplicateDefinition {
+                        kind: "acceptance case", id: case.case_id,
+                        source_path: source_path.to_string(), line: line_no,
+                    }),
+                }
             }
         }
-        for behavior in index.behaviors.values_mut() {
-            (behavior.acceptance_cases, behavior.unresolved_case_refs) =
-                acceptance_case_refs(&behavior.verification, &index.acceptance_cases);
-        }
-        Ok(index)
+        Ok(())
     }
 
     /// Counts actually parsed from the SPEC.
@@ -219,7 +285,132 @@ impl SpecIndex {
 /// Errors raised while parsing the SPEC index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexError {
-    MalformedRow { line: usize, id: String },
+    MalformedRow { source_path: String, line: usize, id: String },
+    DuplicateDefinition { kind: &'static str, id: String, source_path: String, line: usize },
+    InvalidOwner {
+        source_path: String,
+        line: usize,
+        id: String,
+        anchor: Option<String>,
+        definitions: usize,
+    },
+}
+
+fn merge_definitions<T>(
+    target: &mut BTreeMap<String, T>,
+    mut definitions: BTreeMap<String, T>,
+    kind: &'static str,
+    source_path: &str,
+    line_of: impl Fn(&T) -> usize,
+) -> Result<(), IndexError> {
+    for (id, definition) in &definitions {
+        if target.contains_key(id) {
+            return Err(IndexError::DuplicateDefinition {
+                kind,
+                id: id.clone(),
+                source_path: source_path.to_string(),
+                line: line_of(definition),
+            });
+        }
+    }
+    target.append(&mut definitions);
+    Ok(())
+}
+
+/// Match scripts/doc_refs.py's outside_fences: up to three whitespace
+/// characters, backticks or tildes, and a closing run at least as long as the
+/// opener with only whitespace after it. Every document starts outside a fence.
+fn outside_fences(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut fence = None;
+    text.lines().enumerate().filter_map(move |(offset, line)| {
+        if let Some((delimiter, length, rest)) = fence_marker(line) {
+            match fence {
+                None => fence = Some((delimiter, length)),
+                Some((opening_delimiter, minimum_length))
+                    if delimiter == opening_delimiter
+                        && length >= minimum_length
+                        && rest.trim().is_empty() => fence = None,
+                _ => {}
+            }
+            None
+        } else if fence.is_none() {
+            Some((offset + 1, line))
+        } else {
+            None
+        }
+    })
+}
+
+fn fence_marker(mut line: &str) -> Option<(u8, usize, &str)> {
+    for _ in 0..3 {
+        if let Some(character) = line.chars().next().filter(|c| c.is_whitespace()) {
+            line = &line[character.len_utf8()..];
+        } else {
+            break;
+        }
+    }
+    let delimiter = *line.as_bytes().first()?;
+    if !matches!(delimiter, b'`' | b'~') {
+        return None;
+    }
+    let length = line.bytes().take_while(|byte| *byte == delimiter).count();
+    (length >= 3).then_some((delimiter, length, &line[length..]))
+}
+
+/// Current contracts use explicit HTML anchors; a generated heading slug or a
+/// source offset cannot silently stand in for a missing authored identity.
+fn explicit_anchors(mut line: &str) -> impl Iterator<Item = &str> {
+    std::iter::from_fn(move || {
+        while let Some(start) = line.find('<') {
+            let candidate = &line[start..];
+            line = &candidate[1..];
+            let Some(rest) = candidate.strip_prefix("<a").or_else(|| candidate.strip_prefix("<span")) else {
+                continue;
+            };
+            let trimmed = rest.trim_start();
+            if trimmed.len() == rest.len() {
+                continue;
+            }
+            let Some(value) = trimmed.strip_prefix("id=").or_else(|| trimmed.strip_prefix("name=")) else {
+                continue;
+            };
+            if !value.starts_with(['\'', '"']) {
+                continue;
+            }
+            let value = &value[1..];
+            let Some(end) = value.find(['\'', '"']) else {
+                continue;
+            };
+            if end == 0 {
+                continue;
+            }
+            line = &value[end + 1..];
+            return Some(&value[..end]);
+        }
+        None
+    })
+}
+
+fn owning_anchor<'a>(
+    anchors: &BTreeMap<&str, usize>,
+    anchor: Option<&'a str>,
+    source_path: &str,
+    line: usize,
+    id: &str,
+) -> Result<&'a str, IndexError> {
+    let definitions = anchor.and_then(|name| anchors.get(name)).copied().unwrap_or(0);
+    if let Some(anchor) = anchor
+        && definitions == 1
+    {
+        return Ok(anchor);
+    }
+    Err(IndexError::InvalidOwner {
+        source_path: source_path.to_string(),
+        line,
+        id: id.to_string(),
+        anchor: anchor.map(str::to_string),
+        definitions,
+    })
 }
 
 /// Split a markdown table row into trimmed cells, or `None` when the line is
@@ -281,7 +472,7 @@ fn split_behavior_id(head: &str) -> Option<(String, String)> {
 ///     may carry a title (`QA01 指标隔离`);
 ///   * four cells — a fault-matrix row with an extra expectation cell
 ///     (DX01…DX18).
-fn parse_acceptance_case_row(cells: &[String]) -> Option<AcceptanceCase> {
+fn parse_acceptance_case_row(cells: &[String]) -> Option<(String, String, String, bool)> {
     let head = cells.first()?.trim();
     let (case_id, _title) = split_case_id_with_title(head);
     if case_id.is_empty() {
@@ -295,14 +486,7 @@ fn parse_acceptance_case_row(cells: &[String]) -> Option<AcceptanceCase> {
         3 => (cells[1].clone(), cells[2].clone(), false),
         _ => (cells[1].clone(), cells[cells.len() - 1].clone(), false),
     };
-    Some(AcceptanceCase {
-        case_id,
-        scenario,
-        pass_condition,
-        merged_row,
-        spec_line: 0,
-        source_row: String::new(),
-    })
+    Some((case_id, scenario, pass_condition, merged_row))
 }
 
 /// Split `QA01 指标隔离` into ("QA01", Some(title)) and `A01` into
@@ -473,7 +657,8 @@ pub fn index_to_json(index: &SpecIndex) -> Value {
                 "spec_locations": requirement.spec_locations,
                 "user_source": requirement.user_source,
                 "behaviors": requirement.behaviors,
-                "spec_line": requirement.spec_line,
+                "source_path": requirement.source_path,
+                "source_anchor": requirement.source_anchor,
             })
         })
         .collect();
@@ -485,7 +670,8 @@ pub fn index_to_json(index: &SpecIndex) -> Value {
                 "case_id": case.case_id,
                 "scenario": case.scenario,
                 "pass_condition": case.pass_condition,
-                "spec_line": case.spec_line,
+                "source_path": case.source_path,
+                "source_anchor": case.source_anchor,
             })
         })
         .collect();
@@ -496,7 +682,8 @@ pub fn index_to_json(index: &SpecIndex) -> Value {
             "behavior_id": behavior.id,
             "acceptance_cases": behavior.acceptance_cases,
             "unresolved_case_refs": behavior.unresolved_case_refs,
-            "spec_line": behavior.spec_line,
+            "source_path": behavior.source_path,
+            "source_anchor": behavior.source_anchor,
         })).collect::<Vec<_>>(),
     })
 }

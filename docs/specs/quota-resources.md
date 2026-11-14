@@ -26,6 +26,10 @@
 
 缺省语义原样保留：statusline 的 `rate_limits` 只在适用登录且**首次 API 响应之后**出现，三个窗可独立缺失，过期窗被移除。缺失永远不是 0% 已用、100% 剩余或已耗尽；对应 `absent_windows` 记 `not_yet_observed`/`expired`/`unsupported`/`unknown`/`invalid`。`resets_at` 是 Unix epoch 秒；API 头的 refill 语义另行解析，令牌桶不套用周窗公式。
 
+`policy_planning` 的库级周期规划用例使用合成 statusline 固定窗，以百分比记录余额和每次请求的假定成本，验证利用率目标、保留量与节流间隔。该输入不把 API token bucket 改成周期窗，也不证明真实订阅的一次请求成本或 QA05 的整周行为。
+
+策略插件的预测内容身份包含 `cost_model_version` 归因；基线插件与纯函数的行为对照应先在期望记录中加入该插件归因，再比较完整内容，不能通过从身份计算中去掉归因来获得相等结果。
+
 ## 3. 账户范围与本地密钥绑定（[§42.3](quota-resources.md#spec-42-3)、[§47.5](inference.md#spec-47-5)）
 
 `ScopeIdentity` 是**供应商真实范围**，不同范围是不同约束，永不相加：

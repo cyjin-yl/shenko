@@ -1,10 +1,10 @@
 //! Real persistent-home closure recovery (docs/specs/wasm-home.md#spec-8-3, docs/specs/durable-state.md#spec-10-1–docs/specs/memory.md#spec-10-5, C05).
 //!
 //! These cases run the real seed bootstrap (sealed preview1 probe, real host
-//! Git memory, real persisted manifest), a real content-addressed store on
-//! disk, and real preview1 guests that write and read the persistent home
-//! through their own preopens. No byte is copied in from the host to stand in
-//! for a guest write, and no closure is fabricated.
+//! Git memory, real persisted manifest), a real installation ledger and its
+//! content-addressed store on disk, and real preview1 guests that write and
+//! read the persistent home through their own preopens. No byte is copied in
+//! from the host to stand in for a guest write, and no closure is fabricated.
 //!
 //! Covered distinctions:
 //!
@@ -23,7 +23,7 @@ use shenko_seed::{
     Bootstrap, HOME_READY_BODY, HOME_GUEST_PATH, MEMORY_GUEST_PATH, PreparedHome, RecoveryCause,
     SeedConfig,
 };
-use shenko_store::cas::ContentStore;
+use shenko_store::{Store, cas::ContentStore};
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 use shenko_wasm::checkpoint::{CHECKPOINT_DIR, INTENT_FILE, RESTORE_INTENT_FORMAT};
@@ -109,11 +109,16 @@ fn fixture_root(tag: &str) -> Result<PathBuf> {
     root.canonicalize().map_err(Into::into)
 }
 
-fn bootstrap(root: &Path) -> Bootstrap {
-    Bootstrap::new(SeedConfig {
+fn fixture_installation(root: &Path) -> Result<(Bootstrap, Store)> {
+    let bootstrap = Bootstrap::new(SeedConfig {
         data_dir: root.to_path_buf(),
         ..Default::default()
-    })
+    });
+    // Match first-start launch: admit the empty target before Store creates
+    // its ledger and CAS. A CAS-only directory is not an installation.
+    bootstrap.validate_target()?;
+    let store = Store::open(root.join("shenko.db"), root.join("cas"))?;
+    Ok((bootstrap, store))
 }
 
 fn mount_specs(home: &PreparedHome) -> Vec<MountSpec> {
@@ -171,11 +176,11 @@ fn checkpoint_store<'a>(
 #[test]
 fn lost_persistent_home_is_restored_from_the_published_closure() -> Result<()> {
     let root = fixture_root("lost-home")?;
-    let installation = EntityId::new();
-    let cas = ContentStore::new(root.join("cas")).expect("cas");
-    let bootstrap = bootstrap(&root);
+    let (bootstrap, installation_store) = fixture_installation(&root)?;
+    let installation = installation_store.ledger.ledger_id();
+    let cas = installation_store.cas.as_ref();
 
-    let baseline = bootstrap.prepare_with_recovery(installation, &cas)?;
+    let baseline = bootstrap.prepare_with_recovery(installation, cas)?;
     ensure!(
         baseline.recovered.is_empty(),
         "a clean first start claimed a recovery: {:?}",
@@ -186,7 +191,7 @@ fn lost_persistent_home_is_restored_from_the_published_closure() -> Result<()> {
     let specs_before = baseline.manifest.mounts.clone();
     let manifests_before = fs::read(&manifest_path)?;
     drop(baseline);
-    let store = checkpoint_store(&cas, &root, installation)?;
+    let store = checkpoint_store(cas, &root, installation)?;
     ensure!(
         store.head()?.is_some(),
         "first start published no byte closure"
@@ -196,7 +201,7 @@ fn lost_persistent_home_is_restored_from_the_published_closure() -> Result<()> {
     let captured = guest_write_and_capture(
         &bootstrap,
         installation,
-        &cas,
+        cas,
         &root,
         "after guest write",
     )?;
@@ -213,7 +218,7 @@ fn lost_persistent_home_is_restored_from_the_published_closure() -> Result<()> {
     ensure!(!home_dir.exists(), "damage fixture did not remove the home");
 
     let recovered = bootstrap
-        .prepare_with_recovery(installation, &cas)
+        .prepare_with_recovery(installation, cas)
         .context("recovery from a verified closure failed")?;
     ensure!(
         recovered.recovered.len() == 1,
@@ -272,6 +277,7 @@ fn lost_persistent_home_is_restored_from_the_published_closure() -> Result<()> {
         "a completed restore left an intent behind"
     );
 
+    drop(installation_store);
     fs::remove_dir_all(&root).ok();
     Ok(())
 }
@@ -279,9 +285,9 @@ fn lost_persistent_home_is_restored_from_the_published_closure() -> Result<()> {
 #[test]
 fn damage_without_a_published_closure_stays_unrecovered() -> Result<()> {
     let root = fixture_root("no-closure")?;
-    let installation = EntityId::new();
-    let cas = ContentStore::new(root.join("cas")).expect("cas");
-    let bootstrap = bootstrap(&root);
+    let (bootstrap, installation_store) = fixture_installation(&root)?;
+    let installation = installation_store.ledger.ledger_id();
+    let cas = installation_store.cas.as_ref();
 
     // Prepare without the checkpoint path: no closure is ever published.
     let prepared = bootstrap.prepare(installation)?;
@@ -292,7 +298,7 @@ fn damage_without_a_published_closure_stays_unrecovered() -> Result<()> {
     fs::remove_dir_all(&home_dir)?;
 
     let error = bootstrap
-        .prepare_with_recovery(installation, &cas)
+        .prepare_with_recovery(installation, cas)
         .err()
         .context("damage with no closure was reported as recovered")?;
     let text = format!("{error:#}");
@@ -310,6 +316,7 @@ fn damage_without_a_published_closure_stays_unrecovered() -> Result<()> {
         "the refused recovery rewrote the home manifest"
     );
 
+    drop(installation_store);
     fs::remove_dir_all(&root).ok();
     Ok(())
 }
@@ -317,13 +324,13 @@ fn damage_without_a_published_closure_stays_unrecovered() -> Result<()> {
 #[test]
 fn corrupt_closure_refuses_the_restore_and_keeps_the_damage() -> Result<()> {
     let root = fixture_root("corrupt")?;
-    let installation = EntityId::new();
-    let cas = ContentStore::new(root.join("cas")).expect("cas");
-    let bootstrap = bootstrap(&root);
+    let (bootstrap, installation_store) = fixture_installation(&root)?;
+    let installation = installation_store.ledger.ledger_id();
+    let cas = installation_store.cas.as_ref();
 
-    let baseline = bootstrap.prepare_with_recovery(installation, &cas)?;
+    let baseline = bootstrap.prepare_with_recovery(installation, cas)?;
     drop(baseline);
-    let store = checkpoint_store(&cas, &root, installation)?;
+    let store = checkpoint_store(cas, &root, installation)?;
     let head = store.head()?.context("no published closure")?;
 
     // Remove the object that holds the seed's own readiness marker.
@@ -342,7 +349,7 @@ fn corrupt_closure_refuses_the_restore_and_keeps_the_damage() -> Result<()> {
     let home_dir = root.join("home");
     fs::remove_dir_all(&home_dir)?;
     let error = bootstrap
-        .prepare_with_recovery(installation, &cas)
+        .prepare_with_recovery(installation, cas)
         .err()
         .context("a closure with a missing object was restored")?;
     let text = format!("{error:#}");
@@ -363,6 +370,7 @@ fn corrupt_closure_refuses_the_restore_and_keeps_the_damage() -> Result<()> {
         "a refused restore recorded an intent"
     );
 
+    drop(installation_store);
     fs::remove_dir_all(&root).ok();
     Ok(())
 }
@@ -372,13 +380,13 @@ fn corrupt_closure_refuses_the_restore_and_keeps_the_damage() -> Result<()> {
 fn a_symlinked_managed_directory_is_never_repaired_by_a_restore() -> Result<()> {
     let root = fixture_root("symlink")?;
     let foreign = fixture_root("symlink-foreign")?;
-    let installation = EntityId::new();
-    let cas = ContentStore::new(root.join("cas")).expect("cas");
-    let bootstrap = bootstrap(&root);
+    let (bootstrap, installation_store) = fixture_installation(&root)?;
+    let installation = installation_store.ledger.ledger_id();
+    let cas = installation_store.cas.as_ref();
 
-    let baseline = bootstrap.prepare_with_recovery(installation, &cas)?;
+    let baseline = bootstrap.prepare_with_recovery(installation, cas)?;
     drop(baseline);
-    let store = checkpoint_store(&cas, &root, installation)?;
+    let store = checkpoint_store(cas, &root, installation)?;
     ensure!(store.head()?.is_some(), "no closure to recover from");
 
     let home_dir = root.join("home");
@@ -388,7 +396,7 @@ fn a_symlinked_managed_directory_is_never_repaired_by_a_restore() -> Result<()> 
     std::os::unix::fs::symlink(&foreign_home, &home_dir)?;
 
     let error = bootstrap
-        .prepare_with_recovery(installation, &cas)
+        .prepare_with_recovery(installation, cas)
         .err()
         .context("a symlinked managed directory was repaired instead of refused")?;
     let text = format!("{error:#}");
@@ -405,6 +413,7 @@ fn a_symlinked_managed_directory_is_never_repaired_by_a_restore() -> Result<()> 
         "the refused recovery wrote into the link target"
     );
 
+    drop(installation_store);
     fs::remove_dir_all(&root).ok();
     fs::remove_dir_all(&foreign).ok();
     Ok(())
@@ -413,17 +422,17 @@ fn a_symlinked_managed_directory_is_never_repaired_by_a_restore() -> Result<()> 
 #[test]
 fn an_interrupted_restore_resumes_the_closure_its_intent_names() -> Result<()> {
     let root = fixture_root("resume")?;
-    let installation = EntityId::new();
-    let cas = ContentStore::new(root.join("cas")).expect("cas");
-    let bootstrap = bootstrap(&root);
+    let (bootstrap, installation_store) = fixture_installation(&root)?;
+    let installation = installation_store.ledger.ledger_id();
+    let cas = installation_store.cas.as_ref();
 
-    let baseline = bootstrap.prepare_with_recovery(installation, &cas)?;
+    let baseline = bootstrap.prepare_with_recovery(installation, cas)?;
     drop(baseline);
-    let store = checkpoint_store(&cas, &root, installation)?;
+    let store = checkpoint_store(cas, &root, installation)?;
     let v1 = store.head()?.context("no first closure")?;
 
     // A later closure that also contains an extra file, published as head.
-    let v2 = guest_write_and_capture(&bootstrap, installation, &cas, &root, "v2")?;
+    let v2 = guest_write_and_capture(&bootstrap, installation, cas, &root, "v2")?;
     ensure!(v2 != v1, "the second capture did not change the view");
 
     // Damage the home and record an intent that names v1, not the newest v2.
@@ -442,7 +451,7 @@ fn an_interrupted_restore_resumes_the_closure_its_intent_names() -> Result<()> {
     )?;
 
     let recovered = bootstrap
-        .prepare_with_recovery(installation, &cas)
+        .prepare_with_recovery(installation, cas)
         .context("the interrupted restore was not resumed")?;
     let recovery = recovered
         .recovered
@@ -470,6 +479,8 @@ fn an_interrupted_restore_resumes_the_closure_its_intent_names() -> Result<()> {
         "the resumed restore left its intent behind"
     );
 
+    drop(recovered);
+    drop(installation_store);
     fs::remove_dir_all(&root).ok();
     Ok(())
 }

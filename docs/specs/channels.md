@@ -88,6 +88,22 @@ send whose owner died is local loss-of-control evidence, recorded `unknown`
   is identical at admission and replay (an envelope classifies to itself).
   Payloads the plugin does not classify (notices, meta) keep the raw frame
   and stage with a plain `[source]` header.
+- Two structural facts the plugin states at classification, and nobody
+  re-derives later:
+  - `reply_target.shape` (`one_to_one` | `group`) says how many counterparts
+    the audience reaches. It is a property of this audience, not of the reply
+    kind: a Feishu chat id is either a p2p chat or a group.
+  - `actor.own_account` says the platform reported the line as sent by the
+    account this channel speaks as. For NapCat that is a `message_sent`
+    frame, for example sent from another client of the same account. The
+    shipped bot APIs (QQ official, Feishu, iLink) drop the bot's own messages,
+    so their lines are never own-account.
+
+  The built-in IM depends on both facts ([web §5.2](web-interface.md#5-2-external)).
+- The durable record of a delivered channel message is the staged input of
+  the step that took it (`session_events`, `{"v":1,"inbox_event":…}`). It is
+  not an `inbox_events` row: that table holds web, playground, wake and media
+  inputs.
 - Attachments: `parse_message` produces `ChannelAttachment` values whose
   `locator` is confined to the configured NapCat-host `file_root`
   (`NapCatConfig::file_root`, host name `file_host`). At admission the runtime
@@ -313,3 +329,77 @@ WebUI 通道的 `PublicationTarget` 指向浏览器会话而非外部 IM 平台�
 - QQ 官方 Bot 的真实约束（被动回复窗口、群支持范围、卡片与主动触达额度）是平台事实，按实际可达能力记录，不写成产品权限门；能力表只列 `describe` 实际能产出的动作（[§57.4](channels.md#spec-57-4)、验收 RT19）。
 - [§56](../requirements/traceability.md#spec-56) 追踪矩阵里"SnowLuma/官方 QQ/Discord 适配未全部落地"那一行按本条理解：SnowLuma 一项不再是待做项，官方 QQ 一项升为下一条要真正做通的通道。
 <!-- /migrated-contract: SPEC:57.15 -->
+
+## Implementation appendix: built-in conversation reads (2026-11-13)
+
+`Store::channel_conversation_messages(agent_id, limit)` in
+`crates/shenko-store/src/trajectory.rs` projects existing facts without writing
+or acknowledging them. Staged input ownership follows `session_events.session_id`
+to `raw_sessions.agent_id`; publications use `subject_intents.agent_id`, and
+their evidence lookup remains correlated to that owned intent's operation id.
+The publication window remains the most recent requested number of that
+subject's publication rows. For staged inputs, it streams `session_events`
+newest first until the requested number of unique inbox event identities has
+passed envelope, reply-audience and echo
+admission, or the actual history is exhausted. Re-staged copies, unclassified
+payloads, envelopes without a reply audience and publication echoes do not spend
+that input window. It retains only the admitted identities and messages, without
+a raw-row multiplier or materializing the complete history.
+
+A receipt's provider message id identifies a possible echo only within that
+recent publication window and the exact canonical target's channel, account,
+audience kind and opaque audience id. The inbound plugin must also have stated
+`actor.own_account`; equal ids in other accounts, audiences or providers remain
+independent messages. The projection preserves the original inbox event id,
+payload text and platform/receive time, and the publication intent id, state and
+receipt observation time (else recorded task creation, then step start, else unknown). Timestamps
+use the canonical UTC representation, unknown times sort last, and malformed
+stored publication/evidence records or known timestamps return decoding errors.
+Only evidence declared as `channel_receipt` is decoded as a provider answer;
+generic recovery observations retain their own time and unknown effect facts.
+No writer, frozen schema, delivery verdict or input disposition changes.
+The existing Store roundtrip conversation
+regression covers these scopes, two real subjects sharing the Store and a small
+window behind re-staged and inapplicable inputs; runtime verification is separate.
+
+## Implementation appendix: canonical originals across upgrades
+
+`ChannelActor::own_account` preserves the presence of the platform fact:
+`Some(true)` records the served account's line, `Some(false)` records an
+observed counterpart, and `None` records missing attribution. Historical
+envelopes that omitted the field remain absent when serialized again. New
+NapCat message classification records the `message_sent` / `message` fact;
+notice events do not assert the origin of a sent line. iLink records a
+counterpart only for its explicit user-message type. A projector does not
+reconstruct missing ownership from the current account configuration.
+
+The native NapCat admission path (`bin/shenko/src/lib.rs`,
+`napcat_inbox_event`) first reads the event's original account-bound spool
+row and the control ledger's disposition. An existing S1 disposition alone
+permits the spool acknowledgement. For an unresolved event,
+`Store::first_subject_input(agent_id, source_event_id)` reads the earliest
+staged original from that agent's current branch, including a sealed or
+deferred step. This is a pure read of `subject_raw_inputs` and
+`session_events`, supported by an index on source identity and session; it
+does not stage, enrich, acknowledge or change a sealed input. Admission
+reuses that complete inbox original, including its payload and timestamps,
+before running any newer classifier or attachment resolver. A fresh event
+uses the spool's first wire original and reception time. Repeat/conflict
+wire observations remain in the ingress ledger.
+
+`context_projection::stage_input` reuses the first staged channel projection
+when the complete stable source fields still match. This also preserves the
+old text when a deferred event enters a later step. Without retained text,
+NapCat renders missing attribution explicitly as unknown. A recorded
+ownership fact controls new projections even when the actor id differs from
+the current configured account. The existing full-fact staging conflict
+fence remains in force; no input identity, S0 schema, sealed request or
+external-effect outcome is rewritten to make a replay fit.
+
+The bounded regression sources cover literal old envelopes through native
+spool delivery, staged/sealed reopen, the unchanged staging conflict, and
+S1-based acknowledgement; the subject regression separately uses real S0
+sealing and deferred re-staging to retain the original text and request
+identity. These source changes have not been executed by the coding worker.
+Parent verification must bind the combined candidate and distinguish native
+durability mechanisms from actual model behavior.

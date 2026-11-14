@@ -239,6 +239,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_raw_inputs_raw
     ON subject_raw_inputs(raw_event_id);
 CREATE INDEX IF NOT EXISTS idx_subject_raw_inputs_step_seq
     ON subject_raw_inputs(step_id, seq);
+CREATE INDEX IF NOT EXISTS idx_subject_raw_inputs_source_session
+    ON subject_raw_inputs(source_event_id, session_id, seq);
 ";
 
 /// One durable input fact of a subject step, before projection and the final
@@ -651,6 +653,34 @@ pub(crate) fn staged_event_ids(
 }
 
 impl Store {
+    /// The first durable input original and its projection in the agent's
+    /// current branch, whether its step is still planned, sealed or committed.
+    ///
+    /// A deferred event may occur in more than one step. Its first raw row
+    /// remains the normalization and projection authority across upgrades;
+    /// reading it neither stages an input nor acknowledges its disposition.
+    pub fn first_subject_input(
+        &self,
+        agent_id: EntityId,
+        source_event_id: EntityId,
+    ) -> Result<Option<StoredSessionEvent>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let raw_id: Option<String> = conn.query_row(
+            "SELECT i.raw_event_id FROM subject_raw_inputs i
+             JOIN subject_branch_heads h ON i.session_id=h.branch_id
+             WHERE h.agent_id=?1 AND i.source_event_id=?2
+             ORDER BY i.seq LIMIT 1",
+            params![agent_id.to_string(), source_event_id.to_string()],
+            |row| row.get(0),
+        ).optional().map_err(storage_error)?;
+        let Some(raw_id) = raw_id else { return Ok(None); };
+        let id = raw_id.parse::<EntityId>()
+            .map_err(|error| ShenkoError::storage(format!("bad raw event id {raw_id}: {error}")))?;
+        read_session_event(&conn, id)?.map(Some).ok_or_else(|| {
+            ShenkoError::conflict("staged input original raw row missing")
+        })
+    }
+
     /// The old loop carried only the last thought in memory. Admitting an
     /// upgraded committed history without its raw result would silently drop
     /// even that carry, so require explicit migration instead of guessing.

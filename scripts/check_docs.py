@@ -12,6 +12,8 @@ import sys
 from urllib.parse import unquote, urlparse
 import html
 
+from doc_refs import ContractDocument, ReferenceError, ReferenceResolver, outside_fences
+
 ROOT = Path(__file__).resolve().parents[1]
 errors = []
 
@@ -21,19 +23,6 @@ def check(condition, message):
 
 def read_json(path):
     return json.loads((ROOT / path).read_text())
-
-def outside_fences(text):
-    fence = None
-    for number, line in enumerate(text.splitlines(), 1):
-        match = re.match(r'^(`{3,}|~{3,})', line)
-        if match:
-            if fence is None:
-                fence = (match.group(1)[0], len(match.group(1)))
-            elif match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1]:
-                fence = None
-            continue
-        if fence is None:
-            yield number, line
 
 # Root SPEC/WHY are navigation only. This migration ledger audits original
 # preservation; the separate live inventory below defines the current input.
@@ -52,7 +41,9 @@ for original in migration['originals']:
     originals[name] = data
 check(set(originals) == {'SPEC.md', 'WHY.md'}, 'Migration must preserve both source documents')
 
-# One-time migration proof is opt-in; ordinary checks permit contract evolution.
+# The separate migration gate conserves the original frozen blocks. Appended
+# clauses outside those blocks still enter the full current-document inventory
+# and are checked below in both modes; this flag never replaces that check.
 verify_migration = '--verify-migration' in sys.argv[1:]
 chunk_ids = set()
 contract_texts = {}
@@ -114,6 +105,8 @@ check(inventory.get('schema_version') == 1, 'Unsupported current contract invent
 documents = inventory.get('documents', [])
 check(bool(documents) and len(documents) == len(set(documents)), 'Empty/duplicate current contracts')
 current_texts = []
+current_documents = {}
+definitions = {}
 for document in documents:
     if not isinstance(document, str):
         check(False, 'Non-string current contract document')
@@ -126,13 +119,19 @@ for document in documents:
              and not path.resolve().is_relative_to((ROOT / 'docs/research/archive').resolve()))
     check(valid, f'Invalid current contract document: {document}')
     if valid:
-        current_texts.append(path.read_text())
+        text = path.read_text()
+        current_texts.append(text)
+        current = ContractDocument(text)
+        current_documents[document] = current
+        for anchor, count in current.anchors.items():
+            check(count == 1, f'{document}#{anchor}: duplicate explicit anchor ({count})')
+        for key, entries in current.rows.items():
+            definitions.setdefault(key, []).extend((document, row) for row in entries)
 if verify_migration:
     check({chunk['path'] for chunk in migration['chunks']} <= set(documents),
           'Current inventory drops a migrated document')
 spec = '\n\n'.join(current_texts)
 spec_bytes = originals['SPEC.md']
-rows = list(outside_fences(spec))
 requirements = read_json('docs/requirements/requirements.json')
 behaviors = read_json('docs/requirements/behaviors.json')
 sources = read_json('docs/requirements/sources.json')
@@ -140,29 +139,31 @@ cases = read_json('docs/requirements/acceptance-cases.json')
 coverage = read_json('docs/state/coverage.json')
 manifest = read_json('docs/history/manifest.json')
 
-# Each machine-readable item points to a current document and exact source row.
-# Keeping the old location as provenance does not make it a current authority.
+# Each item owns one semantic row under one explicit anchor in a current
+# document. The verbatim row is retained and checked at that identity; neither
+# its current line nor its original line is a lookup key.
 for label, index in (('requirements', requirements), ('behaviors', behaviors),
                      ('sources', sources), ('cases', cases)):
-    check(index.get('schema_version') == 2, f'{label}: index schema not migrated')
+    check(index.get('schema_version') == 3, f'{label}: unsupported stable-identity schema')
     check(index.get('spec_path') == 'docs/INDEX.md', f'{label}: obsolete root authority')
     check(index.get('contract_manifest') == 'docs/contracts.json',
           f'{label}: contract manifest missing')
     for item in index['items']:
         identity = item.get('id', item.get('case_id'))
         source = item.get('source_path', '')
-        number = item.get('source_markdown_line')
-        source_path = ROOT / source
-        check(source in documents and source_path.is_file(),
+        anchor = item.get('source_anchor')
+        check('source_markdown_line' not in item, f'{identity}: current identity still uses a line number')
+        check(isinstance(anchor, str) and bool(anchor), f'{identity}: explicit source anchor missing')
+        check(source in current_documents,
               f'{identity}: current source document missing')
-        if not source_path.is_file():
-            continue
-        lines = source_path.read_text().splitlines()
-        valid_line = isinstance(number, int) and 1 <= number <= len(lines)
-        check(valid_line, f'{identity}: invalid source line')
-        if valid_line:
-            check(lines[number - 1] == item.get('source_row'),
-                  f'{identity}: source row does not match current document')
+        owners = definitions.get((label, identity), [])
+        check(len(owners) == 1, f'{identity}: expected one current definition, found {len(owners)}')
+        if source in current_documents and isinstance(anchor, str):
+            try:
+                row = current_documents[source].resolve(label, identity, anchor)
+                check(row.text == item.get('source_row'), f'{identity}: source row changed at {source}#{anchor}')
+            except ReferenceError as error:
+                check(False, f'{identity}: {source}#{anchor}: {error}')
         prior = item.get('migration_source')
         # New domain-native obligations need no fabricated migration provenance.
         check(prior is None or isinstance(prior, dict), f'{identity}: invalid provenance')
@@ -189,33 +190,47 @@ rids = ids(requirements)
 bids = ids(behaviors)
 refids = ids(sources)
 cids = ids(cases, 'case_id')
-spec_rids = {m.group(1) for _, line in rows if (m := re.match(r'^\| (R\d{3}) \|', line))}
-spec_bids = {m.group(1) for _, line in rows if (m := re.match(r'^\| (B\d{2}) ', line))}
-spec_refs = {m.group(1) for _, line in rows if (m := re.match(r'^\| (REF-[A-Z0-9-]+) \|', line))}
+spec_rids = {identity for kind, identity in definitions if kind == 'requirements'}
+spec_bids = {identity for kind, identity in definitions if kind == 'behaviors'}
+spec_refs = {identity for kind, identity in definitions if kind == 'sources'}
 check(rids == spec_rids, f'SPEC requirement mismatch: {sorted(rids ^ spec_rids)}')
 check(bids == spec_bids, f'SPEC behavior mismatch: {sorted(bids ^ spec_bids)}')
 check(refids == spec_refs, f'SPEC source mismatch: {sorted(refids ^ spec_refs)}')
 
-pattern = r'^\|\s*(PV\d{2}|A\d{2}|V1-\d{2}|E\d{2}|H\d{2}|K\d{2}|N\d{2}|DX\d{2}|RT\d{2}|P41-\d{2}|UI\d{2}|UI-S\d{2}|QA\d{2}|CFG\d{2}|PG\d{2}|BOOT\d{2}|AW\d{2}|DEP\d{2}|G\d{2})(?=\s|\|)'
-defined_cases = [(m.group(1), number, line) for number, line in rows if (m := re.match(pattern, line))]
-check(len({x[0] for x in defined_cases}) == len(defined_cases), 'SPEC duplicates acceptance case IDs')
-check(cids == {x[0] for x in defined_cases}, 'SPEC acceptance index mismatch')
-case_rows = {cid:line for cid, _, line in defined_cases}
-for case in cases['items']:
-    check(case_rows.get(case['case_id']) == case['source_row'], f"Stale case source row: {case['case_id']}")
+defined_cases = {identity for kind, identity in definitions if kind == 'cases'}
+check(cids == defined_cases, f'SPEC acceptance index mismatch: {sorted(cids ^ defined_cases)}')
 for req in requirements['items']:
-    check(req['source_row'] in spec.splitlines(), f"Stale requirement source row: {req['id']}")
     check(set(req['behaviors']) <= bids, f"Missing behavior for {req['id']}")
 for behavior in behaviors['items']:
     check(set(behavior['requirements']) <= rids, f"Missing requirement for {behavior['id']}")
     used_refs = set(re.findall(r'REF-[A-Z0-9-]+', behavior['refs']))
     check(used_refs <= refids, f"Missing Ref for {behavior['id']}: {sorted(used_refs - refids)}")
+check(coverage.get('schema_version') == 2, 'Unsupported stable-reference coverage schema')
 covered_ids = [item['requirement_id'] for item in coverage['items']]
 check(set(covered_ids) == rids and len(covered_ids) == len(rids), 'Coverage ledger drops or duplicates a requirement')
 for item in coverage['items']:
     check(set(item['acceptance_case_ids']) <= cids, f"Unknown case in coverage: {item['requirement_id']}")
     if item['satisfied']:
         check(bool(item['evidence_refs']), f"Satisfied without evidence refs: {item['requirement_id']}")
+
+# Source declarations and selector/pointer targets are structural trace links,
+# never product acceptance. Retained receipt prose stays verbatim, including
+# historical inline citations; it is not reinterpreted as a current code link.
+resolver = ReferenceResolver(ROOT)
+resolved_references = set()
+for index in (coverage, cases):
+    for item in index['items']:
+        identity = item.get('requirement_id', item.get('case_id'))
+        for gap in item.get('trace_gaps', []):
+            check(False, f'{identity}: unresolved trace {gap["reference"]}: {gap["reason"]}')
+        for reference in item['implementation_refs']:
+            if reference in resolved_references:
+                continue
+            try:
+                resolver.resolve(reference)
+                resolved_references.add(reference)
+            except (ReferenceError, OSError, ValueError) as error:
+                check(False, f'{identity}: {reference}: {error}')
 
 snapshot = ROOT / manifest['source_snapshot']['file']
 check(hashlib.sha256(snapshot.read_bytes()).hexdigest() == manifest['source_snapshot']['sha256'], 'Historical v0.5.1 snapshot changed')

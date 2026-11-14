@@ -152,6 +152,7 @@ run(process.execPath, [join(sourceRoot, 'packages/cli/bin/proto-ui.js'), 'shadcn
   stdio: 'inherit',
 });
 copyFileSync(join(webRoot, 'src', 'app.css'), join(staticDir, 'app.css'));
+copyFileSync(join(webRoot, 'src', 'theme-bootstrap.js'), join(staticDir, 'theme-bootstrap.js'));
 const licenseDir = join(staticDir, 'licenses');
 mkdirSync(licenseDir, { recursive: true });
 const licenseCopies = [
@@ -178,6 +179,7 @@ if (receiptPath) {
   };
 }
 const artifactNames = [
+  'theme-bootstrap.js',
   'app.js',
   'app.css',
   'proto-ui-style.css',

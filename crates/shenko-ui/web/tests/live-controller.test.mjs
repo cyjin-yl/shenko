@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 
 const compiled = await build({
   stdin: {
-    contents: "export { createLiveController } from './src/live-controller.ts'; export { intentFor, partState } from './src/projection.ts';",
+    contents: "export { createLiveController } from './src/live-controller.ts'; export { intentFor, partState } from './src/projection.ts'; export { collectThreads } from './src/threads.ts';",
     resolveDir: fileURLToPath(new URL('../', import.meta.url)),
     sourcefile: 'controller-consumer.mjs',
   },
@@ -16,7 +16,7 @@ const compiled = await build({
   format: 'esm',
   platform: 'browser',
 });
-const { createLiveController, intentFor, partState } = await import(
+const { createLiveController, intentFor, partState, collectThreads } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`
 );
 
@@ -226,6 +226,7 @@ function committedPart(stepId, step, content) {
     step,
     step_id: stepId,
     commit_ref: `ledger/${step}`,
+    commit_seq: step,
     terminal: true,
   };
 }
@@ -240,8 +241,8 @@ test('a degraded document renders beside the committed step that carried it', as
   socket.receive(committedPart('step-3', 3, '第一轮已提交正文'));
   socket.receive(documentFrom('step-3'));
   assert.deepEqual(
-    timelineNode(controller).children.map((child) => child.node_id),
-    ['part.text/0', 'document.doc-1'],
+    timelineNode(controller).children.map((child) => child.kind),
+    ['subject_part', 'semantic_document'],
   );
   const documentNode = timelineNode(controller).children[1];
   assert.equal(documentNode.props.document.source_step_id, 'step-3');
@@ -250,8 +251,9 @@ test('a degraded document renders beside the committed step that carried it', as
   // A surface whose step is not rendered is kept readable at the end rather
   // than dropped or attached to an unrelated entry.
   socket.receive(documentFrom('step-9', 'doc-2', 'doc-rev-2'));
-  const children = timelineNode(controller).children.map((child) => child.node_id);
-  assert.deepEqual(children, ['part.text/0', 'document.doc-1', 'document.doc-2']);
+  const children = timelineNode(controller).children;
+  assert.deepEqual(children.map((child) => child.kind), ['subject_part', 'semantic_document', 'semantic_document']);
+  assert.equal(children[2].props.document.source_step_id, 'step-9');
 });
 
 test('an admitted action is persisted before send and never admitted twice', async (t) => {
@@ -348,9 +350,11 @@ test('reading place, code wrap and selection survive a page reopen', async (t) =
   const first = createLiveController();
   await setImmediate();
   open(sockets[0]);
+  sockets[0].receive(committedPart('reading-step', 4, '第一段正文继续说明'));
+  const entryKey = timelineNode(first).children[0].node_id;
   const anchor = {
-    entry_key: 'part.text/0',
-    entry_index: 2,
+    entry_key: entryKey,
+    entry_index: 0,
     prev_entry_key: 'submission.a',
     offset: -30,
     scroll_top: 900,
@@ -362,10 +366,10 @@ test('reading place, code wrap and selection survive a page reopen', async (t) =
   intent(first, 'timeline', 'timeline.code_wrap');
   assert.equal(timelineNode(first).props.wrap, true);
   intent(first, 'timeline', 'timeline.selection', {
-    entry_key: 'part.text/0', text: '第一段正文继续说明', start: 2, end: 6,
+    entry_key: entryKey, text: '第一段正文继续说明', start: 2, end: 6,
   });
   assert.equal(timelineNode(first).props.selection.start, 2);
-  assert.equal(timelineNode(first).props.selection.entry_key, 'part.text/0');
+  assert.equal(timelineNode(first).props.selection.entry_key, entryKey);
   // Nothing about a reading place is written as a business fact: the only
   // records are browser display state.
   assert.equal([...storage.keys()].some((key) => key.startsWith('shenko.submission.')), false);
@@ -375,12 +379,13 @@ test('reading place, code wrap and selection survive a page reopen', async (t) =
   t.after(() => reopened.dispose());
   await setImmediate();
   open(sockets[1]);
+  sockets[1].receive(committedPart('reading-step', 4, '第一段正文继续说明'));
   const restored = timelineNode(reopened);
   assert.equal(restored.props.reading, 'reading_history');
   assert.deepEqual(restored.props.anchor, anchor);
   assert.equal(restored.props.wrap, true);
   assert.deepEqual(restored.props.selection, {
-    entry_key: 'part.text/0', start: 2, end: 6,
+    entry_key: entryKey, start: 2, end: 6,
     prefix_hash: timelineNode(reopened).props.selection.prefix_hash,
   });
   // Jumping to the newest clears the place but keeps the reading preference.
@@ -413,7 +418,8 @@ test('a streamed prefix is not labelled committed and is replaced by the committ
     commit_ref: 'ledger/50',
   });
   const entry = () => timelineNode(controller).children
-    .find((child) => child.node_id === 'part.text/0');
+    .find((child) => child.kind === 'subject_part' && child.props.part.message_id === 'step-5');
+  const streamedIdentity = entry().node_id;
   assert.equal(entry().props.part.committed, false);
   assert.equal(entry().props.part.terminal, false);
   assert.deepEqual(partState(entry().props.part), {
@@ -428,7 +434,7 @@ test('a streamed prefix is not labelled committed and is replaced by the committ
   // entry, no duplicate, and no truncated committed text.
   assert.deepEqual(
     timelineNode(controller).children.map((child) => child.node_id),
-    ['part.text/0'],
+    [streamedIdentity],
   );
   assert.equal(entry().props.part.content, '正在生成并提交的完整正文');
   assert.equal(entry().props.part.committed, true);
@@ -450,7 +456,7 @@ test('a streamed prefix is not labelled committed and is replaced by the committ
   socket.receive(documentFrom('step-5', 'doc-5', 'doc-rev-5'));
   assert.deepEqual(
     timelineNode(controller).children.map((child) => child.node_id),
-    ['part.text/0', 'document.doc-5'],
+    [streamedIdentity, 'document.doc-5'],
   );
 });
 
@@ -522,4 +528,294 @@ test('opening an HTML work reads its raw content and reveals its revision-bound 
   intent(controller, 'context', `work.publish.${artifactId}`);
   await setImmediate();
   assert.deepEqual(published.map(({ manifest_digest, revision }) => ({ manifest_digest, revision })), [{ manifest_digest: latestCandidate, revision: 4 }]);
+});
+
+function historicalInput(seq, stepId) {
+  const id = `history-${seq}`;
+  return {
+    payload: { schema_version: 2, type: 'submit', submission_id: id, message_id: `message-${seq}`,
+      subject_id: 'fixture-subject', mode: 'append', content: `原始输入 ${seq}`, attachment_refs: [] },
+    created_at: '2026-01-01T00:00:00.000000000Z', accepted_seq: seq,
+    view: { schema_version: 2, type: 'submission_view', submission_id: id, result: 'found',
+      stage: 'committed', event_id: `event-${seq}`, accepted_commit: `ledger/${seq}`,
+      selected_step_id: stepId, committed_at: `ledger/${seq + 1}` },
+  };
+}
+
+test('replayed replies keep local ledger order ahead of newer unselected owner inputs', async (t) => {
+  const { sockets } = environment(t);
+  const older = historicalInput(3, 'old-step');
+  const pending = historicalInput(12);
+  pending.view.stage = 'accepted';
+  delete pending.view.committed_at;
+  // Admission order remains authoritative even when browser clocks differ.
+  pending.created_at = '2025-01-01T00:00:00Z';
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => json(path === '/api/self' ? { subject_id: 'fixture-subject' }
+    : String(path).startsWith('/api/submissions?') ? {
+      available: true, subject_id: 'fixture-subject', total: 2,
+      items: [pending, older], has_older: false, next_before: null,
+    } : {});
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  socket.receive({ ...committedPart('old-step', 10, '原先已提交的回复'),
+    commit_ref: 'foreign-source/700', observed_at: '2099-01-01T00:00:00Z' });
+  const direct = () => collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
+  assert.deepEqual(direct().messages.map((message) => message.text),
+    ['原始输入 3', '原先已提交的回复', '原始输入 12']);
+  assert.equal(direct().messages.find((message) => message.text === '原先已提交的回复').at, undefined,
+    'a replay arrival in 2099 is not a historical message timestamp');
+  assert.equal(direct().updated_at, pending.created_at);
+
+  intent(controller, 'composer', 'composer.draft', { value: '本页新发送的输入' });
+  intent(controller, 'composer', 'composer.append');
+  const input = socket.sent.find((message) => message.type === 'submit');
+  view(socket, input, 'accepted', { accepted_commit: 'ledger/14' });
+  assert.deepEqual(direct().messages.map((message) => message.text),
+    ['原始输入 3', '原先已提交的回复', '原始输入 12', '本页新发送的输入']);
+});
+
+test('queried historical inputs stay outside the browser outbox until an explicit retry', async (t) => {
+  const { storage, sockets } = environment(t);
+  const historical = historicalInput(30);
+  historical.view.stage = 'accepted';
+  delete historical.view.committed_at;
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => json(path === '/api/self' ? { subject_id: 'fixture-subject' }
+    : String(path).startsWith('/api/submissions?') ? {
+      available: true, subject_id: 'fixture-subject', total: 1,
+      items: [historical], has_older: false, next_before: null,
+    } : {});
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  intent(controller, 'composer', 'composer.draft', { value: '本机尚待处理的输入' });
+  intent(controller, 'composer', 'composer.append');
+  const local = socket.sent.find((message) => message.type === 'submit');
+  t.mock.timers.tick(2000);
+  assert.ok(socket.sent.some((message) => message.type === 'query_submission'
+    && message.submission_id === historical.payload.submission_id));
+  socket.receive({ ...historical.view, send_epoch: 0 });
+  view(socket, local, 'accepted');
+  assert.equal(storage.has('shenko.submission.v2.history-30'), false);
+  assert.ok(storage.has(`shenko.submission.v2.${local.submission_id}`));
+  assert.equal(socket.sent.filter((message) => message.type === 'submit').length, 1);
+  socket.receive({ schema_version: 2, type: 'submission_view', result: 'not_admitted',
+    submission_id: historical.payload.submission_id, send_epoch: 0 });
+  assert.equal(controller.projection().nodes.find((node) => node.node_id === 'composer').props.draft, '');
+  assert.equal(storage.has('shenko.submission.v2.history-30'), false);
+  const row = timelineNode(controller).children.find((entry) => entry.node_id === 'submission.history-30');
+  intent(controller, row.node_id, row.props.retry_action);
+  assert.equal(socket.sent.filter((message) => message.type === 'submit').length, 2);
+  assert.deepEqual(socket.sent.filter((message) => message.type === 'submit').at(-1), historical.payload);
+  assert.deepEqual(socket.persistedAtSend.at(-1).payload, historical.payload);
+});
+
+test('reopened owner history pairs each reply, loads earlier pages and keeps copy actions independent', async (t) => {
+  const { storage, sockets } = environment(t);
+  const copied = [];
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true,
+    value: { clipboard: { writeText: async (text) => copied.push(text) } } });
+  t.after(() => {
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+    else delete globalThis.navigator;
+  });
+  const requests = [];
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (String(path).startsWith('/api/submissions?')) {
+      requests.push(String(path));
+      const before = new URL(String(path), 'http://fixture.invalid').searchParams.get('before_seq');
+      return json({ available: true, subject_id: 'fixture-subject', total: 2,
+        items: [historicalInput(before ? 4 : 20, before ? 'step-4' : 'step-20')],
+        has_older: !before, next_before: before ? null : { seq: 20, submission_id: 'history-20' } });
+    }
+    return json({});
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  socket.receive(committedPart('step-4', 4, '较早的真实回复'));
+  socket.receive(committedPart('step-20', 20, '较后的真实回复'));
+  let direct = collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
+  assert.equal(direct.messages.find((message) => message.from.role === 'owner').text, '原始输入 20');
+  assert.deepEqual(direct.messages.filter((message) => message.kind === 'message').map((message) => message.text),
+    ['原始输入 20', '较后的真实回复']);
+  assert.equal(timelineNode(controller).props.submission_history.has_older, true);
+  intent(controller, 'timeline', 'submissions.load_older');
+  await setImmediate();
+  direct = collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
+  assert.deepEqual(direct.messages.map((message) => message.text),
+    ['原始输入 4', '较早的真实回复', '原始输入 20', '较后的真实回复']);
+  assert.equal(timelineNode(controller).props.submission_history.has_older, false);
+  const entries = timelineNode(controller).children;
+  assert.equal(new Set(entries.map((entry) => entry.node_id)).size, 4);
+  const replies = entries.filter((entry) => entry.kind === 'subject_part');
+  for (const reply of replies) intent(controller, reply.node_id, reply.action_refs[0]);
+  await setImmediate();
+  assert.deepEqual(copied, ['较早的真实回复', '较后的真实回复']);
+  assert.equal([...storage.keys()].some((key) => key.startsWith('shenko.submission.v2.')), false);
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
+  const count = requests.length;
+  intent(controller, 'timeline', 'submissions.load_older');
+  await setImmediate();
+  assert.equal(requests.length, count, 'a complete history issues no next-page request');
+  controller.dispose();
+  const reopened = createLiveController();
+  t.after(() => reopened.dispose());
+  await setImmediate();
+  const restored = timelineNode(reopened).children.find((entry) => entry.kind === 'user_submission').props.submission;
+  assert.equal(restored.payload.submission_id, 'history-20');
+  assert.equal(restored.selected_step_id, 'step-20');
+  assert.equal(restored.receipt, 'committed');
+});
+
+test('a committed reply cannot use an earlier history snapshot to claim independent thought', async (t) => {
+  const { sockets } = environment(t);
+  const pages = [];
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (String(path).startsWith('/api/submissions?')) {
+      return new Promise((resolve) => pages.push(resolve));
+    }
+    return json({});
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  const reply = committedPart('step-99', 99, '新输入的真实回复');
+  socket.receive(reply);
+  t.mock.timers.tick(600);
+  const olderView = historicalInput(30);
+  olderView.view.stage = 'accepted';
+  delete olderView.view.selected_step_id;
+  delete olderView.view.committed_at;
+  const page = (row) => json({ available: true, subject_id: 'fixture-subject', total: 1,
+    items: [row], has_older: false, next_before: null });
+  pages[0](page(olderView));
+  await setImmediate();
+  assert.equal(pages.length, 2, 'the latest refresh remains owed after the in-flight page');
+  assert.equal(timelineNode(controller).props.submission_history.stale, true);
+  const direct = () => collectThreads({ projection: controller.projection(), tasks: [], conversations: [] })[0];
+  assert.equal(direct().messages.some((message) => message.text.includes('独自思考')), false);
+  pages[1](page(historicalInput(30, 'step-99')));
+  await setImmediate();
+  assert.equal(timelineNode(controller).props.submission_history.stale, false);
+  assert.deepEqual(direct().messages.filter((message) => message.kind === 'message').map((message) => message.text),
+    ['原始输入 30', '新输入的真实回复']);
+  socket.receive(reply);
+  t.mock.timers.tick(600);
+  await setImmediate();
+  assert.equal(pages.length, 2, 'replay of an already committed identity does not invalidate history');
+  assert.equal(timelineNode(controller).props.submission_history.stale, false);
+  socket.receive(committedPart('step-100', 100, '下一轮回复'));
+  t.mock.timers.tick(600);
+  await setImmediate();
+  pages[2](new Response('history unavailable', { status: 503 }));
+  await setImmediate();
+  assert.match(timelineNode(controller).props.submission_history.error, /503/);
+  assert.equal(timelineNode(controller).props.submission_history.loading, false);
+  t.mock.timers.tick(600);
+  await setImmediate();
+  assert.equal(pages.length, 3, 'a failed history request keeps its error instead of retrying itself');
+});
+
+test('unavailable and invalid history pages preserve both admitted and pending inputs', async (t) => {
+  const { sockets } = environment(t);
+  let phase = 'first';
+  const requests = [];
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (String(path).startsWith('/api/submissions?')) {
+      requests.push(String(path));
+      if (phase === 'unavailable') return json({ available: false, items: [], note: 'storage unavailable' });
+      return json({ available: true, subject_id: 'fixture-subject', total: 2,
+        items: [historicalInput(phase === 'invalid' ? 40 : 30, 'step-30')],
+        has_older: true, next_before: { seq: phase === 'invalid' ? 40 : 30,
+          submission_id: phase === 'invalid' ? 'history-40' : 'history-30' } });
+    }
+    return json({});
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  intent(controller, 'composer', 'composer.draft', { value: '尚未收到回执的原输入' });
+  intent(controller, 'composer', 'composer.append');
+  const pendingId = socket.sent.find((message) => message.type === 'submit').submission_id;
+  const original = () => timelineNode(controller).children.filter((entry) => entry.kind === 'user_submission');
+  const saved = original().find((entry) => entry.props.submission.payload.submission_id === pendingId).props.submission.receipt;
+  for (phase of ['unavailable', 'invalid']) {
+    intent(controller, 'timeline', 'submissions.load_older');
+    await setImmediate();
+    assert.deepEqual(new Set(original().map((entry) => entry.props.submission.payload.submission_id)),
+      new Set(['history-30', pendingId]));
+    assert.equal(original().find((entry) => entry.props.submission.payload.submission_id === pendingId).props.submission.receipt, saved);
+    assert.deepEqual(timelineNode(controller).props.submission_history.next_before,
+      { seq: 30, submission_id: 'history-30' });
+    assert.ok(timelineNode(controller).props.submission_history.error);
+  }
+  assert.ok(requests.slice(-2).every((path) => path.includes('before_seq=30') && path.includes('before_id=history-30')));
+  assert.equal(socket.sent.filter((message) => message.type === 'submit').length, 1);
+});
+
+test('history pages sharing one import commit retain every ID in SQLite binary order', async (t) => {
+  const { storage, sockets } = environment(t);
+  const ids = ['same-\u{10000}', 'same-\ue000', 'same-a'];
+  const rows = ids.map((id) => {
+    const row = historicalInput(50);
+    row.payload.submission_id = id;
+    row.payload.message_id = `message-${id}`;
+    row.payload.content = `原始输入 ${id}`;
+    row.view = { ...row.view, submission_id: id, stage: 'accepted' };
+    delete row.view.committed_at;
+    return row;
+  });
+  const requests = [];
+  const json = (value) => new Response(JSON.stringify(value));
+  globalThis.fetch = async (path) => {
+    if (path === '/api/self') return json({ subject_id: 'fixture-subject' });
+    if (!String(path).startsWith('/api/submissions?')) return json({});
+    const query = new URL(String(path), 'http://fixture.invalid').searchParams;
+    requests.push(query);
+    const earlier = query.has('before_id');
+    return json({ available: true, subject_id: 'fixture-subject', total: 3,
+      items: earlier ? rows.slice(2) : rows.slice(0, 2), has_older: !earlier,
+      next_before: earlier ? null : { seq: 50, submission_id: ids[1] } });
+  };
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = sockets[0];
+  open(socket);
+  await setImmediate();
+  assert.equal(timelineNode(controller).props.submission_history.error, undefined);
+  intent(controller, 'timeline', 'submissions.load_older');
+  await setImmediate();
+  assert.deepEqual(timelineNode(controller).children.filter((entry) => entry.kind === 'user_submission')
+    .map((entry) => entry.props.submission.payload.submission_id), [...ids].reverse());
+  assert.equal(requests.at(-1).get('before_seq'), '50');
+  assert.equal(requests.at(-1).get('before_id'), ids[1]);
+  assert.equal(timelineNode(controller).props.submission_history.has_older, false);
+  assert.equal([...storage.keys()].some((key) => key.startsWith('shenko.submission.v2.')), false);
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
 });

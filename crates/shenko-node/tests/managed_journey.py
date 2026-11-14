@@ -142,7 +142,7 @@ try:
         try:
             with socket.create_connection(('127.0.0.1',server_port),timeout=0.1):break
         except OSError:time.sleep(0.02)
-    ctx={'task_id':uid(),'task_revision':1,'record_revision':0,'invocation_id':uid(),'epoch':1,'worker_id':uid(),'node_id':controller_id}
+    ctx={'task_id':uid(),'task_revision':1,'record_revision':0,'invocation_id':uid(),'epoch':1,'software_generation':'seed','worker_id':uid(),'node_id':controller_id}
     parent={'db':str(root/'effects.sqlite3'),'cas':str(root/'effects-objects'),'context':ctx,'operation_id':uid(),'logical_key':'fixture-only-parent',
         'target':{'host':'127.0.0.1','port':proxy_port,'user':'root','key_path':str(root/'client_key'),'known_hosts_path':str(root/'known_hosts'),'use_agent':False},
         'target_id':'c17-owned-loopback-node','receipt_root':str(root/'receipts'),'action':{'kind':'exec','argv':['true'],'stdin_b64':''},'timeout_secs':15}

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use shenko_evidence::{
-    EvidenceRecord, LongRunInput, ReportInputs, Scope, SpecIndex, UnmetReason, analyze,
+    EvidenceRecord, IndexError, LongRunInput, ReportInputs, Scope, SpecIndex, UnmetReason, analyze,
     build_report, summarize,
 };
 
@@ -21,10 +21,10 @@ fn bound_file(root: &Path, name: &str, contents: &[u8]) -> Value {
     json!({"path": name, "sha256": digest(contents)})
 }
 
-fn spec(case_id: &str) -> SpecIndex {
-    SpecIndex::parse(&format!(
-        "| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | {case_id} |\n| {case_id} | scenario | condition |\n"
-    )).unwrap()
+fn spec(case_id: &str) -> Result<SpecIndex, IndexError> {
+    SpecIndex::parse("fixture.md", &format!(
+        "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | {case_id} |\n| {case_id} | scenario | condition |\n"
+    ))
 }
 
 fn fixture(root: &Path, case_id: &str) -> Value {
@@ -63,8 +63,8 @@ fn publish(root: &Path, receipt: &Value) -> EvidenceRecord {
 }
 
 #[test]
-fn range_holes_remain_unresolved_instead_of_shrinking_the_obligation() {
-    let index = SpecIndex::parse("| R001 | range | §45 | U01;B01 |\n| B01 range | R001 | contract | AW01–03 |\n| AW01 | first | condition |\n| AW03 | last | condition |\n").unwrap();
+fn range_holes_remain_unresolved_instead_of_shrinking_the_obligation() -> Result<(), IndexError> {
+    let index = SpecIndex::parse("range.md", "<a id=\"range\"></a>\n| R001 | range | §45 | U01;B01 |\n| B01 range | R001 | contract | AW01–03 |\n| AW01 | first | condition |\n| AW03 | last | condition |\n")?;
     assert_eq!(index.behaviors["B01"].acceptance_cases, ["AW01", "AW03"]);
     assert_eq!(index.behaviors["B01"].unresolved_case_refs, ["AW01–03"]);
     let report = build_report(&index, &[], Some(CANDIDATE));
@@ -73,21 +73,27 @@ fn range_holes_remain_unresolved_instead_of_shrinking_the_obligation() {
             .unmet_reasons
             .contains(&UnmetReason::UnknownReference)
     );
+    Ok(())
 }
 
 #[test]
-fn qualified_ids_cannot_replace_parent_definitions() {
-    let index = SpecIndex::parse("| B15 memory | R001 | contract | A01 |\n| B15.Q1 detail | upstream | comparison |\n| A01 | parent scenario | parent condition |\n| A01.detail | child scenario | child condition |\n").unwrap();
+fn qualified_ids_cannot_replace_parent_definitions() -> Result<(), IndexError> {
+    let index = SpecIndex::parse("qualified.md", "<a id=\"qualified\"></a>\n| B15 memory | R001 | contract | A01 |\n| B15.Q1 detail | upstream | comparison |\n| A01 | parent scenario | parent condition |\n| A01.detail | child scenario | child condition |\n")?;
     assert_eq!(index.behaviors["B15"].acceptance_cases, ["A01"]);
     assert_eq!(
         index.acceptance_cases["A01"].pass_condition,
         "parent condition"
     );
+    assert!(matches!(
+        SpecIndex::parse("duplicate.md", "<a id=\"duplicate\"></a>\n| A01 | first | condition |\n| A01 | second | different condition |\n"),
+        Err(shenko_evidence::IndexError::DuplicateDefinition { kind: "acceptance case", id, .. }) if id == "A01"
+    ));
+    Ok(())
 }
 
 #[test]
-fn unknown_case_family_stays_visible_as_unclassified() {
-    let index = SpecIndex::parse("| R001 | unknown family | §23 | B01 |\n| B01 extension | R001 | contract | ZZ01 |\n\n| Case | scenario | result |\n| --- | --- | --- |\n| ZZ01 | new family | condition |\n").unwrap();
+fn unknown_case_family_stays_visible_as_unclassified() -> Result<(), IndexError> {
+    let index = SpecIndex::parse("unknown-family.md", "<a id=\"unknown-family\"></a>\n| R001 | unknown family | §23 | B01 |\n| B01 extension | R001 | contract | ZZ01 |\n\n| Case | scenario | result |\n| --- | --- | --- |\n| ZZ01 | new family | condition |\n")?;
     let report = build_report(&index, &[], Some(CANDIDATE));
     assert_eq!(report.requirements[0].acceptance_cases, ["ZZ01"]);
     assert!(
@@ -95,14 +101,15 @@ fn unknown_case_family_stays_visible_as_unclassified() {
             .unmet_reasons
             .contains(&UnmetReason::UnclassifiedScope)
     );
+    Ok(())
 }
 
 #[test]
-fn modifying_observed_bytes_withdraws_previously_admitted_coverage() {
+fn modifying_observed_bytes_withdraws_previously_admitted_coverage() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let receipt = fixture(root.path(), "A01");
     let record = publish(root.path(), &receipt);
-    let index = spec("A01");
+    let index = spec("A01")?;
     assert!(
         build_report(&index, std::slice::from_ref(&record), Some(CANDIDATE)).requirements[0]
             .is_met()
@@ -115,29 +122,31 @@ fn modifying_observed_bytes_withdraws_previously_admitted_coverage() {
             .unmet_reasons
             .contains(&UnmetReason::ReceiptUnproven)
     );
+    Ok(())
 }
 
 #[test]
-fn original_outcome_contradiction_cannot_be_overridden_by_the_record() {
+fn original_outcome_contradiction_cannot_be_overridden_by_the_record() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let mut receipt = fixture(root.path(), "A01");
     receipt["passed"] = json!(false);
     let record = publish(root.path(), &receipt);
-    let report = build_report(&spec("A01"), &[record], Some(CANDIDATE));
+    let report = build_report(&spec("A01")?, &[record], Some(CANDIDATE));
     assert!(!report.requirements[0].is_met());
     assert!(
         report.requirements[0]
             .unmet_reasons
             .contains(&UnmetReason::ReceiptUnproven)
     );
+    Ok(())
 }
 
 #[test]
-fn required_model_scope_is_not_borrowed_from_native_or_stale_evidence() {
+fn required_model_scope_is_not_borrowed_from_native_or_stale_evidence() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let mut receipt = fixture(root.path(), "A06");
     let record = publish(root.path(), &receipt);
-    let index = spec("A06");
+    let index = spec("A06")?;
     let partial = build_report(&index, &[record], Some(CANDIDATE));
     assert!(!partial.requirements[0].is_met());
     assert!(
@@ -164,6 +173,7 @@ fn required_model_scope_is_not_borrowed_from_native_or_stale_evidence() {
     let report = build_report(&index, &[historical, current], Some(CANDIDATE));
     assert!(report.requirements[0].is_met());
     assert!(report.requirements[0].bound_to_current_candidate);
+    Ok(())
 }
 
 /// Write a report (or a mutated copy of one) and return its path and digest.
@@ -187,11 +197,11 @@ fn rejection(root: &Path, name: &str, report: &Value, candidate: Option<&str>) -
 }
 
 #[test]
-fn acceptance_matrix_needs_one_admitted_receipt_for_every_declared_scope() {
+fn acceptance_matrix_needs_one_admitted_receipt_for_every_declared_scope() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let receipt = fixture(root.path(), "K01");
     let native_only = publish(root.path(), &receipt);
-    let index = spec("K01");
+    let index = spec("K01")?;
 
     let partial = build_report(&index, std::slice::from_ref(&native_only), Some(CANDIDATE));
     let case = &partial.cases[0];
@@ -222,14 +232,15 @@ fn acceptance_matrix_needs_one_admitted_receipt_for_every_declared_scope() {
         Some(1)
     );
     assert!(report.requirements[0].is_met());
+    Ok(())
 }
 
 #[test]
-fn a_correction_record_withdraws_evidence_without_deleting_its_bytes() {
+fn a_correction_record_withdraws_evidence_without_deleting_its_bytes() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let receipt = fixture(root.path(), "A01");
     let record = publish(root.path(), &receipt);
-    let index = spec("A01");
+    let index = spec("A01")?;
     assert!(
         build_report(&index, std::slice::from_ref(&record), Some(CANDIDATE)).requirements[0]
             .is_met()
@@ -285,6 +296,7 @@ fn a_correction_record_withdraws_evidence_without_deleting_its_bytes() {
     let report = build_report(&index, &[record, typo], Some(CANDIDATE));
     assert!(report.requirements[0].is_met());
     assert_eq!(report.dangling_withdrawals, ["no-such-evidence"]);
+    Ok(())
 }
 
 #[test]
@@ -461,7 +473,7 @@ fn long_run_duration_requires_a_completed_sealed_run_of_the_declared_window() {
 }
 
 #[test]
-fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
+fn obligation_report_states_duration_only_from_an_admitted_sealed_report() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let evidence = root.path().join("evidence");
     fs::create_dir(&evidence).unwrap();
@@ -471,15 +483,15 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
         sha256: &sha256,
     };
     let spec_text =
-        "| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+        "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | U01;B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+    let index = SpecIndex::parse("fixture.md", spec_text)?;
 
-    let observed = analyze(&ReportInputs {
-        spec_text,
+    let observed = analyze(ReportInputs {
+        spec_index: index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: std::slice::from_ref(&input),
-    })
-    .unwrap();
+    });
     let json = observed.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -494,13 +506,12 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
 
     // No report is the normal state: the obligation report must not infer
     // duration from the existence of the tooling.
-    let unobserved = analyze(&ReportInputs {
-        spec_text,
+    let unobserved = analyze(ReportInputs {
+        spec_index: observed.index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: &[],
-    })
-    .unwrap();
+    });
     let json = unobserved.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -525,13 +536,12 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
         path: &demo_path,
         sha256: &demo_sha,
     };
-    let demo = analyze(&ReportInputs {
-        spec_text,
+    let demo = analyze(ReportInputs {
+        spec_index: unobserved.index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: std::slice::from_ref(&demo_input),
-    })
-    .unwrap();
+    });
     let json = demo.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -553,12 +563,13 @@ fn obligation_report_states_duration_only_from_an_admitted_sealed_report() {
             .len(),
         2
     );
+    Ok(())
 }
 
 /// Two admitted reports of the same commit but different artifacts never add
 /// up to one duration observation.
 #[test]
-fn duration_windows_only_add_up_for_one_binary_and_profile() {
+fn duration_windows_only_add_up_for_one_binary_and_profile() -> Result<(), IndexError> {
     let root = tempfile::tempdir().unwrap();
     let mut seven = sealed_run_report();
     seven["declared_windows"][0]["status"] = json!("observed");
@@ -622,14 +633,14 @@ fn duration_windows_only_add_up_for_one_binary_and_profile() {
     let evidence = root.path().join("evidence-conflict");
     fs::create_dir(&evidence).unwrap();
     let spec_text =
-        "| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
-    let analysis = analyze(&ReportInputs {
-        spec_text,
+        "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+    let index = SpecIndex::parse("fixture.md", spec_text)?;
+    let analysis = analyze(ReportInputs {
+        spec_index: index,
         evidence_dir: &evidence,
         candidate_commit: Some(CANDIDATE),
         long_run: &[seven_input, other_input],
-    })
-    .unwrap();
+    });
     let json = analysis.to_json();
     assert_eq!(
         json["long_run_observation"]["duration_status"].as_str(),
@@ -649,4 +660,5 @@ fn duration_windows_only_add_up_for_one_binary_and_profile() {
         "{}",
         analysis.summary()
     );
+    Ok(())
 }

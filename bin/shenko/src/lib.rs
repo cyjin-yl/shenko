@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shenko_identity::IdentityService;
-use shenko_types::channel::ChannelPlugin as _;
 use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -2543,7 +2542,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 let event_store = Arc::clone(&store);
                 let event_spool = Arc::clone(&spool);
                 let admission_plugin = Arc::clone(&qq_plugin);
-                let admission_facts = Arc::clone(&store);
                 let cancel_events = cancel_napcat.clone();
                 tokio::spawn(async move {
                     let result: Result<()> = async {
@@ -2555,40 +2553,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 },
                                 _ = cancel_events.cancelled() => break,
                             };
-                            let event_id = ev.ingress_id.ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?;
-                            if let Some(commit) = event_store.event_disposition_commit(agent_id, event_id)? {
-                                event_spool.ack(event_id, &commit.to_string())?;
-                                continue;
-                            }
-                            let mut inbox_ev = napcat_inbox_event(ev)?;
-                            // Plugin-owned classification: the envelope, not
-                            // the raw wire payload, is what the subject sees.
-                            // A payload the plugin does not classify (notices,
-                            // meta events) keeps the raw payload; the staged
-                            // projection falls back to a plain header.
-                            if let Some(mut envelope) = admission_plugin.classify(
-                                shenko_channel_napcat::QQ_SOURCE,
-                                &inbox_ev.payload,
-                            ) {
-                                // Resolve attachment locators through the
-                                // plugin and seal the delivered bytes into the
-                                // content-addressed store. This is the same
-                                // path the adapter sources use, so one locator
-                                // has exactly one resolution mechanism. A
-                                // locator that cannot be resolved stays a
-                                // locator and is recorded as a subject-readable
-                                // typed gap; the message itself is never lost.
-                                let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> =
-                                    admission_plugin.clone();
-                                envelope = prepare_channel_envelope(
-                                    &plugin,
-                                    &admission_facts,
-                                    event_id,
-                                    envelope,
-                                )
-                                .await?;
-                                inbox_ev.payload = serde_json::to_value(&envelope)?;
-                            }
+                            let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> =
+                                admission_plugin.clone();
+                            let Some(inbox_ev) = napcat_inbox_event(
+                                &event_store, agent_id, &event_spool, &plugin, ev,
+                            ).await? else { continue; };
                             tokio::select! { biased;
                                 _ = cancel_events.cancelled() => break,
                                 sent = inbox_tx.send(inbox_ev) => {
@@ -4110,18 +4079,63 @@ async fn run_deterministic_ui(
     Ok(())
 }
 
-fn napcat_inbox_event(
+/// Reuse the first canonical original before applying today's classifier.
+/// The spool id belongs to the account-bound ingress ledger; the Store read
+/// additionally confines the retained input to this agent's current branch.
+/// Neither normalization upgrades nor attachment refreshes can replace that
+/// original or the projection already staged alongside it. Only an S1
+/// disposition allows acknowledgement and suppresses another delivery.
+async fn napcat_inbox_event(
+    store: &shenko_store::store::Store,
+    agent_id: shenko_types::ids::EntityId,
+    spool: &shenko_channel_napcat::IngressSpool,
+    plugin: &Arc<dyn shenko_types::channel::ChannelPlugin>,
     event: shenko_channel_napcat::client::OneBotEvent,
-) -> Result<shenko_types::inbox::InboxEvent> {
-    Ok(shenko_types::inbox::InboxEvent {
-        event_id: event
-            .ingress_id
-            .ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?,
+) -> Result<Option<shenko_types::inbox::InboxEvent>> {
+    let event_id = event.ingress_id
+        .ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?;
+    let received = spool.event(event_id)?;
+    if let Some(commit) = store.event_disposition_commit(agent_id, event_id)? {
+        spool.ack(event_id, &commit.to_string())?;
+        return Ok(None);
+    }
+    if let Some(staged) = store.first_subject_input(agent_id, event_id)? {
+        let mut data: serde_json::Value = serde_json::from_str(&staged.data)?;
+        let original = data.get_mut("inbox_event").map(serde_json::Value::take)
+            .ok_or_else(|| anyhow::anyhow!("staged original inbox event missing"))?;
+        let original: shenko_types::inbox::InboxEvent = serde_json::from_value(original)?;
+        anyhow::ensure!(original.event_id == event_id
+            && original.kind == shenko_types::inbox::InboxEventKind::Message
+            && original.source == shenko_channel_napcat::QQ_SOURCE,
+            "NapCat retained input source identity mismatch");
+        if original.payload.get("provider").and_then(serde_json::Value::as_str) == Some(plugin.channel_id())
+            && original.payload.get("schema_version").and_then(serde_json::Value::as_u64) == Some(1)
+        {
+            let envelope: shenko_types::channel::ChannelEnvelope =
+                serde_json::from_value(original.payload.clone())?;
+            anyhow::ensure!(envelope.provider == plugin.channel_id()
+                && envelope.account == plugin.account_scope()
+                && envelope.transport_identity_domain == shenko_channel_napcat::QQ_TRANSPORT_IDENTITY_DOMAIN,
+                "NapCat retained input account scope mismatch");
+        }
+        return Ok(Some(original));
+    }
+
+    // Re-read the first wire original from the spool, never a later transport
+    // observation. Conflict/revision evidence stays in that ledger.
+    let mut original = shenko_types::inbox::InboxEvent {
+        event_id,
         kind: shenko_types::inbox::InboxEventKind::Message,
-        payload: serde_json::to_value(&event)?,
-        created_at: chrono::Utc::now(),
-        source: "napcat".to_string(),
-    })
+        payload: received.raw,
+        created_at: received.received_at,
+        source: shenko_channel_napcat::QQ_SOURCE.to_string(),
+    };
+    if let Some(mut envelope) = plugin.classify(&original.source, &original.payload) {
+        envelope.received_at = original.created_at;
+        envelope = prepare_channel_envelope(plugin, store, event_id, envelope).await?;
+        original.payload = serde_json::to_value(&envelope)?;
+    }
+    Ok(Some(original))
 }
 
 /// Resolve one classified envelope's attachment locators through the owning
@@ -4945,22 +4959,23 @@ mod recovery_integration_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    // Local I/L/CAS simulation: crash after S1, before I mirrors its ACK.
-    // No provider, external account, model inference or production data is used.
+    // Literal pre-attribution canonical bytes survive reopen/replay while
+    // Planned and after sealing, then S1 is processed once before I mirrors
+    // its ACK. This is native I/L/CAS mechanics, not model-behavior proof.
     #[tokio::test]
-    async fn reopen_reconciles_spool_from_committed_subject_disposition() {
+    async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-continuity-{}", EntityId::new()));
         std::fs::create_dir(&dir).unwrap();
         let spool_path = dir.join("ingress.sqlite");
         let spool = IngressSpool::open(&spool_path, 9).unwrap();
         let received = spool
             .ingest(serde_json::json!({
-                "post_type":"message", "message_type":"group", "group_id":7,
-                "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
-            }))
-            .unwrap()
+                "post_type":"message_sent", "message_type":"group", "group_id":7,
+                "self_id":9, "user_id":9, "message_id":42, "raw_message":"continue",
+                "sender":{"user_id":9,"nickname":"深刻"}
+            }))?
             .event()
-            .unwrap();
+            .context("fixture ingress did not produce an event")?;
         drop(spool);
 
         let config = NapCatConfig {
@@ -4970,9 +4985,13 @@ mod recovery_integration_tests {
         };
         let (client, mut rx, actions) =
             NapCatClient::open_persistent(config.clone(), &spool_path).unwrap();
+        let client = Arc::new(client);
+        let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> = Arc::new(
+            shenko_channel_napcat::NapCatChannel::new(config.clone(), client.clone()),
+        );
         let cancel = tokio_util::sync::CancellationToken::new();
         let connector = tokio::spawn(NapCatClient::run_connection_loop(
-            config,
+            config.clone(),
             client.event_sender(),
             actions,
             client.pending_actions.clone(),
@@ -4984,10 +5003,39 @@ mod recovery_integration_tests {
             .await
             .unwrap()
             .unwrap();
-        let inbox_event = napcat_inbox_event(replayed).unwrap();
         cancel.cancel();
         connector.await.unwrap().unwrap();
-        assert_eq!(inbox_event.event_id, received.spool_id);
+
+        // This original deliberately comes from the old wire shape, not a
+        // round trip through the candidate's serializer. Ownership and shape
+        // were absent; its already-staged text is the surviving attribution.
+        let old_payload = serde_json::json!({
+            "schema_version":1,"provider":"qq","account":"qq:9",
+            "transport_identity_domain":"onebot_v11","conversation":"7",
+            "message_id":"42","received_at":"2026-11-12T00:00:00Z",
+            "actor":{"platform_id":"9","display_name":"深刻"},
+            "content":{"text":"continue"},
+            "reply_target":{"kind":"group","id":"7","label":"群 7",
+                "account":"qq:9","conversation":"7"}
+        });
+        let inbox_event = shenko_types::inbox::InboxEvent {
+            event_id: received.spool_id,
+            kind: shenko_types::inbox::InboxEventKind::Message,
+            created_at: serde_json::from_value(old_payload["received_at"].clone())?,
+            payload: old_payload,
+            source: shenko_channel_napcat::QQ_SOURCE.into(),
+        };
+        let old_event_bytes = serde_json::to_vec(&inbox_event)?;
+        let historical = plugin.classify(&inbox_event.source, &inbox_event.payload)
+            .context("historical inbox event was not classified")?;
+        assert_eq!(historical.actor.own_account, None);
+        assert_eq!(serde_json::to_value(&historical)?, inbox_event.payload);
+        assert!(plugin.staged_text(&historical).contains("是否本账号发出未记录"));
+        let newly_classified = plugin.classify(&inbox_event.source, &received.raw)
+            .context("original wire event was not classified")?;
+        assert_eq!(newly_classified.actor.own_account, Some(true));
+        assert!(newly_classified.reply_target.as_ref()
+            .context("newly classified event has no reply target")?.shape.is_some());
 
         let store = Arc::new(shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
         let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
@@ -5004,7 +5052,7 @@ mod recovery_integration_tests {
             &model_profile,
         )
         .unwrap();
-        let (head, mut step) = store.load_subject(agent).unwrap();
+        let (head, step) = store.load_subject(agent)?;
         assert!(
             store
                 .event_disposition_commit(agent, inbox_event.event_id)
@@ -5017,14 +5065,53 @@ mod recovery_integration_tests {
             .seal_object(b"continue", "text/plain", "test", "raw", 1)
             .unwrap()
             .object;
-        store.stage_subject_inputs(&head, &step, &[shenko_store::SubjectHistoryInput {
+        let old_text = format!("[event {}] [深刻（本账号发出） · 群 7] continue", inbox_event.event_id);
+        let history_input = shenko_store::SubjectHistoryInput {
             event_id: inbox_event.event_id, event_type: "user".into(),
-            data: serde_json::json!({"v":1,"text":inbox_event.payload.to_string(),"inbox_event":&inbox_event}),
-        }]).unwrap();
+            data: serde_json::json!({"v":1,"text":old_text,"inbox_event":&inbox_event}),
+        };
+        let staged = store.stage_subject_inputs(&head, &step, std::slice::from_ref(&history_input))?;
+        let first_raw_id = staged[0].event_id;
+        let first_raw_bytes = staged[0].data.clone();
+        assert!(store.first_subject_input(EntityId::new(), inbox_event.event_id)?.is_none());
+        drop(store);
+
+        let store = Arc::new(open_native_fixture(&dir));
+        let (head, mut step) = store.load_subject(agent).unwrap();
+        let admitted = napcat_inbox_event(&store, agent, &client.spool, &plugin, replayed.clone())
+            .await?.context("planned replay did not retain its inbox event")?;
+        assert_eq!(serde_json::to_vec(&admitted)?, old_event_bytes);
+        assert_eq!(store.first_subject_input(agent, admitted.event_id)?
+            .context("planned replay lost its first subject input")?.data, first_raw_bytes);
+        assert_eq!(store.session_event(first_raw_id)?
+            .context("planned replay lost its original session event")?.data, first_raw_bytes);
+        assert!(!client.spool.event(received.spool_id).unwrap().consumed);
+        // The original conflict fence still rejects new facts under this id.
+        let mut changed = history_input;
+        changed.data["inbox_event"]["payload"] = serde_json::to_value(&newly_classified)?;
+        let error = store.stage_subject_inputs(&head, &step, &[changed]).err()
+            .context("different inbox facts were unexpectedly accepted under the original event id")?;
+        assert!(error.to_string().contains("already staged with different facts"));
         step.input_plan_ref = Some(prepare_fixture_s0(&store, &head, &step));
+        let sealed_ref = step.input_plan_ref.clone().context("fixture S0 input plan was not retained")?;
+        let sealed_bytes = store.cas.read_object(&sealed_ref.digest)?;
         step.state = SubjectStepState::Preparing;
         step.record_revision = RecordRevision(1);
         store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
+        drop(store);
+
+        let store = Arc::new(open_native_fixture(&dir));
+        let (head, mut step) = store.load_subject(agent)?;
+        let sealed_replay = napcat_inbox_event(&store, agent, &client.spool, &plugin, replayed.clone())
+            .await?.context("sealed replay did not retain its inbox event")?;
+        assert_eq!(serde_json::to_vec(&sealed_replay)?, old_event_bytes);
+        assert_eq!(step.input_plan_ref.as_ref(), Some(&sealed_ref));
+        assert_eq!(store.cas.read_object(&sealed_ref.digest)?, sealed_bytes);
+        let frozen: serde_json::Value = serde_json::from_slice(&sealed_bytes)?;
+        assert_eq!(frozen["events"], serde_json::json!([&inbox_event]));
+        assert_eq!(frozen["payload"]["messages"][0]["parts"][0]["text"], old_text);
+        assert_eq!(store.session_event(first_raw_id)?
+            .context("sealed replay lost its original session event")?.data, first_raw_bytes);
         step.state = SubjectStepState::AwaitingModel;
         step.active_request_id = Some(EntityId::new());
         step.record_revision = RecordRevision(2);
@@ -5113,8 +5200,9 @@ mod recovery_integration_tests {
             .commit_step_and_advance_head(&step, &head, next)
             .unwrap();
         // Intentionally omit ACK: model-side processing committed, I mirror is stale.
-        assert!(!client.spool.event(received.spool_id).unwrap().consumed);
+        assert!(!client.spool.event(received.spool_id)?.consumed);
         drop(store);
+        drop(plugin);
         drop(client);
 
         let store = Arc::new(
@@ -5136,7 +5224,12 @@ mod recovery_integration_tests {
         assert_eq!(restored.head.committed_at, receipt.commit_ref);
         assert_eq!(restored.step.step_id, next);
         assert_eq!(restored.step.state, SubjectStepState::Planned);
-        let spool = IngressSpool::open(&spool_path, 9).unwrap();
+        let (client, _events, _actions) = NapCatClient::open_persistent(config.clone(), &spool_path)?;
+        let client = Arc::new(client);
+        let spool = client.spool.clone();
+        let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> = Arc::new(
+            shenko_channel_napcat::NapCatChannel::new(config, client),
+        );
         let pending = spool.consume(8).unwrap();
         assert_eq!(pending.len(), 1);
         let commit = store
@@ -5144,11 +5237,13 @@ mod recovery_integration_tests {
             .unwrap()
             .unwrap();
         assert_eq!(commit, receipt.commit_ref);
-        spool.ack(pending[0].spool_id, &commit.to_string()).unwrap();
+        assert!(napcat_inbox_event(&store, agent, &spool, &plugin, replayed).await?.is_none());
+        assert_eq!(store.load_subject(agent)?.0.committed_step_no, 1);
         assert_eq!(spool.pending_count().unwrap(), 0);
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
         assert!(spool.ingest(received.raw).unwrap().event().is_none());
         // Temporary evidence files are deliberately retained for inspection.
+        Ok(())
     }
 
     fn open_native_fixture(dir: &std::path::Path) -> shenko_store::store::Store {

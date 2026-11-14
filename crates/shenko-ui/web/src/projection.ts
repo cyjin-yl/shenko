@@ -24,6 +24,7 @@ export interface WorkView {
   title?: string;
   mime?: string;
   revision?: number;
+  active_manifest_digest?: string;
   lifecycle?: string;
   updated_at?: string;
 }
@@ -66,6 +67,7 @@ export interface PlaygroundView {
     title?: string;
     mime?: string;
     revision?: number;
+    active_manifest_digest?: string;
     parent_revision?: number | null;
     updated_at?: string;
     backend?: boolean;
@@ -76,6 +78,21 @@ export interface PlaygroundView {
 }
 export type ReadingState = 'following_latest' | 'reading_history' | 'selecting_or_interacting';
 export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
+
+/** Derived by the ledger from ownership and admission, never a plugin name. */
+export type TaskRole = 'subject_root' | 'delegation' | 'tool' | 'unknown';
+
+export type TaskSummary = {
+  task_id: string;
+  kind: string;
+  role: TaskRole;
+  state: string;
+  parent_task_id?: string | null;
+  created_by_step_id?: string | null;
+  created_at: string;
+  terminal_at?: string | null;
+};
+
 // Durable admission stages — docs/specs/web-interface.md#spec-41-18: accepted/selected/committed are
 // separate fact receipts, never a single progress bar.
 export type ReceiptState =
@@ -105,6 +122,8 @@ export interface TimelinePart {
   step: number;
   step_id: string;
   commit_ref: string;
+  /** Position in this receiving ledger; the source commit may be foreign. */
+  commit_seq?: number;
   observed_at: string;
   stream_id?: string;
   request_id?: string;
@@ -191,6 +210,7 @@ export interface WithdrawalView {
 export interface Submission {
   payload: SubmissionPayload;
   created_at: string;
+  accepted_seq?: number;
   receipt: ReceiptState;
   detail?: string;
   event_id?: string;
@@ -202,6 +222,38 @@ export interface Submission {
   // Correlation between this client's send attempts and the query_replies:
   // a view for an older attempt must not undo a newer send's restored ACK.
   send_epoch: number;
+}
+
+export interface SubmissionCursor {
+  seq: number;
+  submission_id: string;
+}
+
+// SQLite's binary UTF-8 order follows Unicode scalar values. JavaScript's
+// default UTF-16 comparison differs for supplementary characters in IDs.
+export function compareSubmissionOrder(leftSeq: number, leftId: string, rightSeq: number, rightId: string): number {
+  if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+  let left = 0;
+  let right = 0;
+  while (left < leftId.length && right < rightId.length) {
+    const a = leftId.codePointAt(left)!;
+    const b = rightId.codePointAt(right)!;
+    if (a !== b) return a - b;
+    left += a > 0xffff ? 2 : 1;
+    right += b > 0xffff ? 2 : 1;
+  }
+  return leftId.length - rightId.length;
+}
+
+export interface SubmissionHistoryState {
+  loading: boolean;
+  /** A rendered commit is newer than the applied newest-page snapshot. */
+  stale?: boolean;
+  total?: number;
+  has_older: boolean;
+  next_before?: SubmissionCursor;
+  newest_cursor?: SubmissionCursor;
+  error?: string;
 }
 
 // docs/specs/web-interface.md#spec-21-8: numbered options preserve action identity across degradation.
@@ -378,6 +430,7 @@ export interface UiState {
   step: number | null;
   timeline: TimelinePart[];
   submissions: Submission[];
+  submission_history?: SubmissionHistoryState;
   draft: string;
   config?: ConfigView;
   config_error: boolean;
@@ -389,7 +442,7 @@ export interface UiState {
   config_drafts?: Record<string, string>;
   self?: SelfView;
   self_error: boolean;
-  tasks?: { available?: boolean; items?: Array<Record<string, unknown>>; note?: string };
+  tasks?: { available?: boolean; items?: TaskSummary[]; note?: string };
   tasks_error: boolean;
   memory?: { items?: Array<Record<string, unknown>>; note?: string };
   memory_error: boolean;
@@ -545,15 +598,16 @@ function addAction(
 
 function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[] {
   const subjectRows = state.timeline.filter((part) => part.content.length > 0).map((part) => {
+    const identity = JSON.stringify([part.message_id, part.part_id]);
     const copyAction = addAction(
       actions,
-      `part.copy.${part.part_id}`,
+      `part.copy.${identity}`,
       'part.copy',
       `copy:${part.part_revision}`,
       true,
       { content: part.content },
     );
-    return node(`part.${part.part_id}`, 'subject_part', { part }, [], {
+    return node(`part.${identity}`, 'subject_part', { part }, [], {
       action_refs: [copyAction],
       a11y: { label: `第 ${part.step} 轮已提交内容` },
       fallback: 'raw_text',
@@ -595,7 +649,26 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
     );
   });
-  return [...subjectRows, ...submissionRows].sort((left, right) => {
+  const sequenceOf = (entry: UiNode): number | undefined => entry.kind === 'subject_part'
+    ? (entry.props.part as TimelinePart).commit_seq
+    : (entry.props.submission as Submission).accepted_seq;
+  const chronological = [...subjectRows, ...submissionRows].sort((left, right) => {
+    const leftSeq = sequenceOf(left);
+    const rightSeq = sequenceOf(right);
+    if (leftSeq !== undefined && rightSeq !== undefined) {
+      if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+      // An import can admit the selected input and its step in one local
+      // transaction. The input still precedes that step.
+      if (left.kind !== right.kind) return left.kind === 'user_submission' ? -1 : 1;
+      if (left.kind === 'user_submission') return compareSubmissionOrder(leftSeq,
+        (left.props.submission as Submission).payload.submission_id, rightSeq,
+        (right.props.submission as Submission).payload.submission_id);
+      return 0;
+    }
+    // An unadmitted browser attempt has no ledger position. Keep it after
+    // durable history until a real admission tells us where it belongs.
+    if (leftSeq !== undefined) return -1;
+    if (rightSeq !== undefined) return 1;
     const timeOf = (entry: UiNode): string => entry.kind === 'subject_part'
       ? entry.props.part.observed_at
       : entry.kind === 'user_submission'
@@ -603,10 +676,42 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
         : '';
     const leftTime = timeOf(left);
     const rightTime = timeOf(right);
-    // Committed history retains replay order for equal timestamps; a later
-    // committed reply stays after local input instead of jumping above it.
     return Date.parse(leftTime) - Date.parse(rightTime);
   });
+  // If a source has no order cursor, its actual selected step still gives a
+  // causal placement. Known ledger positions retain their admission order.
+  const replies = new Map(subjectRows.map((entry) => [(entry.props.part as TimelinePart).step_id,
+    entry.props.part as TimelinePart]));
+  const selected = new Map<string, UiNode[]>();
+  const paired = new Set<string>();
+  for (const entry of submissionRows) {
+    const submission = entry.props.submission as Submission;
+    if (!submission.selected_step_id || !replies.has(submission.selected_step_id)) continue;
+    if (submission.accepted_seq !== undefined
+      && replies.get(submission.selected_step_id)!.commit_seq !== undefined) continue;
+    const rows = selected.get(submission.selected_step_id) ?? [];
+    rows.push(entry);
+    selected.set(submission.selected_step_id, rows);
+    paired.add(entry.node_id);
+  }
+  for (const rows of selected.values()) rows.sort((a, b) => {
+    const left = a.props.submission as Submission;
+    const right = b.props.submission as Submission;
+    return left.accepted_seq !== undefined && right.accepted_seq !== undefined
+      ? left.accepted_seq - right.accepted_seq
+      : Date.parse(left.created_at) - Date.parse(right.created_at);
+  });
+  const ordered: UiNode[] = [];
+  for (const entry of chronological) {
+    if (paired.has(entry.node_id)) continue;
+    if (entry.kind === 'subject_part') {
+      const step = (entry.props.part as TimelinePart).step_id;
+      const before = selected.get(step);
+      if (before) { ordered.push(...before); selected.delete(step); }
+    }
+    ordered.push(entry);
+  }
+  return ordered;
 }
 
 export function buildProjection(state: UiState, revision: number): UiProjection {
@@ -707,6 +812,12 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       { action_refs: [openRef], fallback: 'read_only_list' },
     ));
   }
+  const historyAction = addAction(
+    actions, 'submissions.load_older', 'submissions.load_older',
+    `submissions:${state.subject_id}:${JSON.stringify(state.submission_history?.next_before ?? null)}`,
+    state.source === 'live' && !state.submission_history?.loading
+      && (state.submission_history?.has_older === true || Boolean(state.submission_history?.error)),
+  );
   const timeline = node(
     'timeline',
     'timeline',
@@ -724,10 +835,12 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       connection: state.connection,
       step: state.step,
       subject_status: state.self?.status ?? 'unknown',
+      submission_history: state.submission_history,
     },
     timelineChildren,
     {
       action_refs: [
+        historyAction,
         addAction(actions, 'timeline.reading', 'timeline.reading', 'display-v1'),
         addAction(actions, 'timeline.latest', 'timeline.latest', 'display-v1'),
         addAction(actions, 'timeline.code_wrap', 'timeline.code_wrap', 'display-v1'),

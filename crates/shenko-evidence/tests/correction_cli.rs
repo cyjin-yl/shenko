@@ -16,7 +16,7 @@ use shenko_evidence::{CorrectionRequest, correction_id, write_correction};
 
 const CANDIDATE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-const SPEC_TEXT: &str = "| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
+const SPEC_TEXT: &str = "<a id=\"fixture\"></a>\n| R001 | fixture | §23 | B01 |\n| B01 fixture | R001 | contract | A01 |\n| A01 | scenario | condition |\n";
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))

@@ -546,3 +546,13 @@ pub struct ChildIdentity {
 当用户在实例初始化时选择让 Shenko 命名自己的子代理时，主体按自身 awareness 和 personality 选名，不请求人类逐个批准。如果用户希望自行命名某个子代理，这是一条普通指令，主体执行即可。
 
 <!-- /migrated-contract: SPEC:53 -->
+
+## Implementation appendix: owner-answer continuation
+
+Continuation admission reads the completed child through the existing S1
+transaction, without re-locking the Store connection. A continued finite run
+inherits the recorded discussion and remaining budget but has its own operation,
+request and attempt. The question's original operation, attempt, E1 and raw
+receipt remain unchanged across reopen and continuation. The scripted loopback
+consumer answers native metadata probes separately from generation requests;
+this mechanism check does not establish real-model efficacy.

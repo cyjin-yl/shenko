@@ -139,7 +139,7 @@ impl Store {
         }
         for intent in &decision.delegated_task_intents {
             if !historical && intent.definition.as_ref().is_some_and(|definition| definition.kind == "model.child") {
-                self.validate_model_child_intent(head, step, decision, intent)?;
+                self.validate_model_child_intent(tx, head, step, decision, intent)?;
             }
             let contract = intent.definition.as_ref().map_or_else(
                 || "shenko.task/delegation-queue/1".to_string(),
@@ -416,7 +416,7 @@ impl Store {
     }
 
     fn validate_model_child_intent(
-        &self, head: &SubjectBranchHead, step: &SubjectStep,
+        &self, tx: &Transaction<'_>, head: &SubjectBranchHead, step: &SubjectStep,
         decision: &StepDecision, intent: &DelegationIntent,
     ) -> Result<(), shenko_types::error::ShenkoError> {
         use shenko_types::{error::ShenkoError, output::ModelChildBudget, output::OutputAction};
@@ -467,9 +467,11 @@ impl Store {
         // same subject. Its recorded transcript is reused, so the owner
         // answers a real question instead of starting a second discussion.
         if let Some(continued) = spec.continue_task_id {
-            let previous = self
-                .external_task(continued)
-                .map_err(|_| invalid())?;
+            // S1 already holds ledger.conn. Read within its transaction;
+            // external_task would re-lock the same non-reentrant mutex.
+            let previous = crate::child::read_task(tx, continued)
+                .map_err(|_| invalid())?
+                .ok_or_else(invalid)?;
             if previous.kind != crate::external::MODEL_CHILD_KIND
                 || previous.agent_id != head.agent_id
                 || !previous.is_terminal()
@@ -866,6 +868,7 @@ impl Store {
 
     pub fn committed_decisions_after(
         &self,
+        agent_id: EntityId,
         seq: u64,
         after_step_id: Option<EntityId>,
         limit: usize,
@@ -873,16 +876,19 @@ impl Store {
         let rows = {
             let c = self.ledger.conn.lock();
             let mut q=c.prepare(
-                "SELECT updated_commit_seq,data FROM subject_steps
-                 WHERE state='committed'
-                   AND (updated_commit_seq>?1
-                        OR (?2 IS NOT NULL AND updated_commit_seq=?1
-                            AND (step_no,step_id)>(
-                                SELECT step_no,step_id FROM subject_steps WHERE step_id=?2)))
-                 ORDER BY updated_commit_seq,step_no,step_id LIMIT ?3",
+                "SELECT s.updated_commit_seq,s.data FROM subject_steps s
+                 JOIN subject_branch_heads h ON h.branch_id=s.branch_id
+                 WHERE h.agent_id=?1 AND s.state='committed'
+                   AND (s.updated_commit_seq>?2
+                        OR (?3 IS NOT NULL AND s.updated_commit_seq=?2
+                            AND (s.step_no,s.step_id)>(
+                                SELECT p.step_no,p.step_id FROM subject_steps p
+                                JOIN subject_branch_heads ph ON ph.branch_id=p.branch_id
+                                WHERE ph.agent_id=?1 AND p.step_id=?3)))
+                 ORDER BY s.updated_commit_seq,s.step_no,s.step_id LIMIT ?4",
             )?;
             q.query_map(
-                params![seq as i64, after_step_id.map(|id| id.to_string()), limit as i64],
+                params![agent_id.to_string(), seq as i64, after_step_id.map(|id| id.to_string()), limit as i64],
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?

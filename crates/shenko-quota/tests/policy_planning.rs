@@ -1,6 +1,6 @@
 //! docs/specs/quota-resources.md#spec-42-3 / QA05 planning targets, holds and pacing on synthetic readings.
 //!
-//! Every provider figure here is a synthetic API-header reading. These are
+//! Every provider figure here is a synthetic fixed-period statusline reading. These are
 //! library-level consumers: they show that the new policy fields change the
 //! planner (rate, ceiling, validity), that nothing is invented where the
 //! evidence is unknown, and that a legacy row re-serializes to its recorded
@@ -23,7 +23,7 @@ fn wref(key: &str) -> WindowRef {
     }
 }
 
-fn snapshot(remaining: &str, observed_at: DateTime<Utc>) -> QuotaSnapshot {
+fn snapshot(remaining: f64, observed_at: DateTime<Utc>) -> QuotaSnapshot {
     let ctx = ObservationContext {
         provider_id: "anthropic".into(),
         account_scope_ref: "sub".into(),
@@ -31,18 +31,22 @@ fn snapshot(remaining: &str, observed_at: DateTime<Utc>) -> QuotaSnapshot {
         attribution: Attribution::Exclusive,
         observed_at,
     };
-    from_api_headers(&ctx, [
-        ("anthropic-ratelimit-requests-limit", "10"),
-        ("anthropic-ratelimit-requests-remaining", remaining),
-        ("anthropic-ratelimit-requests-reset", "2026-10-27T12:10:00Z"),
-    ])
+    let statusline = serde_json::json!({
+        "rate_limits": {
+            "five_hour": {
+                "used_percentage": 100.0 - remaining,
+                "resets_at": (observed_at + Duration::minutes(10)).timestamp(),
+            }
+        }
+    });
+    from_statusline(&ctx, &statusline.to_string(), true)
 }
 
 fn options() -> ForecastOptions {
     ForecastOptions { ttl: Duration::minutes(5), stale: StaleUse::Refuse }
 }
 
-/// One cloud profile costing one request of the single window.
+/// One cloud profile costing one percentage point of the fixed-period window.
 fn policy() -> QuotaPolicy {
     QuotaPolicy {
         policy_id: EntityId::new(),
@@ -52,8 +56,8 @@ fn policy() -> QuotaPolicy {
             model_ref: "model/cloud".into(),
             local: false,
             cost_per_request: vec![WindowCost {
-                window: wref("api:requests"),
-                unit: "requests".into(),
+                window: wref("five_hour"),
+                unit: "percent".into(),
                 amount: Range::point(1.0).unwrap(),
             }],
             effort_levels: Vec::new(),
@@ -83,7 +87,7 @@ fn available(policy: &QuotaPolicy) -> HashMap<String, BackendState> {
         .collect()
 }
 
-fn reading(remaining: &str) -> QuotaForecast {
+fn reading(remaining: f64) -> QuotaForecast {
     forecast(&snapshot(remaining, now()), &[], &HashMap::new(), now(), options())
 }
 
@@ -109,7 +113,7 @@ fn admitted(policy: &QuotaPolicy, decision: &PolicyDecision, pacer: &mut Pacer, 
 /// derived round estimate stay the evidence's own numbers.
 #[test]
 fn target_utilization_scales_the_planned_rate_and_round_estimates() {
-    let forecast = reading("6");
+    let forecast = reading(6.0);
     let base = policy();
     let base_decision = decided(&base, &forecast);
     let base_rate = cloud_rate(&base_decision);
@@ -154,7 +158,7 @@ fn target_utilization_scales_the_planned_rate_and_round_estimates() {
 /// planned at the sustainable rate.
 #[test]
 fn preserve_uses_the_lower_bound_and_target_requires_a_range() {
-    let forecast = reading("6");
+    let forecast = reading(6.0);
     let base_rate = cloud_rate(&decided(&policy(), &forecast));
 
     let mut preserve = policy();
@@ -170,9 +174,10 @@ fn preserve_uses_the_lower_bound_and_target_requires_a_range() {
         PolicyError::InvalidTarget
     );
     let mut inverted = policy();
-    inverted.target_utilization_range = Some(Range::new(0.9, 0.4).unwrap());
+    // Bypass the checked constructor to exercise the planner's own validation.
+    inverted.target_utilization_range = Some(Range { lower: 0.9, upper: 0.4 });
     assert_eq!(
-        decide(&inverted, &[reading("6")], &available(&inverted), None, now()).unwrap_err(),
+        decide(&inverted, &[reading(6.0)], &available(&inverted), None, now()).unwrap_err(),
         PolicyError::InvalidTarget
     );
 }
@@ -181,7 +186,7 @@ fn preserve_uses_the_lower_bound_and_target_requires_a_range() {
 /// reserve is withheld from the admission ceiling until its urgent release.
 #[test]
 fn planning_horizon_and_emergency_reserve_bound_the_plan() {
-    let forecast = reading("6");
+    let forecast = reading(6.0);
     let mut horizon = policy();
     horizon.planning_horizon = Some(Duration::minutes(2));
     let decision = decided(&horizon, &forecast);
@@ -193,8 +198,8 @@ fn planning_horizon_and_emergency_reserve_bound_the_plan() {
 
     let mut reserved = policy();
     reserved.emergency_reserve_by_window = vec![WindowReserve {
-        window: wref("api:requests"),
-        unit: "requests".into(),
+        window: wref("five_hour"),
+        unit: "percent".into(),
         amount: Range::point(5.0).unwrap(),
     }];
     let decision = decided(&reserved, &forecast);
@@ -233,7 +238,7 @@ fn planning_horizon_and_emergency_reserve_bound_the_plan() {
 /// A relative uncertainty margin withholds its share of the planning budget.
 #[test]
 fn uncertainty_margin_withholds_a_relative_share() {
-    let forecast = reading("6");
+    let forecast = reading(6.0);
     let mut cautious = policy();
     cautious.uncertainty_margin = Some(0.25);
     let decision = decided(&cautious, &forecast);
@@ -259,7 +264,7 @@ fn uncertainty_margin_withholds_a_relative_share() {
 /// hard floor.
 #[test]
 fn pacing_switch_burst_and_minimum_interval_change_admission_spacing() {
-    let forecast = reading("6");
+    let forecast = reading(6.0);
     let paced = policy();
     let paced_decision = decided(&paced, &forecast);
     let mut pacer = Pacer::default();
@@ -362,7 +367,7 @@ fn legacy_rows_round_trip_byte_identically() {
     // exactly its own keys. The stripped JSON reads back with the honest
     // unknown defaults and re-serializes to the same content without any new
     // key appearing.
-    let mut forecast_value = serde_json::to_value(reading("6")).unwrap();
+    let mut forecast_value = serde_json::to_value(reading(6.0)).unwrap();
     for key in ["cost_model_version", "horizon", "confidence"] {
         forecast_value.as_object_mut().unwrap().remove(key);
     }
@@ -375,7 +380,7 @@ fn legacy_rows_round_trip_byte_identically() {
         assert!(!forecast_text.contains(absent));
     }
 
-    let mut decision_value = serde_json::to_value(decided(&policy(), &reading("6"))).unwrap();
+    let mut decision_value = serde_json::to_value(decided(&policy(), &reading(6.0))).unwrap();
     for key in ["strategy", "round_estimates", "scenarios"] {
         decision_value.as_object_mut().unwrap().remove(key);
     }

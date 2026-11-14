@@ -2,29 +2,89 @@
 //! These are not live-model behavior or provider-capacity evidence.
 use super::{commit_output, execute_step, fixture, record_result, state};
 use crate::{ModelChildHandler, NativeChildService};
+use anyhow::Context as _;
 use shenko_broker::{broker::{Broker, BrokerHandle}, local_provider::LocalModelProvider};
 use shenko_store::{Store, external::MODEL_CHILD_STEP_OPERATION};
 use shenko_types::{ids::*, operation::OperationState, task::*};
 use std::{future::Future, sync::Arc, time::Duration};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
-async fn read_wire(socket: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    loop {
-        let mut chunk = [0_u8; 4096];
-        let count = socket.read(&mut chunk).await.unwrap();
-        assert_ne!(count, 0, "loopback request ended before its body");
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-            let headers = std::str::from_utf8(&bytes[..end]).unwrap();
-            let len: usize = headers.lines().find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse().unwrap())
-            }).unwrap();
-            if bytes.len() >= end + 4 + len {
-                return serde_json::from_slice(&bytes[end + 4..end + 4 + len]).unwrap();
-            }
+/// Answer native metadata probes without consuming a scripted generation.
+async fn read_wire(listener: &TcpListener) -> (TcpStream, serde_json::Value) {
+    const MAX_HEADER_BYTES: usize = 64 * 1024;
+    const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+    let result = async {
+        loop {
+            let (mut socket, _) = listener.accept().await.context("accept loopback request")?;
+            let (bytes, start) = tokio::time::timeout(Duration::from_secs(5), async {
+                let mut bytes = Vec::new();
+                let mut chunk = [0_u8; 4096];
+                let (start, length) = loop {
+                    let count = socket.read(&mut chunk).await.context("read loopback headers")?;
+                    anyhow::ensure!(count != 0, "loopback request ended before complete headers");
+                    bytes.extend_from_slice(&chunk[..count]);
+                    if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        anyhow::ensure!(end + 4 <= MAX_HEADER_BYTES, "loopback headers exceed fixture bound");
+                        let headers = std::str::from_utf8(&bytes[..end]).context("decode loopback headers")?;
+                        let mut length = None;
+                        for line in headers.split("\r\n").skip(1) {
+                            anyhow::ensure!(!line.contains(['\r', '\n']), "malformed loopback header line");
+                            let (name, value) = line.split_once(':').context("loopback header lacks colon")?;
+                            anyhow::ensure!(!name.is_empty() && !name.bytes().any(|byte| byte.is_ascii_whitespace()),
+                                "malformed loopback header name");
+                            anyhow::ensure!(!name.eq_ignore_ascii_case("transfer-encoding"),
+                                "unexpected transfer-encoding on native sized JSON request");
+                            if name.eq_ignore_ascii_case("content-length") {
+                                anyhow::ensure!(length.is_none(), "duplicate loopback content-length");
+                                let value = value.trim();
+                                anyhow::ensure!(!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()),
+                                    "invalid loopback content-length");
+                                length = Some(value.parse::<usize>().context("loopback content-length overflow")?);
+                            }
+                        }
+                        let length = length.unwrap_or(0);
+                        anyhow::ensure!(length <= MAX_BODY_BYTES, "loopback body exceeds fixture bound");
+                        break (end + 4, length);
+                    }
+                    anyhow::ensure!(bytes.len() < MAX_HEADER_BYTES, "loopback headers exceed fixture bound");
+                };
+                let end = start.checked_add(length).context("loopback request length overflow")?;
+                while bytes.len() < end {
+                    let remaining = (end - bytes.len()).min(chunk.len());
+                    let count = socket.read(&mut chunk[..remaining]).await.context("read loopback body")?;
+                    anyhow::ensure!(count != 0, "loopback request ended before complete body");
+                    bytes.extend_from_slice(&chunk[..count]);
+                }
+                anyhow::ensure!(bytes.len() == end, "unexpected bytes after framed loopback body");
+                Ok::<_, anyhow::Error>((bytes, start))
+            }).await.context("loopback headers/body timed out")??;
+            let headers = std::str::from_utf8(&bytes[..start - 4]).context("decode loopback request line")?;
+            let mut request = headers.split("\r\n").next().context("missing request line")?.split_whitespace();
+            let method = request.next().context("missing request method")?;
+            let target = request.next().context("missing request target")?;
+            anyhow::ensure!(request.next() == Some("HTTP/1.1") && request.next().is_none(),
+                "malformed loopback HTTP/1.1 request line");
+            let path = target.split('?').next().context("missing request path")?;
+            let body = &bytes[start..];
+            let (content_type, response) = match (method, path) {
+                ("GET", "/v1/models") => ("application/json", r#"{"data":[]}"#),
+                ("GET", "/metrics") => ("text/plain; version=0.0.4", "process_start_time_seconds 1\n"),
+                ("POST", "/v1/chat/completions" | "/v1/messages") => {
+                    anyhow::ensure!(!body.is_empty(), "generation has no framed JSON body");
+                    let wire = serde_json::from_slice(body).context("decode complete generation JSON")?;
+                    return Ok::<_, anyhow::Error>((socket, wire));
+                }
+                _ => anyhow::bail!("unexpected loopback provider request: {method} {target}"),
+            };
+            anyhow::ensure!(body.is_empty(), "metadata probe must have an empty body");
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response}", response.len()).as_bytes())
+                .await.context("answer loopback metadata probe")?;
+            socket.shutdown().await.context("close loopback metadata probe")?;
         }
+    }.await;
+    match result {
+        Ok(request) => request,
+        Err(error) => panic!("loopback provider fixture failed: {error:#}"),
     }
 }
 
@@ -59,25 +119,104 @@ fn child_step(store: &Store, task_id: EntityId) -> shenko_types::operation::Oper
         .expect("the child run has at least one model step")
 }
 
+/// The receipt sink decodes the complete response before bounding public
+/// display text. Late reference definitions and real controls both survive.
+#[test]
+fn child_step_decodes_late_references_before_bounding_display_text() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let (_dir, store, agent) = fixture();
+            store.start_subject_dispatcher()?;
+            let display_limit = 64 * 1024;
+            let leading = "[tool:example.read:1] {}\n\n";
+            let padding = "x".repeat(display_limit - 1 - leading.len());
+            // The display bound falls inside this multibyte character. The reference
+            // definition and genuine controls are all beyond the retention bound.
+            let literal = format!("{leading}{padding}界 continued evidence\n\n[tool:example.read:1]: /original\n\n");
+            let raw = format!("{literal}[reply] Retained reply\n[ask] Which source?\n");
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let endpoint = format!("http://{}", listener.local_addr()?);
+            let body = serde_json::json!({"choices":[{"message":{"role":"assistant",
+                "content":raw},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
+            let server = tokio::spawn(async move {
+                let (mut socket, wire) = read_wire(&listener).await;
+                socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+                socket.shutdown().await?;
+                Ok::<_, std::io::Error>(wire)
+            });
+            let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1)?;
+            let mut subject = state(store.clone(), agent)?.with_broker(handle.clone());
+            commit_output(&store, &mut subject, 1, &[], &delegation(
+                "literal-review", "Keep source examples literal.", "Review the complete source.", 64,
+            )).await;
+            let native = service(&store, handle, subject.head.software_generation.clone());
+            let task = store.native_task_candidates_after(None, 8)?.pop()
+                .context("the delegation creates a native child task")?.1;
+            let run = tokio::spawn(broker.run());
+            drive_until(&native, || store.native_task_result(task.task_id).is_ok_and(|result| result.is_some()),
+                || format!("operations={:?}", store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).map(|rows| rows.len()))).await;
+            assert_eq!(server.await??["model"], "literal-review");
+        
+            let step = child_step(&store, task.task_id);
+            let attempt = store.external_operation_attempt(step.operation_id)?;
+            let receipt = store.external_evidence(attempt.final_receipt_id.context("the completed model step has a final receipt")?)?;
+            let original: serde_json::Value = serde_json::from_slice(
+                &store.cas.read_object(&receipt.raw_ref.digest)?)?;
+            assert_eq!(original["response"]["content"].as_str(), Some(raw.as_str()));
+            let normalized = receipt.normalized_ref.as_ref().context("the receipt retains its normalized step record")?;
+            let record: serde_json::Value = serde_json::from_slice(
+                &store.cas.read_object(&normalized.digest)?)?;
+            assert_eq!(record["text"].as_str(), Some(&literal[..display_limit - 1]));
+            assert_eq!(record["text_truncated"], true);
+            assert_eq!(record["complete"], true);
+            assert_eq!(record["tool_calls"], serde_json::json!([]));
+            assert_eq!(record["reply"]["body"], "Retained reply");
+            assert_eq!(record["question"], "Which source?");
+            let output_ref: shenko_types::object::ObjectRef = serde_json::from_value(record["output_ref"].clone())?;
+            assert_eq!(output_ref.bytes, raw.len() as u64);
+            assert_eq!(output_ref.digest, shenko_types::object::Digest::blake3(raw.as_bytes()));
+            assert_eq!(store.cas.read_object(&output_ref.digest)?, raw.as_bytes());
+            let result = store.native_task_result(task.task_id)?.context("the child run has a settled result")?;
+            assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+            let result = result.result.as_ref().context("the successful child run retains its result payload")?;
+            assert_eq!(result["termination"], "needs_decision");
+            assert_eq!(result["question"], "Which source?");
+            assert_eq!(result["transcript"][0], record);
+            assert_eq!(store.external_operation_attempts(step.operation_id)?.len(), 1);
+            native.close_and_join(0).await;
+            run.abort(); let _ = run.await;
+            Ok(())
+        })
+}
+
 /// A terminal provider refusal is a Failed generation, never an empty
 /// successful run. The step keeps its original E1 and the run-result
 /// operation settles Failed with the refusal as its durable record.
-#[tokio::test]
-async fn a_rejected_generation_settles_the_run_as_failed_with_its_original_e1() {
-    for truncated in [false, true] {
-        assert_failed_generation(truncated).await;
-    }
+#[test]
+fn a_rejected_generation_settles_the_run_as_failed_with_its_original_e1() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            for truncated in [false, true] {
+                assert_failed_generation(truncated).await?;
+            }
+            Ok(())
+        })
 }
 
-async fn assert_failed_generation(truncated: bool) {
+async fn assert_failed_generation(truncated: bool) -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
-        while let Ok((mut socket, _)) = listener.accept().await {
-            let wire = read_wire(&mut socket).await;
+        loop {
+            let (mut socket, wire) = read_wire(&listener).await;
             wires_tx.send(wire).unwrap();
             let (status, body) = if truncated {
                 ("200 OK", serde_json::json!({"choices":[{"message":{"role":"assistant",
@@ -107,7 +246,7 @@ async fn assert_failed_generation(truncated: bool) {
     let attempt = store.external_operation_attempt(step.operation_id).unwrap();
     let receipt = store.external_evidence(attempt.final_receipt_id.expect("the refusal is durable evidence")).unwrap();
     let raw: serde_json::Value = serde_json::from_slice(
-        &store.cas.read_object(&receipt.raw_ref.digest).unwrap()).unwrap();
+        &store.cas.read_object(&receipt.raw_ref.digest)?)?;
     if truncated {
         assert_eq!(raw["response"]["content"], "[reply] incomplete answer must not publish");
         assert_eq!(raw["response"]["stop_reason"], "length");
@@ -141,10 +280,11 @@ async fn assert_failed_generation(truncated: bool) {
         "a durable failed run must not become successful after a reopen");
     restored.close_and_join(0).await;
     drop(restored); drop(next);
+    Ok(())
 }
 
 #[tokio::test]
-async fn failed_generation_reopens_after_e1_without_a_second_send() {
+async fn failed_generation_reopens_after_e1_without_a_second_send() -> anyhow::Result<()> {
     use shenko_kernel::task::{NativeTaskHandler, NativeTaskInvocation};
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
@@ -155,8 +295,8 @@ async fn failed_generation_reopens_after_e1_without_a_second_send() {
     let server = tokio::spawn(async move {
         let mut wait = Some(wait);
         loop {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            sent.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            sent.send(wire).unwrap();
             if let Some(wait) = wait.take() { wait.await.unwrap(); }
             let body = b"{\"error\":\"no such model\"}";
             socket.write_all(format!("HTTP/1.1 404 Not Found\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
@@ -206,7 +346,7 @@ async fn failed_generation_reopens_after_e1_without_a_second_send() {
         }
     }).await.unwrap();
     let step = child_step(&store, task.task_id);
-    let attempt = store.external_operation_attempt(step.operation_id).unwrap();
+    let attempt = store.external_operation_attempt(step.operation_id)?;
     let evidence = store.external_evidence(attempt.final_receipt_id.unwrap()).unwrap();
     let raw = store.cas.read_object(&evidence.raw_ref.digest).unwrap();
     assert_eq!(step.outcome, Some(shenko_types::operation::OperationOutcome::Failed));
@@ -236,6 +376,7 @@ async fn failed_generation_reopens_after_e1_without_a_second_send() {
     restored.close_and_join(0).await;
     broker_run.abort(); let _ = broker_run.await;
     server.abort(); let _ = server.await;
+    Ok(())
 }
 
 async fn converge_with_bounds<F, Fut, D, S>(
@@ -333,8 +474,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
         for _ in 0..2 {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let wire = read_wire(&mut socket).await;
+            let (mut socket, wire) = read_wire(&listener).await;
             reply(&mut socket, wire["model"].as_str().unwrap()).await;
             wires_tx.send(wire).unwrap();
         }
@@ -424,7 +564,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
 }
 
 #[tokio::test]
-async fn cancelled_stopped_waiter_retains_late_provider_e1_without_t2() {
+async fn cancelled_stopped_waiter_retains_late_provider_e1_without_t2() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -432,13 +572,12 @@ async fn cancelled_stopped_waiter_retains_late_provider_e1_without_t2() {
     let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let wire = read_wire(&mut socket).await;
+        let (mut socket, wire) = read_wire(&listener).await;
         wire_tx.send(wire).unwrap();
         release_rx.await.unwrap();
         reply(&mut socket, "cancel-child").await;
     });
-    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1)?;
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
     commit_output(&store, &mut subject, 1, &[], &delegation("cancel-child", "Report only the supplied facts.", "Return this finite review.", 64)).await;
     let native = service(&store, handle.clone(), subject.head.software_generation.clone());
@@ -466,6 +605,7 @@ async fn cancelled_stopped_waiter_retains_late_provider_e1_without_t2() {
     assert_eq!(store.external_operation_evidence(operation_id).unwrap().len(), 1);
     assert_eq!(store.external_operation_attempts(operation_id).unwrap().len(), 1);
     run.abort(); let _ = run.await;
+    Ok(())
 }
 
 #[tokio::test]
@@ -475,8 +615,7 @@ async fn uncertain_child_restores_original_debt_and_never_redispatches() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let wire = read_wire(&mut socket).await;
+        let (socket, wire) = read_wire(&listener).await;
         drop(socket); // No provider-terminal evidence, not a rejection.
         (wire, listener)
     });
@@ -529,7 +668,7 @@ async fn uncertain_child_restores_original_debt_and_never_redispatches() {
 /// provider answers. A replacement registry and a reopened Store must not
 /// revive an older step's material, nor hide newly prepared material.
 #[tokio::test]
-async fn child_contributions_survive_registry_replacement_and_reopen_without_reuse() {
+async fn child_contributions_survive_registry_replacement_and_reopen_without_reuse() -> anyhow::Result<()> {
     use shenko_context_policy::contribution::*;
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
@@ -540,8 +679,8 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     let server = tokio::spawn(async move {
         let mut release = Some(release_rx);
         for text in ["[tool:fixture.missing:1] {}", "finished the finite observation"] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire).unwrap();
             if let Some(release) = release.take() { release.await.unwrap(); }
             let raw = serde_json::json!({"choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
@@ -608,6 +747,19 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     assert_eq!(replacement.usage(&request_id), Some(used));
     assert!(replacement.collect(&scope, 2).contributions.is_empty());
     assert!(matches!(store.native_task_result(task.task_id).unwrap().unwrap().outcome, TaskOutcome::Succeeded));
+    // The inspection trajectory reads the same run back from ledger facts:
+    // both model steps in order with their sealed records, the tool call the
+    // first step made, and the final answer (docs/specs/web-interface.md#5-2).
+    let trajectory = store.task_trajectory(task.agent_id, task.task_id)?.context("the run has a trajectory")?;
+    assert_eq!(trajectory.task.kind, crate::model_child::MODEL_CHILD_KIND);
+    assert!(trajectory.input.as_ref().is_some_and(|input| input.to_string().contains("Observe prepared context.")),
+        "the delegation brief is readable: {:?}", trajectory.input);
+    let steps: Vec<_> = trajectory.operations.iter()
+        .filter(|operation| operation.operation_name == MODEL_CHILD_STEP_OPERATION).collect();
+    assert_eq!(steps.len(), 2, "{:?}", trajectory.operations);
+    let first = steps[0].record.as_ref().context("first step record is sealed")?;
+    assert_eq!(first["tool_calls"].as_array().map(Vec::len), Some(1), "{first}");
+    assert_eq!(steps[1].record.as_ref().context("second step record is sealed")?["text"], "finished the finite observation");
     server.await.unwrap();
     native.close_and_join(0).await;
     drop(native); drop(subject);
@@ -627,6 +779,7 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     assert_eq!(restored.usage(&request_id).unwrap().sent, vec![item.clone()]);
     assert_eq!(restored.usage(&request_id).unwrap().seal_digest, operation.final_input_ref.digest);
     drop(offline);
+    Ok(())
 }
 
 /// A finite authored budget may exceed both the delegating step's budget and
@@ -653,7 +806,7 @@ async fn child_authored_budget_is_not_capped_by_defaults() {
 }
 
 #[tokio::test]
-async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
+async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() -> anyhow::Result<()> {
     use shenko_broker::provider::AnthropicProvider;
     use shenko_quota::*;
     use shenko_store::external::InferenceSendBinding;
@@ -666,12 +819,13 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        wire_tx.send(read_wire(&mut socket).await).unwrap();
+        let (mut socket, wire) = read_wire(&listener).await;
+        wire_tx.send(wire).unwrap();
         release_rx.await.unwrap();
         let raw = r#"{"content":[{"type":"text","text":"scripted quota-bound cloud result"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":7}}"#;
         socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
-        socket.shutdown().await.unwrap();
+        socket.shutdown().await?;
+        Ok::<(), std::io::Error>(())
     });
     let (broker, handle) = Broker::with_anthropic_provider(
         AnthropicProvider::with_endpoint(
@@ -727,7 +881,7 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     let operation = store.external_operation(operation_id).unwrap();
     let attempt = store.external_operation_attempt(operation_id).unwrap();
     let selected: InferenceSendBinding = serde_json::from_slice(&store.cas.read_object(&attempt.transport_ref.unwrap().digest).unwrap()).unwrap();
-    let send = selected.send_id.expect("configured cloud quota must bind its exact send");
+    let send = selected.send_id.context("configured cloud quota must bind its exact send")?;
     assert_eq!(store.quota_send_ids(selected.request_id).unwrap(), vec![(send, operation.prepared_commit.seq.0)]);
 
     // A second budget is real durable state, but is not this wire's send.
@@ -740,7 +894,7 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
         other => panic!("later synthetic budget was not admitted: {other:?}"),
     };
     store.arm_quota_send(selected.request_id, &admission).unwrap();
-    release_tx.send(()).unwrap(); server.await.unwrap();
+    release_tx.send(()).unwrap(); server.await??;
     drive_until(
         &native,
         || store.native_task_result(task.task_id).unwrap().is_some(),
@@ -769,6 +923,7 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     assert_eq!(handle.active_count(), 0);
     native.close_and_join(0).await;
     run.abort(); let _ = run.await;
+    Ok(())
 }
 
 /// An owner message delivered while a child is running reaches that same
@@ -785,8 +940,8 @@ async fn owner_message_reaches_a_running_child_and_is_settled_once() {
     let server = tokio::spawn(async move {
         let mut release = Some(release_rx);
         for text in ["first observation recorded", "owner message answered"] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire).unwrap();
             if let Some(release) = release.take() {
                 release.await.unwrap();
             }
@@ -965,24 +1120,18 @@ async fn owner_message_reaches_a_running_child_and_is_settled_once() {
 /// owner's answer continues the very same discussion after a restart instead
 /// of starting a second child or re-running the first run's steps.
 #[tokio::test]
-async fn a_child_question_is_answered_by_the_same_discussion_after_reopen() {
-    // The suite has to be able to FINISH: this case hangs on main (issue
-    // #266), and one hanging case hides every other result — the harness
-    // waits forever and nobody can tell green from red. A bounded wait turns
-    // the hang into the ordinary red case it actually is, with the same
-    // evidence: the child's question must be answered after a reopen.
-    let outcome = tokio::time::timeout(
+async fn a_child_question_is_answered_by_the_same_discussion_after_reopen() -> anyhow::Result<()> {
+    // Keep the cooperative bound. Tokio cannot preempt a synchronous
+    // connection self-lock, so the parent also bounds the test process.
+    // Continuation admission must use its existing transaction.
+    tokio::time::timeout(
         std::time::Duration::from_secs(180),
         a_child_question_is_answered_by_the_same_discussion_after_reopen_body(),
     )
-    .await;
-    assert!(
-        outcome.is_ok(),
-        "the child's question must be answered by the owner after a reopen (issue #266)"
-    );
+    .await.context("the child's question must be answered by the owner after reopen (issue #266)")?
 }
 
-async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body() {
+async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -990,8 +1139,8 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
         for text in ["[ask] 要观察哪个数据集？", "数据集 alpha 的观察完成"] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire).unwrap();
             let raw = serde_json::json!({
                 "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7},
@@ -1050,6 +1199,15 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     );
     assert_eq!(payload["steps"], 1, "the question ended the run");
     assert!(wires_rx.try_recv().is_err(), "asking does not send a second generation");
+    let question_step = child_step(&store, task.task_id);
+    let question_attempt = store.external_operation_attempt(question_step.operation_id)?;
+    let question_evidence = store.external_evidence(
+        question_attempt.final_receipt_id.context("question has its original E1")?,
+    )?;
+    let question_raw = store.cas.read_object(&question_evidence.raw_ref.digest)?;
+    let question_input: serde_json::Value = serde_json::from_slice(
+        &store.cas.read_object(&question_step.final_input_ref.digest)?,
+    )?;
 
     native.close_and_join(0).await;
     drop(native);
@@ -1147,6 +1305,26 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     let sealed: serde_json::Value =
         serde_json::from_slice(&reopened.cas.read_object(&step.final_input_ref.digest).unwrap()).unwrap();
     assert_eq!(sealed["step_index"], 1, "the continuation continues the transcript");
+    assert_ne!(step.operation_id, question_step.operation_id);
+    assert_ne!(sealed["request_id"], question_input["request_id"]);
+    let continued_attempt = reopened.external_operation_attempt(step.operation_id)?;
+    assert_ne!(continued_attempt.attempt_id, question_attempt.attempt_id);
+    assert_eq!(
+        serde_json::to_value(reopened.external_operation(question_step.operation_id)?)?,
+        serde_json::to_value(&question_step)?,
+        "continuation preserves the original question operation"
+    );
+    assert_eq!(
+        serde_json::to_value(reopened.external_operation_attempt(question_step.operation_id)?)?,
+        serde_json::to_value(&question_attempt)?,
+        "continuation preserves the original question attempt"
+    );
+    assert_eq!(
+        serde_json::to_value(reopened.external_evidence(question_evidence.receipt_id)?)?,
+        serde_json::to_value(&question_evidence)?,
+        "continuation preserves the original question E1"
+    );
+    assert_eq!(reopened.cas.read_object(&question_evidence.raw_ref.digest)?, question_raw);
     // The first run's step is never re-sent by the continuation.
     assert_eq!(
         reopened
@@ -1176,13 +1354,14 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     let _ = run.await;
     server.abort();
     let _ = server.await;
+    Ok(())
 }
 
 /// A worker that disappears after the last step's E1 and before the run
 /// result settles the same decision on recovery. It must not send a second
 /// generation for a run that already answered.
 #[tokio::test]
-async fn a_decided_run_reopens_without_a_second_generation() {
+async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<()> {
     use shenko_kernel::task::{NativeTaskHandler, NativeTaskInvocation};
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
@@ -1191,13 +1370,14 @@ async fn a_decided_run_reopens_without_a_second_generation() {
     let (sent, mut received) = tokio::sync::mpsc::unbounded_channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        sent.send(read_wire(&mut socket).await).unwrap();
-        release_rx.await.unwrap();
+        let (mut socket, wire) = read_wire(&listener).await;
+        sent.send(wire)?;
+        release_rx.await?;
         reply(&mut socket, "decided-child").await;
         // A second request would surface here: the listener stays open.
-        let (_socket, _) = listener.accept().await.unwrap();
-        sent.send(serde_json::json!({"unexpected":"second send"})).unwrap();
+        let (_socket, _) = listener.accept().await?;
+        sent.send(serde_json::json!({"unexpected":"second send"}))?;
+        Ok::<(), anyhow::Error>(())
     });
     let (broker, handle) =
         Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
@@ -1348,18 +1528,22 @@ async fn a_decided_run_reopens_without_a_second_generation() {
     broker_run.abort();
     let _ = broker_run.await;
     server.abort();
-    let _ = server.await;
+    match server.await {
+        Err(error) if error.is_cancelled() => {}
+        result => result??,
+    }
+    Ok(())
 }
 
 /// A child cannot widen its own capability by spawning a nested child: the
 /// nested tool choice stays inside what its parent was granted, and the child
 /// reads the real refusal instead of an invented success or a reprieve.
 #[tokio::test]
-async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
+async fn a_nested_child_cannot_widen_its_parents_granted_tools() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    store.start_subject_dispatcher().unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    store.start_subject_dispatcher()?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", listener.local_addr()?);
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
         for text in [
@@ -1375,23 +1559,23 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
             ),
             "没有可执行的嵌套委派，如实交回。".to_string(),
         ] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire)?;
             let raw = serde_json::json!({
                 "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7},
             }).to_string();
             socket
                 .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes())
-                .await
-                .unwrap();
-            socket.shutdown().await.unwrap();
+                .await?;
+            socket.shutdown().await?;
         }
+        Ok::<(), anyhow::Error>(())
     });
     let (broker, handle) =
         Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
-            .unwrap();
-    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+            ?;
+    let mut subject = state(store.clone(), agent)?.with_broker(handle.clone());
     commit_output(
         &store,
         &mut subject,
@@ -1412,7 +1596,8 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
         ),
     )
     .await;
-    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let task = store.native_task_candidates_after(None, 8)?.pop()
+        .context("the delegation creates the parent child task")?.1;
     let native = service(&store, handle.clone(), subject.head.software_generation.clone());
     let run = tokio::spawn(broker.run());
     drive_until(
@@ -1421,37 +1606,36 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
         || format!("steps={:?}", store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).map(|rows| rows.len())),
     )
     .await;
-    let first = wires_rx.recv().await.unwrap();
+    let first = wires_rx.recv().await.context("the parent child sends its first model step")?;
     assert_eq!(first["model"], "narrowing-child");
-    let second = wires_rx.recv().await.unwrap();
+    let second = wires_rx.recv().await.context("the parent child reads the nested delegation refusal")?;
     let rendered: Vec<String> = second["messages"]
         .as_array()
-        .unwrap()
+        .context("the second model request has a message array")?
         .iter()
         .map(|message| message["content"].as_str().unwrap_or_default().to_owned())
         .collect();
     let refusal = rendered
         .iter()
         .find(|content| content.starts_with("[tool_result:model.child:1]"))
-        .unwrap_or_else(|| panic!("the child never read its refusal: {rendered:?}"));
+        .with_context(|| format!("the child never read its refusal: {rendered:?}"))?;
     assert!(
         refusal.contains("may not request a tool its own parent was not granted"),
         "the child must read the real reason: {refusal}"
     );
     assert!(refusal.contains("fixture.not_granted:1"));
     // No nested run exists at all: the widening was refused before execution.
-    let result = store.native_task_result(task.task_id).unwrap().unwrap();
-    assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+    let result = store.native_task_result(task.task_id)?.context("the parent child has a settled result")?;
+    assert_eq!(result.result.as_ref().context("the settled parent child retains its result payload")?["termination"], "completed");
     assert_eq!(
-        store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).unwrap().len(),
+        store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)?.len(),
         2
     );
     // The parent subject-root task and this child exist; a refused widening
     // adds no third task at all.
     let parent = subject.head.subject_root_task_id.to_string();
     let children = store
-        .list_recent_tasks(64)
-        .unwrap()
+        .list_task_summaries(agent, 64)?
         .into_iter()
         .filter(|recent| recent.task_id != task.task_id.to_string() && recent.task_id != parent)
         .count();
@@ -1460,5 +1644,9 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() {
     run.abort();
     let _ = run.await;
     server.abort();
-    let _ = server.await;
+    match server.await {
+        Err(error) if error.is_cancelled() => {}
+        result => result??,
+    }
+    Ok(())
 }

@@ -26,7 +26,7 @@ use shenko_types::ids::EntityId;
 use shenko_wasm::gc::{CasGc, CasRootProducer, GcOutcome};
 use shenko_wasm::state::{
     state_roots, Continuation, WasmBackendIdentity, WasmStateLevel, WasmStateProvider,
-    WasmStateRegistry, WasmStateProducer,
+    WasmStateRegistry, WasmStateProducer, CONTINUATION_MAGIC,
 };
 use shenko_wasm::{MountMode, MountSpec, WasiCommand, WasmRuntime, HOME_GUEST_PATH};
 use std::fs;
@@ -56,7 +56,9 @@ fn no_stdio() -> WasiCommand<std::io::Empty, std::io::Empty, std::io::Empty> {
 ///   the graph digest is 32 bytes derived from `$pc`, so it changes exactly
 ///   when the restored continuation differs.
 /// * `shenko_state_import` restores `$pc` from the imported blob.
-const RESUMABLE_INTERPRETER_WAT: &str = r#"
+fn resumable_interpreter_wat() -> Vec<u8> {
+    format!(
+        r#"
 (module
   (memory (export "memory") 1)
   (global $pc (mut i32) (i32.const 0))
@@ -77,7 +79,7 @@ const RESUMABLE_INTERPRETER_WAT: &str = r#"
         (br $loop))))
 
   (func (export "shenko_state_export") (result i32)
-    (i32.store (i32.const 1024) (i32.const 1263544403))   ;; "SHSK"
+    (i32.store (i32.const 1024) (i32.const {magic}))      ;; "SHSK"
     (i32.store (i32.const 1028) (i32.const 1))            ;; abi
     (i32.store (i32.const 1032) (i32.const 7))            ;; resume_kind
     (i32.store (i32.const 1036) (i32.const 0))            ;; reserved
@@ -109,7 +111,11 @@ const RESUMABLE_INTERPRETER_WAT: &str = r#"
   (func (export "marker") (result i32)
     (i32.load8_u (i32.add (i32.const 3000) (global.get $pc))))
 )
-"#;
+"#,
+        magic = CONTINUATION_MAGIC,
+    )
+    .into_bytes()
+}
 
 /// Same interpreter without the continuation protocol: the host can only see
 /// linear memory, and must say so.
@@ -132,7 +138,7 @@ fn home_mount(home: &PathBuf) -> MountSpec {
 fn captured_continuation_resumes_the_guests_own_execution() -> Result<()> {
     let home = temp_dir("resume-home");
     let cas = ContentStore::new(temp_dir("resume-cas"))?;
-    let wat = RESUMABLE_INTERPRETER_WAT.as_bytes().to_vec();
+    let wat = resumable_interpreter_wat();
 
     let mut runtime = WasmRuntime::with_mounts(vec![home_mount(&home)])?;
     let mut live = runtime.instantiate_stateful(&wat, no_stdio())?;
@@ -233,7 +239,7 @@ fn a_guest_without_the_protocol_is_memory_only_and_never_claimed_resumed() -> Re
 fn mismatched_module_backend_and_missing_objects_are_refused() -> Result<()> {
     let home = temp_dir("refuse-home");
     let cas = ContentStore::new(temp_dir("refuse-cas"))?;
-    let wat = RESUMABLE_INTERPRETER_WAT.as_bytes().to_vec();
+    let wat = resumable_interpreter_wat();
 
     let mut runtime = WasmRuntime::with_mounts(vec![home_mount(&home)])?;
     let mut live = runtime.instantiate_stateful(&wat, no_stdio())?;
@@ -277,17 +283,19 @@ fn published_state_records_pin_their_objects_and_report_missing_continuations() 
     let home = temp_dir("record-home");
     let data = temp_dir("record-data");
     let cas = ContentStore::new(data.join("cas"))?;
-    let wat = RESUMABLE_INTERPRETER_WAT.as_bytes().to_vec();
+    let registry = WasmStateRegistry::new(&cas, &data);
+    let producer = WasmStateProducer(&registry);
+    let gc = CasGc::new(&cas, &data);
+    gc.adopt_registry(&[&producer], &["seed-wasm-state"])?;
+    let wat = resumable_interpreter_wat();
 
     let mut runtime = WasmRuntime::with_mounts(vec![home_mount(&home)])?;
     let mut live = runtime.instantiate_stateful(&wat, no_stdio())?;
     runtime.call_stateful(&live, "step", &[])?;
     let captured = runtime.capture_state(&mut live, &cas, &[])?;
 
-    let registry = WasmStateRegistry::new(&cas, &data);
     let reference = registry.record(&captured)?;
     assert_eq!(registry.latest()?.as_ref(), Some(&reference));
-    let producer = WasmStateProducer(&registry);
     let roots = producer.enumerate()?;
     assert!(roots.complete);
     assert!(roots.blockers.is_empty(), "a resumed-capable state is not a gap");
@@ -295,22 +303,8 @@ fn published_state_records_pin_their_objects_and_report_missing_continuations() 
         assert!(roots.roots.contains(&digest), "{digest} is pinned");
     }
 
-    // A protocol-less state is pinned too, but its missing continuation is
-    // reported truthfully.
-    let memory_only = MEMORY_ONLY_WAT.as_bytes();
-    let mut plain = runtime.instantiate_stateful(memory_only, no_stdio())?;
-    runtime.call_stateful(&plain, "mutate", &[])?;
-    let captured_plain = runtime.capture_state(&mut plain, &cas, &[])?;
-    registry.record(&captured_plain)?;
-    let roots = producer.enumerate()?;
-    assert!(roots.complete);
-    assert_eq!(roots.blockers.len(), 1);
-    assert!(roots.blockers[0].contains("open gap"));
-
-    // The GC pins the state objects: an unreferenced orphan is collected while
-    // every state object survives.
-    let gc = CasGc::new(&cas, &data);
-    gc.adopt_registry(&[&producer], &["seed-wasm-state"])?;
+    // A complete resumable state permits collection of an unreferenced orphan
+    // while every state object survives.
     let orphan = cas
         .seal_object(b"orphan", "application/octet-stream", "seed-wasm-state", "x", 1)
         .expect("seal orphan")
@@ -327,7 +321,7 @@ fn published_state_records_pin_their_objects_and_report_missing_continuations() 
     }
     // A record whose manifest object is gone makes reclamation refuse instead
     // of treating the state as empty.
-    assert!(cas.remove_object(&captured_plain.id)?);
+    assert!(cas.remove_object(&captured.id)?);
     match gc.reclaim(&[&producer])? {
         GcOutcome::Refused(refusal) => {
             assert!(
@@ -336,6 +330,36 @@ fn published_state_records_pin_their_objects_and_report_missing_continuations() 
             );
         }
         GcOutcome::Reclaimed(_) => panic!("a missing manifest must refuse reclamation"),
+    }
+
+    // A separate installation isolates the protocol-less state from both the
+    // successful reclamation and the missing-manifest refusal above.
+    let plain_data = temp_dir("record-memory-only-data");
+    let plain_cas = ContentStore::new(plain_data.join("cas"))?;
+    let plain_registry = WasmStateRegistry::new(&plain_cas, &plain_data);
+    let plain_producer = WasmStateProducer(&plain_registry);
+    let plain_gc = CasGc::new(&plain_cas, &plain_data);
+    plain_gc.adopt_registry(&[&plain_producer], &["seed-wasm-state"])?;
+    let memory_only = MEMORY_ONLY_WAT.as_bytes();
+    let mut plain = runtime.instantiate_stateful(memory_only, no_stdio())?;
+    runtime.call_stateful(&plain, "mutate", &[])?;
+    let captured_plain = runtime.capture_state(&mut plain, &plain_cas, &[])?;
+    plain_registry.record(&captured_plain)?;
+    let roots = plain_producer.enumerate()?;
+    assert!(roots.complete);
+    assert_eq!(roots.blockers.len(), 1);
+    assert!(roots.blockers[0].contains("open gap"));
+    for digest in state_roots(&captured_plain.manifest) {
+        assert!(roots.roots.contains(&digest), "{digest} is pinned");
+    }
+    match plain_gc.reclaim(&[&plain_producer])? {
+        GcOutcome::Refused(refusal) => {
+            assert!(
+                format!("{refusal}").contains("CAS_ROOT_PRODUCER_BLOCKED"),
+                "unexpected refusal: {refusal}"
+            );
+        }
+        GcOutcome::Reclaimed(_) => panic!("a missing continuation must block reclamation"),
     }
     let _ = EntityId::new();
     Ok(())

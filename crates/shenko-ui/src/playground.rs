@@ -423,6 +423,24 @@ impl PlaygroundState {
         Ok(())
     }
 
+    /// The version the active (adopted) manifest's page names, if any: the
+    /// authored head is a draft until a publication adopts it, so a published
+    /// work lens shows exactly this version (docs/specs/web-interface.md#5-1).
+    pub fn adopted_version(&self, id: EntityId) -> anyhow::Result<Option<ArtifactVersion>> {
+        let Some(record) = self.store.artifact_record(id)? else { return Ok(None) };
+        let Some(active) = record.active_manifest_ref else { return Ok(None) };
+        let bytes = self.store.cas.read_object(&active.digest)?;
+        let manifest: ArtifactManifest = serde_json::from_slice(&bytes)?;
+        let Some(frontend) = manifest.frontend else { return Ok(None) };
+        for revision in self.revisions(id)?.into_iter().rev() {
+            let version = self.read_version(id, revision)?;
+            if version.content_ref.digest == frontend.bundle_ref.digest {
+                return Ok(Some(version));
+            }
+        }
+        anyhow::bail!("the adopted manifest names a page no retained version carries")
+    }
+
     /// Stage the current head without adopting it. Native actions may choose
     /// the current head; a reader's expected revision is checked under the
     /// same guard as the proposal's durable transition.
@@ -756,6 +774,7 @@ pub fn router(state: PlaygroundState) -> Router {
         .route("/playground", get(list_handler))
         .route("/playground/{id}", get(get_handler).put(put_handler))
         .route("/playground/{id}/versions", get(versions_handler))
+        .route("/playground/{id}/adopted", get(adopted_handler))
         .route("/playground/{id}/rollback", post(rollback_handler))
         .route("/playground/{id}/backend", get(backend_info_handler).put(bind_backend_handler))
         .route("/playground/{id}/backend/action", post(backend_action_handler).get(action_status_handler))
@@ -810,19 +829,33 @@ async fn list_handler() -> Redirect {
     Redirect::temporary("/?view=playground")
 }
 
-/// A work's content is the subject's (or a plugin's) own code, never the
-/// shell's. Served same-origin without this, an HTML work opened directly
-/// would run with the admin UI's origin and could drive `/ws`, config and
-/// owner routes. The CSP `sandbox` directive gives the document an opaque
-/// origin whether it is opened directly or framed by a lens, so its scripts
-/// run but hold none of the shell's authority (docs/specs/web-interface.md#spec-21-3).
-pub(crate) fn confine_artifact_content(headers: &mut axum::http::HeaderMap) {
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("sandbox allow-scripts allow-forms allow-popups allow-modals"),
-    );
+/// A work's page is served as the trusted extension it is
+/// (docs/specs/web-interface.md#5-1): the subject writes, self-tests and can
+/// roll back its works (docs/specs/kernel.md#kernel-8), so the default is
+/// trust — same origin, no sandbox — and the safety rope is the version
+/// history plus the shell's safe mode, not a static deny. Only the bytes'
+/// declared type is pinned, so a page is never sniffed into something else.
+pub(crate) fn describe_artifact_content(headers: &mut axum::http::HeaderMap) {
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+}
+
+/// `GET /playground/{id}/adopted` — the adopted page, never the draft head.
+async fn adopted_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
+    match pg.adopted_version(id) {
+        Ok(Some(version)) => match pg.read_content(&version) {
+            Ok(bytes) => {
+                let mut response = Response::new(Body::from(bytes));
+                response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(&version.mime)
+                    .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
+                if let Ok(value) = HeaderValue::from_str(&version.revision.to_string()) { response.headers_mut().insert("x-artifact-revision", value); }
+                describe_artifact_content(response.headers_mut());
+                response
+            }
+            Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        },
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "no adopted page"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
 }
 
 async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
@@ -834,7 +867,7 @@ async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<E
             response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(&record.mime)
                 .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
             if let Ok(value) = HeaderValue::from_str(&record.revision.to_string()) { response.headers_mut().insert("x-artifact-revision", value); }
-            confine_artifact_content(response.headers_mut());
+            describe_artifact_content(response.headers_mut());
             response
         }
     }

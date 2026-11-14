@@ -186,8 +186,12 @@ fn baseline_strategy_reproduces_the_pure_functions_and_is_attributed() {
         produced.cost_model_version.as_deref(),
         Some("shenko.quota.rolling_baseline@1")
     );
+    // The content identity includes provenance; the facade deliberately adds
+    // its strategy identity without changing the underlying forecast.
+    let mut expected = pure.clone();
+    expected.cost_model_version = Some("shenko.quota.rolling_baseline@1".into());
     assert_eq!(
-        forecast_material(&pure),
+        forecast_material(&expected),
         forecast_material(&produced),
         "the baseline plugin is the same algorithm, not a second one"
     );

@@ -45,6 +45,18 @@ impl TaskOwner {
     }
 }
 
+/// A read-model role established by durable ownership and admission facts.
+/// Definition names are deliberately absent: any installed plugin can be
+/// delegated or called as a tool. Missing historical facts remain unknown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRole {
+    SubjectRoot,
+    Delegation,
+    Tool,
+    Unknown,
+}
+
 /// 任务实现引用
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImplementationRef {

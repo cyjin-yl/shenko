@@ -29,6 +29,10 @@ pub async fn index_handler() -> Response<Body> {
     response("text/html; charset=utf-8", INDEX_HTML)
 }
 
+pub async fn theme_bootstrap_handler() -> Response<Body> {
+    response("text/javascript; charset=utf-8", THEME_BOOTSTRAP)
+}
+
 pub async fn app_js_handler() -> Response<Body> {
     response("text/javascript; charset=utf-8", APP_JS)
 }
@@ -76,6 +80,7 @@ pub async fn health_handler() -> Json<serde_json::Value> {
 /// The one served UI. Rust embeds only actual artifacts built from the pinned
 /// Proto-UI source; no Node server or runtime package download is required.
 const INDEX_HTML: &str = include_str!("index.html");
+const THEME_BOOTSTRAP: &str = include_str!("static/theme-bootstrap.js");
 const APP_JS: &str = include_str!("static/app.js");
 const APP_CSS: &str = include_str!("static/app.css");
 const PROTO_STYLE: &str = include_str!("static/proto-ui-style.css");

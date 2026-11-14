@@ -321,6 +321,7 @@ impl UiServer {
         };
         let app = Router::new()
             .route("/", get(index_handler))
+            .route("/assets/theme-bootstrap.js", get(theme_bootstrap_handler))
             .route("/assets/app.js", get(app_js_handler))
             .route("/assets/app.css", get(app_css_handler))
             .route("/assets/proto-ui-style.css", get(proto_style_handler))

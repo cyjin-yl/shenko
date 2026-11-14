@@ -1,7 +1,6 @@
 //! Decode once at the model-result boundary; consumers never inspect raw text.
 //! Controls are whole unindented lines outside Markdown fences/quotes. There is
 //! no natural-language trigger, legacy alias, or raw-publication fallback.
-use pulldown_cmark::{Event, Parser, Tag};
 use shenko_identity::IdentityService;
 use shenko_types::{
     channel::ChannelRegistry,
@@ -210,26 +209,7 @@ pub fn parse_output(
     };
     let mut offset = 0;
     let mut reply: Option<usize> = None;
-    // CommonMark source ranges include lazy blockquote/list continuations and
-    // resolved shortcut reference links. A line-prefix heuristic cannot tell
-    // these from real controls. Never render/rewrite the original evidence.
-    let mut literal_ranges: Vec<_> = Parser::new(raw)
-        .into_offset_iter()
-        .filter_map(|(event, range)| match event {
-            Event::Start(
-                Tag::BlockQuote(_)
-                | Tag::List(_)
-                | Tag::CodeBlock(_)
-                | Tag::HtmlBlock
-                | Tag::Link { .. }
-                | Tag::Image { .. },
-            )
-            | Event::Code(_) => Some(range),
-            _ => None,
-        })
-        .collect();
-    literal_ranges.sort_by_key(|range| range.start);
-    let mut literal_ranges = literal_ranges.into_iter().peekable();
+    let source = OutputSource::new(raw);
     let mut identity_fields = std::collections::HashSet::new();
     let mut wait_controls = 0u32;
     let mut obligation_targets = std::collections::HashSet::new();
@@ -242,36 +222,7 @@ pub fn parse_output(
             line: line_no,
         };
         offset += chunk.len();
-        while literal_ranges
-            .peek()
-            .is_some_and(|range| range.end <= span.start)
-        {
-            literal_ranges.next();
-        }
-        let active = !line.starts_with([' ', '\t'])
-            && !literal_ranges
-                .peek()
-                .is_some_and(|range| range.contains(&span.start));
-        // ASCII control tags are reserved at column zero. Non-ASCII prose,
-        // references, indentation, quotes and fenced examples stay literal.
-        let tag = line
-            .strip_prefix('[')
-            .and_then(|v| v.split_once(']').map(|(h, _)| h));
-        let markdown_reference = line
-            .split_once(']')
-            .is_some_and(|(_, suffix)| suffix.starts_with(['(', '[', ':']));
-        let control = active
-            && !markdown_reference
-            && (tag.is_some_and(|h| {
-                h.bytes().next().is_some_and(|c| c.is_ascii_alphabetic())
-                    && h.bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || b":_-.".contains(&c))
-            }) || (tag.is_none()
-                && line
-                    .strip_prefix('[')
-                    .is_some_and(|v| v.bytes().next().is_some_and(|c| c.is_ascii_lowercase())))
-                || line.starts_with("dispatch:"));
-        if control {
+        if source.is_control_line(span.start, line) {
             if line.starts_with("[memory]") || line.starts_with("dispatch:") {
                 return Err(invalid(
                     line_no,

@@ -54,6 +54,8 @@ pub struct TimelineMessage {
     pub step: u64,
     pub step_id: String,
     pub commit_ref: String,
+    /// Receiving-ledger replay position; `commit_ref` may name a foreign source.
+    pub commit_seq: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +87,7 @@ fn committed_timeline_message(out: OutboxMessage) -> TimelineMessage {
         step: out.step,
         step_id,
         commit_ref,
+        commit_seq: out.replay_seq,
         terminal: Some(true),
         // The current OutboxMessage has no stream/request/attempt binding.
         // They remain absent rather than being inferred from the step number.
@@ -401,7 +404,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
             "documents": state.presentation.is_some(),
             "attachments": false,
             "durable_input_receipts": state.input.is_some(),
-            "committed_replay": state.store.is_some(),
+            "committed_replay": state.store.is_some() && state.subject_id.is_some(),
             "streaming": state.stream.is_some(),
         },
         "surface": caps,
@@ -656,12 +659,16 @@ async fn recv_committed(
     let Some(store) = &state.store else {
         return recv_outbox(wake).await;
     };
+    let Some(subject_id) = state.subject_id else {
+        // Missing or ambiguous local identity never selects another subject.
+        return std::future::pending().await;
+    };
     loop {
         if let Some(out) = history.pop_front() {
             *cursor = (out.replay_seq, Some(out.step_id));
             return Some(out);
         }
-        match shenko_subject::outbox::committed_after(store, cursor.0, cursor.1, 64) {
+        match shenko_subject::outbox::committed_after(store, subject_id, cursor.0, cursor.1, 64) {
             Ok(messages) => history.extend(messages),
             Err(e) => {
                 tracing::error!(err=%e,"committed timeline read failed; no guessed replay");
@@ -728,6 +735,7 @@ mod tests {
     use super::*;
     use crate::input::SubmissionMode;
     use crate::presentation::SurfaceCapabilityProvider;
+    use anyhow::Context;
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::LedgerSeq;
 
@@ -875,9 +883,82 @@ mod tests {
     }
 
     #[test]
+    fn input_history_retains_admission_order_and_withdrawal_after_reopen() -> anyhow::Result<()> {
+        let (dir, state, input, mut rx) = service_state();
+        let subject = state.subject_id.context("fixture has no subject identity")?;
+        let store = state.store.as_ref().context("fixture has no Store")?;
+        let mut first_time = None;
+        for number in 0..3 {
+            let mut message = submission(SubmissionMode::Append);
+            message.subject_id = subject.to_string();
+            message.submission_id = format!("history-{number}");
+            message.message_id = format!("message-{number}");
+            message.content = format!("历史正文 {number}");
+            assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
+            if number == 0 {
+                first_time = Some(rx.try_recv()?.created_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true));
+            }
+            // Another subject's admission creates a real gap in ledger seq;
+            // it must neither appear nor terminate this subject's page.
+            if number == 1 {
+                let other = EntityId::new();
+                let foreign = WebInputService::new(Arc::clone(store), other, None, presentation());
+                let mut message = submission(SubmissionMode::Append);
+                message.subject_id = other.to_string();
+                assert!(matches!(foreign.submit(&message).stage, SubmissionStage::Accepted));
+            }
+        }
+        let withdrawal = input.withdraw(&WithdrawRequest {
+            schema_version: 2, kind: "withdraw".into(), submission_id: "history-0".into(),
+            subject_id: subject.to_string(), cancel_id: "cancel-history-0".into(),
+        });
+        assert_eq!(withdrawal.withdrawal.context("withdrawal receipt is missing")?.result, "withdrawn_before_presentation");
+        let page = WebInputService::history(store, subject, None, 2)?;
+        assert_eq!(page.total, 3);
+        assert_eq!(page.items.iter().map(|row| row.payload["submission_id"].as_str()
+            .context("history row has no string submission identity"))
+            .collect::<anyhow::Result<Vec<_>>>()?, ["history-2", "history-1"]);
+        assert!(page.has_older);
+        let before = page.next_before.context("older history cursor is missing")?;
+        let accepted = input.get("history-0", &subject.to_string(), None).accepted_commit
+            .context("original submission has no acceptance commit")?;
+        drop(input);
+        drop(state);
+        let reopened = shenko_store::Store::open(dir.join("store.db"), dir.join("cas"))?;
+        let older = WebInputService::history(&reopened, subject, Some(&before), 2)?;
+        assert_eq!(older.total, 3);
+        assert!(!older.has_older);
+        assert_eq!(older.next_before, None);
+        assert_eq!(older.items[0].payload["content"], "历史正文 0");
+        assert_eq!(older.items[0].created_at, first_time.context("original admission wake has no timestamp")?);
+        assert_eq!(older.items[0].view.accepted_commit.as_deref(), Some(accepted.as_str()));
+        assert_eq!(older.items[0].view.withdrawal.as_ref().context("reopened history lost its withdrawal")?.cancel_id, "cancel-history-0");
+        assert_eq!(WebInputService::history(&reopened, EntityId::new(), None, 2)?.total, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn an_unreadable_submission_table_does_not_report_not_admitted() -> anyhow::Result<()> {
+        let (dir, state, input, _rx) = service_state();
+        let subject = state.subject_id.context("fixture has no subject identity")?;
+        let mut message = submission(SubmissionMode::Append);
+        message.subject_id = subject.to_string();
+        assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
+        // Preserve the original rows while making the normal reader fail.
+        let database = rusqlite::Connection::open(dir.join("store.db"))?;
+        database.execute("ALTER TABLE web_input_submissions RENAME TO retained_unavailable_submissions", [])?;
+        assert_eq!(input.get(&message.submission_id, &message.subject_id, None).result, "temporarily_unavailable");
+        assert!(WebInputService::history(state.store.as_ref().context("fixture has no Store")?, subject, None, 10).is_err());
+        assert_eq!(database.query_row("SELECT COUNT(*) FROM retained_unavailable_submissions", [],
+            |row| row.get::<_, i64>(0))?, 1);
+        Ok(())
+    }
+
+    #[test]
     fn committed_projection_reuses_message_part_identity() {
         let step_id = EntityId::new();
-        let commit_ref = CommitRef::new(EntityId::new(), LedgerSeq(7));
+        let commit_ref = CommitRef::new(EntityId::new(), LedgerSeq(700));
         let out = OutboxMessage {
             kind: "thought".into(),
             step: 3,
@@ -893,6 +974,8 @@ mod tests {
         assert_eq!(messages.len(), 1);
         let first = &messages[0];
         assert_eq!(first.message_id, step_id.to_string());
+        assert_eq!(first.commit_ref, commit_ref.to_string());
+        assert_eq!(first.commit_seq, 7);
         assert_eq!(first.part_id, TEXT_PART_ID);
         assert_eq!(first.chunk_seq, 0);
         assert_eq!(first.terminal, Some(true));

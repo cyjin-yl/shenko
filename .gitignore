@@ -7,6 +7,7 @@
 worktrees/
 target/
 node_modules/
+.pnpm-store/
 crates/shenko-ui/web/generated/
 __pycache__/
 *.pyc
