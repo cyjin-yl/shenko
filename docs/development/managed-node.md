@@ -314,6 +314,16 @@ unsigned decimal strings. Node UUIDs, agent/branch UUIDs and task UUIDs are dist
 - `initialize`: stable `node_id`, optional provisioning `identity`; reopen never
   creates or resets an identity. `join`: stable `operation_id`, `expected_node`,
   verified `identity` and actual `manifest`; payload mismatch is a conflict.
+  The separate-process consumer in
+  `crates/shenko-exec-host/tests/perception_version_reopen.rs` passes the actual
+  persisted Node ID to its child and checks it before rebinding perception.
+  A fresh process starts with an unbound perception registry while retaining
+  the installation's identity and archived observations. The fixture changes
+  an installed awareness unit after the first observation so the child's new
+  reading has distinct content even within one timestamp second.
+  Its custom file observers name the exact file by a digest of its native path
+  bytes, keeping the target within the 128-byte name contract even under long
+  sandbox roots. Content digests remain separate evidence of the bytes read.
 - `status`: optional join `operation_id`; returns the old immutable join receipt
   separately from a fresh `running_manifest`, observation time and capabilities.
 - `capabilities`: this Node's current self-declared advertisement;

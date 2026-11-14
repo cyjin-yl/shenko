@@ -11,8 +11,8 @@
 //!
 //! The reopen case is a genuinely separate process: this test binary
 //! re-executes its own `reopen_probe` test with the node directory, the
-//! expected binding and the expected archived observation digest, so the
-//! process-local binding of the parent is provably absent in the child.
+//! persisted node identity, expected binding and archived observation digest,
+//! so the process-local binding of the parent is provably absent in the child.
 //!
 //! Everything here is source-only until the parent runs it; no case claims
 //! model or product acceptance beyond the facts it reads back.
@@ -149,7 +149,9 @@ impl PerceptionObserver for FileFactSource {
         Ok(PerceptionFact {
             binding: self.binding.clone(),
             source: CUSTOM_SOURCE.to_string(),
-            target: self.path.display().to_string(),
+            // Name the exact file independently of the sandbox root's length.
+            // Hash the path, not its contents: changed bytes are still the same target.
+            target: format!("file.blake3:{}", Digest::blake3(self.path.as_os_str().as_encoded_bytes()).0),
             observed_at: observed_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             valid_until,
             summary: format!(
@@ -331,7 +333,7 @@ fn a_custom_perception_unit_is_unknown_until_a_source_observes() -> Result<()> {
     ensure!(
         fact.binding == binding
             && fact.source == CUSTOM_SOURCE
-            && fact.target == fixture.display().to_string(),
+            && fact.target == format!("file.blake3:{}", Digest::blake3(fixture.as_os_str().as_encoded_bytes()).0),
         "the observation names its own source, target and binding: {fact:?}"
     );
     let expected_digest =
@@ -537,6 +539,10 @@ fn reopen_probe() -> Result<()> {
     };
     let receipt_path = std::env::var("SHENKO_PERCEPTION_REOPEN_RECEIPT")
         .context("the reopen probe is given a receipt path")?;
+    let expected_node_id: EntityId = serde_json::from_str(
+        &std::env::var("SHENKO_PERCEPTION_REOPEN_NODE_ID")
+            .context("the reopen probe is given the installation's stable node identity")?,
+    )?;
     let expected_binding: PerceptionBinding = serde_json::from_str(
         &std::env::var("SHENKO_PERCEPTION_REOPEN_BINDING").context("the reopen probe is given a binding")?,
     )?;
@@ -546,6 +552,10 @@ fn reopen_probe() -> Result<()> {
     // Read-only inspection first: this process has no live registration of
     // its own, so the persisted history must not read as a healthy fact.
     let inspect = Node::open_inspect(Path::new(&dir))?.context("the node installation exists")?;
+    ensure!(
+        inspect.local_node_id()? == Some(expected_node_id),
+        "the separate process reopened the same persistent node identity"
+    );
     let bytes = inspect.unit_object_bytes(&Digest(expected_digest.clone()))?;
     ensure!(
         Digest::blake3(&bytes).0 == expected_digest,
@@ -570,9 +580,10 @@ fn reopen_probe() -> Result<()> {
 
     // The legitimate rebind: the installed facts of THIS process are read and
     // the shipped source is bound again, producing its own observation.
+    // A new process does not create a new node identity.
     let mut node = Node::open(Path::new(&dir))?;
     node.handle(NodeRequest::Initialize {
-        node_id: EntityId::new(),
+        node_id: expected_node_id,
         identity: None,
     })?;
     let node = Arc::new(Mutex::new(node));
@@ -596,6 +607,7 @@ fn reopen_probe() -> Result<()> {
         "consumer": "perception-reopen-probe",
         "process_id": std::process::id(),
         "node_dir": dir,
+        "node_id": node.lock().local_node_id()?,
         "retained": {"digest": expected_digest, "bytes": bytes.len(), "binding": archived.binding,
             "observed_at": archived.observed_at},
         "unbound": {"cached_state": before.state(), "observe_state": before_observe.state()},
@@ -609,6 +621,7 @@ fn reopen_probe() -> Result<()> {
 #[test]
 fn a_fresh_process_is_unbound_until_it_rebinds() -> Result<()> {
     let sandbox = Sandbox::open("reopen")?;
+    let node_id = sandbox.node.lock().local_node_id()?.context("the parent node is initialized")?;
     let bound = bind_builtin_perception_sources(Arc::clone(&sandbox.node), sandbox.catalog.perception())?;
     ensure!(bound == vec![format!("{INSTALLATION_UNITS}@0.1.0")], "seed revision bound: {bound:?}");
     let binding = sandbox.binding(INSTALLATION_UNITS)?;
@@ -622,14 +635,23 @@ fn a_fresh_process_is_unbound_until_it_rebinds() -> Result<()> {
         "the observation is archived before the reopen"
     );
 
-    // The same installation state, observed by a separate process. Its receipt
-    // is the child's own reading of the retained bytes and of its own binding
-    // state; nothing here is inferred from the parent's memory.
+    // Change a real installation fact without changing this perception unit's
+    // exact binding. Observation times have second resolution, so a reopen
+    // alone cannot guarantee distinct bytes when the installation is unchanged.
+    // The existing fixture unit makes the child's new observation distinct
+    // even when both processes observe within the same second.
+    let package = parse_cognition_entry(STATE_CHANGING_UNIT, Path::new("consumer/STATE_AWARENESS.md"))?;
+    sandbox.catalog.install(&package, &sandbox.package_root())?;
+
+    // The same installation identity, observed by a separate process. Its
+    // receipt is the child's own reading of the retained bytes and of its own
+    // binding state; nothing here is inferred from the parent's memory.
     let receipt_path = sandbox.dir.join("reopen-receipt.json");
     let binary = std::env::current_exe().context("the test binary path")?;
     let output = std::process::Command::new(&binary)
         .args(["--exact", "reopen_probe", "--nocapture", "--test-threads=1"])
         .env("SHENKO_PERCEPTION_REOPEN_NODE_DIR", sandbox.dir.join("node"))
+        .env("SHENKO_PERCEPTION_REOPEN_NODE_ID", serde_json::to_string(&node_id)?)
         .env("SHENKO_PERCEPTION_REOPEN_RECEIPT", &receipt_path)
         .env("SHENKO_PERCEPTION_REOPEN_BINDING", serde_json::to_string(&binding)?)
         .env("SHENKO_PERCEPTION_REOPEN_DIGEST", &digest)
@@ -651,6 +673,7 @@ fn a_fresh_process_is_unbound_until_it_rebinds() -> Result<()> {
         serde_json::from_slice(&std::fs::read(&receipt_path).context("the probe wrote its receipt")?)?;
     ensure!(
         child["consumer"] == "perception-reopen-probe"
+            && child["node_id"] == serde_json::to_value(node_id)?
             && child["retained"]["digest"] == digest.as_str()
             && child["retained"]["binding"] == serde_json::to_value(&binding)?,
         "the separate process read the retained observation of this exact binding: {child}"
@@ -687,6 +710,7 @@ fn a_fresh_process_is_unbound_until_it_rebinds() -> Result<()> {
         "parent_process_id": std::process::id(),
         "child": child,
         "node_dir": sandbox.dir.join("node").display().to_string(),
+        "node_id": node_id,
         "retained_digest": digest,
         "binding": binding,
         "catalog_revision": sandbox.catalog.catalog_revision()?,

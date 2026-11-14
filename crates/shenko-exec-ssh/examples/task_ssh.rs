@@ -1,5 +1,7 @@
 //! Native child-side driver over an existing trusted task ledger.
-//! `fixture-init` creates a fresh synthetic task ONLY for isolated experiments.
+//! `fixture-init` exclusively creates a new SQLite destination for an isolated
+//! synthetic task. Every preexisting database path is rejected, even if empty.
+//! A claimed destination is retained if initialization later fails.
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use shenko_exec_ssh::*;
@@ -31,6 +33,29 @@ async fn main() -> Result<()> {
         .context("mode: fixture-init | execute | query | task")?;
     let file = args.next().context("JSON input path")?;
     let input: Input = serde_json::from_slice(&std::fs::read(file)?)?;
+    if mode == "fixture-init" {
+        let destination = input.db.as_os_str().as_encoded_bytes();
+        ensure!(
+            !destination.eq_ignore_ascii_case(b":memory:")
+                && !destination
+                    .get(..5)
+                    .is_some_and(|scheme| scheme.eq_ignore_ascii_case(b"file:")),
+            "fixture-init requires a persistent filesystem path, not a SQLite URI or in-memory database"
+        );
+        // Claim before Store::open can initialize or migrate the database.
+        // Sequence zero does not exclude durable recovery or archive history.
+        // Leave this artifact in place on every subsequent error.
+        let _destination = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&input.db)
+            .with_context(|| {
+                format!(
+                    "fixture-init requires a new SQLite destination {}; every preexisting database path is rejected",
+                    input.db.display()
+                )
+            })?;
+    }
     let store = Store::open(input.db, input.cas)?;
     let ctx = input.context;
     let runner = SshTaskRunner { store: &store };
@@ -38,10 +63,6 @@ async fn main() -> Result<()> {
         "fixture-init" => {
             // Never overwrite an existing task or give this example a production
             // registry's identity. This mode is explicitly synthetic admission.
-            ensure!(
-                store.list_recent_tasks(1)?.is_empty(),
-                "fixture-init requires an empty ledger"
-            );
             let object = store
                 .cas
                 .seal_object(

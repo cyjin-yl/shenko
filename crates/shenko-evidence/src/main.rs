@@ -151,7 +151,7 @@ fn run() -> Result<(), String> {
 }
 
 fn run_report(args: &ReportArgs) -> Result<(), String> {
-    let contracts = read_contract_input(&args.spec)?;
+    let spec_index = read_contract_input(&args.spec)?;
     let long_run: Vec<LongRunInput<'_>> = args
         .long_run
         .iter()
@@ -160,13 +160,12 @@ fn run_report(args: &ReportArgs) -> Result<(), String> {
             sha256: sha256.as_str(),
         })
         .collect();
-    let analysis = analyze(&ReportInputs {
-        spec_text: &contracts.text,
+    let analysis = analyze(ReportInputs {
+        spec_index,
         evidence_dir: &args.evidence_dir,
         candidate_commit: args.candidate_commit.as_deref(),
         long_run: &long_run,
-    })
-    .map_err(|error| format!("SPEC index error: {error:?}"))?;
+    });
     let counts = analysis.index.counts();
     if counts.requirements == 0 || counts.behaviors == 0 || counts.acceptance_cases == 0 {
         return Err("input has no complete obligation universe; pass current contract documents, not a navigation page".into());
@@ -179,8 +178,7 @@ fn run_report(args: &ReportArgs) -> Result<(), String> {
         eprintln!("warning: long-run report {path} was not admitted: {reason}");
     }
     if let Some(path) = &args.json {
-        let mut report = analysis.to_json();
-        contracts.annotate_report(&mut report);
+        let report = analysis.to_json();
         let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
         std::fs::write(path, bytes)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;

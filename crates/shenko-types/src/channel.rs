@@ -132,6 +132,12 @@ pub struct ChannelActor {
     /// Platform group role (`owner`/`admin`/`member`), informational only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_role: Option<String>,
+    /// The platform's account-origin fact: `Some(true)` is the account this
+    /// channel speaks as, `Some(false)` is an observed counterpart, and `None`
+    /// means the original did not record which. In particular, historical
+    /// absence is not evidence that the line came from somebody else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_account: Option<bool>,
 }
 
 /// The body of one inbound message.
@@ -425,6 +431,25 @@ pub struct ChannelReplyTarget {
     /// The conversation identity, when it differs from `id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
+    /// How many counterparts this audience reaches, as the platform event
+    /// states it. `None` when the plugin cannot tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<AudienceShape>,
+}
+
+/// How many counterparts a reply audience reaches.
+///
+/// This is structure the platform reports, not a judgement: a private chat
+/// or direct message reaches one counterpart; a group, channel or topic
+/// reaches several. It is a property of the audience, not of the reply kind,
+/// because one kind can name both (a Feishu chat id is a p2p chat or a group).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudienceShape {
+    /// One counterpart: a private chat or direct message.
+    OneToOne,
+    /// Several participants: a group, channel or topic.
+    Group,
 }
 
 /// The kind of outbound action a plugin describes.

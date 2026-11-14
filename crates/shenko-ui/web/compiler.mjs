@@ -62,6 +62,7 @@ export const COMPILER_RESOLUTIONS = [
 /** Shenko-authored Prototypes actually compiled and consumed by this UI. */
 export const SHENKO_PROTOTYPES = [
   { name: 'transport-badge', entry: 'transport-badge.proto.ts', componentName: 'CompiledTransportBadge' },
+  { name: 'message-bubble', entry: 'message-bubble.proto.ts', componentName: 'CompiledMessageBubble' },
 ];
 
 export function sha256File(path) {

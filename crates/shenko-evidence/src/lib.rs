@@ -54,8 +54,8 @@ use std::path::Path;
 /// Everything the report needs to know about where its inputs live.
 #[derive(Debug, Clone)]
 pub struct ReportInputs<'a> {
-    /// Current contract text (assembled from the full current-document inventory).
-    pub spec_text: &'a str,
+    /// The canonical index admitted from the current contract documents.
+    pub spec_index: SpecIndex,
     /// The directory holding the retained evidence records.
     pub evidence_dir: &'a Path,
     /// The candidate commit the report is bound to.
@@ -68,9 +68,9 @@ pub struct ReportInputs<'a> {
     pub long_run: &'a [LongRunInput<'a>],
 }
 
-/// Parse the SPEC, inventory the evidence, and build the obligation report.
-pub fn analyze(inputs: &ReportInputs<'_>) -> Result<Analysis, IndexError> {
-    let index = SpecIndex::parse(inputs.spec_text)?;
+/// Use the admitted SPEC, inventory the evidence, and build the obligation report.
+pub fn analyze(inputs: ReportInputs<'_>) -> Analysis {
+    let index = inputs.spec_index;
     let inventory = EvidenceInventory::read_dir(inputs.evidence_dir, inputs.candidate_commit);
     let mut report = coverage::build_report_from_records(
         &index,
@@ -85,12 +85,12 @@ pub fn analyze(inputs: &ReportInputs<'_>) -> Result<Analysis, IndexError> {
         }
     }
     let long_run = longrun::summarize(inputs.long_run, inputs.candidate_commit);
-    Ok(Analysis {
+    Analysis {
         index,
         inventory,
         report,
         long_run,
-    })
+    }
 }
 
 /// The complete analysis of one candidate.

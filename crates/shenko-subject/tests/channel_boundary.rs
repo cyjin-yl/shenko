@@ -136,6 +136,7 @@ impl ChannelPlugin for StubChannel {
                 person_ref: None,
                 role_grant_ref: None,
                 group_role: None,
+                own_account: None,
             },
             content: shenko_types::channel::ChannelContent {
                 text,
@@ -150,6 +151,7 @@ impl ChannelPlugin for StubChannel {
                 account: "relay:local".to_string(),
                 tenant: None,
                 conversation: Some(id),
+                shape: None,
             }),
             attachments: vec![],
             raw_ref: None,
@@ -284,6 +286,53 @@ fn stub_channel_is_a_first_class_reply_target() {
     let prompt = canonical_system_prompt(&channels);
     assert!(prompt.contains("[reply:room:房间号]"), "{prompt}");
     assert!(!prompt.contains("[reply:group:"), "{prompt}");
+}
+
+#[test]
+fn inline_html_examples_remain_root_text() -> Result<(), shenko_types::error::ShenkoError> {
+    let literal = concat!(
+        "Example <!--\n",
+        "[remember] literal memory\n",
+        "[reply:room:a+b/c=] literal reply\n",
+        "-->\n\n",
+    );
+    let raw = format!("{literal}[remember] actual memory\n");
+    let parsed = parse(&raw, &stub_registry())?;
+    assert_eq!(parsed.text, literal);
+    assert_eq!(parsed.controls.len(), 1);
+    assert!(matches!(
+        &parsed.controls[0].action,
+        OutputAction::Remember { text } if text == "actual memory"
+    ));
+    Ok(())
+}
+
+#[test]
+fn opaque_reply_ids_reach_the_channel_without_reclassifying_root_literals()
+    -> Result<(), shenko_types::error::ShenkoError>
+{
+    let literal = concat!(
+        "[reply:room:a+b/c=](/example)\n\n",
+        "[reply:room:reference+a/b=] linked example\n\n",
+        "[reply:room:reference+a/b=]: /original\n\n",
+        "\\[reply:room:a+b/c=] escaped example\n\n",
+        "    [reply:room:a+b/c=] indented code\n\n",
+        "> [reply:room:a+b/c=] quoted example\n\n",
+    );
+    let raw = format!("{literal}[reply:room:a+b/c=] message\n");
+    let parsed = parse(&raw, &stub_registry())?;
+    assert_eq!(parsed.text, format!("{literal}message\n"));
+    assert_eq!(parsed.controls.len(), 1);
+    let OutputAction::Reply { target, text } = &parsed.controls[0].action else {
+        panic!("expected the channel to resolve the opaque reply identity")
+    };
+    assert_eq!(
+        target,
+        &PublicationTarget::new("relay", "room", "a+b/c=", "relay:local")
+            .with_scope(None, Some("a+b/c=".to_string()))
+    );
+    assert_eq!(text, "message\n");
+    Ok(())
 }
 
 /// The prompt contract is assembled from the registered plugins: the shipped

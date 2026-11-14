@@ -17,6 +17,8 @@ interface MarkdownBlock {
   language?: string;
   open?: boolean;
   items?: string[];
+  /** The first ordinal of an ordered list, as the text numbered it. */
+  start?: number;
 }
 
 const FENCE = /^\s*```/;
@@ -69,11 +71,12 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
       const pattern = ordered ? ORDERED : BULLET;
       const key = nextKey('list');
       const items: string[] = [];
+      const start = ordered ? Number.parseInt(line.trim(), 10) : undefined;
       while (index < lines.length && pattern.test(lines[index])) {
         items.push(lines[index].replace(pattern, ''));
         index += 1;
       }
-      blocks.push({ kind: ordered ? 'ol' : 'ul', key, text: '', items });
+      blocks.push({ kind: ordered ? 'ol' : 'ul', key, text: '', items, start: Number.isFinite(start) ? start : undefined });
       continue;
     }
     if (line.startsWith('>')) {
@@ -125,7 +128,8 @@ export function Markdown({ text }: { text: string }) {
       case 'ul':
         return <ul key={block.key}>{block.items?.map((item, index) => <li key={index}>{inlineText(item)}</li>)}</ul>;
       case 'ol':
-        return <ol key={block.key}>{block.items?.map((item, index) => <li key={index}>{inlineText(item)}</li>)}</ol>;
+        // The list keeps the number the text started it at, so "3." stays 3.
+        return <ol key={block.key} start={block.start}>{block.items?.map((item, index) => <li key={index}>{inlineText(item)}</li>)}</ol>;
       case 'quote':
         return <blockquote key={block.key}>{inlineText(block.text)}</blockquote>;
       case 'rule':

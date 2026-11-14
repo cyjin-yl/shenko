@@ -933,7 +933,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
             Arc::clone(&native), agent, Some(inbox.sender()), subject_stopping.clone(), dispatcher_cancel.clone())));
         let mut cursor = (0, None);
         loop {
-            for (seq, step, decision) in store.committed_decisions_after(cursor.0, cursor.1, 64)? {
+            for (seq, step, decision) in store.committed_decisions_after(agent, cursor.0, cursor.1, 64)? {
                 cursor = (seq, Some(step.step_id));
                 if let Some(output) = observer.observe(store, &catalog, agent, dir, &step, decision, runtime)? {
                     let facts_ref = runtime.capture(&prepared, &step, &output).await?;

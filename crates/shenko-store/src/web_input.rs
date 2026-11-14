@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS web_input_submissions (
 );
 CREATE INDEX IF NOT EXISTS idx_web_input_event
     ON web_input_submissions(event_id);
+CREATE INDEX IF NOT EXISTS idx_web_input_history
+    ON web_input_submissions(agent_id, accepted_commit_seq DESC);
 CREATE TABLE IF NOT EXISTS web_input_withdrawals (
     agent_id TEXT NOT NULL,
     submission_id TEXT NOT NULL,
@@ -60,6 +62,28 @@ pub struct WebSubmissionRecord {
     pub payload: String,
     /// ledger commit that admitted this input
     pub accepted_commit: CommitRef,
+}
+
+pub struct WebSubmissionHistoryRow {
+    pub record: WebSubmissionRecord,
+    /// Original InboxEvent time, with the persisted SQL admission time as
+    /// fallback for older rows. Never the time this history was read.
+    pub created_at: String,
+}
+
+/// An import can admit many inputs in one local commit. The stable input ID
+/// completes the cursor without inventing a separate commit for each row.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebSubmissionCursor {
+    pub seq: u64,
+    pub submission_id: String,
+}
+
+pub struct WebSubmissionPage {
+    pub items: Vec<WebSubmissionHistoryRow>,
+    pub total: u64,
+    pub has_older: bool,
+    pub next_before: Option<WebSubmissionCursor>,
 }
 
 pub enum WebAdmission {
@@ -109,6 +133,60 @@ pub enum WebWithdrawRejection {
 }
 
 impl Store {
+    /// Owner message history, newest admission first. Action submissions have
+    /// their own presentation lane and are not conversation messages.
+    pub fn web_submissions_page(
+        &self,
+        agent_id: EntityId,
+        before: Option<&WebSubmissionCursor>,
+        limit: usize,
+    ) -> Result<WebSubmissionPage, ShenkoError> {
+        let limit = limit.clamp(1, 200);
+        let before_seq = before.map(|cursor| i64::try_from(cursor.seq)).transpose().map_err(storage_error)?;
+        let before_id = before.map(|cursor| cursor.submission_id.as_str());
+        let conn = self.ledger.conn.lock();
+        let agent = agent_id.to_string();
+        let total: u64 = conn.query_row(
+            "SELECT COUNT(*) FROM web_input_submissions \
+             WHERE agent_id=?1 AND json_extract(payload,'$.type')='submit'",
+            [&agent], |row| row.get(0),
+        ).map_err(storage_error)?;
+        let mut statement = conn.prepare(
+            "SELECT s.submission_id, s.event_id, s.payload, s.accepted_commit_seq, \
+             COALESCE(json_extract(i.data,'$.created_at'), i.created_at, s.created_at) \
+             FROM web_input_submissions s LEFT JOIN inbox_events i \
+             ON i.event_id=s.event_id AND i.agent_id=s.agent_id \
+             WHERE s.agent_id=?1 AND json_extract(s.payload,'$.type')='submit' \
+             AND (?2 IS NULL OR s.accepted_commit_seq<?2 \
+                  OR (s.accepted_commit_seq=?2 AND s.submission_id<?3)) \
+             ORDER BY s.accepted_commit_seq DESC, s.submission_id DESC LIMIT ?4",
+        ).map_err(storage_error)?;
+        let rows = statement.query_map(params![agent, before_seq, before_id, (limit + 1) as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, u64>(3)?, row.get::<_, String>(4)?))
+        }).map_err(storage_error)?;
+        let mut items = Vec::with_capacity(limit + 1);
+        for row in rows {
+            let (submission_id, event_id, payload, seq, created_at) = row.map_err(storage_error)?;
+            items.push(WebSubmissionHistoryRow {
+                record: WebSubmissionRecord {
+                    submission_id,
+                    event_id: event_id.parse().map_err(storage_error)?,
+                    payload,
+                    accepted_commit: CommitRef::new(self.ledger.ledger_id(), LedgerSeq(seq)),
+                },
+                created_at: crate::trajectory::utc_timestamp(&created_at).map_err(storage_error)?,
+            });
+        }
+        let has_older = items.len() > limit;
+        items.truncate(limit);
+        let next_before = if has_older { items.last().map(|row| WebSubmissionCursor {
+            seq: row.record.accepted_commit.seq.0,
+            submission_id: row.record.submission_id.clone(),
+        }) } else { None };
+        Ok(WebSubmissionPage { items, total, has_older, next_before })
+    }
+
     /// Admit a browser input durably before any transport receipt. The
     /// InboxEvent and its submission binding commit atomically; a replayed
     /// identical payload replays the original record without another input.

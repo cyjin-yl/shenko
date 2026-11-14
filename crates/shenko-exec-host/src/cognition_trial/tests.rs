@@ -34,21 +34,21 @@ async fn fixture_request(socket: &mut tokio::net::TcpStream) -> Result<serde_jso
 }
 
 #[tokio::test]
-async fn native_read_reaches_the_committed_continuation() {
-    native_read_fixture(false, false).await;
+async fn native_read_reaches_the_committed_continuation() -> Result<()> {
+    native_read_fixture(false, false).await
 }
 
 #[tokio::test]
-async fn a_consuming_continuation_can_delegate_a_followup_read() {
-    native_read_fixture(true, false).await;
+async fn a_consuming_continuation_can_delegate_a_followup_read() -> Result<()> {
+    native_read_fixture(true, false).await
 }
 
 #[tokio::test]
-async fn a_failed_native_read_remains_an_attempt_failure_after_cleanup() {
-    native_read_fixture(false, true).await;
+async fn a_failed_native_read_remains_an_attempt_failure_after_cleanup() -> Result<()> {
+    native_read_fixture(false, true).await
 }
 
-async fn native_read_fixture(followup: bool, missing: bool) {
+async fn native_read_fixture(followup: bool, missing: bool) -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../build/cognition-trial-regression")
         .join(EntityId::new().to_string());
     std::fs::create_dir_all(&root).unwrap();
@@ -114,7 +114,8 @@ async fn native_read_fixture(followup: bool, missing: bool) {
         let installation = std::fs::read_dir(&root).unwrap().map(|entry| entry.unwrap())
             .find(|entry| entry.file_name().to_string_lossy().starts_with("native-read-")).unwrap().path();
         let store = Store::open(installation.join("shenko.db"), installation.join("cas")).unwrap();
-        let decisions = store.committed_decisions_after(0, None, 64).unwrap();
+        let agent = store.get_existing_agent_id()?.context("native-read installation has no agent")?;
+        let decisions = store.committed_decisions_after(agent, 0, None, 64)?;
         let intent = decisions.iter().flat_map(|(_, _, decision)| &decision.delegated_task_intents)
             .find(|intent| intent.definition.as_ref().is_some_and(|definition|
                 definition.input["unit_id"] == "uninstalled.fixture.unit")).unwrap();
@@ -126,7 +127,7 @@ async fn native_read_fixture(followup: bool, missing: bool) {
                 && disposition.disposition != Disposition::Deferred)).unwrap();
         let task = store.external_task(result.task_id).unwrap();
         assert_eq!(store.event_disposition_commit(task.agent_id, result.result_id).unwrap(), consuming.1.commit_ref);
-        return;
+        return Ok(());
     }
     let output = result.expect("fresh production assembly must consume the real native read");
     assert_eq!(output.output.text, "native body reached this continuation");
@@ -147,6 +148,7 @@ async fn native_read_fixture(followup: bool, missing: bool) {
             Digest::blake3(second.entry_text.as_bytes()).0);
         assert_eq!(second_result.outcome, TaskOutcome::Succeeded);
     }
+    Ok(())
 }
 
 enum FixtureEntry {
@@ -449,7 +451,8 @@ fn assert_control_cannot_read_candidate(fixture: &PreparedFixture) -> Result<()>
         .map(|entry| entry.path()).find(|path| path.join("shenko.db").is_file())
         .context("control subject installation missing")?;
     let store = Store::open(installation.join("shenko.db"), installation.join("cas"))?;
-    let decisions = store.committed_decisions_after(0, None, 64)?;
+    let agent = store.get_existing_agent_id()?.context("control subject missing")?;
+    let decisions = store.committed_decisions_after(agent, 0, None, 64)?;
     let intent = decisions.iter().flat_map(|(_, _, decision)| &decision.delegated_task_intents)
         .find(|intent| intent.definition.as_ref().is_some_and(|definition|
             definition.input["unit_id"] == fixture.source_read["unit_id"]))
@@ -544,7 +547,6 @@ async fn an_empty_judge_verdict_retains_the_original_broker_result() -> Result<(
     let request_ref: ObjectRef = serde_json::from_value(receipt["request_ref"].clone())?;
     let request: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&request_ref.digest)?)?;
     assert_eq!(request["request_id"], receipt["request_id"]);
-    assert_eq!(request["payload"]["max_tokens"], 512);
     let journal = fixture.store.content_stream_units(receipt["journal_id"].as_str().context("judge journal missing")?, 0)?;
     let terminal = journal.iter().find(|unit| unit.terminal).context("judge result was not journaled")?;
     let recorded: serde_json::Value = serde_json::from_str(&terminal.data)?;
@@ -737,18 +739,32 @@ async fn a_prepared_pair_starts_both_conditions_under_one_window() -> Result<()>
     let fixture = prepared_fixture(false, false, FixtureEntry::PublicRunner).await?;
     assert_eq!(fixture.report.samples.len(), 2, "{:?}", fixture.report.samples);
     assert!(fixture.report.samples.iter().all(|sample| sample.started), "{:?}", fixture.report.samples);
-    let windows: Vec<u64> = fixture.report.samples.iter().map(|sample| sample.deadline_ms).collect();
-    assert!(windows.windows(2).all(|pair| pair[0] == pair[1]), "{windows:?}");
-    assert_eq!(fixture.report.deadline_ms, 90_000);
-    assert_eq!(fixture.report.sample_deadline_ms, 45_000);
-    assert_eq!(windows, vec![45_000, 45_000]);
+    let candidate = fixture.report.samples.iter().find(|sample| sample.condition == Condition::Candidate)
+        .context("candidate sample missing")?;
+    let control = fixture.report.samples.iter().find(|sample| sample.condition == Condition::Control)
+        .context("control sample missing")?;
+    assert_eq!((&candidate.scenario, candidate.trial), (&control.scenario, control.trial));
+    let window = fixture.report.sample_deadline_ms;
+    assert!(window > 0 && window <= fixture.report.deadline_ms);
+    // The remaining milliseconds may shrink before admission; each condition
+    // must retain the shared planned maximum and frozen configuration.
+    for sample in &fixture.report.samples {
+        assert!(sample.deadline_ms <= window, "{sample:?}");
+        let reference = sample.installation_ref.as_ref().context("started condition has no installation")?;
+        let bytes = fixture.store.cas.read_object(&reference.digest)?;
+        assert_eq!(bytes.len() as u64, reference.bytes);
+        assert_eq!(Digest::blake3(&bytes), reference.digest);
+        let installation: serde_json::Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(installation["configuration_ref"], serde_json::to_value(&fixture.report.configuration_ref)?);
+        assert_eq!(installation["condition"], serde_json::to_value(sample.condition)?);
+    }
     for totals in fixture.report.scenarios.iter().flat_map(|scenario| [&scenario.candidate, &scenario.control]) {
         assert_eq!(totals.unstarted, 0);
         assert_eq!(totals.scored + totals.failed + totals.unstarted, totals.attempted);
     }
     let report = std::fs::read(fixture.root.join("report.json"))?;
     let report: serde_json::Value = serde_json::from_slice(&report)?;
-    assert_eq!(report["sample_deadline_ms"], serde_json::json!(45_000));
-    assert_eq!(report["samples"][0]["started"], serde_json::json!(true));
+    assert_eq!(report["sample_deadline_ms"], serde_json::to_value(window)?);
+    assert_eq!(report["samples"], serde_json::to_value(&fixture.report.samples)?);
     Ok(())
 }

@@ -1,0 +1,234 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base-sha:
+        description: Full independently reviewed ancestor SHA for the ratchets
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -e -o pipefail {0}
+
+env:
+  CARGO_BUILD_JOBS: '2'
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+# These six literal job names are the required-check contract. Every PR runs
+# every job; changed paths, draft state and local evidence never bypass them.
+# Builds run in development containers with read-only GitHub permissions and
+# no lab/production credentials. Branch/ruleset enforcement is configured only
+# after these real checks succeed, by the repository owner.
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.ci/target/rust
+      SHENKO_COMPAT_EVIDENCE_ROOT: ${{ github.workspace }}/.ci/evidence/compat
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Checkout writes safe.directory under a temporary HOME. After each
+      # checkout, register only the runtime workspace in the restored shell
+      # HOME so subsequent Git calls can read the host-owned checkout.
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install native build prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> .ci/target/rust
+          shared-key: rust-1.98.1-workspace
+      - name: Check every workspace target with the lockfile
+        run: cargo check --workspace --all-targets --locked -j2
+      - name: Test the workspace, including integration tests and doctests
+        run: cargo test --workspace --locked -j2
+      - name: Retain native fixture receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-evidence
+          path: .ci/evidence
+          if-no-files-found: ignore
+
+  clippy-ratchet:
+    name: clippy-ratchet
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the same compiler and native prerequisites for both trees
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev
+          rustup component add clippy --toolchain 1.98.1
+      - name: Resolve the independent event baseline
+        id: base
+        run: python3 scripts/ci/base_ref.py
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            .ci/target/clippy
+          key: clippy-${{ runner.os }}-${{ runner.arch }}-1.98.1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: clippy-${{ runner.os }}-${{ runner.arch }}-1.98.1-
+      - name: Compare real production and all-target Clippy diagnostics
+        run: python3 scripts/ci/clippy_ratchet.py --base '${{ steps.base.outputs.sha }}'
+      - name: Retain both diagnostic streams and the exact baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy-ratchet-evidence
+          path: |
+            .ci/evidence/base.json
+            .ci/evidence/clippy/*.json
+            .ci/evidence/clippy/*.jsonl
+            .ci/evidence/clippy/*.log
+          if-no-files-found: error
+
+  docs:
+    name: docs
+    runs-on: ubuntu-24.04
+    container: python:3.13.9-bookworm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the reference checker's declared parser dependencies
+        run: |
+          python3 -m venv .ci/python
+          if [[ -f scripts/requirements-ci.txt ]]; then
+            .ci/python/bin/python -m pip install --requirement scripts/requirements-ci.txt
+          fi
+      - name: Validate current documents, anchors, cases and symbols
+        run: .ci/python/bin/python scripts/check_docs.py
+
+  docs-migration:
+    name: docs-migration
+    runs-on: ubuntu-24.04
+    container: python:3.13.9-bookworm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the reference checker's declared parser dependencies
+        run: |
+          python3 -m venv .ci/python
+          if [[ -f scripts/requirements-ci.txt ]]; then
+            .ci/python/bin/python -m pip install --requirement scripts/requirements-ci.txt
+          fi
+      # This is conservation of original normative blocks. It is a separate
+      # gate from current references and must permit valid appended obligations.
+      - name: Verify original migration conservation
+        run: .ci/python/bin/python scripts/check_docs.py --verify-migration
+
+  kernel-boundary:
+    name: kernel-boundary
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the structure checker's interpreter
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3
+      - name: Resolve the independent event baseline
+        id: base
+        run: python3 scripts/ci/base_ref.py
+      - name: Check the kernel boundary against that immutable commit
+        run: python3 scripts/check_kernel_boundary.py --baseline-ref '${{ steps.base.outputs.sha }}'
+      - name: Retain the independent boundary baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-boundary-evidence
+          path: .ci/evidence/base.json
+          if-no-files-found: error
+
+  web:
+    name: web
+    runs-on: ubuntu-24.04
+    container: node:24.22.1-bookworm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the independent rebuild driver prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3
+      - name: Preserve committed bytes and check out the exact upstream pin
+        run: python3 scripts/ci/web_assets.py prepare
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/shenko-ui/web/package.json
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: |
+            crates/shenko-ui/web/pnpm-lock.yaml
+            .ci/web/proto-ui/pnpm-lock.yaml
+      - name: Build the real public closure, typecheck, test and independently rebuild
+        run: python3 scripts/ci/web_assets.py check
+      - name: Retain expected and rebuilt bytes, sources, provenance and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-rebuild-evidence
+          path: |
+            .ci/web/*.json
+            .ci/web/*.log
+            .ci/web/committed
+            .ci/web/source/src/static
+            .ci/web/source/web/generated
+          if-no-files-found: error

@@ -103,7 +103,7 @@ CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
 - **进程结束不等于业务完成。** exec receipt 可确认退出码（包括真正的远端 exit 255），但 arbitrary exec 的 effect_status 仍 unknown、operation 保持 reconciling；attempt 可 ended。成功文件上传的声明域是写入给定 bytes，下载是 read-only。runner 从不将 TaskRecord 置 terminal；完整业务 acceptance/T2、取消 supervisor 与 C17 节点归属/fencing 由后续服务接续。
 - 传输每路 stdout/stderr 最多保留 2MiB 并继续排空，超限返回 output-unavailable/unknown，避免无限内存队列。helper receipt 单路输出有界，明确带 truncated；对端原始输出文件仍需受管磁盘配额。future drop 不是 durable cancel，不能证明远端停止。
 
-可运行的可信 child 驱动为 `examples/task_ssh.rs`：对现有任务使用 `execute`/`query`/`task`；`fixture-init` **仅**创建空账本内的合成任务供隔离实验，不是生产身份/授权入口。
+可运行的可信 child 驱动为 `examples/task_ssh.rs`：对现有任务使用 `execute`/`query`/`task`；`fixture-init` **仅**供隔离实验，必须在 `Store::open` 前以 `create_new` 原子、排他地认领全新的 SQLite 目标路径。此模式先拒绝 SQLite URI 和内存数据库语法，确保文件认领与 SQLite 打开的是同一个文件系统目标。任何已存在的数据库路径（包括空文件、空账本或提交序号为零的账本）都会被拒绝；认领后若初始化失败，已创建的文件仍会保留，重试必须使用新的目标路径。它不是生产身份/授权入口。
 
 ```sh
 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo build -p shenko-exec-ssh --example task_ssh

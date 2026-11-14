@@ -121,37 +121,134 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
 
 ## 5.1 界面扩展：主体流与镜头（2026-11-12）
 
-默认界面只有一条固定的**主体流**（时间线 + 输入）。任务、记忆、Playground、配置
-以及作品都是**镜头（lens）**：在主体流旁打开，主体流不离开视野；窄屏时镜头覆盖
-主体流，关闭即回到原阅读位置。外壳没有常驻侧栏导航；镜头栏在顶部（手机在底部），
-Ctrl/⌘ 1–9 打开第 N 个镜头，Ctrl/⌘ 0 关闭。主体流左侧的竖线是主体连续的 thought
+界面有两个视图（见 [5.2](#5-2)）：**对话** 是默认的主要交互界面；**Inspect** 是主体
+连续思考的原始流（时间线 + 输入）。任务、记忆、Playground、配置以及作品都是
+**镜头（lens）**：在当前视图旁打开，不离开视野；窄屏时镜头覆盖视图，关闭即回到原
+阅读位置。外壳没有常驻侧栏导航；视图切换在顶部居中，镜头栏在顶部右侧（手机在底部），
+Ctrl/⌘ 1–9 打开第 N 个镜头，Ctrl/⌘ 0 关闭。Inspect 左侧的竖线是主体连续的 thought
 loop：每个已提交轮次是线上的一个实心点，未提交的流式内容是空心点，作品与文档从线上
 分出，用户输入落在线旁。顶部的注意力行只陈述事实：进行中的任务（不计结构性的
 `subject_root`）、最近已提交轮次和上报的主体状态。
 
 镜头由 `web/src/slots.ts` 的贡献注册表提供：外壳自己的页面与外部贡献走同一个
-`registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。信任按来源区分，而不是
-按注册表：
+`registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。
+
+**默认信任（所有者决定，2026-11-12）。** 作品与插件的界面是受信任的扩展：作品页与
+外壳同源、不加 sandbox；`/playground/{id}` 只固定声明的类型（`nosniff`）并给出
+`x-artifact-revision`。
 
 | 来源 | 呈现 | 权限 |
 | --- | --- | --- |
 | `shell` | 本 bundle 的组件 | 外壳自身 |
-| `work` | Playground 作品已发布的页面，放在 `sandbox="allow-scripts allow-forms allow-popups allow-modals"` 的 iframe 中 | 不授予 same-origin；服务端对 `/playground/{id}` 内容另发 CSP `sandbox` 与 `nosniff`，直接打开也是不透明 origin。作品读不到外壳 DOM、cookie、`/ws` 或 `/api`，要改变什么只能走作品声明的 action |
+| `work` | Playground 作品**已采纳**的页面（`GET /playground/{id}/adopted`：活动 manifest 的前端所指的那个版本），同源 iframe；作者写下的较新 head 是草稿，只能由读者明确选择“草稿预览”打开；没有已采纳版本时镜头说明这一点 | 与外壳相同；安全绳是命名修订与回退，以及安全模式 |
 
-Why：作品与 awareness/plugin 经常由主体自己写成，不能沿用“安装即信任”的同源模块
-模型；但同一扩展点仍应让它们成为一等界面。DeepSeek Harness 的 Web 客户端以 Cordis
-插件向类型化 slot（`ctx.slots.register/inject`，list/keyed/chain/hoc 与 priority
-覆盖）注册同源 React 组件，安装即信任；Shenko 采用同样的“外壳也是贡献者”结构，
-但对模型可写的来源加了 origin 隔离。
+Why：主体会在没有人盯着的情况下自己编写、在沙箱里自测并改进这些扩展，任何改变都是
+可指认、可回退的新修订（[内核 8](kernel.md#kernel-8)）；不加人类审批门、产品白名单
+或静态拒绝（[内核 9](kernel.md#kernel-9)、开发规则“不以硬拒绝替主体判断”）。所以
+默认信任，失败由回退和救援处理，而不是事前隔离。救援入口：地址加 `?safe=1` 时外壳
+不打开任何作品页（[§21.3](#spec-21-3) 的独立救援要求）。已知代价：受信任的作品页能
+以所有者会话调用 `/api`；如果一页由外部内容诱导写成，它在所有者打开时以所有者身份运行。
+这由主体的来源意识、自测与回退承担，记录在此以便日后按证据修订。
 
-尚未实现，按顺序推进：作品页与外壳之间的 `postMessage` 桥（只携带作品声明的 action，
-仍由服务端按 §43.2 认证、去重与入 inbox）；Rust/WASM 插件经版本化服务协议声明镜头
-与时间线条目贡献；仅主题 token 的皮肤贡献；经所有者安装、签名的同源代码插件作为
-第三档。
+这里的默认信任授予已安装扩展使用其运行环境与能力声明的权限，不改变
+[§21.3](#spec-21-3) 的服务协议、能力检查和数据可见范围，或
+[§21.6](#spec-21-6) 对任意代码组件声明运行环境与能力的要求。作品页面经所有者的
+Web 会话调用服务；页面和第三方 slot 贡献都不直接读写 SQLite，业务副作用仍由任务与
+operation ledger 证明。能力目录中的插件贡献接线属于下方明确列出的后续实现。
+
+DeepSeek Harness 的 Web 客户端以 Cordis 插件向类型化 slot（`ctx.slots.register/inject`，
+list/keyed/chain/hoc 与 priority 覆盖）注册同源 React 组件，安装即信任。Shenko 采用
+同样的“外壳也是贡献者”结构；插件的界面贡献按 [内核 7](kernel.md#kernel-7) 只经能力
+目录登记，外壳从能力目录发现，不另开扩展路径。
+
+尚未实现，按顺序推进：插件经能力目录声明镜头、会话来源与记录视图（见 5.2 的 slot）；
+插件界面以 Proto-UI Prototype 交付，由外壳经 adapter 渲染；仅主题 token 的皮肤贡献。
 
 HTML 作品在时间线中同时提供页面入口与“详情与操作”；动作绑定正文响应的 `x-artifact-revision`，不混用记录修订。
 作品列表尚未加载或暂时失败时保留已知镜头，仅依成功取得的列表移除已不存在的作品。
 浏览器拒绝写入偏好时，固定与取下仍在当前页面生效；镜头快捷键不抢占输入框与可编辑内容中的按键。
+
+<a id="5-2"></a>
+## 5.2 对话与 Inspect：群聊、委派与 Proto-UI slot（2026-11-12）
+
+**两个视图。** 对话（IM）是给所有者的主要交互界面，采用 Messages 的视觉惯例：左侧
+会话列表，右侧当前会话；查看者一侧为系统蓝气泡，其他参与者为灰气泡，连续同一发言者
+合并、末条带尾巴，群聊在首条上方标发言者、末条旁显示其字母头像，间隔超过 15 分钟显示
+时间，回执在末条下方（已发送 / 已送达 / 已选入 / 已处理，分别对应 sent、accepted、
+selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.1 的原始思考流。
+
+**一切对话都是带参与者的会话。** `web/src/threads.ts` 用同一模型表示三类会话，差别只在
+参与者与查看者坐在哪一侧：
+
+| 会话 | 参与者 | 查看者一侧 | 每条消息的事实来源 |
+| --- | --- | --- | --- |
+| 直接对话 | 你、主体 | 你 | 你的提交与回执；主体的消息是**选入了你那条消息的已提交步骤**（回执的 `selected_step_id`），不猜测；主体自己思考的轮次合并为一行“独自思考了 N 轮”，可跳到 Inspect；只有真实持久流式内容显示为“正在输出” |
+| 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | `GET /api/tasks/{id}/trajectory`：任务的封存输入（委派内容）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），以及它拥有的子任务（工具 child） |
+| 渠道群聊/私聊 | 主体、对方或群成员 | 主体（旁观） | `GET /api/conversations`，见下文“主体全部对外沟通” |
+
+<a id="5-2-external"></a>
+**主体全部对外沟通（owner 决定，2026-11-13）。** 对话界面展示主体对外的全部沟通，不只是
+它和你的对话：
+
+- **任何渠道插件都一样。** IM 平台、内网里接触到的其他节点、具身机器人的通道，都只是又
+  一个渠道插件，不是特例。
+- **对方是谁都一样。** 对方可以是人、机器人，也可以是不同主体的另一个 Shenko。
+- **私聊。** 渠道支持私聊时，私聊是一对一会话：没有发言者名字，只显示一个头像。
+- **委派。** 委派群聊仍然列在其中，那是主体的内部协作。
+- **同一主体的其他节点。** 它们是同一个自我（见 [nodes](nodes.md)），不是会话对象。
+
+Why：主动主体的对外行为是你最需要看见、也最难从思考流里拼出来的东西。一个会话列表能
+回答“它在和谁说话、说了什么、送到了没有”。
+
+会话的事实来源：
+
+- **入站。** 每条入站消息读自它真正的持久位置：取走它的那一步的暂存输入
+  （`session_events` 中 `{"v":1,"inbox_event":…}`，负载为 `ChannelEnvelope`）。渠道消息
+  不经 `inbox_events` 表。被延后的消息可能由后续步骤再次暂存，按入站事件 id 去重。
+- **出站。** 已提交的 publication 按最近读取。时间优先取平台回执的 `observed_at`，没有
+  回执时取做出决定的那一步的开始时间。状态取 publication 状态。
+- **归组。** 两个方向按回复对象 `account|kind|id` 归为同一会话。
+- **一对一还是群。** 由插件在 `ChannelReplyTarget.shape` 里声明（`one_to_one` /
+  `group`）。它是受众的性质而不是回复类型的性质：同一个飞书 chat id 可能是单聊，也可能是
+  群。没有声明的会话按群显示，界面不按 `private` 之类的词表猜。
+- **本账号的消息。** 平台回报“本账号从其他客户端发出”的消息，由插件标为
+  `ChannelActor.own_account`，显示在主体一侧并注明来源。若它的平台消息 id 与某条
+  publication 回执的 `provider_message_id` 相同，它就是那条 publication 的回声，不再列出
+  第二次。
+- **对方是谁。** 只按事实认定：持有所有者设定的管理授权（`role_grant_ref`）的发言者标为
+  管理员；联系人目录（[contacts](contacts.md)）中的身份按其证实状态显示。“对方是另一个
+  Shenko 主体”同样必须是一条有来源的事实，例如经验证的对等身份或目录中的已证实关系，
+  绝不按昵称、头像或消息正文的自称判断。
+
+尚未具备，依次推进：
+
+1. **其他 Shenko 主体的身份事实。** 目录还没有“对方是 Shenko 主体”这一类关系，对等身份
+   也还没有验证协议。在那之前，另一个 Shenko 显示为它在该渠道的名字。
+2. **内网和具身机器人的渠道插件。** 目前还没有。它们接入后无需改界面。
+3. **以主体名义在渠道里发言。** 网页还不能这样做：你在会话里写的话，应当作为给主体的消息，
+   由它决定是否转达，而不是代它发言。
+
+旁观的会话不显示输入框：网页还不能代主体在渠道里发言或给运行中的子代理发消息，界面
+如实说明。Inspect 中每个委派从发起它的已提交轮次分出（任务的 `created_by_step_id`），
+可就地展开同一条轨迹，或“在对话中打开”成为群聊。`subject_root` 自己拥有自己，不算
+父任务也不算子任务。
+
+**slot：外壳与插件走同一组扩展点。** 三个注册表，外壳自己的实现也经它们登记：
+
+| slot | 形状 | 用途 |
+| --- | --- | --- |
+| `registerLens` | list，按 `order` | 视图旁的镜头 |
+| `registerThreadSource` | list，按 `order` | 会话来源（直接对话、委派、渠道由外壳登记） |
+| `registerRecordView` | keyed，按 `operation_name` | 轨迹中一种封存记录的呈现；未登记的记录显示为名称与状态，不丢失 |
+
+**仍用 Proto-UI。** 会话列表、视图切换与镜头栏是上游 toggle-group（列表为 vertical
+方向，单选、方向键与 roving focus 由上游提供）；委派展开用上游 collapsible；气泡是
+Shenko 自己写的 `prototypes/message-bubble.proto.ts`，构建期由 Proto-UI compiler 编译
+为 React DOM 源码，`side/tail/tone` 由 Prototype 规则决定外观，消息内容走匿名 slot，
+因此正文更新是普通 React 内容。注意 Proto-UI 规格 C-PROPS-0014：props 变化本身不触发重绘；模板直接读取 prop 的 Prototype 要 `def.props.watch([...], (run) => run.update())`（transport-badge 即如此），运行时 React adapter 默认 `autoUpdateOnPropsChange` 会掩盖这一点，编译产物不会。
+Proto-UI 的 slot 优势在于：Prototype 与宿主无关（React/Vue/Web Component/编译产物），
+anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界面交付 Prototype，外壳
+用 adapter 放进上表的 slot，同一份界面可被不同宿主渲染。
 
 ## 6. Proto-UI pin
 
@@ -199,6 +296,76 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 界面上的 transport 状态徽标就是这个编译产物：Prototype 只负责呈现（props
 `label`/`tone` 与 token 样式），连接事实、文案与推理仍留在
 `react-renderer.tsx`，没有搬进 compiler 或 Prototype。
+
+<a id="6-compiler-mode"></a>
+### compiler 模式是目标（owner 决定，2026-11-13）
+
+owner 决定：Shenko 的界面以 compiler 模式交付。运行时 adapter 是过渡桥，只用在
+pin 的 compiler 还编译不了的上游 family 上，不是终点。
+
+**Why（实测，候选 `c0497fb`，Proto-UI `35195a6`，React 19.3.1 production，
+headless Chromium）：**
+
+- **体积。** `app.js` 压缩后 1092.5 KiB（gzip 312 KiB）。其中 Proto-UI 的
+  runtime、adapter、modules、prototypes 及其依赖约 680 KiB；react-dom 是 205 KiB，
+  Shenko 自己的源码是 152 KiB。
+- **同一个 Prototype，两种宿主。** `message-bubble` 挂载 150 个：
+  - 编译产物和纯 DOM 在误差之内；
+  - 经 adapter 多 83 ms。
+- **上游 shadcn family 经 adapter 的开销。**
+  - button：每个实例挂载约 2 ms。
+  - toggle-group：挂载是超线性的（150 项要 6.0 s）。根因在上游，见下文。
+- **真实界面（demo 数据）。** 对话与 Inspect 来回切换，每次 50–138 ms。十次切换里，
+  Proto-UI 的 JS 时间是 693 ms，React 是 130 ms，Shenko 是 71 ms。
+
+**为什么还不能全部切换。** pin 的 compiler 能编译的 shadcn 文件是 0/216。界面用到的
+每个 family 都在 compiler 里有具体阻塞，见下表（`react-dom-source-v1`，第一处诊断）。
+shadcn 层先全部卡在 `PUI1003 Unsupported source package @proto.ui/prototypes-base/*`；
+解决之后，base 层还有：
+
+| family | base 层阻塞 |
+| --- | --- |
+| button | 无，base 可编译；shadcn 层只差包解析 |
+| toggle | `PUI1004` 子节点里的三元表达式 |
+| toggle-group | `PUI1004` 模块级运行时绑定；context 嵌套崩溃（#295 F1） |
+| collapsible | `PUI1003 defineHook`；context 嵌套崩溃 |
+| scroll-area | `PUI1006` context 值类型、非原始 prop、语义句柄进入数组 |
+| input、textarea | `PUI1003 asControlLabel` |
+| separator | `PUI1006` 只准入已声明的原始 prop |
+| drawer | `defineHook`、`asAxisInput`、数据类型、模板插值 |
+
+**禁止的捷径。** 在 Shenko 里用 compiler 可编译的子集重写这些 family，或者构建前把
+shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、无障碍和 collection 行为就和
+上游分叉了，也正是 #295 审计列出的禁止做法。
+
+**迁移规则。**
+
+- **切换条件。** 某个 family 同时满足下面两点时，才在 `ui-kit.tsx` 这一处边界换成
+  编译产物：
+  - pin 的 compiler 能编译上游的 shadcn 版本；
+  - 差分一致性注册表覆盖了它的行为，包括焦点与 disabled（F7）、props 更新（F5）、
+    context（F1、F4）。
+- **记录。** 切换时记录前后的实测数字。
+- **顺序。** 按实测成本排：
+  1. toggle-group（会话列表、视图切换、镜头栏）；
+  2. button；
+  3. collapsible；
+  4. scroll-area；
+  5. input、textarea；
+  6. toggle、separator、drawer。
+- **体积。** 编译产物现在每个组件各带一份辅助运行时：两个小组件就是 40 KiB（#295 F6）。
+  所以体积要等 F6 解决后再比较，不能假设 compiler 一定更小（§21.2）。
+- **插件界面。** 插件界面以 Prototype 交付。目标是在安装时编译；在此之前，插件界面
+  经 adapter 渲染。
+
+**过渡期的上游修复。** toggle-group 超线性的根因在上游：
+- anatomy 每次查询都按 `compareDocumentPosition` 重排整个域；
+- collection item 的 meta 通道又会算自己的位置；
+- 一次结构变化时，域里每个监听实例都各自重排一遍。
+
+修复让一轮通知内每个域只排一次序，并且只返回 meta。150 项从 6.0 s 降到 0.42 s，
+300 项是 1.34 s。修复已在本地提交为 Proto-UI 会话分支上的 `5db86b49`，但这次会话没有向上游推送的
+权限，所以还没有上游 PR。合入主线后随 pin 升级采用；在那之前 Shenko 仍按本节的 pin 构建。
 
 界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
 或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
@@ -263,6 +430,8 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 compiler 迁移门槛包括状态一致、事件/焦点、SSR/离线静态部署需求、插件 UI、CSP、无障碍、国际化与主题回归。不能假设 compiler 必然更快更小，届时比较实际构建和运行成本。
 
 <!-- /migrated-contract: SPEC:21.2 -->
+
+2026-11-13 owner 决定以 compiler 模式为目标，adapter 只作过渡。实测成本、逐 family 的阻塞、迁移规则和过渡期的上游修复见 [§6 compiler 模式](web-interface.md#6-compiler-mode)。
 
 <a id="spec-21-3"></a>
 <!-- migrated-contract: SPEC:21.3 -->
@@ -629,3 +798,252 @@ Content, stage and publish transitions share the Playground record write lock;
 a reader's revision is checked inside that transition. Publication resolves
 the candidate CAS object before looking up its typed manifest version digest,
 and the UI's adoption action selects the newest retained candidate.
+
+## Conversation publication facts
+
+Channel conversations combine canonically staged inbox envelopes with committed publication intents. Each direction selects its newest bounded history. A publication's displayed time uses its receipt observation when available, then the task created in the same S1 transaction, then the recorded deciding step time. The task fallback also covers publications created by a delegated child. Imported metadata keeps its recorded time; a publication without any of these recorded times retains an unknown time. Messages use normalized UTC timestamps and stable message identities for ordering. Existing inbox rows do not carry a cross-table commit sequence, so the projection does not infer a causal order from unrelated row numbers.
+
+Publication labels follow the actual `ready`, `claimed`, `acknowledged`, `settled`, `blocked` and `unknown` ledger states. `settled` is displayed as an ended operation: cancellation can settle a publication that was never dispatched, so this state alone does not prove that a message was sent or read.
+
+## Owner input history and inspection reads
+
+`GET /api/submissions?limit=100&before_seq=<accepted_commit_seq>&before_id=<submission_id>` reads the current installation's owner messages from `web_input_submissions`, including their canonical payload, persisted event time and durable receipt view. Action submissions retain their separate presentation lane. Pages are newest first, with `total`, `has_older` and `next_before: {seq, submission_id}`; the tuple cursor retains every input when an archive import records several inputs in one receiving-ledger commit. The limit uses the same 1–200 bounds as the context metadata pages. Both conversation and Inspect offer earlier pages, and retain the reader's message anchor while those pages are inserted. A bounded page never proves that an omitted pending submission was not admitted.
+
+The shared receipt reader recovers `selected_step_id` from the sealed input plan even after S1 committed a disposition. The browser hydrates existing submission IDs and original payload/time, merges durable facts without sending an input, and keeps locally pending or conflicting attempts. It does not save recovered historical messages as new local submissions. Owner messages precede their actual selected step; replay arrival time does not substitute for historical order. Until all owner history is available, unpaired steps are shown without claiming that they were independent thought. `selected` means selected into sealed input; `committed` means durably handled, and neither receipt alone proves that the model read the message or produced a reply.
+
+Timeline and stream DTOs carry the receiving-ledger `commit_seq` separately from the immutable source `commit_ref`. The browser orders durable inputs and replies in that local sequence space, including imported source commits, while unadmitted browser attempts retain an unknown position after durable history. Historical receipt polling updates the displayed facts without writing a browser outbox record; only this browser's own send or explicit retry creates that record. The IM viewport captures the visible message before DOM mutation and holds that anchor across the intermediate history-loading control, without combining manual restoration with native scroll anchoring.
+
+The reading anchor prefers a visible concrete message over a temporary unpaired-round summary, because history hydration can replace that summary while retaining the message. Transport `observed_at` remains available as an observation fact and is not printed as a reply's historical creation time; an unknown reply time stays unknown. The conversation list retains the latest known message time instead of inventing a timestamp for the replayed reply.
+
+Compiled message hosts can mount after the parent React commit. The IM viewport observes its message content and reapplies the reading anchor when that content changes size, including native host publication. Scrolling selects a new reading anchor, and following the tail continues through those later mounts. Unmounting the thread disconnects its observer.
+
+The completeness of cached owner history is also bound to the committed parts already rendered. A new committed identity keeps an unpaired round neutral until a newest-page request started after that identity has been applied. A newer refresh requested during an existing load is retained once; failure keeps the error surface without retrying itself. Duplicate committed replay does not invalidate the snapshot. Responsive icon-only navigation clips its descriptive labels visually while retaining them in the accessibility tree.
+
+Task lists, trajectories and channel conversations require an explicit subject in their Store readers. The API resolves the installation's existing local subject for each read, and fails on missing or ambiguous identity rather than falling back to all rows. Foreign task IDs are absent from that subject's trajectory surface, including child lookups. Inspection times are normalized RFC3339 UTC; a failed conversation read preserves previously known messages and reports the unavailable state.
+
+Committed replay also requires an explicit subject through the Store and outbox readers. A socket without a resolved local subject does not replay parked replicas or advertise committed replay; other subjects' imported steps remain outside the local subject's timeline.
+
+Rendered subject parts and their copy actions use the original `(message_id, part_id)` pair, so different rounds' `text/0` parts retain independent identities. Work lenses observe the durable active manifest digest as well as the authored revision; adoption can therefore refresh a page without another content write. The adopted revision label comes from the actual adopted response header, and an unchanged page retains its frame.
+
+## Pending-mount compiler pin
+
+The current build pin advances from the section 6 build record's `35195a6e6f1ba6a7d800da0029f2683013abd18b` to the published commit `41282cb0ddc39283826e52e9932be123fc83eb47` ([Proto-UI PR #1459](https://github.com/Proto-UI/Proto-UI/pull/1459)). The upstream lock digest and package versions remain unchanged; the three public entry points have a freshly built 42-package dependency closure at this commit.
+
+The compiler preserves an explicit `run.update()` issued after the first mount frame is rendered and before that frame is acknowledged. Mount acknowledgement credits the pending dirty intent so the next frame can present the current value. Shenko retains its authored Props watcher and regenerates both Prototypes through the pinned compiler. This update does not settle the wider Adapter defaults, update-ownership and diagnostic questions in [Proto-UI issue #1453](https://github.com/Proto-UI/Proto-UI/issues/1453).
+
+## Task roles and canonical display implementation
+
+`TaskSummary.role` is a typed read-model field shared by `/api/tasks` and
+`/api/tasks/{id}/trajectory`: `subject_root`, `delegation`, `tool` or `unknown`.
+The root requires the subject head's recorded root identity and self-ownership.
+A delegation requires that task's subject-owned `subject_intents` delegation
+fact. A tool requires the existing `child_tool_parent` admission fact to agree
+with `TaskOwner`. Definition names do not establish any of these roles; a new
+plugin delegated through the same task contract is projected immediately.
+Missing or unrecognized historical provenance stays `unknown` and the row
+remains visible. The task record, frozen inputs and archive schemas gain no
+presentation-only field: the existing head, task and intent facts already
+travel in the recovery archive and supply the same roles after import/reopen.
+
+The recognized model-child step record is schema 1. Its existing `text` is
+the recorded child parser's public display text. New records retain a UTF-8
+prefix of at most 64 KiB; `text_truncated` reports whether that display text
+was shortened. The receipt sink classifies and decodes the complete original
+response before applying this bound: a reference definition after 64 KiB
+can make an earlier apparent control literal, and genuine controls beyond
+the display bound still reach the owning decoder. `tool_calls`, `reply` and
+`question` hold separate parsed controls, while `output_ref` and E1 preserve
+the complete original evidence. The thread renders retained text verbatim,
+including its whitespace, JSON strings and control-like literal examples.
+Missing or unknown
+record schemas report unavailable public text and retain the original record
+for inspection; they are never reinterpreted with a newer parser. The root
+timeline similarly consumes the already-parsed `ParsedOutput.text` from S1.
+
+`shenko_types::output::OutputSource` owns the shared CommonMark source
+classifier used by subject/child decoders and the stream gate. It preserves
+quoted/list continuations, fenced/inline code, block and inline HTML
+(including multiline comments), and resolved reference links. It classifies
+the structural control tag without constraining the opaque platform reply
+identity; the owning channel resolver retains target validation.
+Its byte-based `stable_prefix_end(false)` allows ordinary partial
+prose to stream, but retains the tail from the first possible control while
+future Markdown/reference input could still change its classification.
+Only genuine EOF fixes that tail; interrupted or unknown responses do not
+acquire a false EOF. Markdown ranges are computed lazily on first complete
+classification, rather than on each incremental prefix query.
+
+<a id="current-ui-evidence-20261113"></a>
+Current evidence (2026-11-13) binds the observations below to Shenko source
+`fe75f8459fac97b83a56a6298bc8deb2d1402fd6`. Receipt paths in these implementation
+notes are relative to the retained evidence root
+`/tank/shared/projects/shenko/build/claude-followups-20261113/`, outside this
+worktree's `build/` directory.
+
+`pr293-frontend-brief-r1/receipt.json` records the normal frontend build, type
+check and 34 Node cases (0 failed, 0 skipped; `step-3.log`), using Proto-UI
+`41282cb0ddc39283826e52e9932be123fc83eb47` and its recorded 42-package build
+closure. `pr293-conversation-embed-r2/receipt.json` binds the unchanged source,
+the two exact Store brief cases, the rebuilt default CLI and the new genuine
+Store/UiServer consumer. Its two successful documentation modes precede this
+evidence-note update and do not validate the updated notes.
+
+The actual browser used that consumer, SHA-256
+`5dae96bba5736afb1622ad4a7e9aaeea5c83f22a76bc88a25c23972f057125be`,
+with served manifest SHA-256
+`ed60b34441fdd5e39c43ca47b48318df5b012bb940a983b57c6078fc8e4f16e8`.
+The retained fixture has 106 genuine owner admissions, two S1 commits and four
+tasks; its staged channel envelopes and publication produce ten API messages
+across three channel thread keys. The fixture fork is bound by
+`pr293-conversation-fixture-fork-r2.json`; the browser/API observations below
+read the real Store and UiServer, using scripted mechanism data. No model
+endpoint, provider call, subject-loop inference or real QQ send was used.
+These observations do not establish model behavior, physical platform support
+or whole-case/SPEC acceptance; earlier parser, archive/reopen and history
+proofs retain their original candidates and outcomes.
+
+`pr293-conversation-app-r2/runtime.json` and
+`pr293-conversation-chrome-r1/runtime.json` are terminal records: both report
+`status=stopped`, `cleanup.proven_clean=true`, no residual owned processes,
+no unknown residuals or unproven groups, and no failed process scan. The app
+stopped at its window deadline; Chromium stopped on request. Their former
+loopback URLs identify the captured observations, not a currently running
+instance.
+
+## Delegation brief projection
+
+`TaskTrajectory.brief` is the Store-owned text projection consumed by both
+the conversation thread and its inline Inspect branch. `input` still holds
+the complete sealed JSON for inspection; it is never a display fallback.
+For an S1 delegation, the task's structural role, `memos.intent_id`,
+`created_by_step_id` and `input_ref` must agree with that subject's committed
+delegation row. The admitted decision schema and its step identity must
+then agree, and exactly one `delegated_task_intents[].intent_id` must equal
+the current `task_id`. Only that intent's nonblank `goal` becomes the brief;
+array position, another intent's goal and plugin definition names provide
+no correlation. The reader uses the existing `StepDecision` decoder and
+the Store's admitted decision schema set.
+
+Ordinary native inputs retain their `native_input=object` contract and
+their existing nonblank `goal`, `prompt`, `task`, `instruction` or
+`spec.goal` text shapes. The reader verifies the sealed input's length and
+digest before projecting it. Unreadable inputs, missing or inconsistent
+bindings, unsupported schemas, malformed fields and absent or duplicate
+matches return an unavailable brief. The browser renders the projected
+text verbatim and labels an unavailable brief explicitly. It does not
+decode controls or expose an S0/S1 JSON prefix.
+
+The current native receipt `pr293-conversation-embed-r2/receipt.json` records
+one exact pass each for
+`trajectory::tests::delegation_brief_matches_one_bound_intent_and_leaves_missing_or_ambiguous_goals_unavailable`
+and
+`trajectory::tests::ordinary_task_briefs_preserve_text_shapes_without_serializing_private_input`.
+The frontend receipt above includes the shared thread projection case.
+Actual Chromium observation
+`pr293-conversation-delegation-facts-r1.json` and
+`pr293-conversation-delegation-r1.png` show task
+`29316201-0000-0000-0000-000000000001` with the exact S1 goal
+`C29316:DELEGATION — SCRIPTED MECHANISM ONLY；只保留委派/工具结构，不运行处理器。`
+and its typed `pr293.fixture.tool_observer · running` child. The conversation
+shows that brief verbatim, without raw decision JSON. This is evidence for
+the goal and task-role projection; the fixture does not run that handler or
+measure a model's delegation quality.
+
+## Conversation observation projection — implementation note
+
+`web/src/threads.ts` keeps channel provenance on each message. `own_account`
+is an optional observation: `Some(true)` identifies account origin, without
+identifying a client; `Some(false)` identifies a counterpart only when the
+provider established it; missing historical observations remain `unknown`.
+Unknown account origin is labeled on the message and is not assigned to the
+subject or used to name a proven counterpart. `im.tsx` renders each message's
+source annotation even inside a run of messages from the same displayed sender.
+
+The participant list contains observed senders, not a membership roster. Missing
+audience shape uses the group layout with an explicit unknown-type subtitle;
+group membership counts remain unknown. An envelope's administrative-grant
+observation stays on that message with its recorded time (or an explicit missing
+time), including in group conversations. It never changes the participant into
+the owner or claims current privileges, and display labels grant no authority.
+
+Feishu states audience shape only for recognized `p2p` and `group` values;
+missing or unfamiliar values remain absent. Its explicitly identified user
+sender establishes counterpart origin, while unfamiliar or missing sender types
+leave account ownership unknown. This source rule does not itself prove live
+Feishu behavior.
+
+`pr293-conversation-group-facts-r1.json` records the actual
+`GET /api/conversations` response (`available=true`, ten messages, three
+channel thread keys), the corresponding DOM and
+`pr293-conversation-group-r1.png`. The observed own-account message is labeled
+`本账号发出`, without attributing it to another client or a proven subject
+action. A historical message with the same sender ID but no ownership
+observation retains `账号归属未知`. The grant-bearing message shows
+`此消息当时记录有管理授权 · 2026-11-13T12:00:03.000000000Z`; this is the
+message's historical observation, not current privilege. The platform group
+owner without that grant has no administrative label. The publication's own
+echo is absent while the counterpart with the same platform message ID remains;
+control-looking quotes, fences, inline/indented code and HTML text remain
+literal channel content. `pr293-conversation-group-observation-r1.json`
+retains the selected group control and its actual viewport.
+
+`pr293-conversation-shape-facts-r1.json` records native conversation selection
+and the resulting DOM: absent shape with `kind=private` shows
+`会话类型未知 · 成员人数未知` with the group layout; explicit `one_to_one`
+with `kind=group` shows `私聊`. These are actual UI projections of durable
+fixture facts, with the model/provider/real-channel limits stated above.
+
+## Theme bootstrap and CSP — implementation note
+
+`src/index.html` loads `/assets/theme-bootstrap.js` as a blocking classic script
+before both stylesheets. Its single authored source is
+`web/src/theme-bootstrap.js`, moved from the former inline initializer with the
+same query, stored preference, system preference, dark default and error handling.
+`UiServer` serves the embedded asset through the usual static response helper;
+`script-src 'self'` continues to apply.
+
+The normal full `web/build.mjs` copies that source into
+`src/static/theme-bootstrap.js` and records its byte count and SHA-256 in the
+schema-1 manifest's `artifacts` map. The existing freshness consumer
+`scripts/ci/web_assets.py` inventories every static file and compares the entire
+artifact map and rebuilt payload bytes, so this script joins the same membership
+contract as the other embedded assets. The frontend and Rust embed receipts
+above record the completed normal regeneration and compilation; they are
+distinct from observing the server's actual CSP and first load.
+
+`pr293-conversation-firstpaint-r1.json` records the first navigation in
+Chromium `156.0.8078.79`, with an observed 1280 × 900 CSS-pixel viewport and
+an emulated system light preference, without a query/storage/DOM theme
+override. The actual page and bootstrap return HTTP 200 under the recorded
+`script-src 'self'` policy. The blocking script precedes both stylesheets;
+the response is 770 bytes with SHA-256
+`6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d`,
+matching the authored/generated asset recorded by the builder. No CSP
+violation was observed. DOM ready (1000.3 ms), first paint (1200 ms) and first
+contentful paint (2140 ms) all report light theme/class and canvas
+`oklch(0.992 0 0)`.
+
+The same capture's `pr293-conversation-firstpaint-r1.trace.json` and
+`pr293-conversation-firstpaint-frames-r1.json` retain ten native JPEG samples
+(500 × 352), progressing from white to the light interface; each recorded
+dark fraction is zero. The first and last samples are
+`pr293-conversation-firstpaint-frame-0.jpg` and
+`pr293-conversation-firstpaint-frame-9.jpg`; the full screenshot is
+`pr293-conversation-firstpaint-light-r1.png`. No dark frame appears in this
+observed load. The ten sampled frames and one browser/preference/viewport
+do not guarantee every load, browser or physical device.
+
+For UI-S12, this supplies bounded first-load and bootstrap-origin evidence.
+The script's one authored source, generated artifact identity and absence of
+an observed dark flash do not establish the broader requirement that all
+styles have one source and that every built style matches that source.
+UI-S12 remains `unverified`; R160 remains unsatisfied, and UI-S13/UI-S14 retain
+their separate accessibility and body/work/action reading obligations.
+
+Earlier failures remain in `pr293-frontend-t15-r1/receipt.json` (bundle write
+permission; no type check or tests ran),
+`pr293-conversation-embed-r1/receipt.json` and its `step-1.log` (the two obsolete
+inline-script source references; no Rust build/tests ran), and
+`pr293-conversation-app-r1/runtime.json` (failed before HTTP readiness).
+The later successful receipts do not rewrite those outcomes or the historical
+acceptance ledger.

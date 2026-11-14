@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, sync::Arc};
 
+use anyhow::Context;
 use parking_lot::RwLock;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -518,6 +519,124 @@ async fn config_manage_applies_through_the_native_ledger() {
     assert_eq!(operation.operation_name, "config.manage.v1");
     assert_eq!(operation.state, OperationState::Resolved);
     drop(root);
+}
+
+/// The input and configuration surfaces share the installation's Store. Use
+/// the existing genuine genesis fixture, then admit, seal and commit through
+/// its normal mutation API; a reopened reader must recover the same pairing.
+#[test]
+fn input_history_recovers_committed_selection_from_sealed_s0_and_s1() -> anyhow::Result<()> {
+    use crate::input::{SubmissionMode, SubmissionStage, UserSubmission, WebInputService};
+    use crate::presentation::{PresentationService, SurfaceCapabilityProvider};
+    let (root, store, agent, _, _) = subject_fixture("owner-history");
+    let presentation = || PresentationService::new(8,
+        SurfaceCapabilityProvider::new(false, "native-receipt-fixture".into()));
+    let input = WebInputService::new(Arc::clone(&store), agent, None, presentation());
+    let message = UserSubmission {
+        schema_version: 2, kind: "submit".into(), submission_id: "committed-history".into(),
+        message_id: "original-owner-message".into(), subject_id: agent.to_string(),
+        mode: SubmissionMode::Append, content: "原始持久输入".into(), attachment_refs: vec![],
+        rich_content_ref: None, observed_step_id: None, observed_request_id: None,
+    };
+    assert!(matches!(input.submit(&message).stage, SubmissionStage::Accepted));
+    let record = store.web_submission(agent, &message.submission_id)?
+        .context("accepted submission has no durable record")?;
+    let original: Value = serde_json::from_str(&store.pending_inbox_events(agent, 8)?
+        .into_iter().find(|(id, _)| *id == record.event_id)
+        .context("accepted submission has no original inbox event")?.1)?;
+    let (head, mut step) = store.load_subject(agent)?;
+    let scope = EntityId(head.branch_id.0);
+    let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
+        shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), scope)));
+    let profile = Digest::blake3(b"native-input-history-fixture");
+    ledger.rebind_model(1, &profile.0)?;
+    let window = ledger.current()?;
+    let staged = store.stage_subject_inputs(&head, &step, &[
+        shenko_store::raw_session::SubjectHistoryInput {
+            event_id: record.event_id, event_type: "user".into(),
+            data: json!({"v":1, "inbox_event":original, "text":message.content}),
+        },
+    ])?;
+    let request = EntityId::new();
+    let plan = json!({
+        "schema_version":12, "reconciliation_docket":[], "step_id":step.step_id,
+        "step_no":step.step_no, "events":[original], "request_id":request,
+        "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,
+            "profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null},
+        "provider_binding":null, "semantic_wait":null, "identity":null,
+        "identity_provider_revision":"shenko.identity/default@1",
+        "context":{"source":{"scope_id":scope, "source_commit_seq":store.current_commit_seq()?,
+            "leaf_seq":store.session_leaf_seq(scope)?,
+            "input_raw_event_ids":[staged[0].event_id], "window_id":window.id,
+            "window_generation":window.generation, "model_generation":1},
+            "profile_digest":profile, "estimated_input_tokens":null, "budget_input_tokens":null,
+            "trigger_budget_input_tokens":null, "budget_provenance":"native receipt fixture without provider",
+            "reserved_output_tokens":64, "unfinished_call_ids":[], "capabilities":null,
+            "observed_input_tokens":null, "token_counter":"heuristic:cjk-1-other-4@1; not a provider tokenizer",
+            "policy_contract":shenko_context_policy::CONTRACT_VERSION,
+            "selection":{"outcome":"unavailable","reason":"native_fixture_without_provider"}},
+        "payload":{"system_prompt":"native receipt fixture", "messages":[{"role":"user","content":message.content}],
+            "max_tokens":64,"tools":[]},
+    });
+    step.input_plan_ref = Some(store.cas.seal_object(&serde_json::to_vec(&plan)?,
+        "application/json", "input_plans", "subject_step_input", 12)?.object);
+    step.state = SubjectStepState::Preparing;
+    step.record_revision = RecordRevision(1);
+    store.upsert_step(&step, &head, RecordRevision(0))?;
+    let selected = input.get(&message.submission_id, &message.subject_id, None);
+    assert_eq!(selected.stage, Some("selected"));
+    assert_eq!(selected.selected_step_id, Some(step.step_id.to_string()));
+    step.state = SubjectStepState::AwaitingModel;
+    step.record_revision = RecordRevision(2);
+    step.active_request_id = Some(request);
+    store.upsert_step(&step, &head, RecordRevision(1))?;
+    step.model_result_ref = Some(store.cas.seal_object("持久的处理结果".as_bytes(),
+        "text/plain", "native-fixture", "model-result", 1)?.object);
+    let outcome = SubjectModelOutcome {
+        schema_version: 2, request_id: request, result_ref: step.model_result_ref.clone().context("fixture model result is not sealed")?,
+        stop_reason: "end_turn".into(), raw_response: r#"{"fixture":"native receipt transition"}"#.into(), usage: None,
+    };
+    step.model_outcome_ref = Some(store.cas.seal_object(&serde_json::to_vec(&outcome)?,
+        "application/json", "model_outcomes", "SubjectModelOutcome", 2)?.object);
+    step.state = SubjectStepState::ResultRecorded;
+    step.record_revision = RecordRevision(3);
+    store.upsert_step(&step, &head, RecordRevision(2))?;
+    let next = EntityId::new();
+    let decision = StepDecision {
+        schema_version: 8,
+        output: shenko_types::output::ParsedOutput { schema_version: 5, step_id: step.step_id,
+            raw_ref: step.model_result_ref.clone().context("fixture model result is not sealed")?, text: "持久的处理结果".into(), controls: vec![] },
+        identity_intent: None, step_id: step.step_id, input_plan_ref: step.input_plan_ref.clone().context("fixture S0 input plan is not sealed")?,
+        model_result_ref: step.model_result_ref.clone(), applied_steering_refs: vec![],
+        event_dispositions: vec![EventDisposition { event_id: record.event_id,
+            disposition: Disposition::Acknowledged, reason: None, priority: None, review_after: None }],
+        delegated_task_intents: vec![], child_dialogue_intents: vec![], memory_intents: vec![],
+        policy_intents: vec![], publication_intents: vec![], pending_obligations: vec![],
+        attention_policy: None, evidence_refs: vec![], unknown_acknowledgements: vec![], successor_step_id: next,
+    };
+    step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision)?,
+        "application/json", "native-fixture", "StepDecision", 8)?.object);
+    step.state = SubjectStepState::Committed;
+    step.record_revision = RecordRevision(4);
+    store.commit_step_and_advance_head(&step, &head, next)?;
+    let committed = store.load_subject(agent)?.0.committed_at;
+    store.close_external_writer();
+    drop(input);
+    drop(ledger);
+    drop(store);
+    let reopened = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    let reader = WebInputService::new(Arc::clone(&reopened), agent, None, presentation());
+    let view = reader.get(&message.submission_id, &message.subject_id, None);
+    assert_eq!(view.result, "found");
+    assert_eq!(view.stage, Some("committed"));
+    assert_eq!(view.selected_step_id.as_deref(), Some(step.step_id.to_string().as_str()));
+    assert_eq!(view.committed_at.as_deref(), Some(committed.to_string().as_str()));
+    let history = WebInputService::history(&reopened, agent, None, 8)?;
+    assert_eq!(history.total, 1);
+    assert_eq!(history.items[0].payload["content"], message.content);
+    assert_eq!(history.items[0].view.selected_step_id, view.selected_step_id);
+    assert_eq!(history.items[0].view.committed_at, view.committed_at);
+    Ok(())
 }
 
 /// The handler refuses an input that names no key before any durable effect.

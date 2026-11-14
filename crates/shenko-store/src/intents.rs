@@ -866,6 +866,7 @@ impl Store {
 
     pub fn committed_decisions_after(
         &self,
+        agent_id: EntityId,
         seq: u64,
         after_step_id: Option<EntityId>,
         limit: usize,
@@ -873,16 +874,19 @@ impl Store {
         let rows = {
             let c = self.ledger.conn.lock();
             let mut q=c.prepare(
-                "SELECT updated_commit_seq,data FROM subject_steps
-                 WHERE state='committed'
-                   AND (updated_commit_seq>?1
-                        OR (?2 IS NOT NULL AND updated_commit_seq=?1
-                            AND (step_no,step_id)>(
-                                SELECT step_no,step_id FROM subject_steps WHERE step_id=?2)))
-                 ORDER BY updated_commit_seq,step_no,step_id LIMIT ?3",
+                "SELECT s.updated_commit_seq,s.data FROM subject_steps s
+                 JOIN subject_branch_heads h ON h.branch_id=s.branch_id
+                 WHERE h.agent_id=?1 AND s.state='committed'
+                   AND (s.updated_commit_seq>?2
+                        OR (?3 IS NOT NULL AND s.updated_commit_seq=?2
+                            AND (s.step_no,s.step_id)>(
+                                SELECT p.step_no,p.step_id FROM subject_steps p
+                                JOIN subject_branch_heads ph ON ph.branch_id=p.branch_id
+                                WHERE ph.agent_id=?1 AND p.step_id=?3)))
+                 ORDER BY s.updated_commit_seq,s.step_no,s.step_id LIMIT ?4",
             )?;
             q.query_map(
-                params![seq as i64, after_step_id.map(|id| id.to_string()), limit as i64],
+                params![agent_id.to_string(), seq as i64, after_step_id.map(|id| id.to_string()), limit as i64],
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?

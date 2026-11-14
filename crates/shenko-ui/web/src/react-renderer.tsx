@@ -12,6 +12,7 @@ import {
   type ReadingAnchor,
   type ReadingSelection,
   type Submission,
+  type TaskSummary,
   type TimelinePart,
   type UiNode,
   type UiProjection,
@@ -42,6 +43,19 @@ import {
   type Emit,
 } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
+import { ImView } from './im';
+import {
+  collectThreads,
+  isAttentionTask,
+  isDelegation,
+  subjectParticipant,
+  trajectoryMessages,
+  childParticipant,
+  demoTrajectory,
+  type ConversationRow,
+  type ThreadMessage,
+  type TrajectoryResponse,
+} from './threads';
 import {
   lensSnapshot,
   pinnedWorks,
@@ -151,7 +165,32 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as Array<Record<string, unknown>>;
+  const tasks = (nodes.tasks_surface?.props.data?.items ?? []) as TaskSummary[];
+
+  // Two views of the same subject: 对话 is where the owner talks with it and
+  // watches the groups it is in; Inspect is its raw stream of thought. The
+  // choice is this browser's reading preference.
+  const [tab, setTabState] = React.useState<'im' | 'inspect'>(() => {
+    const query = new URLSearchParams(location.search).get('tab');
+    if (query === 'inspect' || query === 'im') return query;
+    try { return localStorage.getItem('shenko.tab.v1') === 'inspect' ? 'inspect' : 'im'; } catch { return 'im'; }
+  });
+  const setTab = (next: 'im' | 'inspect') => {
+    setTabState(next);
+    try { localStorage.setItem('shenko.tab.v1', next); } catch { /* page-only preference */ }
+  };
+  const [threadId, setThreadId] = React.useState<string>(() => new URLSearchParams(location.search).get('thread') ?? 'direct');
+  const conversations = useConversations(projection.source === 'live', timeline.props.step as number | null);
+  const threads = React.useMemo(
+    () => collectThreads({ projection, tasks, conversations: demo ? demoConversations : conversations.rows }),
+    [projection, tasks, conversations.rows, demo],
+  );
+  const inspect = React.useMemo(() => ({
+    tasks,
+    openThread: (id: string) => { setThreadId(id); setTab('im'); },
+    subject: subjectParticipant(projection),
+    demo,
+  }), [tasks, projection, demo]);
   const openWork = open?.kind === 'work'
     ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
     : undefined;
@@ -176,6 +215,20 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           </span>
           <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
         </button>
+        <nav className="tabs" aria-label="视图">
+          <ToggleGroupRoot
+            className="tab-switch"
+            a11yLabel="视图"
+            value={[tab]}
+            onValueChange={(detail: { value: readonly string[] }) => {
+              const next = detail.value.find((value) => value !== tab);
+              if (next === 'im' || next === 'inspect') setTab(next);
+            }}
+          >
+            <ToggleGroupItem value="im" className="tab-item"><Icon name="chat" size={16} />对话</ToggleGroupItem>
+            <ToggleGroupItem value="inspect" className="tab-item"><Icon name="timeline" size={16} />Inspect</ToggleGroupItem>
+          </ToggleGroupRoot>
+        </nav>
         <nav className="lensbar" aria-label="镜头">
           <ToggleGroupRoot
             className="lens-switch"
@@ -187,7 +240,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
             }}
           >
             {lenses.map((lens, index) => (
-              <ToggleGroupItem key={lens.id} value={lens.id} className="lens-item" data-source={lens.source}>
+              <ToggleGroupItem key={lens.id} value={lens.id} className={`lens-item source-${lens.source}`}>
                 <Icon name={lens.icon} size={17} />
                 <span className="lens-label">{lens.title}</span>
                 <span className="sr-only">{index < 9 ? `（Ctrl/⌘ ${index + 1}）` : ''}</span>
@@ -215,23 +268,39 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
       </header>
 
       <div className="body">
-        <main className="stream" id="main">
-          <TimelineSurface
-            node={timeline}
-            projection={projection}
-            emit={emit}
-            onOpenWork={(artifactId) => openLens({ id: `work:${artifactId}`, title: '', icon: 'file', order: 0, source: 'work', artifact_id: artifactId })}
-          />
-          <Composer node={composer} emit={emit} />
+        <main className="stream" id="main" data-tab={tab}>
+          {tab === 'im'
+            ? <ImView
+              threads={threads}
+              selected={threadId}
+              onSelect={setThreadId}
+              composer={<Composer node={composer} emit={emit} variant="im" />}
+              renderAttachment={(message: ThreadMessage) => message.node?.kind === 'semantic_document'
+                ? <SemanticDocumentView node={message.node} emit={emit} />
+                : null}
+              emit={emit}
+              onOpenInspect={() => setTab('inspect')}
+              historyControl={(beforeLoad) => <SubmissionHistory node={timeline} emit={emit} beforeLoad={beforeLoad} />}
+              demo={demo}
+            />
+            : <InspectContext.Provider value={inspect}>
+              <TimelineSurface
+                node={timeline}
+                projection={projection}
+                emit={emit}
+                onOpenWork={(artifactId) => openLens({ id: `work:${artifactId}`, title: '', icon: 'file', order: 0, source: 'work', artifact_id: artifactId })}
+              />
+              <Composer node={composer} emit={emit} />
+            </InspectContext.Provider>}
           {/* Results of the reader's own acts (copied, rejected stale action…)
               are a quiet status line, not a floating toast. */}
-          <div className="statusline" role="status" aria-live="polite">{notice.props.text ?? ''}</div>
+          <div className="statusline" role="status" aria-live="polite">{[notice.props.text, conversations.error].filter(Boolean).join(' · ')}</div>
         </main>
         <aside className="lens" hidden={open === null} aria-label={open === null ? undefined : lenses.find((lens) => lens.id === openId)?.title}>
           <div className="lens-head">
             <span className="lens-title">{lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? ''}</span>
             {open?.kind === 'work' && (
-              <span className="lens-sub">作品页 · 独立沙箱，不带界面权限</span>
+              <span className="lens-sub">作品页 · 主体自己写的扩展，可回退到任一修订</span>
             )}
             <Button variant="ghost" size="icon" label="关闭镜头，回到时间线" onClick={() => openLens(undefined)}>
               <Icon name="close" />
@@ -239,7 +308,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           </div>
           <div className="lens-body">
             {open?.kind === 'work'
-              ? <WorkFrame artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} />
+              ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
               : <>
                 <TasksSurface node={nodes.tasks_surface} />
                 <MemorySurface node={nodes.memory_surface} />
@@ -264,12 +333,9 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
  * the last committed round, the reported status. Nothing is inferred; with no
  * facts the line says so.
  */
-function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: Array<Record<string, unknown>> }) {
-  // `subject_root` is the structural owner of all the subject's work (the
-  // subject itself, whose status is reported separately), not a thing it is
-  // doing; only work beneath it is attention.
-  const active = tasks.filter((task) => task.kind !== 'subject_root'
-    && ['running', 'pending', 'waiting', 'queued'].includes(String(task.state)));
+function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: TaskSummary[] }) {
+  // The subject's own status is shown separately from the work it owns.
+  const active = tasks.filter(isAttentionTask);
   const facts: string[] = [];
   if (active.length === 1) facts.push(`在做：${String(active[0].kind ?? active[0].task_id)}`);
   else if (active.length > 1) facts.push(`${active.length} 件事进行中`);
@@ -279,32 +345,197 @@ function Attention({ step, status, tasks }: { step: number | null; status: strin
 }
 
 /**
- * A work's published page, live beside the stream. The frame has no
- * same-origin grant and the server sends its own CSP sandbox, so the page
- * runs as an opaque origin: it cannot read the shell, its cookies or its
- * socket. Its revision keys the frame, so a new revision is a fresh page.
+ * A work's published page, live beside the stream. Works are trusted
+ * extensions by default (docs/specs/web-interface.md#5-1): the subject wrote,
+ * tested and can roll them back, so the page shares the shell's origin. The
+ * safety rope is the named revision and the shell's safe mode (`?safe=1`),
+ * which opens no work page. Its revision keys the frame, so a new revision is
+ * a fresh page.
  */
-function WorkFrame({ artifactId, title, revision }: { artifactId: string; title: string; revision?: number }) {
+function WorkFrame({ artifactId, title, revision, activeManifestDigest }: { artifactId: string; title: string; revision?: number; activeManifestDigest?: string }) {
   const pinned = pinnedWorks().includes(artifactId);
   const [, rerender] = React.useReducer((value: number) => value + 1, 0);
+  // A lens shows the adopted page; the authored head is a draft until a
+  // publication adopts it, and previewing it is the reader's explicit choice.
+  const [adopted, setAdopted] = React.useState<{ state: 'loading' | 'none' | 'ready'; revision?: string }>({ state: 'loading' });
+  const [error, setError] = React.useState<string>();
+  const [draft, setDraft] = React.useState(false);
+  React.useEffect(() => {
+    if (SAFE_MODE) return;
+    let live = true;
+    fetch(`/playground/${encodeURIComponent(artifactId)}/adopted`, { method: 'HEAD', cache: 'no-store' })
+      .then((response) => {
+        if (!live) return;
+        if (!response.ok && response.status !== 404) throw new Error(`HTTP ${response.status}`);
+        setError(undefined);
+        const next = response.ok
+          ? { state: 'ready' as const, revision: response.headers.get('x-artifact-revision') ?? undefined }
+          : { state: 'none' as const };
+        setAdopted((previous) => previous.state === next.state && previous.revision === next.revision ? previous : next);
+      })
+      .catch(() => { if (live) setError('作品采纳状态暂不可用'); });
+    return () => { live = false; };
+  }, [artifactId, revision, activeManifestDigest]);
+  if (SAFE_MODE) {
+    return <div className="work-frame"><p className="muted safe-note">安全模式：不打开作品页。去掉地址里的 <code>safe=1</code> 即可恢复。</p></div>;
+  }
+  const src = draft ? `/playground/${artifactId}` : `/playground/${artifactId}/adopted`;
   return (
     <div className="work-frame">
       <div className="work-frame-bar">
-        <span className="muted">r{revision ?? '—'}</span>
+        <span className="muted">
+          {draft ? `草稿预览 · r${revision ?? '—'}` : adopted.state === 'ready' ? `已采纳 · r${adopted.revision ?? '—'}` : adopted.state === 'none' ? '尚未采纳' : ''}
+        </span>
+        {draft && adopted.state === 'ready' && <Button variant="ghost" size="sm" onClick={() => setDraft(false)}>回到已采纳版本</Button>}
+        {!draft && adopted.state === 'ready' && revision !== undefined && String(revision) !== adopted.revision && (
+          <Button variant="ghost" size="sm" onClick={() => setDraft(true)}>预览草稿 r{revision}</Button>
+        )}
         <Button variant="ghost" size="sm" onClick={() => { setWorkPinned(artifactId, !pinned); rerender(); }}>
           {pinned ? '从镜头栏取下' : '固定到镜头栏'}
         </Button>
-        <a className="work-frame-link" href={`/playground/${artifactId}`} target="_blank" rel="noreferrer noopener">新窗口</a>
+        <a className="work-frame-link" href={src} target="_blank" rel="noreferrer noopener">新窗口</a>
       </div>
-      <iframe
-        key={`${artifactId}@${revision ?? 0}`}
-        className="work-iframe"
-        src={`/playground/${artifactId}`}
-        title={title}
-        sandbox="allow-scripts allow-forms allow-popups allow-modals"
-        referrerPolicy="no-referrer"
-      />
+      {error && <p className="muted" role="status">{error}</p>}
+      {!draft && adopted.state === 'none'
+        ? <div className="work-frame-empty">
+          <p className="muted">这件作品还没有采纳的版本，镜头只显示已采纳的页面。</p>
+          <Button variant="outline" size="sm" onClick={() => setDraft(true)}>预览草稿 r{revision ?? '—'}（未采纳）</Button>
+        </div>
+        : !draft && adopted.state === 'loading'
+          ? <div className="work-frame-empty" />
+          : <iframe
+            key={`${src}@${draft ? revision ?? 0 : adopted.revision ?? 0}`}
+            className="work-iframe"
+            src={src}
+            title={title}
+          />}
     </div>
+  );
+}
+
+/// Safe mode opens no work page and pins no work lens: the rescue path when a
+/// trusted extension misbehaves (docs/specs/web-interface.md#spec-21-3).
+const SAFE_MODE = new URLSearchParams(location.search).get('safe') === '1';
+
+/// What Inspect needs beyond the projection: the task list (to find the
+/// delegations a round started) and a way to open a thread in 对话.
+const InspectContext = React.createContext<{
+  tasks: TaskSummary[];
+  openThread: (id: string) => void;
+  subject: ReturnType<typeof subjectParticipant>;
+  demo: boolean;
+}>({ tasks: [], openThread: () => undefined, subject: { id: 'subject', name: '主体', role: 'subject' }, demo: false });
+
+/// Channel conversations, re-read when a new step commits.
+function useConversations(live: boolean, step: number | null): { rows: ConversationRow[]; error?: string } {
+  const [rows, setRows] = React.useState<ConversationRow[]>([]);
+  const [error, setError] = React.useState<string>();
+  React.useEffect(() => {
+    if (!live) return;
+    let current = true;
+    fetch('/api/conversations', { cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`会话读取失败：HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        if (!current) return;
+        if (!data || data.available !== true || !Array.isArray(data.messages)) {
+          throw new Error(typeof data?.note === 'string' ? data.note : '会话暂不可用');
+        }
+        setRows(data.messages);
+        setError(undefined);
+      })
+      .catch((failure) => { if (current) setError(failure instanceof Error ? failure.message : '会话暂不可用'); });
+    return () => { current = false; };
+  }, [live, step]);
+  return { rows, error };
+}
+
+function SubmissionHistory({ node, emit, beforeLoad }: { node: UiNode; emit: Emit; beforeLoad?: () => void }) {
+  const history = node.props.submission_history;
+  if (!history || !history.loading && !history.error && !history.has_older) return null;
+  return <div className="im-system">
+    {history.loading && <span role="status">正在读取消息历史…</span>}
+    {history.error && <span role="status">消息历史暂不可用：{history.error} </span>}
+    {!history.loading && (history.has_older || history.error) && <span data-load-submissions="true"><Button
+      variant="ghost" size="sm"
+      onClick={() => { beforeLoad?.(); emit('timeline', 'submissions.load_older'); }}
+    >{history.error ? '重新读取消息历史' : '加载更早的消息'}</Button></span>}
+  </div>;
+}
+
+const demoConversations: ConversationRow[] = (() => {
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  const group = { thread_key: 'qq:demo|group|10086', thread_label: '群 · 本地模型研究', thread_kind: 'group', thread_shape: 'group', channel: 'napcat' } as const;
+  const p2p = { thread_key: 'feishu:demo|chat|oc_demo', thread_label: '单聊 ou_demo', thread_kind: 'chat', thread_shape: 'one_to_one', channel: 'feishu' } as const;
+  return [
+    { ...group, direction: 'inbound', message_id: 'dc1', sender_id: 'a', sender_name: '阿青', text: '有人试过 27B 在 4 路 128K 下的吞吐吗', at: ago(50) },
+    { ...group, direction: 'inbound', message_id: 'dc2', sender_id: 'b', sender_name: 'Mo', text: '我这边 KV 一满就掉得厉害', at: ago(48) },
+    { ...group, direction: 'outbound', message_id: 'dc3', text: '我们这边是自动分 KV，负载对半的时候会落到 50/50。可以先看看是不是启动顺序导致的重试。', at: ago(47), state: 'done' },
+    { ...p2p, direction: 'inbound', message_id: 'dp1', sender_id: 'ou_demo', sender_name: '林以', text: '周五的分享你那边能给个十分钟的版本吗？', at: ago(30) },
+    { ...p2p, direction: 'outbound', message_id: 'dp2', text: '可以。我先把三个结论压成一页，晚上发你看。', at: ago(28), state: 'done' },
+  ];
+})();
+
+/// The delegations one committed round started, branching off the spine:
+/// each is its own trajectory, readable inline or as a group thread in 对话.
+function DelegationBranches({ stepId }: { stepId: string }) {
+  const { tasks, openThread, subject, demo } = React.useContext(InspectContext);
+  const delegations = tasks.filter((task) => isDelegation(task) && task.created_by_step_id === stepId);
+  if (delegations.length === 0) return null;
+  return <div className="branches">{delegations.map((task) => (
+    <DelegationBranch key={String(task.task_id)} task={task} subject={subject} demo={demo}
+      onOpen={() => openThread(`delegation:${String(task.task_id)}`)} />
+  ))}</div>;
+}
+
+function DelegationBranch({ task, subject, demo, onOpen }: {
+  task: Record<string, unknown>; subject: ReturnType<typeof subjectParticipant>; demo: boolean; onOpen: () => void;
+}) {
+  const id = String(task.task_id);
+  const child = childParticipant(id);
+  const [open, setOpen] = React.useState(false);
+  const [trace, setTrace] = React.useState<ThreadMessage[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!open || demo) return;
+    let live = true;
+    fetch(`/api/tasks/${encodeURIComponent(id)}/trajectory`, { cache: 'no-store' })
+      .then((response) => { if (!response.ok) throw new Error(String(response.status)); return response.json(); })
+      .then((data: TrajectoryResponse) => { if (live) setTrace(trajectoryMessages(data, subject)); })
+      .catch((reason) => { if (live) setError(String(reason?.message ?? reason)); });
+    return () => { live = false; };
+  }, [open, id, String(task.state), demo]);
+  return (
+    <CollapsibleRoot className="branch" open={open} onOpenChange={(detail: { open: boolean }) => setOpen(detail.open)}>
+      <div className="branch-head">
+        <CollapsibleTrigger className="branch-trigger">
+          <Icon name="chevron" size={14} />
+          <span className="branch-title">委派 → {child.name}</span>
+          <span className="branch-state" data-state={String(task.state)}>{String(task.state)}</span>
+        </CollapsibleTrigger>
+        <button type="button" className="text-action" onClick={onOpen}><Icon name="chat" size={14} />在对话中打开</button>
+      </div>
+      <CollapsibleContent className="branch-body">
+        {demo ? <ol className="trace">{trajectoryMessages(demoTrajectory(id), subject).map((item) => (
+          <li key={item.key} className={`trace-row role-${item.from.role} kind-${item.kind}`}>
+            <span className="trace-who">{item.kind === 'system' ? '·' : item.from.name}</span>
+            <span className="trace-text">{item.tag ? <b>{item.tag} </b> : null}{item.text || '（无文字）'}</span>
+            {item.meta && <span className="trace-meta">{item.meta}</span>}
+          </li>
+        ))}</ol>
+          : error ? <p className="muted is-error">轨迹读取失败：{error}</p>
+            : !trace ? <p className="muted">正在读取轨迹…</p>
+              : <ol className="trace">{trace.map((item) => (
+                <li key={item.key} className={`trace-row role-${item.from.role} kind-${item.kind}`}>
+                  <span className="trace-who">{item.kind === 'system' ? '·' : item.from.name}</span>
+                  <span className="trace-text">{item.tag ? <b>{item.tag} </b> : null}{item.text || '（无文字）'}</span>
+                  {item.meta && <span className="trace-meta">{item.meta}</span>}
+                </li>
+              ))}</ol>}
+      </CollapsibleContent>
+    </CollapsibleRoot>
   );
 }
 
@@ -625,6 +856,7 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps, { announceme
           <ScrollRoot className="timeline-root">
             <ScrollViewport className="timeline-viewport">
               <div className="timeline-column">
+                <SubmissionHistory node={node} emit={emit} />
                 {entries.length === 0
                   ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} name={name} />
                   : <TimelineEntries entries={entries} emit={emit} name={name} onOpenWork={this.props.onOpenWork} />}
@@ -753,6 +985,7 @@ function SubjectPart({ node, emit, name, continued }: { node: UiNode; emit: Emit
         <div className="entry-body">
           <PartErrorBoundary text={part.content}><Markdown text={part.content} /></PartErrorBoundary>
         </div>
+        {state.committed && <DelegationBranches stepId={part.step_id} />}
         <footer className="entry-tools">
           <Button variant="ghost" size="sm" label="复制这一轮" onClick={() => emit(node.node_id, node.action_refs[0])}>
             <Icon name="copy" size={15} /><span>复制</span>
@@ -1000,7 +1233,7 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
   );
 }
 
-function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
+function Composer({ node, emit, variant = 'stream' }: { node: UiNode; emit: Emit; variant?: 'stream' | 'im' }) {
   const draftAction = node.action_refs[0];
   const appendAction = node.action_refs[1];
   const steerAction = node.props.steer_action as string | undefined;
@@ -1027,7 +1260,7 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
           ? '服务端当前未开放追加输入'
           : null;
   return (
-    <footer className="composer" hidden={node.props.hidden}>
+    <footer className={`composer composer-${variant}`} hidden={node.props.hidden}>
       <div className={`composer-card${steering ? ' is-steer' : ''}`}>
         <div
           className="composer-editor"
@@ -1049,7 +1282,7 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
             value={node.props.draft}
             rows={2}
             readOnly={demo}
-            placeholder={demo ? '模拟投影不发送输入' : steering ? '引导它此刻的注意力…' : '说点什么…'}
+            placeholder={demo ? '模拟投影不发送输入' : steering ? '引导它此刻的注意力…' : variant === 'im' ? '信息' : '说点什么…'}
             className="composer-input"
             onValueChange={(detail) => emit('composer', draftAction, { value: detail.value })}
           />

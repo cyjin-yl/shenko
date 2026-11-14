@@ -76,15 +76,18 @@ pub struct CapabilityContract {
 }
 
 impl CapabilityContract {
-    /// Parse one declared capability token.
-    pub fn parse(token: &str) -> Option<Self> {
+    fn parse_parts(token: &str) -> Option<(&str, u32)> {
         let token = token.trim();
         let (contract_id, major) = token.rsplit_once('/')?;
         let major: u32 = major.trim().parse().ok()?;
-        (!contract_id.trim().is_empty() && major > 0).then(|| Self {
-            contract_id: contract_id.trim().to_string(),
-            major,
-        })
+        let contract_id = contract_id.trim();
+        (!contract_id.is_empty() && major > 0).then_some((contract_id, major))
+    }
+
+    /// Parse one declared capability token.
+    pub fn parse(token: &str) -> Option<Self> {
+        let (contract_id, major) = Self::parse_parts(token)?;
+        Some(Self { contract_id: contract_id.to_string(), major })
     }
 
     /// The declared token for this contract.
@@ -96,8 +99,8 @@ impl CapabilityContract {
     pub fn declared_by(&self, provides: &[String]) -> bool {
         provides
             .iter()
-            .filter_map(|token| Self::parse(token))
-            .any(|declared| declared == *self)
+            .filter_map(|token| Self::parse_parts(token))
+            .any(|(contract_id, major)| contract_id == self.contract_id && major == self.major)
     }
 }
 
@@ -596,8 +599,12 @@ fn adopted_here(unit: &CognitionUnit) -> bool {
 /// declares the attention contract — a skill is a way of doing something, not
 /// an attention, until it says it provides one. A perception unit teaches how
 /// to observe, so it may contribute an observation-backed notice. Code is never
-/// attention material.
+/// attention material. A host provider also needs an explicit attention
+/// declaration: supplying the host alone declares no individual attention.
 fn attention_material(unit: &CognitionUnit) -> bool {
+    if host_only_provider(&unit.provides) {
+        return false;
+    }
     let attention = CapabilityContract {
         contract_id: ATTENTION_CONTRACT.to_string(),
         major: HOST_CONTRACT_MAJOR,
@@ -609,9 +616,30 @@ fn attention_material(unit: &CognitionUnit) -> bool {
     }
 }
 
+/// The host contract supplies the capability, while the attention contract
+/// supplies an atom. A provider may declare both; its unit id is immaterial.
+fn host_only_provider(provides: &[String]) -> bool {
+    let mut host = false;
+    for (contract_id, major) in provides.iter().filter_map(|token| CapabilityContract::parse_parts(token)) {
+        if major != HOST_CONTRACT_MAJOR {
+            continue;
+        }
+        match contract_id {
+            ATTENTION_CONTRACT => return false,
+            HOST_CONTRACT => host = true,
+            _ => {}
+        }
+    }
+    host
+}
+
 /// The attention units a metapackage member must carry: awareness material by
-/// kind, or any unit that provides the attention contract.
+/// kind, or any unit that provides the attention contract. A host-only
+/// declaration does not supply an atom, regardless of the provider's unit id.
 pub fn is_attention_material(fact: &InstalledUnitFact) -> bool {
+    if host_only_provider(&fact.descriptor.provides) {
+        return false;
+    }
     fact.kind == UnitKind::Awareness
         || fact.kind == UnitKind::Perception
         || CapabilityContract {
