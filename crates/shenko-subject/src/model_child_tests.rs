@@ -9,23 +9,82 @@ use shenko_types::{ids::*, operation::OperationState, task::*};
 use std::{future::Future, sync::Arc, time::Duration};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
-async fn read_wire(socket: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    loop {
-        let mut chunk = [0_u8; 4096];
-        let count = socket.read(&mut chunk).await.unwrap();
-        assert_ne!(count, 0, "loopback request ended before its body");
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-            let headers = std::str::from_utf8(&bytes[..end]).unwrap();
-            let len: usize = headers.lines().find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse().unwrap())
-            }).unwrap();
-            if bytes.len() >= end + 4 + len {
-                return serde_json::from_slice(&bytes[end + 4..end + 4 + len]).unwrap();
-            }
+/// Answer native metadata probes without consuming a scripted generation.
+async fn read_wire(listener: &TcpListener) -> (TcpStream, serde_json::Value) {
+    const MAX_HEADER_BYTES: usize = 64 * 1024;
+    const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+    let result = async {
+        loop {
+            let (mut socket, _) = listener.accept().await.context("accept loopback request")?;
+            let (bytes, start) = tokio::time::timeout(Duration::from_secs(5), async {
+                let mut bytes = Vec::new();
+                let mut chunk = [0_u8; 4096];
+                let (start, length) = loop {
+                    let count = socket.read(&mut chunk).await.context("read loopback headers")?;
+                    anyhow::ensure!(count != 0, "loopback request ended before complete headers");
+                    bytes.extend_from_slice(&chunk[..count]);
+                    if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        anyhow::ensure!(end + 4 <= MAX_HEADER_BYTES, "loopback headers exceed fixture bound");
+                        let headers = std::str::from_utf8(&bytes[..end]).context("decode loopback headers")?;
+                        let mut length = None;
+                        for line in headers.split("\r\n").skip(1) {
+                            anyhow::ensure!(!line.contains(['\r', '\n']), "malformed loopback header line");
+                            let (name, value) = line.split_once(':').context("loopback header lacks colon")?;
+                            anyhow::ensure!(!name.is_empty() && !name.bytes().any(|byte| byte.is_ascii_whitespace()),
+                                "malformed loopback header name");
+                            anyhow::ensure!(!name.eq_ignore_ascii_case("transfer-encoding"),
+                                "unexpected transfer-encoding on native sized JSON request");
+                            if name.eq_ignore_ascii_case("content-length") {
+                                anyhow::ensure!(length.is_none(), "duplicate loopback content-length");
+                                let value = value.trim();
+                                anyhow::ensure!(!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()),
+                                    "invalid loopback content-length");
+                                length = Some(value.parse::<usize>().context("loopback content-length overflow")?);
+                            }
+                        }
+                        let length = length.unwrap_or(0);
+                        anyhow::ensure!(length <= MAX_BODY_BYTES, "loopback body exceeds fixture bound");
+                        break (end + 4, length);
+                    }
+                    anyhow::ensure!(bytes.len() < MAX_HEADER_BYTES, "loopback headers exceed fixture bound");
+                };
+                let end = start.checked_add(length).context("loopback request length overflow")?;
+                while bytes.len() < end {
+                    let remaining = (end - bytes.len()).min(chunk.len());
+                    let count = socket.read(&mut chunk[..remaining]).await.context("read loopback body")?;
+                    anyhow::ensure!(count != 0, "loopback request ended before complete body");
+                    bytes.extend_from_slice(&chunk[..count]);
+                }
+                anyhow::ensure!(bytes.len() == end, "unexpected bytes after framed loopback body");
+                Ok::<_, anyhow::Error>((bytes, start))
+            }).await.context("loopback headers/body timed out")??;
+            let headers = std::str::from_utf8(&bytes[..start - 4]).context("decode loopback request line")?;
+            let mut request = headers.split("\r\n").next().context("missing request line")?.split_whitespace();
+            let method = request.next().context("missing request method")?;
+            let target = request.next().context("missing request target")?;
+            anyhow::ensure!(request.next() == Some("HTTP/1.1") && request.next().is_none(),
+                "malformed loopback HTTP/1.1 request line");
+            let path = target.split('?').next().context("missing request path")?;
+            let body = &bytes[start..];
+            let (content_type, response) = match (method, path) {
+                ("GET", "/v1/models") => ("application/json", r#"{"data":[]}"#),
+                ("GET", "/metrics") => ("text/plain; version=0.0.4", "process_start_time_seconds 1\n"),
+                ("POST", "/v1/chat/completions" | "/v1/messages") => {
+                    anyhow::ensure!(!body.is_empty(), "generation has no framed JSON body");
+                    let wire = serde_json::from_slice(body).context("decode complete generation JSON")?;
+                    return Ok::<_, anyhow::Error>((socket, wire));
+                }
+                _ => anyhow::bail!("unexpected loopback provider request: {method} {target}"),
+            };
+            anyhow::ensure!(body.is_empty(), "metadata probe must have an empty body");
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response}", response.len()).as_bytes())
+                .await.context("answer loopback metadata probe")?;
+            socket.shutdown().await.context("close loopback metadata probe")?;
         }
+    }.await;
+    match result {
+        Ok(request) => request,
+        Err(error) => panic!("loopback provider fixture failed: {error:#}"),
     }
 }
 
@@ -83,8 +142,7 @@ fn child_step_decodes_late_references_before_bounding_display_text() -> anyhow::
                 "content":raw},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
             let server = tokio::spawn(async move {
-                let (mut socket, _) = listener.accept().await?;
-                let wire = read_wire(&mut socket).await;
+                let (mut socket, wire) = read_wire(&listener).await;
                 socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
                 socket.shutdown().await?;
                 Ok::<_, std::io::Error>(wire)
@@ -157,8 +215,8 @@ async fn assert_failed_generation(truncated: bool) -> anyhow::Result<()> {
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
-        while let Ok((mut socket, _)) = listener.accept().await {
-            let wire = read_wire(&mut socket).await;
+        loop {
+            let (mut socket, wire) = read_wire(&listener).await;
             wires_tx.send(wire).unwrap();
             let (status, body) = if truncated {
                 ("200 OK", serde_json::json!({"choices":[{"message":{"role":"assistant",
@@ -237,8 +295,8 @@ async fn failed_generation_reopens_after_e1_without_a_second_send() -> anyhow::R
     let server = tokio::spawn(async move {
         let mut wait = Some(wait);
         loop {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            sent.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            sent.send(wire).unwrap();
             if let Some(wait) = wait.take() { wait.await.unwrap(); }
             let body = b"{\"error\":\"no such model\"}";
             socket.write_all(format!("HTTP/1.1 404 Not Found\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
@@ -416,8 +474,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
         for _ in 0..2 {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let wire = read_wire(&mut socket).await;
+            let (mut socket, wire) = read_wire(&listener).await;
             reply(&mut socket, wire["model"].as_str().unwrap()).await;
             wires_tx.send(wire).unwrap();
         }
@@ -515,8 +572,7 @@ async fn cancelled_stopped_waiter_retains_late_provider_e1_without_t2() -> anyho
     let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let wire = read_wire(&mut socket).await;
+        let (mut socket, wire) = read_wire(&listener).await;
         wire_tx.send(wire).unwrap();
         release_rx.await.unwrap();
         reply(&mut socket, "cancel-child").await;
@@ -559,8 +615,7 @@ async fn uncertain_child_restores_original_debt_and_never_redispatches() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let wire = read_wire(&mut socket).await;
+        let (socket, wire) = read_wire(&listener).await;
         drop(socket); // No provider-terminal evidence, not a rejection.
         (wire, listener)
     });
@@ -624,8 +679,8 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     let server = tokio::spawn(async move {
         let mut release = Some(release_rx);
         for text in ["[tool:fixture.missing:1] {}", "finished the finite observation"] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire).unwrap();
             if let Some(release) = release.take() { release.await.unwrap(); }
             let raw = serde_json::json!({"choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
@@ -764,8 +819,8 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() -
     let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        wire_tx.send(read_wire(&mut socket).await).unwrap();
+        let (mut socket, wire) = read_wire(&listener).await;
+        wire_tx.send(wire).unwrap();
         release_rx.await.unwrap();
         let raw = r#"{"content":[{"type":"text","text":"scripted quota-bound cloud result"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":7}}"#;
         socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
@@ -885,8 +940,8 @@ async fn owner_message_reaches_a_running_child_and_is_settled_once() {
     let server = tokio::spawn(async move {
         let mut release = Some(release_rx);
         for text in ["first observation recorded", "owner message answered"] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire).unwrap();
             if let Some(release) = release.take() {
                 release.await.unwrap();
             }
@@ -1065,24 +1120,18 @@ async fn owner_message_reaches_a_running_child_and_is_settled_once() {
 /// owner's answer continues the very same discussion after a restart instead
 /// of starting a second child or re-running the first run's steps.
 #[tokio::test]
-async fn a_child_question_is_answered_by_the_same_discussion_after_reopen() {
-    // The suite has to be able to FINISH: this case hangs on main (issue
-    // #266), and one hanging case hides every other result — the harness
-    // waits forever and nobody can tell green from red. A bounded wait turns
-    // the hang into the ordinary red case it actually is, with the same
-    // evidence: the child's question must be answered after a reopen.
-    let outcome = tokio::time::timeout(
+async fn a_child_question_is_answered_by_the_same_discussion_after_reopen() -> anyhow::Result<()> {
+    // Keep the cooperative bound. Tokio cannot preempt a synchronous
+    // connection self-lock, so the parent also bounds the test process.
+    // Continuation admission must use its existing transaction.
+    tokio::time::timeout(
         std::time::Duration::from_secs(180),
         a_child_question_is_answered_by_the_same_discussion_after_reopen_body(),
     )
-    .await;
-    assert!(
-        outcome.is_ok(),
-        "the child's question must be answered by the owner after a reopen (issue #266)"
-    );
+    .await.context("the child's question must be answered by the owner after reopen (issue #266)")?
 }
 
-async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body() {
+async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1090,8 +1139,8 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
         for text in ["[ask] 要观察哪个数据集？", "数据集 alpha 的观察完成"] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            wires_tx.send(read_wire(&mut socket).await).unwrap();
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire).unwrap();
             let raw = serde_json::json!({
                 "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7},
@@ -1150,6 +1199,15 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     );
     assert_eq!(payload["steps"], 1, "the question ended the run");
     assert!(wires_rx.try_recv().is_err(), "asking does not send a second generation");
+    let question_step = child_step(&store, task.task_id);
+    let question_attempt = store.external_operation_attempt(question_step.operation_id)?;
+    let question_evidence = store.external_evidence(
+        question_attempt.final_receipt_id.context("question has its original E1")?,
+    )?;
+    let question_raw = store.cas.read_object(&question_evidence.raw_ref.digest)?;
+    let question_input: serde_json::Value = serde_json::from_slice(
+        &store.cas.read_object(&question_step.final_input_ref.digest)?,
+    )?;
 
     native.close_and_join(0).await;
     drop(native);
@@ -1247,6 +1305,26 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     let sealed: serde_json::Value =
         serde_json::from_slice(&reopened.cas.read_object(&step.final_input_ref.digest).unwrap()).unwrap();
     assert_eq!(sealed["step_index"], 1, "the continuation continues the transcript");
+    assert_ne!(step.operation_id, question_step.operation_id);
+    assert_ne!(sealed["request_id"], question_input["request_id"]);
+    let continued_attempt = reopened.external_operation_attempt(step.operation_id)?;
+    assert_ne!(continued_attempt.attempt_id, question_attempt.attempt_id);
+    assert_eq!(
+        serde_json::to_value(reopened.external_operation(question_step.operation_id)?)?,
+        serde_json::to_value(&question_step)?,
+        "continuation preserves the original question operation"
+    );
+    assert_eq!(
+        serde_json::to_value(reopened.external_operation_attempt(question_step.operation_id)?)?,
+        serde_json::to_value(&question_attempt)?,
+        "continuation preserves the original question attempt"
+    );
+    assert_eq!(
+        serde_json::to_value(reopened.external_evidence(question_evidence.receipt_id)?)?,
+        serde_json::to_value(&question_evidence)?,
+        "continuation preserves the original question E1"
+    );
+    assert_eq!(reopened.cas.read_object(&question_evidence.raw_ref.digest)?, question_raw);
     // The first run's step is never re-sent by the continuation.
     assert_eq!(
         reopened
@@ -1276,6 +1354,7 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
     let _ = run.await;
     server.abort();
     let _ = server.await;
+    Ok(())
 }
 
 /// A worker that disappears after the last step's E1 and before the run
@@ -1291,8 +1370,8 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
     let (sent, mut received) = tokio::sync::mpsc::unbounded_channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await?;
-        sent.send(read_wire(&mut socket).await)?;
+        let (mut socket, wire) = read_wire(&listener).await;
+        sent.send(wire)?;
         release_rx.await?;
         reply(&mut socket, "decided-child").await;
         // A second request would surface here: the listener stays open.
@@ -1480,8 +1559,8 @@ async fn a_nested_child_cannot_widen_its_parents_granted_tools() -> anyhow::Resu
             ),
             "没有可执行的嵌套委派，如实交回。".to_string(),
         ] {
-            let (mut socket, _) = listener.accept().await?;
-            wires_tx.send(read_wire(&mut socket).await)?;
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire)?;
             let raw = serde_json::json!({
                 "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7},

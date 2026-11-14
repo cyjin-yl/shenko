@@ -139,7 +139,7 @@ impl Store {
         }
         for intent in &decision.delegated_task_intents {
             if !historical && intent.definition.as_ref().is_some_and(|definition| definition.kind == "model.child") {
-                self.validate_model_child_intent(head, step, decision, intent)?;
+                self.validate_model_child_intent(tx, head, step, decision, intent)?;
             }
             let contract = intent.definition.as_ref().map_or_else(
                 || "shenko.task/delegation-queue/1".to_string(),
@@ -416,7 +416,7 @@ impl Store {
     }
 
     fn validate_model_child_intent(
-        &self, head: &SubjectBranchHead, step: &SubjectStep,
+        &self, tx: &Transaction<'_>, head: &SubjectBranchHead, step: &SubjectStep,
         decision: &StepDecision, intent: &DelegationIntent,
     ) -> Result<(), shenko_types::error::ShenkoError> {
         use shenko_types::{error::ShenkoError, output::ModelChildBudget, output::OutputAction};
@@ -467,9 +467,11 @@ impl Store {
         // same subject. Its recorded transcript is reused, so the owner
         // answers a real question instead of starting a second discussion.
         if let Some(continued) = spec.continue_task_id {
-            let previous = self
-                .external_task(continued)
-                .map_err(|_| invalid())?;
+            // S1 already holds ledger.conn. Read within its transaction;
+            // external_task would re-lock the same non-reentrant mutex.
+            let previous = crate::child::read_task(tx, continued)
+                .map_err(|_| invalid())?
+                .ok_or_else(invalid)?;
             if previous.kind != crate::external::MODEL_CHILD_KIND
                 || previous.agent_id != head.agent_id
                 || !previous.is_terminal()
