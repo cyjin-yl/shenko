@@ -27,13 +27,15 @@ mod authority_guard;
 pub use authority_guard::*;
 mod branch_binding;
 pub use branch_binding::SubjectBranchProjection;
+mod control;
+pub use control::*;
 mod cognition;
 pub use cognition::*;
 
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 8;
+const STORAGE_SCHEMA: u32 = 9;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -218,6 +220,14 @@ pub enum Request {
     Append {
         request: AppendRequest,
     },
+    /// Persist an exact control value under a prepare quorum, before replying.
+    AcceptControl { request: ControlReplication },
+    /// Record a response obtained from that acceptor's authenticated route.
+    RecordControlAck { request: ControlReplication, acknowledgement: ControlAcknowledgement },
+    PendingControl,
+    CommitControl { request: ControlReplication },
+    ProposeAdmission { admission: shenko_types::authority::CommitAdmission, objects: Vec<shenko_types::authority::CommitAdmissionObject> },
+    CommittedAdmissions { after_index: u64 },
     /// Adopt the member configuration published by an existing member.
     PushConfig {
         config: MemberConfiguration,
@@ -436,6 +446,9 @@ impl Node {
                 // two rows per divergence: the committed record and the
                 // offered one, neither replacing the other.
                 tx.execute_batch(election::CONTROL_CONFLICT_SCHEMA)?;
+            }
+            if locked <= 8 {
+                tx.execute_batch(control::CONTROL_DURABILITY_SCHEMA)?;
             }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
@@ -812,6 +825,15 @@ impl Node {
             Request::PushConfig { config, entries } => Ok(
                 serde_json::to_value(self.adopt_member_configuration(&config, &entries)?)?,
             ),
+            Request::AcceptControl { request } => Ok(serde_json::to_value(self.accept_control(&request)?)?),
+            Request::RecordControlAck { request, acknowledgement } => {
+                self.record_control_acknowledgement(&request, &acknowledgement)?;
+                Ok(json!({"recorded": true}))
+            }
+            Request::PendingControl => Ok(serde_json::to_value(self.pending_control_replication()?)?),
+            Request::CommitControl { request } => Ok(serde_json::to_value(self.commit_prepared_control(&request)?)?),
+            Request::ProposeAdmission { admission, objects } => Ok(serde_json::to_value(self.propose_admission(&admission, &objects)?)?),
+            Request::CommittedAdmissions { after_index } => Ok(serde_json::to_value(self.committed_admissions(after_index)?)?),
             Request::ControlLog => Ok(json!({"entries": self.control_log()?})),
             Request::Adopt { request } => {
                 Ok(serde_json::to_value(self.adopt_identity(request)?)?)
@@ -1196,6 +1218,9 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     }
     if version >= 8 {
         expected.execute_batch(election::CONTROL_CONFLICT_SCHEMA)?;
+    }
+    if version >= 9 {
+        expected.execute_batch(control::CONTROL_DURABILITY_SCHEMA)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
