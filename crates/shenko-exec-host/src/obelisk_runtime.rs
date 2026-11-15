@@ -6,6 +6,7 @@
 //! Obelisk's JS runtime is not a security boundary: custom scripts execute with
 //! the configured host account's authority, even though its SQL helper is read-only.
 use anyhow::{Context as _, Result, ensure};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -258,7 +259,12 @@ pub struct ObeliskProcessObservation {
     pub readers_drained: bool,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    /// Failed/undecodable output retains the exact captured prefix. The
+    /// truncation flag says whether the output budget omitted further bytes.
+    pub stdout_base64: Option<String>,
     pub stderr: String,
+    /// UTF-8 stderr is already lossless above; retain bytes when it is not.
+    pub stderr_base64: Option<String>,
     pub error: Option<String>,
     /// This is process-group signalling, not a sandbox or proof that a child
     /// that deliberately escaped its process group has stopped.
@@ -555,7 +561,9 @@ impl ObeliskRuntime {
                 readers_drained: false,
                 stdout_truncated: false,
                 stderr_truncated: false,
+                stdout_base64: None,
                 stderr: String::new(),
+                stderr_base64: None,
                 error: None,
                 termination_scope: if cfg!(any(
                     target_os = "linux",
@@ -717,6 +725,10 @@ impl ObeliskRuntime {
         observation.process.stdout_truncated = stdout.truncated;
         observation.process.stderr_truncated = stderr.truncated;
         observation.process.stderr = String::from_utf8_lossy(&stderr.bytes).into_owned();
+        if std::str::from_utf8(&stderr.bytes).is_err() {
+            observation.process.stderr_base64 =
+                Some(base64::engine::general_purpose::STANDARD.encode(&stderr.bytes));
+        }
         if stdout.truncated || stderr.truncated {
             if observation.status == ObeliskRunStatus::Succeeded {
                 observation.status = ObeliskRunStatus::OutputLimit;
@@ -782,6 +794,10 @@ impl ObeliskRuntime {
             }
         } else if let Ok(error) = serde_json::from_slice::<Value>(&stdout.bytes) {
             observation.data = Some(error);
+        }
+        if observation.status != ObeliskRunStatus::Succeeded && !stdout.bytes.is_empty() {
+            observation.process.stdout_base64 =
+                Some(base64::engine::general_purpose::STANDARD.encode(&stdout.bytes));
         }
         Ok(observation)
     }
