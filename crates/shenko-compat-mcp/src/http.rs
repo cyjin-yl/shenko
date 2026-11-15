@@ -567,7 +567,7 @@ impl StreamableHttpClient for BoundedHttpClient {
         };
         tokio::select! { biased;
             _ = self.retirement.cancelled() => Err(authorization_error("HTTP transport retired")),
-            result = exchange => result,
+            _result = exchange => _result,
         }
     }
 
@@ -666,7 +666,7 @@ impl StreamableHttpClient for BoundedHttpClient {
         };
         tokio::select! { biased;
             _ = self.retirement.cancelled() => Err(authorization_error("HTTP transport retired")),
-            result = exchange => result,
+            _result = exchange => _result,
         }
     }
 }
