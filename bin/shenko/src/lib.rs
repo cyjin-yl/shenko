@@ -13,6 +13,7 @@ pub mod node_sync;
 mod compat;
 mod runtime_owner;
 mod context_policy;
+mod document_runtime;
 mod inference_runtime;
 mod tool_install;
 mod update_runtime;
@@ -883,6 +884,11 @@ async fn install_native_definitions(
     let _native_history_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
         .await?;
+    if let Some(handler) = document_runtime::configured_handler(Arc::clone(store))? {
+        supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await?;
+    }
     // Reachability is observed, not assumed: one bounded probe of a declared
     // endpoint with per-stage measured timings and no persistent state.
     let net_probe_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =

@@ -13,6 +13,7 @@
 //! attestation), the boundary reports an honest `ProviderUnavailable` — the
 //! SPEC's rule that an absent capability is reported, not faked.
 
+mod attempt;
 mod oxr_client;
 mod provider;
 mod types;
@@ -22,13 +23,17 @@ mod oxr_client_tests;
 #[cfg(test)]
 mod tests;
 
+pub use attempt::{
+    OxrAttemptBinding, OxrAttemptClaim, OxrAttemptContext, OxrAttemptReceipt, OxrAttemptStore,
+};
 pub use oxr_client::{
     CredentialHandle, DEFAULT_POLL_INTERVAL, DEFAULT_POLL_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrParsedPage, OxrTransport,
+    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrParsedPage, OxrSubmission, OxrTaskHandle,
+    OxrTransport,
 };
 pub use provider::{
-    DocumentProvider, OxrEngineBinding, OxrProvider, OxrProviderConfig, PageOutcome,
-    ProviderAvailability, page_provenance, select_provider,
+    DocumentProvider, OxrEngineBinding, OxrProvider, OxrProviderConfig, PageCountOutcome,
+    PageOutcome, ProviderAvailability, page_provenance, select_provider,
 };
 pub use types::{
     DOCUMENT_PARSE_DEFINITION_VERSION, PageBlock, PageCheckpoint, PageProvenance, PageRef,
@@ -37,6 +42,7 @@ pub use types::{
 
 use anyhow::Result;
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -57,12 +63,32 @@ pub const MAX_PARSE_CONCURRENCY: usize = 16;
 /// must reconcile before re-sending — it is not a licence to retry blindly.
 /// The run is `Complete` only when every page is finished or terminally
 /// failed; any `unknown_outcome` leaves it `Running`.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParseRun {
     /// Per-page terminal facts, in page order.
     pub checkpoints: Vec<PageCheckpoint>,
     /// The request's resulting state.
     pub state: ParseState,
+    /// A terminal whole-document refusal before any page count was available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_failure: Option<String>,
+    /// An external parse may have run, but no page count/result is established.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_unknown_outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+}
+
+impl ParseRun {
+    fn empty(state: ParseState) -> Self {
+        Self {
+            checkpoints: vec![],
+            state,
+            document_failure: None,
+            document_unknown_outcome: None,
+            unavailable_reason: None,
+        }
+    }
 }
 
 /// The bound on how many pages are parsed concurrently.
@@ -87,11 +113,12 @@ pub async fn run_parse(
     source_bytes: &[u8],
     options: ParseOptions,
 ) -> Result<ParseRun> {
-    if let ProviderAvailability::Unavailable { reason: _ } = provider.availability().await {
-        // Honest report: no page claims, no partial result.
+    if let ProviderAvailability::Unavailable { reason } =
+        provider.availability_for(source_bytes, req).await
+    {
         return Ok(ParseRun {
-            checkpoints: vec![],
-            state: ParseState::ProviderUnavailable,
+            unavailable_reason: Some(reason),
+            ..ParseRun::empty(ParseState::ProviderUnavailable)
         });
     }
 
@@ -100,13 +127,22 @@ pub async fn run_parse(
         // boundary does not guess it. A provider that cannot state the count
         // yields an honest PageCountUnknown with no claimed pages.
         match provider.page_count(source_bytes, req).await? {
-            Some(count) => (0..count)
+            PageCountOutcome::Known(count) => (0..count)
                 .map(|page_index| PageRef { page_index })
                 .collect(),
-            None => {
+            PageCountOutcome::Undetermined => {
+                return Ok(ParseRun::empty(ParseState::PageCountUnknown));
+            }
+            PageCountOutcome::Failed(reason) => {
                 return Ok(ParseRun {
-                    checkpoints: vec![],
-                    state: ParseState::PageCountUnknown,
+                    document_failure: Some(reason),
+                    ..ParseRun::empty(ParseState::Complete)
+                });
+            }
+            PageCountOutcome::Unknown(reason) => {
+                return Ok(ParseRun {
+                    document_unknown_outcome: Some(reason),
+                    ..ParseRun::empty(ParseState::Running)
                 });
             }
         }
@@ -120,13 +156,10 @@ pub async fn run_parse(
         .clamp(1, MAX_PARSE_CONCURRENCY);
 
     let mut outcomes: Vec<(PageRef, String, Result<PageOutcome>)> =
-        futures::stream::iter(pages.iter().map(|page| {
-            let page = *page;
-            async move {
-                let cache_key = page_cache_key(req, page);
-                let outcome = provider.parse_page(source_bytes, page, req).await;
-                (page, cache_key, outcome)
-            }
+        futures::stream::iter(pages.into_iter().map(|page| async move {
+            let cache_key = page_cache_key(req, page);
+            let outcome = provider.parse_page(source_bytes, page, req).await;
+            (page, cache_key, outcome)
         }))
         .buffer_unordered(limit)
         .collect()
@@ -170,11 +203,11 @@ pub async fn run_parse(
     }
     Ok(ParseRun {
         checkpoints,
-        state: if has_unknown {
+        ..ParseRun::empty(if has_unknown {
             ParseState::Running
         } else {
             ParseState::Complete
-        },
+        })
     })
 }
 

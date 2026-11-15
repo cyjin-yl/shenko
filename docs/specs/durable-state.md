@@ -912,3 +912,9 @@ tmux send-keys、按回车确认、任意 shell、无端到端幂等承诺的消
 `context_rollover_requests` 属于本地控制状态，仅在保留本地边界的交接归档中携带。普通 peer 导入在写入行之前拒绝这类归档；同一请求的回答只向前推进。schema 6 的旧 reader 通过事实类准入拒绝新导出的 `context_notes`，不能将其静默忽略后报告完整恢复。旧导出未携带的 Notebook 事实不能由新 reader 推导补齐。
 
 交接的选择提交点是候选库的 selector CAS。恢复先完成已提交选择的镜像和 fence，再读取 selector 判断路径。fence 保留最后已提交 step 的 `committed_at`，在同一事务内推进 head 与计划 step 的 epoch，并按两个实体记录提交；被 fence 的副本可读取，但不能取得旧写入权。这些实现记录不改变上方迁移保存的合同原文。
+
+## 实现记录：有条件的 E1 归并（2026-11-15）
+
+`Store::record_external_evidence_if_current` 将 decoder 所读的 operation revision 与新回执接纳放在同一事务里核对。head 已变化时不写入；调用者读取当前 head 与不可变回执后重新归并。decoder 识别出的终态内容矛盾可以在同一 E1 提交中保留两个原文，并将 `outcome_conflict` 与 Unknown 固定下来；即使两个回执的 outcome 枚举都写作成功，也不能用后到的正文覆盖先前正文。原有无条件 E1 调用接口保持不变，内核只核对身份、revision 与冲突事实，不解释 provider 的文档内容。
+
+文档插件以此接纳已类型化的 transport 观察并提交最终页 checkpoint 清单（该 adapter 不声称保存原始 HTTP 字节）；网络调用仍在事务外，T2 仍由现有 native task runtime 核对。它在可用性探测后调用 `arm_native_operation_for_dispatch`，将原有 T1 准入与每 attempt 的 native dispatch marker 放在同一事务、同一 CommitRef；当前 invocation、generation、owner 与取消状态仍在实际准入点检查。重复调用只能取得原 operation，不能取得第二次发送权；重建后的 receipt adapter 不携带准入 invocation。原始 attempt 的不可变绑定在 `checkpoint_scope_ref`，后续回执由已有 E1 历史引用 CAS；没有第二套调度或任务状态。取消、重开、等待期限与迟到矛盾的受控机制证据及未验证范围见[文档解析恢复记录](../evidence/document-parse-recovery-20261115.md)。

@@ -3,9 +3,9 @@
 //! These exercise the client against a local mock speaking the upstream
 //! SoMark/OXR response shape, and the boundary against in-process providers.
 //! They prove the provider shape and the honest failure paths — they do NOT
-//! prove real OXR recognition quality: this host's V100 GPUs have no BF16
-//! tensor cores, so no real OXR engine can run here (see
-//! docs/evidence/document-parse-provider-20261111.md).
+//! prove real OXR recognition quality: no real engine is contacted. The
+//! historical deployment limits are recorded in
+//! docs/evidence/document-parse-provider-20261111.md.
 
 use super::*;
 use serde_json::json;
@@ -210,6 +210,56 @@ fn upstream_check_success_json() -> String {
     value.to_string()
 }
 
+// Only a test double. Restart durability is exercised by the native Store
+// adapter's tests, not by this process-local map.
+#[derive(Debug, Default)]
+struct MemoryReceipts(
+    Mutex<HashMap<shenko_types::ids::EntityId, (OxrAttemptBinding, Option<OxrAttemptReceipt>)>>,
+);
+
+impl OxrAttemptStore for MemoryReceipts {
+    fn receipt(&self, binding: &OxrAttemptBinding) -> anyhow::Result<Option<OxrAttemptReceipt>> {
+        let records = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("test receipt mutex poisoned"))?;
+        if let Some((original, receipt)) = records.get(&binding.operation_id) {
+            anyhow::ensure!(original == binding, "attempt binding changed");
+            return Ok(receipt.clone());
+        }
+        Ok(None)
+    }
+
+    fn claim(&self, binding: &OxrAttemptBinding) -> anyhow::Result<OxrAttemptClaim> {
+        let mut records = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("test receipt mutex poisoned"))?;
+        if let Some((original, receipt)) = records.get(&binding.operation_id) {
+            anyhow::ensure!(original == binding, "attempt binding changed");
+            return Ok(OxrAttemptClaim::Replay(receipt.clone()));
+        }
+        records.insert(binding.operation_id, (binding.clone(), None));
+        Ok(OxrAttemptClaim::Dispatch)
+    }
+    fn append(
+        &self,
+        binding: &OxrAttemptBinding,
+        receipt: &OxrAttemptReceipt,
+    ) -> anyhow::Result<()> {
+        let mut records = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("test receipt mutex poisoned"))?;
+        let (original, saved) = records
+            .get_mut(&binding.operation_id)
+            .ok_or_else(|| anyhow::anyhow!("test attempt was not armed"))?;
+        anyhow::ensure!(original == binding, "attempt binding changed");
+        *saved = Some(receipt.clone());
+        Ok(())
+    }
+}
+
 fn provider_with(endpoint: &str, transport: OxrTransport) -> std::sync::Arc<dyn DocumentProvider> {
     std::sync::Arc::new(OxrProvider::new(OxrProviderConfig {
         endpoint: Some(endpoint.to_owned()),
@@ -217,6 +267,12 @@ fn provider_with(endpoint: &str, transport: OxrTransport) -> std::sync::Arc<dyn 
         scope: Some("scope-a".into()),
         credential: Some(CredentialHandle::new("sk-test-secret")),
         transport,
+        attempt: Some(OxrAttemptContext {
+            operation_id: shenko_types::ids::EntityId::new(),
+            attempt_id: shenko_types::ids::EntityId::new(),
+            account_identity: "mock-account".into(),
+            store: std::sync::Arc::new(MemoryReceipts::default()),
+        }),
         poll_interval: Some(std::time::Duration::from_millis(1)),
         ..OxrProviderConfig::default()
     }))

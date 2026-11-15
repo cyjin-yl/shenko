@@ -24,6 +24,16 @@ pub enum InboxAdmission {
     Replay,
 }
 
+/// A decoder's fold over one exact operation/evidence head. Content-level
+/// terminal contradictions are distinct from different outcome enum values.
+/// No provider semantics enter Store; the decoder supplies this conclusion
+/// only after reading the immutable receipts at expected_revision.
+#[derive(Debug, Clone, Copy)]
+pub struct ExternalEvidenceFold {
+    pub expected_revision: RecordRevision,
+    pub terminal_content_conflict: bool,
+}
+
 pub(crate) fn validate_original_event(
     event_id: EntityId, kind: &str, source: &str, data: &serde_json::Value,
 ) -> Result<()> {
@@ -89,6 +99,16 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(serde_json::from_str(&data)?)
+    }
+
+    /// Read-only preflight lookup. Absence is not an armed/unknown attempt.
+    pub fn find_external_operation(&self, id: EntityId) -> Result<Option<OperationRecord>> {
+        let c = self.ledger.conn.lock();
+        let data: Option<String> = c.query_row(
+            "SELECT data FROM operations WHERE operation_id=?1",
+            [id.to_string()], |row| row.get(0),
+        ).optional()?;
+        data.map(|data| serde_json::from_str(&data).map_err(Into::into)).transpose()
     }
 
     pub fn external_operation_attempt(&self, id: EntityId) -> Result<AttemptRecord> {
@@ -196,8 +216,22 @@ impl Store {
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, None),
+            || self.try_arm_external_operation(ctx, op, att, None, false),
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Native non-inference admission after preflight: T1 and the original
+    /// attempt's one dispatch marker commit atomically. None grants exactly
+    /// this fresh caller its send; Some is read-only replay, never a new send.
+    /// A duplicate cannot observe an armed operation without its dispatch
+    /// decision, then retire that live sender by recording an Unknown result.
+    pub fn arm_native_operation_for_dispatch(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+    ) -> Result<Option<OperationRecord>> {
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, None, true),
+            |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
         )
     }
 
@@ -208,7 +242,7 @@ impl Store {
         binding: &InferenceSendBinding,
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, Some(binding)),
+            || self.try_arm_external_operation(ctx, op, att, Some(binding), false),
             |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
                 || error.downcast_ref::<shenko_types::error::ShenkoError>()
                     .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
@@ -221,6 +255,7 @@ impl Store {
         op: &mut OperationRecord,
         att: &mut AttemptRecord,
         inference: Option<&InferenceSendBinding>,
+        native_dispatch: bool,
     ) -> Result<Option<OperationRecord>> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -280,7 +315,7 @@ impl Store {
             !task.memos.contains_key("native_settlement_only"),
             "settlement_invocation_cannot_arm"
         );
-        if crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
+        if native_dispatch || crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
             ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale_native_generation_or_owner");
         }
         ensure!(
@@ -377,6 +412,9 @@ impl Store {
             ensure!(inference.is_none(), "inference T1 requires the registered model-child task contract");
         }
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        if native_dispatch {
+            crate::child::insert_native_dispatch_marker(&mut task, ctx, op.operation_id, att.attempt_id, commit)?;
+        }
         op.prepared_commit = commit;
         att.armed_commit = commit;
         task.record_revision = RecordRevision(task.record_revision.0 + 1);
@@ -512,7 +550,29 @@ impl Store {
         effect: EffectStatus,
     ) -> Result<OperationRecord> {
         self.ledger.with_mutation(
-            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect),
+            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, None)
+                .and_then(|operation| operation.ok_or_else(|| anyhow::anyhow!("unconditional evidence write unexpectedly stale"))),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Admit an original receipt and its decoder fold only if the operation
+    /// still has the head the decoder read. None means no write occurred: read
+    /// the new head and all its evidence, then fold the same original again.
+    /// A content conflict preserves the incoming receipt and changes the
+    /// operation to sticky Unknown in the SAME E1 transaction. This may accept
+    /// late facts after cancellation; it grants no dispatch or T2 authority.
+    pub fn record_external_evidence_if_current(
+        &self,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        ev: EvidenceReceipt,
+        outcome: Option<OperationOutcome>,
+        effect: EffectStatus,
+        fold: ExternalEvidenceFold,
+    ) -> Result<Option<OperationRecord>> {
+        self.ledger.with_mutation(
+            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, Some(fold)),
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
     }
@@ -579,11 +639,15 @@ impl Store {
         mut ev: EvidenceReceipt,
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
-    ) -> Result<OperationRecord> {
+        fold: Option<ExternalEvidenceFold>,
+    ) -> Result<Option<OperationRecord>> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        if fold.is_some_and(|fold| fold.expected_revision != op.record_revision) {
+            return Ok(None);
+        }
         match crate::receipt_admission::decide(&tx, &ev)? {
             crate::receipt_admission::Admission::New => {}
             // The same fact is already durable: the ledger's own projection is
@@ -597,7 +661,7 @@ impl Store {
                         "receipt replay carries a different settlement than the durable fact"
                     );
                 }
-                return Ok(op);
+                return Ok(Some(op));
             }
             crate::receipt_admission::Admission::Conflict(conflict) => {
                 let refusal =
@@ -614,7 +678,14 @@ impl Store {
         // Migrate that projection conservatively; repeated facts cannot settle it.
         op.outcome_conflict |=
             att.dispatch_stage == AttemptDispatchStage::Ended && op.outcome.is_none();
-        if let Some(observed) = outcome {
+        if fold.is_some_and(|fold| fold.terminal_content_conflict) {
+            op.outcome_conflict = true;
+            op.state = OperationState::Reconciling;
+            op.outcome = None;
+            op.effect_status = EffectStatus::Unknown;
+            att.dispatch_stage = AttemptDispatchStage::Ended;
+            att.final_receipt_id = Some(ev.receipt_id);
+        } else if let Some(observed) = outcome {
             if op.outcome_conflict || (op.outcome.is_some() && op.outcome != Some(observed)) {
                 op.outcome_conflict = true;
                 op.state = OperationState::Reconciling;
@@ -684,7 +755,7 @@ impl Store {
             ],
         )?;
         tx.commit()?;
-        Ok(op)
+        Ok(Some(op))
     }
     /// The agent one durable task row records, or None when the row is gone.
     fn task_agent(tx: &Transaction<'_>, task_id: EntityId) -> Result<Option<String>> {

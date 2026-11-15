@@ -3758,6 +3758,7 @@ dependencies = [
  "shenko-compat-mcp",
  "shenko-compat-skill",
  "shenko-context-policy",
+ "shenko-document",
  "shenko-exec-host",
  "shenko-exec-ssh",
  "shenko-identity",
