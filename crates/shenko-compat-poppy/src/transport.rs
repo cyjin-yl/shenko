@@ -35,6 +35,7 @@ const SIGNATURE_LABEL: &str = "poppy";
 pub struct EndpointBinding {
     company: String,
     version: String,
+    extensions: Option<&'static str>,
     scope: Scope,
     excluded: Vec<Url>,
     options: DiscoveryOptions,
@@ -340,6 +341,7 @@ impl EndpointBinding {
         Ok(Self {
             company: report.company_identifier.clone(),
             version: report.request_protocol_version.clone(),
+            extensions: session_extensions(report),
             scope,
             excluded,
             options,
@@ -652,6 +654,8 @@ impl RequestSigner {
         validate_authorization(request, access_token)?;
         for header in [
             "poppy-session",
+            "poppy-version",
+            "poppy-extensions",
             "signature",
             "signature-input",
             "signature-agent",
@@ -685,6 +689,9 @@ impl RequestSigner {
             self.binding.protocol_version(),
             false,
         )?;
+        if let Some(extensions) = self.binding.extensions {
+            insert(request, "poppy-extensions", extensions, false)?;
+        }
         self.sign_operator(request, now)
     }
 
@@ -801,6 +808,22 @@ impl RequestSigner {
             &format!("{SIGNATURE_LABEL}=:{}:", STANDARD.encode(signature)),
         )
     }
+}
+
+/// Stable, implemented extension declaration for every request in a Session.
+/// UCP extension version 1 is distinct from the shopping protocol's version.
+/// The host must start a new Session if refreshed discovery changes this value.
+pub fn session_extensions(report: &DiscoveryReport) -> Option<&'static str> {
+    report
+        .metadata
+        .pointer("/extensions/ucp")
+        .and_then(Value::as_array)
+        .is_some_and(|versions| {
+            versions
+                .iter()
+                .any(|version| version["version"].as_str() == Some("1"))
+        })
+        .then_some("\"ucp\";v=\"1\"")
 }
 
 fn validate_authorization(request: &Request, token: Option<&str>) -> Result<()> {

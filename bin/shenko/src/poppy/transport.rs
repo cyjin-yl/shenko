@@ -2,6 +2,7 @@
 use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail, ensure};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use parking_lot::Mutex;
 use reqwest::{
     Method, Request,
@@ -13,9 +14,11 @@ use shenko_compat_mcp::protocol::{ConnectionSpec, HttpRequestAuthorizer, Session
 use shenko_compat_poppy::{
     auth::{AccountTokens, TokenType},
     discovery::DiscoveryOptions,
+    session::SessionIdentity,
     transport::{EndpointBinding, RequestSigner, pinned_client},
     ucp::{CompletionBinding, PlatformProfile, RequestPlan},
 };
+use tokio_util::sync::CancellationToken;
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -56,11 +59,13 @@ pub(super) struct CompanyClient {
     connection: Connection,
     tokens: Option<Arc<AccountTokens>>,
     account_binding: Option<String>,
+    session_id: String,
     resource: Option<String>,
     timeout: Duration,
     http: Arc<HttpState>,
     resources: Mutex<BTreeMap<(String, bool), Option<String>>>,
     guard: Option<Guard>,
+    cancellation: Option<CancellationToken>,
 }
 
 impl CompanyClient {
@@ -93,22 +98,42 @@ impl CompanyClient {
                 .lock()
                 .remember(tokens.access_token_for(resource.as_deref())?)?;
         }
+        // OAuth tokens are opaque, so a replacement grant is not proof of the
+        // same merchant account. Give every grant its own stable Session;
+        // refresh retains its binding. Anonymous cart/cookie state is not
+        // implicitly transferred into the first signed-in Session.
+        let session_id = if let Some(binding) = &account_binding {
+            let bytes = serde_json::to_vec(&[
+                "shenko.poppy.grant-session/1",
+                &connection.session_id,
+                binding,
+            ])?;
+            URL_SAFE_NO_PAD.encode(ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref())
+        } else {
+            connection.session_id.clone()
+        };
         Ok(Self {
             vault,
             operator,
             connection,
             tokens,
             account_binding,
+            session_id,
             resource,
             timeout,
             http,
             resources: Mutex::new(BTreeMap::new()),
             guard: None,
+            cancellation: None,
         })
     }
 
     pub fn with_guard(mut self, guard: Guard) -> Self {
         self.guard = Some(guard);
+        self
+    }
+    pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+        self.cancellation = Some(cancellation);
         self
     }
     pub fn vault(&self) -> &Vault {
@@ -131,6 +156,12 @@ impl CompanyClient {
     }
     pub fn account_binding(&self) -> Option<&str> {
         self.account_binding.as_deref()
+    }
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+    pub fn session_extensions(&self) -> Option<&'static str> {
+        shenko_compat_poppy::transport::session_extensions(&self.connection.report)
     }
     pub fn timeout(&self) -> Duration {
         self.timeout
@@ -203,10 +234,16 @@ impl CompanyClient {
     }
 
     fn signer(&self, binding: EndpointBinding) -> Result<RequestSigner> {
+        let identity = SessionIdentity::resume(
+            &self.connection.report.company_identifier,
+            &self.connection.user_id,
+            &self.session_id,
+            self.connection.agent_id.as_deref(),
+        )?;
         let session = self
             .operator
             .signer
-            .delegate(self.connection.identity()?, Duration::from_secs(3600))?;
+            .delegate(identity, Duration::from_secs(3600))?;
         RequestSigner::new(
             self.operator.signer.clone(),
             session,
@@ -233,6 +270,7 @@ impl CompanyClient {
             http: self.http.clone(),
             timeout: self.timeout,
             guard: self.guard.clone(),
+            cancellation: self.cancellation.clone(),
         }))
     }
 
@@ -532,9 +570,13 @@ struct CompanyAuthorizer {
     http: Arc<HttpState>,
     timeout: Duration,
     guard: Option<Guard>,
+    cancellation: Option<CancellationToken>,
 }
 
 impl HttpRequestAuthorizer for CompanyAuthorizer {
+    fn cancellation_token(&self) -> Option<CancellationToken> {
+        self.cancellation.clone()
+    }
     fn prepare_client<'a>(
         &'a self,
         url: &'a Url,
@@ -984,7 +1026,7 @@ impl SecretRegistry {
     }
 }
 
-fn clear_json(value: &mut Value) {
+pub(super) fn clear_json(value: &mut Value) {
     match value {
         Value::String(text) => text.zeroize(),
         Value::Array(values) => values.iter_mut().for_each(clear_json),
