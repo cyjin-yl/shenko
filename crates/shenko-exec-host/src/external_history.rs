@@ -1152,18 +1152,17 @@ mod tests {
 
     struct Temp(PathBuf);
     impl Temp {
-        fn new() -> Self {
+        fn new() -> Result<Self> {
             let path =
                 std::env::temp_dir().join(format!("shenko-external-history-{}", EntityId::new()));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
+            std::fs::create_dir_all(&path)?;
+            Ok(Self(path))
         }
-        fn store(&self, name: &str) -> Store {
-            Store::open(
+        fn store(&self, name: &str) -> Result<Store> {
+            Ok(Store::open(
                 self.0.join(format!("{name}.db")),
                 self.0.join(format!("{name}-cas")),
-            )
-            .unwrap()
+            )?)
         }
     }
     impl Drop for Temp {
@@ -1179,25 +1178,20 @@ mod tests {
             session_id: Some("trace-1".into()),
         }
     }
-    fn whole(store: &Store, agent: EntityId, archive: EntityId, retired: bool) -> Vec<u8> {
+    fn whole(store: &Store, agent: EntityId, archive: EntityId, retired: bool) -> Result<Vec<u8>> {
         let mut result = Vec::new();
         let mut offset = 0;
         loop {
-            let page =
-                read_original(store, agent, archive, offset, MAX_PAGE_BYTES, retired).unwrap();
+            let page = read_original(store, agent, archive, offset, MAX_PAGE_BYTES, retired)?;
             assert!(page.authenticated);
-            result.extend(
-                base64::engine::general_purpose::STANDARD
-                    .decode(&page.content_base64)
-                    .unwrap(),
-            );
+            result.extend(base64::engine::general_purpose::STANDARD.decode(&page.content_base64)?);
             if let Some(next) = page.next_offset {
                 offset = next;
             } else {
                 break;
             }
         }
-        result
+        Ok(result)
     }
 
     fn nonempty_search(
@@ -1206,23 +1200,23 @@ mod tests {
         query: &str,
         mut cursor: Option<ArchiveCursor>,
         limit: usize,
-    ) -> ArchiveSearch {
+    ) -> Result<ArchiveSearch> {
         for _ in 0..16 {
-            let page = search(store, agent, query, None, cursor.as_ref(), limit).unwrap();
+            let page = search(store, agent, query, None, cursor.as_ref(), limit)?;
             assert!(page.scanned_bytes <= SEARCH_BYTE_BUDGET);
             assert!(page.scanned_records <= SEARCH_RECORD_BUDGET);
             if !page.hits.is_empty() || page.next_cursor.is_none() {
-                return page;
+                return Ok(page);
             }
             cursor = page.next_cursor;
         }
-        panic!("history cursor did not make bounded progress");
+        anyhow::bail!("history cursor did not make bounded progress");
     }
 
     #[test]
-    fn complete_history_versions_keep_equal_events_and_search_chinese_tail() {
-        let tmp = Temp::new();
-        let store = tmp.store("original");
+    fn complete_history_versions_keep_equal_events_and_search_chinese_tail() -> Result<()> {
+        let tmp = Temp::new()?;
+        let store = tmp.store("original")?;
         let agent = EntityId::new();
         let long = serde_json::json!({"id":"tool-1","parentId":"msg-0","branch_id":"original-branch",
             "message":{"role":"tool","toolCallId":"call-1","content":format!("{}真正结论在长输出尾部", "prefix ".repeat(380_000))},
@@ -1231,17 +1225,20 @@ mod tests {
         let boundary = serde_json::json!({"content":format!("{}跨块边界独有证据", "x".repeat(TEXT_CHUNK_BYTES - 8 - 3))}).to_string();
         let bytes = format!("{long}\n{boundary}\n{same}\n{same}\n").into_bytes();
         let file = tmp.0.join("trace.jsonl");
-        std::fs::write(&file, &bytes).unwrap();
-        let saved = archive_file(&store, agent, &source(), &file, bytes.len() as u64).unwrap();
+        std::fs::write(&file, &bytes)?;
+        let saved = archive_file(&store, agent, &source(), &file, bytes.len() as u64)?;
         assert_eq!(saved.record_count, 4);
         let copy = tmp.0.join("copied-history.jsonl");
-        std::fs::write(&copy, &bytes).unwrap();
+        std::fs::write(&copy, &bytes)?;
         assert_eq!(
             saved,
-            archive_file(&store, agent, &source(), &copy, bytes.len() as u64).unwrap()
+            archive_file(&store, agent, &source(), &copy, bytes.len() as u64)?
         );
-        std::fs::remove_file(file).unwrap();
-        assert_eq!(whole(&store, agent, saved.archive_session_id, false), bytes);
+        std::fs::remove_file(file)?;
+        assert_eq!(
+            whole(&store, agent, saved.archive_session_id, false)?,
+            bytes
+        );
         let mut selector = source();
         selector.session_id = None; // A native-ID hint is not source identity.
         let initial = search(
@@ -1251,8 +1248,7 @@ mod tests {
             Some(&selector),
             None,
             10,
-        )
-        .unwrap();
+        )?;
         assert!(initial.hits.is_empty() && initial.budget_exhausted);
         assert_eq!(initial.source_status, "present_in_scanned_range");
         let tail = nonempty_search(
@@ -1261,18 +1257,18 @@ mod tests {
             "真正结论在长输出尾部",
             initial.next_cursor,
             10,
-        );
+        )?;
         assert_eq!(tail.hits.len(), 1);
         assert!(tail.hits[0].preview.contains("真正结论在长输出尾部"));
         assert!(tail.hits[0].preview_truncated_before);
         assert_eq!(tail.hits[0].fields.role.as_deref(), Some("tool"));
         assert_eq!(tail.hits[0].fields.parent_id.as_deref(), Some("msg-0"));
-        let full = read_record(&store, agent, tail.hits[0].event_id, false).unwrap();
+        let full = read_record(&store, agent, tail.hits[0].event_id, false)?;
         assert!(full.text.contains("真正结论在长输出尾部"));
-        let boundary_hit = nonempty_search(&store, agent, "跨块边界独有证据", None, 10);
+        let boundary_hit = nonempty_search(&store, agent, "跨块边界独有证据", None, 10)?;
         assert_eq!(boundary_hit.hits.len(), 1);
         assert!(boundary_hit.hits[0].preview.contains("跨块边界独有证据"));
-        let repeated = nonempty_search(&store, agent, "同样的字", None, 10);
+        let repeated = nonempty_search(&store, agent, "同样的字", None, 10)?;
         assert_eq!(repeated.hits.len(), 2);
         assert_ne!(
             repeated.hits[0].logical_event_id,
@@ -1282,42 +1278,41 @@ mod tests {
         changed.extend_from_slice(
             b"{\"role\":\"assistant\",\"content\":\"a later source revision\"}\n",
         );
-        let newer = archive_bytes(&store, agent, &source(), &changed).unwrap();
+        let newer = archive_bytes(&store, agent, &source(), &changed)?;
         assert_ne!(newer.archive_session_id, saved.archive_session_id);
-        let view = overview(&store, agent, None, 10).unwrap();
+        let view = overview(&store, agent, None, 10)?;
         assert_eq!(view.sources.len(), 2);
         assert!(
             view.sources
                 .iter()
                 .all(|v| v.freshness == "not_revalidated")
         );
-        let page = nonempty_search(&store, agent, "同样的字", None, 1);
-        let next = nonempty_search(&store, agent, "同样的字", page.next_cursor, 1);
+        let page = nonempty_search(&store, agent, "同样的字", None, 1)?;
+        let next = nonempty_search(&store, agent, "同样的字", page.next_cursor, 1)?;
         assert_ne!(page.hits[0].event_id, next.hits[0].event_id);
+        Ok(())
     }
 
     #[test]
-    fn independently_imported_sources_replicate_and_old_archives_do_not_revive_retirement() {
-        let tmp = Temp::new();
-        let a = tmp.store("node-a");
-        let b = tmp.store("node-b");
+    fn independently_imported_sources_replicate_and_old_archives_do_not_revive_retirement()
+    -> Result<()> {
+        let tmp = Temp::new()?;
+        let a = tmp.store("node-a")?;
+        let b = tmp.store("node-b")?;
         let agent = EntityId::new();
         let bytes =
             "{\"id\":\"origin\",\"role\":\"user\",\"content\":\"此前的设计结论\"}\n".as_bytes();
-        let original = archive_bytes(&a, agent, &source(), bytes).unwrap();
-        let independent = archive_bytes(&b, agent, &source(), bytes).unwrap();
+        let original = archive_bytes(&a, agent, &source(), bytes)?;
+        let independent = archive_bytes(&b, agent, &source(), bytes)?;
         assert_eq!(original, independent);
         let mut archive = Vec::new();
-        let exported = a
-            .write_cognition_archive(&Default::default(), None, &mut archive)
-            .unwrap();
+        let exported = a.write_cognition_archive(&Default::default(), None, &mut archive)?;
         assert!(exported.complete, "{:?}", exported.gaps);
-        let imported = b
-            .import_cognition_archive(&archive[..], &CognitionImportOptions::default())
-            .unwrap();
+        let imported =
+            b.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
         assert!(imported.conflicts.is_empty(), "{:?}", imported.conflicts);
         assert!(imported.verified_objects > 0);
-        assert_eq!(whole(&b, agent, original.archive_session_id, false), bytes);
+        assert_eq!(whole(&b, agent, original.archive_session_id, false)?, bytes);
         b.record_tombstone(&RetentionTombstone {
             tombstone_id: EntityId::new(),
             target_kind: "object".into(),
@@ -1326,72 +1321,68 @@ mod tests {
             reason: "superseded design".into(),
             effect_record: r#"{"mechanism":"semantic_forget","bytes_recoverable":true}"#.into(),
             deleted_at_ms: 1,
-        })
-        .unwrap();
-        b.import_cognition_archive(&archive[..], &Default::default())
-            .unwrap();
-        let hidden = search(&b, agent, "此前的设计", None, None, 10).unwrap();
+        })?;
+        b.import_cognition_archive(&archive[..], &Default::default())?;
+        let hidden = search(&b, agent, "此前的设计", None, None, 10)?;
         assert!(hidden.hits.is_empty());
         assert_eq!(hidden.skipped_retired_versions, 1);
         assert!(archive_bytes(&b, agent, &source(), bytes).is_err());
         assert!(read_original(&b, agent, original.archive_session_id, 0, 100, false).is_err());
         // Semantic retirement leaves an explicit historical read available;
         // it is never reported as physical deletion.
-        assert_eq!(whole(&b, agent, original.archive_session_id, true), bytes);
-        let c = tmp.store("recovered-node");
+        assert_eq!(whole(&b, agent, original.archive_session_id, true)?, bytes);
+        let c = tmp.store("recovered-node")?;
         let mut retired_archive = Vec::new();
-        b.write_cognition_archive(&Default::default(), None, &mut retired_archive)
-            .unwrap();
-        c.import_cognition_archive(&retired_archive[..], &Default::default())
-            .unwrap();
+        b.write_cognition_archive(&Default::default(), None, &mut retired_archive)?;
+        c.import_cognition_archive(&retired_archive[..], &Default::default())?;
         assert!(
-            search(&c, agent, "此前的设计", None, None, 10)
-                .unwrap()
+            search(&c, agent, "此前的设计", None, None, 10)?
                 .hits
                 .is_empty()
         );
+        Ok(())
     }
 
     #[test]
-    fn incomplete_source_and_corrupt_original_are_visible_without_fabricated_evidence() {
-        let tmp = Temp::new();
-        let store = tmp.store("node");
+    fn incomplete_source_and_corrupt_original_are_visible_without_fabricated_evidence() -> Result<()>
+    {
+        let tmp = Temp::new()?;
+        let store = tmp.store("node")?;
         let agent = EntityId::new();
         let bytes = "{\"id\":\"first\",\"content\":\"完整一条\"}\n{\"content\":\"未完成但原文保留"
             .as_bytes();
         let path = tmp.0.join("active.jsonl");
-        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(&path, bytes)?;
         assert!(archive_file(&store, agent, &source(), &path, 4).is_err());
-        assert!(
-            overview(&store, agent, None, 10)
-                .unwrap()
-                .sources
-                .is_empty()
-        );
-        let saved = archive_file(&store, agent, &source(), &path, 1024).unwrap();
+        assert!(overview(&store, agent, None, 10)?.sources.is_empty());
+        let saved = archive_file(&store, agent, &source(), &path, 1024)?;
         assert_eq!(saved.invalid_records, 1);
-        assert_eq!(whole(&store, agent, saved.archive_session_id, false), bytes);
         assert_eq!(
-            search(&store, agent, "未完成但原文保留", None, None, 10)
-                .unwrap()
+            whole(&store, agent, saved.archive_session_id, false)?,
+            bytes
+        );
+        assert_eq!(
+            search(&store, agent, "未完成但原文保留", None, None, 10)?
                 .hits
                 .len(),
             1
         );
-        let cas_path = store.cas.verified_object_path(&saved.raw_ref).unwrap();
+        let cas_path = store.cas.verified_object_path(&saved.raw_ref)?;
         let mut corrupt = bytes.to_vec();
         corrupt[0] = b'!';
-        std::fs::write(&cas_path, &corrupt).unwrap();
+        std::fs::write(&cas_path, &corrupt)?;
         assert!(read_original(&store, agent, saved.archive_session_id, 0, 1024, false).is_err());
-        let hit = search(&store, agent, "未完成但原文保留", None, None, 10)
-            .unwrap()
+        let hit = search(&store, agent, "未完成但原文保留", None, None, 10)?
             .hits
-            .remove(0);
+            .into_iter()
+            .next()
+            .context("corrupted-original query should retain an unverified index hit")?;
         assert_eq!(hit.original_integrity, "not_checked");
         assert!(read_record(&store, agent, hit.event_id, false).is_err());
-        std::fs::remove_file(cas_path).unwrap();
-        let missing = search(&store, agent, "未完成但原文保留", None, None, 10).unwrap();
+        std::fs::remove_file(cas_path)?;
+        let missing = search(&store, agent, "未完成但原文保留", None, None, 10)?;
         assert!(missing.hits.is_empty());
         assert_eq!(missing.unavailable_versions, vec![saved.archive_session_id]);
+        Ok(())
     }
 }
