@@ -6,14 +6,17 @@
 
 ## 候选、基线与范围
 
-- 本地源码提交：`7c97182e64dca32c57c3ac66dede47dc04d5825a`。
-- 对应发布提交：`f5b70b2ca97cfc4403935b07f398acc0e6415304`；源码树逐项校验为
+- 初始功能候选：`7c97182e64dca32c57c3ac66dede47dc04d5825a`。
+- 该候选对应发布提交：`f5b70b2ca97cfc4403935b07f398acc0e6415304`；源码树逐项校验为
   `e377168485e822d3ba73afa7ce46fbc5532a5ebb`。发布保留各来源提交、父提交关系及来源标记。
+- CI 收尾源码提交：`0fa6fb938302a17f120b7c503137c449bb3973a5`，对应发布提交
+  `38f9bd64c97a364f4fe2adc06a819926e74e5ff9`、源码树
+  `3afffd567bf22da42becc4683f5acff6c3d79ff7`。下文说明首轮 CI 发现及其修复。
 - 原始独立基线：`054817b0d5729fed56ec5a974d101c31edfd1410`。
 - PR302 的分层基线：`2e20dfc52b14e9c8dcce3b51fd8e5247ceaa1eb3`（PR298）；
   PR298 自身的六项 CI 已通过，未用本候选抬高已有告警或结构基线。
 - 环境：Linux、Rust 1.98.1；`CARGO_BUILD_JOBS=2`、`CARGO_INCREMENTAL=0`，dev/test debug 信息关闭。
-- 本记录之后的收尾仅调整文档。当前产品合同见
+- 相对上述 CI 收尾源码，最后的交付只补充证据文档。当前产品合同见
   [Poppy：身份、账号与商务接入](../specs/ecosystem-adapters.md#poppy-foundation)。
 
 本增量新增恰好两个测试函数；连同[首个增量](poppy-foundation-20261115.md)的七个场景，
@@ -46,11 +49,11 @@ Poppy 协议 crate 保持独立，节点安装、凭据、原生调用和业务�
 
 | 检查 | 实际结果与边界 |
 | --- | --- |
-| `cargo test -p shenko --features compat-poppy --lib poppy:: --locked --offline -j2` | 最终候选 3 passed：两个新增连续旅程和既有安装启停旅程。 |
-| `cargo test -p shenko-compat-poppy --locked --offline -j2` | 最终候选 6 passed，覆盖四个发现与两个签名场景；doctest 0 个。 |
-| `cargo test -p shenko-compat-mcp --tests --locked --offline -j2` | 20 passed：learning_efficacy 1 个、plugin_lifecycle 19 个；包含真实 stdio、JSON/SSE 边界、取消关闭、安装启停和原 unknown 回执接续。 |
-| `cargo clippy -p shenko -p shenko-compat-mcp -p shenko-compat-poppy --features shenko/compat-poppy --all-targets --message-format=json --locked --offline -j2 -- --force-warn clippy::all --force-warn clippy::unwrap_used --force-warn clippy::expect_used` | 最终候选退出 0，全 targets 编译通过；新增 Poppy、private form 和修改后的 HTTP 文件没有 lint 诊断。既有其他文件仍有告警，是否增加由 CI 对独立基线比较。 |
-| `cargo build -p shenko --bin shenko --features compat-poppy --locked --offline -j2` | 最终候选退出 0；随后实际执行 `shenko compat poppy --help` 和 `shenko compat poppy credential --help`，十个业务子命令及 guest credential 选项可见。 |
+| `cargo test -p shenko --features compat-poppy --lib poppy:: --locked --offline -j2` | CI 收尾源码再次 3 passed：两个新增连续旅程和既有安装启停旅程。 |
+| `cargo test -p shenko-compat-poppy --locked --offline -j2` | 初始功能候选 6 passed，覆盖四个发现与两个签名场景；doctest 0 个。此协议 crate 在 CI 收尾期间没有代码变化。 |
+| `cargo test -p shenko-compat-mcp --tests --locked --offline -j2` | CI 收尾源码再次 20 passed：learning_efficacy 1 个、plugin_lifecycle 19 个；包含真实 stdio、JSON/SSE 边界、取消关闭、安装启停和原 unknown 回执接续。 |
+| `cargo clippy -p shenko -p shenko-compat-mcp -p shenko-compat-poppy --features shenko/compat-poppy --all-targets --message-format=json --locked --offline -j2 -- --force-warn clippy::all --force-warn clippy::unwrap_used --force-warn clippy::expect_used` | 初始功能候选退出 0，全 targets 编译通过。该命令没有逐项 force Rust 编译器告警；后续补用完整 CI policy 复验，见下节。 |
+| `cargo build -p shenko --bin shenko --features compat-poppy --locked --offline -j2` | 初始功能候选退出 0；随后实际执行 `shenko compat poppy --help` 和 `shenko compat poppy credential --help`，十个业务子命令及 guest credential 选项可见。 |
 | `python3 scripts/check_docs.py` 及 `--verify-migration` | 通过，errors 为空；冻结迁移块未修改。使用仓库声明的 parser 依赖。 |
 | `python3 scripts/check_kernel_boundary.py --baseline-ref 054817b0d5729fed56ec5a974d101c31edfd1410` | 通过，new_violations 为空、baseline_updated 为 false。首次收尾调用缺少 Cargo PATH，补回真实工具链路径后执行成功。 |
 | `git diff --check` | 通过。 |
@@ -58,6 +61,25 @@ Poppy 协议 crate 保持独立，节点安装、凭据、原生调用和业务�
 完整 workspace 的 Rust 检查/测试、web、docs、docs-migration、kernel-boundary 和
 clippy-ratchet 六项远端门禁以 [PR302 的检查](https://github.com/cyjin-yl/shenko/pull/302/checks)
 所绑定的实际提交为准。此记录不把本地所选包检查称为完整 workspace CI。
+
+### 首轮 CI 发现与收尾
+
+[首轮运行](https://github.com/cyjin-yl/shenko/actions/runs/43736781546)的 rust、web、docs、
+docs-migration 和 kernel-boundary 均通过。clippy-ratchet 失败：两处新 MCP `select!`
+绑定在宏展开中触发 `unused_variables`，一处浏览器 `std::pin::pin!` 内部展开触发
+`unreachable_code`。前者改用实际仍被返回的 `_result` 绑定；后者改为 `Box::pin`，保留
+future 固定、逐 poll guard、await 与取消语义，仅增加一次局部堆分配。
+
+首轮 Clippy 只构建了 workspace 的默认 feature，未覆盖 bin 中受 feature 保护的 Poppy
+宿主代码。已使基线和候选两个 scope 都明确启用 `shenko/compat-poppy`，与 Rust job 对齐。
+原始基线、135 项可用 Rust 强制告警、三项 Clippy 选择及 source-policy 比较均保留。
+
+本地复用首轮 artifact 中 `clippy/lint-policy.json` 的完整 `flags`，对 `shenko`、
+`shenko-exec-host`、`shenko-compat-mcp` 和 `shenko-compat-poppy` 执行带 Poppy feature 的
+`--all-targets` Clippy。由此又暴露出 Poppy 商务/派发中四处同类 `select!` 宏绑定，已保留
+每个返回值和取消分支作相同修复。最终完整 policy 检查退出 0，上述新增/修改来源文件
+没有诊断；既有其他文件的告警仍由独立基线比较。没有添加 `allow`、`expect` 或忽略测试，
+没有调整基线以容纳新告警。最终远端结果须读取 PR 当前 head 的实际检查。
 
 首次组合旅程暴露了测试 fixture 未启用依赖插件，已让 fixture 通过真实 Node 命令明确启用；
 没有放宽生产安装检查。收尾还修正了新增的 lint 分支及 vendored resolver 的三处同类诊断。
@@ -69,10 +91,11 @@ artifact 提供；这些摘要本身不替代检查输出。
 
 | 输出 | SHA-256 |
 | --- | --- |
-| 宿主三个测试 | `a4be972626ccadfa68174e455f6fb7e9fe7d3c5cdfdff484ee48c3033024f3fa` |
+| CI 收尾宿主三个测试 | `45b7cd21c81151643ebd7d78b7eb0f32ba119cf185550c34e34b0b41fc9b52de` |
 | 协议六个测试 | `76b1bf0c2f219d4c02dd32b7a31d5fd6186106fc21b84e5eea6d4c460e4b5fa6` |
-| 既有 MCP 20 个回归 | `d13cfe5d509cdbd9863561391ae655037e2bca52f893da68884983fbd28768a1` |
+| CI 收尾既有 MCP 20 个回归 | `be492a9c110196936ca92f04d54b4d360a3b7624687ac89e1ec810c3758e43c0` |
 | 所选包 Clippy JSONL | `a5acfd00d15967663487fa19108dc4f20a417ff122d110a1689ad953cf47b49f` |
+| CI 收尾完整 force-warn policy Clippy JSONL | `5a033b35f7f6219c0edea73186f85a8eac084cca0898410f3bb1befdfa76e401` |
 | CLI 构建 | `f13fb63dfcd58cbd165968a2bcec9833f888bf8551e902e146d757e67d416f63` |
 | 实际 CLI 帮助 | `29af4ef3670bd95983eba9c4496768d3ea496e805cfe0c4c859e4298eb36df1f` |
 | 文档完整性及迁移（相同输出） | `ce5b19c30571ed129aa5a4d0e457be6a6bc346596bb1f67749a9d278d4776fed` |
