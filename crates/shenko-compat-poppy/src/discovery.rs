@@ -898,6 +898,72 @@ mod tests {
         assert!(fetcher.0.lock().unwrap().is_empty());
     }
 
+    #[tokio::test]
+    async fn discovers_captured_allbirds_metadata_without_following_services() {
+        // Public metadata captured through the workspace HTTPS proxy on
+        // 2026-11-15. This is an offline protocol-flow regression, not an
+        // end-to-end test of the production DNS/TLS/HTTP transport. The snapshot
+        // retains original response body_sha256 values and observation times;
+        // fixture() reserializes the JSON body and uses a synthetic clock, so
+        // the resulting report hashes describe those fixture bytes instead.
+        let snapshot: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/allbirds-2026-11-15.json"))
+                .unwrap();
+        let observations = snapshot["observations"].as_array().unwrap();
+        // The strict fetch queue permits exactly these four metadata reads.
+        // Any request to an advertised UCP service, version, cart, or checkout
+        // endpoint is an unexpected request and fails the discovery flow.
+        let responses = [
+            ("https://www.allbirds.com/.well-known/poppy.json", true),
+            (
+                "https://www.allbirds.com/.well-known/oauth-protected-resource",
+                false,
+            ),
+            (
+                "https://shopify.com/.well-known/oauth-authorization-server/authentication/11044168",
+                false,
+            ),
+            ("https://www.allbirds.com/.well-known/ucp", false),
+        ]
+        .into_iter()
+        .map(|(url, redirects)| {
+            let observation = observations
+                .iter()
+                .find(|observation| observation["url"] == url)
+                .unwrap();
+            assert_eq!(observation["final_url"], url);
+            fixture(
+                url,
+                redirects,
+                observation["status"].as_u64().unwrap().try_into().unwrap(),
+                observation["body"].clone(),
+            )
+        })
+        .collect();
+        let fetcher = FixtureFetcher(Mutex::new(responses));
+        let report = discover_using(
+            &fetcher,
+            validate_origin("https://www.allbirds.com").unwrap(),
+            &DiscoveryOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.state, DiscoveryState::Discovered);
+        assert_eq!(report.protocol_version, "0.4");
+        assert_eq!(report.request_protocol_version, "0.4");
+        assert_eq!(
+            report.issuer.as_deref(),
+            Some("https://shopify.com/authentication/11044168")
+        );
+        assert_eq!(
+            report.company_identifier,
+            "https://shopify.com/authentication/11044168"
+        );
+        assert_eq!(report.capabilities.agent[0].description, None);
+        assert_eq!(report.ucp.unwrap().metadata["ucp"]["version"], "2026-08-25");
+        assert!(fetcher.0.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn refuses_private_redirect_before_any_http_connection() {
         let current = Url::parse("https://shop.example/.well-known/poppy.json").unwrap();
