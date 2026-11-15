@@ -10,8 +10,12 @@
 //! serialized or restored after a browser restart. Submission consumes it;
 //! failures and missing observations never trigger an automatic second POST.
 
-use std::sync::{Arc, atomic::Ordering};
-use std::time::{Duration, Instant};
+use std::{
+    future::{Future, poll_fn},
+    sync::{Arc, atomic::Ordering},
+    task::Poll,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, anyhow, ensure};
 use serde::{Deserialize, Serialize};
@@ -28,6 +32,11 @@ const FORM_LIMIT: usize = 32 * 1024;
 const FIELD_LIMIT: usize = 8 * 1024;
 const LOAD_TIMEOUT: Duration = Duration::from_secs(12);
 const CHALLENGE_LIFETIME: Duration = Duration::from_secs(120);
+
+/// The host revalidates the exact operation's current authority. This is
+/// separate from a browser lease: an unchanged lease cannot revive a cancelled
+/// or fenced task. The bridge never interprets the host's protocol or ledger.
+pub type PrivateFormGuard = Arc<dyn Fn() -> Result<()> + Send + Sync>;
 
 /// Only public binding facts. The protocol adapter derives endpoint and field
 /// name from its verified protocol metadata, never from a model-provided code.
@@ -104,7 +113,9 @@ impl BrowserProvider {
         &self,
         request: PrivateFormRequest,
         caller: EntityId,
+        guard: PrivateFormGuard,
     ) -> Result<PrivateFormChallenge> {
+        check_operation(&guard)?;
         validate_endpoint(&request.endpoint)?;
         ensure!(
             !request.field_name.is_empty()
@@ -116,14 +127,17 @@ impl BrowserProvider {
             "invalid private form field name"
         );
         let session = self.session(request.session_id)?;
-        let tab = self
-            .resolve_tab(&session, request.tab_id.as_deref())
-            .await?
-            .handle;
+        let tab = guarded_protocol(
+            &guard,
+            self.resolve_tab(&session, request.tab_id.as_deref()),
+        )
+        .await?
+        .handle;
         // Hold the existing input lease across navigation and private capture.
         // The human input observer still changes the epoch synchronously; it
         // is checked before every protocol operation and after every await.
         let lease = session.lease.lock().await;
+        check_operation(&guard)?;
         check_lease(
             &session,
             lease.as_ref(),
@@ -135,6 +149,7 @@ impl BrowserProvider {
             &session,
             &tab,
             "JSON.stringify({stamp: String(performance.timeOrigin)})",
+            &guard,
         )
         .await?;
         let before_stamp = before
@@ -151,7 +166,7 @@ impl BrowserProvider {
         )?;
         let nav = tokio::time::timeout(
             LOAD_TIMEOUT,
-            session.protocol.navigate(&tab, &request.endpoint),
+            guarded_protocol(&guard, session.protocol.navigate(&tab, &request.endpoint)),
         )
         .await
         .map_err(|_| anyhow!("private form navigation timed out; outcome unknown"))?
@@ -161,6 +176,7 @@ impl BrowserProvider {
             "browser refused private form navigation"
         );
         session.observations.lock().await.remove(&tab.id);
+        check_operation(&guard)?;
         check_lease(
             &session,
             lease.as_ref(),
@@ -180,7 +196,7 @@ impl BrowserProvider {
                 request.lease_token,
                 request.controller_epoch,
             )?;
-            let value = private_evaluate(&session, &tab, &script).await?;
+            let value = private_evaluate(&session, &tab, &script, &guard).await?;
             check_lease(
                 &session,
                 lease.as_ref(),
@@ -234,7 +250,9 @@ impl BrowserProvider {
         &self,
         challenge: PrivateFormChallenge,
         caller: EntityId,
+        guard: PrivateFormGuard,
     ) -> Result<PrivateFormReceipt> {
+        check_operation(&guard)?;
         ensure!(
             caller == challenge.caller,
             "private form belongs to another controller"
@@ -248,12 +266,12 @@ impl BrowserProvider {
             session.run_id == challenge.run_id,
             "private form belongs to an earlier browser run"
         );
-        let tab = self
-            .resolve_tab(&session, Some(&challenge.tab.id))
+        let tab = guarded_protocol(&guard, self.resolve_tab(&session, Some(&challenge.tab.id)))
             .await?
             .handle;
         ensure!(tab == challenge.tab, "private form tab changed");
         let lease = session.lease.lock().await;
+        check_operation(&guard)?;
         check_lease(
             &session,
             lease.as_ref(),
@@ -274,8 +292,9 @@ impl BrowserProvider {
             challenge.lease_token,
             challenge.controller_epoch,
         )?;
-        let dispatched = private_evaluate(&session, &tab, &script).await;
+        let dispatched = private_evaluate(&session, &tab, &script, &guard).await;
         session.observations.lock().await.remove(&tab.id);
+        check_operation(&guard)?;
         let mut receipt = PrivateFormReceipt {
             session_id: session.session_id,
             tab_id: tab.id.clone(),
@@ -299,18 +318,19 @@ impl BrowserProvider {
         // Observe the current document once it settles, without retrying POST.
         let started = Instant::now();
         while started.elapsed() < Duration::from_secs(5) {
-            if check_lease(
-                &session,
-                lease.as_ref(),
-                caller,
-                challenge.lease_token,
-                challenge.controller_epoch,
-            )
-            .is_err()
+            if check_operation(&guard).is_err()
+                || check_lease(
+                    &session,
+                    lease.as_ref(),
+                    caller,
+                    challenge.lease_token,
+                    challenge.controller_epoch,
+                )
+                .is_err()
             {
                 break;
             }
-            let observed = private_evaluate(&session, &tab, OBSERVE_NAVIGATION).await;
+            let observed = private_evaluate(&session, &tab, OBSERVE_NAVIGATION, &guard).await;
             if let Ok(value) = observed {
                 let changed = value
                     .get("stamp")
@@ -364,6 +384,7 @@ async fn private_evaluate(
     session: &Arc<BrowserSession>,
     tab: &TabHandle,
     script: &str,
+    guard: &PrivateFormGuard,
 ) -> Result<Value> {
     ensure!(
         script.len() <= MAX_SCRIPT_BYTES,
@@ -371,10 +392,39 @@ async fn private_evaluate(
     );
     // Protocol errors may embed page exception text or script inputs. Keep
     // them private instead of attaching their source chain to an observation.
-    tokio::time::timeout(LOAD_TIMEOUT, session.protocol.evaluate_json(tab, script))
-        .await
-        .map_err(|_| anyhow!("private form browser evaluation timed out; outcome unknown"))?
-        .map_err(|_| anyhow!("private form browser evaluation failed; outcome unknown"))
+    tokio::time::timeout(
+        LOAD_TIMEOUT,
+        guarded_protocol(guard, session.protocol.evaluate_json(tab, script)),
+    )
+    .await
+    .map_err(|_| anyhow!("private form browser evaluation timed out; outcome unknown"))?
+    .map_err(|_| anyhow!("private form browser evaluation failed; outcome unknown"))
+}
+
+fn check_operation(guard: &PrivateFormGuard) -> Result<()> {
+    // The callback is a native host boundary. Its source chain is unnecessary
+    // here and must not accidentally expose private host data in a receipt.
+    guard().map_err(|_| anyhow!("private form operation lost authority; outcome unknown"))
+}
+
+async fn guarded_protocol<T>(
+    guard: &PrivateFormGuard,
+    request: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    let mut request = std::pin::pin!(request);
+    let result = poll_fn(|context| {
+        if let Err(error) = check_operation(guard) {
+            return Poll::Ready(Err(error));
+        }
+        request.as_mut().poll(context)
+    })
+    .await;
+    // Protocol helpers may await internally before dispatch. Rechecking on
+    // every resumed poll prevents a fenced operation continuing after that
+    // wait. A command already queued or sent may still complete: no cancellation
+    // path asserts that its remote effect was stopped or permits a second POST.
+    check_operation(guard)?;
+    result
 }
 
 fn private_string(value: &Value, name: &str, limit: usize) -> Result<String> {

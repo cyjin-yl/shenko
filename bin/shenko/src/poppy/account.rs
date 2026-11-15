@@ -657,8 +657,11 @@ async fn join_browser(
     if let Some(tokens) = client.tokens() {
         join.check_account(tokens)?;
     }
+    let guard = client.operation_guard()?;
     request.endpoint = join.endpoint().as_str().into();
-    let challenge = browser.read_private_form(request, caller).await?;
+    let challenge = browser
+        .read_private_form(request, caller, guard.clone())
+        .await?;
     let endpoint = Url::parse(challenge.endpoint())?;
     let pending = join.from_controlled_browser(
         challenge.run_id(),
@@ -680,7 +683,9 @@ async fn join_browser(
             && submission.hidden_code_for_native_adapter() == challenge.secret_value(),
         "private browser form binding changed"
     );
-    let receipt = browser.submit_private_form(challenge, caller).await?;
+    let receipt = browser
+        .submit_private_form(challenge, caller, guard)
+        .await?;
     Ok(json!({"state":"browser_join_observed","receipt":receipt,
         "signed_in_authorization":client.tokens().is_some(),"website_declares_unscoped_access":join.website_has_full_account_access(),
         "merchant_session_cookie_verified":false}))
