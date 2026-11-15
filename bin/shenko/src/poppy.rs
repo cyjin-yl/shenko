@@ -23,6 +23,7 @@ use shenko_types::{
 };
 
 const NAME: &str = "compat.poppy.discover";
+const PROMPT: &str = "Read public Poppy discovery and advertised UCP metadata for one HTTPS origin. Input {origin,timeout_secs?}; timeout is 1..=60 seconds. Results retain company identity, source URLs and declared capabilities. Discovery does not establish an account session, negotiate UCP, or execute a purchase. An unknown observation is preserved on recovery; a new read requires a separate task.";
 const CONTRACT: &[u8] = b"shenko.compat.poppy.discover/v1: explicitly installed public metadata reader; T1 before bounded HTTPS GETs; discovery records declared capabilities, not negotiation, account authorization or commerce; no Session, token or cookies; original receipts survive retirement; armed calls are never replayed";
 
 #[derive(Serialize, Deserialize)]
@@ -149,13 +150,13 @@ fn descriptor() -> NativeTaskDescriptor {
         kind: NAME.into(),
         definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
-            plugin_id: "d6ae8350-c88a-4132-bd35-2bc8b7738eba".parse().expect("fixed Poppy plugin identity"),
+            plugin_id: EntityId(uuid::Uuid::from_u128(0xd6ae8350c88a4132bd352bc8b7738eba)),
             artifact_digest: Digest::blake3(CONTRACT),
             registry_revision: 0,
         },
         role_revision: "native-child/1".into(),
         authority_refs: vec!["compat.poppy/v1".into()],
-        prompt_section: Some("Read public Poppy discovery and advertised UCP metadata for one HTTPS origin. Input {origin,timeout_secs?}; timeout is 1..=60 seconds. Results retain company identity, source URLs and declared capabilities. Discovery does not establish an account session, negotiate UCP, or execute a purchase. An unknown observation is preserved on recovery; a new read requires a separate task.".into()),
+        prompt_section: Some(PROMPT.into()),
     }
 }
 
@@ -171,7 +172,7 @@ impl NativeTaskHandler for Handler {
         vec![NativeCapabilityDeclaration {
             capability_id: NAME.into(),
             version: "1".into(),
-            description: descriptor().prompt_section.unwrap(),
+            description: PROMPT.into(),
             usage: Some(
                 "delegate:compat.poppy.discover:1 {\"origin\":\"https://merchant.example\"}".into(),
             ),
@@ -360,8 +361,15 @@ mod tests {
 
     // One real installation lifecycle, including writes through another Node
     // connection. No model or remote service is substituted by this fixture.
-    #[tokio::test]
-    async fn installed_discovery_is_withdrawn_and_republished() -> Result<()> {
+    #[test]
+    fn installed_discovery_is_withdrawn_and_republished() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(installed_lifecycle())
+    }
+
+    async fn installed_lifecycle() -> Result<()> {
         let root = std::env::temp_dir().join(format!("shenko-poppy-{}", EntityId::new()));
         std::fs::create_dir_all(&root)?;
         let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);

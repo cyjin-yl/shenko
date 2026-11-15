@@ -753,7 +753,7 @@ mod tests {
             let (redirects, response) = self
                 .0
                 .lock()
-                .unwrap()
+                .map_err(|_| anyhow::anyhow!("fixture queue was poisoned"))?
                 .pop_front()
                 .context("unexpected metadata request")?;
             ensure!(
@@ -765,23 +765,29 @@ mod tests {
         }
     }
 
-    fn fixture(url: &str, redirects: bool, status: u16, metadata: Value) -> (bool, Fetched) {
-        let url = Url::parse(url).unwrap();
-        (
+    fn fixture(
+        url: &str,
+        redirects: bool,
+        status: u16,
+        metadata: Value,
+    ) -> Result<(bool, Fetched)> {
+        let url = Url::parse(url)?;
+        Ok((
             redirects,
             Fetched {
                 requested_url: url.clone(),
                 url,
                 redirects: Vec::new(),
                 status,
-                body: serde_json::to_vec(&metadata).unwrap(),
+                body: serde_json::to_vec(&metadata)?,
                 fetched_at_unix_ms: 1,
             },
-        )
+        ))
     }
 
-    #[tokio::test]
-    async fn discovers_a_newer_compatible_document_and_read_only_ucp_profile() {
+    #[test]
+    fn discovers_a_newer_compatible_document_and_read_only_ucp_profile() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let fetcher = FixtureFetcher(Mutex::new(VecDeque::from([
             fixture(
                 "https://shop.example/.well-known/poppy.json",
@@ -794,7 +800,7 @@ mod tests {
                     "agent": {"protocols": [{"type": "ucp", "endpoint": "https://shop.example/.well-known/ucp"}]},
                     "web": {}
                 }),
-            ),
+            )?,
             fixture(
                 "https://shop.example/poppy/1.1.json",
                 false,
@@ -806,7 +812,7 @@ mod tests {
                     "agent": {"protocols": [{"type": "ucp", "endpoint": "https://shop.example/.well-known/ucp", "description": "Shopping profile"}]},
                     "web": {}, "extensions": {"ucp": [{"version": "1"}]}
                 }),
-            ),
+            )?,
             fixture(
                 "https://shop.example/.well-known/oauth-protected-resource",
                 false,
@@ -814,7 +820,7 @@ mod tests {
                 json!({
                     "resource": "https://shop.example", "authorization_servers": ["https://identity.example/tenant/shop"]
                 }),
-            ),
+            )?,
             fixture(
                 "https://identity.example/.well-known/oauth-authorization-server/tenant/shop",
                 false,
@@ -822,7 +828,7 @@ mod tests {
                 json!({
                     "issuer": "https://identity.example/tenant/shop", "protected_resources": ["https://shop.example"]
                 }),
-            ),
+            )?,
             fixture(
                 "https://shop.example/.well-known/ucp",
                 false,
@@ -830,15 +836,14 @@ mod tests {
                 json!({
                     "ucp": {"version": "2026-08-25", "capabilities": {"dev.ucp.shopping.checkout": [{"version": "2026-08-25"}]}}
                 }),
-            ),
+            )?,
         ])));
         let report = discover_using(
             &fetcher,
-            validate_origin("https://shop.example").unwrap(),
+            validate_origin("https://shop.example")?,
             &DiscoveryOptions::default(),
         )
-        .await
-        .unwrap();
+        .await?;
         assert_eq!(report.state, DiscoveryState::Discovered);
         assert_eq!(report.protocol_version, "1.1");
         assert_eq!(report.request_protocol_version, "1.0");
@@ -853,14 +858,17 @@ mod tests {
         assert_eq!(report.source.url, "https://shop.example/poppy/1.1.json");
         assert_eq!(report.capabilities.web, Some(json!({})));
         assert_eq!(
-            report.ucp.unwrap().metadata["ucp"]["capabilities"]["dev.ucp.shopping.checkout"][0]["version"],
+            report.ucp.context("missing UCP profile")?.metadata["ucp"]["capabilities"]["dev.ucp.shopping.checkout"][0]["version"],
             "2026-08-25"
         );
-        assert!(fetcher.0.lock().unwrap().is_empty());
+        ensure!(fetcher.0.lock().map_err(|_| anyhow::anyhow!("fixture queue was poisoned"))?.is_empty(), "unconsumed fixture response");
+        Ok(())
+        })
     }
 
-    #[tokio::test]
-    async fn rejects_issuer_confusion_without_an_issuerless_downgrade() {
+    #[test]
+    fn rejects_issuer_confusion_without_an_issuerless_downgrade() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let fetcher = FixtureFetcher(Mutex::new(VecDeque::from([
             fixture(
                 "https://shop.example/.well-known/poppy.json",
@@ -869,7 +877,7 @@ mod tests {
                 json!({
                     "protocol_version": "1.0", "organization": {"name": "Shop", "domain": "shop.example"}, "web": {}
                 }),
-            ),
+            )?,
             fixture(
                 "https://shop.example/.well-known/oauth-protected-resource",
                 false,
@@ -877,7 +885,7 @@ mod tests {
                 json!({
                     "resource": "https://shop.example", "authorization_servers": ["https://identity.example/tenant/shop"]
                 }),
-            ),
+            )?,
             fixture(
                 "https://identity.example/.well-known/oauth-authorization-server/tenant/shop",
                 false,
@@ -885,21 +893,24 @@ mod tests {
                 json!({
                     "issuer": "https://identity.example/tenant/other", "protected_resources": ["https://shop.example"]
                 }),
-            ),
+            )?,
         ])));
         let error = discover_using(
             &fetcher,
-            validate_origin("https://shop.example").unwrap(),
+            validate_origin("https://shop.example")?,
             &DiscoveryOptions::default(),
         )
         .await
-        .unwrap_err();
+        .err().context("issuer confusion was accepted")?;
         assert!(error.to_string().contains("issuer does not exactly match"));
-        assert!(fetcher.0.lock().unwrap().is_empty());
+        ensure!(fetcher.0.lock().map_err(|_| anyhow::anyhow!("fixture queue was poisoned"))?.is_empty(), "unconsumed fixture response");
+        Ok(())
+        })
     }
 
-    #[tokio::test]
-    async fn discovers_captured_allbirds_metadata_without_following_services() {
+    #[test]
+    fn discovers_captured_allbirds_metadata_without_following_services() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         // Public metadata captured through the workspace HTTPS proxy on
         // 2026-11-15. This is an offline protocol-flow regression, not an
         // end-to-end test of the production DNS/TLS/HTTP transport. The snapshot
@@ -907,9 +918,8 @@ mod tests {
         // fixture() reserializes the JSON body and uses a synthetic clock, so
         // the resulting report hashes describe those fixture bytes instead.
         let snapshot: Value =
-            serde_json::from_str(include_str!("../tests/fixtures/allbirds-2026-11-15.json"))
-                .unwrap();
-        let observations = snapshot["observations"].as_array().unwrap();
+            serde_json::from_str(include_str!("../tests/fixtures/allbirds-2026-11-15.json"))?;
+        let observations = snapshot["observations"].as_array().context("missing observations")?;
         // The strict fetch queue permits exactly these four metadata reads.
         // Any request to an advertised UCP service, version, cart, or checkout
         // endpoint is an unexpected request and fails the discovery flow.
@@ -930,24 +940,23 @@ mod tests {
             let observation = observations
                 .iter()
                 .find(|observation| observation["url"] == url)
-                .unwrap();
+                .context("missing recorded URL")?;
             assert_eq!(observation["final_url"], url);
             fixture(
                 url,
                 redirects,
-                observation["status"].as_u64().unwrap().try_into().unwrap(),
+                observation["status"].as_u64().context("invalid HTTP status")?.try_into()?,
                 observation["body"].clone(),
             )
         })
-        .collect();
+        .collect::<Result<VecDeque<_>>>()?;
         let fetcher = FixtureFetcher(Mutex::new(responses));
         let report = discover_using(
             &fetcher,
-            validate_origin("https://www.allbirds.com").unwrap(),
+            validate_origin("https://www.allbirds.com")?,
             &DiscoveryOptions::default(),
         )
-        .await
-        .unwrap();
+        .await?;
         assert_eq!(report.state, DiscoveryState::Discovered);
         assert_eq!(report.protocol_version, "0.4");
         assert_eq!(report.request_protocol_version, "0.4");
@@ -960,19 +969,23 @@ mod tests {
             "https://shopify.com/authentication/11044168"
         );
         assert_eq!(report.capabilities.agent[0].description, None);
-        assert_eq!(report.ucp.unwrap().metadata["ucp"]["version"], "2026-08-25");
-        assert!(fetcher.0.lock().unwrap().is_empty());
+        assert_eq!(report.ucp.context("missing UCP profile")?.metadata["ucp"]["version"], "2026-08-25");
+        ensure!(fetcher.0.lock().map_err(|_| anyhow::anyhow!("fixture queue was poisoned"))?.is_empty(), "unconsumed fixture response");
+        Ok(())
+        })
     }
 
     #[test]
-    fn refuses_private_redirect_before_any_http_connection() {
-        let current = Url::parse("https://shop.example/.well-known/poppy.json").unwrap();
+    fn refuses_private_redirect_before_any_http_connection() -> Result<()> {
+        let current = Url::parse("https://shop.example/.well-known/poppy.json")?;
         let error = http::redirect_target(
             &current,
             Some("https://127.0.0.1/.well-known/poppy.json"),
             &DiscoveryOptions::default(),
         )
-        .unwrap_err();
+        .err()
+        .context("private redirect was accepted")?;
         assert!(error.to_string().contains("non-public address"));
+        Ok(())
     }
 }
