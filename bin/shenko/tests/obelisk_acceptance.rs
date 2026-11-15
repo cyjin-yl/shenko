@@ -205,7 +205,11 @@ async fn run_arm(
                 &json!({"source_session_id":message.session_id, "timestamp":message.timestamp,
                     "text":message.text, "synthetic":true}),
             )?;
-            source_facts.push(serde_json::to_value(fact)?);
+            source_facts.push(json!({
+                "event_id":fact.event_id, "session_id":fact.session_id,
+                "seq":fact.seq, "event_type":fact.event_type,
+                "role":fact.role, "data":fact.data,
+            }));
         }
     }
     let node = Arc::new(Mutex::new(Node::open(&installation.join("node"))?));
