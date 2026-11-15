@@ -113,6 +113,7 @@ pub struct ArchivedRecord {
 struct TextChunk {
     record: ArchivedRecord,
     text_start_char: usize,
+    text_end_byte: usize,
     next_record_seq: i64,
     text: String,
 }
@@ -155,6 +156,7 @@ pub struct ArchiveSearch {
     pub skipped_retired_versions: usize,
     pub unavailable_versions: Vec<EntityId>,
     pub scope: String,
+    pub source_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +380,7 @@ pub fn archive_bytes(
             let chunk = TextChunk {
                 record: record.clone(),
                 text_start_char: char_offset,
+                text_end_byte: end,
                 next_record_seq,
                 text: text[start..end].to_owned(),
             };
@@ -752,6 +755,12 @@ pub fn search(
         skipped_retired_versions: 0,
         unavailable_versions: Vec::new(),
         scope: "local_archived_versions; historical material, not current instructions".into(),
+        source_status: if source.is_some() {
+            "not_found_in_scanned_range"
+        } else {
+            "unfiltered"
+        }
+        .into(),
     };
     loop {
         if out.scanned_sessions == SESSION_SCAN_BUDGET
@@ -772,7 +781,15 @@ pub fn search(
                 .next()
             {
                 Some(row) => row,
-                None => return Ok(out),
+                None => {
+                    if cursor.is_none()
+                        && source.is_some()
+                        && out.source_status == "not_found_in_scanned_range"
+                    {
+                        out.source_status = "not_archived".into();
+                    }
+                    return Ok(out);
+                }
             },
         };
         out.scanned_sessions += 1;
@@ -785,8 +802,15 @@ pub fn search(
         let Some(archive) = decode_source(&row.data)? else {
             continue;
         };
-        if source.is_some_and(|wanted| wanted != &archive.source) {
+        if source.is_some_and(|wanted| {
+            wanted.provider != archive.source.provider
+                || wanted.source_instance != archive.source.source_instance
+                || wanted.source_key != archive.source.source_key
+        }) {
             continue;
+        }
+        if source.is_some() {
+            out.source_status = "present_in_scanned_range".into();
         }
         if retired.contains(&archive.raw_ref.digest.0) {
             out.skipped_retired_versions += 1;
@@ -886,7 +910,7 @@ pub fn search(
                         || record
                             .text_ref
                             .as_ref()
-                            .is_some_and(|r| r.bytes > chunk.text.len() as u64),
+                            .is_some_and(|r| r.bytes > chunk.text_end_byte as u64),
                     citation: format!(
                         "shenko-history://{}/{}?version={}&bytes={}-{}",
                         record.archive_session_id,
@@ -1192,8 +1216,19 @@ mod tests {
         );
         std::fs::remove_file(file).unwrap();
         assert_eq!(whole(&store, agent, saved.archive_session_id, false), bytes);
-        let initial = search(&store, agent, "真正结论在长输出尾部", None, None, 10).unwrap();
+        let mut selector = source();
+        selector.session_id = None; // A native-ID hint is not source identity.
+        let initial = search(
+            &store,
+            agent,
+            "真正结论在长输出尾部",
+            Some(&selector),
+            None,
+            10,
+        )
+        .unwrap();
         assert!(initial.hits.is_empty() && initial.budget_exhausted);
+        assert_eq!(initial.source_status, "present_in_scanned_range");
         let tail = nonempty_search(
             &store,
             agent,
