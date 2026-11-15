@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "observed_date_utc": "2026-11-15",
+  "scope": "real upstream CLI exercised with the Shenko query template over a synthetic corpus; this is not the compiled Rust adapter or model acceptance result",
+  "fixture": {
+    "path": "bin/shenko/tests/fixtures/obelisk_auth_history.json",
+    "synthetic": true,
+    "sessions": 2,
+    "messages": 4,
+    "canonical_messages_sha256": "44385593fe8cf4ca362e331553d5c41acbf27eef1e5d072611c56a4c68961ac6",
+    "canonicalization": "UTF-8 JSON, sorted object keys, no spaces, no trailing newline"
+  },
+  "runtime": {
+    "node_version": "v24.22.1",
+    "upstream_repository": "https://github.com/tommy0103/obelisk",
+    "upstream_commit": "cc75c2dd1aead4f4374758a7536385307934e177",
+    "entrypoint": "packages/cli/src/obelisk.ts",
+    "reported_version": "0.2.0",
+    "isolation": "dedicated OBELISK_HOME; every provider root explicitly disabled except the owned synthetic Codex root",
+    "command": "node <pinned_checkout>/packages/cli/src/obelisk.ts --query <owned_fixture>/<operation>.js"
+  },
+  "checks": [
+    {
+      "operation": "sessions",
+      "exit_code": 0,
+      "sessions": 2
+    },
+    {
+      "operation": "search",
+      "query": "Hydra",
+      "exit_code": 0,
+      "mode": "fts5",
+      "hits": 2
+    },
+    {
+      "operation": "search",
+      "query": "终修改",
+      "exit_code": 0,
+      "mode": "literal_index_fallback",
+      "hits": 1
+    },
+    {
+      "operation": "messages",
+      "session_id": "codex:019ed000-0000-7000-8000-000000000002",
+      "exit_code": 0,
+      "messages": 2,
+      "has_more": false
+    },
+    {
+      "operation": "raw_page",
+      "message_uuid": "codex:019ed000-0000-7000-8000-000000000002:000003",
+      "exit_code": 0,
+      "status": "available",
+      "offset_unit": "utf16_code_units",
+      "offset": 0,
+      "limit": 90,
+      "has_more": true,
+      "next_offset_utf16": 90
+    },
+    {
+      "operation": "bounded_manifest",
+      "exit_code": 0,
+      "source_files": 2,
+      "stdout_bytes": 2719,
+      "record_counts": [
+        2,
+        2
+      ],
+      "index_cursor_bytes": [
+        118610,
+        118798
+      ],
+      "opaque_cursor_exposed": false
+    }
+  ],
+  "compatibility_finding": {
+    "npm_package": "@obelisk-apps/cli@0.3.0",
+    "npm_tarball_sha512_base64": "FUbA/PowSyfgU4ejfc4HFbtn+BPGZc/CvCLhtguskXbyU4TIhPcZ/tFxQXZTJtJxLkzS3jT0231mDluE0ftepA==",
+    "result": "incompatible",
+    "observations": [
+      "published provider-settings defaults to homedir/.obelisk/settings.json and does not implement OBELISK_HOME",
+      "published schema has no index_state.replay_required",
+      "version labels alone do not establish compatibility"
+    ],
+    "required_behavior": "reject an unverified CLI before launching any indexing query"
+  },
+  "projection_limits": {
+    "refresh_complete": null,
+    "original_archive_complete": false,
+    "source_text_may_be_truncated": true,
+    "snapshot_consistent_across_pages": false,
+    "statement": "passing these queries is not evidence that FTS covers every original byte or that distributed history is complete"
+  },
+  "real_model_acceptance": {
+    "status": "blocked_external",
+    "scored_arms": 0,
+    "reason": "No reachable authorized local-model endpoint in either executor or connected Box; documented local gateways returned HTTP 502/403 and the Tailnet gateway returned HTTP 503 or CONNECT 403. The connected Box reports Tailscale logged out.",
+    "network_or_credentials_modified": false,
+    "mock_substituted": false,
+    "test": "cargo test -p shenko --test obelisk_acceptance -- --ignored --nocapture",
+    "required_environment": [
+      "SHENKO_USE_LOCAL_MODEL=1",
+      "SHENKO_LOCAL_MODEL_URL",
+      "SHENKO_LOCAL_MODEL",
+      "SHENKO_OBELISK_CONFIG"
+    ],
+    "claim_limit": "No model-accuracy, negative-effect, token-saving, or statistical-efficacy conclusion."
+  }
+}
