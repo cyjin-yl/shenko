@@ -3,9 +3,10 @@
 
 Production and all-target diagnostics have separate per-package/per-lint counts.
 No checked-in warning budget is used. The same compiler enumerates its default
-Rust warnings for the workspace edition once. Force-warn keeps those warnings
-and Clippy's selected lints visible through allow/expect attributes; the source-
-policy comparison also rejects new suppressions, ignored tests and lint changes.
+Rust warnings for the workspace edition and probes which it actually accepts.
+Force-warn keeps these and Clippy's selected lints visible through allow/expect
+attributes; the source-policy comparison also rejects new suppressions, ignored
+tests and lint changes.
 """
 import argparse
 from collections import Counter
@@ -28,7 +29,7 @@ def lint_policy(output):
     # flags or wrappers must not replace that compiler or suppress its lints.
     environment = dict(os.environ, RUSTUP_TOOLCHAIN=TOOLCHAIN)
     for key in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CLIPPY_ARGS',
-                'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'):
+                'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'RUSTC_BOOTSTRAP'):
         environment.pop(key, None)
     rustc = subprocess.check_output(
         ['rustup', 'which', '--toolchain', TOOLCHAIN, 'rustc'], cwd=ROOT, env=environment, text=True).strip()
@@ -55,17 +56,84 @@ def lint_policy(output):
     warnings = sorted(name for name, level in levels.items() if level == 'warn' and name != 'warnings')
     if not warnings:
         raise RuntimeError(f'No default Rust warning lints discovered; retained {listing_path}')
+    warnings, probe = accepted_warning_lints(rustc, environment, output, warnings)
     flags = [argument for name in (*warnings, *CLIPPY_LINTS) for argument in ('--force-warn', name)]
     policy = {
         'toolchain': TOOLCHAIN, 'edition': EDITION, 'rustc_path': rustc,
         'rustc': subprocess.check_output([rustc, '-Vv'], cwd=ROOT, env=environment, text=True),
         'clippy': subprocess.check_output(
             ['cargo', 'clippy', '--version'], cwd=ROOT, env=environment, text=True).strip(),
-        'lint_discovery_command': command, 'rust_warning_lints': warnings, 'flags': flags,
+        'lint_discovery_command': command, 'rust_warning_probe': probe,
+        'rust_warning_lints': warnings, 'flags': flags,
     }
     # Retain the shared policy even if the first compilation fails.
     (output / 'lint-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
     return environment, policy
+
+
+def accepted_warning_lints(rustc, environment, output, discovered):
+    """Check the listing against the exact compiler's command-line interface.
+
+    Stable rustc may list an unstable lint in -W help, then reject that lint's
+    name when it appears in --force-warn. That creates unknown_lints in every
+    crate, including otherwise clean new crates. Only names this compiler
+    itself rejects in an isolated probe are omitted; source diagnostics and
+    the unknown_lints lint remain part of both workspace comparisons.
+    """
+    source = output / 'rustc-warning-probe.rs'
+    source.write_text('pub fn clippy_ratchet_probe() {}\n')
+    discovered = set(discovered)
+    if 'unknown-lints' not in discovered:
+        raise RuntimeError('Compiler discovery did not include unknown-lints')
+
+    def probe(names, stage):
+        command = [rustc, '--edition', EDITION, '--crate-name', 'shenko_lint_policy_probe',
+                   '--crate-type', 'lib', '--emit', 'metadata', '--error-format', 'json',
+                   *[argument for name in sorted(names) for argument in ('--force-warn', name)],
+                   '-o', str(output / f'rustc-warning-probe-{stage}.rmeta'), str(source)]
+        result = subprocess.run(command, cwd=ROOT, env=environment, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        diagnostics_path = output / f'rustc-warning-probe-{stage}.jsonl'
+        diagnostics_path.write_text(result.stderr)
+        (output / f'rustc-warning-probe-{stage}.stdout.log').write_text(result.stdout)
+        receipt = {'command': command, 'returncode': result.returncode,
+                   'diagnostics': diagnostics_path.name, 'source': source.read_text()}
+        (output / f'rustc-warning-probe-{stage}.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        if result.returncode or result.stdout:
+            raise RuntimeError(f'rustc lint probe failed; retained {diagnostics_path}')
+        rejected = set()
+        warnings = 0
+        summaries = []
+        for line in result.stderr.splitlines():
+            diagnostic = json.loads(line)
+            code = (diagnostic.get('code') or {}).get('code')
+            message = diagnostic.get('message', '')
+            unknown = re.fullmatch(r'unknown lint: `([a-z][a-z0-9_-]*)`', message)
+            summary = re.fullmatch(r'(\d+) warnings? emitted', message)
+            if (diagnostic.get('$message_type') != 'diagnostic'
+                    or diagnostic.get('level') != 'warning'):
+                raise RuntimeError(f'Unexpected rustc probe diagnostic; retained {diagnostics_path}')
+            if code == 'unknown_lints' and unknown:
+                name = unknown[1].replace('_', '-')
+                if name not in names or name == 'unknown-lints':
+                    raise RuntimeError(f'Unexpected rejected lint {name!r}; retained {diagnostics_path}')
+                rejected.add(name)
+                warnings += 1
+            elif code is None and summary:
+                summaries.append(int(summary[1]))
+            else:
+                raise RuntimeError(f'Unexpected rustc probe warning; retained {diagnostics_path}')
+        if summaries != ([warnings] if warnings else []):
+            raise RuntimeError(f'Inconsistent rustc probe warning count; retained {diagnostics_path}')
+        return rejected, receipt
+
+    rejected, initial = probe(discovered, 'discovered')
+    accepted = sorted(discovered - rejected)
+    remaining, verified = probe(accepted, 'accepted')
+    if remaining:
+        raise RuntimeError(f'Compiler still rejects filtered lint policy: {sorted(remaining)}')
+    return accepted, {'discovered_lints': sorted(discovered), 'unavailable_lints': sorted(rejected),
+                      'initial': initial, 'verified': verified}
 
 
 def tracked(root):
