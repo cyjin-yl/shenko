@@ -2739,7 +2739,12 @@ impl Node {
                     && current.identity == expected.identity
                     && current.term == expected.term
                     && current.configuration == expected.configuration
-                    && current.fence == expected.fence,
+                    && current.fence == expected.fence
+                    // Rejoin can close the current branch without advancing
+                    // the control term. Never turn that newer fact back into
+                    // an open branch from an older fallback observation.
+                    && serde_json::to_value(&current.branch)?
+                        == serde_json::to_value(&expected.branch)?,
                 "Node authority changed before availability branch opening"
             );
         }
