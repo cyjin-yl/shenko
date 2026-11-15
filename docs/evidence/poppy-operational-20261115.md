@@ -1,0 +1,138 @@
+# Poppy 账号、签名传输与 UCP 连续性验证记录
+
+日期：2026-11-15（UTC）。跟踪 [Issue #297](https://github.com/cyjin-yl/shenko/issues/297)，
+交付 [PR #302](https://github.com/cyjin-yl/shenko/pull/302)，依赖
+[PR #298](https://github.com/cyjin-yl/shenko/pull/298) 的发现与签名基础。
+
+## 候选、基线与范围
+
+- 本地源码提交：`7c97182e64dca32c57c3ac66dede47dc04d5825a`。
+- 对应发布提交：`f5b70b2ca97cfc4403935b07f398acc0e6415304`；源码树逐项校验为
+  `e377168485e822d3ba73afa7ce46fbc5532a5ebb`。发布保留各来源提交、父提交关系及来源标记。
+- 原始独立基线：`054817b0d5729fed56ec5a974d101c31edfd1410`。
+- PR302 的分层基线：`2e20dfc52b14e9c8dcce3b51fd8e5247ceaa1eb3`（PR298）；
+  PR298 自身的六项 CI 已通过，未用本候选抬高已有告警或结构基线。
+- 环境：Linux、Rust 1.98.1；`CARGO_BUILD_JOBS=2`、`CARGO_INCREMENTAL=0`，dev/test debug 信息关闭。
+- 本记录之后的收尾仅调整文档。当前产品合同见
+  [Poppy：身份、账号与商务接入](../specs/ecosystem-adapters.md#poppy-foundation)。
+
+本增量新增恰好两个测试函数；连同[首个增量](poppy-foundation-20261115.md)的七个场景，
+此轮功能共九个。额外运行既有 MCP 回归及仓库检查，没有新增第十个独立场景。
+历史 foundation 记录只证明它标明的旧源码树，其“未实现”描述不代表本候选。
+
+## 已接通的执行路径
+
+Poppy 协议 crate 保持独立，节点安装、凭据、原生调用和业务回执由装配根拥有。
+当前提供 discover、account、request、commerce 四个原生接口，覆盖：
+
+- 本机加密 vault、持久 pairwise 身份、公开 CIMD/JWKS/UCP profile 导出与读取校验。
+- 实际 HTTP/MCP 派发时的 Poppy Session、RFC 9421 HTTP Message Signature、DPoP、
+  UCP profile、幂等键、追踪标识与正文摘要；资源专用 token 必须匹配实际服务 metadata。
+- PKCE/PAR、Device、私有回调引用、刷新、撤销，以及受原生操作和浏览器 lease 双重约束的
+  browser join。未知兑换、刷新和撤销保留原 flight，不重发已派发的账号请求。
+- 按实际商家工具/OpenAPI schema 协商的 UCP 请求；checkout 完成必须绑定原观察、条款、
+  公司、用户、操作者、grant、支付 handler 和节点凭据。
+- 超时/失联后的原资源读取，以及从不可变恢复观察向原效果账本追加后置条件证据。
+  已 armed 的修改不重发；原始尝试、幂等键和 unknown 回执不被替换。
+- 任务取消、安装撤回或冻结连接变化时的派发前校验，及 MCP transport/SSE 的协作关闭。
+  取消不会被报告为远端效果已停止。
+
+这些是源码接线结论。以下分别列出实际测试与尚未取得的外部证据。
+
+## 本地检查
+
+命令在仓库根执行。构建共享同一 target；下面的 `--offline` 只使用已取得并由 lockfile
+固定的依赖，不改变程序自身的网络策略。
+
+| 检查 | 实际结果与边界 |
+| --- | --- |
+| `cargo test -p shenko --features compat-poppy --lib poppy:: --locked --offline -j2` | 最终候选 3 passed：两个新增连续旅程和既有安装启停旅程。 |
+| `cargo test -p shenko-compat-poppy --locked --offline -j2` | 最终候选 6 passed，覆盖四个发现与两个签名场景；doctest 0 个。 |
+| `cargo test -p shenko-compat-mcp --tests --locked --offline -j2` | 20 passed：learning_efficacy 1 个、plugin_lifecycle 19 个；包含真实 stdio、JSON/SSE 边界、取消关闭、安装启停和原 unknown 回执接续。 |
+| `cargo clippy -p shenko -p shenko-compat-mcp -p shenko-compat-poppy --features shenko/compat-poppy --all-targets --message-format=json --locked --offline -j2 -- --force-warn clippy::all --force-warn clippy::unwrap_used --force-warn clippy::expect_used` | 最终候选退出 0，全 targets 编译通过；新增 Poppy、private form 和修改后的 HTTP 文件没有 lint 诊断。既有其他文件仍有告警，是否增加由 CI 对独立基线比较。 |
+| `cargo build -p shenko --bin shenko --features compat-poppy --locked --offline -j2` | 最终候选退出 0；随后实际执行 `shenko compat poppy --help` 和 `shenko compat poppy credential --help`，十个业务子命令及 guest credential 选项可见。 |
+| `python3 scripts/check_docs.py` 及 `--verify-migration` | 通过，errors 为空；冻结迁移块未修改。使用仓库声明的 parser 依赖。 |
+| `python3 scripts/check_kernel_boundary.py --baseline-ref 054817b0d5729fed56ec5a974d101c31edfd1410` | 通过，new_violations 为空、baseline_updated 为 false。首次收尾调用缺少 Cargo PATH，补回真实工具链路径后执行成功。 |
+| `git diff --check` | 通过。 |
+
+完整 workspace 的 Rust 检查/测试、web、docs、docs-migration、kernel-boundary 和
+clippy-ratchet 六项远端门禁以 [PR302 的检查](https://github.com/cyjin-yl/shenko/pull/302/checks)
+所绑定的实际提交为准。此记录不把本地所选包检查称为完整 workspace CI。
+
+首次组合旅程暴露了测试 fixture 未启用依赖插件，已让 fixture 通过真实 Node 命令明确启用；
+没有放宽生产安装检查。收尾还修正了新增的 lint 分支及 vendored resolver 的三处同类诊断。
+本地构建曾遇到磁盘缓存占满和编译锁等待；仅清理自身可重建缓存、停止未完成的等待并重跑，
+不将这些中断算作通过，也未改变门禁、测试忽略项或基线。
+
+最终本地输出的 SHA-256 摘要如下。大日志留在执行环境，远端可审查证据由对应 CI job 与
+artifact 提供；这些摘要本身不替代检查输出。
+
+| 输出 | SHA-256 |
+| --- | --- |
+| 宿主三个测试 | `a4be972626ccadfa68174e455f6fb7e9fe7d3c5cdfdff484ee48c3033024f3fa` |
+| 协议六个测试 | `76b1bf0c2f219d4c02dd32b7a31d5fd6186106fc21b84e5eea6d4c460e4b5fa6` |
+| 既有 MCP 20 个回归 | `d13cfe5d509cdbd9863561391ae655037e2bca52f893da68884983fbd28768a1` |
+| 所选包 Clippy JSONL | `a5acfd00d15967663487fa19108dc4f20a417ff122d110a1689ad953cf47b49f` |
+| CLI 构建 | `f13fb63dfcd58cbd165968a2bcec9833f888bf8551e902e146d757e67d416f63` |
+| 实际 CLI 帮助 | `29af4ef3670bd95983eba9c4496768d3ea496e805cfe0c4c859e4298eb36df1f` |
+| 文档完整性及迁移（相同输出） | `ce5b19c30571ed129aa5a4d0e457be6a6bc346596bb1f67749a9d278d4776fed` |
+| 内核边界 | `00604c55fd18e6b4b0a67008040ce104e98e844de9b9b7cc503a6c63bf20310c` |
+
+## 两个新增连续旅程
+
+### 账号未知结果与重开
+
+[`account_continuity_preserves_unknown_refresh_and_revoke_across_reopen`](../../bin/shenko/src/poppy/account/tests.rs)
+执行真实 vault、PKCE/client assertion/DPoP 构造、grant 与原 flight 持久化，再重开存储，
+检查未知刷新、替换授权、归档及撤销的连续性。公开 snapshot 不含秘密。
+商家响应由明确 fixture 构造；该测试没有执行真实用户同意页面或在线 token exchange。
+
+### checkout 未知结果与不可变恢复
+
+[`checkout_unknown_is_repaired_from_immutable_observation_without_replay`](../../bin/shenko/src/poppy/operational/tests.rs)
+使用真实 Node 安装与精确启用状态、Store、CAS、RecordedCall、T1/E1 和 checkout 作用域
+凭据，检查以下同一条旅程中的连续行为：
+
+1. 用实际捕获的 `get_checkout` / `complete_checkout` 输入输出 schema 验证 fixture。
+2. 由真实 RequestPlan/RequestSigner 构造最终请求字节，独立重建 RFC 9421 签名基串并以
+   公共 JWKS 验证签名，重新计算正文 Content-Digest，核对身份、UCP 和原幂等/追踪头。
+3. 保存原 completion 的 unknown 和后续 recovery E1，关闭/重开 Store，再从同一不可变
+   读取观察修复原账本；重复本地 fold 不创建第二次业务尝试、不重发完成购买请求。
+4. 核对原始输入、attempt、幂等键、checkout、订单与条款绑定，以及所检查的任务/CAS
+   中没有节点 instrument 秘密。
+
+此旅程没有网络请求，也没有调用 `commerce::execute` 到真实 RMCP initialize/tools/call
+的整条路径。checkout、completed、order ID 与初始 unknown 都是 fixture。签名验证覆盖
+这一个未登录、无 query 的 MCP 请求，不据此扩展为所有 OAuth、REST 或 query 路径的商家
+互操作结论；重开 Store 也不是一次真实成交后强制终止进程的实验。
+
+## 真实公开取样
+
+2026-11-15 实际读取了 Allbirds 的公开 Poppy、OAuth resource/issuer 和 UCP metadata，
+并取得匿名 MCP `tools/list`。这些读取通过工作环境的 HTTPS 代理完成，无商家账号、
+购物车、付款或订单副作用。四份 metadata 的范围、时间和原始摘要见历史 foundation 记录。
+
+匿名工具目录响应共 223502 字节，原始字节 SHA-256：
+`76affd926e9288bcf7f7f94e319963f35465c5d9d6fbbdefcca1550841438751`。
+checkout 旅程使用的[工具 schema fixture](../../bin/shenko/src/poppy/operational/fixtures/checkout-tool-schemas.json)
+保留其中两项工具的实际输入/输出 JSON 子树，省略工具层 description。
+捕获的工具目录不证明 Shenko 的公开身份、签名、账号权限或付款工具已被商家接受。
+
+生产客户端禁用环境代理，连接前验证并固定 DNS 地址。本轮该执行环境仍不能直接解析
+`www.allbirds.com`（`Temporary failure in name resolution`）；未取得生产 Rust 客户端经
+DNS/TLS/HTTP 到真实商家的成功证据。没有为通过检查放宽代理、DNS、redirect 或凭据边界。
+
+## 外部验收缺口与已知限制
+
+| 项目 | 本轮实际状态与完成所需证据 |
+| --- | --- |
+| 公开操作者身份 | `init` / `identity` 只生成本地文档，返回 `public_urls_verified:false`。仍须实际托管 CIMD/JWKS/UCP profile 与回调接收服务，再证明商家能够读取匹配的公开文档。 |
+| 商家账号 | 未提供真实授权/资源 grant，没有进行商家登录或用户同意。Direct/Device 启动结果不等于已授权；需要真实 token response、scope/resource 与账号行为证据。 |
+| 浏览器加入 | 未做真实商家浏览器验收。204、表单 ACK 或导航不证明 cookie 的账号身份；代码保留 `merchant_session_cookie_verified:false` 和 `application_effect:unverified`。signed_out join 也不证明浏览器原有登录被清除。 |
+| 支付与订单 | 默认平台 profile 没有支付 handler；没有真实提供方 instrument、明确交易参数或购买授权。本轮没有创建真实订单或付款。completed/order 观察仍不等于支付结算或履约独立验收。 |
+| 模型使用能力 | 既有本地模型端点网络不可达（`Network is unreachable`）；未猜测模型 ID，未宣称真实模型会选择或正确使用新增接口。 |
+| 节点迁移 | 业务事实与原回执可以保留，节点私钥和凭据不会随普通 Node/CAS 导出。另一节点没有本地秘密时必须重新具备相应授权，不能静默替换身份继续结算旧效果。 |
+| 运行平台与时限 | vault 当前以 Unix 属主权限实现，其他系统拒绝启用。Schema 有大小、节点、深度和 regex 资源上限，但同步校验不是可抢占的墙钟截止。没有长期运行或商家所有实现的互操作保证。 |
+
+Issue #297 保留真实部署、账号、浏览器及交易恢复验收项。代码交付、fixture、CI 与公开
+取样各自提供其实际范围的证据，不代替这些尚未执行的外部步骤。

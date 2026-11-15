@@ -683,7 +683,8 @@ instrument 必须由实际提供方取得，包含其 `id`、`handler_id`、`typ
 本节不声称已完成真实商家登录、真实浏览器账号绑定、付款或购买。用户授权需要实际商家
 流程，协议接受程度由实际响应决定；构建、fixture、工具目录和本地能力交集不能替代这些
 证据。首个发现/签名增量的历史结果见
-[Poppy 首个增量验证记录](../evidence/poppy-foundation-20261115.md)，后续实测由独立证据记录维护。
+[Poppy 首个增量验证记录](../evidence/poppy-foundation-20261115.md)；当前账号、签名传输和
+UCP 接线的检查见[后续增量验证记录](../evidence/poppy-operational-20261115.md)。
 
 协议依据：[Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec)、
 [0.4 兼容文档](https://personalagentprotocol.org/docs/0.4/spec)、

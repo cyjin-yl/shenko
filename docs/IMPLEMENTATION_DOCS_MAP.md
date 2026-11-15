@@ -92,10 +92,11 @@
 
 ## 能力与插件
 
-- **Poppy 公开发现（shenko-compat-poppy）** — 已接线，但必须显式编译 `compat-poppy` 并启用 `compat.poppy` 才向主体提供 `compat.poppy.discover:1`。装配根 `bin/shenko/src/poppy.rs` 复用安装观察、native handler 和持久回执；协议 crate 不依赖 Store 或 Subject。
-  - [Poppy：发现与签名基础](specs/ecosystem-adapters.md#poppy-foundation)
+- **Poppy 身份、账号与 UCP 商务（shenko-compat-poppy）** — 已接线，必须显式编译 `compat-poppy` 并启用 `compat.poppy`。主体接口包括 `compat.poppy.discover:1`、`compat.poppy.account:1`、`compat.poppy.request:1` 和 `compat.poppy.commerce:1`。装配根 `bin/shenko/src/poppy.rs` 及其子模块复用安装观察、native handler 和持久效果回执；协议 crate 不依赖 Store 或 Subject。
+  - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)
   - `shenko compat poppy discover <https-origin>` 是独立的公开诊断命令，不创建主体任务。
-  - 委托 ES256 Session 签名和公钥 metadata/JWKS 生成**仅源码**；商家请求尚不携带这些签名。平台托管、持久凭据、OAuth/DPoP、浏览器 join、UCP 协商、购物与订单接续**未实现**。跟踪 [Issue #297](https://github.com/cyjin-yl/shenko/issues/297)。
+  - 节点身份与加密凭据、CIMD/JWKS/UCP profile 导出、Session 与 HTTP Message Signature、OAuth/DPoP、受所有权约束的浏览器 join、UCP schema 协商和未知 checkout 的只读恢复均有生产执行路径。已 armed 的商务修改不会自动重放。
+  - 实现接线不代表外部验收完成：公开身份与回调服务须实际托管；真实商家授权、支付提供方和 instrument、浏览器账号状态、购买及订单恢复尚无端到端成功证据。跟踪 [Issue #297](https://github.com/cyjin-yl/shenko/issues/297)；具体已执行检查见[后续增量验证记录](evidence/poppy-operational-20261115.md)。
 
 - **Cordis 内核（shenko-kernel：Plugin/Service 生命周期、capability、hooks、effect contract）** — 已接线（`Supervisor` 是运行时装配根）
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
