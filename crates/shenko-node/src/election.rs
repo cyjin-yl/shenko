@@ -417,6 +417,19 @@ pub struct ExperienceCounts {
     pub receipts: u64,
 }
 
+/// The exact local control facts under which this holder opened a partition
+/// branch. This is neither a quorum claim nor a lease; observing another term,
+/// configuration or usable fence ends this authority without erasing history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AvailabilityAuthority {
+    pub holder_node_id: VoterId,
+    pub opening_term: u64,
+    pub configuration_revision: Option<u64>,
+    pub configuration_digest: Option<Digest>,
+    pub fence: Option<FencingToken>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BranchFact {
@@ -426,6 +439,10 @@ pub struct BranchFact {
     pub reason: String,
     /// An availability branch is never a global quorum claim.
     pub global_quorum: bool,
+    /// Older facts remain readable, but absent origin facts confer no current
+    /// availability authority. A fresh opening records these under one lock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability_authority: Option<AvailabilityAuthority>,
     pub retained_experience: ExperienceCounts,
     pub opened_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -2684,6 +2701,29 @@ impl Node {
         subject_id: Option<EntityId>,
         reason: &str,
     ) -> Result<BranchFact> {
+        self.open_availability_branch_inner(branch_id, subject_id, reason, None)
+    }
+
+    /// Bind an automatic fallback to the exact authority observation that
+    /// justified it. A newly learned primary between that observation and this
+    /// write cannot be relabelled as the origin of a fresh partition branch.
+    pub fn open_availability_branch_if_current(
+        &mut self,
+        branch_id: EntityId,
+        subject_id: Option<EntityId>,
+        reason: &str,
+        expected: &crate::NodeAuthoritySnapshot,
+    ) -> Result<BranchFact> {
+        self.open_availability_branch_inner(branch_id, subject_id, reason, Some(expected))
+    }
+
+    fn open_availability_branch_inner(
+        &mut self,
+        branch_id: EntityId,
+        subject_id: Option<EntityId>,
+        reason: &str,
+        expected: Option<&crate::NodeAuthoritySnapshot>,
+    ) -> Result<BranchFact> {
         ensure!(
             !reason.trim().is_empty(),
             "an availability branch requires a reason"
@@ -2692,6 +2732,17 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(expected) = expected {
+            let current = Self::authority_snapshot_conn(&tx)?;
+            ensure!(
+                current.node_id == expected.node_id
+                    && current.identity == expected.identity
+                    && current.term == expected.term
+                    && current.configuration == expected.configuration
+                    && current.fence == expected.fence,
+                "Node authority changed before availability branch opening"
+            );
+        }
         let existing: Option<String> = tx
             .query_row(
                 "SELECT data FROM node_branches WHERE branch_id=?1",
@@ -2701,12 +2752,21 @@ impl Node {
             .optional()?;
         let now = chrono::Utc::now();
         let floor = Self::last_reconciliation_seq(&tx)?;
+        let configuration = Self::committed_config(&tx)?;
+        let authority = AvailabilityAuthority {
+            holder_node_id: Self::stored_node_id(&tx)?.context("node is not initialized")?,
+            opening_term: state_number(&tx, "term")?,
+            configuration_revision: configuration.as_ref().map(|config| config.revision),
+            configuration_digest: configuration.as_ref().map(|config| config.digest.clone()),
+            fence: Self::fencing_token_conn(&tx)?,
+        };
         let fact = match existing {
             Some(raw) => {
                 let mut fact: BranchFact = serde_json::from_str(&raw)?;
                 fact.kind = BranchKind::Availability;
                 fact.reason = reason.to_string();
                 fact.global_quorum = false;
+                fact.availability_authority = Some(authority);
                 fact.retained_experience = retained;
                 fact.updated_at = now;
                 // A new partition of the same branch supersedes an earlier
@@ -2722,6 +2782,7 @@ impl Node {
                 subject_id,
                 reason: reason.to_string(),
                 global_quorum: false,
+                availability_authority: Some(authority),
                 retained_experience: retained,
                 opened_at: now,
                 updated_at: now,
@@ -2931,6 +2992,7 @@ impl Node {
             subject_id: record.retired.as_ref().map(|identity| identity.agent_id),
             reason: format!("adopted an existing self: {}", record.reason),
             global_quorum: false,
+            availability_authority: None,
             retained_experience: retained,
             opened_at: now,
             updated_at: now,

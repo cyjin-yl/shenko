@@ -2,10 +2,10 @@
 //!
 //! This lock serializes locally learned authority changes. It does not prove
 //! that a remote quorum remains reachable or provide a distributed lease.
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, ensure};
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::{BranchFact, FencingToken, Identity, MemberConfiguration, Node, election};
+use crate::{BranchFact, BranchKind, FencingToken, Identity, MemberConfiguration, Node, election};
 use shenko_types::ids::EntityId;
 
 #[derive(Debug, Clone)]
@@ -16,6 +16,37 @@ pub struct NodeAuthoritySnapshot {
     pub configuration: Option<MemberConfiguration>,
     pub fence: Option<FencingToken>,
     pub branch: Option<BranchFact>,
+}
+
+impl NodeAuthoritySnapshot {
+    /// A local branch can admit fresh work only while its opening authority
+    /// still matches the exact control facts in this snapshot. Keeping the
+    /// historical branch open does not override a newly learned primary.
+    pub fn is_current_availability(&self) -> bool {
+        self.branch.as_ref().is_some_and(|branch| {
+            branch.branch_id == self.identity.branch_id
+                && self.has_current_availability_authority(branch)
+        })
+    }
+
+    fn has_current_availability_authority(&self, branch: &BranchFact) -> bool {
+        branch.kind == BranchKind::Availability
+            && branch.subject_id == Some(self.identity.agent_id)
+            && !branch.global_quorum
+            && branch.merged.is_none()
+            && branch
+                .availability_authority
+                .as_ref()
+                .is_some_and(|authority| {
+                    authority.holder_node_id == self.node_id
+                        && authority.opening_term == self.term
+                        && authority.configuration_revision
+                            == self.configuration.as_ref().map(|config| config.revision)
+                        && authority.configuration_digest.as_ref()
+                            == self.configuration.as_ref().map(|config| &config.digest)
+                        && authority.fence == self.fence
+                })
+    }
 }
 
 /// Owns a connection with a SQLite RESERVED write lock. Normal Node writers
@@ -30,20 +61,48 @@ impl NodeAuthorityGuard {
         &self.snapshot
     }
 
+    /// Validate a target before creating its Store fork, while this reservation
+    /// excludes concurrent Node authority changes. The target need not be the
+    /// current identity yet. Repairing an already durable fork is a separate
+    /// historical projection and must not use this fresh-work check.
+    pub fn validate_availability_branch(&self, branch_id: EntityId) -> Result<()> {
+        let raw: String = self
+            .node
+            .conn
+            .query_row(
+                "SELECT data FROM node_branches WHERE branch_id=?1",
+                [branch_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .context("target has no recorded availability branch")?;
+        let branch: BranchFact = serde_json::from_str(&raw)?;
+        ensure!(
+            branch.branch_id == branch_id
+                && self.snapshot.has_current_availability_authority(&branch),
+            "availability branch opening authority is no longer current"
+        );
+        Ok(())
+    }
+
     /// Verify the original chosen action from this reserved connection. A
     /// recovered certificate may contain another valid acknowledgement set;
     /// the immutable value identity and descriptor must remain identical.
     pub fn validate_admission_grant(
-        &self, grant: &shenko_types::authority::CommitAuthorityGrant,
+        &self,
+        grant: &shenko_types::authority::CommitAuthorityGrant,
     ) -> Result<()> {
         let stored = Node::committed_admission_conn(&self.node.conn, &grant.admission)?
             .context("admission has no committed local control value")?;
-        anyhow::ensure!(stored.grant_id == grant.grant_id
-            && stored.admission == grant.admission,
-            "admission grant does not match its actual committed value");
-        anyhow::ensure!(grant.admission.subject_id == self.snapshot.identity.agent_id
-            && grant.admission.branch_id.0 == self.snapshot.identity.branch_id.0,
-            "admission grant belongs to another actual subject branch");
+        anyhow::ensure!(
+            stored.grant_id == grant.grant_id && stored.admission == grant.admission,
+            "admission grant does not match its actual committed value"
+        );
+        anyhow::ensure!(
+            grant.admission.subject_id == self.snapshot.identity.agent_id
+                && grant.admission.branch_id.0 == self.snapshot.identity.branch_id.0,
+            "admission grant belongs to another actual subject branch"
+        );
         if !grant.replayed {
             Node::validate_admission_current_conn(&self.node.conn, &grant.admission)?;
         }
@@ -78,18 +137,25 @@ impl Node {
     pub fn reserve_authority(self) -> Result<NodeAuthorityGuard> {
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let snapshot = Self::authority_snapshot_conn(&self.conn)?;
-        Ok(NodeAuthorityGuard { node: self, snapshot })
+        Ok(NodeAuthorityGuard {
+            node: self,
+            snapshot,
+        })
     }
 
     pub(crate) fn authority_snapshot_conn(conn: &Connection) -> Result<NodeAuthoritySnapshot> {
         let node_id = Self::stored_node_id(conn)?.context("node is not initialized")?;
         let identity = Self::stored_identity(conn)?.context("node has no subject identity")?;
-        let branch: Option<String> = conn.query_row(
-            "SELECT data FROM node_branches WHERE branch_id=?1",
-            [identity.branch_id.to_string()], |row| row.get(0),
-        ).optional()?;
+        let branch: Option<String> = conn
+            .query_row(
+                "SELECT data FROM node_branches WHERE branch_id=?1",
+                [identity.branch_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
         Ok(NodeAuthoritySnapshot {
-            node_id, identity,
+            node_id,
+            identity,
             term: election::state_number(conn, "term")?,
             configuration: Self::committed_config(conn)?,
             fence: Self::fencing_token_conn(conn)?,
