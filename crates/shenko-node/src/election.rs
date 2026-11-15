@@ -584,7 +584,7 @@ fn proposal_digest(proposal: &MemberProposal) -> Result<Digest> {
     Ok(Digest::blake3(&serde_json::to_vec(&payload)?))
 }
 
-fn state_number(conn: &Connection, key: &str) -> Result<u64> {
+pub(crate) fn state_number(conn: &Connection, key: &str) -> Result<u64> {
     let raw: Option<String> = conn
         .query_row(
             "SELECT v FROM node_election_state WHERE k=?1",
@@ -662,7 +662,7 @@ fn verify_proposal(config: &MemberConfiguration, proposal: &MemberProposal) -> R
 }
 
 impl Node {
-    fn committed_config(conn: &Connection) -> Result<Option<MemberConfiguration>> {
+    pub(crate) fn committed_config(conn: &Connection) -> Result<Option<MemberConfiguration>> {
         let raw: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_member_configs ORDER BY revision DESC LIMIT 1",
@@ -846,22 +846,29 @@ impl Node {
     /// but a newer observed term or a removed leader yields no current token.
     pub fn fencing_token(&self) -> Result<Option<FencingToken>> {
         let tx = self.conn.unchecked_transaction()?;
-        let Some(claim) = get_state::<PrimaryClaim>(&tx, "primary")? else {
+        let token = Self::fencing_token_conn(&tx)?;
+        tx.commit()?;
+        Ok(token)
+    }
+
+    /// Read the exact current fence while a caller already holds a Node
+    /// transaction. The Store authority adapter uses this under an owned
+    /// IMMEDIATE reservation, without opening a nested read transaction.
+    pub(crate) fn fencing_token_conn(conn: &Connection) -> Result<Option<FencingToken>> {
+        let Some(claim) = get_state::<PrimaryClaim>(conn, "primary")? else {
             return Ok(None);
         };
         let leader_id = claim.leader_node_id.parse::<EntityId>()
             .context("committed primary leader is not a node identity")?;
-        if claim.term != state_number(&tx, "term")?
-            || !Self::committed_config(&tx)?.is_some_and(|config| config.is_member(leader_id))
+        if claim.term != state_number(conn, "term")?
+            || !Self::committed_config(conn)?.is_some_and(|config| config.is_member(leader_id))
         {
             return Ok(None);
         }
-        let token = FencingToken {
+        Ok(Some(FencingToken {
             term: claim.term, epoch: claim.epoch, leader_id,
             config_revision: claim.config_revision, committed_seq: claim.committed_seq,
-        };
-        tx.commit()?;
-        Ok(Some(token))
+        }))
     }
 
     /// Resource-side fence: a token is accepted only when it is exactly the
