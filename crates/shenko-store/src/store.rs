@@ -792,11 +792,11 @@ impl Store {
             let mut tasks = std::collections::BTreeMap::new();
             for intent in &decision.child_dialogue_intents {
                 if intent.direction != shenko_types::subject::DialogueDirection::ToChild { continue; }
-                if let Some(task) = crate::child::read_task(&tx, intent.target_task_id).map_err(storage_error)? {
-                    if task.agent_id == head.agent_id && !task.is_terminal() && task.abort_request.is_none()
-                        && crate::child::task_in_current_branch(&tx, &task, &head).map_err(storage_error)? {
-                        tasks.insert(task.task_id, task);
-                    }
+                if let Some(task) = crate::child::read_task(&tx, intent.target_task_id).map_err(storage_error)?
+                    && task.agent_id == head.agent_id && !task.is_terminal() && task.abort_request.is_none()
+                    && crate::child::task_in_current_branch(&tx, &task, &head).map_err(storage_error)?
+                {
+                    tasks.insert(task.task_id, task);
                 }
             }
             (previous, tasks.into_values().collect::<Vec<_>>())

@@ -568,14 +568,14 @@ impl Store {
         ensure!(parent.kind == crate::external::MODEL_CHILD_KIND, invalid());
         ensure!(parent.abort_request.is_none() && !parent.is_terminal(), invalid());
         ensure!(!intent.content.trim().is_empty(), invalid());
-        let payload = serde_json::to_value(intent)?;
+        let payload_json = serde_json::to_value(intent)?.to_string();
         {
             let conn = self.ledger.conn.lock();
             let existing: Option<String> = conn.query_row(
                 "SELECT payload FROM subject_intents WHERE intent_id=?1 AND kind='publication'",
                 [intent.intent_id.to_string()], |row| row.get(0)).optional()?;
             if let Some(existing) = existing {
-                ensure!(existing == payload.to_string(), "child publication identity already committed with different content");
+                ensure!(existing == payload_json, "child publication identity already committed with different content");
                 return Ok(None);
             }
         }
@@ -611,7 +611,7 @@ impl Store {
                     .optional()?;
                 if let Some(data) = existing {
                     ensure!(
-                        data == payload.to_string(),
+                        data == payload_json,
                         "child publication identity already committed with different content"
                     );
                     tx.commit()?;
@@ -630,7 +630,7 @@ impl Store {
                         step_id.to_string(),
                         parent.agent_id.to_string(),
                         crate::channel::CHANNEL_PUBLISH_CONTRACT,
-                        payload.to_string(),
+                        payload_json,
                         serde_json::to_string(decision_ref)?,
                         seq.0 as i64
                     ],

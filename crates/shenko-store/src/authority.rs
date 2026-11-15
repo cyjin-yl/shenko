@@ -107,9 +107,8 @@ impl AuthorityRuntime {
         if grant.as_ref().is_some_and(|grant| grant.admission != admission) {
             return Err(authority_fenced("authority returned a grant for another immutable action"));
         }
-        let guard = provider.acquire(grant.as_ref()).map_err(|error| {
+        let guard = provider.acquire(grant.as_ref()).inspect_err(|_| {
             if let Some(grant) = &grant { provider.action_unmaterialized(grant); }
-            error
         })?;
         Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(admission), grant, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false })
     }
@@ -149,15 +148,14 @@ impl AuthorityReservation {
         {
             return Err(authority_fenced("the active branch, epoch or software generation changed"));
         }
-        if let Some(admission) = &self.admission {
-            if admission.subject_id != head.agent_id || admission.branch_id != head.branch_id
+        if let Some(admission) = &self.admission
+            && (admission.subject_id != head.agent_id || admission.branch_id != head.branch_id
                 || admission.expected_parent.is_some_and(|parent| parent != head.committed_at)
                 || admission.controller_epoch != head.controller_epoch
                 || admission.software_generation != head.software_generation
-                || admission.expected_head_revision.is_some_and(|revision| revision != head.record_revision)
-            {
-                return Err(authority_fenced("the ordered action no longer names this Store predecessor"));
-            }
+                || admission.expected_head_revision.is_some_and(|revision| revision != head.record_revision))
+        {
+            return Err(authority_fenced("the ordered action no longer names this Store predecessor"));
         }
         for expected in &self.expected_tasks {
             let raw: String = conn.query_row("SELECT data FROM tasks WHERE task_id=?1",
@@ -362,9 +360,8 @@ impl Store {
         grant.replayed = true;
         let provider = self.ledger.authority.provider.read().clone()
             .ok_or_else(|| authority_fenced("original admission recovery requires its actual authority source"))?;
-        let guard = provider.acquire(Some(&grant)).map_err(|error| {
+        let guard = provider.acquire(Some(&grant)).inspect_err(|_| {
             provider.action_unmaterialized(&grant);
-            error
         })?;
         Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(grant.admission.clone()),
             grant: Some(grant), expected_tasks, expected_steps, recovery: true })

@@ -628,14 +628,13 @@ impl Store {
         if step.branch_id != head.branch_id {
             return Ok(PublicationAdmission::Deferred("publication belongs to a retained parent branch"));
         }
-        if let Some((parent, revision)) = publication_parent_authority(tx, &task)? {
-            if parent.agent_id != task.agent_id || parent.task_revision != revision
+        if let Some((parent, revision)) = publication_parent_authority(tx, &task)?
+            && (parent.agent_id != task.agent_id || parent.task_revision != revision
                 || parent.abort_request.is_some()
-                || !crate::child::task_in_current_branch(tx, &parent, &head)?
-            {
-                return Ok(PublicationAdmission::Undispatchable { kind: "child_authority_revoked",
-                    reason: "the child task's original publication authority was cancelled or replaced".into() });
-            }
+                || !crate::child::task_in_current_branch(tx, &parent, &head)?)
+        {
+            return Ok(PublicationAdmission::Undispatchable { kind: "child_authority_revoked",
+                reason: "the child task's original publication authority was cancelled or replaced".into() });
         }
         if head.controller_epoch != step.controller_epoch {
             return Ok(PublicationAdmission::Undispatchable {
