@@ -1,44 +1,71 @@
 //! Protocol-only MCP client. No server implementation, vendor catalogue,
 //! installer or account authorization flow is embedded here.
 
-use std::{collections::BTreeMap, future::Future, path::PathBuf, pin::Pin, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap, future::Future, path::PathBuf, pin::Pin, process::Stdio, sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, ensure};
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use rmcp::{
-    ClientLifecycleMode, ClientServiceExt, RoleClient,
+    ClientLifecycleMode, RoleClient,
     model::{ClientCapabilities, ClientConfig, ClientRequest, Implementation, ProtocolVersion},
-    service::{PeerRequestOptions, RunningService, ServiceError},
-    transport::{async_rw::AsyncRwTransport, StreamableHttpClientTransport,
-        streamable_http_client::StreamableHttpClientTransportConfig},
+    service::{
+        PeerRequestOptions, RunningService, RxJsonRpcMessage, ServiceError, TxJsonRpcMessage,
+        serve_client_with_lifecycle_and_ct,
+    },
+    transport::{
+        StreamableHttpClientTransport, Transport, async_rw::AsyncRwTransport,
+        streamable_http_client::StreamableHttpClientTransportConfig,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 /// Per-request authorization owned by the application that holds credentials.
 /// Implementations only change headers, never the method, URL or body that the
 /// durable caller froze. Proofs are made after all protocol headers are present.
 /// There is no retry on an authorization challenge or a failed observation.
 pub trait HttpRequestAuthorizer: Send + Sync {
-    fn authorize<'a>(&'a self, request: &'a mut reqwest::Request)
-        -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+    fn authorize<'a>(
+        &'a self,
+        request: &'a mut reqwest::Request,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
     /// An optional isolated client for this exact request. For discovered
     /// services this lets the credential owner pin checked DNS addresses at
     /// every send. Such a client must disable redirects and automatic retries.
-    fn prepare_client<'a>(&'a self, _url: &'a reqwest::Url)
-        -> Pin<Box<dyn Future<Output = Result<Option<reqwest::Client>>> + Send + 'a>> {
+    fn prepare_client<'a>(
+        &'a self,
+        _url: &'a reqwest::Url,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<reqwest::Client>>> + Send + 'a>> {
         Box::pin(async { Ok(None) })
     }
 
     /// A bounded response budget for a known service's large tool catalogue.
     /// The backend caps this at 1 MiB regardless of the value supplied here.
-    fn max_json_bytes(&self) -> usize { crate::http::MAX_JSON_BODY_BYTES }
+    fn max_json_bytes(&self) -> usize {
+        crate::http::MAX_JSON_BODY_BYTES
+    }
+
+    /// The owning operation can interrupt negotiation and active HTTP work.
+    /// Session cleanup still joins the SDK transport before returning.
+    fn cancellation_token(&self) -> Option<CancellationToken> {
+        None
+    }
 
     /// Record challenge metadata (e.g. a DPoP nonce) for a later explicit
     /// operation. This callback does not authorize retransmitting a request.
-    fn observe_response(&self, _url: &reqwest::Url, _status: u16, _headers: &reqwest::header::HeaderMap) -> Result<()> { Ok(()) }
+    fn observe_response(
+        &self,
+        _url: &reqwest::Url,
+        _status: u16,
+        _headers: &reqwest::header::HeaderMap,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Public connection description. Secrets are installation-local environment
@@ -64,19 +91,49 @@ pub enum ConnectionSpec {
 impl ConnectionSpec {
     pub fn validate(&self) -> Result<()> {
         match self {
-            Self::Stdio { program, args, env_refs, .. } => {
+            Self::Stdio {
+                program,
+                args,
+                env_refs,
+                ..
+            } => {
                 ensure!(!program.as_os_str().is_empty(), "MCP program is empty");
-                ensure!(args.len() <= 64 && args.iter().all(|arg| arg.len() <= 4096 && !arg.contains('\0')), "invalid MCP command arguments");
+                ensure!(
+                    args.len() <= 64
+                        && args
+                            .iter()
+                            .all(|arg| arg.len() <= 4096 && !arg.contains('\0')),
+                    "invalid MCP command arguments"
+                );
                 for (key, source) in env_refs {
-                    ensure!(!key.is_empty() && !key.contains(['=', '\0']) && !source.is_empty() && !source.contains(['=', '\0']), "invalid MCP environment reference");
+                    ensure!(
+                        !key.is_empty()
+                            && !key.contains(['=', '\0'])
+                            && !source.is_empty()
+                            && !source.contains(['=', '\0']),
+                        "invalid MCP environment reference"
+                    );
                 }
             }
-            Self::StreamableHttp { url, header_env_refs } => {
+            Self::StreamableHttp {
+                url,
+                header_env_refs,
+            } => {
                 let url = reqwest::Url::parse(url).context("invalid MCP endpoint URL")?;
-                ensure!(matches!(url.scheme(), "http" | "https") && url.username().is_empty() && url.password().is_none() && url.fragment().is_none(), "MCP endpoint must be HTTP(S) without URL credentials or fragment");
+                ensure!(
+                    matches!(url.scheme(), "http" | "https")
+                        && url.username().is_empty()
+                        && url.password().is_none()
+                        && url.fragment().is_none(),
+                    "MCP endpoint must be HTTP(S) without URL credentials or fragment"
+                );
                 for (header, source) in header_env_refs {
-                    reqwest::header::HeaderName::from_bytes(header.as_bytes()).context("invalid MCP header name")?;
-                    ensure!(!source.is_empty() && !source.contains(['=', '\0']), "invalid MCP header environment reference");
+                    reqwest::header::HeaderName::from_bytes(header.as_bytes())
+                        .context("invalid MCP header name")?;
+                    ensure!(
+                        !source.is_empty() && !source.contains(['=', '\0']),
+                        "invalid MCP header environment reference"
+                    );
                 }
             }
         }
@@ -94,9 +151,20 @@ pub enum Response {
     Unknown { reason: &'static str },
 }
 
+/// Owns negotiation, transport tasks and all HTTP stream lifetimes. Callers
+/// retain their work future through cancellation and await `close()`; Drop
+/// signals stop but cannot perform asynchronous joining.
+///
+/// Embeddings must suppress RMCP payload logging (including `rmcp::*` targets):
+/// the SDK emits peer metadata/notifications at INFO and complete RPC payloads
+/// at TRACE, which can contain credentials even when HTTP headers are marked
+/// sensitive. Shenko's CLI enforces this boundary in its subscriber.
 pub struct Session {
     service: RunningService<RoleClient, ClientConfig>,
     child: Option<Box<dyn ChildWrapper>>,
+    retirement: CancellationToken,
+    reclaim: Option<ReclaimFuture>,
+    http_lifetimes: TaskTracker,
 }
 
 impl Session {
@@ -108,12 +176,23 @@ impl Session {
 
     /// Use a live credential/proof provider for every HTTP exchange, including
     /// negotiation, notifications, SSE connection/resumption and DELETE.
-    pub async fn connect_authorized(spec: &ConnectionSpec, deadline: Duration, authorizer: Arc<dyn HttpRequestAuthorizer>) -> Result<Self> {
-        ensure!(matches!(spec, ConnectionSpec::StreamableHttp { .. }), "HTTP authorization requires an HTTP MCP connection");
+    pub async fn connect_authorized(
+        spec: &ConnectionSpec,
+        deadline: Duration,
+        authorizer: Arc<dyn HttpRequestAuthorizer>,
+    ) -> Result<Self> {
+        ensure!(
+            matches!(spec, ConnectionSpec::StreamableHttp { .. }),
+            "HTTP authorization requires an HTTP MCP connection"
+        );
         Self::connect_with_authorizer(spec, deadline, Some(authorizer)).await
     }
 
-    async fn connect_with_authorizer(spec: &ConnectionSpec, deadline: Duration, authorizer: Option<Arc<dyn HttpRequestAuthorizer>>) -> Result<Self> {
+    async fn connect_with_authorizer(
+        spec: &ConnectionSpec,
+        deadline: Duration,
+        authorizer: Option<Arc<dyn HttpRequestAuthorizer>>,
+    ) -> Result<Self> {
         spec.validate()?;
         let client = ClientConfig::new(
             ClientCapabilities::default(),
@@ -123,15 +202,30 @@ impl Session {
             preferred_versions: vec![ProtocolVersion::V_2026_07_28],
             legacy_version: Some(ProtocolVersion::V_2025_11_25),
         };
+        let retirement = authorizer
+            .as_ref()
+            .and_then(|provider| provider.cancellation_token())
+            .map_or_else(CancellationToken::new, |token| token.child_token());
+        let http_lifetimes = TaskTracker::new();
+        let mut reclaim = None;
         let mut child: Option<Box<dyn ChildWrapper>> = None;
         let connect = async {
             match spec {
-                ConnectionSpec::Stdio { program, args, cwd, env_refs } => {
+                ConnectionSpec::Stdio {
+                    program,
+                    args,
+                    cwd,
+                    env_refs,
+                } => {
                     let mut command = tokio::process::Command::new(program);
                     command.args(args).env_clear();
-                    if let Some(cwd) = cwd { command.current_dir(cwd); }
+                    if let Some(cwd) = cwd {
+                        command.current_dir(cwd);
+                    }
                     for (key, source) in env_refs {
-                        let value = std::env::var_os(source).with_context(|| format!("MCP environment reference is unavailable: {source}"))?;
+                        let value = std::env::var_os(source).with_context(|| {
+                            format!("MCP environment reference is unavailable: {source}")
+                        })?;
                         command.env(key, value);
                     }
                     let mut wrapped = CommandWrap::from(command);
@@ -143,16 +237,43 @@ impl Session {
                     // Third-party stderr must not inherit Shenko's pane/logs
                     // (it may contain account credentials). Protocol failures
                     // remain visible through the MCP connection itself.
-                    wrapped.command_mut().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+                    wrapped
+                        .command_mut()
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null());
                     child = Some(wrapped.spawn()?);
-                    let process = child.as_mut().expect("just spawned");
-                    let stdout = process.inner_mut().stdout().take().context("MCP stdout pipe missing")?;
-                    let stdin = process.inner_mut().stdin().take().context("MCP stdin pipe missing")?;
+                    let process = child
+                        .as_mut()
+                        .context("MCP process disappeared after spawn")?;
+                    let stdout = process
+                        .inner_mut()
+                        .stdout()
+                        .take()
+                        .context("MCP stdout pipe missing")?;
+                    let stdin = process
+                        .inner_mut()
+                        .stdin()
+                        .take()
+                        .context("MCP stdin pipe missing")?;
                     let transport = AsyncRwTransport::new_client(stdout, stdin);
-                    client.serve_with_lifecycle(transport, lifecycle).await
-                        .context("MCP stdio negotiation failed")
+                    let (transport, cleanup) = ReclaimTransport::new(transport, || {
+                        std::io::Error::other("MCP transport already reclaimed")
+                    });
+                    reclaim = Some(cleanup);
+                    serve_client_with_lifecycle_and_ct(
+                        client,
+                        transport,
+                        lifecycle,
+                        retirement.clone(),
+                    )
+                    .await
+                    .context("MCP stdio negotiation failed")
                 }
-                ConnectionSpec::StreamableHttp { url, header_env_refs } => {
+                ConnectionSpec::StreamableHttp {
+                    url,
+                    header_env_refs,
+                } => {
                     // No POST replay on expired sessions, HTTP/2 retries or
                     // redirects. Reconnecting SSE resumes responses, not calls.
                     let http = reqwest::Client::builder()
@@ -162,28 +283,65 @@ impl Session {
                     let mut config = StreamableHttpClientTransportConfig::with_uri(url.as_str())
                         .reinit_on_expired_session(false);
                     for (header, source) in header_env_refs {
-                        let value = std::env::var(source).with_context(|| format!("MCP header environment reference is unavailable: {source}"))?;
+                        let value = std::env::var(source).with_context(|| {
+                            format!("MCP header environment reference is unavailable: {source}")
+                        })?;
                         let name = reqwest::header::HeaderName::from_bytes(header.as_bytes())?;
-                        let mut value = reqwest::header::HeaderValue::from_str(&value).context("invalid MCP credential header value")?;
+                        let mut value = reqwest::header::HeaderValue::from_str(&value)
+                            .context("invalid MCP credential header value")?;
                         value.set_sensitive(true);
                         config.custom_headers.insert(name, value);
                     }
-                    let transport = StreamableHttpClientTransport::with_client(crate::http::BoundedHttpClient::new(http, authorizer.clone()), config);
-                    client.serve_with_lifecycle(transport, lifecycle).await
-                        .context("MCP HTTP negotiation failed")
+                    let http = crate::http::BoundedHttpClient::new(http, authorizer.clone())
+                        .with_retirement(retirement.clone(), http_lifetimes.token());
+                    let transport = StreamableHttpClientTransport::with_client(http, config);
+                    let (transport, cleanup) = ReclaimTransport::new(transport, || {
+                        rmcp::transport::streamable_http_client::StreamableHttpError::TransportChannelClosed
+                    });
+                    reclaim = Some(cleanup);
+                    serve_client_with_lifecycle_and_ct(
+                        client,
+                        transport,
+                        lifecycle,
+                        retirement.clone(),
+                    )
+                    .await
+                    .context("MCP HTTP negotiation failed")
                 }
             }
         };
-        let result = tokio::time::timeout(deadline, connect).await.context("MCP connection deadline elapsed").and_then(|result| result);
+        let result = tokio::time::timeout(deadline, connect)
+            .await
+            .context("MCP connection deadline elapsed")
+            .and_then(|result| result);
         match result {
-            Ok(service) => Ok(Self { service, child }),
+            Ok(service) => Ok(Self {
+                service,
+                child,
+                retirement,
+                reclaim,
+                http_lifetimes,
+            }),
             Err(error) => {
-                if let Some(mut child) = child {
-                    if let Err(cleanup) = Box::into_pin(child.kill()).await {
-                        return Err(error.context(format!("MCP process cleanup also failed: {cleanup}")));
+                retirement.cancel();
+                let process = async {
+                    if let Some(mut child) = child {
+                        Box::into_pin(child.kill())
+                            .await
+                            .context("MCP process cleanup failed")?;
                     }
-                }
-                Err(error)
+                    Ok(())
+                };
+                let transport = async {
+                    if let Some(reclaim) = reclaim {
+                        reclaim.await?;
+                    }
+                    Ok(())
+                };
+                let (process, transport) = tokio::join!(process, transport);
+                http_lifetimes.close();
+                http_lifetimes.wait().await;
+                Err(with_cleanup_error(error, process, transport))
             }
         }
     }
@@ -195,15 +353,26 @@ impl Session {
     /// One request, including custom protocol extensions. Pagination and MRTR
     /// continuations are explicit calls with their original returned tokens;
     /// this adapter never guesses a follow-up or reissues an unknown effect.
-    pub async fn request(&self, request: ClientRequest, deadline: Duration, cancellation: &CancellationToken) -> Result<Response> {
+    pub async fn request(
+        &self,
+        request: ClientRequest,
+        deadline: Duration,
+        cancellation: &CancellationToken,
+    ) -> Result<Response> {
         if cancellation.is_cancelled() {
-            return Ok(Response::Unknown { reason: "cancelled_before_request_dispatch" });
+            return Ok(Response::Unknown {
+                reason: "cancelled_before_request_dispatch",
+            });
         }
         // Bound the whole exchange, not only the response handle. Queue
         // admission and the SDK's timeout-cancellation notification can both
         // block behind a stalled transport writer.
         let exchange = async {
-            let handle = self.service.peer().send_cancellable_request(request, PeerRequestOptions::with_timeout(deadline)).await?;
+            let handle = self
+                .service
+                .peer()
+                .send_cancellable_request(request, PeerRequestOptions::with_timeout(deadline))
+                .await?;
             handle.await_response().await
         };
         let result = tokio::select! {
@@ -212,10 +381,12 @@ impl Session {
             _ = cancellation.cancelled() => {
                 // Interrupt the protocol worker; the owner must still await
                 // close() to join the stdio group. HTTP effects may continue.
+                self.retirement.cancel();
                 self.service.cancellation_token().cancel();
                 return Ok(Response::Unknown { reason: "cancelled_without_remote_completion" });
             }
             _ = tokio::time::sleep(deadline) => {
+                self.retirement.cancel();
                 self.service.cancellation_token().cancel();
                 return Ok(Response::Unknown { reason: "request_deadline_elapsed" });
             }
@@ -223,17 +394,30 @@ impl Session {
         Self::response(result)
     }
 
-    fn response(result: std::result::Result<rmcp::model::ServerResult, ServiceError>) -> Result<Response> {
+    fn response(
+        result: std::result::Result<rmcp::model::ServerResult, ServiceError>,
+    ) -> Result<Response> {
         Ok(match result {
-            Ok(value) => Response::Received { result: serde_json::to_value(value)? },
-            Err(ServiceError::McpError(error)) => Response::Rejected { error: serde_json::to_value(error)? },
-            Err(ServiceError::Timeout { .. }) => Response::Unknown { reason: "request_deadline_elapsed" },
-            Err(ServiceError::Cancelled { .. }) => Response::Unknown { reason: "cancelled_without_remote_completion" },
-            Err(_) => Response::Unknown { reason: "protocol_or_transport_completion_unknown" },
+            Ok(value) => Response::Received {
+                result: serde_json::to_value(value)?,
+            },
+            Err(ServiceError::McpError(error)) => Response::Rejected {
+                error: serde_json::to_value(error)?,
+            },
+            Err(ServiceError::Timeout { .. }) => Response::Unknown {
+                reason: "request_deadline_elapsed",
+            },
+            Err(ServiceError::Cancelled { .. }) => Response::Unknown {
+                reason: "cancelled_without_remote_completion",
+            },
+            Err(_) => Response::Unknown {
+                reason: "protocol_or_transport_completion_unknown",
+            },
         })
     }
 
     pub async fn close(&mut self) -> Result<()> {
+        self.retirement.cancel();
         self.service.cancellation_token().cancel();
         let process = async {
             if let Some(mut child) = self.child.take() {
@@ -241,17 +425,136 @@ impl Session {
                 // write lock, held by a send to this non-reading process.
                 let waited = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
                 if !matches!(waited, Ok(Ok(_))) {
-                    Box::into_pin(child.kill()).await.context("MCP process retirement failed")?;
+                    Box::into_pin(child.kill())
+                        .await
+                        .context("MCP process retirement failed")?;
                 }
             }
             Ok(())
         };
         let (service, process) = tokio::join!(self.service.close(), process);
         let service = service.context("MCP runtime teardown failed");
-        match (service, process) {
-            (Err(error), Err(cleanup)) => Err(error.context(format!("MCP process teardown also failed: {cleanup}"))),
+        let joined = match (service, process) {
+            (Err(error), Err(cleanup)) => {
+                Err(error.context(format!("MCP process teardown also failed: {cleanup}")))
+            }
             (Err(error), _) => Err(error),
             (Ok(_), process) => process,
+        };
+        let reclaimed = if let Some(reclaim) = self.reclaim.take() {
+            reclaim.await
+        } else {
+            Ok(())
+        };
+        self.http_lifetimes.close();
+        // RMCP aborts SSE tasks during retirement. Their cloned HTTP clients
+        // and streams carry these tokens, so abort alone is not reported as
+        // drained: wait until every future has actually released its resources.
+        self.http_lifetimes.wait().await;
+        match (joined, reclaimed) {
+            (Err(error), Err(cleanup)) => {
+                Err(error.context(format!("MCP transport reclaim also failed: {cleanup}")))
+            }
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
         }
     }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.retirement.cancel();
+        self.service.cancellation_token().cancel();
+    }
+}
+
+type ReclaimFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+
+/// RMCP consumes its transport during negotiation and otherwise drops it on
+/// errors. Return that exact transport to the owner instead, so startup
+/// timeout/failure can await WorkerTransport::close rather than detach it.
+struct ReclaimTransport<T: Transport<RoleClient>> {
+    transport: Option<T>,
+    return_to_owner: Option<tokio::sync::oneshot::Sender<T>>,
+    closed_error: fn() -> T::Error,
+}
+
+impl<T: Transport<RoleClient> + 'static> ReclaimTransport<T> {
+    fn new(transport: T, closed_error: fn() -> T::Error) -> (Self, ReclaimFuture) {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let cleanup = Box::pin(async move {
+            let mut transport: T = receiver.await.context("MCP transport ownership was lost")?;
+            let result = transport
+                .close()
+                .await
+                .context("MCP transport worker cleanup failed");
+            drop(transport);
+            result
+        });
+        (
+            Self {
+                transport: Some(transport),
+                return_to_owner: Some(sender),
+                closed_error,
+            },
+            cleanup,
+        )
+    }
+}
+
+impl<T: Transport<RoleClient>> Drop for ReclaimTransport<T> {
+    fn drop(&mut self) {
+        if let (Some(transport), Some(sender)) =
+            (self.transport.take(), self.return_to_owner.take())
+        {
+            let _ = sender.send(transport);
+        }
+    }
+}
+
+impl<T: Transport<RoleClient> + 'static> Transport<RoleClient> for ReclaimTransport<T> {
+    type Error = T::Error;
+
+    fn send(
+        &mut self,
+        item: TxJsonRpcMessage<RoleClient>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+        let sending = self
+            .transport
+            .as_mut()
+            .map(|transport| transport.send(item));
+        let closed_error = self.closed_error;
+        async move {
+            let sending = sending.ok_or_else(closed_error)?;
+            sending.await
+        }
+    }
+
+    async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
+        match self.transport.as_mut() {
+            Some(transport) => transport.receive().await,
+            None => None,
+        }
+    }
+
+    async fn close(&mut self) -> Result<(), Self::Error> {
+        if let Some(transport) = self.transport.as_mut() {
+            transport.close().await?;
+        }
+        Ok(())
+    }
+}
+
+fn with_cleanup_error(
+    mut original: anyhow::Error,
+    process: Result<()>,
+    transport: Result<()>,
+) -> anyhow::Error {
+    if let Err(error) = process {
+        original = original.context(format!("MCP process cleanup also failed: {error}"));
+    }
+    if let Err(error) = transport {
+        original = original.context(format!("MCP transport cleanup also failed: {error}"));
+    }
+    original
 }
