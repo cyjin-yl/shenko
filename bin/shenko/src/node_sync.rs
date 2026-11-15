@@ -130,7 +130,10 @@ pub enum MembersCommand {
     /// Propose removing members; joint then final configuration on quorum.
     Remove { node_ids: Vec<EntityId> },
     /// Push the committed configuration and control log to one peer.
-    Push { #[arg(long)] peer: EntityId },
+    Push {
+        #[arg(long)]
+        peer: EntityId,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -409,10 +412,7 @@ fn receive<R: Read>(
     bytes.pop();
     let fingerprint = Digest::blake3(&bytes);
     let metadata: Header = serde_json::from_slice(&bytes)?;
-    ensure!(
-        metadata.schema == 2,
-        "unsupported node replication schema"
-    );
+    ensure!(metadata.schema == 2, "unsupported node replication schema");
     // Bind the advertised capability facts to the authenticated source Node
     // before importing; the durable advertisement is fact even when the
     // recovery closure itself is later rejected.
@@ -659,6 +659,10 @@ fn rpc(
     cancel: &CancellationToken,
 ) -> Result<Value> {
     let bytes = serde_json::to_vec(request)?;
+    ensure!(
+        bytes.len() <= shenko_node::MAX_NODE_REQUEST,
+        "node RPC exceeds the bounded wire frame"
+    );
     let ((), response) = exchange_remote(peer, &node_remote_command(peer), cancel, |writer| {
         writer.write_all(&bytes)?;
         Ok(())
@@ -702,11 +706,14 @@ fn solicit_member_votes(
             )?;
             let response: VoteResponse =
                 serde_json::from_value(value).context("decode vote response")?;
-            ensure!(response.responder_id == *voter,
-                "membership response identity differs from the authenticated target route");
+            ensure!(
+                response.responder_id == *voter,
+                "membership response identity differs from the authenticated target route"
+            );
             let granted = response.vote_granted;
             let reason = response.reason.clone();
             node.record_vote_response(&round.request, &response)?;
+            node.learn_control_prepare(&response, &mut |request| rpc(&peer, &request, cancel))?;
             Ok(VoteOutcome {
                 voter: *voter,
                 outcome: (if granted { "granted" } else { "refused" }).into(),
@@ -731,30 +738,47 @@ fn solicit_member_votes(
 /// Replicate facts already certified by actual durable acceptors. This is
 /// catch-up only; a successful send does not manufacture an acknowledgement.
 fn replicate_committed_claim(node: &mut Node, cancel: &CancellationToken) -> Result<Vec<Value>> {
-    let Some(config) = node.member_configuration()? else { return Ok(Vec::new()) };
-    catch_up_members(node, &config.voters().into_iter().collect::<Vec<_>>(), cancel)
+    let Some(config) = node.member_configuration()? else {
+        return Ok(Vec::new());
+    };
+    catch_up_members(
+        node,
+        &config.voters().into_iter().collect::<Vec<_>>(),
+        cancel,
+    )
 }
 
 /// Drive the separately persisted phase-two request. Each response must come
 /// from the route belonging to the identity it claims, and it only counts
 /// after Node validates the exact ballot, value, predecessor and membership.
-fn replicate_pending_control(node: &mut Node, cancel: &CancellationToken) -> Result<shenko_node::ControlCommitOutcome> {
-    let request = node.pending_control_replication()?.context("no pending control value to replicate")?;
+fn replicate_pending_control(
+    node: &mut Node,
+    cancel: &CancellationToken,
+) -> Result<shenko_node::ControlCommitOutcome> {
+    let request = node
+        .pending_control_replication()?
+        .context("no pending control value to replicate")?;
     let own = node.local_node_id()?.context("node not initialized")?;
     let voters = Node::control_replication_voters(&request)?;
     for voter in &voters {
-        if *voter == own { continue }
-        if cancel.is_cancelled() { bail!("control replication cancelled; accepted facts remain durable") }
-        let Some(peer) = peer_route(node, *voter)? else { continue };
+        if *voter == own {
+            continue;
+        }
+        if cancel.is_cancelled() {
+            bail!("control replication cancelled; accepted facts remain durable")
+        }
+        let Some(peer) = peer_route(node, *voter)? else {
+            continue;
+        };
         let result: Result<()> = (|| {
-            let value = rpc(&peer, &shenko_node::Request::AcceptControl { request: request.clone() }, cancel)?;
-            let acknowledgement: shenko_node::ControlAcknowledgement = serde_json::from_value(value)
-                .context("decode durable control acknowledgement")?;
-            ensure!(acknowledgement.responder_id == *voter,
-                "control response identity differs from the authenticated target route");
+            let acknowledgement = node.replicate_control_to(*voter, &request, &mut |request| {
+                rpc(&peer, &request, cancel)
+            })?;
             node.record_control_acknowledgement(&request, &acknowledgement)
         })();
-        if let Err(error) = result { node.fail_sync_peer(&peer, format!("{error:#}"))?; }
+        if let Err(error) = result {
+            node.fail_sync_peer(&peer, format!("{error:#}"))?;
+        }
     }
     let outcome = node.commit_prepared_control(&request)?;
     if outcome.committed {
@@ -779,13 +803,19 @@ pub fn commit_admission(
 ) -> Result<shenko_types::authority::CommitAuthorityGrant> {
     let mut node = open_node(data_dir, store)?;
     let proposed = node.propose_admission(admission, objects)?;
-    if let Some(grant) = proposed.grant { return Ok(grant) }
-    ensure!(proposed.pending, "control admission has neither a grant nor a pending value");
+    if let Some(grant) = proposed.grant {
+        return Ok(grant);
+    }
+    ensure!(
+        proposed.pending,
+        "control admission has neither a grant nor a pending value"
+    );
     let outcome = replicate_pending_control(&mut node, cancel)?;
     if !outcome.committed {
-        return Err(shenko_node::ControlAdmissionError::QuorumUnavailable(outcome.reason).into())
+        return Err(shenko_node::ControlAdmissionError::QuorumUnavailable(outcome.reason).into());
     }
-    let mut grant = node.committed_admission(admission)?
+    let mut grant = node
+        .committed_admission(admission)?
         .context("the recovered control value did not grant this admission")?;
     grant.replayed = !proposed.freshly_prepared;
     Ok(grant)
@@ -811,36 +841,64 @@ pub fn establish_primary(
     let mut outcomes = Vec::new();
     let mut last_term = node.current_term()?;
     loop {
-        if cancel.is_cancelled() { bail!("primary recovery cancelled") }
-        let initial_index = node.control_log()?.last().map_or(0, |entry| entry.index);
-        let config = node.member_configuration()?.context("missing member configuration")?;
-        catch_up_members(&mut node, &config.voters().into_iter().collect::<Vec<_>>(), cancel)?;
+        if cancel.is_cancelled() {
+            bail!("primary recovery cancelled")
+        }
+        let initial_index = node.control_frontier()?.index;
+        let config = node
+            .member_configuration()?
+            .context("missing member configuration")?;
+        catch_up_members(
+            &mut node,
+            &config.voters().into_iter().collect::<Vec<_>>(),
+            cancel,
+        )?;
         let campaign = node.campaign()?;
         let request = campaign.request.clone();
         last_term = campaign.term;
         outcomes.clear();
         for voter in &campaign.members {
             let Some(peer) = peer_route(&node, *voter)? else {
-                outcomes.push(VoteOutcome { voter: *voter, outcome: "no_route".into(),
-                    reason: "no registered sync route for this member".into() });
+                outcomes.push(VoteOutcome {
+                    voter: *voter,
+                    outcome: "no_route".into(),
+                    reason: "no registered sync route for this member".into(),
+                });
                 continue;
             };
             let result: Result<VoteOutcome> = (|| {
-                let value = rpc(&peer, &shenko_node::Request::Vote { request: request.clone() }, cancel)?;
-                let response: VoteResponse = serde_json::from_value(value).context("decode vote response")?;
-                ensure!(response.responder_id == *voter,
-                    "vote response identity differs from the authenticated target route");
+                let value = rpc(
+                    &peer,
+                    &shenko_node::Request::Vote {
+                        request: request.clone(),
+                    },
+                    cancel,
+                )?;
+                let response: VoteResponse =
+                    serde_json::from_value(value).context("decode vote response")?;
+                ensure!(
+                    response.responder_id == *voter,
+                    "vote response identity differs from the authenticated target route"
+                );
                 let granted = response.vote_granted;
                 let reason = response.reason.clone();
                 node.record_vote_response(&request, &response)?;
-                Ok(VoteOutcome { voter: *voter,
-                    outcome: (if granted { "granted" } else { "refused" }).into(), reason })
+                node.learn_control_prepare(&response, &mut |request| rpc(&peer, &request, cancel))?;
+                Ok(VoteOutcome {
+                    voter: *voter,
+                    outcome: (if granted { "granted" } else { "refused" }).into(),
+                    reason,
+                })
             })();
             match result {
                 Ok(outcome) => outcomes.push(outcome),
                 Err(error) => {
                     node.fail_sync_peer(&peer, format!("{error:#}"))?;
-                    outcomes.push(VoteOutcome { voter: *voter, outcome: "unreachable".into(), reason: format!("{error:#}") });
+                    outcomes.push(VoteOutcome {
+                        voter: *voter,
+                        outcome: "unreachable".into(),
+                        reason: format!("{error:#}"),
+                    });
                 }
             }
         }
@@ -853,18 +911,32 @@ pub fn establish_primary(
                 replicate_committed_claim(&mut node, cancel)?;
                 return node.fencing_token();
             }
-            if node.pending_control_replication()?.is_none() { break }
+            if node.pending_control_replication()?.is_none() {
+                break;
+            }
             let committed = replicate_pending_control(&mut node, cancel)?;
-            if !committed.committed { break }
-            let current = node.member_configuration()?.context("missing member configuration")?;
-            if current.revision != config.revision || current.digest != config.digest { break }
+            if !committed.committed {
+                break;
+            }
+            let current = node
+                .member_configuration()?
+                .context("missing member configuration")?;
+            if current.revision != config.revision || current.digest != config.digest {
+                break;
+            }
         }
-        let current_index = node.control_log()?.last().map_or(0, |entry| entry.index);
-        if current_index > initial_index { continue }
+        let current_index = node.control_frontier()?.index;
+        if current_index > initial_index || node.current_term()? > campaign.term {
+            continue;
+        }
         break;
     }
     let term = last_term;
-    tracing::warn!(term = term, ?outcomes, "election found no reachable quorum; opening availability branch");
+    tracing::warn!(
+        term = term,
+        ?outcomes,
+        "election found no reachable quorum; opening availability branch"
+    );
     // One partition episode is one branch: a repeated failed election on the
     // same open partition extends the branch instead of fragmenting the
     // episode into a new identity per start. Rejoining then merges exactly the
@@ -877,7 +949,9 @@ pub fn establish_primary(
         })
         .map(|branch| branch.branch_id);
     let branch_id = open_partition.unwrap_or_else(EntityId::new);
-    let reason = format!("election term {term} found no reachable durable quorum of the committed configuration");
+    let reason = format!(
+        "election term {term} found no reachable durable quorum of the committed configuration"
+    );
     node.open_availability_branch(branch_id, store.get_existing_agent_id()?, &reason)?;
     drop(node);
     crate::runtime_branches::fork_availability_branch(data_dir, store, branch_id, &reason)?;
@@ -887,16 +961,13 @@ pub fn establish_primary(
 /// Give voters the committed prefix they need before an election or a
 /// membership vote. During recovery this includes old members that voted for
 /// a joint transition but never received its committed entry. Divergent
-/// prefixes retain the normal PushConfig refusal; this cannot replace them.
+/// prefixes are refused; this cannot replace them. Missing CAS and log values
+/// move in bounded chunks/pages, never as a repeatedly growing full history.
 fn catch_up_members(
     node: &mut Node,
     members: &[EntityId],
     cancel: &CancellationToken,
 ) -> Result<Vec<Value>> {
-    let Some(config) = node.member_configuration()? else {
-        return Ok(Vec::new());
-    };
-    let entries = node.control_log()?;
     let own = node.local_node_id()?;
     let mut outcomes = Vec::with_capacity(members.len());
     for member in members {
@@ -912,15 +983,9 @@ fn catch_up_members(
             continue;
         };
         let result: Result<Value> = (|| {
-            let adopted = rpc(
-                &peer,
-                &shenko_node::Request::PushConfig {
-                    config: config.clone(),
-                    entries: entries.clone(),
-                },
-                cancel,
-            )?;
-            Ok(json!({"member": member, "outcome": "pushed", "adopted": adopted}))
+            let frontier = node
+                .synchronize_control_peer(*member, &mut |request| rpc(&peer, &request, cancel))?;
+            Ok(json!({"member": member, "outcome": "synchronized", "frontier": frontier}))
         })();
         match result {
             Ok(value) => outcomes.push(value),
@@ -950,42 +1015,60 @@ fn member_change(
     );
     let mut node = open_node(data_dir, store)?;
     let config = node.ensure_member_configuration()?;
-    let requested: BTreeSet<_> = config.members.iter().chain(add.iter())
-        .copied().filter(|id| !remove.contains(id)).collect();
+    let requested: BTreeSet<_> = config
+        .members
+        .iter()
+        .chain(add.iter())
+        .copied()
+        .filter(|id| !remove.contains(id))
+        .collect();
     let pending = node.pending_joint_proposal()?;
     let resumed_joint = pending.is_some();
     let resume_catch_up = if let Some(proposal) = &pending {
-        ensure!(proposal.old_members == config.members
-            && config.joint_new.as_ref() == Some(&proposal.new_members)
-            && proposal.base_revision.checked_add(1) == Some(config.revision),
-            "member configuration changed while reading its pending transition; retry from current facts");
-        ensure!(requested.iter().copied().collect::<Vec<_>>() == proposal.new_members,
-            "membership change conflicts with the pending joint target; finish the existing transition before requesting another target");
+        ensure!(
+            proposal.old_members == config.members
+                && config.joint_new.as_ref() == Some(&proposal.new_members)
+                && proposal.base_revision.checked_add(1) == Some(config.revision),
+            "member configuration changed while reading its pending transition; retry from current facts"
+        );
+        ensure!(
+            requested.iter().copied().collect::<Vec<_>>() == proposal.new_members,
+            "membership change conflicts with the pending joint target; finish the existing transition before requesting another target"
+        );
         // A voter may have granted the joint ballot without applying its
         // committed entry. Catch up the full old/new union BEFORE campaigning;
         // otherwise the current joint majority cannot recognize this base.
         let voters = config.voters().into_iter().collect::<Vec<_>>();
         catch_up_members(&mut node, &voters, cancel)?
     } else {
-        ensure!(config.joint_new.is_none(),
-            "member configuration changed while reading its pending transition; retry from current facts");
+        ensure!(
+            config.joint_new.is_none(),
+            "member configuration changed while reading its pending transition; retry from current facts"
+        );
         if requested.iter().copied().collect::<Vec<_>>() == config.members {
             return Ok(json!({"outcome": "already_current", "member_configuration": config}));
         }
         Vec::new()
     };
-    ensure!(establish_primary(data_dir, store, cancel)?.is_some(),
-        "membership change requires a current primary; local availability work may continue without domain reconfiguration");
+    ensure!(
+        establish_primary(data_dir, store, cancel)?.is_some(),
+        "membership change requires a current primary; local availability work may continue without domain reconfiguration"
+    );
     let (proposal, catch_up, joint_votes, joint_outcome) = match pending {
         Some(proposal) => {
             let outcome = node.tally_member_change(&proposal)?;
             (proposal, resume_catch_up, Vec::new(), outcome)
         }
         None => {
-            let revision = node.member_configuration()?
-                .context("no committed member configuration")?.revision;
+            let revision = node
+                .member_configuration()?
+                .context("no committed member configuration")?
+                .revision;
             let joint = node.propose_member_change(MemberChangeRequest {
-                operation_id: EntityId::new(), expected_revision: revision, add, remove,
+                operation_id: EntityId::new(),
+                expected_revision: revision,
+                add,
+                remove,
                 reason: "operator membership change over authenticated control path".into(),
             })?;
             let catch_up = catch_up_members(&mut node, &joint.members, cancel)?;
@@ -996,18 +1079,29 @@ fn member_change(
                 outcome = node.tally_member_change(&joint.proposal)?;
             }
             if !outcome.quorum_met {
-                bail!("joint membership change found no quorum; votes={votes:?} reason={}", outcome.reason);
+                bail!(
+                    "joint membership change found no quorum; votes={votes:?} reason={}",
+                    outcome.reason
+                );
             }
             (joint.proposal, catch_up, votes, outcome)
         }
     };
-    let voters = proposal.old_members.iter().chain(proposal.new_members.iter())
-        .copied().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let voters = proposal
+        .old_members
+        .iter()
+        .chain(proposal.new_members.iter())
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     // Both old and new voters must hold the committed joint configuration
     // before they can approve its final phase.
     let joint_catch_up = catch_up_members(&mut node, &voters, cancel)?;
-    ensure!(establish_primary(data_dir, store, cancel)?.is_some(),
-        "final membership phase requires durable primary authority under the joint configuration");
+    ensure!(
+        establish_primary(data_dir, store, cancel)?.is_some(),
+        "final membership phase requires durable primary authority under the joint configuration"
+    );
     let fin = node.propose_final_member_change(&proposal)?;
     let final_votes = solicit_member_votes(&mut node, &fin, cancel)?;
     let mut final_outcome = node.tally_member_change(&fin.proposal)?;
@@ -1042,21 +1136,13 @@ fn push_member_configuration(
     peer_id: EntityId,
 ) -> Result<Value> {
     let mut node = open_node(data_dir, store)?;
-    let config = node
-        .member_configuration()?
+    node.member_configuration()?
         .context("no committed member configuration to push")?;
-    let entries = node.control_log()?;
     let peer = peer_route(&node, peer_id)?
         .with_context(|| format!("no registered sync route for peer {peer_id}"))?;
-    let adopted = rpc(
-        &peer,
-        &shenko_node::Request::PushConfig {
-            config: config.clone(),
-            entries: entries.clone(),
-        },
-        cancel,
-    )?;
-    Ok(json!({"peer": peer_id, "adopted": adopted}))
+    let frontier =
+        node.synchronize_control_peer(peer_id, &mut |request| rpc(&peer, &request, cancel))?;
+    Ok(json!({"peer":peer_id,"frontier":frontier}))
 }
 
 /// Pull a peer's verified experience over its authenticated route, paging both
@@ -1167,13 +1253,9 @@ fn pull_peer_experience(
     // from; when the peer published none, the merge records that it is unknown
     // instead of inventing a fingerprint or a watermark.
     let peer_cognition = peer_cognition_report(peer_id, &peer_identity)?;
-    let cognition_fingerprint = peer_cognition
-        .as_ref()
-        .map(|fact| fact.fingerprint.clone());
+    let cognition_fingerprint = peer_cognition.as_ref().map(|fact| fact.fingerprint.clone());
     let cognition_high_water = peer_cognition.as_ref().map(|fact| fact.high_water);
-    let cognition_origin = peer_cognition
-        .as_ref()
-        .map(CognitionSnapshotReport::origin);
+    let cognition_origin = peer_cognition.as_ref().map(CognitionSnapshotReport::origin);
     let note = if cognition_origin.is_some() {
         "experience pulled over authenticated node route; the peer's own Store cognition report travelled with it; conflicts retained as parallel facts"
     } else {
@@ -1242,16 +1324,13 @@ fn rejoin_with_peer(
     let record = node.reconcile_peer_experience(&experience)?;
     let mut merged = Vec::new();
     for branch in node.branches()? {
-        let unmerged_partition = branch.kind == shenko_node::BranchKind::Availability
-            && branch.merged.is_none();
+        let unmerged_partition =
+            branch.kind == shenko_node::BranchKind::Availability && branch.merged.is_none();
         if !unmerged_partition {
             continue;
         }
-        let fact = node.merge_availability_branch(
-            branch.branch_id,
-            record.reconciliation_id,
-            note,
-        )?;
+        let fact =
+            node.merge_availability_branch(branch.branch_id, record.reconciliation_id, note)?;
         merged.push(json!({
             "branch_id": fact.branch_id,
             "merged": fact.merged,
@@ -1377,10 +1456,7 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
 /// Report what actually happened to this tick's cognition observation: the
 /// published report, or the reason none was published. Never a substitute, and
 /// never an older report in place of a failed one.
-fn report_cognition_publication(
-    status: &mut Value,
-    outcome: &Result<CognitionSnapshotReport>,
-) {
+fn report_cognition_publication(status: &mut Value, outcome: &Result<CognitionSnapshotReport>) {
     match outcome {
         Ok(report) => status["cognition_report"] = json!(report),
         Err(error) => status["cognition_report_error"] = json!(format!("{error:#}")),
@@ -1605,7 +1681,13 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             MembersCommand::Add { node_ids } => {
                 drop(node);
                 let value = tokio::task::spawn_blocking(move || {
-                    member_change(&data_dir, &store, &CancellationToken::new(), node_ids, Vec::new())
+                    member_change(
+                        &data_dir,
+                        &store,
+                        &CancellationToken::new(),
+                        node_ids,
+                        Vec::new(),
+                    )
                 })
                 .await??;
                 println!("{value}");
@@ -1613,7 +1695,13 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             MembersCommand::Remove { node_ids } => {
                 drop(node);
                 let value = tokio::task::spawn_blocking(move || {
-                    member_change(&data_dir, &store, &CancellationToken::new(), Vec::new(), node_ids)
+                    member_change(
+                        &data_dir,
+                        &store,
+                        &CancellationToken::new(),
+                        Vec::new(),
+                        node_ids,
+                    )
                 })
                 .await??;
                 println!("{value}");
@@ -1633,12 +1721,12 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             provenance,
             reason,
         } => {
-            let trusted_identity: shenko_node::Identity =
-                serde_json::from_reader(std::io::BufReader::new(
-                    std::fs::File::open(&identity_file)
-                        .with_context(|| format!("read trusted identity {}", identity_file.display()))?,
-                ))
-                .context("decode trusted identity")?;
+            let trusted_identity: shenko_node::Identity = serde_json::from_reader(
+                std::io::BufReader::new(std::fs::File::open(&identity_file).with_context(
+                    || format!("read trusted identity {}", identity_file.display()),
+                )?),
+            )
+            .context("decode trusted identity")?;
             ensure_adopt_is_coherent(&store, &trusted_identity, "sync adopt")?;
             let record = node.adopt_identity(AdoptRequest {
                 operation_id: EntityId::new(),

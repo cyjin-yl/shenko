@@ -1,12 +1,10 @@
 # Durable Node control quorum — 2026-11-15 continuation
 
-Status: implementation and verification in progress. The first source checkpoint
-introduces the safety protocol below; it is not a completed distributed release.
-In particular, the first checkpoint still repeats full prefixes and embeds object
-bytes in control messages. The existing RPC size limit makes that transport
-unsuitable for continuous S1 admissions. Bounded object transfer, incremental
-prefix catch-up, exact candidate verification and integration evidence are being
-completed before this slice is reported finished.
+Status: the Node protocol and bounded transport have passed their focused
+process journeys and existing election regressions. This is evidence for the
+control plane and retained frozen plans. Canonical Store materialization,
+local authority reservations, availability branches and runtime reconstruction
+remain separate integration evidence owned by the root/Store slice.
 
 ## Why the previous boundary was insufficient
 
@@ -68,7 +66,8 @@ wall-clock lease. One identity remains one voter.
 
 Existing schema-1 control history is retained as legacy, including its original
 vote certificates. Reading it does not create a usable primary fence. New
-schema-2 control values carry independent persistence proofs, and a usable
+schema-3 wire values carry independent persistence proofs (retained schema-2
+proofs remain historical data), and a usable
 primary must match the current term and committed membership revision.
 
 ## Store admissions and recovery
@@ -78,6 +77,12 @@ primary must match the current term and committed membership revision.
 successor or logical effect position across controller changes. Its action ID
 is stable for that position. Another value at an already committed key or
 identity is refused before acceptance, not after poisoning the committed log.
+Write aliases consume shared predecessor positions in that same slot, so two
+logical operations cannot both use one task revision. Read fences require an
+ancestor position to remain unconsumed without reserving it exclusively; many
+child actions can read the same live parent. A fresh local grant rechecks these
+reads under the Node reservation. Historical grants remain available for ordered
+recovery after a later cancellation and do not renew a send permit.
 
 The original frozen plan and required CAS closure are retained on acceptors
 before they acknowledge. Each object is checked against its digest and byte
@@ -96,19 +101,86 @@ original work requiring recovery from malformed descriptors and storage errors.
 Runtime supervision must not repeatedly restart on an invalid plan or hide
 corruption as a partition.
 
-## Evidence at the first checkpoint
+## Bounded transfer and immutable closure retention
 
-- `cargo check --offline --locked -p shenko-node --lib`, shared target, one build
-  job, exited 0 in 12.29 seconds for the initial complete control source. This
-  predates the final transport and integration work, so it is not final evidence.
-- Existing election and process journeys are being migrated to actual separate
-  accept and commit calls. Pure prefix-validation fixtures remain distinguishable
-  from real persistence evidence.
-- Exactly two new real-process journeys are authored: lost accept reply with
-  proposer loss, old-value recovery, stale-owner admission refusal and former
-  leader catch-up; and chosen membership transition recovery requiring both
-  voting sets through Final. Each request runs a new `shenko-node` process with
-  its own SQLite installation. Their results are pending at this checkpoint.
-- Root/UI integration owns Store authority guards, original-plan application,
-  real availability branches and startup/runtime restart ordering. This file
-  does not claim those behaviors from the Node protocol alone.
+Normal election, admission and membership catch-up use the same callback-driven
+transport in `crates/shenko-node/src/control_transport.rs`; the production adapter
+supplies its authenticated SSH route. A compact frontier binds index, term and
+prefix digest. The receiver imports only a missing suffix in bounded pages.
+Locally cached prefix digests and the contiguous ballot run avoid rescanning all
+past decisions on each S1. A stale candidate pulls the verified missing prefix
+and starts a fresh prepare; learning a higher term also permits a fresh campaign.
+
+New admission entries contain the frozen descriptor and its root reference.
+Their CAS bytes remain in the existing Node object store. Transfers use 64 KiB
+raw chunks with durable cursors and exact duplicate checks; only the final
+assembly hashes the complete object. A persisted whole-closure marker is created
+only after all typed children have been verified. Later transfers can skip an
+already verified immutable subtree, while an incomplete root cannot pretend
+that its missing children are present.
+
+Before accepting a new value, Node serializes its worst-case certificate with
+every eligible voter and requires it to fit the 256 KiB entry metadata frame.
+This bounds metadata, not frozen plan content. Control pages target 512 KiB;
+prepare witnesses name accepted values by digest and include the highest value
+only once. Replication proof frames are bounded before any ACK is emitted.
+An oversized new descriptor therefore fails before it can strand a chosen slot.
+The schema-10 migration retains old values, accepted facts and receipt bytes,
+backfills prefix/alias indexes, copies prior inline plan objects to CAS and starts
+a new ballot before old full-prefix prepare records could be reused.
+
+A valid value can have different accepting certificates after recovery. Its
+identity excludes certificate metadata and committed copies are never rewritten.
+A stale request receives the current-term refusal before attempting to revalidate
+its obsolete live prepare. A stable prepare that cannot cover a peer's retained
+certificate run requires a fresh campaign; it is never inferred from a cached
+primary token or a wall-clock lease.
+
+## Focused evidence
+
+The checks below use the shared native Cargo target, `--offline --locked`, one
+build job, disabled incremental compilation and debug info. Source is the
+bounded-transport follow-up to `97602f5`, with the shared predecessor fields
+from `f452a3a` and `6f27f70`.
+
+- `cargo test -p shenko-node --test partition_rejoin -- --nocapture`: **4 passed,
+  0 failed**, 12.38 seconds after compilation. The two pre-existing process
+  journeys pass together with exactly two new independent journeys.
+- The lost-acceptance journey loses the sender's receipt, recovers the original
+  chosen primary before electing a successor, refuses the old owner's new
+  admission, recovers the exact unapplied frozen plan from a survivor, and
+  catches up the former leader before its new campaign. A 5 MiB binary attachment
+  makes the former inline JSON closure exceed the production 16 MiB message
+  bound; the actual protocol uses bounded frames. A changed logical operation
+  cannot reuse the consumed task revision alias, and retries never renew the
+  original dispatch opportunity.
+- The membership journey loses the proposer after Joint was chosen and proves
+  that the new-set majority alone cannot commit recovery. Both configured
+  majorities remain necessary through the joint election and Final transition.
+- `cargo test -p shenko-node --lib election -- --nocapture`: **17 passed,
+  0 failed**, 0.15 seconds after compilation. This reuses the existing retained
+  conflict, idempotent replay, nonrewinding vote, membership and selection checks.
+- `cargo test -p shenko-node --lib`: **34 passed, 0 failed**, 0.24 seconds
+  after compilation. This covers the existing SQLite installation recovery,
+  package migration and identity/selection regressions affected by schema 10.
+  An earlier attempt hit transient `ENOSPC`; the next run succeeded after a
+  fresh disk check and exact-directory create/write probe, without deleting any
+  shared target or unrelated work.
+- Focused Clippy uses the existing ratchet's `--force-warn clippy::all`,
+  `unwrap_used` and `expect_used` policy. Its first completed collection found
+  three new diagnostic kinds in control code; the quorum comparisons, boxed
+  retained-grant error and chunk-boundary expression were corrected. The final
+  collection is pending the shared target lock at this checkpoint. The fresh
+  grant read-fence helper is consumed by the separately integrated Store guard.
+- The first process run found a stale-request refusal-order defect and a fixture
+  that compared different replicas' local observation timestamps. The corrected
+  run above follows the actual protocol and compares the same replica's retained
+  configuration when proving that an insufficient quorum did not change it.
+
+Authority requests and remote accepts run in fresh `shenko-node` processes with
+private SQLite installations. The shared transfer driver opens the durable
+source and sends each remote frame to another process. This does not exercise
+SSH reachability, real model choice, a heterogeneous deployment, long-run
+availability, or physical provider exactly-once delivery. In particular, the
+Node evidence does not substitute for actually applying the canonical Store
+transition after a plan was chosen.

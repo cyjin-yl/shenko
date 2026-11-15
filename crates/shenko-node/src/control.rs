@@ -8,6 +8,7 @@
 //! not a Raft implementation. Experiences live outside this control log.
 
 use super::{Node, Result, digest, text};
+use crate::control_transport::*;
 use crate::election::*;
 use anyhow::{Context as _, ensure};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -71,7 +72,46 @@ pub struct DurableControlCommit {
 #[serde(deny_unknown_fields)]
 pub struct ControlPrepareProof {
     pub request: VoteRequest,
-    pub responses: Vec<VoteResponse>,
+    pub responses: Vec<ControlPreparePromise>,
+    pub recovery: Option<AcceptedControl>,
+}
+
+/// Phase-one witnesses name accepted values by digest. Their original full
+/// replies remain in the receipt table; the replication proof includes only
+/// the single highest accepted value, avoiding N copies of a large payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlPreparePromise {
+    pub responder_id: EntityId,
+    pub request_id: EntityId,
+    pub term: u64,
+    pub config_digest: Digest,
+    pub committed: ControlFrontier,
+    pub accepted: Option<ControlAcceptanceStamp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ControlAcceptanceStamp {
+    pub ballot: ControlBallot,
+    pub index: u64,
+    pub entry_digest: Digest,
+    pub prefix_digest: Digest,
+    pub configuration_revision: u64,
+    pub configuration_digest: Digest,
+}
+
+impl ControlAcceptanceStamp {
+    fn of(accepted: &AcceptedControl) -> Result<Self> {
+        Ok(Self {
+            ballot: accepted.ballot.clone(),
+            index: accepted.entry.index,
+            entry_digest: control_value_digest(&accepted.entry)?,
+            prefix_digest: accepted.prefix_digest.clone(),
+            configuration_revision: accepted.configuration_revision,
+            configuration_digest: accepted.configuration_digest.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,7 +120,8 @@ pub struct ControlReplication {
     pub schema: u32,
     pub prepare: ControlPrepareProof,
     pub accepted: AcceptedControl,
-    pub committed_prefix: Vec<ControlEntry>,
+    pub predecessor: ControlFrontier,
+    pub configuration: MemberConfiguration,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,14 +144,6 @@ pub(crate) fn control_value_digest(entry: &ControlEntry) -> Result<Digest> {
     digest(&(entry.index, entry.term, entry.kind, &entry.payload))
 }
 
-pub(crate) fn control_prefix_digest(entries: &[ControlEntry]) -> Result<Digest> {
-    let mut root = Digest::blake3(b"shenko-control-prefix-v2");
-    for entry in entries {
-        root = digest(&(root, control_value_digest(entry)?))?;
-    }
-    Ok(root)
-}
-
 fn entry_quorum(
     config: &MemberConfiguration,
     entry: &ControlEntry,
@@ -124,13 +157,13 @@ fn entry_quorum(
                 .iter()
                 .filter(|id| voters.contains(id))
                 .count()
-                >= payload.proposal_old.len() / 2 + 1
+                > payload.proposal_old.len() / 2
                 && payload
                     .proposal_new
                     .iter()
                     .filter(|id| voters.contains(id))
                     .count()
-                    >= payload.proposal_new.len() / 2 + 1)
+                    > payload.proposal_new.len() / 2)
         }
         _ => Ok(config.has_quorum(voters)),
     }
@@ -150,8 +183,9 @@ fn entry_voters(config: &MemberConfiguration, entry: &ControlEntry) -> Result<BT
 }
 
 fn ack_matches(ack: &ControlAcknowledgement, accepted: &AcceptedControl) -> Result<bool> {
-    Ok(ack.schema == ELECTION_WIRE_SCHEMA
+    Ok((2..=ELECTION_WIRE_SCHEMA).contains(&ack.schema)
         && ack.accepted
+        && ack.reason == "durably_accepted"
         && ack.ballot == accepted.ballot
         && ack.observed_term == accepted.ballot.term
         && ack.index == accepted.entry.index
@@ -255,6 +289,7 @@ impl Node {
         let rows = statement.query_map([i64::try_from(term)?], |row| row.get::<_, String>(0))?;
         let mut request = None;
         let mut responses = Vec::new();
+        let mut recovery: Option<AcceptedControl> = None;
         for row in rows {
             let promise: StoredPromise = serde_json::from_str(&row?)?;
             if promise.request.candidate_id != proposer {
@@ -268,11 +303,37 @@ impl Node {
             } else {
                 request = Some(promise.request);
             }
-            responses.push(promise.response);
+            let response = promise.response;
+            ensure!(
+                response.schema == ELECTION_WIRE_SCHEMA
+                    && response.vote_granted
+                    && response.proposal_digest.is_none(),
+                "retained control promise is not a current election response"
+            );
+            if let Some(accepted) = &response.accepted_control
+                && recovery
+                    .as_ref()
+                    .is_none_or(|old| accepted.ballot > old.ballot)
+            {
+                recovery = Some(accepted.clone());
+            }
+            responses.push(ControlPreparePromise {
+                responder_id: response.responder_id,
+                request_id: response.request_id,
+                term: response.term,
+                config_digest: response.config_digest,
+                committed: response.committed,
+                accepted: response
+                    .accepted_control
+                    .as_ref()
+                    .map(ControlAcceptanceStamp::of)
+                    .transpose()?,
+            });
         }
         Ok(ControlPrepareProof {
             request: request.context("no retained prepare promises for this proposer")?,
             responses,
+            recovery,
         })
     }
 
@@ -294,29 +355,25 @@ impl Node {
             "control prepare does not bind the governing configuration"
         );
         let mut voters = BTreeSet::new();
-        let mut highest: Option<AcceptedControl> = None;
+        let mut highest: Option<ControlAcceptanceStamp> = None;
         for response in &proof.responses {
             ensure!(
-                response.schema == ELECTION_WIRE_SCHEMA
-                    && response.vote_granted
-                    && response.term == request.term
+                response.term == request.term
                     && response.request_id == request.request_id
                     && response.config_digest == request.config_digest
-                    && response.proposal_digest.is_none()
                     && config.is_member(response.responder_id)
                     && voters.insert(response.responder_id),
                 "invalid or repeated prepare responder"
             );
-            let last = response.committed_prefix.last();
             ensure!(
-                last.map_or(0, |entry| entry.index) == request.last_log_index
-                    && last.map_or(0, |entry| entry.term) == request.last_log_term
-                    && control_prefix_digest(&response.committed_prefix)? == request.prefix_digest,
+                response.committed.index == request.last_log_index
+                    && response.committed.term == request.last_log_term
+                    && response.committed.digest == request.prefix_digest,
                 "prepare quorum did not promise against one committed prefix"
             );
-            if let Some(accepted) = &response.accepted_control {
+            if let Some(accepted) = &response.accepted {
                 ensure!(
-                    accepted.entry.index
+                    accepted.index
                         == request
                             .last_log_index
                             .checked_add(1)
@@ -327,14 +384,13 @@ impl Node {
                         && accepted.ballot.term <= request.term,
                     "prepare response has an acceptance from another slot or configuration"
                 );
-                if let Some(prior) = &highest {
-                    if prior.ballot == accepted.ballot {
-                        ensure!(
-                            control_value_digest(&prior.entry)?
-                                == control_value_digest(&accepted.entry)?,
-                            "one accepted ballot carries conflicting control values"
-                        );
-                    }
+                if let Some(prior) = &highest
+                    && prior.ballot == accepted.ballot
+                {
+                    ensure!(
+                        prior.entry_digest == accepted.entry_digest,
+                        "one accepted ballot carries conflicting control values"
+                    );
                 }
                 if highest
                     .as_ref()
@@ -348,27 +404,42 @@ impl Node {
             config.has_quorum(&voters),
             "control prepare has no configured quorum"
         );
-        Ok(highest)
+        ensure!(
+            highest
+                == proof
+                    .recovery
+                    .as_ref()
+                    .map(ControlAcceptanceStamp::of)
+                    .transpose()?,
+            "prepare recovery value is not the highest accepted value reported by its quorum"
+        );
+        Ok(proof.recovery.clone())
     }
 
-    fn validate_replication(request: &ControlReplication) -> Result<MemberConfiguration> {
+    fn validate_replication(
+        conn: &Connection,
+        request: &ControlReplication,
+    ) -> Result<MemberConfiguration> {
         ensure!(
             request.schema == ELECTION_WIRE_SCHEMA,
             "unsupported control durability wire schema"
         );
         let accepted = &request.accepted;
-        let config = Self::verify_control_history(&request.committed_prefix)?
+        let config = Self::configuration_at_frontier(conn, request.predecessor.index)?
             .context("accepted control value has no committed configuration")?;
         ensure!(
-            accepted.configuration_revision == config.revision
+            config.revision == request.configuration.revision
+                && config.digest == request.configuration.digest
+                && config.members == request.configuration.members
+                && config.joint_new == request.configuration.joint_new,
+            "offered governing configuration differs from the retained predecessor"
+        );
+        ensure!(
+            Self::control_frontier_at(conn, request.predecessor.index)? == request.predecessor
+                && accepted.configuration_revision == config.revision
                 && accepted.configuration_digest == config.digest
-                && accepted.prefix_digest == control_prefix_digest(&request.committed_prefix)?
-                && accepted.entry.index
-                    == request
-                        .committed_prefix
-                        .last()
-                        .map_or(Some(1), |entry| entry.index.checked_add(1))
-                        .context("control log exhausted")?
+                && accepted.prefix_digest == request.predecessor.digest
+                && Some(accepted.entry.index) == request.predecessor.index.checked_add(1)
                 && accepted.ballot.term == request.prepare.request.term
                 && accepted.ballot.proposer == request.prepare.request.candidate_id
                 && accepted.entry.durability.is_none(),
@@ -377,114 +448,112 @@ impl Node {
         let recovered = Self::verify_prepare(&request.prepare, &config)?;
         let prepare_index = request.prepare.request.last_log_index;
         ensure!(
-            prepare_index < accepted.entry.index,
-            "prepare is beyond the offered control slot"
-        );
-        let prepared_prefix = request
-            .committed_prefix
-            .iter()
-            .take(usize::try_from(prepare_index)?)
-            .cloned()
-            .collect::<Vec<_>>();
-        ensure!(
-            control_prefix_digest(&prepared_prefix)? == request.prepare.request.prefix_digest
-                && prepared_prefix.last().map_or(0, |entry| entry.term)
-                    == request.prepare.request.last_log_term,
-            "control prepare belongs to a different committed prefix"
+            prepare_index < accepted.entry.index
+                && Self::prepare_covers_index(
+                    conn,
+                    &request.prepare.request,
+                    request.predecessor.index
+                )?,
+            "control prepare does not cover the offered committed prefix"
         );
         let recovering = accepted.entry.index == prepare_index + 1 && recovered.is_some();
-        if accepted.entry.index == prepare_index + 1 {
-            if let Some(recovered) = recovered {
-                ensure!(
-                    control_value_digest(&recovered.entry)?
-                        == control_value_digest(&accepted.entry)?,
-                    "higher ballot must recover the highest accepted control value"
-                );
-            }
-        } else {
-            // A stable proposer can reuse its prepare promise only after it
-            // has chosen every intervening value under that same ballot.
-            for entry in request
-                .committed_prefix
-                .iter()
-                .filter(|entry| entry.index > prepare_index)
-            {
-                ensure!(
-                    entry
-                        .durability
-                        .as_ref()
-                        .is_some_and(|proof| proof.ballot == accepted.ballot),
-                    "prepare authority cannot skip an intervening control ballot"
-                );
-            }
+        if accepted.entry.index == prepare_index + 1
+            && let Some(recovered) = recovered
+        {
+            ensure!(
+                control_value_digest(&recovered.entry)? == control_value_digest(&accepted.entry)?,
+                "higher ballot must recover the highest accepted control value"
+            );
         }
         if !recovering {
             ensure!(
                 accepted.entry.term == accepted.ballot.term,
                 "a fresh control value must originate in its accepting ballot"
             );
-            match accepted.entry.kind {
-                ControlKind::Primary => {
-                    let primary: PrimaryEntry =
-                        serde_json::from_value(accepted.entry.payload.clone())?;
-                    ensure!(
-                        primary.leader_id == accepted.ballot.proposer,
-                        "fresh primary value does not name its prepared proposer"
-                    );
-                }
-                _ => {
-                    let primary = request
-                        .committed_prefix
-                        .iter()
-                        .rev()
-                        .find(|entry| entry.kind == ControlKind::Primary)
-                        .context("fresh control command has no committed primary")?;
-                    let payload: PrimaryEntry = serde_json::from_value(primary.payload.clone())?;
-                    ensure!(
-                        primary.term == accepted.ballot.term
-                            && payload.leader_id == accepted.ballot.proposer
-                            && payload.config_revision == config.revision,
-                        "fresh control command is not issued by the current primary and configuration"
-                    );
-                }
-            }
-        }
-        if accepted.entry.kind == ControlKind::Admission {
-            let offered: ControlAdmissionPayload =
-                serde_json::from_value(accepted.entry.payload.clone())?;
-            for entry in request
-                .committed_prefix
-                .iter()
-                .filter(|entry| entry.kind == ControlKind::Admission)
-            {
-                let existing: ControlAdmissionPayload =
-                    serde_json::from_value(entry.payload.clone())?;
+            if accepted.entry.kind == ControlKind::Primary {
+                let primary: PrimaryEntry = serde_json::from_value(accepted.entry.payload.clone())?;
                 ensure!(
-                    existing.admission.conflict_key != offered.admission.conflict_key
-                        && existing.admission.action_id != offered.admission.action_id,
-                    "admission position or action already committed; replay the original grant instead of accepting another slot"
+                    primary.leader_id == accepted.ballot.proposer,
+                    "fresh primary value does not name its prepared proposer"
+                );
+            } else {
+                let primary =
+                    Self::last_control_kind(conn, request.predecessor.index, ControlKind::Primary)?
+                        .context("fresh control command has no committed primary")?;
+                let payload: PrimaryEntry = serde_json::from_value(primary.payload)?;
+                ensure!(
+                    primary.term == accepted.ballot.term
+                        && payload.leader_id == accepted.ballot.proposer
+                        && payload.config_revision == config.revision,
+                    "fresh control command is not issued by the current primary and configuration"
                 );
             }
         }
-        let _ = Self::verify_control_entry(&accepted.entry, Some(&config))?;
+        if accepted.entry.kind == ControlKind::Primary {
+            let payload: PrimaryEntry = serde_json::from_value(accepted.entry.payload.clone())?;
+            if let Some(previous) =
+                Self::last_control_kind(conn, request.predecessor.index, ControlKind::Primary)?
+            {
+                let old: PrimaryEntry = serde_json::from_value(previous.payload)?;
+                ensure!(
+                    payload.epoch > old.epoch
+                        && (previous.term != accepted.entry.term
+                            || old.leader_id == payload.leader_id),
+                    "accepted primary must advance its predecessor epoch without changing leaders in one term"
+                );
+            } else {
+                ensure!(payload.epoch > 0, "initial primary epoch must be positive");
+            }
+        }
+        Self::verify_control_entry(&accepted.entry, Some(&config))?;
         ensure!(
-            request
-                .committed_prefix
-                .last()
-                .is_none_or(|last| accepted.entry.term >= last.term),
-            "control value term precedes its committed prefix"
+            accepted.entry.term >= request.predecessor.term
+                && accepted.entry.term <= accepted.ballot.term,
+            "control value term does not fit its predecessor and accepting ballot"
         );
-        ensure!(
-            accepted.entry.term <= accepted.ballot.term,
-            "a control value cannot originate after the ballot accepting it"
-        );
+        Self::check_control_frame(request, &config)?;
         Ok(config)
+    }
+
+    // Bound the eventual committed value before ANY acceptor acknowledges it.
+    // The worst-case certificate includes every eligible voter. CAS plan bytes
+    // are transferred separately and never make this control frame grow.
+    fn check_control_frame(
+        request: &ControlReplication,
+        config: &MemberConfiguration,
+    ) -> Result<()> {
+        let mut entry = request.accepted.entry.clone();
+        let acknowledgements = entry_voters(config, &entry)?
+            .into_iter()
+            .map(|voter| {
+                Self::acknowledge(
+                    &request.accepted,
+                    voter,
+                    request.accepted.ballot.term,
+                    true,
+                    "durably_accepted",
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        entry.durability = Some(DurableControlCommit {
+            ballot: request.accepted.ballot.clone(),
+            acknowledgements,
+        });
+        ensure!(
+            serde_json::to_vec(&entry)?.len() <= MAX_CONTROL_ENTRY_BYTES,
+            "control metadata and full persistence certificate exceed the bounded entry frame"
+        );
+        ensure!(
+            serde_json::to_vec(request)?.len() <= crate::MAX_NODE_REQUEST / 4,
+            "control prepare proof exceeds the bounded replication frame"
+        );
+        Ok(())
     }
 
     pub(crate) fn verify_durable_control(
         entry: &ControlEntry,
         config: &MemberConfiguration,
-        prefix: &[ControlEntry],
+        prefix_digest: &Digest,
     ) -> Result<()> {
         let proof = entry
             .durability
@@ -494,7 +563,7 @@ impl Node {
             ballot: proof.ballot.clone(),
             configuration_revision: config.revision,
             configuration_digest: config.digest.clone(),
-            prefix_digest: control_prefix_digest(prefix)?,
+            prefix_digest: prefix_digest.clone(),
             entry: entry.clone(),
         };
         ensure!(
@@ -551,31 +620,51 @@ impl Node {
         tx: &Transaction<'_>,
         request: &ControlReplication,
     ) -> Result<ControlAcknowledgement> {
-        let config = Self::validate_replication(request)?;
         let accepted = &request.accepted;
         let own = Self::stored_node_id(tx)?.context("node not initialized")?;
         let term = state_number(tx, "term")?;
-        let prefix = Self::control_log_conn(tx)?;
+        ensure!(
+            request.schema == ELECTION_WIRE_SCHEMA,
+            "unsupported control durability wire schema"
+        );
+        // A stale request needs no fresh permission to receive a refusal. The
+        // same immutable predecessor may have been learned with another valid
+        // recovery certificate, so validate its live prepare only after this
+        // fence. Negative receipts never count toward a commit.
+        if accepted.ballot.term < term {
+            return Self::acknowledge(accepted, own, term, false, "promised_a_higher_ballot");
+        }
+        let config = Self::validate_replication(tx, request)?;
+        let prefix = Self::control_frontier_conn(tx)?;
         let local_config =
             Self::committed_config(tx)?.context("no committed member configuration")?;
         let refuse = |reason: &str| Self::acknowledge(accepted, own, term, false, reason);
         if local_config.revision != config.revision
             || local_config.digest != config.digest
-            || control_prefix_digest(&prefix)? != accepted.prefix_digest
+            || prefix.digest != accepted.prefix_digest
+            || prefix.index + 1 != accepted.entry.index
         {
             return refuse("committed_prefix_mismatch");
         }
         if !entry_voters(&config, &accepted.entry)?.contains(&own) {
             return refuse("not_a_control_acceptor");
         }
-        if accepted.ballot.term < term {
-            return refuse("promised_a_higher_ballot");
-        }
         let voted: Option<EntityId> = get_state::<Option<EntityId>>(tx, "voted_for")?.flatten();
         if accepted.ballot.term == term
             && voted.is_some_and(|voter| voter != accepted.ballot.proposer)
         {
             return refuse("promised_another_proposer_in_this_term");
+        }
+        if accepted.entry.kind == ControlKind::Admission {
+            let payload: ControlAdmissionPayload =
+                serde_json::from_value(accepted.entry.payload.clone())?;
+            ensure!(
+                Self::admission_conflict_index(tx, &payload.admission)?.is_none(),
+                "admission position, predecessor or action already committed; replay the original grant instead of accepting another slot"
+            );
+            Self::validate_admission_reads(tx, &payload.admission, Some(accepted.entry.index))?;
+            Self::store_admission_objects_tx(tx, &payload.objects)?;
+            Self::verify_admission_closure_tx(tx, &payload.admission.payload_ref)?;
         }
         // Promise and accepted bytes commit together before an acknowledgement
         // can leave this process. All older accepted values remain evidence.
@@ -614,20 +703,6 @@ impl Node {
         &mut self,
         request: &ControlReplication,
     ) -> Result<ControlAcknowledgement> {
-        let _ = Self::validate_replication(request)?;
-        let imported = self.append_control_entries(&AppendRequest {
-            schema: ELECTION_WIRE_SCHEMA,
-            leader_id: request.accepted.ballot.proposer,
-            prev_index: 0,
-            prev_term: 0,
-            entries: request.committed_prefix.clone(),
-            proposal: None,
-        })?;
-        ensure!(
-            imported.reason == "accepted",
-            "control predecessor catch-up refused: {}",
-            imported.reason
-        );
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -672,19 +747,20 @@ impl Node {
             desired
         };
         entry.durability = None;
-        let committed_prefix = Self::control_log_conn(tx)?;
+        let predecessor = Self::control_frontier_conn(tx)?;
         let accepted = AcceptedControl {
             ballot: ControlBallot { term, proposer },
             configuration_revision: config.revision,
-            configuration_digest: config.digest,
-            prefix_digest: control_prefix_digest(&committed_prefix)?,
+            configuration_digest: config.digest.clone(),
+            prefix_digest: predecessor.digest.clone(),
             entry,
         };
         let request = ControlReplication {
             schema: ELECTION_WIRE_SCHEMA,
             prepare,
             accepted,
-            committed_prefix,
+            predecessor,
+            configuration: config,
         };
         let ack = Self::accept_control_tx(tx, &request)?;
         ensure!(
@@ -724,8 +800,8 @@ impl Node {
     }
 
     pub fn control_replication_voters(request: &ControlReplication) -> Result<Vec<EntityId>> {
-        let config = Self::validate_replication(request)?;
-        Ok(entry_voters(&config, &request.accepted.entry)?
+        let config = &request.configuration;
+        Ok(entry_voters(config, &request.accepted.entry)?
             .into_iter()
             .collect())
     }
@@ -737,7 +813,7 @@ impl Node {
         request: &ControlReplication,
         ack: &ControlAcknowledgement,
     ) -> Result<()> {
-        let config = Self::validate_replication(request)?;
+        let config = Self::validate_replication(&self.conn, request)?;
         ensure!(
             ack.schema == ELECTION_WIRE_SCHEMA
                 && ack.ballot == request.accepted.ballot
@@ -789,7 +865,7 @@ impl Node {
                 reason: "already_committed".into(),
             });
         }
-        let config = Self::validate_replication(request)?;
+        let config = Self::validate_replication(tx, request)?;
         let term = state_number(tx, "term")?;
         // Learning an already chosen value is factual even after a higher
         // promise. Its original term remains intact and cannot restore the
@@ -798,7 +874,7 @@ impl Node {
         ensure!(
             local_config.revision == config.revision
                 && local_config.digest == config.digest
-                && control_prefix_digest(&Self::control_log_conn(tx)?)? == accepted.prefix_digest,
+                && Self::control_frontier_conn(tx)?.digest == accepted.prefix_digest,
             "control commit predecessor changed"
         );
         let mut statement = tx.prepare("SELECT data FROM node_control_acknowledgements WHERE idx=?1 AND term=?2 AND proposer=?3 ORDER BY voter,receipt")?;
@@ -835,7 +911,7 @@ impl Node {
             ballot: accepted.ballot.clone(),
             acknowledgements,
         });
-        Self::verify_durable_control(&committed, &config, &request.committed_prefix)?;
+        Self::verify_durable_control(&committed, &config, &request.predecessor.digest)?;
         tx.execute(
             "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
             params![
@@ -879,6 +955,7 @@ impl Node {
 #[serde(deny_unknown_fields)]
 pub struct ControlAdmissionPayload {
     pub admission: shenko_types::authority::CommitAdmission,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub objects: Vec<shenko_types::authority::CommitAdmissionObject>,
 }
 
@@ -888,6 +965,24 @@ impl ControlAdmissionPayload {
             self.admission.schema_version == 1 && !self.admission.conflict_key.trim().is_empty(),
             "invalid control admission descriptor"
         );
+        let mut keys = BTreeSet::from([self.admission.conflict_key.as_str()]);
+        for alias in &self.admission.conflict_aliases {
+            ensure!(
+                !alias.trim().is_empty() && keys.insert(alias),
+                "control admission aliases must be nonempty distinct positions"
+            );
+        }
+        let mut reads = BTreeSet::new();
+        ensure!(
+            self.admission
+                .required_unconsumed
+                .iter()
+                .all(|key| !key.trim().is_empty() && reads.insert(key)),
+            "control admission read fences must be nonempty distinct positions"
+        );
+        if self.objects.is_empty() {
+            return Ok(());
+        }
         let mut seen = std::collections::BTreeMap::new();
         for object in &self.objects {
             ensure!(
@@ -927,7 +1022,7 @@ impl ControlAdmissionPayload {
     }
 }
 
-fn collect_admission_references(
+pub(crate) fn collect_admission_references(
     value: &serde_json::Value,
     references: &mut Vec<shenko_types::object::ObjectRef>,
 ) {
@@ -966,25 +1061,117 @@ pub struct ControlAdmissionOutcome {
 }
 
 impl Node {
+    pub(crate) fn admission_conflict_index(
+        conn: &Connection,
+        admission: &shenko_types::authority::CommitAdmission,
+    ) -> Result<Option<u64>> {
+        let mut first: Option<u64> = conn
+            .query_row(
+                "SELECT idx FROM node_control_admissions WHERE action_id=?1",
+                [admission.action_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        for key in std::iter::once(&admission.conflict_key).chain(&admission.conflict_aliases) {
+            let index: Option<u64> = conn
+                .query_row(
+                    "SELECT idx FROM node_control_admission_keys WHERE conflict_key=?1",
+                    [key],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(index) = index {
+                first = Some(first.map_or(index, |old| old.min(index)));
+            }
+        }
+        Ok(first)
+    }
+
+    pub(crate) fn validate_admission_reads(
+        conn: &Connection,
+        admission: &shenko_types::authority::CommitAdmission,
+        prior_to: Option<u64>,
+    ) -> Result<()> {
+        for key in &admission.required_unconsumed {
+            let consumed: Option<u64> = conn
+                .query_row(
+                    "SELECT idx FROM node_control_admission_keys WHERE conflict_key=?1",
+                    [key],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(index) = consumed
+                && prior_to.is_none_or(|frontier| index < frontier)
+            {
+                return Err(ControlAdmissionError::AuthorityUnavailable(format!(
+                    "read predecessor {key} was consumed at control index {index}"
+                ))
+                .into());
+            }
+        }
+        Ok(())
+    }
+
+    /// Recheck a fresh grant under the owned Node reservation. Historical
+    /// grant lookup remains available even after a later cancellation; it is
+    /// evidence for ordered recovery, never a renewed dispatch permit.
+    pub(crate) fn validate_admission_current_conn(
+        conn: &Connection,
+        admission: &shenko_types::authority::CommitAdmission,
+    ) -> Result<()> {
+        Self::committed_admission_conn(conn, admission)?
+            .context("admission has no committed grant")?;
+        let index = Self::admission_conflict_index(conn, admission)?
+            .context("committed admission index missing")?;
+        for key in &admission.required_unconsumed {
+            let consumed: Option<u64> = conn
+                .query_row(
+                    "SELECT idx FROM node_control_admission_keys WHERE conflict_key=?1",
+                    [key],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(consumed) = consumed
+                && consumed != index
+            {
+                return Err(ControlAdmissionError::AuthorityUnavailable(format!(
+                    "read predecessor {key} was consumed at control index {consumed}"
+                ))
+                .into());
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn apply_control_admission(
         tx: &Transaction<'_>,
         entry: &ControlEntry,
     ) -> Result<()> {
         let payload: ControlAdmissionPayload = serde_json::from_value(entry.payload.clone())?;
         payload.verify()?;
+        Self::store_admission_objects_tx(tx, &payload.objects)?;
+        Self::verify_admission_closure_tx(tx, &payload.admission.payload_ref)?;
+        Self::validate_admission_reads(tx, &payload.admission, Some(entry.index))?;
         let admission = payload.admission;
-        let old: Option<(u64, String)> = tx.query_row(
-            "SELECT idx,data FROM node_control_admissions WHERE conflict_key=?1 OR action_id=?2",
-            params![admission.conflict_key, admission.action_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
-        if let Some((index, raw)) = old {
+        if let Some(index) = Self::admission_conflict_index(tx, &admission)? {
+            let raw: String = tx.query_row(
+                "SELECT data FROM node_control_admissions WHERE idx=?1",
+                [i64::try_from(index)?],
+                |row| row.get(0),
+            )?;
             ensure!(
                 index == entry.index
                     && serde_json::from_str::<shenko_types::authority::CommitAdmission>(&raw)?
                         == admission,
-                "a decision position or action identity already has another committed admission"
+                "an admission position, predecessor or action already has another committed grant"
             );
             return Ok(());
+        }
+        for key in std::iter::once(&admission.conflict_key).chain(&admission.conflict_aliases) {
+            tx.execute(
+                "INSERT INTO node_control_admission_keys(conflict_key,idx) VALUES(?1,?2)",
+                params![key, i64::try_from(entry.index)?],
+            )?;
         }
         tx.execute("INSERT INTO node_control_admissions(conflict_key,action_id,idx,data) VALUES(?1,?2,?3,?4)",
             params![admission.conflict_key, admission.action_id.to_string(), i64::try_from(entry.index)?, text(&admission)?])?;
@@ -995,13 +1182,14 @@ impl Node {
         conn: &Connection,
         admission: &shenko_types::authority::CommitAdmission,
     ) -> Result<Option<shenko_types::authority::CommitAuthorityGrant>> {
-        let row: Option<(u64, String)> = conn.query_row(
-            "SELECT idx,data FROM node_control_admissions WHERE conflict_key=?1 OR action_id=?2",
-            params![admission.conflict_key, admission.action_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
-        let Some((index, raw)) = row else {
+        let Some(index) = Self::admission_conflict_index(conn, admission)? else {
             return Ok(None);
         };
+        let raw: String = conn.query_row(
+            "SELECT data FROM node_control_admissions WHERE idx=?1",
+            [i64::try_from(index)?],
+            |row| row.get(0),
+        )?;
         let original: shenko_types::authority::CommitAdmission = serde_json::from_str(&raw)?;
 
         let entry = Self::control_entry(conn, index)?
@@ -1017,7 +1205,10 @@ impl Node {
             replayed: true,
         };
         if grant.admission != *admission {
-            return Err(ControlAdmissionError::ExistingAdmission { original: grant }.into());
+            return Err(ControlAdmissionError::ExistingAdmission {
+                original: Box::new(grant),
+            }
+            .into());
         }
         Ok(Some(grant))
     }
@@ -1071,6 +1262,7 @@ impl Node {
                 freshly_prepared: false,
             });
         }
+        Self::validate_admission_reads(&tx, admission, None)?;
         let own = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let token = Self::fencing_token_conn(&tx)?.ok_or_else(|| {
             ControlAdmissionError::AuthorityUnavailable(
@@ -1085,9 +1277,11 @@ impl Node {
         }
         let payload = ControlAdmissionPayload {
             admission: admission.clone(),
-            objects: objects.to_vec(),
+            objects: Vec::new(),
         };
         payload.verify()?;
+        Self::store_admission_objects_tx(&tx, objects)?;
+        Self::verify_admission_closure_tx(&tx, &payload.admission.payload_ref)?;
         let entry = ControlEntry {
             schema: ELECTION_WIRE_SCHEMA,
             index: state_number(&tx, "commit_index")?
@@ -1137,7 +1331,7 @@ pub enum ControlAdmissionError {
     AuthorityUnavailable(String),
     QuorumUnavailable(String),
     ExistingAdmission {
-        original: shenko_types::authority::CommitAuthorityGrant,
+        original: Box<shenko_types::authority::CommitAuthorityGrant>,
     },
     RecoveryRequired {
         value: ControlEntry,
@@ -1181,18 +1375,6 @@ impl Node {
         &self,
         root: &shenko_types::object::ObjectRef,
     ) -> Result<Vec<shenko_types::authority::CommitAdmissionObject>> {
-        for entry in self
-            .control_log()?
-            .iter()
-            .rev()
-            .filter(|entry| entry.kind == ControlKind::Admission)
-        {
-            let payload: ControlAdmissionPayload = serde_json::from_value(entry.payload.clone())?;
-            if payload.admission.payload_ref.digest == root.digest {
-                payload.verify()?;
-                return Ok(payload.objects);
-            }
-        }
-        anyhow::bail!("no retained control admission contains this original frozen plan")
+        Self::admission_objects_conn(&self.conn, root)
     }
 }

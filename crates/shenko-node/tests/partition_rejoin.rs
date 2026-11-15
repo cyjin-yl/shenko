@@ -37,6 +37,10 @@ fn child_manifest() -> Result<Manifest> {
 /// One request to one node process: one process per request.
 fn run(dir: &Path, request: &Request) -> Result<Value> {
     let bytes = serde_json::to_vec(request)?;
+    ensure!(
+        bytes.len() <= shenko_node::MAX_NODE_REQUEST,
+        "process request exceeds the production frame bound"
+    );
     let mut child = std::process::Command::new(BIN)
         .arg(dir)
         .stdin(std::process::Stdio::piped())
@@ -64,7 +68,8 @@ fn private_dir(root: &Path, name: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// A node installation that is only ever touched through separate processes.
+/// Authority requests use separate processes. The shared transfer driver
+/// opens the same durable source and exchanges bounded frames with peers.
 struct NodeProcess {
     dir: PathBuf,
     id: EntityId,
@@ -105,6 +110,52 @@ impl NodeProcess {
 
     fn call(&self, request: &Request) -> Result<Value> {
         run(&self.dir, request)
+    }
+
+    fn synchronize(&self, peer: &Self) -> Result<()> {
+        Node::open(&self.dir)?
+            .synchronize_control_peer(peer.id, &mut |request| peer.call(&request))?;
+        Ok(())
+    }
+
+    fn learn_prepare(&self, peer: &Self, response: &VoteResponse) -> Result<()> {
+        Node::open(&self.dir)?.learn_control_prepare(response, &mut |request| peer.call(&request))
+    }
+
+    fn replicate(
+        &self,
+        peer: &Self,
+        request: &shenko_node::ControlReplication,
+    ) -> Result<shenko_node::ControlAcknowledgement> {
+        Node::open(&self.dir)?
+            .replicate_control_to(peer.id, request, &mut |request| peer.call(&request))
+    }
+
+    fn admission(
+        &self,
+        admission: &shenko_types::authority::CommitAdmission,
+        objects: &[shenko_types::authority::CommitAdmissionObject],
+    ) -> Result<Value> {
+        for object in objects {
+            for (index, bytes) in object
+                .bytes
+                .chunks(shenko_node::CONTROL_CHUNK_BYTES)
+                .enumerate()
+            {
+                self.call(&Request::StoreControlObject {
+                    chunk: shenko_node::ControlObjectChunk {
+                        digest: object.reference.digest.clone(),
+                        total: object.reference.bytes,
+                        offset: (index * shenko_node::CONTROL_CHUNK_BYTES) as u64,
+                        bytes: bytes.to_vec(),
+                    },
+                })?;
+            }
+        }
+        self.call(&Request::ProposeAdmission {
+            admission: admission.clone(),
+            objects: Vec::new(),
+        })
     }
 
     fn campaign(&self) -> Result<(VoteRequest, String)> {
@@ -157,10 +208,7 @@ impl NodeProcess {
     fn persist_pending(&self, acceptor: &Self) -> Result<()> {
         let request: shenko_node::ControlReplication =
             serde_json::from_value(self.call(&Request::PendingControl)?)?;
-        let acknowledgement: shenko_node::ControlAcknowledgement =
-            serde_json::from_value(acceptor.call(&Request::AcceptControl {
-                request: request.clone(),
-            })?)?;
+        let acknowledgement = self.replicate(acceptor, &request)?;
         ensure!(
             acknowledgement.accepted,
             "storage acceptance failed: {}",
@@ -812,6 +860,7 @@ fn promise(
         request: request.clone(),
         response: response.clone(),
     })?;
+    proposer.learn_prepare(voter, &response)?;
     Ok(response)
 }
 
@@ -822,10 +871,7 @@ fn persist_to(
     let request: shenko_node::ControlReplication =
         serde_json::from_value(proposer.call(&Request::PendingControl)?)?;
     for voter in voters {
-        let ack: shenko_node::ControlAcknowledgement =
-            serde_json::from_value(voter.call(&Request::AcceptControl {
-                request: request.clone(),
-            })?)?;
+        let ack = proposer.replicate(voter, &request)?;
         ensure!(
             ack.accepted && ack.responder_id == voter.id,
             "durable acceptance refused: {}",
@@ -848,7 +894,7 @@ fn persist_to(
 
 fn advertise(proposer: &NodeProcess, peers: &[&NodeProcess]) -> Result<()> {
     for peer in peers {
-        peer.adopt(&proposer.config()?, proposer.control_log()?)?;
+        proposer.synchronize(peer)?;
     }
     Ok(())
 }
@@ -931,8 +977,22 @@ fn admission_fixture(
         ids::{BranchId, ControllerEpoch, RuntimeGeneration},
         object::{ObjectRef, SchemaRef},
     };
-    let bytes =
-        serde_json::to_vec(&json!({"original_action": "frozen before the Store applies it"}))?;
+    let attachment_bytes = vec![255; 5 * 1024 * 1024];
+    let attachment = ObjectRef {
+        digest: Digest::blake3(&attachment_bytes),
+        bytes: attachment_bytes.len() as u64,
+        media_type: "application/octet-stream".into(),
+        store_namespace: "control-journey".into(),
+        locator: String::new(),
+        codec: SchemaRef {
+            name: "test.frozen-attachment".into(),
+            major: 1,
+            digest: Digest::blake3(b"attachment-v1"),
+        },
+    };
+    let bytes = serde_json::to_vec(
+        &json!({"original_action":"frozen before the Store applies it","attachment":attachment}),
+    )?;
     let reference = ObjectRef {
         digest: Digest::blake3(&bytes),
         bytes: u64::try_from(bytes.len())?,
@@ -951,6 +1011,8 @@ fn admission_fixture(
             subject_id: identity.agent_id,
             branch_id: BranchId(identity.branch_id.0),
             conflict_key: format!("branch/{}/successor/genesis", identity.branch_id),
+            required_unconsumed: Vec::new(),
+            conflict_aliases: vec![format!("task/{}/revision/7", identity.agent_id)],
             action_id: EntityId::new(),
             expected_parent: None,
             expected_head_revision: None,
@@ -960,7 +1022,13 @@ fn admission_fixture(
             attempt_id: None,
             payload_ref: reference.clone(),
         },
-        vec![CommitAdmissionObject { reference, bytes }],
+        vec![
+            CommitAdmissionObject { reference, bytes },
+            CommitAdmissionObject {
+                reference: attachment,
+                bytes: attachment_bytes,
+            },
+        ],
     ))
 }
 
@@ -977,10 +1045,7 @@ fn lost_acceptance_reply_recovers_the_chosen_value_before_new_authority() -> Res
     );
     let pending: shenko_node::ControlReplication =
         serde_json::from_value(a.call(&Request::PendingControl)?)?;
-    let lost: shenko_node::ControlAcknowledgement =
-        serde_json::from_value(b.call(&Request::AcceptControl {
-            request: pending.clone(),
-        })?)?;
+    let lost = a.replicate(&b, &pending)?;
     assert!(lost.accepted);
     // A and B have durably accepted; the reply to A is lost, and A disappears.
     // Every subsequent request is a fresh OS process opening its database.
@@ -1032,10 +1097,7 @@ fn lost_acceptance_reply_recovers_the_chosen_value_before_new_authority() -> Res
         true
     );
     let (old_action, objects) = admission_fixture(&a.identity)?;
-    let staged = a.call(&Request::ProposeAdmission {
-        admission: old_action.clone(),
-        objects: objects.clone(),
-    })?;
+    let staged = a.admission(&old_action, &objects)?;
     assert_eq!(staged["freshly_prepared"], true);
     assert_eq!(staged["grant"], Value::Null);
     let obsolete: shenko_node::ControlReplication =
@@ -1059,15 +1121,9 @@ fn lost_acceptance_reply_recovers_the_chosen_value_before_new_authority() -> Res
     let mut chosen = old_action.clone();
     chosen.action_id = EntityId::new();
     chosen.controller_epoch.0 += 1;
-    let first = b.call(&Request::ProposeAdmission {
-        admission: chosen.clone(),
-        objects: objects.clone(),
-    })?;
+    let first = b.admission(&chosen, &objects)?;
     assert_eq!(first["freshly_prepared"], true);
-    let duplicate = b.call(&Request::ProposeAdmission {
-        admission: chosen.clone(),
-        objects: objects.clone(),
-    })?;
+    let duplicate = b.admission(&chosen, &[])?;
     assert_eq!(
         duplicate["freshly_prepared"], false,
         "reopen cannot renew dispatch ownership"
@@ -1082,17 +1138,31 @@ fn lost_acceptance_reply_recovers_the_chosen_value_before_new_authority() -> Res
     let envelope: shenko_node::ControlAdmissionPayload =
         serde_json::from_value(replay["grant"]["proof"]["payload"].clone())?;
     assert_eq!(envelope.admission, chosen);
-    assert_eq!(
-        envelope.objects, objects,
-        "survivors retain the original unapplied plan bytes"
+    let recovered_objects = Node::open(&c.dir)?.admission_objects(&chosen.payload_ref)?;
+    assert_eq!(recovered_objects.len(), objects.len());
+    for object in &objects {
+        assert!(
+            recovered_objects.contains(object),
+            "survivors retain the original unapplied plan bytes"
+        );
+    }
+    assert!(
+        envelope.objects.is_empty(),
+        "control metadata does not duplicate the retained CAS closure"
     );
     assert!(
+        serde_json::to_vec(&objects)?.len() > shenko_node::MAX_NODE_REQUEST,
+        "the recovered plan must exercise transfer beyond the old inline frame ceiling"
+    );
+    let mut competing = old_action;
+    competing.conflict_key = "different-operation-on-the-same-task-revision".into();
+    assert!(
         c.call(&Request::ProposeAdmission {
-            admission: old_action,
+            admission: competing,
             objects: Vec::new()
         })
         .is_err(),
-        "a changed controller cannot choose a second action at the same branch position"
+        "a different logical action cannot consume the same predecessor task revision"
     );
     // A returns with a shorter committed prefix than every reachable quorum
     // responder. Their refusals carry the certified missing value; a fresh
@@ -1103,8 +1173,9 @@ fn lost_acceptance_reply_recovers_the_chosen_value_before_new_authority() -> Res
         assert!(!response.vote_granted);
         a.call(&Request::RecordVote {
             request: stale.clone(),
-            response,
+            response: response.clone(),
         })?;
+        a.learn_prepare(voter, &response)?;
     }
     assert_eq!(
         a.call(&Request::Tally { term: stale_term })?["elected"],
@@ -1126,6 +1197,7 @@ fn a_chosen_membership_transition_survives_proposer_loss_and_keeps_both_quorums(
     let d = NodeProcess::join(root.path(), "d", a.identity.clone())?;
     advertise(&a, &[&d])?;
     let base = a.config()?;
+    let c_base = c.config()?;
     let joint = a.call(&Request::MemberChange {
         request: MemberChangeRequest {
             operation_id: EntityId::new(),
@@ -1146,10 +1218,8 @@ fn a_chosen_membership_transition_survives_proposer_loss_and_keeps_both_quorums(
     );
     let pending: shenko_node::ControlReplication =
         serde_json::from_value(a.call(&Request::PendingControl)?)?;
-    let stored = c.call(&Request::AcceptControl {
-        request: pending.clone(),
-    })?;
-    assert_eq!(stored["accepted"], true);
+    let stored = a.replicate(&c, &pending)?;
+    assert!(stored.accepted);
     // A+C are both old and new majorities; A dies before learning the reply.
     let (campaign, campaign_term) = c.campaign()?;
     promise(&c, &b, &campaign)?;
@@ -1164,10 +1234,7 @@ fn a_chosen_membership_transition_survives_proposer_loss_and_keeps_both_quorums(
     assert_eq!(recovered.accepted.entry, pending.accepted.entry);
     // C+D alone are a new-set majority but not an old-set majority. Learning
     // only their durable accepts must not commit the transition.
-    let ack: shenko_node::ControlAcknowledgement =
-        serde_json::from_value(d.call(&Request::AcceptControl {
-            request: recovered.clone(),
-        })?)?;
+    let ack = c.replicate(&d, &recovered)?;
     assert!(ack.accepted);
     c.call(&Request::RecordControlAck {
         request: recovered.clone(),
@@ -1179,7 +1246,7 @@ fn a_chosen_membership_transition_survives_proposer_loss_and_keeps_both_quorums(
         })?["committed"],
         false
     );
-    assert_eq!(c.config()?, base);
+    assert_eq!(c.config()?, c_base);
     persist_to(&c, &[&b])?;
     let joint_config = c.config()?;
     assert!(joint_config["joint_new"].is_array());

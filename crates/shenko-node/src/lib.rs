@@ -29,13 +29,15 @@ mod branch_binding;
 pub use branch_binding::SubjectBranchProjection;
 mod control;
 pub use control::*;
+mod control_transport;
+pub use control_transport::*;
 mod cognition;
 pub use cognition::*;
 
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 9;
+const STORAGE_SCHEMA: u32 = 10;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -221,13 +223,43 @@ pub enum Request {
         request: AppendRequest,
     },
     /// Persist an exact control value under a prepare quorum, before replying.
-    AcceptControl { request: ControlReplication },
+    AcceptControl {
+        request: ControlReplication,
+    },
     /// Record a response obtained from that acceptor's authenticated route.
-    RecordControlAck { request: ControlReplication, acknowledgement: ControlAcknowledgement },
+    RecordControlAck {
+        request: ControlReplication,
+        acknowledgement: ControlAcknowledgement,
+    },
     PendingControl,
-    CommitControl { request: ControlReplication },
-    ProposeAdmission { admission: shenko_types::authority::CommitAdmission, objects: Vec<shenko_types::authority::CommitAdmissionObject> },
-    CommittedAdmissions { after_index: u64 },
+    ControlFrontier,
+    ControlClosurePresent {
+        reference: ObjectRef,
+    },
+    ControlPage {
+        after_index: u64,
+    },
+    ControlObjectProgress {
+        digest: Digest,
+        total: u64,
+    },
+    ReadControlObject {
+        digest: Digest,
+        offset: u64,
+    },
+    StoreControlObject {
+        chunk: ControlObjectChunk,
+    },
+    CommitControl {
+        request: ControlReplication,
+    },
+    ProposeAdmission {
+        admission: shenko_types::authority::CommitAdmission,
+        objects: Vec<shenko_types::authority::CommitAdmissionObject>,
+    },
+    CommittedAdmissions {
+        after_index: u64,
+    },
     /// Adopt the member configuration published by an existing member.
     PushConfig {
         config: MemberConfiguration,
@@ -288,9 +320,14 @@ impl Node {
         }
         let directory = std::fs::symlink_metadata(dir)?;
         let main = std::fs::symlink_metadata(&db)?;
-        ensure!(directory.is_dir() && !directory.file_type().is_symlink(), "node directory must not be a symlink");
-        ensure!(main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
-            "node main must be one private regular file with one link");
+        ensure!(
+            directory.is_dir() && !directory.file_type().is_symlink(),
+            "node directory must not be a symlink"
+        );
+        ensure!(
+            main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
+            "node main must be one private regular file with one link"
+        );
         // Do not call validate_existing here: its interrupted-journal path
         // performs recovery. A genuinely read-only opener reports that
         // recovery is needed rather than mutating even a known installation.
@@ -382,7 +419,9 @@ impl Node {
             journal == "delete" && synchronous == 2 && foreign_keys == 1,
             "node storage profile not adopted"
         );
-        if existing && conn.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))? == STORAGE_SCHEMA {
+        if existing
+            && conn.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))? == STORAGE_SCHEMA
+        {
             return Ok(Self {
                 conn,
                 failed: false,
@@ -449,6 +488,10 @@ impl Node {
             }
             if locked <= 8 {
                 tx.execute_batch(control::CONTROL_DURABILITY_SCHEMA)?;
+            }
+            if locked <= 9 {
+                tx.execute_batch(control_transport::CONTROL_TRANSPORT_SCHEMA)?;
+                Self::migrate_control_frontiers(&tx, locked != 0)?;
             }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
@@ -525,10 +568,7 @@ impl Node {
                     get::<EntityId>(&tx, "node")? == expected_node,
                     "wrong managed node"
                 );
-                ensure!(
-                    manifest.schema == SCHEMA,
-                    "incompatible artifact/schema"
-                );
+                ensure!(manifest.schema == SCHEMA, "incompatible artifact/schema");
                 ensure!(
                     manifest.source_revision == "unbound"
                         || (manifest.source_revision.len() == 40
@@ -806,41 +846,68 @@ impl Node {
             Request::MemberChange { request } => {
                 Ok(serde_json::to_value(self.propose_member_change(request)?)?)
             }
-            Request::RecordVote { request, response } => Ok(
-                serde_json::to_value(self.record_vote_response(&request, &response)?)?,
-            ),
+            Request::RecordVote { request, response } => Ok(serde_json::to_value(
+                self.record_vote_response(&request, &response)?,
+            )?),
             Request::Tally { term } => {
                 let term = number(&term)?;
                 Ok(serde_json::to_value(self.tally(term)?)?)
             }
-            Request::TallyMemberChange { proposal } => Ok(
-                serde_json::to_value(self.tally_member_change(&proposal)?)?,
-            ),
+            Request::TallyMemberChange { proposal } => {
+                Ok(serde_json::to_value(self.tally_member_change(&proposal)?)?)
+            }
             Request::Vote { request } => {
                 Ok(serde_json::to_value(self.handle_vote_request(&request)?)?)
             }
-            Request::Append { request } => {
-                Ok(serde_json::to_value(self.append_control_entries(&request)?)?)
+            Request::Append { request } => Ok(serde_json::to_value(
+                self.append_control_entries(&request)?,
+            )?),
+            Request::PushConfig { config, entries } => Ok(serde_json::to_value(
+                self.adopt_member_configuration(&config, &entries)?,
+            )?),
+            Request::AcceptControl { request } => {
+                Ok(serde_json::to_value(self.accept_control(&request)?)?)
             }
-            Request::PushConfig { config, entries } => Ok(
-                serde_json::to_value(self.adopt_member_configuration(&config, &entries)?)?,
-            ),
-            Request::AcceptControl { request } => Ok(serde_json::to_value(self.accept_control(&request)?)?),
-            Request::RecordControlAck { request, acknowledgement } => {
+            Request::RecordControlAck {
+                request,
+                acknowledgement,
+            } => {
                 self.record_control_acknowledgement(&request, &acknowledgement)?;
                 Ok(json!({"recorded": true}))
             }
-            Request::PendingControl => Ok(serde_json::to_value(self.pending_control_replication()?)?),
-            Request::CommitControl { request } => Ok(serde_json::to_value(self.commit_prepared_control(&request)?)?),
-            Request::ProposeAdmission { admission, objects } => Ok(serde_json::to_value(self.propose_admission(&admission, &objects)?)?),
-            Request::CommittedAdmissions { after_index } => Ok(serde_json::to_value(self.committed_admissions(after_index)?)?),
-            Request::ControlLog => Ok(json!({"entries": self.control_log()?})),
-            Request::Adopt { request } => {
-                Ok(serde_json::to_value(self.adopt_identity(request)?)?)
+            Request::ControlClosurePresent { reference } => Ok(serde_json::to_value(
+                self.control_closure_present(&reference)?,
+            )?),
+            Request::ControlFrontier => Ok(serde_json::to_value(self.control_frontier()?)?),
+            Request::ControlPage { after_index } => {
+                Ok(serde_json::to_value(self.control_log_page(after_index)?)?)
             }
-            Request::Reconcile { request } => Ok(
-                serde_json::to_value(self.reconcile_peer_experience(&request)?)?,
-            ),
+            Request::ControlObjectProgress { digest, total } => Ok(serde_json::to_value(
+                self.control_object_progress(&digest, total)?,
+            )?),
+            Request::ReadControlObject { digest, offset } => Ok(serde_json::to_value(
+                self.read_control_object_chunk(&digest, offset)?,
+            )?),
+            Request::StoreControlObject { chunk } => Ok(serde_json::to_value(
+                self.store_control_object_chunk(&chunk)?,
+            )?),
+            Request::PendingControl => {
+                Ok(serde_json::to_value(self.pending_control_replication()?)?)
+            }
+            Request::CommitControl { request } => Ok(serde_json::to_value(
+                self.commit_prepared_control(&request)?,
+            )?),
+            Request::ProposeAdmission { admission, objects } => Ok(serde_json::to_value(
+                self.propose_admission(&admission, &objects)?,
+            )?),
+            Request::CommittedAdmissions { after_index } => Ok(serde_json::to_value(
+                self.committed_admissions(after_index)?,
+            )?),
+            Request::ControlLog => Ok(json!({"entries": self.control_log()?})),
+            Request::Adopt { request } => Ok(serde_json::to_value(self.adopt_identity(request)?)?),
+            Request::Reconcile { request } => Ok(serde_json::to_value(
+                self.reconcile_peer_experience(&request)?,
+            )?),
             Request::Campaign => {
                 self.ensure_member_configuration()?;
                 Ok(serde_json::to_value(self.campaign()?)?)
@@ -852,11 +919,9 @@ impl Node {
                 branch_id,
                 subject_id,
                 reason,
-            } => Ok(serde_json::to_value(self.open_availability_branch(
-                branch_id,
-                subject_id,
-                &reason,
-            )?)?),
+            } => Ok(serde_json::to_value(
+                self.open_availability_branch(branch_id, subject_id, &reason)?,
+            )?),
             Request::MergeBranch {
                 branch_id,
                 reconciliation_id,
@@ -979,7 +1044,8 @@ impl Node {
         ensure!(
             from == lease.node_id
                 && ev.raw.node_id == from
-                && (own == lease.identity || branch_binding::retained_subject_identity(&tx, &own, &lease.identity)?)
+                && (own == lease.identity
+                    || branch_binding::retained_subject_identity(&tx, &own, &lease.identity)?)
                 && ev.raw.agent_id == own.agent_id
                 && ev.raw.branch_id == lease.identity.branch_id
                 && ev.raw.epoch == lease.epoch,
@@ -1017,7 +1083,12 @@ impl Node {
         // its current identity again; the original receipt remains durable.
         let own = identity(&tx)?;
         if own != lease.identity {
-            return evidence_only(tx, receipt_seq, "historical_branch", "evidence_only_parent_branch");
+            return evidence_only(
+                tx,
+                receipt_seq,
+                "historical_branch",
+                "evidence_only_parent_branch",
+            );
         }
         let Some(mut t) = task(&tx, lease.task_id)? else {
             return evidence_only(tx, receipt_seq, "unassociated", "task_missing");
@@ -1071,8 +1142,7 @@ impl Node {
         if let Some((fence_term, fence_epoch)) = fence {
             let claim: Option<PrimaryClaim> = election::get_state(&tx, "primary")?;
             if let Some(claim) = claim {
-                if fence_epoch != claim.epoch.to_string() || fence_term != claim.term.to_string()
-                {
+                if fence_epoch != claim.epoch.to_string() || fence_term != claim.term.to_string() {
                     return evidence_only(
                         tx,
                         receipt_seq,
@@ -1172,16 +1242,14 @@ impl Node {
         let sqlite: String = self
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
-        Ok(
-            json!({"node_id":node,"metadata":metadata,
+        Ok(json!({"node_id":node,"metadata":metadata,
                 // The installation's own Store observation, reported on the
                 // authenticated route so a peer reads a published report rather
                 // than a claim about one. It is a mechanism report, not content
                 // or an attitude (docs/specs/cognition-units.md#spec-51-1). `null` means this installation
                 // has published none: unknown, never a default.
                 "cognition":self.cognition_report()?,
-                "running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v3","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
-        )
+                "running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v3","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}))
     }
 }
 // Accept only the exact original schema plus real initialized identities for
@@ -1190,7 +1258,8 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let app: u32 = conn.query_row("PRAGMA application_id", [], |r| r.get(0))?;
     ensure!(
-        (version == 1 && app == 0) || ((2..=STORAGE_SCHEMA).contains(&version) && app == APPLICATION_ID),
+        (version == 1 && app == 0)
+            || ((2..=STORAGE_SCHEMA).contains(&version) && app == APPLICATION_ID),
         "unrecognized node installation/application/schema"
     );
     let expected = Connection::open_in_memory()?;
@@ -1222,6 +1291,9 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     if version >= 9 {
         expected.execute_batch(control::CONTROL_DURABILITY_SCHEMA)?;
     }
+    if version >= 10 {
+        expected.execute_batch(control_transport::CONTROL_TRANSPORT_SCHEMA)?;
+    }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
             .query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?
@@ -1239,7 +1311,10 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         [],
         |r| r.get(0),
     )?;
-    ensure!(executable == 0, "installation contains executable schema objects");
+    ensure!(
+        executable == 0,
+        "installation contains executable schema objects"
+    );
     fn value<T: for<'a> Deserialize<'a>>(conn: &Connection, key: &str) -> Result<T> {
         let s: String = conn.query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))?;
         Ok(serde_json::from_str(&s)?)
