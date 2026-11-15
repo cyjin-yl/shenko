@@ -170,8 +170,11 @@ from `f452a3a` and `6f27f70`.
   `unwrap_used` and `expect_used` policy. Its first completed collection found
   three new diagnostic kinds in control code; the quorum comparisons, boxed
   retained-grant error and chunk-boundary expression were corrected. The final
-  collection is pending the shared target lock at this checkpoint. The fresh
-  grant read-fence helper is consumed by the separately integrated Store guard.
+  all-target collection at `31010ab` exited 0 and contains no Clippy diagnostic
+  in `control.rs` or `control_transport.rs`. The fresh grant read-fence helper
+  has an expected unused-function warning in this isolated Node worktree until
+  the separately integrated Store guard calls it; no suppression was added.
+  The whole-workspace immutable-baseline ratchet remains an integration gate.
 - The first process run found a stale-request refusal-order defect and a fixture
   that compared different replicas' local observation timestamps. The corrected
   run above follows the actual protocol and compares the same replica's retained
