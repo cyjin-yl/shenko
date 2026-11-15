@@ -740,12 +740,11 @@ impl Node {
         )?;
         for raw in rows {
             let prior: VoteRequest = serde_json::from_str(&raw?)?;
-            if let Some(previous) = prior.proposal {
-                if previous.base_revision == proposal.base_revision
-                    && (prior.candidate_id != request.candidate_id || previous.digest != proposal.digest)
-                {
-                    return Ok(false);
-                }
+            if let Some(previous) = prior.proposal
+                && previous.base_revision == proposal.base_revision
+                && (prior.candidate_id != request.candidate_id || previous.digest != proposal.digest)
+            {
+                return Ok(false);
             }
         }
         Ok(true)
