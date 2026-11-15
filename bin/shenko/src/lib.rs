@@ -228,6 +228,38 @@ pub enum CompatPoppyCommand {
     /// Read public discovery metadata as a diagnostic, without installing a
     /// service, sending credentials or creating a commerce workflow.
     Discover { origin: String },
+    /// Initialize this node's private operator key and public identity URLs.
+    Init {
+        #[arg(long)] client_id: String,
+        #[arg(long)] jwks_uri: String,
+        #[arg(long)] profile_uri: String,
+        #[arg(long, default_value = "Shenko")] client_name: String,
+        #[arg(long)] redirect_uri: Vec<String>,
+        /// Public declarations for installed opaque payment-instrument providers.
+        #[arg(long)] payment_handlers_file: Option<PathBuf>,
+    },
+    /// Export public CIMD, JWKS and UCP documents; never private keys.
+    Identity { #[arg(long)] public_dir: Option<PathBuf> },
+    /// Update installed payment-provider declarations without replacing keys.
+    ConfigurePayments { #[arg(long)] file: PathBuf },
+    /// Discover a company and install its ordinary connection unit.
+    Connect { origin: String, #[arg(long)] unit_id: String, #[arg(long)] enable: bool },
+    /// List installed connections and their stable public identity bindings.
+    Connections,
+    /// Replace a connection's Session id while preserving company/user identity.
+    NewSession { unit_id: String },
+    /// Import a callback from an owner-private file; print only an opaque handle.
+    Callback { #[arg(long)] unit_id: String, #[arg(long)] file: PathBuf },
+    /// Import a payment instrument from an owner-private JSON file.
+    Credential {
+        #[arg(long)] reference: String,
+        #[arg(long)] file: PathBuf,
+        #[arg(long)] unit_id: String,
+        #[arg(long)] checkout_observation: shenko_types::ids::EntityId,
+        #[arg(long)] resource: Option<String>,
+    },
+    /// Read the actual merchant MCP tool catalogue with signed-out Poppy identity.
+    Probe { unit_id: String },
 }
 
 #[cfg(feature = "compat-mcp")]
@@ -1058,6 +1090,8 @@ async fn install_native_definitions(
         data_dir.join("browser"),
     ));
     computer_use_backend.register_human_input_observer(browser_provider.clone());
+    #[cfg(feature = "compat-poppy")]
+    let _poppy_browser = supervisor.spawn(crate::poppy::BrowserAccessPlugin, browser_provider.clone()).await?;
     let browser_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 5] = [
         Arc::new(shenko_exec_host::browser::handlers::BrowserSessionHandler::new(
             Arc::clone(&browser_provider),
@@ -1436,6 +1470,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &supervisor,
                 Arc::clone(&store),
                 discovery_node,
+                &data_dir,
             )
             .await?;
             let view = supervisor.runtime.view();
@@ -2014,6 +2049,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &supervisor,
                 Arc::clone(&store),
                 Arc::clone(&cognition_node),
+                &data_dir,
             )
             .await?;
             // Exact-version unit reads and authored unit writes are native
