@@ -291,7 +291,7 @@ fn role_of(event_type: &str) -> &str {
 }
 
 /// The immutable description of a branch's raw session.
-fn raw_session_data(agent_id: EntityId, branch_id: &BranchId) -> String {
+pub(crate) fn raw_session_data(agent_id: EntityId, branch_id: &BranchId) -> String {
     serde_json::json!({
         "v": 1,
         "kind": "subject_branch",
@@ -402,12 +402,8 @@ pub(crate) fn next_session_seq(
     conn: &Connection,
     session_id: EntityId,
 ) -> Result<i64, ShenkoError> {
-    conn.query_row(
-        "SELECT COALESCE(MAX(seq), 0) + 1 FROM session_events WHERE session_id = ?1",
-        params![session_id.to_string()],
-        |r| r.get(0),
-    )
-    .map_err(storage_error)
+    crate::subject_branches::history_leaf_conn(conn, session_id)?.unwrap_or(0)
+        .checked_add(1).ok_or_else(|| ShenkoError::conflict("raw history sequence exhausted"))
 }
 
 /// Append one fact to a raw session at the store-assigned next seq.
@@ -781,10 +777,7 @@ impl Store {
         if input.get("events").and_then(serde_json::Value::as_array) != Some(&originals) {
             return Err(ShenkoError::conflict("S0 original inbox facts changed"));
         }
-        let leaf: Option<i64> = tx.query_row(
-            "SELECT MAX(seq) FROM session_events WHERE session_id = ?1",
-            params![context.scope_id.to_string()], |row| row.get(0),
-        ).map_err(storage_error)?;
+        let leaf = crate::subject_branches::history_leaf_conn(tx, context.scope_id)?;
         let leaf = leaf.map(u64::try_from).transpose()
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         let window: Option<(String, i64, String)> = tx.query_row(

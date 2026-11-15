@@ -1093,7 +1093,7 @@ mod tests {
             bootstrap_event_ref: input_ref,
             created_commit: zero,
         };
-        let head = SubjectBranchHead {
+        let head = SubjectBranchHead { branch_origin: None,
             agent_id,
             branch_id: BranchId::new(),
             subject_root_task_id: root_id,

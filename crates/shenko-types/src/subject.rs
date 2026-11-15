@@ -197,6 +197,10 @@ pub struct SemanticWaitReceipt {
 /// Subject branch head — tracks the continuous subject loop state. docs/specs/subject-runtime.md#spec-41-5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubjectBranchHead {
+    /// Immutable ancestry receipt for a real fork. Original genesis branches
+    /// have none; a receiver must retain the complete declared fork closure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_origin: Option<ObjectRef>,
     pub agent_id: EntityId,
     pub branch_id: BranchId,
     pub subject_root_task_id: EntityId,

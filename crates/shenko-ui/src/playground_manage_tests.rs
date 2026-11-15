@@ -46,7 +46,7 @@ fn fixture(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         bootstrap_event_ref: object.clone(),
         created_commit: zero,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent,
         branch_id: branch.clone(),
         subject_root_task_id: EntityId::new(),

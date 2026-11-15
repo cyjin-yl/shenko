@@ -25,6 +25,8 @@ mod election;
 pub use election::*;
 mod authority_guard;
 pub use authority_guard::*;
+mod branch_binding;
+pub use branch_binding::SubjectBranchProjection;
 mod cognition;
 pub use cognition::*;
 
@@ -955,9 +957,9 @@ impl Node {
         ensure!(
             from == lease.node_id
                 && ev.raw.node_id == from
-                && own == lease.identity
+                && (own == lease.identity || branch_binding::retained_subject_identity(&tx, &own, &lease.identity)?)
                 && ev.raw.agent_id == own.agent_id
-                && ev.raw.branch_id == own.branch_id
+                && ev.raw.branch_id == lease.identity.branch_id
                 && ev.raw.epoch == lease.epoch,
             "untrusted result source"
         );
@@ -989,6 +991,12 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // A fork may have committed between E1 and this T2 transaction. Read
+        // its current identity again; the original receipt remains durable.
+        let own = identity(&tx)?;
+        if own != lease.identity {
+            return evidence_only(tx, receipt_seq, "historical_branch", "evidence_only_parent_branch");
+        }
         let Some(mut t) = task(&tx, lease.task_id)? else {
             return evidence_only(tx, receipt_seq, "unassociated", "task_missing");
         };

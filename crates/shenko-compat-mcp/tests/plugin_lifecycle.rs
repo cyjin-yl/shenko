@@ -85,7 +85,7 @@ fn initialize(store: &Store) -> Result<(EntityId, AuthorityRef)> {
     let genesis = SubjectGenesis { genesis_id, subject_id: agent, bootstrap_id: EntityId::new(), launch_id: EntityId::new(),
         seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(), home_manifest_ref: object.clone(),
         bootstrap_event_ref: object.clone(), created_commit: zero };
-    let head = SubjectBranchHead { agent_id: agent, branch_id: BranchId::new(), subject_root_task_id: EntityId::new(),
+    let head = SubjectBranchHead { branch_origin: None, agent_id: agent, branch_id: BranchId::new(), subject_root_task_id: EntityId::new(),
         controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration("compat-native-fixture".into()),
         genesis_ref: GenesisRef { ledger_id, genesis_id }, committed_step_no: 0, committed_step_id: None, committed_at: zero,
         next_step_id: first_id, mode: SubjectMode::Active, mode_reason_ref: None, record_revision: RecordRevision(0) };

@@ -24,6 +24,8 @@ pub mod runtime_boundary;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
+pub mod subject_branches;
+pub use subject_branches::SubjectBranchFork;
 pub mod cognitive_root;
 /// Durable reconciliation cases for unknown external effects — docs/specs/durable-state.md#spec-41-4 X11.
 pub mod reconcile;

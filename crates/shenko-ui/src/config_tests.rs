@@ -160,7 +160,7 @@ fn subject_fixture(label: &str) -> (PathBuf, Arc<Store>, EntityId, EntityId, Ent
         bootstrap_event_ref: object,
         created_commit: zero,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent,
         branch_id: branch.clone(),
         subject_root_task_id: root_task_id,

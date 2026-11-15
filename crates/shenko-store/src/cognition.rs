@@ -519,6 +519,20 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     TableSpec {
+        name: "subject_head_history",
+        key: &["snapshot_id"],
+        columns: &["snapshot_id", "agent_id", "branch_id", "data"],
+        local_seq: Some("received_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "subject_branch_forks",
+        key: &["branch_id"],
+        columns: &["branch_id", "agent_id", "parent_branch_id", "data"],
+        local_seq: Some("created_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
         name: "subject_steps",
         key: &["step_id"],
         columns: &[
@@ -2237,7 +2251,7 @@ impl Store {
     }
 
     /// The verified CAS closure of the given roots, recursively.
-    fn collect_closure(
+    pub(crate) fn collect_closure(
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
@@ -2413,7 +2427,7 @@ impl Store {
     pub(crate) fn validate_obligation_recovery(&self, conn: &rusqlite::Connection) -> Result<()> {
         let mut rows = Vec::new();
         for spec in TABLES.iter().filter(|spec| matches!(spec.name,
-            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_intents" | "subject_intent_steps"
+            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_head_history" | "subject_intents" | "subject_intent_steps"
                 | "channel_record_migrations" | "inbox_events"))
         {
             rows.extend(read_table(conn, spec)?);
@@ -2483,6 +2497,34 @@ impl Store {
                 let mut notebook_applied = false;
                 let mut unit_owned_rows: HashSet<(&str, &str)> = HashSet::new();
                 for row in &ordered {
+                    // Another branch is a parallel historical fact. It cannot
+                    // replace this installation's active controller projection.
+                    // Retain every exact head by content identity instead of
+                    // treating distinct branches as competing updates to it.
+                    if row.table == "subject_branch_heads" && archives_parallel_head(&tx, row)? {
+                        let data = row.value("data").context("parallel head data missing")?;
+                        let snapshot = Digest::blake3(data.as_bytes());
+                        let historical = CognitionRow {
+                            table: "subject_head_history".into(), key: snapshot.0.clone(),
+                            values: vec![("snapshot_id".into(), Some(snapshot.0)),
+                                ("agent_id".into(), row.value("agent_id").map(str::to_owned)),
+                                ("branch_id".into(), row.value("branch_id").map(str::to_owned)),
+                                ("data".into(), Some(data.to_owned()))],
+                        };
+                        let history_spec = spec_for("subject_head_history").expect("registered branch history");
+                        match read_existing(&tx, history_spec, &historical)? {
+                            Some(existing) => {
+                                ensure!(rows_equivalent(history_spec, &existing, &historical.values), "historical head content collision");
+                                unchanged += 1;
+                            }
+                            None => {
+                                insert_row(&tx, history_spec, &historical, seq)?;
+                                record_origin(&tx, history_spec, &historical, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+                                inserted += 1;
+                            }
+                        }
+                        continue;
+                    }
                     if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions"
                         | "media_recordings" | "media_recording_controls" | "media_priority_inputs")
                         || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
@@ -2611,6 +2653,9 @@ impl Store {
                             }
                         }
                         Some(local_values) => {
+                            ensure!(!matches!(spec.name, "subject_branch_forks" | "subject_head_history")
+                                || rows_equivalent(spec, &local_values, &effective.values),
+                                "immutable subject branch provenance cannot be replaced");
                             ensure!(spec.kind != RowKind::SubjectIntent
                                 || !is_immutable_terminal_settlement(&local_values)
                                 || rows_equivalent(spec, &local_values, &effective.values),
@@ -2753,6 +2798,18 @@ impl Store {
                         | "subject_raw_inputs" | "session_events" | "inbox_events" | "channel_record_migrations")),
                         "required obligation conflict unit diverges; nothing published");
                     self.validate_obligation_recovery(&tx)?;
+                }
+                if tx.query_row("SELECT EXISTS(SELECT 1 FROM subject_branch_forks)", [], |row| row.get::<_, bool>(0)).map_err(db)? {
+                    let mut branch_rows = Vec::new();
+                    for spec in TABLES.iter().filter(|spec| matches!(spec.name,
+                        "subject_branch_forks" | "subject_head_history" | "subject_branch_heads"
+                        | "subject_steps" | "tasks" | "session_events" | "context_notes"))
+                    {
+                        branch_rows.extend(read_table(&tx, spec)?);
+                    }
+                    // Re-check the ACTUAL reconciled closure: a rejected raw
+                    // event cannot leave an admitted child with partial memory.
+                    crate::subject_branches::validate_branch_rows(&branch_rows)?;
                 }
                 let (verified_files, file_conflicts) = self.restore_files(
                     &tx, files, &options.memory_root, &options.workspace_root, &manifest.file_origins, peer_id,
@@ -3478,7 +3535,7 @@ fn validate_subject_boundaries(
             && entity("committed_step_id") == head.committed_step_id
             && column_mode == data_mode,
             "imported subject head column/value mismatch");
-        if column_mode == "paused" || data_mode == "paused" {
+        if (column_mode == "paused" || data_mode == "paused") && !archives_parallel_head(conn, incoming)? {
             ensure!(column_mode == "paused" && data_mode == "paused",
                 "imported paused subject head has inconsistent mode fields");
             let local = read_existing(conn, head_spec, incoming)?
@@ -3502,7 +3559,8 @@ fn validate_subject_boundaries(
             "local paused subject head has inconsistent mode fields");
         let agent_id = head.agent_id.to_string();
         for incoming in manifest.rows.iter().filter(|row|
-            row.table == head_spec.name && row.value("agent_id") == Some(agent_id.as_str()))
+            row.table == head_spec.name && row.value("agent_id") == Some(agent_id.as_str())
+                && row.value("branch_id") == Some(head.branch_id.0.to_string().as_str()))
         {
             validate_local_paused_successor(conn, &head)?;
             let local = read_existing(conn, head_spec, incoming)?
@@ -3522,6 +3580,14 @@ fn validate_subject_boundaries(
         }
     }
     Ok(())
+}
+
+fn archives_parallel_head(conn: &rusqlite::Connection, incoming: &CognitionRow) -> Result<bool> {
+    let local: Option<String> = conn.query_row(
+        "SELECT branch_id FROM subject_branch_heads WHERE agent_id=?1",
+        [incoming.value("agent_id").context("subject head agent missing")?], |row| row.get(0),
+    ).optional().map_err(db)?;
+    Ok(local.as_deref().is_some_and(|branch| Some(branch) != incoming.value("branch_id")))
 }
 
 fn validate_local_paused_successor(conn: &rusqlite::Connection, head: &SubjectBranchHead) -> Result<()> {
@@ -3798,6 +3864,7 @@ fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
         ensure!(identities.insert((row.table.as_str(), row.key.as_str())),
             "duplicate cognition fact identity in {}", row.table);
     }
+    crate::subject_branches::validate_branch_rows(&manifest.rows)?;
     Ok(())
 }
 
@@ -6410,7 +6477,7 @@ mod archive_admission_tests {
             seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(),
             home_manifest_ref: object.clone(), bootstrap_event_ref: object.clone(), created_commit: commit,
         };
-        let head = SubjectBranchHead {
+        let head = SubjectBranchHead { branch_origin: None,
             agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
             controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration::default(),
             genesis_ref: GenesisRef { ledger_id: commit.ledger_id, genesis_id },

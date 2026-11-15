@@ -115,6 +115,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    conn.execute_batch(crate::subject_branches::SCHEMA)?;
     // Durable reconciliation cases for unknown external effects (docs/specs/durable-state.md#spec-41-4
     // X11). Additive, own table only: it records which immutable receipts a
     // reconciling operation already has and which explicit S1 decision (if

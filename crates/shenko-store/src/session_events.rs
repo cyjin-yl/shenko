@@ -8,7 +8,7 @@ use shenko_types::ids::EntityId;
 use crate::store::Store;
 
 /// One committed `session_events` row, exactly as stored.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StoredSessionEvent {
     pub event_id: EntityId,
     pub session_id: EntityId,

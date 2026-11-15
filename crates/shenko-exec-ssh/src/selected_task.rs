@@ -502,7 +502,7 @@ mod tests {
         let zero = CommitRef::new(f.store.ledger.ledger_id(), LedgerSeq::ZERO);
         let genesis_id = EntityId::new();
         let branch_id = BranchId(f.subject.branch_id.0);
-        let head = SubjectBranchHead {
+        let head = SubjectBranchHead { branch_origin: None,
             agent_id: f.subject.agent_id, branch_id: branch_id.clone(),
             subject_root_task_id: EntityId::new(), controller_epoch: f.ctx.epoch,
             software_generation: f.ctx.software_generation.clone(),

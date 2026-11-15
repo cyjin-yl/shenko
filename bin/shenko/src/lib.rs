@@ -10,6 +10,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub mod node_sync;
+mod runtime_branches;
 mod compat;
 mod runtime_owner;
 mod context_policy;
@@ -4714,7 +4715,7 @@ fn bootstrap_genesis(
     };
 
     let first_step_id = EntityId::new();
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id,
         branch_id: BranchId::new(),
         subject_root_task_id: EntityId::new(),

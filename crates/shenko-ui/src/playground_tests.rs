@@ -30,7 +30,7 @@ fn fixture(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(), home_manifest_ref: object.clone(),
         bootstrap_event_ref: object, created_commit: zero,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
         controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration::default(),
         genesis_ref: GenesisRef { ledger_id: store.ledger.ledger_id(), genesis_id }, committed_step_no: 0,

@@ -2151,7 +2151,7 @@ pub(crate) fn validate_step_binding(
     Ok(())
 }
 
-fn insert_step(
+pub(crate) fn insert_step(
     tx: &rusqlite::Transaction<'_>,
     step: &SubjectStep,
     seq: u64,

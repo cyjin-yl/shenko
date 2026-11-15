@@ -18,7 +18,7 @@ async fn fleet_native_claim_is_bounded_read_only_and_replays_original_evidence()
     let agent = EntityId::new();
     let genesis_id = EntityId::new();
     let seed = store.cas.seal_object(b"native fleet fixture", "text/plain", "fixture", "raw", 1)?.object;
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent, branch_id: BranchId::new(), subject_root_task_id: EntityId::new(),
         controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration::new("fleet-fixture"),
         genesis_ref: GenesisRef { ledger_id: store.ledger.ledger_id(), genesis_id },
