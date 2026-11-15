@@ -617,6 +617,13 @@
         "SPEC:57.7",
         "WHY:10"
       ]
+    },
+    {
+      "file": "docs/specs/external-history.md",
+      "owner": "ArchMemory",
+      "current_agent": "Main",
+      "sections": "Optional external history research; installation, provenance, bounded retrieval, original evidence, lifecycle and replication",
+      "canonical_sections": []
     }
   ]
 }

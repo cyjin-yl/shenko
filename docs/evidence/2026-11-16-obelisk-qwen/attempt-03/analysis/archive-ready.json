@@ -1,0 +1,73 @@
+{
+  "created_at_utc": "2026-11-15T18:17:09.684481+00:00",
+  "runner_termination_confirmed": true,
+  "final_service_evidence_confirmed": true,
+  "confirmation_basis": "parent confirmed natural runner termination and completion of final Box evidence capture; owned stop occurred after the run",
+  "required_files": [
+    {
+      "path": "EVIDENCE.md",
+      "bytes": 15329,
+      "sha256": "439596aea27b6efc035f05d2a1fef8d149f20fc82b365b280d670244059c5aef"
+    },
+    {
+      "path": "analysis/result-summary.json",
+      "bytes": 89404,
+      "sha256": "a7f3de07033f5bace145b912749ac86ef321602c787128886eba55690041264f"
+    },
+    {
+      "path": "analysis/native-retrievals.json",
+      "bytes": 109462,
+      "sha256": "811b1928e58ea1de8dc8c6a7f4deeed46dedb1cd4480a20e3639cfdf2b597d62"
+    },
+    {
+      "path": "analysis/retrieval-support-review.json",
+      "bytes": 12393,
+      "sha256": "6f17fbc97cf55c8d435f96f014e9ddb0ce1d55dac599c92aabf82663733a1bde"
+    },
+    {
+      "path": "runner-exit.json",
+      "bytes": 264,
+      "sha256": "f3fcfe6538b1da0fcf6700ed6ca52021bff6415b1f545c8139eb198a03f427e9"
+    },
+    {
+      "path": "model-service/final/metadata/post-run-pre-stop-observation.json",
+      "bytes": 12117,
+      "sha256": "6caec90369067637a07c21f11ea7b75817b421df9cca2440f55833428acb8b80"
+    },
+    {
+      "path": "model-service/final/metadata/operator-service-stop.json",
+      "bytes": 377,
+      "sha256": "5cdec9747d6b21e56304987fafa3dfdc6d526c288bfb7f5397beb8fefd726095"
+    },
+    {
+      "path": "model-service/final/metadata/server-exit.json",
+      "bytes": 320,
+      "sha256": "e6b7522263ba39bd7a0dfe19227db4573adda758e93422d3399fd4dc0181fb55"
+    },
+    {
+      "path": "model-service/final/metadata/post-run-resource-summary.json",
+      "bytes": 1258,
+      "sha256": "b08a0b253830fa2fdd3814608def2c3b87cd66bbfe7159b9d11912e4daa9d281"
+    },
+    {
+      "path": "model-service/final/logs/server.log",
+      "bytes": 36810,
+      "sha256": "62911d4a9f75ead51cbeb6c1627eaf0105075af5109c825bdcd2a00e76f39f83"
+    },
+    {
+      "path": "model-service/final/logs/resources.jsonl",
+      "bytes": 87548,
+      "sha256": "265666645e4b27efb268db5037b502b506f50236448667df0cebec4a3f8c5d0e"
+    },
+    {
+      "path": "model-service/final/local-transfer-verification.json",
+      "bytes": 443,
+      "sha256": "b6071294b9b11880f5a94c986dc721b940aa6241436d3bf27e19624fca89dcd8"
+    },
+    {
+      "path": "acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/report.json",
+      "bytes": 999,
+      "sha256": "5e1a017c4be4320f08c02f5d3812bac0c675e6a5a6746734d0415d370fd6c1b9"
+    }
+  ]
+}

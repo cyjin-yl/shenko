@@ -10,6 +10,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub mod node_sync;
+pub mod obelisk;
 mod compat;
 mod runtime_owner;
 mod context_policy;
@@ -142,6 +143,11 @@ pub enum Command {
     Compat {
         #[command(subcommand)]
         command: CompatCommand,
+    },
+    /// Optional external harness history archives and Obelisk research queries.
+    History {
+        #[command(subcommand)]
+        command: obelisk::HistoryCommand,
     },
     /// Inspect and manage the installed context strategies — docs/specs/context-policies.md#spec-12-3-1.
     Context {
@@ -1419,9 +1425,10 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _compat_plugins = compat::spawn_adapters(
                 &supervisor,
                 Arc::clone(&store),
-                discovery_node,
+                Arc::clone(&discovery_node),
             )
             .await?;
+            let _obelisk_plugin = obelisk::spawn(&supervisor, Arc::clone(&store), discovery_node, &data_dir).await?;
             let view = supervisor.runtime.view();
             let contracts = supervisor.hooks.contracts();
             let binding = supervisor.hooks.binding();
@@ -1472,6 +1479,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         }
         Command::Context { command } => context_policy::command(&data_dir, command)?,
         Command::Compat { command } => compat::command(&data_dir, command).await?,
+        Command::History { command } => obelisk::command(&data_dir, command).await?,
         Command::Admin { command } => {
             create_data_directory_async(&data_dir).await?;
             let store =
@@ -2000,6 +2008,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&cognition_node),
             )
             .await?;
+            let _obelisk_plugin = obelisk::spawn(&supervisor, Arc::clone(&store), Arc::clone(&cognition_node), &data_dir).await?;
             // Exact-version unit reads and authored unit writes are native
             // children on the same Cordis root: the subject can inspect what
             // it has and write down what it actually learned, with the

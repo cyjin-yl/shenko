@@ -1,0 +1,25 @@
+{
+  "source_head": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+  "source_repository": "/workspace/scratch/549c30a35cef/shenko-obelisk",
+  "executable_path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/examples/obelisk_acceptance",
+  "executable_sha256": "cde88a9f97a22e297a3ad76e02dfce809431b7f6d7887114abd707bbb6626b3e",
+  "executable_device": 27,
+  "executable_inode": 2761886,
+  "executable_bytes": 78803264,
+  "execution_mode": "open fd via /proc/self/fd; prevents target-path replacement from selecting another executable",
+  "fd": 3,
+  "started_at_utc": "2026-11-15T17:21:00.978365+00:00",
+  "upstream_source_head": "cc75c2dd1aead4f4374758a7536385307934e177",
+  "config_sha256": "e282bdbd9edacaf0f7b05305e6a418489871f52dac9cd0e0507f838a0ab234b2",
+  "local_model_api_key_removed": true,
+  "task_environment": {
+    "SHENKO_USE_LOCAL_MODEL": "1",
+    "SHENKO_LOCAL_MODEL_URL": "http://127.0.0.1:18832",
+    "SHENKO_LOCAL_MODEL": "Qwen3-1.7B-Q8_0",
+    "SHENKO_OBELISK_CONFIG": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/configuration.json",
+    "SHENKO_OBELISK_ACCEPTANCE_ROOT": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance",
+    "SHENKO_OBELISK_ACCEPTANCE_DEADLINE_MS": "900000"
+  },
+  "relay_timing_caveat": "Whole-response buffering via Box connector; task elapsed time includes transport and cannot benchmark native provider latency",
+  "pid": 10
+}

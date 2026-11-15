@@ -1,0 +1,130 @@
+{
+  "observed_at_utc": "2026-11-15T17:42:04.844790+00:00",
+  "pid": 48637,
+  "models_response_raw_base64": "eyJtb2RlbHMiOlt7Im5hbWUiOiJRd2VuMy0xLjdCLVE4XzAiLCJtb2RlbCI6IlF3ZW4zLTEuN0ItUThfMCIsIm1vZGlmaWVkX2F0IjoiIiwic2l6ZSI6IiIsImRpZ2VzdCI6IiIsInR5cGUiOiJtb2RlbCIsImRlc2NyaXB0aW9uIjoiIiwidGFncyI6WyIiXSwiY2FwYWJpbGl0aWVzIjpbImNvbXBsZXRpb24iXSwicGFyYW1ldGVycyI6IiIsImRldGFpbHMiOnsicGFyZW50X21vZGVsIjoiIiwiZm9ybWF0IjoiZ2d1ZiIsImZhbWlseSI6IiIsImZhbWlsaWVzIjpbIiJdLCJwYXJhbWV0ZXJfc2l6ZSI6IiIsInF1YW50aXphdGlvbl9sZXZlbCI6IiJ9fV0sIm9iamVjdCI6Imxpc3QiLCJkYXRhIjpbeyJpZCI6IlF3ZW4zLTEuN0ItUThfMCIsImFsaWFzZXMiOlsiUXdlbjMtMS43Qi1ROF8wIl0sInRhZ3MiOltdLCJvYmplY3QiOiJtb2RlbCIsImFyY2hpdGVjdHVyZSI6eyJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwib3V0cHV0X21vZGFsaXRpZXMiOlsidGV4dCJdfSwiY3JlYXRlZCI6MTc5NDc2NDUyNCwib3duZWRfYnkiOiJsbGFtYWNwcCIsIm1ldGEiOnsidm9jYWJfdHlwZSI6Miwibl92b2NhYiI6MTUxOTM2LCJuX2N0eCI6MTYzODQsIm5fY3R4X3RyYWluIjo0MDk2MCwibl9lbWJkIjoyMDQ4LCJuX3BhcmFtcyI6MTcyMDU3NDk3Niwic2l6ZSI6MTgyODQ3NDg4MCwiZnR5cGUiOiJROF8wIn19XX0=",
+  "models_response_sha256": "b11eab9404fd8da4f17c46cd02302b221900d4ad4d6c6911c96c8ca80dc82271",
+  "models": {
+    "models": [
+      {
+        "name": "Qwen3-1.7B-Q8_0",
+        "model": "Qwen3-1.7B-Q8_0",
+        "modified_at": "",
+        "size": "",
+        "digest": "",
+        "type": "model",
+        "description": "",
+        "tags": [
+          ""
+        ],
+        "capabilities": [
+          "completion"
+        ],
+        "parameters": "",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "",
+          "families": [
+            ""
+          ],
+          "parameter_size": "",
+          "quantization_level": ""
+        }
+      }
+    ],
+    "object": "list",
+    "data": [
+      {
+        "id": "Qwen3-1.7B-Q8_0",
+        "aliases": [
+          "Qwen3-1.7B-Q8_0"
+        ],
+        "tags": [],
+        "object": "model",
+        "architecture": {
+          "input_modalities": [
+            "text"
+          ],
+          "output_modalities": [
+            "text"
+          ]
+        },
+        "created": 1794764524,
+        "owned_by": "llamacpp",
+        "meta": {
+          "vocab_type": 2,
+          "n_vocab": 151936,
+          "n_ctx": 16384,
+          "n_ctx_train": 40960,
+          "n_embd": 2048,
+          "n_params": 1720574976,
+          "size": 1828474880,
+          "ftype": "Q8_0"
+        }
+      }
+    ]
+  },
+  "health": {
+    "status": "ok"
+  },
+  "cmdline": [
+    "/workspace/shenko-obelisk-qwen-20261116/server/llama-b12359/llama-server",
+    "--model",
+    "/workspace/shenko-obelisk-qwen-20261116/downloads/Qwen3-1.7B-Q8_0.gguf",
+    "--alias",
+    "Qwen3-1.7B-Q8_0",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "18831",
+    "--offline",
+    "--no-webui",
+    "--threads",
+    "4",
+    "--threads-batch",
+    "4",
+    "--threads-http",
+    "2",
+    "--ctx-size",
+    "16384",
+    "--parallel",
+    "1",
+    "--batch-size",
+    "512",
+    "--ubatch-size",
+    "128",
+    "--n-gpu-layers",
+    "0",
+    "--cache-type-k",
+    "f16",
+    "--cache-type-v",
+    "f16",
+    "--jinja",
+    "--chat-template-kwargs",
+    "{\"enable_thinking\":false}",
+    "--reasoning",
+    "off",
+    "--n-predict",
+    "1024",
+    "--no-context-shift",
+    "--temp",
+    "0.7",
+    "--top-p",
+    "0.8",
+    "--top-k",
+    "20",
+    "--min-p",
+    "0",
+    "--presence-penalty",
+    "1.5",
+    "--timeout",
+    "600",
+    "--log-timestamps",
+    "--log-colors",
+    "off"
+  ],
+  "start_script_sha256": "05a9d92295f7540ccc2120cf1b5e9bec57cd02b1c0023604b9181dbe74c53c05",
+  "remote_helper_sha256": "2a716f25ab7ba80f69e0d45d800bf4c55b467c3a0b4bac4c5e947e172cbb895a",
+  "free": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       6.0Gi       201Mi       968Ki       1.8Gi       1.7Gi\nSwap:             0B          0B          0B\n",
+  "inference_started": false
+}

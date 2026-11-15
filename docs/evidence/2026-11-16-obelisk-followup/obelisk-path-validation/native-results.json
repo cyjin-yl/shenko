@@ -1,0 +1,19 @@
+{
+  "candidate_head": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+  "results": [
+    {
+      "name": "obelisk_lifecycle",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_ms": 624,
+      "executable_sha256": "d89df012d54bfd6a79e5e5610772db608bf3fa55a5ec348120a48d568563d5cb"
+    },
+    {
+      "name": "obelisk_native_receipt",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_ms": 9108,
+      "executable_sha256": "3b9aa551d2c5a4a17e060f36c64c205945bc46c7bb865bff1f7943a140d9a007"
+    }
+  ]
+}

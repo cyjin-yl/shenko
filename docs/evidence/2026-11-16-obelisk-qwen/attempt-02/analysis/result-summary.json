@@ -1,0 +1,3859 @@
+{
+  "schema_version": 2,
+  "analyzed_at_utc": "2026-11-15T17:56:36.482019+00:00",
+  "run_id": "run-409eec7a-0807-444c-9d28-e03c9a0cea69",
+  "scenario": "auth_history_candidate_and_implemented_change",
+  "corpus_digest": "blake3:3496021d8a26422e06e775109097c88416786335c57c6fb9c583b4b7d84bb6b8",
+  "report_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/report.json",
+  "strict_result": "inconclusive_or_failed",
+  "passed": false,
+  "complete": false,
+  "cleanup_ok": true,
+  "operator_interrupted": false,
+  "operator_interrupted_basis": "Natural exit1 receipt and service-final-observation operator record; no stop was sent during this round",
+  "runner_exit": {
+    "exit_code": 1,
+    "finished_at_utc": "2026-11-15T17:45:51.711627+00:00",
+    "elapsed_ms": 196065.46169600188,
+    "executable_sha256": "f043116ebbb25f98bda4a4619474e1e2b22a9b9e2ff2411052cecc394f985fdb",
+    "source_head": "012370b76735daaa97623bbea4401313b3d9be06"
+  },
+  "identity": {
+    "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+    "source_repository": "/workspace/scratch/549c30a35cef/shenko-obelisk",
+    "executable_path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/examples/obelisk_acceptance",
+    "executable_sha256": "f043116ebbb25f98bda4a4619474e1e2b22a9b9e2ff2411052cecc394f985fdb",
+    "executable_device": 27,
+    "executable_inode": 2770585,
+    "executable_bytes": 79397480,
+    "execution_mode": "open fd via /proc/self/fd; prevents target-path replacement from selecting another executable",
+    "fd": 3,
+    "started_at_utc": "2026-11-15T17:42:35.642680+00:00",
+    "upstream_source_head": "cc75c2dd1aead4f4374758a7536385307934e177",
+    "config_sha256": "026b39bcb2cfdd3854e013d3695de6228674fdff424ccaa351e4faa0c78329c2",
+    "local_model_api_key_removed": true,
+    "task_environment": {
+      "SHENKO_USE_LOCAL_MODEL": "1",
+      "SHENKO_LOCAL_MODEL_URL": "http://127.0.0.1:18833",
+      "SHENKO_LOCAL_MODEL": "Qwen3-1.7B-Q8_0",
+      "SHENKO_OBELISK_CONFIG": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/configuration.json",
+      "SHENKO_OBELISK_ACCEPTANCE_ROOT": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance",
+      "SHENKO_OBELISK_ACCEPTANCE_DEADLINE_MS": "900000",
+      "SHENKO_OBELISK_ACCEPTANCE_CONTEXT_TOKENS": "16384"
+    },
+    "relay_timing_caveat": "Whole-response buffering via Box connector; task elapsed time includes transport and cannot benchmark native provider latency",
+    "pid": 10
+  },
+  "planned_arms": 2,
+  "paired_smoke_invocations": 1,
+  "additional_resamples": 0,
+  "subject_protocol_revisions_are_not_independent_samples": true,
+  "model": {
+    "id": "Qwen/Qwen3-1.7B-GGUF",
+    "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+    "file": "Qwen3-1.7B-Q8_0.gguf",
+    "file_bytes": 1834426016,
+    "quantization": "Q8_0",
+    "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+    "sha256_verified": true,
+    "source_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/90862c4b9d2787eaed51d12237eafdfe7c5f6077/Qwen3-1.7B-Q8_0.gguf"
+  },
+  "server": {
+    "upstream": "ggml-org/llama.cpp",
+    "release": "b12359",
+    "commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "version_output": "version: 1.0.0-dev (build 12359, commit b1b770d90)\nbuilt with GNU 11.4.0 for Linux x86_64",
+    "archive": "llama-b12359-bin-ubuntu-x64.tar.gz",
+    "archive_bytes": 23311084,
+    "archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+    "archive_url": "https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-ubuntu-x64.tar.gz",
+    "pid": 48637,
+    "base_url": "http://127.0.0.1:18831/v1",
+    "model_alias": "Qwen3-1.7B-Q8_0",
+    "host": "127.0.0.1",
+    "port": 18831,
+    "log": "/workspace/shenko-obelisk-qwen-20261116/logs/server-context16384.log",
+    "start_script": "start-server.sh",
+    "startup_script_sha256": "05a9d92295f7540ccc2120cf1b5e9bec57cd02b1c0023604b9181dbe74c53c05",
+    "context_tokens": 16384,
+    "parallel_slots": 1,
+    "cpu_threads": 4,
+    "prompt_threads": 4,
+    "http_threads": 2,
+    "gpu_layers": 0,
+    "kv_type_k": "f16",
+    "kv_type_v": "f16",
+    "reasoning": "off",
+    "context_shift": false,
+    "default_output_budget": 1024,
+    "server_timeout_seconds": 600,
+    "sampling_defaults": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "min_p": 0,
+      "presence_penalty": 1.5
+    },
+    "request_overrides_note": "Client request parameters may override sampling and output budget defaults; preserve exact runner request."
+  },
+  "service_manifest_note": "Model/server identity manifest was retained from setup; service-preflight.json observes this round and service-final-observation.json supersedes its running-health state",
+  "service_preflight_path": "service-preflight.json",
+  "service_final_observation": {
+    "observed_at_utc": "2026-11-15T17:52:09.660486+00:00",
+    "recorded_model_pid": 48637,
+    "process_exists": false,
+    "port_18831_listen": false,
+    "exit_code": "unavailable; original detached launcher did not retain wait status",
+    "cause": "unknown",
+    "dmesg_observation": "read kernel buffer failed: Operation not permitted",
+    "cgroup_memory_events_exposed": false,
+    "cgroup_memory_max_exposed": false,
+    "model_log_end": "last observed lines report successful slot release; no termination diagnostic",
+    "memory": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       3.5Gi       152Mi       968Ki       4.4Gi       4.3Gi\nSwap:             0B          0B          0B\n",
+    "no_operator_stop_sent_during_round2": true,
+    "runner_already_completed_naturally_before_operator_stop_instruction": true
+  },
+  "broker_shutdown_summary": {
+    "local_admission_closed": true,
+    "local_provider_readers_drained": true,
+    "remote_termination_claimed": false
+  },
+  "broker_unresolved_requests": [
+    {
+      "request_id": "eb38553b-d684-4592-ae65-4ac4b541f76d",
+      "state": "unknown",
+      "charged": true,
+      "reader_available": true
+    }
+  ],
+  "transport": {
+    "mechanism": "Loopback HTTP relay plus exact UTF-8 request file transfer via Box; origin response bytes transferred with gzip/base64 and SHA256 checks",
+    "request_count": 18,
+    "real_models_get_count": 1,
+    "chat_post_forward_attempts": 17,
+    "observed_model_responses": 16,
+    "connection_failed_post_count": 1,
+    "forward_retries": 0,
+    "all_request_bytes_verified": true,
+    "all_origin_response_bytes_verified": true,
+    "all_successful_model_responses_matched_to_CAS": true,
+    "credential_headers_sent": false,
+    "provider_timeout_seconds": 180,
+    "remote_curl_max_time_seconds": 175,
+    "streamed_requests_observed": false,
+    "SSE_note": "No SSE request occurred; buffering support was not exercised by this pair",
+    "latency_note": "Relay and arm times include connector transfer/queue/polling/preflight; prefix-cache state was not reset. These are not native latency measurements"
+  },
+  "context_preflight": {
+    "context_tokens": 16384,
+    "both_arm_profiles_bound_to_same_observed_limit": true,
+    "kv_type_k": "f16",
+    "kv_type_v": "f16",
+    "successful_post_counts_observed": 16,
+    "all_successful_posts_fit": true,
+    "all_successful_prompt_counts_match_response": true,
+    "largest_observed_prompt_plus_requested_max_tokens": 9937,
+    "unobserved_final_capacity": {
+      "preflight_curl_exit": 7,
+      "request_sha256": "0ecd77cdf2d362babbdcb770a6fd2daf768c913403dde95a47d511844b7ddb74"
+    },
+    "note": "The final failed connection yielded no tokenize count; no capacity, actual inference, or token use is inferred for it"
+  },
+  "usage_and_timing_all_posts": {
+    "posted_requests": 17,
+    "responses_with_observed_usage": 16,
+    "requests_with_unobserved_usage": 1,
+    "observed_token_subtotal": {
+      "prompt_tokens": 47822,
+      "completion_tokens": 626,
+      "total_tokens": 48448,
+      "cached_prompt_tokens": 43232
+    },
+    "remote_attempt_elapsed_ms_all": 95692.14365782682,
+    "remote_attempt_elapsed_ms_observed_model_responses": 95677.34284489416,
+    "relay_elapsed_ms_all": 194889.80423798785,
+    "relay_minus_remote_attempt_ms_all": 99197.66058016103,
+    "token_total_is_complete": false,
+    "timing_is_native_provider_benchmark": false
+  },
+  "baseline_prompt_isolation_path": "analysis/baseline-prompt-isolation.json",
+  "candidate_protocol_rejections_path": "analysis/candidate-protocol-rejections.json",
+  "protocol_rejection_count": 14,
+  "findings": [
+    "Runner ended naturally with exit1 and report complete=false, cleanup_ok=true; no operator interruption occurred.",
+    "Baseline first wire contains only the genuine Pointer for fixture seq1..4, with none of the four original messages or checked answer literals; originals remain in Store.",
+    "Baseline subject only asked the user for logs and performed no history read; the real judge nevertheless returned EFFECTIVE and narrated fixture facts missing from that output. The raw judge is preserved as a false-positive observation, not overwritten.",
+    "Candidate first response emitted the live-search delegate shape, but wait:replace had no active semantic wait. The entire output was rejected before T2 and no delegate was dispatched.",
+    "Thirteen subsequent wait:end responses were rejected for the same absent-wait condition: fourteen unique control rejections total, not fourteen successful steps.",
+    "Candidate has fifteen incarnations of step_no1: fourteen retired and one awaiting_model; zero subject intents, zero task results, and only the root task. There is no candidate committed answer or judge.",
+    "Final request failed to connect (curl7/http0, empty origin body). Relay generated HTTP502; Store recorded failed outcome with unknown termination and no response, and preserved awaiting_model.",
+    "Later observation found the model PID and listener absent. Exit status and cause are unknown; kernel evidence was unavailable and the last log lines contain no termination diagnostic.",
+    "This bounded run demonstrates neither successful external retrieval nor efficacy or token savings. Local cleanup success does not prove the remote process termination cause."
+  ],
+  "limitations": [
+    "One unseeded paired-smoke invocation. Rejected protocol revisions are dependent continuations, not independent trials.",
+    "Qwen3-1.7B Q8_0 is not equivalent to the requested large-model baseline.",
+    "The same small-model judge produced a visible false positive on baseline.",
+    "Final failed request has unknown actual token usage; aggregate tokens are observed subtotals only.",
+    "Box connector transport and prefix caching preclude native latency comparison.",
+    "No prompt/output/reader/judge result or strict gate was changed by this analysis; no model was invoked."
+  ],
+  "arms": [
+    {
+      "condition": "baseline",
+      "runner_arm": {
+        "committed": {
+          "consumed_results": [],
+          "input_plan_ref": {
+            "bytes": 11135,
+            "codec": {
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a",
+              "major": 13,
+              "name": "subject_step_input"
+            },
+            "digest": "blake3:f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/f7/aa/f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+            "media_type": "application/json",
+            "store_namespace": "input_plans"
+          },
+          "installation": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1",
+          "message_event_id": "5933d942-0dfa-4fea-be8c-64961b96eefa",
+          "message_step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b",
+          "output": {
+            "controls": [
+              {
+                "action": {
+                  "kind": "reply",
+                  "target": {
+                    "account": "qq:10000",
+                    "channel": "qq",
+                    "conversation": "10001",
+                    "id": "10001",
+                    "kind": "private",
+                    "schema_version": 2,
+                    "tenant": null
+                  },
+                  "text": "你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。"
+                },
+                "action_id": "5875b9f6-3940-4710-b49e-b4c5f09d03e5",
+                "spans": [
+                  {
+                    "end": 229,
+                    "line": 1,
+                    "start": 0
+                  }
+                ]
+              }
+            ],
+            "raw_ref": {
+              "bytes": 229,
+              "codec": {
+                "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19",
+                "major": 1,
+                "name": "text"
+              },
+              "digest": "blake3:1c3d69ce12899038ca589bfeb2068ac1eb4b4d09f55883dbc7d25860323f0082",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1c/3d/1c3d69ce12899038ca589bfeb2068ac1eb4b4d09f55883dbc7d25860323f0082",
+              "media_type": "text/plain",
+              "store_namespace": "model_results"
+            },
+            "schema_version": 5,
+            "step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b",
+            "text": "你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。"
+          },
+          "step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b"
+        },
+        "condition": "baseline",
+        "configuration_ref": {
+          "bytes": 630,
+          "codec": {
+            "digest": "blake3:6f9b6927228ad98444162e1a202914bf3ea3a88328c16d1b116f95051444187f",
+            "major": 1,
+            "name": "configuration"
+          },
+          "digest": "blake3:67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+          "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/67/bf/67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+          "media_type": "application/json",
+          "store_namespace": "obelisk-acceptance"
+        },
+        "effective": true,
+        "elapsed_ms": 48432,
+        "facts_ref": {
+          "bytes": 3163,
+          "codec": {
+            "digest": "blake3:89c1306f21f16f4d042d76c11a11e880affa73aec6cf82d85e20c3979ffad7c4",
+            "major": 1,
+            "name": "observed-facts"
+          },
+          "digest": "blake3:a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+          "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/a9/0b/a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+          "media_type": "application/json",
+          "store_namespace": "obelisk-acceptance"
+        },
+        "history_query_reads": 0,
+        "installation": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1",
+        "installation_ref": {
+          "bytes": 234,
+          "codec": {
+            "digest": "blake3:b74b9307b0752a9369bce47091da4d5480aead942523aa2efe0db5b46a667cd4",
+            "major": 1,
+            "name": "installation"
+          },
+          "digest": "blake3:1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+          "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1b/24/1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+          "media_type": "application/json",
+          "store_namespace": "obelisk-acceptance"
+        },
+        "judge_error": null,
+        "judge_receipt": {
+          "journal_id": "cognition-trial-judge/28892fa1-0f0c-4de6-8ff3-fedc00028b16",
+          "request_commit": {
+            "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+            "seq": 18
+          },
+          "request_id": "28892fa1-0f0c-4de6-8ff3-fedc00028b16",
+          "request_ref": {
+            "bytes": 7531,
+            "codec": {
+              "digest": "blake3:b8de5791fe88bc784337893a80e3f886e8a4a51d6e0231f883e365e58a8e281d",
+              "major": 1,
+              "name": "cognition-trial-judge-request"
+            },
+            "digest": "blake3:1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1d/b0/1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+            "media_type": "application/json",
+            "store_namespace": "native-cognition"
+          },
+          "result_commit": {
+            "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+            "seq": 20
+          },
+          "result_ref": {
+            "bytes": 2140,
+            "codec": {
+              "digest": "blake3:ad563b61fe6517f28cb77fa7f7350c929a5aaaa34a94b69cc28bd668519875cf",
+              "major": 1,
+              "name": "cognition-trial-judge-result"
+            },
+            "digest": "blake3:af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/af/88/af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+            "media_type": "application/json",
+            "store_namespace": "native-cognition"
+          }
+        },
+        "judge_text": "EFFECTIVE\n\n理由：根据历史检索结果，最终修改了 `src/auth/refresh.ts` 和 `tests/auth/refresh-race.test.ts` 文件，确保只有最新请求能提交会话，并且旧响应仅记日志不覆盖状态。SameSite 仍保持 Lax，None 方案未实施。此修改基于历史记录中的候选方案和最终决策，且有明确的回归测试通过证据。",
+        "native_obelisk_cli_reads": 0,
+        "sample_ref": {
+          "bytes": 2244,
+          "codec": {
+            "digest": "blake3:df65e425d1461cbf91344b127baef8c09cbe5c0c9ccc039c59770bf5ca13fd63",
+            "major": 1,
+            "name": "committed-output"
+          },
+          "digest": "blake3:3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+          "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/3e/41/3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+          "media_type": "application/json",
+          "store_namespace": "obelisk-acceptance"
+        },
+        "status": "scored",
+        "used_expected_reader": false
+      },
+      "installation": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1",
+      "acceptance_json_exists": true,
+      "starting_context_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/starting-context.json",
+      "starting_context_capabilities": {
+        "binding": {
+          "allow_invalid_certs": false,
+          "base_url": "http://127.0.0.1:18833",
+          "default_max_tokens": 8192,
+          "kind": "local",
+          "model": "Qwen3-1.7B-Q8_0",
+          "serializer_revision": 3
+        },
+        "max_context_tokens": 16384,
+        "vision": null
+      },
+      "strict_arm_pass": false,
+      "request_attempt_count": 1,
+      "step_state_counts": {
+        "committed": 1,
+        "planned": 1
+      },
+      "step_number_counts": {
+        "1": 1,
+        "2": 1
+      },
+      "task_kinds": [
+        "subject_root",
+        "subject_publication"
+      ],
+      "task_result_row_count": 0,
+      "subject_intent_row_count": 1,
+      "semantic_wait_row_count": 0,
+      "subject_output_parts_row_count": 0,
+      "subject_attempts": [
+        {
+          "attempt_ordinal": 1,
+          "relay_id": "0002-cb18488cdea54ac68854a2ca9425f211",
+          "request_id": "88327dc7-e1dd-41c0-b534-92bdd1f7c3d6",
+          "attempt_id": "9c6b3e23-f106-456a-9af3-675507b07dd2",
+          "step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b",
+          "step_no": 1,
+          "step_state": "committed",
+          "T1_input_plan_ref": {
+            "digest": "blake3:f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+            "bytes": 11135,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/f7/aa/f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 13,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+            "seq": 12
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:465fa919af7468ce5df02c70a6772c37f117e62c8c2bad168039c5610f8ff18c",
+            "bytes": 1854,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/46/5f/465fa919af7468ce5df02c70a6772c37f117e62c8c2bad168039c5610f8ff18c",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+            "seq": 14
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:1c3d69ce12899038ca589bfeb2068ac1eb4b4d09f55883dbc7d25860323f0082",
+            "bytes": 229,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1c/3d/1c3d69ce12899038ca589bfeb2068ac1eb4b4d09f55883dbc7d25860323f0082",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:1b1e8f3d4cd8b8523ab92107da3ba2522f2f742985770b9a9407e8ed942c5641",
+            "bytes": 1690,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1b/1e/1b1e8f3d4cd8b8523ab92107da3ba2522f2f742985770b9a9407e8ed942c5641",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": {
+            "digest": "blake3:fc32d5c5c070c882bd43ed20d745ba4a01ff65bf3c615258b0c3ed4b57b7a821",
+            "bytes": 3332,
+            "media_type": "application/json",
+            "store_namespace": "decisions",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/fc/32/fc32d5c5c070c882bd43ed20d745ba4a01ff65bf3c615258b0c3ed4b57b7a821",
+            "codec": {
+              "name": "StepDecision",
+              "major": 9,
+              "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+            }
+          },
+          "T2_commit_ref": {
+            "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+            "seq": 16
+          },
+          "retry_reason_ref": null,
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 56,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 1458,
+              "cache_write_tokens": null,
+              "input_tokens": 1897,
+              "output_tokens": 56
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true
+        }
+      ],
+      "judge_relay_id": "0003-84e10f830e31499e95dab12ea2ad6602",
+      "retrievals": [],
+      "committed_output_text": "你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。",
+      "committed_controls": [
+        {
+          "action": {
+            "kind": "reply",
+            "target": {
+              "account": "qq:10000",
+              "channel": "qq",
+              "conversation": "10001",
+              "id": "10001",
+              "kind": "private",
+              "schema_version": 2,
+              "tenant": null
+            },
+            "text": "你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。"
+          },
+          "action_id": "5875b9f6-3940-4710-b49e-b4c5f09d03e5",
+          "spans": [
+            {
+              "end": 229,
+              "line": 1,
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "consumed_results": [],
+      "usage_and_timing": {
+        "posted_requests": 2,
+        "responses_with_observed_usage": 2,
+        "requests_with_unobserved_usage": 0,
+        "observed_token_subtotal": {
+          "prompt_tokens": 3642,
+          "completion_tokens": 146,
+          "total_tokens": 3788,
+          "cached_prompt_tokens": 1462
+        },
+        "remote_attempt_elapsed_ms_all": 37467.72993099876,
+        "remote_attempt_elapsed_ms_observed_model_responses": 37467.72993099876,
+        "relay_elapsed_ms_all": 48254.06025900156,
+        "relay_minus_remote_attempt_ms_all": 10786.330328002805,
+        "token_total_is_complete": true,
+        "timing_is_native_provider_benchmark": false
+      }
+    },
+    {
+      "condition": "candidate",
+      "runner_arm": {
+        "cleanup_failed": false,
+        "condition": "candidate",
+        "error": "sandbox subject: model outcome not conclusive; preserve original awaiting_model for reconciliation: sandbox subject terminated before its continuation was observed",
+        "status": "failed"
+      },
+      "installation": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb",
+      "acceptance_json_exists": false,
+      "starting_context_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/starting-context.json",
+      "starting_context_capabilities": {
+        "binding": {
+          "allow_invalid_certs": false,
+          "base_url": "http://127.0.0.1:18833",
+          "default_max_tokens": 8192,
+          "kind": "local",
+          "model": "Qwen3-1.7B-Q8_0",
+          "serializer_revision": 3
+        },
+        "max_context_tokens": 16384,
+        "vision": null
+      },
+      "strict_arm_pass": false,
+      "request_attempt_count": 15,
+      "step_state_counts": {
+        "retired": 14,
+        "awaiting_model": 1
+      },
+      "step_number_counts": {
+        "1": 15
+      },
+      "task_kinds": [
+        "subject_root"
+      ],
+      "task_result_row_count": 0,
+      "subject_intent_row_count": 0,
+      "semantic_wait_row_count": 0,
+      "subject_output_parts_row_count": 0,
+      "subject_attempts": [
+        {
+          "attempt_ordinal": 1,
+          "relay_id": "0004-37230583ad8140a1b756a602f188e6f4",
+          "request_id": "2a7efe88-6e1d-4342-9458-9e7139e4429b",
+          "attempt_id": "579c88bc-9027-459d-abe9-0eda8304baee",
+          "step_id": "06fbc60f-28b7-42d0-a2c5-f88d605cccca",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:8e2e990b5543ecdb40c27f0d1f6cdfdeac7d3d40936a293d19e94dbe4c39d3d5",
+            "bytes": 13065,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/8e/2e/8e2e990b5543ecdb40c27f0d1f6cdfdeac7d3d40936a293d19e94dbe4c39d3d5",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 13,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 7
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:8eb6a02cd8b0633fbcd50066a20575b493b7aa5afce9de8c23093a7aaab6b775",
+            "bytes": 2938,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/8e/b6/8eb6a02cd8b0633fbcd50066a20575b493b7aa5afce9de8c23093a7aaab6b775",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 9
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:324af0f6709bf2cb59b9c91d7aa4e36b94b7e410517a9880e6c394141e0c99d4",
+            "bytes": 685,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/32/4a/324af0f6709bf2cb59b9c91d7aa4e36b94b7e410517a9880e6c394141e0c99d4",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:d1957fb9688dc31420ee7cce81876520c4fb79ab752b6be402b7eae581253698",
+            "bytes": 2276,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/d1/95/d1957fb9688dc31420ee7cce81876520c4fb79ab752b6be402b7eae581253698",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:d6ec0fd884c5e629d26a6ffba88bb769b80ba2b6f2d60926bb6e1e53227de5fa",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/d6/ec/d6ec0fd884c5e629d26a6ffba88bb769b80ba2b6f2d60926bb6e1e53227de5fa",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 168,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 1458,
+              "cache_write_tokens": null,
+              "input_tokens": 2372,
+              "output_tokens": 168
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 2,
+          "relay_id": "0005-86673de5ac7c410f924bb8bf1c2f31b6",
+          "request_id": "c351732d-31e2-408c-8c68-6e152406cf70",
+          "attempt_id": "1c99eae4-5496-4d87-9e09-0743605f3f71",
+          "step_id": "c39a0944-d055-42f7-ae9c-bba2eeb6fcea",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:dac9cdca66ce82165a7a01b76c620862ba2f7be338ad2e6bf06b0e2d7c3ad572",
+            "bytes": 14209,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/da/c9/dac9cdca66ce82165a7a01b76c620862ba2f7be338ad2e6bf06b0e2d7c3ad572",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 12
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:e200e9c3bdce9d180ff008a76ca54b1b2fa1038283137099a3725ff7ba5563a2",
+            "bytes": 1635,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/e2/00/e200e9c3bdce9d180ff008a76ca54b1b2fa1038283137099a3725ff7ba5563a2",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 14
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:dd124769aa70ac3f0ba51b6babdd436be1c4aec6dd588638eeffbd09b090d3ff",
+            "bytes": 1586,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/dd/12/dd124769aa70ac3f0ba51b6babdd436be1c4aec6dd588638eeffbd09b090d3ff",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:268cdec91f9b01de2a906646a2ea8b02b8f019fdfc5ecee4e891f504059ccdc0",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/26/8c/268cdec91f9b01de2a906646a2ea8b02b8f019fdfc5ecee4e891f504059ccdc0",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 2368,
+              "cache_write_tokens": null,
+              "input_tokens": 2616,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 3,
+          "relay_id": "0006-d3b53ebc26c64e39b2d37c26729099d7",
+          "request_id": "babed633-2910-4cdf-a24b-98b81eab03b5",
+          "attempt_id": "c6c119ec-107c-440f-8a4b-eee4ed919abe",
+          "step_id": "4456d3ac-93bf-4fdc-8af8-9b8022d354bf",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:be0dbd5beadaf0cecc6300a006050b57ae9dc11005fb622beb6122737d8304f7",
+            "bytes": 14741,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/be/0d/be0dbd5beadaf0cecc6300a006050b57ae9dc11005fb622beb6122737d8304f7",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 17
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:bc04536d2e4cdf2eeb6b162bc8130983a034d55395a3cc3be38052f751102891",
+            "bytes": 1635,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bc/04/bc04536d2e4cdf2eeb6b162bc8130983a034d55395a3cc3be38052f751102891",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 19
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:e378aafdb2129795ad565370aa7f70847b31865e1a13da7a0d626351f21c3ea3",
+            "bytes": 1586,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/e3/78/e378aafdb2129795ad565370aa7f70847b31865e1a13da7a0d626351f21c3ea3",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:60230bd8b8fa3d5dddce5f4d5b67b0763f83cd5e5b62ff490dbfc229e1dda478",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/60/23/60230bd8b8fa3d5dddce5f4d5b67b0763f83cd5e5b62ff490dbfc229e1dda478",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 2612,
+              "cache_write_tokens": null,
+              "input_tokens": 2716,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 4,
+          "relay_id": "0007-364d127f06b04a219b6359edfa7eb281",
+          "request_id": "c556080f-3973-4e30-a6a5-2b93e7863cd2",
+          "attempt_id": "34f59360-66fd-4220-8a5c-f53e59cde62e",
+          "step_id": "f5179fc0-4ae6-4fb4-84db-219e6d0aa2dd",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:abf930bc06445e066c6ad164f6b000960f6758f6b9bc7177eda88383a0234d9d",
+            "bytes": 15273,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ab/f9/abf930bc06445e066c6ad164f6b000960f6758f6b9bc7177eda88383a0234d9d",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 22
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:acd034b3d672d19113d3194c1623adf3405883060186b70efd5a4a662cb865ff",
+            "bytes": 1635,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ac/d0/acd034b3d672d19113d3194c1623adf3405883060186b70efd5a4a662cb865ff",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 24
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:309b6840228deea950d42e35876f83477d40fcc6070f1315e48e60b7734938ea",
+            "bytes": 1586,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/30/9b/309b6840228deea950d42e35876f83477d40fcc6070f1315e48e60b7734938ea",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:ba9b65dce8cf9b975337a6077c0fc7b970242eaf3792e3d1988158102de4ffb5",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ba/9b/ba9b65dce8cf9b975337a6077c0fc7b970242eaf3792e3d1988158102de4ffb5",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 2712,
+              "cache_write_tokens": null,
+              "input_tokens": 2816,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 5,
+          "relay_id": "0008-46052920981d49a9a7b7f357c16e009f",
+          "request_id": "ef87819f-dd4e-41d9-9ede-439d0feae9ce",
+          "attempt_id": "3f120831-c172-4750-b4ce-4f3fa1744f93",
+          "step_id": "7f0b8049-76ee-4924-8dc3-10d3134a9c28",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:9fd00c444e93f8b58c925a75ea48218e7d748cd7d6e6442cecc8ec1a3f61d3c6",
+            "bytes": 15805,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/9f/d0/9fd00c444e93f8b58c925a75ea48218e7d748cd7d6e6442cecc8ec1a3f61d3c6",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 27
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:a9dd19a46e541d7ce014d19a9a6da2e6a54d9ba3c56534c8001309e87ab094bd",
+            "bytes": 1623,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a9/dd/a9dd19a46e541d7ce014d19a9a6da2e6a54d9ba3c56534c8001309e87ab094bd",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 29
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:f6d7ef0506960e7d5cd56f0e384fd0a77260cb280765fc1eb1f4fd7bb8d8588d",
+            "bytes": 1574,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f6/d7/f6d7ef0506960e7d5cd56f0e384fd0a77260cb280765fc1eb1f4fd7bb8d8588d",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:31b4926ce51d9e34789eace9eaa040f8aea9327640857fb8659b80f271f0629b",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/31/b4/31b4926ce51d9e34789eace9eaa040f8aea9327640857fb8659b80f271f0629b",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 2812,
+              "cache_write_tokens": null,
+              "input_tokens": 2916,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 6,
+          "relay_id": "0009-21217ba92d38458e89de953bd807c5df",
+          "request_id": "b57fa747-9d31-48cc-981f-10c8e691c6af",
+          "attempt_id": "13d8303b-431b-4f60-8df4-c6a8b7672274",
+          "step_id": "b67bb805-c4fa-4dd8-8dce-b71a493366b9",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:32dd4962422d206461aa8f6e54991c3a6909603ed3423d8fdcbce089ad805759",
+            "bytes": 16337,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/32/dd/32dd4962422d206461aa8f6e54991c3a6909603ed3423d8fdcbce089ad805759",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 32
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:55126c23e001bdee6d22fdaf2315aaef6aefc047e82d268aad9f1d5f7ecc0f6c",
+            "bytes": 1635,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/55/12/55126c23e001bdee6d22fdaf2315aaef6aefc047e82d268aad9f1d5f7ecc0f6c",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 34
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:c4fa3c50fa28e9f9de71cabf6e20f019f9c3f41712cc18adc5d46d0c109334eb",
+            "bytes": 1586,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/c4/fa/c4fa3c50fa28e9f9de71cabf6e20f019f9c3f41712cc18adc5d46d0c109334eb",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:d5aad23e174051ffea9f861c36a094508fbfa9835af6985f0bb5f8cb5ddcb9ab",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/d5/aa/d5aad23e174051ffea9f861c36a094508fbfa9835af6985f0bb5f8cb5ddcb9ab",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 2912,
+              "cache_write_tokens": null,
+              "input_tokens": 3016,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 7,
+          "relay_id": "0010-1c538092b9b64f14b7ce4b4c80fd444f",
+          "request_id": "692c42cc-02fe-45dc-8df2-8dc4ee47d850",
+          "attempt_id": "78bebf0f-9c41-46cd-84ff-f39931295007",
+          "step_id": "7408d36b-37db-4f34-9860-fd0895db4db0",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:954490d1ef15987908c7625e318d842d7fc6c0b3d2516e4eb8f96fd85c2d56ff",
+            "bytes": 16869,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/95/44/954490d1ef15987908c7625e318d842d7fc6c0b3d2516e4eb8f96fd85c2d56ff",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 37
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:3196205ffb9a2e89687b428bd2d8b7ca77db774c12a8f73aab62ebaccd97e5b4",
+            "bytes": 1636,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/31/96/3196205ffb9a2e89687b428bd2d8b7ca77db774c12a8f73aab62ebaccd97e5b4",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 39
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:f2223d2f98357da35c5dbc723e4d15bad5ba81ab75d582c40ccd8bc13c77ff2f",
+            "bytes": 1587,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f2/22/f2223d2f98357da35c5dbc723e4d15bad5ba81ab75d582c40ccd8bc13c77ff2f",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:0aacbf5c8d5cf005b8bf16e01243b92cf175d02e2248ba4a0fd958e29c933896",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/0a/ac/0aacbf5c8d5cf005b8bf16e01243b92cf175d02e2248ba4a0fd958e29c933896",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3012,
+              "cache_write_tokens": null,
+              "input_tokens": 3116,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 8,
+          "relay_id": "0011-55b3e965505e4a7fa0953c6cd3411d13",
+          "request_id": "4aa6ec9e-9344-4624-a1a5-4454a6032cde",
+          "attempt_id": "6a45b3d0-9348-479b-a61d-1e07cf071c2a",
+          "step_id": "efe3e16b-9853-429d-ac4c-24efa354f012",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:e241ed39b953ccb3533250032208ae10fd905b0310d44b4045fed20615fb5cf4",
+            "bytes": 17401,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/e2/41/e241ed39b953ccb3533250032208ae10fd905b0310d44b4045fed20615fb5cf4",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 42
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:61e04c1d02096c0f3b5de61e28efd4e834d50f75983038cf575846e2a5e2bdb5",
+            "bytes": 1625,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/61/e0/61e04c1d02096c0f3b5de61e28efd4e834d50f75983038cf575846e2a5e2bdb5",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 44
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:f24f330150983ace62eeb9f9e42e02c894c05235c0b4770e3e984aebcf101ed2",
+            "bytes": 1576,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f2/4f/f24f330150983ace62eeb9f9e42e02c894c05235c0b4770e3e984aebcf101ed2",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:b3b81df97118e1ea794d844a310fbd68639b88a98afaba384ccc043a2913e592",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/b3/b8/b3b81df97118e1ea794d844a310fbd68639b88a98afaba384ccc043a2913e592",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3112,
+              "cache_write_tokens": null,
+              "input_tokens": 3216,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 9,
+          "relay_id": "0012-e3635d7eb17c49ff837280d957f883c6",
+          "request_id": "d7f59ea9-5b11-429f-8d31-56d934a15153",
+          "attempt_id": "ae249f7a-97a6-4f84-9131-073acbcd854f",
+          "step_id": "d5b43da8-708c-4e77-931d-52c28ec38e5b",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:bf0f65a19b08e49598178c9f37def2670af72a2e73c37a3346c65b4f06b94dbb",
+            "bytes": 17933,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bf/0f/bf0f65a19b08e49598178c9f37def2670af72a2e73c37a3346c65b4f06b94dbb",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 47
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:3a52fb0d56027eae2672f4630dcd821984a6655d29cbcb6f94ffd550c5058751",
+            "bytes": 1624,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/3a/52/3a52fb0d56027eae2672f4630dcd821984a6655d29cbcb6f94ffd550c5058751",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 49
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:6626ce9090a2879cf19ed22ad81f69e5cb66a3326a8ef3c28f9043066be73be9",
+            "bytes": 1575,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/66/26/6626ce9090a2879cf19ed22ad81f69e5cb66a3326a8ef3c28f9043066be73be9",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:50af4f9b9c72880ddc1a037cf01156596b5a206bbd6217be816dc98fb8524aac",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/50/af/50af4f9b9c72880ddc1a037cf01156596b5a206bbd6217be816dc98fb8524aac",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3212,
+              "cache_write_tokens": null,
+              "input_tokens": 3316,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 10,
+          "relay_id": "0013-1d1aa509203e4a1d902fd03e5dabf32c",
+          "request_id": "200a8770-960b-469b-9c4b-3bba18872268",
+          "attempt_id": "f68260e8-bc95-4986-9909-f6ff0270c17f",
+          "step_id": "64ff67cc-81fc-4fa3-85ea-47c15632863a",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:aea8282ea3070112ff97f639dd5feef351c1e28f53076b2fa226913ef5f1dbd2",
+            "bytes": 18465,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ae/a8/aea8282ea3070112ff97f639dd5feef351c1e28f53076b2fa226913ef5f1dbd2",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 52
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:ec19599418877f893f7b29327ecd6480b62e1e94c0c367b0325f916703c693c1",
+            "bytes": 1626,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ec/19/ec19599418877f893f7b29327ecd6480b62e1e94c0c367b0325f916703c693c1",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 54
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:d4332c90b4d7989254232de0c37e3333247f8250c163722348e92ea72bea9eff",
+            "bytes": 1577,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/d4/33/d4332c90b4d7989254232de0c37e3333247f8250c163722348e92ea72bea9eff",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:702dc5ddaa0f5b13979d7d782f8d584737b766b69afbd676334827f304c38fdc",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/70/2d/702dc5ddaa0f5b13979d7d782f8d584737b766b69afbd676334827f304c38fdc",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3312,
+              "cache_write_tokens": null,
+              "input_tokens": 3416,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 11,
+          "relay_id": "0014-360bfb29641d4f34bae482bfa0a5b96d",
+          "request_id": "761df92b-d160-4dd2-8447-cae2f61a2af6",
+          "attempt_id": "4d3bb256-d423-4926-842f-6f32e869bdaf",
+          "step_id": "606a5743-def6-4f2d-ad1b-786d66968242",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:fde7baab884eb0be8946d7ddc7f1d2b2e4b4892dd112d99a2a5298c1527ec9c5",
+            "bytes": 18997,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/fd/e7/fde7baab884eb0be8946d7ddc7f1d2b2e4b4892dd112d99a2a5298c1527ec9c5",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 57
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:73f95005061281479ffb85ceb6376d3239cd5ba8318c64f14d7b0995eb1ea2c4",
+            "bytes": 1634,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/73/f9/73f95005061281479ffb85ceb6376d3239cd5ba8318c64f14d7b0995eb1ea2c4",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 59
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:9711fc4824b6bcba575f479a5287ddc5c854a1e543d06803e9c7cbedadc32778",
+            "bytes": 1585,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/97/11/9711fc4824b6bcba575f479a5287ddc5c854a1e543d06803e9c7cbedadc32778",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:38ded0fe345fe11c2ccb0b584480c9c4c87791745497aa3ae2d5a218ce22896e",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/38/de/38ded0fe345fe11c2ccb0b584480c9c4c87791745497aa3ae2d5a218ce22896e",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3412,
+              "cache_write_tokens": null,
+              "input_tokens": 3516,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 12,
+          "relay_id": "0015-704dc4058c0648bb856115cab4b8a275",
+          "request_id": "7ce93b71-b10c-4432-adf8-aacec31c05ae",
+          "attempt_id": "739f99f7-659f-46fe-85a4-dada3766e5c1",
+          "step_id": "ead1f528-370a-4430-a88a-e66f8956ae00",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:0f31e8af8610f885809f855ea5d53d883d00f952cd9b6db0e9cc05664aef15c5",
+            "bytes": 19529,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/0f/31/0f31e8af8610f885809f855ea5d53d883d00f952cd9b6db0e9cc05664aef15c5",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 62
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:509b375f31311de0adffebb3a6794a45e8cb45e312b93d0b843f60239a021535",
+            "bytes": 1633,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/50/9b/509b375f31311de0adffebb3a6794a45e8cb45e312b93d0b843f60239a021535",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 64
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:8d43ce5a09aca602939825fdee6e14d4e4726076d4423c384188b20b8e9288f8",
+            "bytes": 1584,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/8d/43/8d43ce5a09aca602939825fdee6e14d4e4726076d4423c384188b20b8e9288f8",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:f57b9b72aabed90a59714980831e2a573ce04a93e094b3dbd3bbce90662b5768",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f5/7b/f57b9b72aabed90a59714980831e2a573ce04a93e094b3dbd3bbce90662b5768",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3512,
+              "cache_write_tokens": null,
+              "input_tokens": 3616,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 13,
+          "relay_id": "0016-4f586e63c8224aff95694cbc32d13cb6",
+          "request_id": "d43e14b9-86b9-4739-8d08-93d9bbc8216a",
+          "attempt_id": "7db8b5bb-8129-428b-8d9d-6b755ece5f1e",
+          "step_id": "349bf65a-6ab1-4b82-8cab-953f006c5b64",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:0f1e9c56cac8a1f1e688e43633236c2eee317f25fc3de0a8d26e4bb56bfc100e",
+            "bytes": 20061,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/0f/1e/0f1e9c56cac8a1f1e688e43633236c2eee317f25fc3de0a8d26e4bb56bfc100e",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 67
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:f451875a18c4ed4dd5b664e1b3d85a658c94b0d6a625546dc813a24952e96797",
+            "bytes": 1635,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f4/51/f451875a18c4ed4dd5b664e1b3d85a658c94b0d6a625546dc813a24952e96797",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 69
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:84fb22440d796b9b9d241943b415219126895d6be7c3cc7515b2f7a602e30b05",
+            "bytes": 1586,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/84/fb/84fb22440d796b9b9d241943b415219126895d6be7c3cc7515b2f7a602e30b05",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:de8ca0f6229e89b2b29f8968e8c1bc9a8b6dcbfe169dc4064fab46cfae688cf4",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/de/8c/de8ca0f6229e89b2b29f8968e8c1bc9a8b6dcbfe169dc4064fab46cfae688cf4",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3612,
+              "cache_write_tokens": null,
+              "input_tokens": 3716,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 14,
+          "relay_id": "0017-95aa7b8187a24809a9784790bd08338d",
+          "request_id": "1071245a-6519-4408-ab0c-8c132939ac8d",
+          "attempt_id": "f54f9e14-11d2-4dbf-bae3-b03113610a60",
+          "step_id": "441d44d1-e572-4afe-9e7d-8ba6997c4067",
+          "step_no": 1,
+          "step_state": "retired",
+          "T1_input_plan_ref": {
+            "digest": "blake3:67b007ff067cd74f0eb28bf489ad9fe857b183f079407669bd0ae649149323ca",
+            "bytes": 20593,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/67/b0/67b007ff067cd74f0eb28bf489ad9fe857b183f079407669bd0ae649149323ca",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 72
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:622b782af1dd2134fd5f2fb0ca119b69ee3e45f466287fb2d677d9974c5c9a88",
+            "bytes": 1636,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/62/2b/622b782af1dd2134fd5f2fb0ca119b69ee3e45f466287fb2d677d9974c5c9a88",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 74
+          },
+          "E1_model_result_ref": {
+            "digest": "blake3:a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "bytes": 111,
+            "media_type": "text/plain",
+            "store_namespace": "model_results",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a0/b1/a0b11ca1b3a2b878cb4e0e2d7169cc1720c849e29be8093d1dfbc2ae1f5a61b6",
+            "codec": {
+              "name": "text",
+              "major": 1,
+              "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+            }
+          },
+          "E1_model_outcome_ref": {
+            "digest": "blake3:5beb03b955e8a25d48e0abc176047da7eb8cf121bee099452b43da59d83d0b7e",
+            "bytes": 1587,
+            "media_type": "application/json",
+            "store_namespace": "model_outcomes",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/5b/eb/5beb03b955e8a25d48e0abc176047da7eb8cf121bee099452b43da59d83d0b7e",
+            "codec": {
+              "name": "SubjectModelOutcome",
+              "major": 2,
+              "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+            }
+          },
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:bc27d70825ae66f9ec5a0c2ccb16a2e368d40a8801a24652c202e0c2197f3539",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bc/27/bc27d70825ae66f9ec5a0c2ccb16a2e368d40a8801a24652c202e0c2197f3539",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "success",
+            "stop_reason": "stop",
+            "termination": {
+              "kind": "provider_terminal",
+              "length": false,
+              "max_tokens": 4096,
+              "output_tokens": 24,
+              "stop_reason": "stop"
+            },
+            "usage": {
+              "cache_read_tokens": 3712,
+              "cache_write_tokens": null,
+              "input_tokens": 3816,
+              "output_tokens": 24
+            }
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": true,
+          "E1_model_outcome_raw_response_sha256_matches": true,
+          "retry_reason_is_this_attempt_rejection": true
+        },
+        {
+          "attempt_ordinal": 15,
+          "relay_id": "0018-aabc32715f484546a8e49381276897a3",
+          "request_id": "eb38553b-d684-4592-ae65-4ac4b541f76d",
+          "attempt_id": "1dde9427-9899-4b24-8096-fd3e91ccc523",
+          "step_id": "9d1f3190-1bd6-44a1-9464-114b8807eec4",
+          "step_no": 1,
+          "step_state": "awaiting_model",
+          "T1_input_plan_ref": {
+            "digest": "blake3:f2b8e2ff4e1a7a7925bfa4f58e009bbf54fbd93c97af4f77ab601c0443b304f3",
+            "bytes": 21125,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f2/b8/f2b8e2ff4e1a7a7925bfa4f58e009bbf54fbd93c97af4f77ab601c0443b304f3",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 12,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "T1_request_created_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 77
+          },
+          "E1_request_result_ref": {
+            "digest": "blake3:431931442f1fe77457c0a152df29eb2c40cdbef58a49e4dfb996b1fd5edc6097",
+            "bytes": 526,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/43/19/431931442f1fe77457c0a152df29eb2c40cdbef58a49e4dfb996b1fd5edc6097",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "E1_result_recorded_commit": {
+            "ledger_id": "c6a2d603-df39-4bff-96b2-bb5fdda01c2b",
+            "seq": 79
+          },
+          "E1_model_result_ref": null,
+          "E1_model_outcome_ref": null,
+          "T2_decision_ref": null,
+          "T2_commit_ref": null,
+          "retry_reason_ref": {
+            "digest": "blake3:bc27d70825ae66f9ec5a0c2ccb16a2e368d40a8801a24652c202e0c2197f3539",
+            "bytes": 2053,
+            "media_type": "application/json",
+            "store_namespace": "control_rejections",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bc/27/bc27d70825ae66f9ec5a0c2ccb16a2e368d40a8801a24652c202e0c2197f3539",
+            "codec": {
+              "name": "ControlOutputRejection",
+              "major": 2,
+              "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+            }
+          },
+          "terminal_outcome": {
+            "status": "failed",
+            "stop_reason": null,
+            "termination": {
+              "kind": "unknown",
+              "length": false,
+              "max_tokens": null,
+              "output_tokens": null,
+              "stop_reason": null
+            },
+            "usage": null
+          },
+          "semantic_wait_in_frozen_input": null,
+          "request_byte_match": true,
+          "model_response_byte_match": null,
+          "retry_reason_is_this_attempt_rejection": false
+        }
+      ],
+      "judge_relay_id": null,
+      "retrievals": null,
+      "retrievals_note": "No candidate facts/acceptance artifact was produced; absence of executed retrieval is instead shown by Store tasks/intents/task_results and null T2 references",
+      "committed_output_text": null,
+      "consumed_results": null,
+      "usage_and_timing": {
+        "posted_requests": 15,
+        "responses_with_observed_usage": 14,
+        "requests_with_unobserved_usage": 1,
+        "observed_token_subtotal": {
+          "prompt_tokens": 44180,
+          "completion_tokens": 480,
+          "total_tokens": 44660,
+          "cached_prompt_tokens": 41770
+        },
+        "remote_attempt_elapsed_ms_all": 58224.41372682806,
+        "remote_attempt_elapsed_ms_observed_model_responses": 58209.6129138954,
+        "relay_elapsed_ms_all": 146635.74397898628,
+        "relay_minus_remote_attempt_ms_all": 88411.33025215822,
+        "token_total_is_complete": false,
+        "timing_is_native_provider_benchmark": false
+      }
+    }
+  ],
+  "requests": [
+    {
+      "relay_id": "0001-c36bb0faf7ea49a7afd1637376ec729f",
+      "sequence": 1,
+      "method": "GET",
+      "path": "/v1/models",
+      "request_path": "relay/queue/0001-c36bb0faf7ea49a7afd1637376ec729f/request.body",
+      "response_path": "relay/queue/0001-c36bb0faf7ea49a7afd1637376ec729f/response.body",
+      "headers_path": "relay/queue/0001-c36bb0faf7ea49a7afd1637376ec729f/response.headers",
+      "remote_receipt_path": "relay/queue/0001-c36bb0faf7ea49a7afd1637376ec729f/remote.json",
+      "delivery_receipt_path": "relay/queue/0001-c36bb0faf7ea49a7afd1637376ec729f/delivery.json",
+      "request_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "response_sha256": "c46e6f1d281ad7940f2cb7df82358cd1f38c6c37b26eb75be7736ac16ea4071a",
+      "headers_sha256": "2b11d3a5557213c40156e2ca9691b84253be9033d018943dd640821dfaa2f64f",
+      "request_bytes": 0,
+      "response_bytes": 680,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": false,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:42:07.141707+00:00",
+      "delivered_at_utc": "2026-11-15T17:42:35.494958+00:00",
+      "remote_started_at_utc": "2026-11-15T17:42:32.405989+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:42:32.417160+00:00",
+      "local_relay_elapsed_ms": 28353.340658002708,
+      "remote_elapsed_ms": 11.18190900888294,
+      "remote_attempt_elapsed_ms": 11.165229021571577,
+      "remote_curl_time_total_seconds": 0.0005,
+      "relay_minus_remote_attempt_ms": 28342.175428981136,
+      "capacity": null,
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": null,
+      "finish_reason": null,
+      "raw_assistant_content": null,
+      "condition": null,
+      "purpose": "service_models_probe"
+    },
+    {
+      "relay_id": "0002-cb18488cdea54ac68854a2ca9425f211",
+      "sequence": 2,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0002-cb18488cdea54ac68854a2ca9425f211/request.body",
+      "response_path": "relay/queue/0002-cb18488cdea54ac68854a2ca9425f211/response.body",
+      "headers_path": "relay/queue/0002-cb18488cdea54ac68854a2ca9425f211/response.headers",
+      "remote_receipt_path": "relay/queue/0002-cb18488cdea54ac68854a2ca9425f211/remote.json",
+      "delivery_receipt_path": "relay/queue/0002-cb18488cdea54ac68854a2ca9425f211/delivery.json",
+      "request_sha256": "0ce7a981a09a9f1395441c002288fe91e5d23d836d3e0faf9bf9fc62ec599af6",
+      "response_sha256": "87485a93fb7b1a2d6316cd798ba2bfb7f2b7a292a8772594f59f7071cc247b91",
+      "headers_sha256": "d6083eaa51b895288ff29c5817ba08481f5435f9e4f7233f3aff986066cb4a8f",
+      "request_bytes": 8097,
+      "response_bytes": 871,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:42:35.897824+00:00",
+      "delivered_at_utc": "2026-11-15T17:42:50.888340+00:00",
+      "remote_started_at_utc": "2026-11-15T17:42:37.185191+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:42:46.728459+00:00",
+      "local_relay_elapsed_ms": 14990.75626499689,
+      "remote_elapsed_ms": 9543.299790006131,
+      "remote_attempt_elapsed_ms": 9503.794607007876,
+      "remote_curl_time_total_seconds": 9.482639,
+      "relay_minus_remote_attempt_ms": 5486.9616579890135,
+      "capacity": {
+        "prompt_tokens": 1897,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 5993,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "0ce7a981a09a9f1395441c002288fe91e5d23d836d3e0faf9bf9fc62ec599af6",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 56,
+        "prompt_tokens": 1897,
+        "total_tokens": 1953,
+        "prompt_tokens_details": {
+          "cached_tokens": 1458
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[reply:private:10001] 你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。",
+      "condition": "baseline",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 1458,
+        "prompt_n": 439,
+        "prompt_ms": 5022.019,
+        "prompt_per_token_ms": 11.43967881548975,
+        "prompt_per_second": 87.4150416396274,
+        "predicted_n": 56,
+        "predicted_ms": 4099.525,
+        "predicted_per_token_ms": 74.53681818181818,
+        "predicted_per_second": 13.416188460858272
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "88327dc7-e1dd-41c0-b534-92bdd1f7c3d6",
+      "subject_attempt_ordinal": 1,
+      "store_step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b",
+      "input_plan_ref": {
+        "digest": "blake3:f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+        "bytes": 11135,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/f7/aa/f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 13,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true
+    },
+    {
+      "relay_id": "0003-84e10f830e31499e95dab12ea2ad6602",
+      "sequence": 3,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0003-84e10f830e31499e95dab12ea2ad6602/request.body",
+      "response_path": "relay/queue/0003-84e10f830e31499e95dab12ea2ad6602/response.body",
+      "headers_path": "relay/queue/0003-84e10f830e31499e95dab12ea2ad6602/response.headers",
+      "remote_receipt_path": "relay/queue/0003-84e10f830e31499e95dab12ea2ad6602/remote.json",
+      "delivery_receipt_path": "relay/queue/0003-84e10f830e31499e95dab12ea2ad6602/delivery.json",
+      "request_sha256": "adaac46e8bf23058eab1f31767f8d4fb6414496a11aa2f4ba4c3f1e392d6f67c",
+      "response_sha256": "4d7067f3adf2fe334ceca8d93cef9af567bc661fe7e3555446ad30a4b48ca3e5",
+      "headers_sha256": "70c8cb0b90a5fe00fab1de7720974f75e14ca8c370edf50a75d9837e6db9c29d",
+      "request_bytes": 5255,
+      "response_bytes": 1015,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:42:50.931632+00:00",
+      "delivered_at_utc": "2026-11-15T17:43:24.194809+00:00",
+      "remote_started_at_utc": "2026-11-15T17:42:53.103004+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:43:21.118467+00:00",
+      "local_relay_elapsed_ms": 33263.30399400467,
+      "remote_elapsed_ms": 28019.695709925145,
+      "remote_attempt_elapsed_ms": 27963.93532399088,
+      "remote_curl_time_total_seconds": 27.922173,
+      "relay_minus_remote_attempt_ms": 5299.368670013791,
+      "capacity": {
+        "prompt_tokens": 1745,
+        "requested_max_tokens": 8192,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 9937,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "adaac46e8bf23058eab1f31767f8d4fb6414496a11aa2f4ba4c3f1e392d6f67c",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 90,
+        "prompt_tokens": 1745,
+        "total_tokens": 1835,
+        "prompt_tokens_details": {
+          "cached_tokens": 4
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "EFFECTIVE\n\n理由：根据历史检索结果，最终修改了 `src/auth/refresh.ts` 和 `tests/auth/refresh-race.test.ts` 文件，确保只有最新请求能提交会话，并且旧响应仅记日志不覆盖状态。SameSite 仍保持 Lax，None 方案未实施。此修改基于历史记录中的候选方案和最终决策，且有明确的回归测试通过证据。",
+      "condition": "baseline",
+      "purpose": "judge",
+      "request_options": {
+        "max_tokens": 8192,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 4,
+        "prompt_n": 1741,
+        "prompt_ms": 15436.686,
+        "prompt_per_token_ms": 8.866562894887995,
+        "prompt_per_second": 112.78327485575596,
+        "predicted_n": 90,
+        "predicted_ms": 12305.586,
+        "predicted_per_token_ms": 138.26501123595506,
+        "predicted_per_second": 7.232487749872294
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "28892fa1-0f0c-4de6-8ff3-fedc00028b16",
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS judge result response.raw_response to origin response.body",
+      "response_CAS_raw_response_sha256_matches": true
+    },
+    {
+      "relay_id": "0004-37230583ad8140a1b756a602f188e6f4",
+      "sequence": 4,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0004-37230583ad8140a1b756a602f188e6f4/request.body",
+      "response_path": "relay/queue/0004-37230583ad8140a1b756a602f188e6f4/response.body",
+      "headers_path": "relay/queue/0004-37230583ad8140a1b756a602f188e6f4/response.headers",
+      "remote_receipt_path": "relay/queue/0004-37230583ad8140a1b756a602f188e6f4/remote.json",
+      "delivery_receipt_path": "relay/queue/0004-37230583ad8140a1b756a602f188e6f4/delivery.json",
+      "request_sha256": "abde4abb49ca4477784ed929feba17c70d84c938bfb5093b5dc356885d85d6cf",
+      "response_sha256": "827d007772ee1cf79dd48043b3042bf48f35eae09be9330126a3c4664ce873c7",
+      "headers_sha256": "17d395cb30b5f1f7617975c5a0fa12148513059be1f98b5bf2a1dc502e0b477b",
+      "request_bytes": 10050,
+      "response_bytes": 1373,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:43:24.618284+00:00",
+      "delivered_at_utc": "2026-11-15T17:43:49.087305+00:00",
+      "remote_started_at_utc": "2026-11-15T17:43:26.266732+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:43:45.009555+00:00",
+      "local_relay_elapsed_ms": 24469.444930000464,
+      "remote_elapsed_ms": 18742.837621015497,
+      "remote_attempt_elapsed_ms": 18695.990759995766,
+      "remote_curl_time_total_seconds": 18.683313,
+      "relay_minus_remote_attempt_ms": 5773.4541700046975,
+      "capacity": {
+        "prompt_tokens": 2372,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 6468,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "abde4abb49ca4477784ed929feba17c70d84c938bfb5093b5dc356885d85d6cf",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 168,
+        "prompt_tokens": 2372,
+        "total_tokens": 2540,
+        "prompt_tokens_details": {
+          "cached_tokens": 1458
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[remember] {\"goal\":\"核实Hydra auth refresh并发问题的修改记录\",\"system_prompt\":\"我需要通过历史检索能力核实Hydra auth refresh并发问题的修改记录，区分候选方案与已实施的修改，并给出可回查的来源。\",\"model\":\"gpt-4o\",\"max_tokens\":1024}\n[delegate:history.external.query:1] {\"op\":\"obelisk\",\"request\":{\"op\":\"search\",\"query\":\"Hydra auth refresh并发问题\",\"limit\":20}}\n[wait:replace] {\"condition\":\"需要区分候选方案与已实施的修改\",\"max_wait_secs\":120,\"reason\":\"我需要通过历史检索能力核实Hydra auth refresh并发问题的修改记录，区分候选方案与已实施的修改，并给出可回查的来源。\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 1458,
+        "prompt_n": 914,
+        "prompt_ms": 8390.288,
+        "prompt_per_token_ms": 9.179746170678337,
+        "prompt_per_second": 108.9354739670438,
+        "predicted_n": 168,
+        "predicted_ms": 10088.004,
+        "predicted_per_token_ms": 60.40720958083833,
+        "predicted_per_second": 16.554315402729816
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "2a7efe88-6e1d-4342-9458-9e7139e4429b",
+      "subject_attempt_ordinal": 1,
+      "store_step_id": "06fbc60f-28b7-42d0-a2c5-f88d605cccca",
+      "input_plan_ref": {
+        "digest": "blake3:8e2e990b5543ecdb40c27f0d1f6cdfdeac7d3d40936a293d19e94dbe4c39d3d5",
+        "bytes": 13065,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/8e/2e/8e2e990b5543ecdb40c27f0d1f6cdfdeac7d3d40936a293d19e94dbe4c39d3d5",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 13,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 3,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0005-86673de5ac7c410f924bb8bf1c2f31b6",
+      "sequence": 5,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0005-86673de5ac7c410f924bb8bf1c2f31b6/request.body",
+      "response_path": "relay/queue/0005-86673de5ac7c410f924bb8bf1c2f31b6/response.body",
+      "headers_path": "relay/queue/0005-86673de5ac7c410f924bb8bf1c2f31b6/response.headers",
+      "remote_receipt_path": "relay/queue/0005-86673de5ac7c410f924bb8bf1c2f31b6/remote.json",
+      "delivery_receipt_path": "relay/queue/0005-86673de5ac7c410f924bb8bf1c2f31b6/delivery.json",
+      "request_sha256": "e13cc6930ecd3c5403a135ee3d8805a1a7cfd5a604515c3aca3c05b7bac77657",
+      "response_sha256": "19d8ba287cf518d7ada479eace908b74ff39e304e51ca57059466cbbb434306d",
+      "headers_sha256": "35e805b333de2960960eea3cc7a0047d2d0a29044041bbcc9888e5ab28ab61da",
+      "request_bytes": 11148,
+      "response_bytes": 758,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:43:49.132889+00:00",
+      "delivered_at_utc": "2026-11-15T17:43:58.481301+00:00",
+      "remote_started_at_utc": "2026-11-15T17:43:50.880270+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:43:54.905517+00:00",
+      "local_relay_elapsed_ms": 9348.937919996388,
+      "remote_elapsed_ms": 4025.2597409999,
+      "remote_attempt_elapsed_ms": 3969.9565899791196,
+      "remote_curl_time_total_seconds": 3.95612,
+      "relay_minus_remote_attempt_ms": 5378.981330017268,
+      "capacity": {
+        "prompt_tokens": 2616,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 6712,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "e13cc6930ecd3c5403a135ee3d8805a1a7cfd5a604515c3aca3c05b7bac77657",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 2616,
+        "total_tokens": 2640,
+        "prompt_tokens_details": {
+          "cached_tokens": 2368
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 2368,
+        "prompt_n": 248,
+        "prompt_ms": 2484.432,
+        "prompt_per_token_ms": 10.017870967741935,
+        "prompt_per_second": 99.82160912433909,
+        "predicted_n": 24,
+        "predicted_ms": 1452.33,
+        "predicted_per_token_ms": 63.14478260869565,
+        "predicted_per_second": 15.836621153594571
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "c351732d-31e2-408c-8c68-6e152406cf70",
+      "subject_attempt_ordinal": 2,
+      "store_step_id": "c39a0944-d055-42f7-ae9c-bba2eeb6fcea",
+      "input_plan_ref": {
+        "digest": "blake3:dac9cdca66ce82165a7a01b76c620862ba2f7be338ad2e6bf06b0e2d7c3ad572",
+        "bytes": 14209,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/da/c9/dac9cdca66ce82165a7a01b76c620862ba2f7be338ad2e6bf06b0e2d7c3ad572",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0006-d3b53ebc26c64e39b2d37c26729099d7",
+      "sequence": 6,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0006-d3b53ebc26c64e39b2d37c26729099d7/request.body",
+      "response_path": "relay/queue/0006-d3b53ebc26c64e39b2d37c26729099d7/response.body",
+      "headers_path": "relay/queue/0006-d3b53ebc26c64e39b2d37c26729099d7/response.headers",
+      "remote_receipt_path": "relay/queue/0006-d3b53ebc26c64e39b2d37c26729099d7/remote.json",
+      "delivery_receipt_path": "relay/queue/0006-d3b53ebc26c64e39b2d37c26729099d7/delivery.json",
+      "request_sha256": "4f3937a88e38684e483fd4184824964c8f25e3693a5416de93f02af1495980e2",
+      "response_sha256": "2e9d00edbe90467bd3b51be1522461b4c59f4d95d817205b81bcbf91a3bcc0e4",
+      "headers_sha256": "35e805b333de2960960eea3cc7a0047d2d0a29044041bbcc9888e5ab28ab61da",
+      "request_bytes": 11634,
+      "response_bytes": 758,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:43:58.514748+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:07.379364+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:00.384028+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:03.069926+00:00",
+      "local_relay_elapsed_ms": 8864.814319997095,
+      "remote_elapsed_ms": 2685.899709002115,
+      "remote_attempt_elapsed_ms": 2639.130638097413,
+      "remote_curl_time_total_seconds": 2.630696,
+      "relay_minus_remote_attempt_ms": 6225.683681899682,
+      "capacity": {
+        "prompt_tokens": 2716,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 6812,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "4f3937a88e38684e483fd4184824964c8f25e3693a5416de93f02af1495980e2",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 2716,
+        "total_tokens": 2740,
+        "prompt_tokens_details": {
+          "cached_tokens": 2612
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 2612,
+        "prompt_n": 104,
+        "prompt_ms": 1160.141,
+        "prompt_per_token_ms": 11.155201923076923,
+        "prompt_per_second": 89.6442759974865,
+        "predicted_n": 24,
+        "predicted_ms": 1461.405,
+        "predicted_per_token_ms": 63.53934782608695,
+        "predicted_per_second": 15.738279258658618
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "babed633-2910-4cdf-a24b-98b81eab03b5",
+      "subject_attempt_ordinal": 3,
+      "store_step_id": "4456d3ac-93bf-4fdc-8af8-9b8022d354bf",
+      "input_plan_ref": {
+        "digest": "blake3:be0dbd5beadaf0cecc6300a006050b57ae9dc11005fb622beb6122737d8304f7",
+        "bytes": 14741,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/be/0d/be0dbd5beadaf0cecc6300a006050b57ae9dc11005fb622beb6122737d8304f7",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0007-364d127f06b04a219b6359edfa7eb281",
+      "sequence": 7,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0007-364d127f06b04a219b6359edfa7eb281/request.body",
+      "response_path": "relay/queue/0007-364d127f06b04a219b6359edfa7eb281/response.body",
+      "headers_path": "relay/queue/0007-364d127f06b04a219b6359edfa7eb281/response.headers",
+      "remote_receipt_path": "relay/queue/0007-364d127f06b04a219b6359edfa7eb281/remote.json",
+      "delivery_receipt_path": "relay/queue/0007-364d127f06b04a219b6359edfa7eb281/delivery.json",
+      "request_sha256": "fea1b273331d76e265749129c9522658d745155d162e0e58cad073b4ccb2d0fd",
+      "response_sha256": "4b69c330442b4fcd2e7a10db6f39fc99ed905397e2d928bfb4a332b14f98bfc0",
+      "headers_sha256": "35e805b333de2960960eea3cc7a0047d2d0a29044041bbcc9888e5ab28ab61da",
+      "request_bytes": 12120,
+      "response_bytes": 758,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:07.407084+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:16.563668+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:09.338406+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:12.020683+00:00",
+      "local_relay_elapsed_ms": 9156.804167003429,
+      "remote_elapsed_ms": 2682.288854965009,
+      "remote_attempt_elapsed_ms": 2645.4587320331484,
+      "remote_curl_time_total_seconds": 2.632995,
+      "relay_minus_remote_attempt_ms": 6511.345434970281,
+      "capacity": {
+        "prompt_tokens": 2816,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 6912,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "fea1b273331d76e265749129c9522658d745155d162e0e58cad073b4ccb2d0fd",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 2816,
+        "total_tokens": 2840,
+        "prompt_tokens_details": {
+          "cached_tokens": 2712
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 2712,
+        "prompt_n": 104,
+        "prompt_ms": 1026.465,
+        "prompt_per_token_ms": 9.86985576923077,
+        "prompt_per_second": 101.31860316718058,
+        "predicted_n": 24,
+        "predicted_ms": 1594.159,
+        "predicted_per_token_ms": 69.31126086956522,
+        "predicted_per_second": 14.427670012840625
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "c556080f-3973-4e30-a6a5-2b93e7863cd2",
+      "subject_attempt_ordinal": 4,
+      "store_step_id": "f5179fc0-4ae6-4fb4-84db-219e6d0aa2dd",
+      "input_plan_ref": {
+        "digest": "blake3:abf930bc06445e066c6ad164f6b000960f6758f6b9bc7177eda88383a0234d9d",
+        "bytes": 15273,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ab/f9/abf930bc06445e066c6ad164f6b000960f6758f6b9bc7177eda88383a0234d9d",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0008-46052920981d49a9a7b7f357c16e009f",
+      "sequence": 8,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0008-46052920981d49a9a7b7f357c16e009f/request.body",
+      "response_path": "relay/queue/0008-46052920981d49a9a7b7f357c16e009f/response.body",
+      "headers_path": "relay/queue/0008-46052920981d49a9a7b7f357c16e009f/response.headers",
+      "remote_receipt_path": "relay/queue/0008-46052920981d49a9a7b7f357c16e009f/remote.json",
+      "delivery_receipt_path": "relay/queue/0008-46052920981d49a9a7b7f357c16e009f/delivery.json",
+      "request_sha256": "2b92b2ac5b2d9dea0606232e14135384cfaac377bb4b781e395040c38a2bd53c",
+      "response_sha256": "4cd17c9fc3a14c89f62c256a10030af5b387342daf6691e4d3c8b3538564c5dc",
+      "headers_sha256": "2785cfa3f362b3c5bcc78a435d2dec37d6ffa8f0c0d64e5c1f7435e4759f5568",
+      "request_bytes": 12606,
+      "response_bytes": 746,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:16.582176+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:23.261619+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:18.253783+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:20.964550+00:00",
+      "local_relay_elapsed_ms": 6679.683492002368,
+      "remote_elapsed_ms": 2710.7799699297175,
+      "remote_attempt_elapsed_ms": 2668.2298380183056,
+      "remote_curl_time_total_seconds": 2.649404,
+      "relay_minus_remote_attempt_ms": 4011.453653984063,
+      "capacity": {
+        "prompt_tokens": 2916,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7012,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "2b92b2ac5b2d9dea0606232e14135384cfaac377bb4b781e395040c38a2bd53c",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 2916,
+        "total_tokens": 2940,
+        "prompt_tokens_details": {
+          "cached_tokens": 2812
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 2812,
+        "prompt_n": 104,
+        "prompt_ms": 1178.373,
+        "prompt_per_token_ms": 11.330509615384615,
+        "prompt_per_second": 88.25728355961992,
+        "predicted_n": 24,
+        "predicted_ms": 1454.75,
+        "predicted_per_token_ms": 63.25,
+        "predicted_per_second": 15.810276679841898
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "ef87819f-dd4e-41d9-9ede-439d0feae9ce",
+      "subject_attempt_ordinal": 5,
+      "store_step_id": "7f0b8049-76ee-4924-8dc3-10d3134a9c28",
+      "input_plan_ref": {
+        "digest": "blake3:9fd00c444e93f8b58c925a75ea48218e7d748cd7d6e6442cecc8ec1a3f61d3c6",
+        "bytes": 15805,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/9f/d0/9fd00c444e93f8b58c925a75ea48218e7d748cd7d6e6442cecc8ec1a3f61d3c6",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0009-21217ba92d38458e89de953bd807c5df",
+      "sequence": 9,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0009-21217ba92d38458e89de953bd807c5df/request.body",
+      "response_path": "relay/queue/0009-21217ba92d38458e89de953bd807c5df/response.body",
+      "headers_path": "relay/queue/0009-21217ba92d38458e89de953bd807c5df/response.headers",
+      "remote_receipt_path": "relay/queue/0009-21217ba92d38458e89de953bd807c5df/remote.json",
+      "delivery_receipt_path": "relay/queue/0009-21217ba92d38458e89de953bd807c5df/delivery.json",
+      "request_sha256": "c278d4a6ad59207d574f2703b6f55d98356fe6eda35d91cb746585d76d3f90fc",
+      "response_sha256": "c793734045e16fcb4cd90896d59da32d7c48f42897fb34860a4d369c5e3258cf",
+      "headers_sha256": "35e805b333de2960960eea3cc7a0047d2d0a29044041bbcc9888e5ab28ab61da",
+      "request_bytes": 13092,
+      "response_bytes": 758,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:23.284827+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:31.809904+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:25.877640+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:29.018016+00:00",
+      "local_relay_elapsed_ms": 8525.15601599589,
+      "remote_elapsed_ms": 3140.6131769763306,
+      "remote_attempt_elapsed_ms": 3082.2563089895993,
+      "remote_curl_time_total_seconds": 3.053766,
+      "relay_minus_remote_attempt_ms": 5442.899707006291,
+      "capacity": {
+        "prompt_tokens": 3016,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7112,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "c278d4a6ad59207d574f2703b6f55d98356fe6eda35d91cb746585d76d3f90fc",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3016,
+        "total_tokens": 3040,
+        "prompt_tokens_details": {
+          "cached_tokens": 2912
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 2912,
+        "prompt_n": 104,
+        "prompt_ms": 1261.45,
+        "prompt_per_token_ms": 12.129326923076924,
+        "prompt_per_second": 82.44480558087915,
+        "predicted_n": 24,
+        "predicted_ms": 1770.295,
+        "predicted_per_token_ms": 76.96934782608696,
+        "predicted_per_second": 12.992184918332821
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "b57fa747-9d31-48cc-981f-10c8e691c6af",
+      "subject_attempt_ordinal": 6,
+      "store_step_id": "b67bb805-c4fa-4dd8-8dce-b71a493366b9",
+      "input_plan_ref": {
+        "digest": "blake3:32dd4962422d206461aa8f6e54991c3a6909603ed3423d8fdcbce089ad805759",
+        "bytes": 16337,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/32/dd/32dd4962422d206461aa8f6e54991c3a6909603ed3423d8fdcbce089ad805759",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0010-1c538092b9b64f14b7ce4b4c80fd444f",
+      "sequence": 10,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0010-1c538092b9b64f14b7ce4b4c80fd444f/request.body",
+      "response_path": "relay/queue/0010-1c538092b9b64f14b7ce4b4c80fd444f/response.body",
+      "headers_path": "relay/queue/0010-1c538092b9b64f14b7ce4b4c80fd444f/response.headers",
+      "remote_receipt_path": "relay/queue/0010-1c538092b9b64f14b7ce4b4c80fd444f/remote.json",
+      "delivery_receipt_path": "relay/queue/0010-1c538092b9b64f14b7ce4b4c80fd444f/delivery.json",
+      "request_sha256": "aae0280234e8b22390bd35033b90cef523a380b6e59b1b95835b0c9e624acc33",
+      "response_sha256": "522235b556ba7b2ef99cfbb7986fd9a5892955a4f4746f1cc78fcefe71ca04b5",
+      "headers_sha256": "56892bfbfa8b3c686c4e2e75ffcca773c81038e34000b27c95a2bda46d5b9bea",
+      "request_bytes": 13578,
+      "response_bytes": 759,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:31.829543+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:41.570917+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:34.459656+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:37.290739+00:00",
+      "local_relay_elapsed_ms": 9741.636161001225,
+      "remote_elapsed_ms": 2831.095678033307,
+      "remote_attempt_elapsed_ms": 2783.4312740014866,
+      "remote_curl_time_total_seconds": 2.769972,
+      "relay_minus_remote_attempt_ms": 6958.204886999738,
+      "capacity": {
+        "prompt_tokens": 3116,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7212,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "aae0280234e8b22390bd35033b90cef523a380b6e59b1b95835b0c9e624acc33",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3116,
+        "total_tokens": 3140,
+        "prompt_tokens_details": {
+          "cached_tokens": 3012
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3012,
+        "prompt_n": 104,
+        "prompt_ms": 1145.871,
+        "prompt_per_token_ms": 11.017990384615386,
+        "prompt_per_second": 90.76065281344933,
+        "predicted_n": 24,
+        "predicted_ms": 1612.041,
+        "predicted_per_token_ms": 70.08873913043477,
+        "predicted_per_second": 14.267627188142237
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "692c42cc-02fe-45dc-8df2-8dc4ee47d850",
+      "subject_attempt_ordinal": 7,
+      "store_step_id": "7408d36b-37db-4f34-9860-fd0895db4db0",
+      "input_plan_ref": {
+        "digest": "blake3:954490d1ef15987908c7625e318d842d7fc6c0b3d2516e4eb8f96fd85c2d56ff",
+        "bytes": 16869,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/95/44/954490d1ef15987908c7625e318d842d7fc6c0b3d2516e4eb8f96fd85c2d56ff",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0011-55b3e965505e4a7fa0953c6cd3411d13",
+      "sequence": 11,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0011-55b3e965505e4a7fa0953c6cd3411d13/request.body",
+      "response_path": "relay/queue/0011-55b3e965505e4a7fa0953c6cd3411d13/response.body",
+      "headers_path": "relay/queue/0011-55b3e965505e4a7fa0953c6cd3411d13/response.headers",
+      "remote_receipt_path": "relay/queue/0011-55b3e965505e4a7fa0953c6cd3411d13/remote.json",
+      "delivery_receipt_path": "relay/queue/0011-55b3e965505e4a7fa0953c6cd3411d13/delivery.json",
+      "request_sha256": "dbdd168c993c36b2a7745be2e5920b470c35f88fffd5be4806edc852bd4cdac7",
+      "response_sha256": "3ff1f933926e3fec44d05ba9c11c9d310f6daf95aa78d1b60f07769f711f806c",
+      "headers_sha256": "ee71b9d055445dd44fed44f65d0951096dc8abfe374d114ed082e53811e42ec7",
+      "request_bytes": 14064,
+      "response_bytes": 748,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:41.621806+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:49.051418+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:43.740726+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:46.603985+00:00",
+      "local_relay_elapsed_ms": 7430.476469999121,
+      "remote_elapsed_ms": 2863.2710450328887,
+      "remote_attempt_elapsed_ms": 2803.4614579519257,
+      "remote_curl_time_total_seconds": 2.793777,
+      "relay_minus_remote_attempt_ms": 4627.015012047195,
+      "capacity": {
+        "prompt_tokens": 3216,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7312,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "dbdd168c993c36b2a7745be2e5920b470c35f88fffd5be4806edc852bd4cdac7",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3216,
+        "total_tokens": 3240,
+        "prompt_tokens_details": {
+          "cached_tokens": 3112
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3112,
+        "prompt_n": 104,
+        "prompt_ms": 1254.191,
+        "prompt_per_token_ms": 12.059528846153846,
+        "prompt_per_second": 82.92197918817787,
+        "predicted_n": 24,
+        "predicted_ms": 1521.404,
+        "predicted_per_token_ms": 66.148,
+        "predicted_per_second": 15.117615045050492
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "4aa6ec9e-9344-4624-a1a5-4454a6032cde",
+      "subject_attempt_ordinal": 8,
+      "store_step_id": "efe3e16b-9853-429d-ac4c-24efa354f012",
+      "input_plan_ref": {
+        "digest": "blake3:e241ed39b953ccb3533250032208ae10fd905b0310d44b4045fed20615fb5cf4",
+        "bytes": 17401,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/e2/41/e241ed39b953ccb3533250032208ae10fd905b0310d44b4045fed20615fb5cf4",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0012-e3635d7eb17c49ff837280d957f883c6",
+      "sequence": 12,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0012-e3635d7eb17c49ff837280d957f883c6/request.body",
+      "response_path": "relay/queue/0012-e3635d7eb17c49ff837280d957f883c6/response.body",
+      "headers_path": "relay/queue/0012-e3635d7eb17c49ff837280d957f883c6/response.headers",
+      "remote_receipt_path": "relay/queue/0012-e3635d7eb17c49ff837280d957f883c6/remote.json",
+      "delivery_receipt_path": "relay/queue/0012-e3635d7eb17c49ff837280d957f883c6/delivery.json",
+      "request_sha256": "2b4667959565da9fafa9df98955d047cb06a8a027c25a7944fac39aceb2be79d",
+      "response_sha256": "bd798c29c50dee901bb55bb5cffd13b8cc270789e2d061e46586705fcf339bf2",
+      "headers_sha256": "14ac710562936757d9c4013d8532b569657fdfd101a11efc30949f43af9e6325",
+      "request_bytes": 14550,
+      "response_bytes": 747,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:49.094937+00:00",
+      "delivered_at_utc": "2026-11-15T17:44:58.068907+00:00",
+      "remote_started_at_utc": "2026-11-15T17:44:51.098213+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:44:54.049807+00:00",
+      "local_relay_elapsed_ms": 8974.340546999883,
+      "remote_elapsed_ms": 2951.6059060115367,
+      "remote_attempt_elapsed_ms": 2895.5484910402447,
+      "remote_curl_time_total_seconds": 2.882458,
+      "relay_minus_remote_attempt_ms": 6078.792055959639,
+      "capacity": {
+        "prompt_tokens": 3316,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7412,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "2b4667959565da9fafa9df98955d047cb06a8a027c25a7944fac39aceb2be79d",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3316,
+        "total_tokens": 3340,
+        "prompt_tokens_details": {
+          "cached_tokens": 3212
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3212,
+        "prompt_n": 104,
+        "prompt_ms": 1123.605,
+        "prompt_per_token_ms": 10.803894230769231,
+        "prompt_per_second": 92.55921787460896,
+        "predicted_n": 24,
+        "predicted_ms": 1740.824,
+        "predicted_per_token_ms": 75.688,
+        "predicted_per_second": 13.21213402388754
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "d7f59ea9-5b11-429f-8d31-56d934a15153",
+      "subject_attempt_ordinal": 9,
+      "store_step_id": "d5b43da8-708c-4e77-931d-52c28ec38e5b",
+      "input_plan_ref": {
+        "digest": "blake3:bf0f65a19b08e49598178c9f37def2670af72a2e73c37a3346c65b4f06b94dbb",
+        "bytes": 17933,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bf/0f/bf0f65a19b08e49598178c9f37def2670af72a2e73c37a3346c65b4f06b94dbb",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0013-1d1aa509203e4a1d902fd03e5dabf32c",
+      "sequence": 13,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0013-1d1aa509203e4a1d902fd03e5dabf32c/request.body",
+      "response_path": "relay/queue/0013-1d1aa509203e4a1d902fd03e5dabf32c/response.body",
+      "headers_path": "relay/queue/0013-1d1aa509203e4a1d902fd03e5dabf32c/response.headers",
+      "remote_receipt_path": "relay/queue/0013-1d1aa509203e4a1d902fd03e5dabf32c/remote.json",
+      "delivery_receipt_path": "relay/queue/0013-1d1aa509203e4a1d902fd03e5dabf32c/delivery.json",
+      "request_sha256": "6b46e5aa7937e67553a3c52482160907d8d214e1e0a4cdd51deecc7859c8234b",
+      "response_sha256": "9ccdc5c54018d2120d5bb3dd4c8b4e245ea3ebfd4c653cdf5633f3a9a7ca2e8d",
+      "headers_sha256": "d2a8ecbcf3ddf0936cdebab3130e5d289a9c0fde07c237c9c83f05997eba6e33",
+      "request_bytes": 15036,
+      "response_bytes": 749,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:44:58.116469+00:00",
+      "delivered_at_utc": "2026-11-15T17:45:07.510208+00:00",
+      "remote_started_at_utc": "2026-11-15T17:45:00.204777+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:45:03.174611+00:00",
+      "local_relay_elapsed_ms": 9394.3274129997,
+      "remote_elapsed_ms": 2969.8463840177283,
+      "remote_attempt_elapsed_ms": 2922.4002870032564,
+      "remote_curl_time_total_seconds": 2.907928,
+      "relay_minus_remote_attempt_ms": 6471.927125996444,
+      "capacity": {
+        "prompt_tokens": 3416,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7512,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "6b46e5aa7937e67553a3c52482160907d8d214e1e0a4cdd51deecc7859c8234b",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3416,
+        "total_tokens": 3440,
+        "prompt_tokens_details": {
+          "cached_tokens": 3312
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3312,
+        "prompt_n": 104,
+        "prompt_ms": 1235.429,
+        "prompt_per_token_ms": 11.879125,
+        "prompt_per_second": 84.18128439594666,
+        "predicted_n": 24,
+        "predicted_ms": 1656.831,
+        "predicted_per_token_ms": 72.0361304347826,
+        "predicted_per_second": 13.881922779088514
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "200a8770-960b-469b-9c4b-3bba18872268",
+      "subject_attempt_ordinal": 10,
+      "store_step_id": "64ff67cc-81fc-4fa3-85ea-47c15632863a",
+      "input_plan_ref": {
+        "digest": "blake3:aea8282ea3070112ff97f639dd5feef351c1e28f53076b2fa226913ef5f1dbd2",
+        "bytes": 18465,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ae/a8/aea8282ea3070112ff97f639dd5feef351c1e28f53076b2fa226913ef5f1dbd2",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0014-360bfb29641d4f34bae482bfa0a5b96d",
+      "sequence": 14,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0014-360bfb29641d4f34bae482bfa0a5b96d/request.body",
+      "response_path": "relay/queue/0014-360bfb29641d4f34bae482bfa0a5b96d/response.body",
+      "headers_path": "relay/queue/0014-360bfb29641d4f34bae482bfa0a5b96d/response.headers",
+      "remote_receipt_path": "relay/queue/0014-360bfb29641d4f34bae482bfa0a5b96d/remote.json",
+      "delivery_receipt_path": "relay/queue/0014-360bfb29641d4f34bae482bfa0a5b96d/delivery.json",
+      "request_sha256": "818f6eeb6ff9a926af8a67c4ada02971de5460e91126a4d788b954d70f6d1fa0",
+      "response_sha256": "686321e7894936eb259768e2876cefe6d28ccca17ba659c7b8f514d862d785f1",
+      "headers_sha256": "e25f3c930d43fe075c3d51325687506b69be4c6656cf0c2071531bfcf05b0fef",
+      "request_bytes": 15522,
+      "response_bytes": 757,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:45:07.544790+00:00",
+      "delivered_at_utc": "2026-11-15T17:45:17.868693+00:00",
+      "remote_started_at_utc": "2026-11-15T17:45:09.248190+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:45:12.673000+00:00",
+      "local_relay_elapsed_ms": 10324.206461002177,
+      "remote_elapsed_ms": 3425.011597108096,
+      "remote_attempt_elapsed_ms": 3358.887176029384,
+      "remote_curl_time_total_seconds": 3.335791,
+      "relay_minus_remote_attempt_ms": 6965.319284972793,
+      "capacity": {
+        "prompt_tokens": 3516,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7612,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "818f6eeb6ff9a926af8a67c4ada02971de5460e91126a4d788b954d70f6d1fa0",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3516,
+        "total_tokens": 3540,
+        "prompt_tokens_details": {
+          "cached_tokens": 3412
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3412,
+        "prompt_n": 104,
+        "prompt_ms": 1386.52,
+        "prompt_per_token_ms": 13.331923076923077,
+        "prompt_per_second": 75.0079335314312,
+        "predicted_n": 24,
+        "predicted_ms": 1921.681,
+        "predicted_per_token_ms": 83.55134782608695,
+        "predicted_per_second": 11.968687831122855
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "761df92b-d160-4dd2-8447-cae2f61a2af6",
+      "subject_attempt_ordinal": 11,
+      "store_step_id": "606a5743-def6-4f2d-ad1b-786d66968242",
+      "input_plan_ref": {
+        "digest": "blake3:fde7baab884eb0be8946d7ddc7f1d2b2e4b4892dd112d99a2a5298c1527ec9c5",
+        "bytes": 18997,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/fd/e7/fde7baab884eb0be8946d7ddc7f1d2b2e4b4892dd112d99a2a5298c1527ec9c5",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0015-704dc4058c0648bb856115cab4b8a275",
+      "sequence": 15,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0015-704dc4058c0648bb856115cab4b8a275/request.body",
+      "response_path": "relay/queue/0015-704dc4058c0648bb856115cab4b8a275/response.body",
+      "headers_path": "relay/queue/0015-704dc4058c0648bb856115cab4b8a275/response.headers",
+      "remote_receipt_path": "relay/queue/0015-704dc4058c0648bb856115cab4b8a275/remote.json",
+      "delivery_receipt_path": "relay/queue/0015-704dc4058c0648bb856115cab4b8a275/delivery.json",
+      "request_sha256": "e43d81dd369998351d12d8975712a2c4273235befd838268e35f04ef6ea952fd",
+      "response_sha256": "04a46028498dc044af2bbca3dcc3970e7857329fe499305d605fb889ebfb7f42",
+      "headers_sha256": "a88400356611cd24aaae822ad8cdfb0de1a27dbf07e2291750be2a4878027f6f",
+      "request_bytes": 16008,
+      "response_bytes": 756,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:45:17.899774+00:00",
+      "delivered_at_utc": "2026-11-15T17:45:27.451053+00:00",
+      "remote_started_at_utc": "2026-11-15T17:45:19.735708+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:45:22.752432+00:00",
+      "local_relay_elapsed_ms": 9551.73720199673,
+      "remote_elapsed_ms": 3016.733892960474,
+      "remote_attempt_elapsed_ms": 2961.620712885633,
+      "remote_curl_time_total_seconds": 2.954911,
+      "relay_minus_remote_attempt_ms": 6590.116489111097,
+      "capacity": {
+        "prompt_tokens": 3616,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7712,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "e43d81dd369998351d12d8975712a2c4273235befd838268e35f04ef6ea952fd",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3616,
+        "total_tokens": 3640,
+        "prompt_tokens_details": {
+          "cached_tokens": 3512
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3512,
+        "prompt_n": 104,
+        "prompt_ms": 1364.134,
+        "prompt_per_token_ms": 13.116673076923076,
+        "prompt_per_second": 76.2388445709879,
+        "predicted_n": 24,
+        "predicted_ms": 1580.136,
+        "predicted_per_token_ms": 68.7015652173913,
+        "predicted_per_second": 14.55570912883448
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "7ce93b71-b10c-4432-adf8-aacec31c05ae",
+      "subject_attempt_ordinal": 12,
+      "store_step_id": "ead1f528-370a-4430-a88a-e66f8956ae00",
+      "input_plan_ref": {
+        "digest": "blake3:0f31e8af8610f885809f855ea5d53d883d00f952cd9b6db0e9cc05664aef15c5",
+        "bytes": 19529,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/0f/31/0f31e8af8610f885809f855ea5d53d883d00f952cd9b6db0e9cc05664aef15c5",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0016-4f586e63c8224aff95694cbc32d13cb6",
+      "sequence": 16,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0016-4f586e63c8224aff95694cbc32d13cb6/request.body",
+      "response_path": "relay/queue/0016-4f586e63c8224aff95694cbc32d13cb6/response.body",
+      "headers_path": "relay/queue/0016-4f586e63c8224aff95694cbc32d13cb6/response.headers",
+      "remote_receipt_path": "relay/queue/0016-4f586e63c8224aff95694cbc32d13cb6/remote.json",
+      "delivery_receipt_path": "relay/queue/0016-4f586e63c8224aff95694cbc32d13cb6/delivery.json",
+      "request_sha256": "ed749e3dad2ce9a81506533b9c9bc96b7e3bb2d444fd9f4b816ae1dcf8381205",
+      "response_sha256": "a05d76d0ee283803f0b016923ad82f120afb80d0daa66d551d84270d641169f9",
+      "headers_sha256": "35e805b333de2960960eea3cc7a0047d2d0a29044041bbcc9888e5ab28ab61da",
+      "request_bytes": 16494,
+      "response_bytes": 758,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:45:27.471861+00:00",
+      "delivered_at_utc": "2026-11-15T17:45:36.308639+00:00",
+      "remote_started_at_utc": "2026-11-15T17:45:29.323622+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:45:32.650174+00:00",
+      "local_relay_elapsed_ms": 8837.327514993376,
+      "remote_elapsed_ms": 3326.564610004425,
+      "remote_attempt_elapsed_ms": 3264.3302109790966,
+      "remote_curl_time_total_seconds": 3.245341,
+      "relay_minus_remote_attempt_ms": 5572.9973040142795,
+      "capacity": {
+        "prompt_tokens": 3716,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7812,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "ed749e3dad2ce9a81506533b9c9bc96b7e3bb2d444fd9f4b816ae1dcf8381205",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3716,
+        "total_tokens": 3740,
+        "prompt_tokens_details": {
+          "cached_tokens": 3612
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3612,
+        "prompt_n": 104,
+        "prompt_ms": 1301.101,
+        "prompt_per_token_ms": 12.51058653846154,
+        "prompt_per_second": 79.93230348758475,
+        "predicted_n": 24,
+        "predicted_ms": 1922.378,
+        "predicted_per_token_ms": 83.58165217391304,
+        "predicted_per_second": 11.964348322754422
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "d43e14b9-86b9-4739-8d08-93d9bbc8216a",
+      "subject_attempt_ordinal": 13,
+      "store_step_id": "349bf65a-6ab1-4b82-8cab-953f006c5b64",
+      "input_plan_ref": {
+        "digest": "blake3:0f1e9c56cac8a1f1e688e43633236c2eee317f25fc3de0a8d26e4bb56bfc100e",
+        "bytes": 20061,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/0f/1e/0f1e9c56cac8a1f1e688e43633236c2eee317f25fc3de0a8d26e4bb56bfc100e",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0017-95aa7b8187a24809a9784790bd08338d",
+      "sequence": 17,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0017-95aa7b8187a24809a9784790bd08338d/request.body",
+      "response_path": "relay/queue/0017-95aa7b8187a24809a9784790bd08338d/response.body",
+      "headers_path": "relay/queue/0017-95aa7b8187a24809a9784790bd08338d/response.headers",
+      "remote_receipt_path": "relay/queue/0017-95aa7b8187a24809a9784790bd08338d/remote.json",
+      "delivery_receipt_path": "relay/queue/0017-95aa7b8187a24809a9784790bd08338d/delivery.json",
+      "request_sha256": "01592c5a936709887766d3341031db20a79f2947a7db9c06ded28a3e0f65df8b",
+      "response_sha256": "3ced9aba037bea9af9ee768b597ceca3344f5eb1b16945403f9b94020cbc8f95",
+      "headers_sha256": "56892bfbfa8b3c686c4e2e75ffcca773c81038e34000b27c95a2bda46d5b9bea",
+      "request_bytes": 16980,
+      "response_bytes": 759,
+      "origin_http_status": 200,
+      "curl_exit": 0,
+      "origin_content_type": "application/json; charset=utf-8",
+      "delivery_status": "forwarded_raw_response",
+      "local_relay_http_status": 200,
+      "observed_model_output": true,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:45:36.333851+00:00",
+      "delivered_at_utc": "2026-11-15T17:45:46.264590+00:00",
+      "remote_started_at_utc": "2026-11-15T17:45:39.179575+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:45:42.745729+00:00",
+      "local_relay_elapsed_ms": 9930.873362995044,
+      "remote_elapsed_ms": 3567.2632780624554,
+      "remote_attempt_elapsed_ms": 3518.9104368910193,
+      "remote_curl_time_total_seconds": 3.49374,
+      "relay_minus_remote_attempt_ms": 6411.9629261040245,
+      "capacity": {
+        "prompt_tokens": 3816,
+        "requested_max_tokens": 4096,
+        "configured_context": 16384,
+        "prompt_plus_max_tokens": 7912,
+        "fits": true,
+        "source": "real server /apply-template followed by /tokenize; no inference performed",
+        "request_sha256": "01592c5a936709887766d3341031db20a79f2947a7db9c06ded28a3e0f65df8b",
+        "matches_actual_response_prompt_tokens": true
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 3816,
+        "total_tokens": 3840,
+        "prompt_tokens_details": {
+          "cached_tokens": 3712
+        }
+      },
+      "finish_reason": "stop",
+      "raw_assistant_content": "[wait:end] {\"reason\":\"运行时控制协议拒绝：CONTROL_PROTOCOL_INVALID，无法继续执行等待操作\"}",
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "server_timings": {
+        "cache_n": 3712,
+        "prompt_n": 104,
+        "prompt_ms": 1180.373,
+        "prompt_per_token_ms": 11.349740384615385,
+        "prompt_per_second": 88.10774221369007,
+        "predicted_n": 24,
+        "predicted_ms": 2284.017,
+        "predicted_per_token_ms": 99.30508695652173,
+        "predicted_per_second": 10.069977587732492
+      },
+      "system_fingerprint": "b12359-b1b770d90",
+      "token_usage_source": "unmodified llama.cpp HTTP response",
+      "store_request_id": "1071245a-6519-4408-ab0c-8c132939ac8d",
+      "subject_attempt_ordinal": 14,
+      "store_step_id": "441d44d1-e572-4afe-9e7d-8ba6997c4067",
+      "input_plan_ref": {
+        "digest": "blake3:67b007ff067cd74f0eb28bf489ad9fe857b183f079407669bd0ae649149323ca",
+        "bytes": 20593,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/67/b0/67b007ff067cd74f0eb28bf489ad9fe857b183f079407669bd0ae649149323ca",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Exact SHA256 and byte match of CAS subject result response.raw_response to origin response.body; input-plan request bytes also match",
+      "response_CAS_raw_response_sha256_matches": true,
+      "protocol_rejection": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 1,
+          "protocol": 3,
+          "reason": "no semantic wait exists in the frozen context"
+        }
+      }
+    },
+    {
+      "relay_id": "0018-aabc32715f484546a8e49381276897a3",
+      "sequence": 18,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "request_path": "relay/queue/0018-aabc32715f484546a8e49381276897a3/request.body",
+      "response_path": "relay/queue/0018-aabc32715f484546a8e49381276897a3/response.body",
+      "headers_path": "relay/queue/0018-aabc32715f484546a8e49381276897a3/response.headers",
+      "remote_receipt_path": "relay/queue/0018-aabc32715f484546a8e49381276897a3/remote.json",
+      "delivery_receipt_path": "relay/queue/0018-aabc32715f484546a8e49381276897a3/delivery.json",
+      "request_sha256": "0ecd77cdf2d362babbdcb770a6fd2daf768c913403dde95a47d511844b7ddb74",
+      "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "headers_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request_bytes": 17466,
+      "response_bytes": 0,
+      "origin_http_status": 0,
+      "curl_exit": 7,
+      "origin_content_type": "application/octet-stream",
+      "delivery_status": "transport_error",
+      "local_relay_http_status": 502,
+      "observed_model_output": false,
+      "request_sha_verified_across_machines": true,
+      "response_sha_verified_across_machines": true,
+      "headers_sha_verified": true,
+      "gzip_transport_roundtrip_verified": true,
+      "received_at_utc": "2026-11-15T17:45:46.287734+00:00",
+      "delivered_at_utc": "2026-11-15T17:45:51.693549+00:00",
+      "remote_started_at_utc": "2026-11-15T17:45:48.445327+00:00",
+      "remote_finished_at_utc": "2026-11-15T17:45:48.482991+00:00",
+      "local_relay_elapsed_ms": 5405.978002003394,
+      "remote_elapsed_ms": 37.67188708297908,
+      "remote_attempt_elapsed_ms": 14.800812932662666,
+      "remote_curl_time_total_seconds": 0.000195,
+      "relay_minus_remote_attempt_ms": 5391.177189070731,
+      "capacity": {
+        "preflight_curl_exit": 7,
+        "request_sha256": "0ecd77cdf2d362babbdcb770a6fd2daf768c913403dde95a47d511844b7ddb74"
+      },
+      "forward_attempts": 1,
+      "forward_retries": 0,
+      "usage": null,
+      "finish_reason": null,
+      "raw_assistant_content": null,
+      "condition": "candidate",
+      "purpose": "subject",
+      "request_options": {
+        "max_tokens": 4096,
+        "model": "Qwen3-1.7B-Q8_0"
+      },
+      "stream_requested": false,
+      "failure_note": "Empty origin body is not model output. Remote attempt timing includes a failed connection; actual inference and token usage are unobserved. The relay generated HTTP502; its error body is not represented as an origin model response.",
+      "local_relay_status_basis": "delivery.json transport_error plus relay_server.py curl-error branch",
+      "store_request_id": "eb38553b-d684-4592-ae65-4ac4b541f76d",
+      "subject_attempt_ordinal": 15,
+      "store_step_id": "9d1f3190-1bd6-44a1-9464-114b8807eec4",
+      "input_plan_ref": {
+        "digest": "blake3:f2b8e2ff4e1a7a7925bfa4f58e009bbf54fbd93c97af4f77ab601c0443b304f3",
+        "bytes": 21125,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f2/b8/f2b8e2ff4e1a7a7925bfa4f58e009bbf54fbd93c97af4f77ab601c0443b304f3",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "request_matches_CAS_payload_bytes": true,
+      "purpose_attribution_basis": "Unique byte-exact serialization match of CAS input-plan payload/binding to original request.body; failed CAS response is null and cannot be matched by response SHA",
+      "response_CAS_raw_response_sha256_matches": null
+    }
+  ]
+}

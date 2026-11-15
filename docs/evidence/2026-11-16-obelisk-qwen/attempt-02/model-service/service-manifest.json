@@ -1,0 +1,184 @@
+{
+  "created_at_utc": "2026-11-15T17:11:02.690043+00:00",
+  "purpose": "Small real Qwen provider for Shenko PR301 comparison runner; not equivalent to Qwen3.8-27B baseline",
+  "task_directory": "/workspace/shenko-obelisk-qwen-20261116",
+  "model": {
+    "id": "Qwen/Qwen3-1.7B-GGUF",
+    "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+    "file": "Qwen3-1.7B-Q8_0.gguf",
+    "file_bytes": 1834426016,
+    "quantization": "Q8_0",
+    "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+    "sha256_verified": true,
+    "source_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/90862c4b9d2787eaed51d12237eafdfe7c5f6077/Qwen3-1.7B-Q8_0.gguf"
+  },
+  "server": {
+    "upstream": "ggml-org/llama.cpp",
+    "release": "b12359",
+    "commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "version_output": "version: 1.0.0-dev (build 12359, commit b1b770d90)\nbuilt with GNU 11.4.0 for Linux x86_64",
+    "archive": "llama-b12359-bin-ubuntu-x64.tar.gz",
+    "archive_bytes": 23311084,
+    "archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+    "archive_url": "https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-ubuntu-x64.tar.gz",
+    "pid": 48637,
+    "base_url": "http://127.0.0.1:18831/v1",
+    "model_alias": "Qwen3-1.7B-Q8_0",
+    "host": "127.0.0.1",
+    "port": 18831,
+    "log": "/workspace/shenko-obelisk-qwen-20261116/logs/server-context16384.log",
+    "start_script": "start-server.sh",
+    "startup_script_sha256": "05a9d92295f7540ccc2120cf1b5e9bec57cd02b1c0023604b9181dbe74c53c05",
+    "context_tokens": 16384,
+    "parallel_slots": 1,
+    "cpu_threads": 4,
+    "prompt_threads": 4,
+    "http_threads": 2,
+    "gpu_layers": 0,
+    "kv_type_k": "f16",
+    "kv_type_v": "f16",
+    "reasoning": "off",
+    "context_shift": false,
+    "default_output_budget": 1024,
+    "server_timeout_seconds": 600,
+    "sampling_defaults": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "min_p": 0,
+      "presence_penalty": 1.5
+    },
+    "request_overrides_note": "Client request parameters may override sampling and output budget defaults; preserve exact runner request."
+  },
+  "resource_snapshot": {
+    "architecture": "x86_64",
+    "logical_cpu_count": 4,
+    "initial_ram_total": "7.7 GiB",
+    "initial_ram_available": "4.1 GiB",
+    "swap_bytes": 0,
+    "initial_disk_free": "37 GiB",
+    "gpu_observation": "nvidia-smi absent and no /dev/dri or /dev/nvidia* devices observed",
+    "post_load_ps": "    PID ELAPSED   RSS COMMAND\n  48510      74 2780712 /workspace/shenko-obelisk-qwen-20261116/server/llama-b12359/llama-server --model /workspace/shenko-obelisk-qwen-20261116/downloads/Qwen3-1.7B-Q8_0.gguf --alias Qwen3-1.7B-Q8_0 --host 127.0.0.1 --port 18831 --offline --no-webui --threads 4 --threads-batch 4 --threads-http 2 --ctx-size 8192 --parallel 1 --batch-size 512 --ubatch-size 128 --n-gpu-layers 0 --cache-type-k f16 --cache-type-v f16 --jinja --chat-template-kwargs {\"enable_thinking\":false} --reasoning off --n-predict 1024 --no-context-shift --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5 --timeout 600 --log-timestamps --log-colors off\n",
+    "post_load_free": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       4.6Gi       169Mi       968Ki       3.3Gi       3.2Gi\nSwap:             0B          0B          0B\n",
+    "context16384_free": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       5.5Gi       195Mi       976Ki       2.3Gi       2.2Gi\nSwap:             0B          0B          0B\n",
+    "context16384_ps": "    PID ELAPSED   RSS COMMAND\n  48637     109 3695592 /workspace/shenko-obelisk-qwen-20261116/server/llama-b12359/llama-server --model /workspace/shenko-obelisk-qwen-20261116/downloads/Qwen3-1.7B-Q8_0.gguf --alias Qwen3-1.7B-Q8_0 --host 127.0.0.1 --port 18831 --offline --no-webui --threads 4 --threads-batch 4 --threads-http 2 --ctx-size 16384 --parallel 1 --batch-size 512 --ubatch-size 128 --n-gpu-layers 0 --cache-type-k f16 --cache-type-v f16 --jinja --chat-template-kwargs {\"enable_thinking\":false} --reasoning off --n-predict 1024 --no-context-shift --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5 --timeout 600 --log-timestamps --log-colors off\n"
+  },
+  "smoke": {
+    "request_path": "requests/smoke.request.json",
+    "response_headers_path": "requests/smoke.response.headers",
+    "response_body_path": "requests/smoke.response.body.json",
+    "hashes_path": "requests/smoke.sha256",
+    "metrics": "http_status=200\ntime_total=0.399112",
+    "expected_assistant_content": "{\"status\":\"ready\"}",
+    "response": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"status\":\"ready\"}"
+          }
+        }
+      ],
+      "created": 1794762611,
+      "model": "Qwen3-1.7B-Q8_0",
+      "system_fingerprint": "b12359-b1b770d90",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 6,
+        "prompt_tokens": 28,
+        "total_tokens": 34,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "id": "chatcmpl-VpPheRV770sCCxTdX8QGmmQXt4tVvoZF",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 28,
+        "prompt_ms": 202.711,
+        "prompt_per_token_ms": 7.239678571428572,
+        "prompt_per_second": 138.12767930699368,
+        "predicted_n": 6,
+        "predicted_ms": 191.716,
+        "predicted_per_token_ms": 38.3432,
+        "predicted_per_second": 26.080243693797073
+      }
+    }
+  },
+  "health_response": {
+    "status": "ok"
+  },
+  "models_response": {
+    "models": [
+      {
+        "name": "Qwen3-1.7B-Q8_0",
+        "model": "Qwen3-1.7B-Q8_0",
+        "modified_at": "",
+        "size": "",
+        "digest": "",
+        "type": "model",
+        "description": "",
+        "tags": [
+          ""
+        ],
+        "capabilities": [
+          "completion"
+        ],
+        "parameters": "",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "",
+          "families": [
+            ""
+          ],
+          "parameter_size": "",
+          "quantization_level": ""
+        }
+      }
+    ],
+    "object": "list",
+    "data": [
+      {
+        "id": "Qwen3-1.7B-Q8_0",
+        "aliases": [
+          "Qwen3-1.7B-Q8_0"
+        ],
+        "tags": [],
+        "object": "model",
+        "architecture": {
+          "input_modalities": [
+            "text"
+          ],
+          "output_modalities": [
+            "text"
+          ]
+        },
+        "created": 1794763163,
+        "owned_by": "llamacpp",
+        "meta": {
+          "vocab_type": 2,
+          "n_vocab": 151936,
+          "n_ctx": 16384,
+          "n_ctx_train": 40960,
+          "n_embd": 2048,
+          "n_params": 1720574976,
+          "size": 1828474880,
+          "ftype": "Q8_0"
+        }
+      }
+    ]
+  },
+  "transfer_capability": "Box connector exposes text write_file/read_file and shell; no dedicated binary upload/download/artifact interface discovered. No reusable Shenko executable found in known task paths. Exact JSON request can be posted through post-request.sh without editing model output.",
+  "configuration_history": [
+    {
+      "context_tokens": 8192,
+      "pid": 48510,
+      "manifest": "metadata/service-manifest.context8192.json",
+      "log": "logs/server.log"
+    }
+  ],
+  "capacity_change_reason": "Before real paired smoke, 3.2 GiB available after 8K load allowed 16K context with unchanged f16 KV. Both arms use this same server configuration; each exact request also gets a read-only template/tokenize preflight."
+}

@@ -1,0 +1,18 @@
+{
+  "applicability": null,
+  "artifact_digest": "blake3:f14c1d65a83da656b9de2d224eb6c16d80f69a79699c4d81db429ccdc8cdef44",
+  "config": {
+    "compat": {
+      "format": "plugin",
+      "implementation": "history.obelisk"
+    }
+  },
+  "dependencies": [],
+  "kind": "code",
+  "provides": [
+    "history.obelisk"
+  ],
+  "revision": "1",
+  "schema": 3,
+  "unit_id": "history.obelisk"
+}

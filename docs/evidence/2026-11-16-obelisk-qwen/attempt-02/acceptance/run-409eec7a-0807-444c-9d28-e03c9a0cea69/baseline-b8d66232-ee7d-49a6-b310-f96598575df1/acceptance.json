@@ -1,0 +1,157 @@
+{
+  "committed": {
+    "consumed_results": [],
+    "input_plan_ref": {
+      "bytes": 11135,
+      "codec": {
+        "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a",
+        "major": 13,
+        "name": "subject_step_input"
+      },
+      "digest": "blake3:f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/f7/aa/f7aa3e0fcc975aad95f50bb945f4ffb88c6d47e3a197303c6353f9d1f59fb9e8",
+      "media_type": "application/json",
+      "store_namespace": "input_plans"
+    },
+    "installation": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1",
+    "message_event_id": "5933d942-0dfa-4fea-be8c-64961b96eefa",
+    "message_step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b",
+    "output": {
+      "controls": [
+        {
+          "action": {
+            "kind": "reply",
+            "target": {
+              "account": "qq:10000",
+              "channel": "qq",
+              "conversation": "10001",
+              "id": "10001",
+              "kind": "private",
+              "schema_version": 2,
+              "tenant": null
+            },
+            "text": "你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。"
+          },
+          "action_id": "5875b9f6-3940-4710-b49e-b4c5f09d03e5",
+          "spans": [
+            {
+              "end": 229,
+              "line": 1,
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "raw_ref": {
+        "bytes": 229,
+        "codec": {
+          "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19",
+          "major": 1,
+          "name": "text"
+        },
+        "digest": "blake3:1c3d69ce12899038ca589bfeb2068ac1eb4b4d09f55883dbc7d25860323f0082",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1c/3d/1c3d69ce12899038ca589bfeb2068ac1eb4b4d09f55883dbc7d25860323f0082",
+        "media_type": "text/plain",
+        "store_namespace": "model_results"
+      },
+      "schema_version": 5,
+      "step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b",
+      "text": "你好，关于Hydra auth refresh并发问题的修改，我需要先核实历史记录以确认具体改动。请提供相关的文件变更记录或日志信息，以便我进行准确的检索和分析。"
+    },
+    "step_id": "4b34e41d-36c6-4d0a-832e-e5a5f7c5479b"
+  },
+  "condition": "baseline",
+  "configuration_ref": {
+    "bytes": 630,
+    "codec": {
+      "digest": "blake3:6f9b6927228ad98444162e1a202914bf3ea3a88328c16d1b116f95051444187f",
+      "major": 1,
+      "name": "configuration"
+    },
+    "digest": "blake3:67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+    "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/67/bf/67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+    "media_type": "application/json",
+    "store_namespace": "obelisk-acceptance"
+  },
+  "effective": true,
+  "elapsed_ms": 48432,
+  "facts_ref": {
+    "bytes": 3163,
+    "codec": {
+      "digest": "blake3:89c1306f21f16f4d042d76c11a11e880affa73aec6cf82d85e20c3979ffad7c4",
+      "major": 1,
+      "name": "observed-facts"
+    },
+    "digest": "blake3:a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+    "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/a9/0b/a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+    "media_type": "application/json",
+    "store_namespace": "obelisk-acceptance"
+  },
+  "history_query_reads": 0,
+  "installation": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1",
+  "installation_ref": {
+    "bytes": 234,
+    "codec": {
+      "digest": "blake3:b74b9307b0752a9369bce47091da4d5480aead942523aa2efe0db5b46a667cd4",
+      "major": 1,
+      "name": "installation"
+    },
+    "digest": "blake3:1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+    "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1b/24/1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+    "media_type": "application/json",
+    "store_namespace": "obelisk-acceptance"
+  },
+  "judge_error": null,
+  "judge_receipt": {
+    "journal_id": "cognition-trial-judge/28892fa1-0f0c-4de6-8ff3-fedc00028b16",
+    "request_commit": {
+      "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+      "seq": 18
+    },
+    "request_id": "28892fa1-0f0c-4de6-8ff3-fedc00028b16",
+    "request_ref": {
+      "bytes": 7531,
+      "codec": {
+        "digest": "blake3:b8de5791fe88bc784337893a80e3f886e8a4a51d6e0231f883e365e58a8e281d",
+        "major": 1,
+        "name": "cognition-trial-judge-request"
+      },
+      "digest": "blake3:1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1d/b0/1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+      "media_type": "application/json",
+      "store_namespace": "native-cognition"
+    },
+    "result_commit": {
+      "ledger_id": "4ff1afb9-c765-4184-ae56-23d8aa49b8f1",
+      "seq": 20
+    },
+    "result_ref": {
+      "bytes": 2140,
+      "codec": {
+        "digest": "blake3:ad563b61fe6517f28cb77fa7f7350c929a5aaaa34a94b69cc28bd668519875cf",
+        "major": 1,
+        "name": "cognition-trial-judge-result"
+      },
+      "digest": "blake3:af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/af/88/af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+      "media_type": "application/json",
+      "store_namespace": "native-cognition"
+    }
+  },
+  "judge_text": "EFFECTIVE\n\n理由：根据历史检索结果，最终修改了 `src/auth/refresh.ts` 和 `tests/auth/refresh-race.test.ts` 文件，确保只有最新请求能提交会话，并且旧响应仅记日志不覆盖状态。SameSite 仍保持 Lax，None 方案未实施。此修改基于历史记录中的候选方案和最终决策，且有明确的回归测试通过证据。",
+  "native_obelisk_cli_reads": 0,
+  "sample_ref": {
+    "bytes": 2244,
+    "codec": {
+      "digest": "blake3:df65e425d1461cbf91344b127baef8c09cbe5c0c9ccc039c59770bf5ca13fd63",
+      "major": 1,
+      "name": "committed-output"
+    },
+    "digest": "blake3:3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+    "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/3e/41/3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+    "media_type": "application/json",
+    "store_namespace": "obelisk-acceptance"
+  },
+  "status": "scored",
+  "used_expected_reader": false
+}

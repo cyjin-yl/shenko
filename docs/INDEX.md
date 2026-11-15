@@ -15,6 +15,7 @@
 - [内核收敛计划](development/kernel-convergence.md)：代码向内核合同收敛的步骤；[依赖边界基线](state/kernel-boundary.json)由 `scripts/check_kernel_boundary.py` 检查，只查结构。
 - [AGENTS](../AGENTS.md) 与 [shenko-dev](../.agents/skills/shenko-dev/SKILL.md)：开发哲学与协作。
 - [实现地图](IMPLEMENTATION_DOCS_MAP.md)：调用点与实现缺口，不冒充运行验收。
+- [可选外部历史研究](specs/external-history.md)：Obelisk 查询、完整原文归档、可追溯引用；[实施 TODO 与验收](development/obelisk-history.md)。
 - [完整交付合同](governance/COMPLETION.md)：正式范围及证据等级。
 - [需求索引](requirements/README.md)：165 项需求、63 组行为、59 条来源、236 条具名验收。
 - [用户原话](requirements/user-sources.md)、[裁决记录](decisions/product-rulings.md)、[追踪矩阵](requirements/traceability.md)、[设计来源](requirements/design-provenance.md)。
@@ -24,7 +25,7 @@
 
 ## 领域合同
 
-[内核合同](specs/kernel.md)之外的 30 份领域合同保留原所有权；其中的规范和理由由该领域共同维护。每份领域合同相对内核的定位见[内核合同的对照表](specs/kernel.md#不属于内核的部分)。
+[内核合同](specs/kernel.md)之外已登记的领域合同保留原所有权；其中的规范和理由由该领域共同维护。每份领域合同相对内核的定位见[内核合同的对照表](specs/kernel.md#不属于内核的部分)。
 
 | 领域 | 拥有者 | 内容入口 |
 | --- | --- | --- |
@@ -40,6 +41,7 @@
 | [documentation](specs/documentation.md) | ArchDocs | 分域规范、接口、Why、错误与恢复 |
 | [durable-state](specs/durable-state.md) | ArchLedger | 分域规范、接口、Why、错误与恢复 |
 | [ecosystem-adapters](specs/ecosystem-adapters.md) | ArchEcosystem | 分域规范、接口、Why、错误与恢复 |
+| [external-history](specs/external-history.md) | ArchMemory | 可选 Obelisk 查询、完整原文与稳定引用、跨节点归档、执行及恢复边界 |
 | [inference](specs/inference.md) | ArchBroker | 分域规范、接口、Why、错误与恢复 |
 | [kernel](specs/kernel.md) | parent | 九条内核不变量、六栏 Why、参考插件的边界 |
 | [media](specs/media.md) | ArchMedia | 分域规范、接口、Why、错误与恢复 |

@@ -1,0 +1,128 @@
+{
+  "current_observed_state": "stopped_after_owned_cleanup",
+  "server_PID_identity_is_historical": true,
+  "files": [
+    {
+      "path": "model-service/final/metadata/post-run-pre-stop-observation.json",
+      "bytes": 12117,
+      "sha256": "6caec90369067637a07c21f11ea7b75817b421df9cca2440f55833428acb8b80"
+    },
+    {
+      "path": "model-service/final/metadata/operator-service-stop.json",
+      "bytes": 377,
+      "sha256": "5cdec9747d6b21e56304987fafa3dfdc6d526c288bfb7f5397beb8fefd726095"
+    },
+    {
+      "path": "model-service/final/metadata/server-exit.json",
+      "bytes": 320,
+      "sha256": "e6b7522263ba39bd7a0dfe19227db4573adda758e93422d3399fd4dc0181fb55"
+    },
+    {
+      "path": "model-service/final/metadata/post-run-resource-summary.json",
+      "bytes": 1258,
+      "sha256": "b08a0b253830fa2fdd3814608def2c3b87cd66bbfe7159b9d11912e4daa9d281"
+    },
+    {
+      "path": "model-service/final/logs/resources.jsonl",
+      "bytes": 87548,
+      "sha256": "265666645e4b27efb268db5037b502b506f50236448667df0cebec4a3f8c5d0e"
+    },
+    {
+      "path": "model-service/final/logs/server.log",
+      "bytes": 36810,
+      "sha256": "62911d4a9f75ead51cbeb6c1627eaf0105075af5109c825bdcd2a00e76f39f83"
+    },
+    {
+      "path": "model-service/final/local-transfer-verification.json",
+      "bytes": 443,
+      "sha256": "b6071294b9b11880f5a94c986dc721b940aa6241436d3bf27e19624fca89dcd8"
+    }
+  ],
+  "post_run_pre_stop_observed_at_utc": "2026-11-15T18:10:11.170802+00:00",
+  "post_run_pre_stop_health": {
+    "curl_exit": 0,
+    "stdout": "{\"status\":\"ok\"}\n200",
+    "stderr": ""
+  },
+  "post_run_pre_stop_server_exists": true,
+  "owned_operator_stop": {
+    "requested_at_utc": "2026-11-15T18:10:53.375886+00:00",
+    "server_pid": 49309,
+    "supervisor_pid": 49308,
+    "signal": "SIGTERM",
+    "reason": "paired smoke naturally finished; root authorized stopping owned model to release CPU",
+    "ownership_verified_by": "owned-process.json plus exact executable/model cmdline and parent PID",
+    "not_the_cause_of_runner_failure": true
+  },
+  "supervisor_exit_record": {
+    "server_pid": 49309,
+    "ended_at_utc": "2026-11-15T18:10:54.380335+00:00",
+    "returncode": 0,
+    "signal": null,
+    "observed_guard_reason": null,
+    "memory_after": {
+      "MemTotal_kib": 8113128,
+      "MemAvailable_kib": 3739164,
+      "SwapTotal_kib": 0,
+      "SwapFree_kib": 0
+    },
+    "kernel_cause_not_inferred": true
+  },
+  "resource_summary": {
+    "observed_at_utc": "2026-11-15T18:11:36.488844+00:00",
+    "server_process_exists": false,
+    "supervisor_process_exists": false,
+    "resource_samples": 512,
+    "max_observed_rss_kib": 3782740,
+    "min_observed_available_kib": 2044828,
+    "first_resource_sample": {
+      "utc": "2026-11-15T17:53:49.893279+00:00",
+      "pid": 49309,
+      "rss_kib": 472,
+      "MemTotal_kib": 8113128,
+      "MemAvailable_kib": 4290976,
+      "SwapTotal_kib": 0,
+      "SwapFree_kib": 0
+    },
+    "last_resource_sample": {
+      "utc": "2026-11-15T18:10:52.377932+00:00",
+      "pid": 49309,
+      "rss_kib": 3143524,
+      "MemTotal_kib": 8113128,
+      "MemAvailable_kib": 2652316,
+      "SwapTotal_kib": 0,
+      "SwapFree_kib": 0
+    },
+    "server_exit": {
+      "server_pid": 49309,
+      "ended_at_utc": "2026-11-15T18:10:54.380335+00:00",
+      "returncode": 0,
+      "signal": null,
+      "observed_guard_reason": null,
+      "memory_after": {
+        "MemTotal_kib": 8113128,
+        "MemAvailable_kib": 3739164,
+        "SwapTotal_kib": 0,
+        "SwapFree_kib": 0
+      },
+      "kernel_cause_not_inferred": true
+    },
+    "resource_stop_exists": false,
+    "model_requests_after_paired_runner": 0,
+    "reason_for_owned_stop": "paired run completed; root authorized release CPU",
+    "runner_exit_preceded_operator_stop": true
+  },
+  "resource_sample_aggregates_independently_recomputed": true,
+  "remote_transfer_verification": {
+    "verified_at_utc": "2026-11-15T18:12:16.586008+00:00",
+    "remote_archive": "/workspace/shenko-obelisk-qwen4b-20261116/service-evidence.tar.gz",
+    "archive_bytes": 151278,
+    "archive_sha256": "59d8271e99701feac015222668f52861f1c742d78df2146b073aba6aec2afaf7",
+    "all_file_members_verified": true,
+    "file_members_verified": 148,
+    "chunk_count": 10,
+    "transfer": "Base64 exact bytes with per-member SHA256 verified after archive SHA256"
+  },
+  "operator_stop_followed_runner_exit": true,
+  "timing_limit": "Server log records long prompt processing and later request cancellations; it does not supply successful provider usage for the timed-out requests"
+}

@@ -1,0 +1,206 @@
+{
+  "created_at_utc": "2026-11-15T17:55:44.441278+00:00",
+  "purpose": "Separate small-model exploration with Qwen3-4B; not an efficacy comparison against Qwen3.8-27B or a single-variable comparison against Qwen3-1.7B",
+  "task_directory": "/workspace/shenko-obelisk-qwen4b-20261116",
+  "model": {
+    "id": "Qwen/Qwen3-4B-GGUF",
+    "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "file": "Qwen3-4B-Q4_K_M.gguf",
+    "file_bytes": 2497280256,
+    "quantization": "Q4_K_M",
+    "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+    "sha256_verified": true,
+    "source_url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf"
+  },
+  "server": {
+    "release": "b12359",
+    "commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "version_output": "version: 1.0.0-dev (build 12359, commit b1b770d90)\nbuilt with GNU 11.4.0 for Linux x86_64",
+    "archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+    "pid": 49309,
+    "supervisor_pid": 49308,
+    "base_url": "http://127.0.0.1:18834/v1",
+    "model_alias": "Qwen3-4B-Q4_K_M",
+    "host": "127.0.0.1",
+    "port": 18834,
+    "context_tokens": 16384,
+    "parallel_slots": 1,
+    "cpu_threads": 4,
+    "prompt_threads": 4,
+    "http_threads": 2,
+    "gpu_layers": 0,
+    "flash_attention": "on",
+    "kv_type_k": "q8_0",
+    "kv_type_v": "q8_0",
+    "cache_ram_mib": 64,
+    "repack": false,
+    "reasoning": "off",
+    "context_shift": false,
+    "default_output_budget": 1024,
+    "server_timeout_seconds": 600,
+    "sampling_defaults": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "min_p": 0,
+      "presence_penalty": 1.5
+    },
+    "startup_script_sha256": "981b99c1b54e1dc1dcff5a8fbb7cebdd66904c0f851e588a7c0bea890146778c",
+    "log": "/workspace/shenko-obelisk-qwen4b-20261116/logs/server.log",
+    "process_supervisor": "supervise-server.py",
+    "auto_restart": false,
+    "resource_plan": {
+      "observed_at_utc": "2026-11-15T17:53:49.891940+00:00",
+      "initial_memory": {
+        "MemTotal_kib": 8113128,
+        "MemAvailable_kib": 4292224,
+        "SwapTotal_kib": 0,
+        "SwapFree_kib": 0
+      },
+      "weights_bytes": 2497280256,
+      "q8_0_kv_estimate_bytes": 1283457024,
+      "other_and_cache_reserve_bytes": 469762048,
+      "estimated_total_bytes": 4250499328,
+      "available_bytes": 4395237376,
+      "max_observed_rss_before_owned_termination_kib": 4194304,
+      "min_available_before_owned_termination_kib": 131072,
+      "prior_1_7b_pid_absent": true,
+      "automatic_restart": false,
+      "cache_ram_mib": 64,
+      "repack": false
+    },
+    "observed_startup_allocations": [
+      "0.01.514.495 I load_tensors:   CPU_Mapped model buffer size =  2375.91 MiB",
+      "0.01.518.053 I llama_context:        CPU  output buffer size =     0.58 MiB",
+      "0.02.432.615 I llama_kv_cache:        CPU KV buffer size =  1224.00 MiB",
+      "0.02.432.804 I init_rotation:        CPU rotation buffer size =     2.81 MiB",
+      "0.02.436.565 I sched_reserve:        CPU compute buffer size =    24.50 MiB",
+      "0.03.042.887 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 16384, kv_unified = 'false'",
+      "0.03.043.017 I slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384",
+      "1.53.590.803 I slot   operator(): id  0 | task 0 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 28"
+    ]
+  },
+  "models_response": {
+    "models": [
+      {
+        "name": "Qwen3-4B-Q4_K_M",
+        "model": "Qwen3-4B-Q4_K_M",
+        "modified_at": "",
+        "size": "",
+        "digest": "",
+        "type": "model",
+        "description": "",
+        "tags": [
+          ""
+        ],
+        "capabilities": [
+          "completion"
+        ],
+        "parameters": "",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "",
+          "families": [
+            ""
+          ],
+          "parameter_size": "",
+          "quantization_level": ""
+        }
+      }
+    ],
+    "object": "list",
+    "data": [
+      {
+        "id": "Qwen3-4B-Q4_K_M",
+        "aliases": [
+          "Qwen3-4B-Q4_K_M"
+        ],
+        "tags": [],
+        "object": "model",
+        "architecture": {
+          "input_modalities": [
+            "text"
+          ],
+          "output_modalities": [
+            "text"
+          ]
+        },
+        "created": 1794765261,
+        "owned_by": "llamacpp",
+        "meta": {
+          "vocab_type": 2,
+          "n_vocab": 151936,
+          "n_ctx": 16384,
+          "n_ctx_train": 40960,
+          "n_embd": 2560,
+          "n_params": 4022468096,
+          "size": 2491323904,
+          "ftype": "Q4_K - Medium"
+        }
+      }
+    ]
+  },
+  "health_response": {
+    "status": "ok"
+  },
+  "after_smoke_resources": {
+    "utc": "2026-11-15T17:55:43.943429+00:00",
+    "pid": 49309,
+    "rss_kib": 3761356,
+    "MemTotal_kib": 8113128,
+    "MemAvailable_kib": 3075740,
+    "SwapTotal_kib": 0,
+    "SwapFree_kib": 0
+  },
+  "smoke": {
+    "request": "requests/smoke.request.json",
+    "response": "requests/smoke.response.body.json",
+    "response_headers": "requests/smoke.response.headers",
+    "metrics": "http_status=200\ntime_total=0.877644",
+    "response_json": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"status\":\"ready\"}"
+          }
+        }
+      ],
+      "created": 1794765344,
+      "model": "Qwen3-4B-Q4_K_M",
+      "system_fingerprint": "b12359-b1b770d90",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 6,
+        "prompt_tokens": 28,
+        "total_tokens": 34,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "id": "chatcmpl-lw4IT60F4zT4lfEtYZ1m0L0U5pn4YWJU",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 28,
+        "prompt_ms": 508.014,
+        "prompt_per_token_ms": 18.143357142857145,
+        "prompt_per_second": 55.1165912750436,
+        "predicted_n": 6,
+        "predicted_ms": 363.501,
+        "predicted_per_token_ms": 72.7002,
+        "predicted_per_second": 13.755120343547887
+      }
+    }
+  },
+  "resource_differences_from_1_7b": [
+    "Official Q4_K_M instead of Q8_0 model weights",
+    "q8_0 K/V instead of f16",
+    "FlashAttention explicitly on",
+    "Cache RAM capped to 64 MiB instead of default 8192 MiB",
+    "Weight repacking disabled",
+    "Owned process RSS/available-memory guard and exit-status recorder enabled"
+  ]
+}

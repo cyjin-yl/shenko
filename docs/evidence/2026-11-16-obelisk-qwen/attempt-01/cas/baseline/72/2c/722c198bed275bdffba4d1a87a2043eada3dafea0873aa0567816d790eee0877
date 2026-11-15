@@ -1,0 +1,9 @@
+[reply:private:10001] 本次历史检索显示，最后一次修改发生在 src/auth/refresh.ts 和 tests/auth/refresh-race.test.ts。具体改动包括：
+
+1. **候选方案**：将 SameSite cookie 改为 None，以避免因 SameSite 属性引发的跨域问题，但该方案尚未实施。
+
+2. **已实施修改**：
+   - 在 `src/auth/refresh.ts` 中添加了 `generation` 计数器，用于确保只有最新请求能提交会话。
+   - 在 `tests/auth/refresh-race.test.ts` 中增加了重放测试，以验证响应乱序问题是否得到解决。
+
+这些改动旨在解决并发情况下旧响应覆盖新会话的问题，同时保留了 SameSite cookie 的策略不变。
