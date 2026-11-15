@@ -2,9 +2,12 @@
 
 每个实现范围对应**必读文档页**与**当前源码事实**。状态列只描述仓库里真实存在的接线程度，不描述运行验收——运行证据在 [evidence/](evidence/README.md)。
 
+2026-11-15 按 `054817b0d5729fed56ec5a974d101c31edfd1410` 及本次修复复核装配入口。下面的“已接线”不等于真实账号、模型、硬件或故障旅程已经验收；较早源码观察保留日期，不能当成当前缺失项。
+
 状态含义：
 
 - **已接线** — 该能力在 `bin/shenko` 的装配路径上有实际调用点。
+- **部分已接线** — 该领域有生产调用路径，但不能代表领域内全部能力已接入。
 - **仅源码** — 有实现与类型，但没有进入运行时装配。
 - **未实现** — 仓库里没有对应实现。
 
@@ -22,7 +25,7 @@
 
 ## 装配根
 
-- **运行时装配（`bin/shenko/src/main.rs`）** — 24 个 workspace crate 中有 20 个在此被装配（`shenko-memory`、`shenko-repl`、`shenko-update`、`shenko-exec-ssh`、`shenko-channel-napcat-link` 除外）。
+- **运行时装配（`bin/shenko/src/lib.rs`）** — CLI 的 `main.rs` 调用共享库 `run_cli`；共享库装配主体、原生处理器、记忆 worker、REPL、SSH seat、升级交接与按配置安装的渠道。工作区成员以根 `Cargo.toml` 为准；声明依赖与实际装配分别核对。
   - [§44](specs/plugins.md#spec-44)（首次启动与种子发行）
   - docs/specs/architecture.md（装配与事实归属）
 
@@ -45,7 +48,7 @@
   - [§41.5](specs/subject-runtime.md#spec-41-5)、[§44.6](specs/plugins.md#spec-44-6)
   - docs/requirements/requirements.json（R051）
 
-- **Node 安装单元（units.rs）** — 已接线（`shenko sync` 导出/导入单位包；`shenko-node` 被 6 个 crate 消费）
+- **Node 安装单元（units.rs）** — 已接线（`shenko sync` 导出/导入单位包）
   - [§45](specs/cognition-units.md#spec-45)
   - docs/specs/cognition-units.md
 
@@ -78,11 +81,11 @@
 
 ## 上下文与压缩
 
-- **Budget compact（shenko-compact-budget）** — 已接线（`BudgetCompactPlugin` 在 `main.rs` 注册）
+- **Budget compact（shenko-compact-budget）** — 已接线（`BudgetCompactPlugin` 在共享运行库注册）
   - [§12.3](specs/context-policies.md#spec-12-3)、[§35.3](specs/plugins.md#spec-35-3)
   - docs/specs/context-policies.md
 
-- **Snapcompact（shenko-compact-snap）** — 已接线（`SnapCompactPlugin` 在 `main.rs` 注册）
+- **Snapcompact（shenko-compact-snap）** — 已接线（`SnapCompactPlugin` 在共享运行库注册）
   - [§12.3](specs/context-policies.md#spec-12-3)、[§21.11](specs/web-interface.md#spec-21-11)
   - docs/specs/context-policies.md
 
@@ -96,13 +99,13 @@
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md
 
-- **Hook API（HookRegistry）** — 已接线（`main.rs` 创建 registry 并注入 subject loop）
+- **Hook API（HookRegistry）** — 已接线（`Supervisor` 持有 registry，共享运行库将同一实例注入 subject loop）
   - [§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md
   - 2026-11-11 读 `dd28003` 的补充（在 `db3970e` 上复核）：主体每步在四处派发钩子，但生产装配没有登记任何处理器；`context.collect` 钩子点只有定义，主体没有派发它。见[内核收敛计划](development/kernel-convergence.md)。
   - docs/requirements/requirements.json（R086、R087）
 
-- **Effect Contract** — 仅源码（`shenko-kernel/effect_contract.rs` 有定义，运行时装配无消费点）
+- **Effect Contract** — 已接线（`NativeTaskHandlerPlugin` 通过 `register_native_definition` 将处理器的 `effect_contracts()` 发布到运行时 provider/capability 目录；卸载时撤回登记。各处理器的执行与恢复语义仍须单独核对）
   - [§36](specs/durable-state.md#spec-36)
   - docs/specs/plugins.md
 
@@ -115,11 +118,11 @@
   - docs/specs/cognition-units.md
   - docs/requirements/acceptance-cases.json（SELF-01~03）
 
-- **记忆（shenko-memory：MemoryStore、intent 链、search）** — 仅源码（crate 存在于工作区并被 `bin/shenko` 声明为依赖，但运行时无调用点；`spawn_worker` 无生产调用者）
+- **记忆（shenko-memory：MemoryStore、intent 链、search）** — 已接线（`MemoryHandler` 与 `MemoryWorkerPlugin` 安装在共享运行库；worker 使用 `GitKnowledgeStore` 消费已提交 intent，接受意图与完成记忆分别记账）
   - [§12](specs/memory.md#spec-12)
   - docs/specs/memory.md
 
-- **研究 / PMA** — 未实现
+- **研究 / PMA** — 部分已接线（`research_handlers` 安装研究 epoch、candidate、bank 与 retention 原生操作；`MemoryInterventionPlugin` 装配模型驱动的记忆干预。完整研究效果与真实模型成效仍看各自证据）
   - [§14](specs/research-memory.md#spec-14)、[§12.4](specs/memory.md#spec-12-4)
   - docs/specs/research-memory.md
 
@@ -137,23 +140,23 @@
   - [§8.2](specs/wasm-tools.md#spec-8-2)
   - docs/specs/wasm-tools.md
 
-- **REPL（shenko-repl：kernel、journal、state）** — 仅源码（工作区内有 kernel/journal/state 与 R0/R1/R2 合同，运行时装配无调用点）
+- **REPL（shenko-repl：kernel、journal、state）** — 已接线（`ReplSessionHandler` 与 `ReplCellHandler` 共用会话 owner；会话参加升级交接。具体语言、WASM 兼容性与 R0/R1/R2 恢复证据分别核对）
   - [§19](specs/repl.md#spec-19)、[§19.1](specs/repl.md#spec-19-1)
   - docs/specs/repl.md
 
-- **Computer Use（X11 backend，exec-host）** — 已接线（4 个 handler 注册到同一 backend）
+- **Computer Use（X11 backend，exec-host）** — 已接线（会话、观察、lease、输入等处理器共用 backend；真实桌面与输入设备可用性是独立条件）
   - [§10.2.1](specs/durable-state.md#spec-10-2-1)、[§24](specs/desktop-runtime.md#spec-24)
   - docs/specs/desktop-runtime.md
 
-- **远程 seat（shenko-exec-ssh：SSH exec、tmux pane、seat 分类）** — 仅源码（工作区内有 `SeatKind::{ClaudeCode,Omp,Codex}` 与 pane 解析，运行时装配无调用点）
+- **远程 seat（shenko-exec-ssh：SSH exec、PTY、seat）** — 已接线（SSH、OMP/Claude seat、观察、回答与 fleet 处理器共用 `SeatRuntime`，启动时尝试重新绑定已有持久 seat；真实远端工具与完整问答/编码旅程单独验收）
   - [§11](specs/remote-seats.md#spec-11)、[§17](specs/remote-seats.md#spec-17)、[§35.5](specs/remote-seats.md#spec-35-5)
   - docs/specs/remote-seats.md
 
-- **自升级交接（shenko-update）** — 仅源码（状态机与一致性备份存在，运行时装配无调用点）
+- **自升级交接（shenko-update）** — 已接线（`UpdateControlHandler`、`update_control` 与 `update_runtime` 连接候选准备、安装控制通道、原生 worker/REPL/Playground 的 quiesce，以及有限 helper 的交接恢复）
   - [§9](specs/self-update.md#spec-9)、[§35.7](specs/self-update.md#spec-35-7)
   - docs/specs/self-update.md
 
-- **BuildProvider（exec-host/build_provider.rs）** — 仅源码
+- **候选构建 provider** — 已接线（`bin/shenko/src/update_control.rs` 使用 `shenko-update::build::CargoBuildProvider`；`exec-host/build_provider.rs` 的独立类型不能代替这一实际调用路径）
   - [§35.3](specs/plugins.md#spec-35-3)、[§35.4](specs/self-update.md#spec-35-4)
   - docs/specs/self-update.md
 
@@ -171,11 +174,11 @@
   - [§15.2](specs/contacts.md#spec-15-2)、[§35.6](specs/channels.md#spec-35-6)
   - docs/specs/contacts.md
 
-- **napcat-cli 适配（shenko-channel-napcat-link）** — 仅源码（可选 backend，feature 默认关闭，未被装配）
+- **napcat-cli 事件源** — 已接线（`NAPCAT_CLI_URL` 配置 `NapCatCliSource`，作为同一 QQ 渠道的附加 ingress 来源，共用持久去重与主体确认；独立 `shenko-channel-napcat-link` crate 的状态不能代表此生产路径）
   - [§16](specs/channel-adapters.md#spec-16)
   - docs/specs/channel-adapters.md
 
-- **官方 QQ / iLinkBot / 飞书适配器** — 未实现
+- **官方 QQ / iLinkBot / 飞书适配器** — 已接线（`SHENKO_CHANNELS_CONFIG` 经 `shenko-channel-adapters` 安装所配置平台，记录健康事实、持久 ingress、主体 disposition 与出站对账；未配置的平台不被宣称为可用）
   - [§15.3](specs/channel-adapters.md#spec-15-3)、[§16](specs/channel-adapters.md#spec-16)
   - docs/specs/channel-adapters.md
 
@@ -202,7 +205,7 @@
   - docs/specs/configuration-playground.md
   - docs/development/playground-backend-smoke.md（有限原生 HTTP + 重开 recipe，不是执行回执）
 
-- **真实 provider 流式输出到 UI** — 未实现（UI 现有输出是 S1 结果，不是 provider stream）
+- **provider 流式输出到 UI** — 已接线（`SubjectStreamJournal` 与 `UiPublicStreamSink` 注入主体的 `with_stream_sinks`，UI 使用同一 `StreamSink`；持续流式体验、重连和真实 provider 行为仍需对应运行证据）
   - [§21.12](specs/web-interface.md#spec-21-12)、[§48.4](specs/architecture.md#spec-48-4)
   - docs/specs/web-interface.md
 
@@ -212,7 +215,7 @@
   - [§22](specs/nodes.md#spec-22)、[§44](specs/plugins.md#spec-44)
   - docs/specs/nodes.md
 
-- **选举、quorum、fencing** — 未实现
+- **选举、quorum、fencing** — 已接线（`shenko-node/election.rs` 保留任期、成员配置、投票及主节点证明；`node_sync::establish_primary` 在启动时获取主节点 fence，无法获得 quorum 时进入显式 availability branch。控制接口的证明不等于完整运行时自动失效检测与跨物理节点容灾已验收）
   - [§22](specs/nodes.md#spec-22)
   - docs/specs/nodes.md
 

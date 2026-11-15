@@ -51,7 +51,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: >-
           python3 scripts/ci/ignored_test.py --package shenko-subject
-          --name recovery_tests::obligation_partition_tests::partition_orchestrator
+          --name loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator
       # Build outside the filter, then restrict only each actual test executable
       # and its normal CLI/Python descendants. Anonymous AF_UNIX socketpair IPC
       # remains available for subprocess startup; socket endpoints are denied.
@@ -81,6 +81,8 @@ jobs:
     runs-on: ubuntu-24.04
     container: node:24.22.1-bookworm
     timeout-minutes: 45
+    env:
+      CHROME_PATH: /usr/bin/chromium
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +92,8 @@ jobs:
       - name: Install the pinned-source driver prerequisites
         run: |
           apt-get update
-          apt-get install --yes --no-install-recommends python3
+          apt-get install --yes --no-install-recommends python3 chromium
+          "$CHROME_PATH" --version
       - name: Preserve the consumer and obtain its immutable upstream source
         run: python3 scripts/ci/web_assets.py prepare
       - uses: pnpm/action-setup@v4

@@ -20,7 +20,7 @@
 //! ```text
 //! SHENKO_OBLIGATION_PARTITION_ROOT=<fresh durable root> \
 //!   cargo test -p shenko-subject --lib \
-//!     recovery_tests::obligation_partition_tests::partition_orchestrator \
+//!     loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator \
 //!     -- --exact --ignored --nocapture
 //! ```
 //!
@@ -251,8 +251,8 @@ fn partition_settlement_json(
     )
 }
 
-/// The obligation projection exactly as stored, with the same text the
-/// archive carries so a row can be compared across stores and processes.
+/// The complete local obligation projection, including its local commit
+/// watermark. Same-store refusal and reopen checks compare every field.
 fn partition_obligation(dir: &Path, id: EntityId) -> serde_json::Value {
     let connection = rusqlite::Connection::open(dir.join("store.db")).unwrap();
     connection
@@ -805,6 +805,15 @@ async fn partition_settle_body(
     }
     let counts_after = partition_footprint(&store_dir);
     let cas_after = partition_cas(&store_dir);
+    // These intentionally cloned stores share a source ledger and export
+    // counter. Retain B's first real export, then make a later real export
+    // for exchange: otherwise its different content at A's same export
+    // order is correctly refused as source equivocation before the required
+    // obligation-unit check this journey is meant to exercise. Never patch
+    // archive metadata to bypass either check.
+    let preliminary_export = (peer == "b").then(|| {
+        partition_export(&store, &root.join("artifacts/peer-b-preliminary.archive"))
+    });
     let exported = partition_export(&store, &archive);
     drop(subject);
     drop(store);
@@ -848,6 +857,7 @@ async fn partition_settle_body(
         "counts_after": counts_after,
         "cas_before": cas_before,
         "cas_after": cas_after,
+        "preliminary_export": preliminary_export,
         "archive": exported,
     }))
 }
@@ -1041,12 +1051,13 @@ async fn partition_converge_body(started_at_ms: u64) -> anyhow::Result<serde_jso
     anyhow::ensure!(outcome.conflicts.is_empty(), "a convergent import reported conflicts: {:?}", outcome.conflicts);
     let obligation_after_import = partition_obligation(&store_dir, obligation);
     anyhow::ensure!(
-        obligation_after_import
+        replicated_obligation_projection(&obligation_after_import)
             == partition_row(&incoming_manifest, "subject_obligations", &obligation.to_string())
                 .map(|row| archive_row_as_projection(&row))
                 .ok_or_else(|| anyhow::anyhow!("the archive declares no such obligation"))?,
         "the imported obligation projection differs from the archive"
     );
+    partition_check_import_watermark(&store_dir, &obligation_after_import)?;
     let settlements_after_import = partition_settlement_json(&partition_settlements(&store));
     anyhow::ensure!(
         settlements_after_import == archive_settlements(&incoming_manifest),
@@ -1245,12 +1256,13 @@ fn partition_relay_body(started_at_ms: u64) -> anyhow::Result<serde_json::Value>
         "the relayed typed settlement differs from the archive"
     );
     anyhow::ensure!(
-        partition_obligation(&store_dir, obligation)
+        replicated_obligation_projection(&partition_obligation(&store_dir, obligation))
             == partition_row(&incoming_manifest, "subject_obligations", &obligation.to_string())
                 .map(|row| archive_row_as_projection(&row))
                 .ok_or_else(|| anyhow::anyhow!("the archive declares no such obligation"))?,
         "the relayed obligation projection differs from the archive"
     );
+    partition_check_import_watermark(&store_dir, &partition_obligation(&store_dir, obligation))?;
     drop(store);
     let reopened = partition_open(&store_dir);
     reopened.start_subject_dispatcher().map_err(|error| anyhow::anyhow!("{error:#}"))?;
@@ -1315,8 +1327,33 @@ fn archive_settlements(manifest: &serde_json::Value) -> serde_json::Value {
     serde_json::Value::Array(out)
 }
 
-/// Turn one archive projection row into the projection shape this module
-/// reads from SQLite, so a store row and an archive row are comparable.
+/// Replicated facts exclude `updated_seq`: it records the receiver's local
+/// import transaction, not the source's settlement commit. Creation and
+/// settlement provenance still travel in `created_seq` and the typed receipt.
+fn replicated_obligation_projection(projection: &serde_json::Value) -> serde_json::Value {
+    let mut replicated = projection.clone();
+    replicated.as_object_mut().expect("obligation projection object").remove("updated_seq");
+    replicated
+}
+
+/// A fresh receiver must stamp the imported projection with its own actual
+/// ledger commit. Do not accept an absent watermark or a copied source seq.
+fn partition_check_import_watermark(
+    dir: &Path,
+    projection: &serde_json::Value,
+) -> anyhow::Result<()> {
+    let updated = projection["updated_seq"].as_str()
+        .and_then(|seq| seq.parse::<i64>().ok())
+        .ok_or_else(|| anyhow::anyhow!("imported obligation has no local update sequence"))?;
+    anyhow::ensure!(updated > 0
+        && partition_footprint(dir)["ledger_max_seq"].as_i64() == Some(updated),
+        "the imported obligation does not name the receiver's import commit");
+    Ok(())
+}
+
+/// Turn one archive row into its replicated projection. The archive does not
+/// carry `updated_seq`; comparing a fabricated empty value to a local commit
+/// sequence used to reject every otherwise correct fresh-store import.
 fn archive_row_as_projection(row: &serde_json::Value) -> serde_json::Value {
     let values = row["values"].as_array().cloned().unwrap_or_default();
     let field = |name: &str| {
@@ -1346,7 +1383,6 @@ fn archive_row_as_projection(row: &serde_json::Value) -> serde_json::Value {
         "decision_ref": text("decision_ref"),
         "created_seq": seq("created_seq"),
         "state": text("state"),
-        "updated_seq": seq("updated_seq"),
     })
 }
 
@@ -1602,11 +1638,16 @@ async fn partition_orchestrate(run: &mut PartitionRun) -> anyhow::Result<()> {
             && a["obligation_after"]["state"] != b["obligation_after"]["state"]
             && a["settlements"].as_array().map(Vec::len) == Some(1)
             && b["settlements"].as_array().map(Vec::len) == Some(1)
+            && b["archive"]["identity"]["source_snapshot_seq"].as_u64()
+                > a["archive"]["identity"]["source_snapshot_seq"].as_u64()
+            && b["preliminary_export"]["identity"]["fingerprint"]
+                == b["archive"]["identity"]["fingerprint"]
             && a["counts_after"]["counts"]["cognition_import_order"] == serde_json::json!(0)
             && b["counts_after"]["counts"]["cognition_import_order"] == serde_json::json!(0),
         serde_json::json!({
             "peer_a": a["obligation_after"],
             "peer_b": b["obligation_after"],
+            "peer_b_preliminary_export": b["preliminary_export"],
         }),
     );
     for (name, receipt) in [("peer-a", &a), ("peer-b", &b)] {
