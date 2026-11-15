@@ -69,8 +69,15 @@ remain. No runtime services, remote nodes or user effects were started.
 This is control-plane safety evidence, not full distributed product acceptance.
 Certificates contain voter identities, not independent cryptographic vote
 signatures; authenticated peer transport is still a required trust boundary.
-This patch does not prove Byzantine tolerance or serialize every possible
-concurrent membership proposer.
+This patch does not prove Byzantine tolerance or full log-commit safety.
+Membership ballots were scoped only by proposal digest, so the same voter
+could grant two different proposals from one base in a term. The follow-up
+below fences that concrete conflict. A proposal vote still does not durably
+append the proposed entry to the voter's control log before the proposer calls it committed.
+Thus a crash before replication can leave another voting majority unaware of
+that entry. Refusing divergent prefixes preserves evidence but does not by
+itself supply Raft's log-commit safety. Quorum persistence of the actual
+control entry remains a distributed-release blocker.
 
 `bin/shenko/src/lib.rs` establishes a primary or explicit availability branch
 before spawning `run_subject_loop`, and records a fenced role observation.
@@ -82,6 +89,66 @@ The subject's branch/controller commit guard remains a separate local Store
 mechanism. Connecting those boundaries must preserve the requirement that
 isolated intelligent branches may continue with their own explicit history;
 absence of a global quorum is not a blanket prohibition on local work.
+
+The startup no-quorum path additionally creates a Node `BranchFact` with a
+fresh identifier, without changing the Store head or the Node's subject
+identity. It therefore does not perform the actual subject branch fork. The
+existing update adapter correctly requires all three branch identities to
+match; creating a branch fact alone cannot satisfy that binding.
+
+A bounded next integration needs an explicit durable authority binding at the
+Store's existing S1 and dispatch fences, and a crash-recoverable Node/Store
+transition with a fixed lock order. S1 already checks `checked_head`; native
+dispatch already checks controller epoch and dispatcher ownership; publication
+arming already checks the authoring epoch. A newly observed authoritative
+change must fence those same resources while retaining late result/receipt
+facts. Merely polling Node between Store operations leaves a check/commit race.
+The availability path also needs a real fresh-branch continuation with causal
+parent and unknown-effect history, rather than overwriting the old branch or
+gating all local work on global quorum.
+
+## Follow-up: current token consumers and membership ownership
+
+The follow-up keeps the historical claim API intact while making
+`fencing_token` return only a currently usable fence, with its claim, term and
+configuration read in one SQLite snapshot. `check_fencing` compares the exact
+token. Status projections no longer label a historical claim as current quorum.
+The update adapter returns the fields of the exact token it checked; it no
+longer reads one claim and then potentially validates a different newer token.
+An already merged availability branch cannot supply local update authority.
+
+New member proposals and uncommitted tallies now require the current committed
+leader. A voter's existing proposal rows reserve one compatible proposal and
+candidate for each base/term, including ballots retained from older writers.
+Checking and granting use the same immediate transaction, so two concurrent
+requests cannot both win different reservations. Compatible replay keeps the
+original row; a changed proposal is explicitly refused. A stale/outside
+configuration request or membership proposal cannot advance the term. The
+CLI establishes current primary authority before add/remove, so singleton
+bootstrap remains usable. Historical committed tally replay remains readable
+after a real leader change. These restrictions govern domain reconfiguration,
+not an isolated branch's right to retain experience and work locally.
+
+Source hashes for that follow-up:
+
+| File | SHA-256 |
+| --- | --- |
+| `crates/shenko-node/src/election.rs` | `e1f58f951e0f77947bca123a1661e59e20723eb86526501ac7953b148734ec0e` |
+| `crates/shenko-node/src/capability.rs` | `d84f70fe1d6bd754a1bf663f6cd0d9dac2ae01678fa95eade5a8872090135d42` |
+| `bin/shenko/src/node_sync.rs` | `d2326a043fdda4fe23aa7eb3c02642db279db3bfeb139d261f432f4ab085080a` |
+| `bin/shenko/src/update_runtime.rs` | `24fe37bb5e543b49db805e8a87d268eb7fecf6920329c6655ac97c1952c8a611` |
+
+The existing delayed-response regression also checks absent current tokens,
+false current-quorum status and retention of the historical claim. The same
+membership journey now checks conflicting proposals, exact ballot replay,
+an actual A-to-B primary change, and stale/outside requests that leave the
+term unchanged. No new independent test journey is added.
+
+The same focused library command passed **16/16** with one build job;
+`evidence/node-consumers-fixed.log` retains that result. The same existing
+process integration command passed **3/3**, retained in
+`evidence/node-consumers-process-fixed.log`. The combined application build
+and final integration evidence belong to the integrator's candidate.
 
 No real-model behavior, physical multi-device partition, automatic takeover,
 full update/rollback or long-running reliability result is asserted. Acceptance

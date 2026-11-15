@@ -939,6 +939,8 @@ fn member_change(
         !add.is_empty() || !remove.is_empty(),
         "membership change must add or remove at least one member"
     );
+    ensure!(establish_primary(data_dir, store, cancel)?.is_some(),
+        "membership change requires a current primary; local availability work may continue without domain reconfiguration");
     let mut node = open_node(data_dir, store)?;
     node.ensure_member_configuration()?;
     let revision = node
@@ -1216,7 +1218,7 @@ fn rejoin_with_peer(
         "merged_branches": merged,
         "committed_primary_claim": claim,
         "this_node_is_primary": node.is_primary()?,
-        "globally_claiming_quorum": claim.is_some(),
+        "globally_claiming_quorum": node.fencing_token()?.is_some(),
         "note": "merged facts are parallel facts; the domain primary is only the committed claim",
     });
     report_cognition_publication(&mut value, &cognition);

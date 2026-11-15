@@ -698,6 +698,59 @@ impl Node {
             .transpose()
     }
 
+    fn current_primary_matches(
+        conn: &Connection,
+        config: &MemberConfiguration,
+        candidate: VoterId,
+        term: u64,
+    ) -> Result<bool> {
+        Ok(term == state_number(conn, "term")?
+            && config.is_member(candidate)
+            && get_state::<PrimaryClaim>(conn, "primary")?.is_some_and(|claim| {
+                claim.term == term && claim.leader_node_id == candidate.to_string()
+            }))
+    }
+
+    fn member_change_term(
+        conn: &Connection,
+        config: &MemberConfiguration,
+        candidate: VoterId,
+    ) -> Result<u64> {
+        let term = state_number(conn, "term")?;
+        ensure!(Self::current_primary_matches(conn, config, candidate, term)?,
+            "membership change requires the current committed primary");
+        Ok(term)
+    }
+
+    /// One compatible proposal per base and term. The existing local ballots
+    /// are the durable reservation, including ballots written before this
+    /// guard existed. The caller holds the same IMMEDIATE transaction while
+    /// checking and inserting, so two concurrent requests cannot both win.
+    fn compatible_member_ballot(
+        conn: &Connection,
+        voter: VoterId,
+        request: &VoteRequest,
+    ) -> Result<bool> {
+        let proposal = request.proposal.as_ref().context("membership ballot lacks a proposal")?;
+        let mut statement = conn.prepare(
+            "SELECT data FROM node_votes WHERE term=?1 AND voter=?2 AND scope LIKE 'proposal:%'",
+        )?;
+        let rows = statement.query_map(
+            params![i64::try_from(request.term)?, voter.to_string()], |row| row.get::<_, String>(0),
+        )?;
+        for raw in rows {
+            let prior: VoteRequest = serde_json::from_str(&raw?)?;
+            if let Some(previous) = prior.proposal {
+                if previous.base_revision == proposal.base_revision
+                    && (prior.candidate_id != request.candidate_id || previous.digest != proposal.digest)
+                {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     fn last_log_position(conn: &Connection) -> Result<(u64, u64)> {
         let row: Option<(i64, i64)> = conn
             .query_row(
@@ -789,39 +842,39 @@ impl Node {
         })
     }
 
-    /// The fencing token of the currently committed primary.
+    /// The currently usable primary fence, read from one SQLite snapshot.
+    /// Historical claims remain available through `committed_primary_claim`,
+    /// but a newer observed term or a removed leader yields no current token.
     pub fn fencing_token(&self) -> Result<Option<FencingToken>> {
-        self.committed_primary_claim()?.map(|claim| {
-            Ok(FencingToken {
-                term: claim.term,
-                epoch: claim.epoch,
-                leader_id: claim
-                    .leader_node_id
-                    .parse::<EntityId>()
-                    .context("committed primary leader is not a node identity")?,
-                config_revision: claim.config_revision,
-                committed_seq: claim.committed_seq,
-            })
-        }).transpose()
+        let tx = self.conn.unchecked_transaction()?;
+        let Some(claim) = get_state::<PrimaryClaim>(&tx, "primary")? else {
+            return Ok(None);
+        };
+        let leader_id = claim.leader_node_id.parse::<EntityId>()
+            .context("committed primary leader is not a node identity")?;
+        if claim.term != state_number(&tx, "term")?
+            || !Self::committed_config(&tx)?.is_some_and(|config| config.is_member(leader_id))
+        {
+            return Ok(None);
+        }
+        let token = FencingToken {
+            term: claim.term, epoch: claim.epoch, leader_id,
+            config_revision: claim.config_revision, committed_seq: claim.committed_seq,
+        };
+        tx.commit()?;
+        Ok(Some(token))
     }
 
     /// Resource-side fence: a token is accepted only when it is exactly the
     /// committed claim. An older epoch is refused, never silently upgraded.
     pub fn check_fencing(&self, token: &FencingToken) -> Result<()> {
-        let claim = self
-            .committed_primary_claim()?
-            .context("no committed primary claim; this node holds no primary authority")?;
+        let current = self.fencing_token()?
+            .context("no current primary fence; a historical claim does not confer authority")?;
         ensure!(
-            token.term == claim.term
-                && token.epoch == claim.epoch
-                && token.config_revision == claim.config_revision
-                && token.committed_seq == claim.committed_seq
-                && token.leader_id.to_string() == claim.leader_node_id
-                && claim.term == self.current_term()?
-                && self.member_configuration()?.is_some_and(|config| config.is_member(token.leader_id)),
+            *token == current,
             "stale fencing token: committed epoch {} at term {}, presented epoch {} at term {}",
-            claim.epoch,
-            claim.term,
+            current.epoch,
+            current.term,
             token.epoch,
             token.term
         );
@@ -830,15 +883,8 @@ impl Node {
 
     /// True when this node currently holds the committed primary authority.
     pub fn is_primary(&self) -> Result<bool> {
-        let Some(claim) = self.committed_primary_claim()? else {
-            return Ok(false);
-        };
         let node_id = self.local_node_id()?;
-        Ok(claim.term == self.current_term()?
-            && node_id.is_some_and(|id| id.to_string() == claim.leader_node_id)
-            && self.member_configuration()?.is_some_and(|config| {
-                node_id.is_some_and(|id| config.is_member(id))
-            }))
+        Ok(self.fencing_token()?.is_some_and(|token| node_id == Some(token.leader_id)))
     }
 
     /// Establish the membership of a domain that has no configuration yet.
@@ -1208,8 +1254,15 @@ impl Node {
         let mut granted = false;
         let mut reason = String::new();
         let config = Self::committed_config(&tx)?;
-        if request.term > current_term
-            && config.as_ref().is_some_and(|config| config.is_member(request.candidate_id))
+        // Only a current-configuration election request may advance term.
+        // Membership is proposed by an already committed leader; a stale
+        // proposal or an outsider's higher number cannot create authority.
+        if request.proposal.is_none() && request.term > current_term
+            && config.as_ref().is_some_and(|config| {
+                config.is_member(request.candidate_id) && config.is_member(node_id)
+                    && request.config_revision == config.revision
+                    && request.config_digest == config.digest
+            })
         {
             term = request.term;
             set_state(&tx, "term", &term.to_string())?;
@@ -1243,6 +1296,8 @@ impl Node {
             } else if let Some(proposal) = &request.proposal {
                 if verify_proposal(&config, proposal).is_err() {
                     reason = "proposal_base_mismatch".into();
+                } else if !Self::current_primary_matches(&tx, &config, request.candidate_id, request.term)? {
+                    reason = "membership_proposer_not_current_primary".into();
                 } else if !proposal
                     .old_members
                     .iter()
@@ -1289,6 +1344,12 @@ impl Node {
                     reason = "candidate_log_not_up_to_date".into();
                 }
             }
+            if granted && request.proposal.is_some()
+                && !Self::compatible_member_ballot(&tx, node_id, request)?
+            {
+                granted = false;
+                reason = "conflicting_membership_ballot_for_base_and_term".into();
+            }
             if granted {
                 let vote_scope = request
                     .proposal
@@ -1296,7 +1357,7 @@ impl Node {
                     .map(|proposal| proposal.scope())
                     .unwrap_or_else(|| "election".to_string());
                 tx.execute(
-                    "INSERT OR REPLACE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+                    "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
                     params![
                         i64::try_from(term)?,
                         vote_scope,
@@ -1929,7 +1990,7 @@ impl Node {
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
-        ensure!(config.is_member(node_id), "only a configured member can propose a membership change");
+        let term = Self::member_change_term(&tx, &config, node_id)?;
         ensure!(
             config.revision == request.expected_revision,
             "member configuration revision conflict"
@@ -1957,7 +2018,6 @@ impl Node {
         };
         verify_proposal(&config, &proposal)?;
         let (index, last_term) = Self::last_log_position(&tx)?;
-        let term = state_number(&tx, "term")?.max(1);
         let vote_request = VoteRequest {
             schema: ELECTION_WIRE_SCHEMA,
             request_id: EntityId::new(),
@@ -1969,8 +2029,10 @@ impl Node {
             last_log_term: last_term,
             proposal: Some(proposal.clone()),
         };
+        ensure!(Self::compatible_member_ballot(&tx, node_id, &vote_request)?,
+            "conflicting membership ballot for this base and term");
         tx.execute(
-            "INSERT OR REPLACE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
             params![
                 i64::try_from(term)?,
                 proposal.scope(),
@@ -2009,6 +2071,7 @@ impl Node {
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
+        let term = Self::member_change_term(&tx, &config, node_id)?;
         ensure!(
             config.joint_new.is_some(),
             "the joint configuration was not committed; the final phase cannot start"
@@ -2035,7 +2098,6 @@ impl Node {
         };
         verify_proposal(&config, &proposal)?;
         let (index, last_term) = Self::last_log_position(&tx)?;
-        let term = state_number(&tx, "term")?.max(1);
         let vote_request = VoteRequest {
             schema: ELECTION_WIRE_SCHEMA,
             request_id: EntityId::new(),
@@ -2047,8 +2109,10 @@ impl Node {
             last_log_term: last_term,
             proposal: Some(proposal.clone()),
         };
+        ensure!(Self::compatible_member_ballot(&tx, node_id, &vote_request)?,
+            "conflicting membership ballot for this base and term");
         tx.execute(
-            "INSERT OR REPLACE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
             params![
                 i64::try_from(term)?,
                 proposal.scope(),
@@ -2111,6 +2175,7 @@ impl Node {
             });
         }
         verify_proposal(&config, proposal)?;
+        let term = Self::member_change_term(&tx, &config, node_id)?;
         // Proposal votes are recorded under the term in which the proposal
         // was made; a later proposal for the same content advances that term.
         let vote_term: i64 = tx.query_row(
@@ -2119,9 +2184,18 @@ impl Node {
             |r| r.get(0),
         )?;
         ensure!(
-            vote_term > 0 && u64::try_from(vote_term)? == state_number(&tx, "term")?,
+            vote_term > 0 && u64::try_from(vote_term)? == term,
             "no votes from the current term for this membership proposal"
         );
+        let own_ballot: String = tx.query_row(
+            "SELECT data FROM node_votes WHERE term=?1 AND scope=?2 AND voter=?3",
+            params![vote_term, proposal.scope(), node_id.to_string()], |row| row.get(0),
+        ).context("membership tally requires the primary's own ballot")?;
+        let own_request: VoteRequest = serde_json::from_str(&own_ballot)?;
+        ensure!(own_request.candidate_id == node_id
+            && own_request.proposal.as_ref().is_some_and(|own| own.digest == proposal.digest)
+            && Self::compatible_member_ballot(&tx, node_id, &own_request)?,
+            "membership tally has conflicting local ballots for its base and term");
         let votes = Self::votes_for(&tx, u64::try_from(vote_term)?, &proposal.scope(), node_id)?;
         let quorum = proposal.has_quorum(&votes);
         if !quorum {
@@ -2143,7 +2217,6 @@ impl Node {
             ProposalKind::Final => None,
         };
         let digest = config_digest(&members, joint_new.as_deref())?;
-        let term = state_number(&tx, "term")?.max(1);
         let certificate = QuorumCertificate {
             term,
             voters: votes.iter().copied().collect(),
@@ -3054,6 +3127,8 @@ mod tests {
         assert!(!n.tally(old.term).unwrap().elected);
         assert_eq!(n.control_log().unwrap(), log);
         assert!(!n.is_primary().unwrap());
+        assert!(n.fencing_token().unwrap().is_none());
+        assert_eq!(n.committed_primary_claim().unwrap().unwrap(), original);
         assert!(n.check_fencing(&old_fence).is_err());
 
         drop(n);
@@ -3089,6 +3164,8 @@ mod tests {
         assert_eq!(n.record_vote_response(&current.request, &newer).unwrap().outcome, "lost_election");
         assert!(n.check_fencing(&valid).is_err());
         assert!(!n.is_primary().unwrap());
+        assert!(n.fencing_token().unwrap().is_none());
+        assert_eq!(n.coordination_candidates().unwrap()["global_quorum"], false);
         assert!(!n.tally(current.term).unwrap().elected);
     }
 
@@ -3098,6 +3175,8 @@ mod tests {
         let mut a = node(&dir.path().join("a"));
         let mut b = node(&dir.path().join("b"));
         let config = a.ensure_member_configuration().unwrap();
+        let initial = a.campaign().unwrap();
+        assert!(a.tally(initial.term).unwrap().elected);
         b.adopt_member_configuration(&config, &a.control_log().unwrap()).unwrap();
         let request = MemberChangeRequest {
             operation_id: EntityId::new(), expected_revision: config.revision,
@@ -3106,13 +3185,29 @@ mod tests {
         let obsolete = a.propose_member_change(request.clone()).unwrap();
         let vote = b.handle_vote_request(&obsolete.request).unwrap();
         a.record_vote_response(&obsolete.request, &vote).unwrap();
-        a.campaign().unwrap();
+        let next = a.campaign().unwrap();
         assert!(a.tally_member_change(&obsolete.proposal).is_err(), "old votes cannot acquire a new term");
         assert_eq!(a.member_configuration().unwrap().unwrap(), config);
+        assert!(a.propose_member_change(request.clone()).is_err(), "a candidate is not a committed primary");
+        assert!(a.tally(next.term).unwrap().elected);
+        b.adopt_member_configuration(&config, &a.control_log().unwrap()).unwrap();
 
-        let joint = a.propose_member_change(request).unwrap();
+        let joint = a.propose_member_change(request.clone()).unwrap();
         let vote = b.handle_vote_request(&joint.request).unwrap();
         a.record_vote_response(&joint.request, &vote).unwrap();
+        assert!(b.handle_vote_request(&joint.request).unwrap().vote_granted, "compatible replay remains a vote");
+        let third = EntityId::new();
+        let mut competing_change = request;
+        competing_change.add.push(third);
+        assert!(a.propose_member_change(competing_change).is_err());
+        let mut competing = joint.request.clone();
+        let proposal = competing.proposal.as_mut().unwrap();
+        proposal.new_members.push(third);
+        proposal.new_members = sorted_unique(&proposal.new_members);
+        proposal.digest = proposal_digest(proposal).unwrap();
+        let refused = b.handle_vote_request(&competing).unwrap();
+        assert!(!refused.vote_granted);
+        assert_eq!(refused.reason, "conflicting_membership_ballot_for_base_and_term");
         let committed = a.tally_member_change(&joint.proposal).unwrap().committed.unwrap();
         let log = a.control_log().unwrap();
         assert_eq!(a.tally_member_change(&joint.proposal).unwrap().committed.unwrap(), committed);
@@ -3162,5 +3257,38 @@ mod tests {
             "SELECT COUNT(*) FROM node_votes WHERE scope=?1", [receipt_scope], |r| r.get(0),
         ).unwrap();
         assert_eq!(retained, 1, "membership advancement does not erase a late authenticated observation");
+
+        // A real leader change supersedes A's proposal authority, while A's
+        // old committed membership retry still returns its original fact.
+        let takeover = b.campaign().unwrap();
+        let vote = a.handle_vote_request(&takeover.request).unwrap();
+        b.record_vote_response(&takeover.request, &vote).unwrap();
+        assert!(b.tally(takeover.term).unwrap().elected);
+        a.adopt_member_configuration(&final_config, &b.control_log().unwrap()).unwrap();
+        assert_eq!(a.tally_member_change(&joint.proposal).unwrap().committed.unwrap(), committed);
+        let change = MemberChangeRequest {
+            operation_id: EntityId::new(), expected_revision: final_config.revision,
+            add: vec![third], remove: vec![], reason: "the new primary extends membership".into(),
+        };
+        assert!(a.propose_member_change(change.clone()).is_err());
+        let fresh = b.propose_member_change(change).unwrap();
+        let mut former_leader = fresh.request.clone();
+        former_leader.candidate_id = node_id(&a);
+        former_leader.term += 10;
+        assert!(!a.handle_vote_request(&former_leader).unwrap().vote_granted);
+        assert_eq!(a.current_term().unwrap(), takeover.term);
+        let mut stale = joint.request.clone();
+        stale.term = takeover.term + 10;
+        assert!(!a.handle_vote_request(&stale).unwrap().vote_granted);
+        assert_eq!(a.current_term().unwrap(), takeover.term, "a stale base cannot advance term");
+        let mut outsider = takeover.request.clone();
+        outsider.candidate_id = third;
+        outsider.term += 10;
+        assert!(!a.handle_vote_request(&outsider).unwrap().vote_granted);
+        assert_eq!(a.current_term().unwrap(), takeover.term, "an outsider cannot advance term");
+        let vote = a.handle_vote_request(&fresh.request).unwrap();
+        assert!(vote.vote_granted);
+        b.record_vote_response(&fresh.request, &vote).unwrap();
+        assert!(b.tally_member_change(&fresh.proposal).unwrap().quorum_met);
     }
 }

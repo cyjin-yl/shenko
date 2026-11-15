@@ -57,6 +57,10 @@ Library (`shenko-node`, all durable, additive storage schema 8):
 - Election: `campaign`, `handle_vote_request`, `record_vote_response`,
   `tally`, `committed_primary_claim`, `current_term`, `election_role`,
   `fencing_token`, `check_fencing`, `is_primary`, `election_status`.
+  `committed_primary_claim` retains the historical fact; `fencing_token`
+  returns `None` when that claim is no longer current. The token's claim,
+  term and membership are read from one SQLite snapshot. Consumers must
+  check the exact token they return or use, not a separately reread one.
 - Replication: `append_control_entries` (verifies the committed quorum
   certificate before accepting; an unverified entry is rejected, not queued).
   The input suffix must continue the request predecessor exactly — the first
@@ -95,7 +99,10 @@ CLI (`shenko sync` in `bin/shenko/src/node_sync.rs`):
   campaign, solicit votes over each member's authenticated route, commit on
   quorum. No reachable quorum → availability branch, exit honestly.
 - `sync members show|add|remove|push` — show facts; joint+final membership
-  change by quorum; push committed configuration + control log to one peer.
+  change by quorum under a current committed primary; add/remove establishes
+  that authority before proposing. Push committed configuration + control log
+  to one peer. This domain reconfiguration requirement does not gate local
+  availability-branch intelligence on a global quorum.
 - `sync adopt --identity-file ... --trusted-node ... --provenance ...` —
   adopt a verified existing self. Adoption and the installation's subject
   binding are one fact: the binding is projected from durable subject
@@ -118,6 +125,10 @@ campaigns, solicits votes and commits the claim; the returned
 `Option<FencingToken>` is passed to `observe`. `None` (partitioned, no
 quorum) starts the subject on an explicit availability branch with no
 domain-primary claim. The deterministic no-model path observes with `None`.
+The current no-quorum path records a Node branch fact; it does not yet fork
+the Store's subject head or bind the live loop to that new branch. That
+cross-store transition remains required before the startup path can be
+counted as a working availability-branch takeover.
 
 ## Errors that mean something
 
@@ -187,7 +198,13 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   authority in the current configuration.
 - Membership tally retries return the original committed transition at
   `base_revision + 1`; a changed transition conflicts. Votes from an older
-  term cannot be relabelled with today's term. Both append and full-prefix
+  term cannot be relabelled with today's term. New proposals and tallies
+  require the current committed leader, and a voter grants at most one
+  compatible candidate/proposal per base and term. The local ballot check
+  and insertion share one immediate transaction, including retained ballots
+  from older writers; compatible replay preserves the original ballot. A
+  stale/outside configuration or membership request cannot advance term.
+  Both append and full-prefix
   push verify certificate identities and old/new majorities against the
   preceding configuration, including elections during a joint transition.
   An older committed suffix can be caught up after a newer local campaign;
@@ -211,6 +228,12 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   independently signed proofs. Startup election and role observation do not
   establish a continuously supervised subject-loop authority consumer or
   autonomous failover. Isolated branches remain allowed to retain experience.
+- A membership vote currently persists a ballot, not the actual proposed
+  control entry on a quorum of replicas before the leader calls it committed.
+  Leader loss before replication can therefore leave another majority unaware
+  of that entry. Durable quorum replication and the Node/Store authority
+  bridge remain distributed-release blockers; prefix validation and local
+  ballot exclusivity do not substitute for those protocols.
 
 <a id="spec-5-4"></a>
 <!-- migrated-contract: SPEC:5.4 -->
