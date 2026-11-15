@@ -231,7 +231,11 @@ def collect(root, target, output, selection, environment, lint_flags):
         ['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], cwd=root, env=environment, text=True))
     members = set(metadata['workspace_members'])
     packages = {package['id']: package['name'] for package in metadata['packages'] if package['id'] in members}
-    command = ['cargo', 'clippy', '--workspace', '--locked', '-j2', '--message-format=json', *selection, '--', *lint_flags]
+    # Match the Rust job's optional Poppy assembly in both immutable trees.
+    # Building the protocol workspace member alone does not compile the bin's
+    # feature-gated account, transport and commerce handlers.
+    command = ['cargo', 'clippy', '--workspace', '--features', 'shenko/compat-poppy',
+               '--locked', '-j2', '--message-format=json', *selection, '--', *lint_flags]
     counts = Counter()
     artifacts = set()
     finished = False
