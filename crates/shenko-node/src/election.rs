@@ -3480,7 +3480,7 @@ mod tests {
     }
 
     #[test]
-    fn a_replay_does_not_promote_rows_above_the_recorded_commit_frontier() {
+    fn a_replay_does_not_promote_rows_above_the_recorded_commit_frontier() -> Result<()> {
         let dir = tempfile::tempdir().unwrap();
         let mut node = node(&dir.path().join("node"));
         node.ensure_member_configuration().unwrap();
@@ -3510,11 +3510,12 @@ mod tests {
             "export stops at the actual committed frontier"
         );
         assert!(
-            Node::control_entry(&node.conn, 2).unwrap().is_some(),
+            Node::control_entry(&node.conn, 2)?.is_some(),
             "the retained row is not erased"
         );
         assert!(Node::control_entry(&node.conn, 3).unwrap().is_none());
         assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 1);
+        Ok(())
     }
 
     #[test]
