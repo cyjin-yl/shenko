@@ -1,0 +1,14 @@
+{
+  "server_pid": 49309,
+  "ended_at_utc": "2026-11-15T18:10:54.380335+00:00",
+  "returncode": 0,
+  "signal": null,
+  "observed_guard_reason": null,
+  "memory_after": {
+    "MemTotal_kib": 8113128,
+    "MemAvailable_kib": 3739164,
+    "SwapTotal_kib": 0,
+    "SwapFree_kib": 0
+  },
+  "kernel_cause_not_inferred": true
+}

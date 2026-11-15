@@ -1,0 +1,11 @@
+{
+  "id": "0005-e74daf70aa3449f5b3015995817b8bbd",
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "received_at_utc": "2026-11-15T18:01:33.242511+00:00",
+  "body_bytes": 15020,
+  "request_sha256": "4105b1c9f5a9d51ba55e9ac2e94d73aeedc2d4c0372fc844ee0168d7cd48a0db",
+  "content_type": "application/json",
+  "authorization_header_present": false,
+  "transport": "Box connector file relay; whole-response buffering including SSE"
+}

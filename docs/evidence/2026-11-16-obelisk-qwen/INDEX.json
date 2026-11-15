@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "purpose": "Three actual invocations of the same bounded paired history-research smoke; failed and unknown outcomes retained",
+  "recorded_at_utc": "2026-11-15T18:15:09.622827+00:00",
+  "model_effectiveness": "not_demonstrated",
+  "qualified_complete_pairs": 0,
+  "paired_runner_invocations": 3,
+  "independent_scenarios": 1,
+  "not_a_statistical_benchmark": true,
+  "corpus_digest": "blake3:3496021d8a26422e06e775109097c88416786335c57c6fb9c583b4b7d84bb6b8",
+  "attempts": [
+    {
+      "id": "attempt-01",
+      "model": "Qwen3-1.7B-Q8_0",
+      "source_head": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+      "result": "inconclusive_or_failed",
+      "complete": true,
+      "cleanup_ok": true,
+      "actual_native_history_queries": 0,
+      "actual_obelisk_queries": 0,
+      "judge_labels": [
+        "EFFECTIVE",
+        "EFFECTIVE"
+      ],
+      "independent_review": "Both judge labels are false positives; candidate invented file names. Baseline initial raw projection exposed the fixture answers, so this is not a valid efficacy comparison. The reader gate rejected the run.",
+      "entry": "attempt-01/INDEX.json",
+      "summary": "attempt-01/analysis/result-summary.json"
+    },
+    {
+      "id": "attempt-02",
+      "model": "Qwen3-1.7B-Q8_0",
+      "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+      "result": "inconclusive_or_failed",
+      "complete": false,
+      "cleanup_ok": true,
+      "baseline_initial_answer_leak": false,
+      "actual_native_history_queries": 0,
+      "actual_obelisk_queries": 0,
+      "candidate_protocol_rejections": 14,
+      "judge_labels": [
+        "EFFECTIVE"
+      ],
+      "independent_review": "Baseline asked for logs without retrieval; its judge label is a false positive. Candidate proposed a valid search with an invalid wait control; the entire decision was rejected and no tool ran. Later the model service disappeared; exit cause is unknown. Runner ended naturally, not by operator intervention.",
+      "entry": "attempt-02/EVIDENCE.md",
+      "summary": "attempt-02/analysis/result-summary.json"
+    },
+    {
+      "id": "attempt-03",
+      "model": "Qwen3-4B-Q4_K_M",
+      "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+      "result": "inconclusive_or_failed",
+      "complete": false,
+      "cleanup_ok": true,
+      "actual_native_history_queries": 3,
+      "actual_obelisk_queries": 2,
+      "judge_labels": [],
+      "final_research_answers": 0,
+      "known_complete_inference_responses": 5,
+      "inference_timeouts_without_response": 2,
+      "independent_review": "Real native T2 results exist, but queries did not retrieve the fixture answer. Both arms later timed out during subject inference and preserved awaiting_model. The server remained healthy and logs show slow prompt processing followed by cancellation. No judge or final answer was produced.",
+      "entry": "attempt-03/EVIDENCE.md",
+      "summary": "attempt-03/analysis/result-summary.json"
+    }
+  ],
+  "verified_fixes": [
+    "Explicit source roots now use the same lexical normalization as the audited upstream; roots changed by upstream trim are rejected before writes.",
+    "Baseline raw corpus stays searchable but is represented by an existing NotesRollover Pointer window after the real profile is bound; actual first wire requests confirm no answers are preloaded.",
+    "The actual Obelisk capability prompt now explains archive versus live index and provides complete, scenario-independent JSON calls."
+  ],
+  "protocol_and_evidence_boundaries": [
+    "The question, corpus, rubric, strict reader condition and first-continuation selection were not relaxed.",
+    "A proposed control line is not an executed query. A successful empty query is not a source-grounded answer. An LLM judge label is not sufficient evidence of efficacy.",
+    "Unknown usage on timed-out or missing responses stays unknown, never zero.",
+    "All source/ELF bindings and raw request/response hashes belong to their actual attempt. Failed samples were not replaced or automatically resampled.",
+    "The first baseline leak invalidates that comparison; later post-rollover runs are an explicit corrected scenario setup.",
+    "The 4B deployment differs in weights, quantization, KV cache and resource settings. It is not a single-variable model-size experiment.",
+    "Buffered Box transport and unreset prefix-cache state do not support native latency or token-saving claims.",
+    "The Box relay used a 175-second remote curl budget inside the unchanged 180-second product provider budget. Its preflight, transfer and buffering mean these timeouts cannot establish direct-connection 180-second performance."
+  ],
+  "delivery_scope": {
+    "plugin": "optional and disabled by default",
+    "engineering_evidence": "../2026-11-16-obelisk-followup/INDEX.json",
+    "M08": "open; reference-level repeated multi-scenario efficacy remains incomplete",
+    "issue": "https://github.com/cyjin-yl/shenko/issues/300",
+    "pr": "https://github.com/cyjin-yl/shenko/pull/301"
+  },
+  "full_archives": [
+    {
+      "file": "attempt-01-full.tar.gz",
+      "bytes": 526408,
+      "sha256": "a77afa6f1a6a5f72b9d77fa37e0a475356d0f9893978f53692c1af22ea67eb81",
+      "scope": "Full original attempt directory including original SQLite files; model weights are independently downloaded dependencies, not embedded"
+    },
+    {
+      "file": "attempt-02-full.tar.gz",
+      "bytes": 1034984,
+      "sha256": "5282ef7584806dca046b9e91153a29191115fc1d169c33f039ede59f9d16fb09",
+      "scope": "Full original attempt directory including original SQLite files; model weights are independently downloaded dependencies, not embedded"
+    },
+    {
+      "file": "attempt-03-full.tar.gz",
+      "bytes": 1303732,
+      "sha256": "8d703e77f4612ada0c9f2f998ef766e26731817b71fff87dd4b2a7a3fa9c1aa9",
+      "scope": "Full original attempt directory including original SQLite files; model weights are independently downloaded dependencies, not embedded"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "requested_at_utc": "2026-11-15T18:10:53.375886+00:00",
+  "server_pid": 49309,
+  "supervisor_pid": 49308,
+  "signal": "SIGTERM",
+  "reason": "paired smoke naturally finished; root authorized stopping owned model to release CPU",
+  "ownership_verified_by": "owned-process.json plus exact executable/model cmdline and parent PID",
+  "not_the_cause_of_runner_failure": true
+}

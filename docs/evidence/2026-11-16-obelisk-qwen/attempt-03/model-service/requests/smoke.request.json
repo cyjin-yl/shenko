@@ -1,0 +1,1 @@
+{"model":"Qwen3-4B-Q4_K_M","messages":[{"role":"user","content":"Reply with exactly this JSON object and no other text: {\"status\":\"ready\"}"}],"max_tokens":32,"temperature":0.7,"seed":301,"stream":false}

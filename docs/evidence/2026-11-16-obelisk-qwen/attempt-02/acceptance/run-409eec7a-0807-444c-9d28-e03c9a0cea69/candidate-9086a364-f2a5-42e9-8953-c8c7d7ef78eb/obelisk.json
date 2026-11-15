@@ -1,0 +1,22 @@
+{
+  "executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "source_checkout": "/workspace/scratch/549c30a35cef/obelisk-audit",
+  "arguments": [
+    "/workspace/scratch/549c30a35cef/obelisk-audit/packages/cli/src/obelisk.ts"
+  ],
+  "index_home": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/obelisk-index",
+  "source_instance": "obelisk-acceptance/synthetic-v1",
+  "sources": [
+    {
+      "provider": "codex",
+      "root_label": "synthetic-codex",
+      "path": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/synthetic-codex"
+    }
+  ],
+  "limits": {
+    "timeout_ms": 30000,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 65536,
+    "drain_timeout_ms": 2000
+  }
+}

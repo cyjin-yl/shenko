@@ -1,0 +1,5 @@
+{
+  "external_reader": null,
+  "installation": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41",
+  "native_reader": "history.query:1"
+}

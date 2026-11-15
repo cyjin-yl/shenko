@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/tommy0103/obelisk",
+  "revision": "cc75c2dd1aead4f4374758a7536385307934e177",
+  "source_checkout": "/workspace/scratch/549c30a35cef/obelisk-audit",
+  "manifest_digest": "b26e9ebf7a5db02b55ac89e005ccd44854a330e3d4168e11cca1fde2c4a1c771",
+  "verified_files": 51,
+  "contract": "shenko.obelisk.source-cli-v1"
+}

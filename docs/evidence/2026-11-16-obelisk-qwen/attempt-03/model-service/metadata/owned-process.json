@@ -1,0 +1,7 @@
+{
+  "supervisor_pid": 49308,
+  "server_pid": 49309,
+  "started_at_utc": "2026-11-15T17:53:49.892872+00:00",
+  "start_script_sha256": "981b99c1b54e1dc1dcff5a8fbb7cebdd66904c0f851e588a7c0bea890146778c",
+  "auto_restart": false
+}

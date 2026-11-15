@@ -1,0 +1,22 @@
+{
+  "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+  "command": [
+    "flock",
+    "/tmp/shenko-cargo.lock",
+    "/home/agent/.cargo/bin/cargo",
+    "--config",
+    "/workspace/scratch/549c30a35cef/obelisk-validation-evidence/validation-cargo-profile.toml",
+    "build",
+    "--offline",
+    "--locked",
+    "-p",
+    "shenko",
+    "--example",
+    "obelisk_acceptance",
+    "--message-format=json-render-diagnostics"
+  ],
+  "profile_sha256": "afe415b7b79df106316c0466f94535d7ccd2801e629b2165555d4a8cf8128c53",
+  "started_at_utc": "2026-11-15T17:39:37.069795+00:00",
+  "exit_code": 0,
+  "finished_at_utc": "2026-11-15T17:40:41.461695+00:00"
+}

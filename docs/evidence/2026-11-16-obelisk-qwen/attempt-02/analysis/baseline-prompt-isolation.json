@@ -1,0 +1,67 @@
+{
+  "condition": "baseline",
+  "starting_context_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/starting-context.json",
+  "first_subject_relay_id": "0002-cb18488cdea54ac68854a2ca9425f211",
+  "first_wire_request_sha256": "0ce7a981a09a9f1395441c002288fe91e5d23d836d3e0faf9bf9fc62ec599af6",
+  "first_wire_request_bytes": 8097,
+  "context_tokens": 16384,
+  "policy_id": "notes-rollover-compact",
+  "window_entries": [
+    {
+      "Pointer": {
+        "from": 1,
+        "note": "[history seq 1..=4 left this window; the raw events stay readable by seq or event id through history.query]",
+        "to": 4,
+        "tokens": 27
+      }
+    }
+  ],
+  "covers_through": 4,
+  "fixture_checks": [
+    {
+      "fixture_ordinal": 1,
+      "fixture_text_sha256": "9da0f204a921f811d420c56757002fdf5e5e0c70f487226ecb98ad3ceca049cf",
+      "first_wire_occurrences": 0,
+      "store_event_id": "ed58f3f8-9734-1f03-35cf-0e0b121883bc",
+      "store_seq": 1,
+      "retained_in_raw_store": true
+    },
+    {
+      "fixture_ordinal": 2,
+      "fixture_text_sha256": "626883057896bfb6d04ba0df6ca3a5e44ad434651f1907f1799e00502defbc8b",
+      "first_wire_occurrences": 0,
+      "store_event_id": "c92a7768-9135-92c5-6819-0f31c9006bd4",
+      "store_seq": 2,
+      "retained_in_raw_store": true
+    },
+    {
+      "fixture_ordinal": 3,
+      "fixture_text_sha256": "09c97cf5a43e400571b411b282c7be6c2da7a0d971b179676109d0324c3bb636",
+      "first_wire_occurrences": 0,
+      "store_event_id": "f28e864d-1c42-f591-463e-1d3ddbe4f7df",
+      "store_seq": 3,
+      "retained_in_raw_store": true
+    },
+    {
+      "fixture_ordinal": 4,
+      "fixture_text_sha256": "62db97f68156bbea86af4ff70d4fc2a62d84d64b5f8c06d081cb90efa141fb6f",
+      "first_wire_occurrences": 0,
+      "store_event_id": "59e63e45-4bac-2798-2775-4e7a712372e3",
+      "store_seq": 4,
+      "retained_in_raw_store": true
+    }
+  ],
+  "answer_literal_occurrences_in_all_message_content": {
+    "src/auth/refresh.ts": 0,
+    "tests/auth/refresh-race.test.ts": 0,
+    "SameSite": 0,
+    "None": 0,
+    "Lax": 0,
+    "generation": 0,
+    "旧响应": 0,
+    "最新请求": 0
+  },
+  "pointer_marker_occurrences": 1,
+  "fixture_raw_store_basis": "Original session_events seq 1..4 retain all four fixture texts; this is not evidence that the subject invoked history.query",
+  "conclusion": "The first baseline subject wire contains a Pointer and no complete fixture message or checked answer literal; original raw Store events remain present"
+}
