@@ -3098,19 +3098,29 @@ mod tests {
     }
 
     #[test]
-    fn delayed_votes_cannot_rewind_or_reauthorize_an_obsolete_campaign() {
-        let dir = tempfile::tempdir().unwrap();
+    fn delayed_votes_cannot_rewind_or_reauthorize_an_obsolete_campaign() -> Result<()> {
+        let dir = tempfile::tempdir()?;
         let path = dir.path().join("node");
         let mut n = node(&path);
-        n.ensure_member_configuration().unwrap();
-        let old = n.campaign().unwrap();
-        let original = n.tally(old.term).unwrap().claim.unwrap();
-        let old_fence = n.fencing_token().unwrap().unwrap();
-        assert_eq!(n.tally(old.term).unwrap().claim.unwrap(), original);
-        let log = n.control_log().unwrap();
+        n.ensure_member_configuration()?;
+        let old = n.campaign()?;
+        let original = n
+            .tally(old.term)?
+            .claim
+            .context("the election must commit a primary claim")?;
+        let old_fence = n
+            .fencing_token()?
+            .context("a current primary must have a fence")?;
+        assert_eq!(
+            n.tally(old.term)?
+                .claim
+                .context("the election must commit a primary claim")?,
+            original
+        );
+        let log = n.control_log()?;
 
-        n.campaign().unwrap();
-        let current = n.campaign().unwrap();
+        n.campaign()?;
+        let current = n.campaign()?;
         let late = VoteResponse {
             schema: ELECTION_WIRE_SCHEMA,
             request_id: old.request.request_id,
@@ -3121,38 +3131,63 @@ mod tests {
             proposal_digest: None,
             reason: "a delayed response from the previous election".into(),
         };
-        assert_eq!(n.record_vote_response(&old.request, &late).unwrap().outcome, "rejected");
-        assert_eq!(n.current_term().unwrap(), current.term);
-        assert_eq!(n.election_role().unwrap(), ElectionRole::Candidate);
-        assert!(!n.tally(old.term).unwrap().elected);
-        assert_eq!(n.control_log().unwrap(), log);
-        assert!(!n.is_primary().unwrap());
-        assert!(n.fencing_token().unwrap().is_none());
-        assert_eq!(n.committed_primary_claim().unwrap().unwrap(), original);
+        assert_eq!(
+            n.record_vote_response(&old.request, &late)?.outcome,
+            "rejected"
+        );
+        assert_eq!(n.current_term()?, current.term);
+        assert_eq!(n.election_role()?, ElectionRole::Candidate);
+        assert!(!n.tally(old.term)?.elected);
+        assert_eq!(n.control_log()?, log);
+        assert!(!n.is_primary()?);
+        assert!(n.fencing_token()?.is_none());
+        assert_eq!(
+            n.committed_primary_claim()?
+                .context("the committed claim must remain available")?,
+            original
+        );
         assert!(n.check_fencing(&old_fence).is_err());
 
         drop(n);
-        let mut n = Node::open(&path).unwrap();
-        n.record_vote_response(&old.request, &late).unwrap();
+        let mut n = Node::open(&path)?;
+        n.record_vote_response(&old.request, &late)?;
         let receipts: i64 = n.conn.query_row(
-            "SELECT COUNT(*) FROM node_votes WHERE scope LIKE 'receipt:%'", [], |r| r.get(0),
-        ).unwrap();
-        assert_eq!(receipts, 1, "the late fact survives reopen and exact replay");
+            "SELECT COUNT(*) FROM node_votes WHERE scope LIKE 'receipt:%'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(
+            receipts, 1,
+            "the late fact survives reopen and exact replay"
+        );
         let older = VoteResponse {
             request_id: current.request.request_id,
             term: old.term,
             ..late.clone()
         };
-        assert_eq!(n.record_vote_response(&current.request, &older).unwrap().outcome, "rejected");
-        assert_eq!(n.current_term().unwrap(), current.term);
+        assert_eq!(
+            n.record_vote_response(&current.request, &older)?.outcome,
+            "rejected"
+        );
+        assert_eq!(n.current_term()?, current.term);
         let receipts: i64 = n.conn.query_row(
-            "SELECT COUNT(*) FROM node_votes WHERE scope LIKE 'receipt:%'", [], |r| r.get(0),
-        ).unwrap();
-        assert_eq!(receipts, 2, "an older response remains a fact without becoming a ballot");
-        let claim = n.tally(current.term).unwrap().claim.unwrap();
+            "SELECT COUNT(*) FROM node_votes WHERE scope LIKE 'receipt:%'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(
+            receipts, 2,
+            "an older response remains a fact without becoming a ballot"
+        );
+        let claim = n
+            .tally(current.term)?
+            .claim
+            .context("the election must commit a primary claim")?;
         assert_eq!(claim.epoch, original.epoch + 1);
-        let valid = n.fencing_token().unwrap().unwrap();
-        n.check_fencing(&valid).unwrap();
+        let valid = n
+            .fencing_token()?
+            .context("a current primary must have a fence")?;
+        n.check_fencing(&valid)?;
         let mut wrong_configuration = valid.clone();
         wrong_configuration.config_revision += 1;
         assert!(n.check_fencing(&wrong_configuration).is_err());
@@ -3161,134 +3196,236 @@ mod tests {
             term: current.term + 1,
             ..late
         };
-        assert_eq!(n.record_vote_response(&current.request, &newer).unwrap().outcome, "lost_election");
+        assert_eq!(
+            n.record_vote_response(&current.request, &newer)?.outcome,
+            "lost_election"
+        );
         assert!(n.check_fencing(&valid).is_err());
-        assert!(!n.is_primary().unwrap());
-        assert!(n.fencing_token().unwrap().is_none());
-        assert_eq!(n.coordination_candidates().unwrap()["global_quorum"], false);
-        assert!(!n.tally(current.term).unwrap().elected);
+        assert!(!n.is_primary()?);
+        assert!(n.fencing_token()?.is_none());
+        assert_eq!(n.coordination_candidates()?["global_quorum"], false);
+        assert!(!n.tally(current.term)?.elected);
+        Ok(())
     }
 
     #[test]
-    fn membership_retries_and_joint_certificates_follow_the_committed_prefix() {
-        let dir = tempfile::tempdir().unwrap();
+    fn membership_retries_and_joint_certificates_follow_the_committed_prefix() -> Result<()> {
+        let dir = tempfile::tempdir()?;
         let mut a = node(&dir.path().join("a"));
         let mut b = node(&dir.path().join("b"));
-        let config = a.ensure_member_configuration().unwrap();
-        let initial = a.campaign().unwrap();
-        assert!(a.tally(initial.term).unwrap().elected);
-        b.adopt_member_configuration(&config, &a.control_log().unwrap()).unwrap();
+        let config = a.ensure_member_configuration()?;
+        let initial = a.campaign()?;
+        assert!(a.tally(initial.term)?.elected);
+        b.adopt_member_configuration(&config, &a.control_log()?)?;
         let request = MemberChangeRequest {
-            operation_id: EntityId::new(), expected_revision: config.revision,
-            add: vec![node_id(&b)], remove: vec![], reason: "join the same domain".into(),
+            operation_id: EntityId::new(),
+            expected_revision: config.revision,
+            add: vec![node_id(&b)],
+            remove: vec![],
+            reason: "join the same domain".into(),
         };
-        let obsolete = a.propose_member_change(request.clone()).unwrap();
-        let vote = b.handle_vote_request(&obsolete.request).unwrap();
-        a.record_vote_response(&obsolete.request, &vote).unwrap();
-        let next = a.campaign().unwrap();
-        assert!(a.tally_member_change(&obsolete.proposal).is_err(), "old votes cannot acquire a new term");
-        assert_eq!(a.member_configuration().unwrap().unwrap(), config);
-        assert!(a.propose_member_change(request.clone()).is_err(), "a candidate is not a committed primary");
-        assert!(a.tally(next.term).unwrap().elected);
-        b.adopt_member_configuration(&config, &a.control_log().unwrap()).unwrap();
+        let obsolete = a.propose_member_change(request.clone())?;
+        let vote = b.handle_vote_request(&obsolete.request)?;
+        a.record_vote_response(&obsolete.request, &vote)?;
+        let next = a.campaign()?;
+        assert!(
+            a.tally_member_change(&obsolete.proposal).is_err(),
+            "old votes cannot acquire a new term"
+        );
+        assert_eq!(
+            a.member_configuration()?
+                .context("the committed configuration must remain available")?,
+            config
+        );
+        assert!(
+            a.propose_member_change(request.clone()).is_err(),
+            "a candidate is not a committed primary"
+        );
+        assert!(a.tally(next.term)?.elected);
+        b.adopt_member_configuration(&config, &a.control_log()?)?;
 
-        let joint = a.propose_member_change(request.clone()).unwrap();
-        let vote = b.handle_vote_request(&joint.request).unwrap();
-        a.record_vote_response(&joint.request, &vote).unwrap();
-        assert!(b.handle_vote_request(&joint.request).unwrap().vote_granted, "compatible replay remains a vote");
+        let joint = a.propose_member_change(request.clone())?;
+        let vote = b.handle_vote_request(&joint.request)?;
+        a.record_vote_response(&joint.request, &vote)?;
+        assert!(
+            b.handle_vote_request(&joint.request)?.vote_granted,
+            "compatible replay remains a vote"
+        );
         let third = EntityId::new();
         let mut competing_change = request;
         competing_change.add.push(third);
         assert!(a.propose_member_change(competing_change).is_err());
         let mut competing = joint.request.clone();
-        let proposal = competing.proposal.as_mut().unwrap();
+        let proposal = competing
+            .proposal
+            .as_mut()
+            .context("the membership request must include its proposal")?;
         proposal.new_members.push(third);
         proposal.new_members = sorted_unique(&proposal.new_members);
-        proposal.digest = proposal_digest(proposal).unwrap();
-        let refused = b.handle_vote_request(&competing).unwrap();
+        proposal.digest = proposal_digest(proposal)?;
+        let refused = b.handle_vote_request(&competing)?;
         assert!(!refused.vote_granted);
-        assert_eq!(refused.reason, "conflicting_membership_ballot_for_base_and_term");
-        let committed = a.tally_member_change(&joint.proposal).unwrap().committed.unwrap();
-        let log = a.control_log().unwrap();
-        assert_eq!(a.tally_member_change(&joint.proposal).unwrap().committed.unwrap(), committed);
-        assert_eq!(a.control_log().unwrap(), log, "a lost response does not create another transition");
+        assert_eq!(
+            refused.reason,
+            "conflicting_membership_ballot_for_base_and_term"
+        );
+        let committed = a
+            .tally_member_change(&joint.proposal)?
+            .committed
+            .context("the membership tally must return its committed configuration")?;
+        let log = a.control_log()?;
+        assert_eq!(
+            a.tally_member_change(&joint.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            committed
+        );
+        assert_eq!(
+            a.control_log()?,
+            log,
+            "a lost response does not create another transition"
+        );
         let mut conflicting = joint.proposal.clone();
         conflicting.new_members = vec![node_id(&a)];
-        conflicting.digest = proposal_digest(&conflicting).unwrap();
+        conflicting.digest = proposal_digest(&conflicting)?;
         assert!(a.tally_member_change(&conflicting).is_err());
-        b.adopt_member_configuration(&committed, &log).unwrap();
+        b.adopt_member_configuration(&committed, &log)?;
 
         // During the joint phase, the old singleton alone is not a quorum.
         // The genuine election needs B's vote; its certificate must also be
         // accepted by the follower without treating B as an outside voter.
-        let election = a.campaign().unwrap();
-        assert!(!a.tally(election.term).unwrap().elected);
-        let vote = b.handle_vote_request(&election.request).unwrap();
-        a.record_vote_response(&election.request, &vote).unwrap();
-        assert!(a.tally(election.term).unwrap().elected);
-        let real = a.control_log().unwrap();
+        let election = a.campaign()?;
+        assert!(!a.tally(election.term)?.elected);
+        let vote = b.handle_vote_request(&election.request)?;
+        a.record_vote_response(&election.request, &vote)?;
+        assert!(a.tally(election.term)?.elected);
+        let real = a.control_log()?;
         let mut forged = real.clone();
-        let last = forged.last_mut().unwrap();
-        let mut payload: PrimaryEntry = serde_json::from_value(last.payload.clone()).unwrap();
+        let last = forged
+            .last_mut()
+            .context("the committed log must contain the new primary entry")?;
+        let mut payload: PrimaryEntry = serde_json::from_value(last.payload.clone())?;
         payload.certificate.voters = vec![node_id(&a)];
-        last.payload = serde_json::to_value(payload).unwrap();
+        last.payload = serde_json::to_value(payload)?;
         assert!(b.adopt_member_configuration(&committed, &forged).is_err());
-        assert_eq!(b.control_log().unwrap(), log, "an incomplete joint certificate has no partial effects");
-        let predecessor = log.last().unwrap();
-        let refused = append(&mut b, predecessor.index, predecessor.term, vec![forged.last().unwrap().clone()]);
+        assert_eq!(
+            b.control_log()?,
+            log,
+            "an incomplete joint certificate has no partial effects"
+        );
+        let predecessor = log
+            .last()
+            .context("the committed log must contain an entry")?;
+        let refused = append(
+            &mut b,
+            predecessor.index,
+            predecessor.term,
+            vec![
+                forged
+                    .last()
+                    .context("the committed log must contain an entry")?
+                    .clone(),
+            ],
+        );
         assert_eq!(refused.accepted, 0);
         assert!(refused.reason.starts_with("unverified_entry"));
-        b.adopt_member_configuration(&committed, &real).unwrap();
+        b.adopt_member_configuration(&committed, &real)?;
 
-        let final_round = a.propose_final_member_change(&joint.proposal).unwrap();
-        let vote = b.handle_vote_request(&final_round.request).unwrap();
-        a.record_vote_response(&final_round.request, &vote).unwrap();
-        let final_config = a.tally_member_change(&final_round.proposal).unwrap().committed.unwrap();
-        let final_log = a.control_log().unwrap();
-        assert_eq!(a.tally_member_change(&joint.proposal).unwrap().committed.unwrap(), committed);
-        assert_eq!(a.tally_member_change(&final_round.proposal).unwrap().committed.unwrap(), final_config);
-        assert_eq!(a.control_log().unwrap(), final_log);
-        b.adopt_member_configuration(&final_config, &final_log).unwrap();
-        assert_eq!(b.member_configuration().unwrap().unwrap(), final_config);
-        let late = b.handle_vote_request(&joint.request).unwrap();
-        assert_eq!(a.record_vote_response(&joint.request, &late).unwrap().outcome, "rejected");
-        let receipt_scope = format!("receipt:{}:{}", joint.request.request_id, digest(&(&joint.request, &late)).unwrap().0);
+        let final_round = a.propose_final_member_change(&joint.proposal)?;
+        let vote = b.handle_vote_request(&final_round.request)?;
+        a.record_vote_response(&final_round.request, &vote)?;
+        let final_config = a
+            .tally_member_change(&final_round.proposal)?
+            .committed
+            .context("the membership tally must return its committed configuration")?;
+        let final_log = a.control_log()?;
+        assert_eq!(
+            a.tally_member_change(&joint.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            committed
+        );
+        assert_eq!(
+            a.tally_member_change(&final_round.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            final_config
+        );
+        assert_eq!(a.control_log()?, final_log);
+        b.adopt_member_configuration(&final_config, &final_log)?;
+        assert_eq!(
+            b.member_configuration()?
+                .context("the committed configuration must remain available")?,
+            final_config
+        );
+        let late = b.handle_vote_request(&joint.request)?;
+        assert_eq!(
+            a.record_vote_response(&joint.request, &late)?.outcome,
+            "rejected"
+        );
+        let receipt_scope = format!(
+            "receipt:{}:{}",
+            joint.request.request_id,
+            digest(&(&joint.request, &late))?.0
+        );
         let retained: i64 = a.conn.query_row(
-            "SELECT COUNT(*) FROM node_votes WHERE scope=?1", [receipt_scope], |r| r.get(0),
-        ).unwrap();
-        assert_eq!(retained, 1, "membership advancement does not erase a late authenticated observation");
+            "SELECT COUNT(*) FROM node_votes WHERE scope=?1",
+            [receipt_scope],
+            |r| r.get(0),
+        )?;
+        assert_eq!(
+            retained, 1,
+            "membership advancement does not erase a late authenticated observation"
+        );
 
         // A real leader change supersedes A's proposal authority, while A's
         // old committed membership retry still returns its original fact.
-        let takeover = b.campaign().unwrap();
-        let vote = a.handle_vote_request(&takeover.request).unwrap();
-        b.record_vote_response(&takeover.request, &vote).unwrap();
-        assert!(b.tally(takeover.term).unwrap().elected);
-        a.adopt_member_configuration(&final_config, &b.control_log().unwrap()).unwrap();
-        assert_eq!(a.tally_member_change(&joint.proposal).unwrap().committed.unwrap(), committed);
+        let takeover = b.campaign()?;
+        let vote = a.handle_vote_request(&takeover.request)?;
+        b.record_vote_response(&takeover.request, &vote)?;
+        assert!(b.tally(takeover.term)?.elected);
+        a.adopt_member_configuration(&final_config, &b.control_log()?)?;
+        assert_eq!(
+            a.tally_member_change(&joint.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            committed
+        );
         let change = MemberChangeRequest {
-            operation_id: EntityId::new(), expected_revision: final_config.revision,
-            add: vec![third], remove: vec![], reason: "the new primary extends membership".into(),
+            operation_id: EntityId::new(),
+            expected_revision: final_config.revision,
+            add: vec![third],
+            remove: vec![],
+            reason: "the new primary extends membership".into(),
         };
         assert!(a.propose_member_change(change.clone()).is_err());
-        let fresh = b.propose_member_change(change).unwrap();
+        let fresh = b.propose_member_change(change)?;
         let mut former_leader = fresh.request.clone();
         former_leader.candidate_id = node_id(&a);
         former_leader.term += 10;
-        assert!(!a.handle_vote_request(&former_leader).unwrap().vote_granted);
-        assert_eq!(a.current_term().unwrap(), takeover.term);
+        assert!(!a.handle_vote_request(&former_leader)?.vote_granted);
+        assert_eq!(a.current_term()?, takeover.term);
         let mut stale = joint.request.clone();
         stale.term = takeover.term + 10;
-        assert!(!a.handle_vote_request(&stale).unwrap().vote_granted);
-        assert_eq!(a.current_term().unwrap(), takeover.term, "a stale base cannot advance term");
+        assert!(!a.handle_vote_request(&stale)?.vote_granted);
+        assert_eq!(
+            a.current_term()?,
+            takeover.term,
+            "a stale base cannot advance term"
+        );
         let mut outsider = takeover.request.clone();
         outsider.candidate_id = third;
         outsider.term += 10;
-        assert!(!a.handle_vote_request(&outsider).unwrap().vote_granted);
-        assert_eq!(a.current_term().unwrap(), takeover.term, "an outsider cannot advance term");
-        let vote = a.handle_vote_request(&fresh.request).unwrap();
+        assert!(!a.handle_vote_request(&outsider)?.vote_granted);
+        assert_eq!(
+            a.current_term()?,
+            takeover.term,
+            "an outsider cannot advance term"
+        );
+        let vote = a.handle_vote_request(&fresh.request)?;
         assert!(vote.vote_granted);
-        b.record_vote_response(&fresh.request, &vote).unwrap();
-        assert!(b.tally_member_change(&fresh.proposal).unwrap().quorum_met);
+        b.record_vote_response(&fresh.request, &vote)?;
+        assert!(b.tally_member_change(&fresh.proposal)?.quorum_met);
+        Ok(())
     }
 }
