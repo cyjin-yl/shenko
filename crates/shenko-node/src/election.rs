@@ -1183,6 +1183,10 @@ impl Node {
                 Ok(None)
             }
             ControlKind::Admission => {
+                ensure!(
+                    entry.schema >= 2,
+                    "legacy control history has no admission command format"
+                );
                 let payload: crate::ControlAdmissionPayload =
                     serde_json::from_value(entry.payload.clone())?;
                 payload.verify()?;
