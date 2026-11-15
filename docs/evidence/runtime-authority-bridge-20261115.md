@@ -24,6 +24,11 @@ cancellation's Store projection is delayed. Current read dependencies are
 checked again while the final Node reservation is held. Historical grants
 remain readable and cannot renew permission to send.
 
+Owner traversal retains the actual current subject root as a read dependency
+and stops there. Genesis may represent that root as self-owned; this terminal
+link does not make ordinary native task admission a cyclic owner chain. Other
+cycles, retained foreign-branch roots and cancelled ancestors remain fenced.
+
 S0 request arming, request dispatch, S1, native task creation/claim/cancellation,
 native T1/dispatch/T2, and publication creation/arming/refusal/settlement enter
 these same ordered boundaries. Ordinary task claims/recovery cannot adopt a
@@ -32,6 +37,11 @@ Candidate scans skip those retained rows without rewriting their original
 facts. Generic WriteBatch cannot create new armed attempts or mutable task
 control in an authority-bound ledger; immutable replay and independent E1
 facts remain ingestible.
+
+A child-authored publication keeps its original parent task revision as an
+additional authorization dependency. Cancellation consumes that dependency;
+the publication's final T1 checks it under the source reservation. Normal
+completion of a child does not by itself revoke a reply already authored.
 
 `control_materializations` is a local receipt in the existing Store database,
 written atomically with the actual transition. It is deliberately absent from
@@ -74,6 +84,20 @@ host, bounds recovery cleanup, retains the installation owner lock, and
 reconstructs Start with a new branch-scoped context registry. Original requests,
 attempts and late receipts keep their original identities.
 
+An availability opening records its holder, term, configuration and current
+fence in the same Node transaction. The adapter and the Store-fork reservation
+check those opening facts again. An open historical branch cannot bypass a
+newly learned term or a new global primary. When the same actual branch later
+wins a global election, new work needs ordinary quorum admissions again.
+Automatic election fallback is limited to a node that received no authenticated
+response from another configured voter. Reachable refusals do not justify a
+partition fork, and response counts do not substitute for a quorum certificate.
+
+Every Start exit after authority attachment passes through one result
+classification after ordinary or bounded cleanup. A closed Store writer adds a
+storage failure even if an earlier error requested authority recovery. The
+installation owner restarts only a recovery result without a storage failure.
+
 ## Remaining semantic boundary
 
 The selected control value contains a frozen action and verified predecessor
@@ -85,6 +109,11 @@ parks work and preserves conflicts; it is not an exact control-transition
 materializer. Cross-source exact continuation therefore remains unavailable in
 that case. The implemented fallback is an explicit branch with visible debt,
 not a claim that all replicas reached the same authoritative Store projection.
+
+Connected minority coordination is also not implemented by this change. A
+node that reaches other configured voters but cannot select a primary returns
+`PrimaryNotSelected`; it does not independently manufacture a component-wide
+branch or authority from those responses.
 
 A local source reservation cannot retract a physical effect after its original
 send permit. Such attempts retain their original operation/attempt/target
