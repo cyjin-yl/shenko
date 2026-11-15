@@ -3,12 +3,18 @@
 
 use super::*;
 use crate::poppy::connection::{Operator, OperatorConfig};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
+use ring::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use shenko_compat::recorded::seal;
 use shenko_compat_poppy::{
     discovery::{
         DeclaredCapabilities, DiscoveredDocument, DiscoveryReport, DiscoverySource, DiscoveryState,
         OAuthDiscovery,
     },
+    transport::{EndpointBinding, RequestSigner},
     ucp::{
         CHECKOUT, CheckoutStatus, CompletionBinding, NegotiatedProfile, Operation, RequestPlan,
         SHOPPING_SERVICE, ToolSchemas, Transport, VERSION,
@@ -169,17 +175,21 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
             .is_err(),
         "instrument escaped its observed checkout scope"
     );
-    let plan = binding.prepare_completion(
-        &ready,
-        &negotiated,
-        Transport::Mcp,
-        client.credential_for_checkout(&instrument_ref, &binding)?,
-    )?;
+    let request_id = EntityId::new().to_string();
+    let plan = binding
+        .prepare_completion(
+            &ready,
+            &negotiated,
+            Transport::Mcp,
+            client.credential_for_checkout(&instrument_ref, &binding)?,
+        )?
+        .with_request_id(&request_id)?;
     schemas.validate_request(&plan)?;
     ensure!(
         plan.mcp_params()["arguments"]["meta"]["idempotency-key"] == idempotency_key,
         "completion changed its durable key"
     );
+    verify_checkout_http_signature(&client, &plan, &idempotency_key, &request_id)?;
 
     let complete_input = input(
         &reference,
@@ -367,6 +377,168 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
             )?)?
             .contains("fixture-private-token"),
         "local processor credential entered shared CAS"
+    );
+    Ok(())
+}
+
+fn verify_checkout_http_signature(
+    client: &CompanyClient,
+    plan: &RequestPlan,
+    original_key: &str,
+    request_id: &str,
+) -> Result<()> {
+    // The verifier receives public JWKS and the exact materialized request.
+    // It rebuilds the RFC 9421 base from required wire components, not signer
+    // internals, and checks the digest against the same checkout body.
+    let mut request = reqwest::Request::new(
+        reqwest::Method::from_bytes(plan.method.as_bytes())?,
+        url::Url::parse(&plan.endpoint)?,
+    );
+    for (name, value) in &plan.headers {
+        request.headers_mut().insert(
+            reqwest::header::HeaderName::from_bytes(name.as_bytes())?,
+            reqwest::header::HeaderValue::from_str(value)?,
+        );
+    }
+    let body = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,
+        "method":"tools/call","params":plan.mcp_params()}))?;
+    *request.body_mut() = Some(body.into());
+    let operator = client.operator();
+    let signer = RequestSigner::new(
+        operator.signer.clone(),
+        operator
+            .signer
+            .delegate(client.connection().identity()?, Duration::from_secs(3600))?,
+        EndpointBinding::from_ucp_plan(&client.connection().report, plan)?,
+        &operator.config.jwks_uri,
+    )?;
+    signer.authorize(&mut request, None)?;
+    let header = |name: &str| -> Result<&str> {
+        request
+            .headers()
+            .get(name)
+            .context("missing signed checkout header")?
+            .to_str()
+            .context("invalid signed checkout header")
+    };
+    ensure!(
+        header("ucp-agent")? == client.profile().agent_header()
+            && header("idempotency-key")? == original_key
+            && header("request-id")? == request_id
+            && plan.arguments()["meta"]["request-id"] == request_id
+            && header("poppy-version")? == "1.0"
+            && header("poppy-extensions")? == "\"ucp\";v=\"1\"",
+        "signed checkout metadata differs from the original request"
+    );
+    let wire_body = request
+        .body()
+        .and_then(reqwest::Body::as_bytes)
+        .context("missing materialized checkout body")?;
+    ensure!(
+        request.method().as_str() == plan.method
+            && request.url().as_str() == plan.endpoint
+            && serde_json::from_slice::<Value>(wire_body)?["params"] == plan.mcp_params(),
+        "signing changed the prepared checkout request"
+    );
+    ensure!(
+        header("content-digest")?
+            == format!(
+                "sha-256=:{}:",
+                STANDARD.encode(ring::digest::digest(&ring::digest::SHA256, wire_body))
+            ),
+        "checkout content digest does not cover the final body"
+    );
+    let agent = format!("\"{}\"", operator.config.jwks_uri);
+    ensure!(
+        header("signature-agent")? == format!("poppy={agent}"),
+        "checkout verification key location changed"
+    );
+    let mut components = vec![
+        ("\"@method\"", request.method().as_str().to_owned()),
+        (
+            "\"@authority\"",
+            request.url()[url::Position::BeforeHost..url::Position::AfterPort].to_owned(),
+        ),
+        ("\"@path\"", request.url().path().to_owned()),
+        ("\"@target-uri\"", request.url().as_str().to_owned()),
+        ("\"signature-agent\";key=\"poppy\"", agent),
+    ];
+    for name in [
+        "poppy-session",
+        "poppy-version",
+        "poppy-extensions",
+        "ucp-agent",
+        "idempotency-key",
+        "request-id",
+        "content-digest",
+        "content-type",
+    ] {
+        components.push((name, header(name)?.to_owned()));
+    }
+    let components: Vec<_> = components
+        .into_iter()
+        .map(|(name, value)| {
+            let name = if name.starts_with('"') {
+                name.to_owned()
+            } else {
+                format!("\"{name}\"")
+            };
+            (name, value)
+        })
+        .collect();
+    let covered = components
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let params = header("signature-input")?
+        .strip_prefix("poppy=")
+        .context("missing checkout signature label")?;
+    ensure!(
+        params.starts_with(&format!("({covered});"))
+            && params.contains(&format!(";keyid=\"{}\"", operator.signer.key_id()))
+            && params.contains(";alg=\"ecdsa-p256-sha256\"")
+            && params.contains(";tag=\"web-bot-auth\""),
+        "HTTP signature omits a checkout integrity component"
+    );
+    let base = format!(
+        "{}\n\"@signature-params\": {params}",
+        components
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let signature = STANDARD.decode(
+        header("signature")?
+            .strip_prefix("poppy=:")
+            .and_then(|value| value.strip_suffix(':'))
+            .context("invalid checkout signature encoding")?,
+    )?;
+    let public = operator.signer.public_jwks();
+    let key = &public["keys"][0];
+    let mut point = vec![4_u8];
+    point.extend(URL_SAFE_NO_PAD.decode(key["x"].as_str().context("public key x")?)?);
+    point.extend(URL_SAFE_NO_PAD.decode(key["y"].as_str().context("public key y")?)?);
+    UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, point)
+        .verify(base.as_bytes(), &signature)
+        .map_err(|_| anyhow::anyhow!("merchant could not verify final checkout HTTP signature"))?;
+    let claims: Value = serde_json::from_slice(
+        &URL_SAFE_NO_PAD.decode(
+            header("poppy-session")?
+                .split('.')
+                .nth(1)
+                .context("missing signed Poppy Session claims")?,
+        )?,
+    )?;
+    ensure!(
+        claims["aud"] == client.connection().report.company_identifier
+            && claims["sub"] == client.connection().user_id
+            && claims["sid"] == client.session_id()
+            && claims["iss"] == client.client_id()
+            && claims["htm"] == plan.method
+            && claims["htu"] == plan.endpoint,
+        "signed checkout Session lost its original owner or destination"
     );
     Ok(())
 }
