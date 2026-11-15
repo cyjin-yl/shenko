@@ -154,7 +154,7 @@ impl RequestPlan {
             "operation resource id presence mismatch"
         );
         if let Some(id) = resource_id {
-            ensure!(!id.is_empty(), "resource id is empty");
+            validate_resource_id(id)?;
         }
         ensure!(
             !operation.changes_state() || idempotency_key.is_some(),
@@ -255,6 +255,9 @@ impl RequestPlan {
             id.is_some() == self.operation.needs_resource_id(),
             "request resource id mismatch"
         );
+        if let Some(id) = id {
+            validate_resource_id(id)?;
+        }
         match self.transport {
             Transport::Mcp => ensure!(self.method == "POST", "MCP plan method changed"),
             Transport::Rest => {
@@ -314,6 +317,15 @@ impl RequestPlan {
         ))
     }
 
+    /// A tracing ID is separate from the durable business idempotency key.
+    /// Both transport representations carry the same value when supplied.
+    pub fn with_request_id(mut self, request_id: &str) -> Result<Self> {
+        validate_idempotency_key(request_id)?;
+        self.headers.insert("Request-Id".into(), request_id.into());
+        self.arguments["meta"]["request-id"] = request_id.into();
+        Ok(self)
+    }
+
     /// Token-tier Shopify calls require the actual buyer's IP, not the agent's
     /// address or a placeholder. This setter validates the supplied address only.
     pub fn with_buyer_ip(mut self, buyer_ip: &str) -> Result<Self> {
@@ -322,6 +334,17 @@ impl RequestPlan {
             .insert("Shopify-Buyer-IP".into(), ip.to_string());
         Ok(self)
     }
+}
+
+fn validate_resource_id(id: &str) -> Result<()> {
+    ensure!(
+        !id.is_empty()
+            && id.len() <= 4096
+            && !matches!(id, "." | "..")
+            && !id.chars().any(char::is_control),
+        "invalid opaque UCP resource id"
+    );
+    Ok(())
 }
 
 pub(super) fn validate_idempotency_key(key: &str) -> Result<()> {

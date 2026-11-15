@@ -211,7 +211,19 @@ fn project(
     )?;
     let resolved = schema_resolver::resolve(&expanded, &ResolveOptions::new(direction, operation))
         .map_err(|_| anyhow!("invalid UCP schema annotations"))?;
-    compile(&resolved, SuppliedDocuments::new(BTreeMap::new()))
+    // Recursive constraint expressions are normal UCP schemas. Their back
+    // edges stay absolute and resolve only through this bounded, already
+    // supplied closure; the validator never acquires another document.
+    let options = ResolveOptions::new(direction, operation);
+    let documents = resources
+        .iter()
+        .map(|(url, schema)| {
+            let projected = schema_resolver::resolve(schema, &options)
+                .map_err(|_| anyhow!("invalid UCP schema annotations"))?;
+            Ok((url.clone(), projected))
+        })
+        .collect::<Result<_>>()?;
+    compile(&resolved, SuppliedDocuments::new(documents))
 }
 
 /// In-memory adaptation of upstream loader.rs's reference inlining. There is
@@ -259,10 +271,10 @@ fn inline_schema(
                     )
                     .context("invalid schema reference")?;
                 let key = url.to_string();
-                ensure!(
-                    active.insert(key.clone()),
-                    "recursive UCP schema cannot be safely inlined"
-                );
+                if !active.insert(key.clone()) {
+                    expanded.insert("$ref".into(), key.into());
+                    return Ok(Value::Object(expanded));
+                }
                 let mut source = url.clone();
                 source.set_fragment(None);
                 https_url(source.as_str())?;
