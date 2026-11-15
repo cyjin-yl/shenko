@@ -1,10 +1,13 @@
 # Durable Node control quorum — 2026-11-15 continuation
 
 Status: the Node protocol and bounded transport have passed their focused
-process journeys and existing election regressions. This is evidence for the
-control plane and retained frozen plans. Canonical Store materialization,
-local authority reservations, availability branches and runtime reconstruction
-remain separate integration evidence owned by the root/Store slice.
+process journeys and existing election regressions. This proves the stated
+control-plane paths and retention of original frozen plans. Store authority
+reservations and actual availability forks now have implementation checkpoints;
+the live runtime reconstruction and combined behavior gates remain separate.
+There is no canonical cross-node S1 materialization claim. See the
+[current distributed boundary](../specs/nodes.md#implementation-and-evidence-status)
+for the three original gaps and their distinct evidence status.
 
 ## Why the previous boundary was insufficient
 
@@ -88,7 +91,8 @@ The original frozen plan and required CAS closure are retained on acceptors
 before they acknowledge. Each object is checked against its digest and byte
 length; typed JSON references are followed and must be present. Opaque bytes
 are not treated as reference graphs. A surviving replica can provide the
-original unapplied plan for Store recovery.
+original unapplied plan for inspection and reconciliation. Recovering those
+bytes does not establish that a Store applied the plan.
 
 An exact retry returns the original grant. Only the call that created the
 original durable round can receive a fresh admission result; restart or a
@@ -100,6 +104,54 @@ head/owner/cancellation CAS while the Node authority reservation is held.
 original work requiring recovery from malformed descriptors and storage errors.
 Runtime supervision must not repeatedly restart on an invalid plan or hide
 corruption as a partition.
+
+## Chosen plans, local materialization and branch continuation
+
+The control log chooses an original plan. The existing Store mutation paths
+allocate local commit references, IDs and timestamps; executing that plan on
+another ledger would not replay one fixed canonical result. The predecessor
+snapshot is therefore retained source evidence, not a second Store database
+or an instruction to overwrite newer facts. The follow-up in `25207eb` binds
+head, expected tasks/ancestors and registered steps to one frozen snapshot,
+then stores stable CAS row pages and their required closure. This also closes
+the source-review gap in which task revision R could name aliases while a
+later snapshot silently carried R+1. This report records that source correction;
+its integrated Store behavior checks belong to the enclosing candidate.
+
+For a chosen plan whose materialization cannot be confirmed, the runtime
+boundary is to preserve its exact descriptor, original payload and CAS evidence,
+record durable reconciliation debt, and create an actual availability branch
+before starting new consumers. It must not rebase the original epoch, assign
+its request/attempt to the new owner, or gain another physical send opportunity.
+A reconstructed original grant is historical evidence. The final live runtime
+adapter and its checks are still integration work at this checkpoint.
+
+Canonical transition replay remains a separate requirement: it needs an
+explicit typed read set, fixed write/result identities, and a logical decision
+identity distinct from a node's local materialization receipt. This continuation
+does not manufacture that capability by rerunning S1 or substituting local
+`CommitRef`s into another node's sealed plan.
+
+The three original gaps are now narrowed as follows:
+
+| Original gap | Source checkpoint | Evidence boundary |
+| --- | --- | --- |
+| Vote quorum without persisted entries | `97602f5`, bounded transport/key fences `31010ab`, legacy-admission refusal `e0dffa0` | Focused Node journeys and library/Clippy results below; the final four-line legacy refusal awaits the combined candidate's checks. |
+| Node authority not coupled to Store commit | Reservation `c429dea`, exact fresh-grant read checks `e7d4571`, Store provider integration | The Node reservation closes the local check/commit race. It is not a remote lease; live adapter, reconstruction and Store behavior still need integrated evidence. |
+| Availability fact without a real Store fork | Store/Node/context fork `d09b087`, retained predecessor/head validation `25207eb` | Actual fork/projection source exists. Combined fork/rebuild and inherited-input behavior remain integration gates. |
+
+Targeted fork review found a delivery boundary separate from raw retention.
+A web/Playground/media/self-wake input staged in the parent's current step has
+already set `inbox_events.consumed = 1`. Its original raw event survives in the
+child's frozen history, but the initial fork does not give the child's new step
+a `subject_raw_inputs` reference. The ordinary pending query and S0 recovery
+therefore omit it from the child's selected `InputPlan.events`; an obligation
+naming that input is then refused as unselected. The correction is being made
+in the root fork slice: inherit only unresolved selected input references with
+their original provenance, without clearing all inbox flags, moving the old
+request/attempt, or replaying an external action. No new independent scenario
+was added by this read-only review, and this report does not assert that the
+pending correction has passed its integration gate.
 
 ## Bounded transfer and immutable closure retention
 
@@ -185,5 +237,5 @@ private SQLite installations. The shared transfer driver opens the durable
 source and sends each remote frame to another process. This does not exercise
 SSH reachability, real model choice, a heterogeneous deployment, long-run
 availability, or physical provider exactly-once delivery. In particular, the
-Node evidence does not substitute for actually applying the canonical Store
-transition after a plan was chosen.
+Node evidence does not substitute for a canonical Store transition unit or
+for integrated behavior when an original chosen plan remains unapplied.

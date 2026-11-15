@@ -1,5 +1,12 @@
 # Node authority, delayed votes and membership replay
 
+Historical checkpoint: the commands, hashes and limits below describe the
+initial authority fixes and their immediate follow-ups. The later
+[durable-control continuation](control-quorum-20261115.md) replaces the
+vote-only persistence boundary and implements parts of the two Store/runtime
+gaps. The old observations remain evidence for their stated source; they are
+not a claim that those three mechanisms are still wholly absent today.
+
 Date: 2026-11-15. Branch: `fix/readiness-distributed-20261115`.
 Base: `054817b0d5729fed56ec5a974d101c31edfd1410`.
 Candidate: `crates/shenko-node/src/election.rs` SHA-256
@@ -64,7 +71,7 @@ and `evidence/node-partition-fixed.log`; the integrator retains the enclosing
 candidate and evidence manifest. Existing unused-variable/dead-code warnings
 remain. No runtime services, remote nodes or user effects were started.
 
-## Deliberate limits and remaining integration work
+## Deliberate limits and remaining integration work at the initial checkpoint
 
 This is control-plane safety evidence, not full distributed product acceptance.
 Certificates contain voter identities, not independent cryptographic vote
@@ -182,3 +189,28 @@ and hashes above describe their recorded candidates, not this later change;
 the updated source and combined CLI compilation remain the integrator's gate.
 This recovery adapter does not supply the still-missing quorum persistence of
 actual control-log entries or automatic partition/failover qualification.
+
+## Continuation status: the three distributed gaps
+
+The Node control path now persists actual accepted values and acknowledgements
+on a configured quorum before learning a commit. It recovers the highest
+accepted original value after proposer loss and uses bounded suffix/object
+transfer. Those facts supersede this report's vote-only log-persistence blocker;
+they have focused process and library evidence in the continuation report.
+
+The Node/Store boundary now has a reservation held across local grant validation
+and Store CAS, plus exact admission keys/read fences in the control log. The
+real fork path now retains a Store parent head and frozen history, creates new
+branch/task/step identities, and repairs Node projection from the Store's own
+receipt. These are implementation advances, not yet a claim that all live
+runtime consumers and reconstruction paths passed their combined gate.
+
+The remaining canonical-materialization boundary is explicit: a quorum-chosen
+original plan is not a deterministic cross-node S1 result. Unconfirmed apply
+must retain original plan/CAS evidence and durable reconciliation debt, continue
+on a real child branch before new consumers start, and never rebase the old
+epoch or reissue its physical attempt. The continuation also records the
+staged-but-uncommitted input-inheritance correction under review. See the
+[current Node contract](../specs/nodes.md#implementation-and-evidence-status)
+for the current mechanism/evidence mapping; these later changes do not alter
+the historical checks or source hashes above.

@@ -15,225 +15,282 @@
 
 <!-- /migrated-contract: WHY:7 -->
 
-[§5.4](nodes.md#spec-5-4)、[§22](nodes.md#spec-22)、[§38](cognition-units.md#spec-38)、[§41](architecture.md#spec-41)、[§44](plugins.md#spec-44); C17. This document is the focused contract of
-the `shenko-node` election slice: the interfaces, why they exist, what errors
-mean, and how recovery works. It distinguishes committed runtime facts from
-runtime evidence that this slice deliberately does *not* produce (liveness,
-reachability, provider readiness).
+[§5.4](nodes.md#spec-5-4)、[§22](nodes.md#spec-22)、[§38](cognition-units.md#spec-38)、[§41](architecture.md#spec-41)、[§44](plugins.md#spec-44); C17.
+The sections below describe the implemented control-plane boundary and its
+remaining integration work as of the 2026-11-15 continuation. The product
+requirements beginning at [§5.4](#spec-5-4) remain the acceptance contract.
+Passing a Node protocol journey does not, by itself, qualify runtime takeover
+or canonical Store state replication.
 
-## What is decided here, and by what
+## What the control log decides
 
-The current primary of a connected domain is decided by a **committed member
-configuration** plus a **quorum of verified vote receipts** — never by the
-number of nodes a process happens to see, a heartbeat, a model name, an OS, or
-a count of replicated agent processes (one replicated identity is one vote).
+A connected-domain primary requires a committed member configuration, durable
+prepare promises and quorum persistence of the actual primary control value.
+A vote certificate alone does not establish that persistence. The implementation
+is a sequential Paxos-style prepare/accept log, using the highest accepted value
+rule in [Paxos Made Simple, §§2.2–2.5 and 3](https://lamport.azurewebsites.net/pubs/paxos-simple.pdf).
+It is not a Raft implementation.
 
-- Membership is a *configuration fact*: `MemberConfiguration { members,
-  joint_new, revision, term, digest }`, committed through the node's durable
-  control log. The quorum is a majority of **every** configured set (joint
-  consensus: old AND new during a membership change).
-- A vote is a *verified receipt*: `VoteRequest`/`VoteResponse` at
-  `ELECTION_WIRE_SCHEMA = 1`, exchanged only over an authenticated route
-  (the node's own SSH path). Votes from non-members or against a different
-  configuration digest are rejected and never counted.
-- Authority is a *fencing epoch*: every committed decision carries a
-  monotonic `FencingToken { term, epoch }`. Authority-bearing writes check the
-  epoch (`Node::check_fencing`); an instance that lost the election cannot
-  keep acting as primary once a newer epoch is committed locally. The check
-  also refuses a historical claim after a higher term is observed locally,
-  a mismatched configuration revision, or removal of the claimed leader.
-- Eligibility has no OS gate, no model-name gate and no local-LLM requirement
-  ([§5.4.1](nodes.md#spec-5-4-1)): a member is a capable node; credentials and grants are never
-  exported, copied, or discovered by this slice.
+The fault model is authenticated, non-Byzantine peers with durable SQLite
+storage, process crashes, and lost, duplicated or delayed messages. A response
+must name the Node reached through the configured authenticated route. Its
+acknowledgement is not an independently signed Byzantine quorum proof. There
+is no wall-clock authority lease and no inference of liveness from a stored
+role, model name, operating system or count of replicated processes.
 
-## Interfaces
+| Durable fact | What it establishes | What it does not establish |
+| --- | --- | --- |
+| Member configuration and primary control value | The configured quorum chose this exact control value and retained it before acknowledging. | Continued peer reachability or permission for every future Store write. |
+| `CommitAdmission` and its complete CAS closure | This exact frozen plan owns its conflict keys and write aliases in control-log order; required read positions were unconsumed at admission. | That a Store applied the plan, or that independently executing it elsewhere produces the same state. |
+| Local Store transaction and receipt | The existing Store head/task/epoch checks passed and the local mutation committed. | A physical provider effect occurred exactly once, or another ledger materialized identical rows. |
+| External observation or terminal receipt | The original attempt has this retained evidence, with its original identity and outcome. | A new dispatch permit, current controller ownership or permission to overwrite conflicting evidence. |
 
-Library (`shenko-node`, all durable, additive storage schema 8):
+Membership is `MemberConfiguration { members, joint_new, revision, term,
+digest }`. One node identity is one voter. A majority of every configured set
+is required: during a joint transition, old AND new. Joint and Final both
+require their governing old/new quorums. Capability and model availability may
+inform candidate preference; neither changes membership or grants authority.
+No OS, named model or local-LLM requirement is introduced.
 
-- Configuration: `ensure_member_configuration` (genesis `{self}`),
-  `adopt_member_configuration` (verified push of the full committed prefix), `member_configuration`,
-  `propose_member_change` / `propose_final_member_change` /
-  `tally_member_change` (joint then final), `control_log`.
-- Election: `campaign`, `handle_vote_request`, `record_vote_response`,
-  `tally`, `committed_primary_claim`, `current_term`, `election_role`,
-  `fencing_token`, `check_fencing`, `is_primary`, `election_status`.
-  `committed_primary_claim` retains the historical fact; `fencing_token`
-  returns `None` when that claim is no longer current. The token's claim,
-  term and membership are read from one SQLite snapshot. Consumers must
-  check the exact token they return or use, not a separately reread one.
-- Replication: `append_control_entries` (verifies the committed quorum
-  certificate before accepting; an unverified entry is rejected, not queued).
-  The input suffix must continue the request predecessor exactly — the first
-  entry is `prev_index + 1`, every later entry is one more than the one
-  before it — and it is applied as a whole or refused as a whole.
-  `control_log_conflicts` reads the refused divergences this node retained.
-- Configuration catch-up: a push supplies the full continuous log from index
-  1 and covers every retained index. It preserves identical committed bytes,
-  requires the advertised configuration to be committed by the supplied log,
-  and applies entries above the old committed frontier, including identical
-  retained rows explicitly certified by that push. Equal configuration revisions may
-  still carry a newer primary suffix. Empty, sparse, shorter or divergent
-  histories are refused atomically; configuration revision never substitutes
-  for a log index. Only the verified entries can establish a configuration;
-  a newly learned revision retains its originating `committed_at` metadata
-  after validation. Existing retained configuration metadata is not rewritten.
-- Partition/adoption/reconciliation: `open_availability_branch`, `branches`,
-  `adopt_identity` (retains experience; records `AdoptionRecord` +
-  `BranchFact`), `reconcile_peer_experience` (dedup by identity, conflicts
-  retained side by side — never last-write-wins; a settled task is never
-  un-settled; an unknown external effect is never re-sent),
-  `reconciliation_records`.
-- Assignment fencing: `record_assignment_fence`, `assignment_fence`; the
-  `assignment` and `accept` paths consult `node_assignment_fences`.
-- Runtime roles: `observe_runtime_roles(..., fence: Option<&FencingToken>)`;
-  the `Primary` role is refused without a valid committed fence
-  (`"primary observation requires a committed election fencing token"`).
+## Durable prepare, acceptance and recovery
 
-Node requests (JSON, `command`-tagged): `election_status`, `members`,
-`member_change`, `record_vote`, `tally`, `tally_member_change`, `vote`,
-`append`, `push_config`, `adopt`, `reconcile`.
+The current additive Node storage schema is 10 and election wire schema is 3.
+`crates/shenko-node/src/control.rs` owns the following sequence:
 
-CLI (`shenko sync` in `bin/shenko/src/node_sync.rs`):
+1. The proposer names the exact committed prefix and its governing
+   configuration. An acceptor persists its promise before returning a positive
+   prepare response, including its highest accepted next-slot value. One
+   proposer can hold a term; a competing proposer must advance the term.
+2. A prepare quorum fixes the eligible next value. If any promise reports an
+   accepted value, the highest accepted ballot wins. A successor must recover
+   another node's original primary, configuration or admission unchanged when
+   that is the selected value; recovering it does not elect the successor.
+3. Acceptors check the prefix, proof, value and complete referenced object
+   closure. They persist the accepted value and their exact acknowledgement
+   in one SQLite transaction before responding. Acknowledgements bind slot,
+   value digest, prefix, ballot and configuration.
+4. Only an actual acceptance quorum permits a learned commit. Disseminating
+   that commit can fail after the last acceptance; the next proposer recovers
+   the durable accepted value. Losing the proposing process does not turn its
+   original chosen value into a fresh proposal owned by the successor.
+5. A stable proposer may reuse a prepare only when the retained intervening
+   committed run belongs to the same ballot. A recovered configuration or
+   an incompatible run requires a new prepare. A candidate behind a reachable
+   quorum imports the verified missing suffix and campaigns again.
 
-- `sync election status|campaign` — print facts; or ensure configuration,
-  campaign, solicit votes over each member's authenticated route, commit on
-  quorum. No reachable quorum → availability branch, exit honestly.
-- `sync members show|add|remove|push` — show facts; joint+final membership
-  change by quorum under a current committed primary; add/remove establishes
-  that authority before proposing. Push committed configuration + control log
-  to one peer. This domain reconfiguration requirement does not gate local
-  availability-branch intelligence on a global quorum.
-- `sync adopt --identity-file ... --trusted-node ... --provenance ...` —
-  adopt a verified existing self. Adoption and the installation's subject
-  binding are one fact: the binding is projected from durable subject
-  genesis/head state, so `adopt` is refused before the node records anything
-  when the trusted identity is a different self than the bound subject — the
-  store cannot transition that binding without the adopted subject's own
-  durable facts, and a reported success would break every later `open_node`.
-  Adopting the already-bound identity is allowed and is the path that
-  re-converges a diverged node/binding pair.
-- `sync reconcile --peer <id>` — pull the peer's verified events/receipts
-  over its authenticated route and merge as parallel facts.
-- `sync identity` response now also carries the committed primary claim and
-  member configuration; the candidacy ordering (`coordination` request)
-  remains explicitly `is_election: false`.
+Committed values are immutable. A value's identity binds index, original term,
+kind and payload; recovery can produce another valid acceptance certificate
+without rewriting the original committed copy. Late acknowledgements may teach
+an earlier chosen value, but cannot lower the durable term or restore an old
+primary's current authority. Refused divergences remain evidence.
 
-Startup wiring (`bin/shenko/src/lib.rs`, called by the thin `main.rs`):
-before the subject loop spawns,
-`node_sync::establish_primary` ensures the genesis/committed configuration,
-campaigns, solicits votes and commits the claim; the returned
-`Option<FencingToken>` is passed to `observe`. `None` (partitioned, no
-quorum) starts the subject on an explicit availability branch with no
-domain-primary claim. The deterministic no-model path observes with `None`.
-The current no-quorum path records a Node branch fact; it does not yet fork
-the Store's subject head or bind the live loop to that new branch. That
-cross-store transition remains required before the startup path can be
-counted as a working availability-branch takeover.
+Schema-1 control history and its original vote certificates remain readable as
+legacy facts. They cannot create a usable primary fence merely by being read.
+Admission commands did not exist in schema 1 and are refused in that format.
+Retained schema-2 persistence proofs keep their original meaning. The schema-10
+migration retains accepted values and receipts, backfills prefix/key indexes,
+imports retained inline objects into Node CAS and requires a new ballot before
+reusing older full-prefix prepare records.
 
-## Errors that mean something
+## Interfaces and bounded transfer
 
-- `no committed member configuration` — membership is unknown; run
-  `ensure_member_configuration` or adopt a pushed configuration. Votes are
-  never counted without one.
-- `unsupported election wire schema` — mixed-version control plane; fails
-  closed. Upgrade the peer; never bridge schemas.
-- `vote was given against a different configuration/proposal` — the voter is
-  behind or forked; its receipt is evidence, not a vote.
-- `candidate_log_not_up_to_date` — the candidate must catch up from the
-  committed control log before it may lead ( Raft-safety guard).
-- `log_mismatch: ...` in an `AppendOutcome` — the request predecessor is not
-  this node's committed entry, or the input suffix skipped an index or does
-  not extend the committed prefix. Nothing is applied and the commit index
-  does not move.
-- `log_conflict: ...` in an `AppendOutcome` — the offered entry names an
-  index this node already committed with a different term or a different
-  decision. The divergence is retained as `node_control_log_conflicts`
-  evidence rows (`committed` and `offered` under one `conflict_id`); the
-  committed record is never deleted or overwritten.
-- `primary observation requires a committed election fencing token` /
-  `stale fencing token` — a runtime tried to record `Primary` without (or
-  against) the committed election; refused.
-- `replication response is from a different Node` / capability-name
-  mismatch — authenticated-channel binding failed; the receipt is discarded.
-- `sync adopt refused` — the trusted identity is not the installation's
-  bound subject and the adoption cannot transition the binding by itself
-  (the adopted subject's genesis/retained facts are not yet committed in
-  this store); the node is left untouched so the refusal cannot strand the
-  installation mid-transition.
+The library groups these boundaries explicitly:
 
-## Recovery
+- Configuration and election: `ensure_member_configuration`,
+  `member_configuration`, `campaign`, `handle_vote_request`,
+  `record_vote_response`, `tally`, `propose_member_change`,
+  `propose_final_member_change`, `pending_joint_proposal`, and
+  `tally_member_change`. Preparing or voting is distinct from committing.
+- Persistence: `pending_control_replication`, `accept_control`,
+  `record_control_acknowledgement`, and `commit_prepared_control` expose the
+  actual acceptance/commit path. `append_control_entries` accepts only a
+  continuous verified suffix; `control_log_conflicts` retains refusals.
+- Catch-up: `control_frontier`, `synchronize_control_peer`,
+  `learn_control_prepare` and `replicate_control_to` use the shared transport
+  driver in `control_transport.rs`. The production adapter supplies its
+  authenticated SSH route. A frontier binds index, term and prefix digest;
+  a mismatched predecessor or divergent committed value cannot be overwritten.
+- Admissions: `propose_admission`, `committed_admission`,
+  `committed_admissions` and `admission_objects` retain and expose original
+  frozen plans and their object closure. `ControlAdmissionError` distinguishes
+  unavailable authority/quorum and retained original work from malformed plans
+  or storage corruption.
+- Authority: `committed_primary_claim` is historical; `fencing_token` returns
+  only a currently usable token. Its claim, term and configuration are read
+  in one snapshot. `check_fencing` checks the exact token, current term,
+  configuration revision and leader eligibility. `is_primary` and role
+  observations use that boundary rather than the presence of an old claim.
+- Local reservation: `Node::reserve_authority` owns an immediate SQLite
+  transaction until its guard is dropped. The Store bridge validates the
+  exact committed grant and fresh read fences through this same reservation;
+  it does not infer remote exclusivity from a local lock.
 
-- All election state is durable in the node database (election tables:
-  `node_election_state`, `node_control_log`, `node_member_configs`,
-  `node_votes`, `node_branches`, `node_reconciliations`,
-  `node_assignment_fences`, `node_observation_fences`,
-  `node_control_log_conflicts`). Reopening the node
-  replays nothing; committed facts are read directly.
-- A partitioned node keeps thinking on an explicit availability branch; the
-  branch fact records that `global_quorum: false`. Rejoining is not LWW: the
-  node reconciles peer experience (events deduped by identity, conflicts as
-  parallel facts) and may `adopt_identity` to resume one self, retaining all
-  experience.
-- A legacy hole inside the recorded committed prefix is refused on catch-up;
-  the receiver cannot recreate missing committed bytes or erase a divergence.
-  Matching retained rows above the old frontier can be certified only by an
-  explicit verified full-prefix push, never by an append replay or presence
-  alone. Such a push must cover the highest retained row and cannot rewind
-  the recorded frontier.
-- Reconciliation retains each complete peer result receipt in the existing
-  receipt journal, in the same transaction as its reconciliation record.
-  `ExportReceipts` can read the original ticket, output digest and source
-  event after the peer is no longer accessible. Transport-peer provenance
-  does not confer settlement authority: fresh rows are `evidence_only`, and
-  receiving them never executes or settles a task. Replaying the same receipt
-  neither duplicates it nor downgrades an existing local settlement. Older
-  reconciliation summaries that dropped receipts cannot reconstruct them;
-  they are not retroactive proof that the original evidence was retained.
-- An interrupted vote solicitation leaves no partial claim: only `tally`
-  commits, and only on quorum of the committed configuration.
-- A delayed vote response cannot lower the durable term or authorize a tally
-  from an obsolete campaign/configuration. Authenticated late observations
-  remain under non-ballot receipt scopes in `node_votes`; exact replay is a
-  no-op. Historical voting membership can retain a receipt but cannot grant
-  authority in the current configuration.
-- Membership tally retries return the original committed transition at
-  `base_revision + 1`; a changed transition conflicts. Votes from an older
-  term cannot be relabelled with today's term. New proposals and tallies
-  require the current committed leader, and a voter grants at most one
-  compatible candidate/proposal per base and term. The local ballot check
-  and insertion share one immediate transaction, including retained ballots
-  from older writers; compatible replay preserves the original ballot. A
-  stale/outside configuration or membership request cannot advance term.
-  Both append and full-prefix
-  push verify certificate identities and old/new majorities against the
-  preceding configuration, including elections during a joint transition.
-  An older committed suffix can be caught up after a newer local campaign;
-  it does not rewind the observed term or restore its historical primary.
+Normal election, membership and admission traffic carries only missing log
+suffixes and missing CAS objects. Object data uses 64 KiB chunks; log pages
+have a 512 KiB target. New committed entry metadata must fit 256 KiB even with
+all eligible acknowledgement receipts, and replication proofs are bounded
+before acceptance. Large frozen plan content is retained in Node CAS, outside
+entry metadata. Complete typed JSON reference closures are verified before an
+ACK; opaque bytes are not guessed to be JSON graphs. Immutable closure markers
+let later transfers skip already verified subtrees. Cached prefix digests and
+ballot-run indexes avoid rereading the full control history for each admission.
 
-## What is deliberately not evidence here
+The JSON request protocol includes prepare/vote, accept/record/commit,
+frontier/page and object transfer, plus the existing inspection, adoption and
+reconciliation requests. Explicit full-prefix `push_config` remains a verified
+import interface; normal catch-up and CLI `members push` use bounded transfer.
+An equal configuration revision can still have a newer primary/admission suffix;
+configuration revision never substitutes for a log index.
+An explicit full-prefix import must cover every retained index and the
+advertised configuration. Empty, sparse, shorter or divergent histories are
+refused atomically. It can certify matching retained rows above an old recorded
+frontier, but cannot recreate a hole, rewind the frontier or rewrite retained
+configuration metadata. Newly learned configuration facts keep their original
+`committed_at` provenance after validation.
 
-- Persisted observations are not liveness; `role_status` reports
-  `persisted_observation_is_liveness: false`.
-- The election does not measure peer liveness (`current_peer_liveness:
-  "not_measured"`); reachability is established per vote RPC, and a refused
-  or lost vote is recorded, not retried into existence.
-- Capability advertisements and the candidacy ordering are facts the
-  election may consider; they confer no authority.
-- Model/provider locality, privacy posture and reachability live in the
-  capability/quota slices; this slice keeps subject_id/count truth bound and
-  separate from role observation.
-- [2026-11-15 control-state regression evidence](../evidence/node-authority-20261115.md)
-  covers delayed responses, replay and configuration lineage. Certificates
-  still rely on the authenticated transport; their voter lists are not
-  independently signed proofs. Startup election and role observation do not
-  establish a continuously supervised subject-loop authority consumer or
-  autonomous failover. Isolated branches remain allowed to retain experience.
-- A membership vote currently persists a ballot, not the actual proposed
-  control entry on a quorum of replicas before the leader calls it committed.
-  Leader loss before replication can therefore leave another majority unaware
-  of that entry. Durable quorum replication and the Node/Store authority
-  bridge remain distributed-release blockers; prefix validation and local
-  ballot exclusivity do not substitute for those protocols.
+CLI (`bin/shenko/src/node_sync.rs`):
+
+- `sync election status|campaign` prints facts or runs the full prepare,
+  persistence and commit path. Startup also uses this path; an old cached
+  primary token does not bypass a fresh quorum.
+- `sync members show|add|remove|push` performs joint then final reconfiguration
+  under current primary authority. A matching interrupted Joint resumes Final
+  from the retained original proposal. The requested target is derived from
+  the old set and must exactly match the pending new set. Catch-up reaches the
+  old/new voter union before campaigning under Joint. A different target
+  conflicts; an already-current target creates no redundant transition.
+- `sync adopt` verifies trusted identity and the installation's durable subject
+  binding before changing the Node. It cannot invent the adopted subject's
+  missing Store genesis/head. An already-bound identity can repair divergence.
+- `sync reconcile --peer <id>` imports verified events and receipts as parallel
+  facts. Deduplication preserves original identities; conflicts are not LWW.
+  Imported receipt provenance does not confer settlement or dispatch authority.
+
+Assignment fences and `observe_runtime_roles` remain consumers of an exact
+usable token. A `Primary` observation without one is refused. Capability
+ordering remains `is_election: false`.
+Reconciliation keeps complete peer receipts in the existing receipt journal,
+atomically with the reconciliation record. `ExportReceipts` can recover the
+original ticket, output digest and source event after the peer disappears.
+Fresh imports are evidence-only; replay neither duplicates them nor downgrades
+an existing local settlement. Older summaries that discarded receipt bytes
+cannot retrospectively prove that those originals were retained.
+
+## Connected Store admission and materialization
+
+A global plan carries a stable conflict key/action identity, write aliases,
+read preconditions, original subject/branch/epoch/generation, and the frozen
+payload reference. Write aliases consume shared predecessor positions in the
+same slot. Read preconditions only test positions, allowing multiple children
+to read a live ancestor while a later cancellation consumes its old revision.
+Conflicting plans are refused before ACK so a contradictory chosen value cannot
+poison the log at apply time.
+
+The bridge's lock order is Node authority reservation, then Store mutation.
+Network prepare/accept work occurs before those local locks. Under the Node
+reservation, the Store checks the exact grant and authority binding, rechecks
+fresh read preconditions, and runs its existing head/task/cancellation CAS.
+The reservation serializes against locally learned term, configuration,
+identity and branch changes; it is not a network lease. Connected global work
+needs actual admission ordering as well as this local check/commit boundary.
+An exact retry reads the original grant. It cannot obtain another physical send
+permit; historical grants remain readable after later cancellation or takeover.
+
+**The chosen value is an original plan, not a canonical Store transition.**
+Existing Store paths allocate local `CommitRef`s, IDs and timestamps during
+materialization. Calling the same S1 code against another ledger is therefore
+not deterministic replication of its original result. The frozen predecessor
+and its validated CAS rows are evidence, not an instruction to overwrite a live
+Store projection, rebase the old epoch or recreate an external attempt.
+
+When a chosen plan has no confirmed materialization, continuation must retain
+the exact plan and predecessor evidence, expose durable reconciliation debt,
+and enter an actual availability branch before starting fresh consumers. It
+must not assert that the original mutation succeeded or regain its physical
+send permit. Runtime reconstruction and this fallback are integration gates
+until their source and behavior checks complete. General canonical replay still
+requires a typed transition with explicit read conditions, fixed result/write
+identities, and a logical decision identity separate from each node's physical
+Store receipt. The current admission protocol alone does not supply that unit.
+
+## Actual availability branches
+
+The no-quorum adapter now calls a Store branch transition instead of stopping
+at a Node `BranchFact`. `subject_branches.rs` retains the exact parent head,
+a frozen raw-history prefix and notebook revision, then creates a new branch,
+root task and planned first step under the same subject/genesis. Historical
+heads remain immutable facts. Child history reads the frozen parent prefix
+plus the child's new events; later parent facts cannot silently enter that
+prefix. New local sequence positions start after the inherited leaf.
+
+`runtime_branches.rs` holds the Node reservation while the Store commits its
+fork receipt, then projects the new branch into the Node identity. A crash
+between those commits is repaired only from that locally committed Store
+receipt, with the original subject, parent and child binding verified. An
+arbitrary imported head cannot authorize projection repair. The control-log
+namespace remains pinned to its durable genesis/configuration and is not
+replaced by the mutable local availability-branch identity.
+
+The fork does not clone or reassign an in-flight subject request, native task
+or external attempt. Those retain their original owners and may accept late
+facts; the child's first step is a new planned identity. This preserves local
+intelligence without pretending that a global quorum exists.
+
+Raw-history retention and pending-input delivery are separate obligations.
+Review of the initial fork implementation found that web/Playground/media or
+self-wake input staged before S1 has `consumed = 1`, while its raw-input link
+still belongs to the old step. The child sees the original in inherited history
+but does not automatically select it into its sealed `InputPlan.events`.
+Explicit branch-local pending-input inheritance is still required for this
+case, with original provenance and without resurrecting the old request/attempt.
+Unstaged inbox input and branch-scoped native evidence follow different paths;
+resetting every inbox flag is not a valid repair.
+
+## Recovery and refusal boundaries
+
+Durable Node tables retain promises, accepted values, proposer rounds,
+acknowledgements, committed control values, membership, admission keys,
+prefix indexes, immutable object closures, conflicts, branches and receipts.
+Opening a database reads those facts; it does not infer a fresh authority grant.
+A process lost after acceptance can leave a chosen-but-unannounced value, which
+prepare recovery must preserve. A process lost after plan admission can also
+leave an unapplied Store action, which is a distinct reconciliation boundary.
+
+| Observation or refusal | Required interpretation |
+| --- | --- |
+| No committed configuration or unsupported wire schema | Fail closed; establish trusted membership or upgrade the peer. Do not synthesize votes. |
+| `candidate_committed_prefix_mismatch` | Learn the verified newer prefix and prepare again; a reachable newer quorum is not permanent unavailability. |
+| Higher observed term | Retain the response and step down locally. A late lower-term response cannot undo it. |
+| `log_mismatch` / `log_conflict` | Refuse the entire invalid suffix; retain divergent values without rewriting the committed record. |
+| Unavailable authority/quorum | Reconstruct the runtime into an explicit branch when appropriate; this is not a ban on all local intelligence. |
+| Existing admission or recovered different value | Retain the original chosen plan and its provenance; do not substitute the caller's new payload or owner. |
+| Stale fencing token or changed read position | Refuse the fresh mutation; original late receipts remain ingestible. |
+| Invalid descriptor, incomplete closure or storage failure | Report the actual failure; do not disguise corruption as a partition or restart forever. |
+
+## Implementation and evidence status
+
+The three gaps identified in the initial audit are partly resolved. Their
+replacement mechanisms have different evidence boundaries:
+
+| Initial gap | Implemented continuation | Evidence still required |
+| --- | --- | --- |
+| Votes counted as persisted control entries | Actual durable prepare/accept/ACK/commit, accepted-value recovery, joint quorums and bounded log/CAS transfer. | Integrated runtime and production-route acceptance beyond the focused Node journeys. |
+| Node authority disconnected from Store mutation | Exact grant/read-fence checks under a Node reservation and an explicit Store authority binding. | Completed live-consumer reconstruction and integrated stale-controller/effect fencing; a local guard alone proves no remote lease. |
+| Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix, new task/step and crash-recoverable Node projection. | Integrated fork/rebuild behavior, including unresolved staged-input inheritance. |
+
+[Durable control evidence](../evidence/control-quorum-20261115.md) records four
+passing process journeys, 34 passing Node library tests and focused Clippy,
+with their exact source scope. Two process journeys are new; these checks use
+real local Node processes/SQLite and the production transfer driver. They do
+not run SSH, a real model/provider, canonical cross-node S1 materialization or
+long-running heterogeneous failover. The [earlier authority evidence](../evidence/node-authority-20261115.md)
+is retained as historical evidence, with its superseding boundaries identified.
+No requirement is promoted to real-world acceptance by these source changes.
+
+Persisted role observations remain explicitly non-liveness. Peer capability
+claims, model/privacy posture and reachability retain their own evidence
+owners. Physical provider exactly-once delivery is not promised; original
+unknowns and conflicting observations stay explicit.
 
 <a id="spec-5-4"></a>
 <!-- migrated-contract: SPEC:5.4 -->
