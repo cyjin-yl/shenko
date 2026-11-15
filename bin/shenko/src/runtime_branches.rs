@@ -384,7 +384,12 @@ mod tests {
         );
         repair_pending_projection(&root.0, &store)?;
         let mut node = crate::node_sync::open_node(&root.0, &store)?;
-        assert_eq!(node.local_identity()?.unwrap().branch_id, branch);
+        assert_eq!(
+            node.local_identity()?
+                .context("projected identity missing")?
+                .branch_id,
+            branch
+        );
         repair_pending_projection(&root.0, &store)?; // Recovery is idempotent.
         let (head, mut step) = store.load_subject(agent)?;
         assert_eq!(head.branch_id, fork.branch_id);
@@ -420,7 +425,9 @@ mod tests {
             store.web_input_selected_step(agent, original.event_id)?,
             Some(step.step_id)
         );
-        let retained = store.subject_request_attempt(request.request_id)?.unwrap();
+        let retained = store
+            .subject_request_attempt(request.request_id)?
+            .context("original attempt missing")?;
         assert_eq!(retained.state, SubjectRequestState::Dispatched);
         assert_eq!(retained.attempt_id, request.attempt_id);
         assert_eq!(retained.step_id, parent_step.step_id);
@@ -465,7 +472,7 @@ mod tests {
                 limit: 128
             })?["receipts"]
                 .as_array()
-                .unwrap()
+                .context("exported receipts are not an array")?
                 .len(),
             1
         );
@@ -487,14 +494,14 @@ mod tests {
         assert_eq!(
             store
                 .subject_request_attempt(request.request_id)?
-                .unwrap()
+                .context("terminal original request missing")?
                 .state,
             SubjectRequestState::Terminal
         );
         assert_eq!(
             store
                 .subject_request_attempt(request.request_id)?
-                .unwrap()
+                .context("terminal original attempt missing")?
                 .attempt_id,
             request.attempt_id
         );
@@ -538,7 +545,9 @@ mod tests {
             right.branch_history_range(EntityId(right_branch.0), 0, i64::MAX)?,
             vec![common.clone(), staged.clone(), right_event]
         );
-        let inherited_note = right.context_note_head(EntityId(right_branch.0))?.unwrap();
+        let inherited_note = right
+            .context_note_head(EntityId(right_branch.0))?
+            .context("inherited clearing note missing")?;
         assert!(!inherited_note.visible && inherited_note.body.is_empty());
         assert_eq!(inherited_note.source, "fork");
         let next_branch = BranchId::new();
@@ -575,7 +584,7 @@ mod tests {
         let fault = rusqlite::Connection::open(root.0.join("left.db"))?;
         let first = left
             .subject_branch_fork(left_branch.clone())?
-            .unwrap()
+            .context("left fork receipt missing")?
             .first_step_id;
         fault.execute("CREATE TEMP TABLE saved_inherited_input AS SELECT * FROM subject_raw_inputs WHERE step_id=?1",
             [first.to_string()])?;
@@ -596,14 +605,20 @@ mod tests {
         // A historical head's registered step is also required ancestry, even
         // when the child has a valid first step and a complete raw prefix.
         let fault = rusqlite::Connection::open(root.0.join("left.db"))?;
+        // Only this corruption-injection connection bypasses the source SQL
+        // foreign keys. Leave all referencing facts in the generated archive
+        // so the production receiver must detect the incomplete closure.
+        fault.pragma_update(None, "foreign_keys", false)?;
         fault.execute(
             "CREATE TEMP TABLE saved_parent_step AS SELECT * FROM subject_steps WHERE step_id=?1",
             [parent.next_step_id.to_string()],
         )?;
-        fault.execute(
-            "DELETE FROM subject_steps WHERE step_id=?1",
-            [parent.next_step_id.to_string()],
-        )?;
+        fault
+            .execute(
+                "DELETE FROM subject_steps WHERE step_id=?1",
+                [parent.next_step_id.to_string()],
+            )
+            .context("inject missing parent successor")?;
         let missing_step = archive(&left)?;
         fault.execute_batch("INSERT INTO subject_steps SELECT * FROM saved_parent_step; DROP TABLE saved_parent_step;")?;
         let before = serde_json::to_value(right.load_subject(agent)?.0)?;
@@ -617,10 +632,12 @@ mod tests {
         // Fault injection removes a required original at the source. Its
         // normally generated archive has a VALID fingerprint for those bad
         // bytes, so the receiver must reject lineage, not merely framing.
-        rusqlite::Connection::open(root.0.join("left.db"))?.execute(
-            "DELETE FROM session_events WHERE event_id=?1",
-            [common.event_id.to_string()],
-        )?;
+        fault
+            .execute(
+                "DELETE FROM session_events WHERE event_id=?1",
+                [common.event_id.to_string()],
+            )
+            .context("inject missing frozen raw event")?;
         let new_event = event(&left, agent, "must not partially publish")?;
         let before = serde_json::to_value(right.load_subject(agent)?.0)?;
         assert!(
