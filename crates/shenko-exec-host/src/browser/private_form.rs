@@ -411,7 +411,7 @@ async fn guarded_protocol<T>(
     guard: &PrivateFormGuard,
     request: impl Future<Output = Result<T>>,
 ) -> Result<T> {
-    let mut request = std::pin::pin!(request);
+    let mut request = Box::pin(request);
     let result = poll_fn(|context| {
         if let Err(error) = check_operation(guard) {
             return Poll::Ready(Err(error));
