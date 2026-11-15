@@ -1,0 +1,60 @@
+{
+  "capabilities": {
+    "binding": {
+      "allow_invalid_certs": false,
+      "base_url": "http://127.0.0.1:18835",
+      "default_max_tokens": 8192,
+      "kind": "local",
+      "model": "Qwen3-4B-Q4_K_M",
+      "serializer_revision": 3
+    },
+    "max_context_tokens": 16384,
+    "vision": null
+  },
+  "context_limit_basis": "explicit verified deployment input, not inferred from model name",
+  "profile_digest": "blake3:5f2f38b288c098382d14095f2876262537a001626d5f4f416fd08c14aace82a4",
+  "window": {
+    "base": {
+      "leaf_seq": 4,
+      "model_generation": 1,
+      "policy_epoch": 1,
+      "source_window": "5a2054f3-34d9-4369-8af3-50da579d51e3"
+    },
+    "body_version": 4,
+    "call_states": {},
+    "cost": {
+      "frame_pixels": 0,
+      "frames": 0,
+      "image_bytes": 0,
+      "kv_accounting": "input-identity bound prefix reuse estimate (same raw event, derived text and derivative bytes under the same model/template/encoder generation); not a backend cache-hit measurement",
+      "model_calls": 0,
+      "open_calls": 0,
+      "raw_events_covered": 4,
+      "recompute_tokens": 27,
+      "render_micros": 0,
+      "reusable_prefix_tokens": 0,
+      "source_tokens": 183,
+      "truncated_chars": 0,
+      "unrenderable_chars": 0,
+      "vision_tokens_estimate": 0,
+      "window_tokens": 27
+    },
+    "covers_through": 4,
+    "derivatives": [],
+    "entries": [
+      {
+        "Pointer": {
+          "from": 1,
+          "note": "[history seq 1..=4 left this window; the raw events stay readable by seq or event id through history.query]",
+          "to": 4,
+          "tokens": 27
+        }
+      }
+    ],
+    "generation": 2,
+    "id": "ece5fda3-c574-4b69-8963-91d1eee6a7f6",
+    "model_generation": 1,
+    "policy_id": "notes-rollover-compact",
+    "policy_version": "0.1.0"
+  }
+}

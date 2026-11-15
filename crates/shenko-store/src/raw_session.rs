@@ -355,17 +355,26 @@ pub(crate) fn write_session_event(
     conn: &Connection,
     event: &RawSessionEvent,
 ) -> Result<(), ShenkoError> {
+    write_session_event_at(conn, event, None)
+}
+
+fn write_session_event_at(
+    conn: &Connection,
+    event: &RawSessionEvent,
+    created_at: Option<&str>,
+) -> Result<(), ShenkoError> {
     let inserted = conn
         .execute(
-            "INSERT OR IGNORE INTO session_events (event_id, session_id, seq, event_type, role, data)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT OR IGNORE INTO session_events (event_id, session_id, seq, event_type, role, data, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE(?7, datetime('now')))",
             params![
                 event.event_id.to_string(),
                 event.session_id.to_string(),
                 event.seq,
                 event.event_type,
                 event.role,
-                event.data
+                event.data,
+                created_at
             ],
         )
         .map_err(storage_error)?;
@@ -650,6 +659,47 @@ pub(crate) fn staged_event_ids(
 }
 
 impl Store {
+    /// Admit a complete immutable source snapshot through the existing raw
+    /// session ledger. The caller supplies stable identities and source
+    /// timestamps, never node-local import times. All rows share one commit;
+    /// a different fact under an existing identity rejects the snapshot.
+    ///
+    /// Imported row creation time is explicitly unknown here. Actual receipt
+    /// time belongs to the caller's operation/evidence record. This makes
+    /// independent imports of the same source byte-identical on replication.
+    pub fn commit_raw_session_snapshot(
+        &self,
+        session: &RawSession,
+        events: &[RawSessionEvent],
+        source_objects: &[shenko_types::object::Digest],
+    ) -> Result<CommitRef, ShenkoError> {
+        self.ledger.with_mutation(|| {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut tombstones = tx.prepare(
+                "SELECT target_id FROM retention_tombstones WHERE target_kind = 'object'",
+            ).map_err(storage_error)?;
+            let retired = tombstones.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
+                .collect::<rusqlite::Result<Vec<_>>>().map_err(storage_error)?;
+            if source_objects.iter().any(|object| retired.iter().any(|targets|
+                targets.split(',').any(|target| target.trim() == object.0))) {
+                return Err(ShenkoError::conflict("snapshot source has a retention tombstone"));
+            }
+            drop(tombstones);
+            write_raw_session(&tx, session)?;
+            for event in events {
+                if event.session_id != session.session_id {
+                    return Err(ShenkoError::conflict("snapshot event belongs to another raw session"));
+                }
+                write_session_event_at(&tx, event, Some(""))?;
+            }
+            let seq = self.ledger.allocate_seq(&tx)?;
+            self.ledger.record_commit(&tx, seq, events.len() + 1)?;
+            tx.commit().map_err(storage_error)?;
+            Ok(CommitRef::new(self.ledger.ledger_id(), seq))
+        }, |e| matches!(e, ShenkoError::Storage(_)))
+    }
+
     /// The first durable input original and its projection in the agent's
     /// current branch, whether its step is still planned, sealed or committed.
     ///

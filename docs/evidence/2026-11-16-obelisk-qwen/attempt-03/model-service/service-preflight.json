@@ -1,0 +1,82 @@
+{
+  "observed_at_utc": "2026-11-15T17:56:51.353452+00:00",
+  "pid": 49309,
+  "models_response_sha256": "da485e27bcdf506027eefd7a93d91c1117ae1b7e10298158dd8099a24e14ba93",
+  "models_response_raw_base64": "eyJtb2RlbHMiOlt7Im5hbWUiOiJRd2VuMy00Qi1RNF9LX00iLCJtb2RlbCI6IlF3ZW4zLTRCLVE0X0tfTSIsIm1vZGlmaWVkX2F0IjoiIiwic2l6ZSI6IiIsImRpZ2VzdCI6IiIsInR5cGUiOiJtb2RlbCIsImRlc2NyaXB0aW9uIjoiIiwidGFncyI6WyIiXSwiY2FwYWJpbGl0aWVzIjpbImNvbXBsZXRpb24iXSwicGFyYW1ldGVycyI6IiIsImRldGFpbHMiOnsicGFyZW50X21vZGVsIjoiIiwiZm9ybWF0IjoiZ2d1ZiIsImZhbWlseSI6IiIsImZhbWlsaWVzIjpbIiJdLCJwYXJhbWV0ZXJfc2l6ZSI6IiIsInF1YW50aXphdGlvbl9sZXZlbCI6IiJ9fV0sIm9iamVjdCI6Imxpc3QiLCJkYXRhIjpbeyJpZCI6IlF3ZW4zLTRCLVE0X0tfTSIsImFsaWFzZXMiOlsiUXdlbjMtNEItUTRfS19NIl0sInRhZ3MiOltdLCJvYmplY3QiOiJtb2RlbCIsImFyY2hpdGVjdHVyZSI6eyJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwib3V0cHV0X21vZGFsaXRpZXMiOlsidGV4dCJdfSwiY3JlYXRlZCI6MTc5NDc2NTQxMSwib3duZWRfYnkiOiJsbGFtYWNwcCIsIm1ldGEiOnsidm9jYWJfdHlwZSI6Miwibl92b2NhYiI6MTUxOTM2LCJuX2N0eCI6MTYzODQsIm5fY3R4X3RyYWluIjo0MDk2MCwibl9lbWJkIjoyNTYwLCJuX3BhcmFtcyI6NDAyMjQ2ODA5Niwic2l6ZSI6MjQ5MTMyMzkwNCwiZnR5cGUiOiJRNF9LIC0gTWVkaXVtIn19XX0=",
+  "models": {
+    "models": [
+      {
+        "name": "Qwen3-4B-Q4_K_M",
+        "model": "Qwen3-4B-Q4_K_M",
+        "modified_at": "",
+        "size": "",
+        "digest": "",
+        "type": "model",
+        "description": "",
+        "tags": [
+          ""
+        ],
+        "capabilities": [
+          "completion"
+        ],
+        "parameters": "",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "",
+          "families": [
+            ""
+          ],
+          "parameter_size": "",
+          "quantization_level": ""
+        }
+      }
+    ],
+    "object": "list",
+    "data": [
+      {
+        "id": "Qwen3-4B-Q4_K_M",
+        "aliases": [
+          "Qwen3-4B-Q4_K_M"
+        ],
+        "tags": [],
+        "object": "model",
+        "architecture": {
+          "input_modalities": [
+            "text"
+          ],
+          "output_modalities": [
+            "text"
+          ]
+        },
+        "created": 1794765411,
+        "owned_by": "llamacpp",
+        "meta": {
+          "vocab_type": 2,
+          "n_vocab": 151936,
+          "n_ctx": 16384,
+          "n_ctx_train": 40960,
+          "n_embd": 2560,
+          "n_params": 4022468096,
+          "size": 2491323904,
+          "ftype": "Q4_K - Medium"
+        }
+      }
+    ]
+  },
+  "health": {
+    "status": "ok"
+  },
+  "memory": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       4.8Gi       469Mi       976Ki       2.7Gi       2.9Gi\nSwap:             0B          0B          0B\n",
+  "resource_sample": {
+    "utc": "2026-11-15T17:56:49.971229+00:00",
+    "pid": 49309,
+    "rss_kib": 3763312,
+    "MemTotal_kib": 8113128,
+    "MemAvailable_kib": 3067544,
+    "SwapTotal_kib": 0,
+    "SwapFree_kib": 0
+  },
+  "resource_guard_triggered": false,
+  "server_exit_record_present": false
+}

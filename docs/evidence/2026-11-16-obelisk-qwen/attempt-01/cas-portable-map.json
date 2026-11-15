@@ -1,0 +1,184 @@
+[
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/0e/25/0e256ffcfdb3faaaf65f4f7d2ed07fb972004e677bdc6920716cce8a61889d79",
+    "compact_path": "cas/baseline/0e/25/0e256ffcfdb3faaaf65f4f7d2ed07fb972004e677bdc6920716cce8a61889d79",
+    "bytes": 3428,
+    "sha256": "141722c1788d6fd1e39721b8456ec06343acec8084384cde1fab274b33970ac8"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/0e/fc/0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+    "compact_path": "cas/baseline/0e/fc/0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+    "bytes": 11581,
+    "sha256": "15b78d7d8cb3b7cff8eb4d627c91c96d24604e96ff227c37d4777ef0aba9a5be"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/12/e0/12e070e19ca7dc7a13115479f5f381f31147e5cdf6a37ee4b3bc54de73feca30",
+    "compact_path": "cas/baseline/12/e0/12e070e19ca7dc7a13115479f5f381f31147e5cdf6a37ee4b3bc54de73feca30",
+    "bytes": 232,
+    "sha256": "2e73bed1567af2c8e73d9a3fa07d7fa81c9d79fea17205bb7955fbfbd16de77a"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/20/4c/204cd49ad484f84cb4e6a2f1a8b0f3661993268ade7c19eaca71a4819c55dab3",
+    "compact_path": "cas/baseline/20/4c/204cd49ad484f84cb4e6a2f1a8b0f3661993268ade7c19eaca71a4819c55dab3",
+    "bytes": 155,
+    "sha256": "33511fd6cf8e8af3b50356e90a128381f7e20190afebea8b94b9581836634143"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/46/03/4603cbf1c95a3d6bf0cf314d980358830dac773d19f908974ad486a92da41994",
+    "compact_path": "cas/baseline/46/03/4603cbf1c95a3d6bf0cf314d980358830dac773d19f908974ad486a92da41994",
+    "bytes": 548,
+    "sha256": "98aac520e30c0e934c162cfc36143a9721772859db04e44af0a0e70b5d4b7233"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/61/1e/611ec589444688d030b099d772337c9c16b093c9312967815680df8c19f72409",
+    "compact_path": "cas/baseline/61/1e/611ec589444688d030b099d772337c9c16b093c9312967815680df8c19f72409",
+    "bytes": 2788,
+    "sha256": "140c361ea0e609807bd179492eb0cb93a40872a7b5950427142c897e8d56e8be"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/65/a5/65a59e3300808941d597c53c984dd564e624da431f2a64cb1e9b2a7bbc823408",
+    "compact_path": "cas/baseline/65/a5/65a59e3300808941d597c53c984dd564e624da431f2a64cb1e9b2a7bbc823408",
+    "bytes": 2158,
+    "sha256": "d5a98722f393ce075e7adcde0be35db429fdcf73a4fbeed4fce3e37933c78ef5"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/72/2c/722c198bed275bdffba4d1a87a2043eada3dafea0873aa0567816d790eee0877",
+    "compact_path": "cas/baseline/72/2c/722c198bed275bdffba4d1a87a2043eada3dafea0873aa0567816d790eee0877",
+    "bytes": 684,
+    "sha256": "10afb09251e29d56a37e8aecfede0ffa2fa1b7f31f62852184574718a9fb7f30"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/9e/c4/9ec44e53e77e4ff34eeecddfdb9c395dea170a091a7db17cf00395c744cee4e8",
+    "compact_path": "cas/baseline/9e/c4/9ec44e53e77e4ff34eeecddfdb9c395dea170a091a7db17cf00395c744cee4e8",
+    "bytes": 4979,
+    "sha256": "947a1c55fbdbd2e6e11bd430ffad88c9b26ea9e11e7fcd337c222677d176d9c9"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/a2/58/a258aed97d8fcd90a708dc843f033aa83643246dd356604e145b1ad27da6607a",
+    "compact_path": "cas/baseline/a2/58/a258aed97d8fcd90a708dc843f033aa83643246dd356604e145b1ad27da6607a",
+    "bytes": 3163,
+    "sha256": "e996157236994f472651f45cdfb1ed2e0841c9f38beeb97c9326df87e2c3c52d"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/cc/b1/ccb1e7b2f4e1b31a74040777770ef71017c51b2e27f03a02b9bca0f855a181d1",
+    "compact_path": "cas/baseline/cc/b1/ccb1e7b2f4e1b31a74040777770ef71017c51b2e27f03a02b9bca0f855a181d1",
+    "bytes": 8467,
+    "sha256": "84f779ab13ebf395df291dde965797eb0a1ac9995517f788c92384ee5d40cff2"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/e0/6c/e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+    "compact_path": "cas/baseline/e0/6c/e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+    "bytes": 7,
+    "sha256": "b7ad567477c83756aab9a542b2be04f77dbae25115d85f22070d74d8cc4779dc"
+  },
+  {
+    "arm": "baseline",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/f2/4a/f24a3969f8e2e953717da73a49b4832188dbce6feae877d9cf6cc9815445e0b2",
+    "compact_path": "cas/baseline/f2/4a/f24a3969f8e2e953717da73a49b4832188dbce6feae877d9cf6cc9815445e0b2",
+    "bytes": 2657,
+    "sha256": "d21eb6a3d2a092a553e757efa61714627027e6e825a14da004ece13e826acab3"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/03/9c/039ce0ae2d6a9b4881306debf53bc61508d255483897b86d82237d69dcccf7fe",
+    "compact_path": "cas/candidate/03/9c/039ce0ae2d6a9b4881306debf53bc61508d255483897b86d82237d69dcccf7fe",
+    "bytes": 1405,
+    "sha256": "37501a4cb78727825a492cdf1ff2260839faeb39d1392ba675984b1662de8b79"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/14/da/14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+    "compact_path": "cas/candidate/14/da/14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+    "bytes": 11847,
+    "sha256": "ccb3d4155b55c30054f9489e636bf0a82f8d387c1cd24ea3721e98e0389392a5"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/20/4c/204cd49ad484f84cb4e6a2f1a8b0f3661993268ade7c19eaca71a4819c55dab3",
+    "compact_path": "cas/candidate/20/4c/204cd49ad484f84cb4e6a2f1a8b0f3661993268ade7c19eaca71a4819c55dab3",
+    "bytes": 155,
+    "sha256": "33511fd6cf8e8af3b50356e90a128381f7e20190afebea8b94b9581836634143"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/30/ba/30ba86fb4b021fd69181562e45873404dac14df55612667a6b33e96a2086e267",
+    "compact_path": "cas/candidate/30/ba/30ba86fb4b021fd69181562e45873404dac14df55612667a6b33e96a2086e267",
+    "bytes": 2230,
+    "sha256": "f23bcacfd83b756ccc8ea189d85f432a644f9b3ed154fb64abd50c168f7d98c6"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/3a/43/3a43853be0fae9eeca2ea5ef3a941683e6849996db9b4879a6cb8b137fca56be",
+    "compact_path": "cas/candidate/3a/43/3a43853be0fae9eeca2ea5ef3a941683e6849996db9b4879a6cb8b137fca56be",
+    "bytes": 10471,
+    "sha256": "a9a60cb06a58eb99077bd7370de7799a1ca64d6eadc923471594d0272e34be22"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/41/7f/417f4dcd78447156a17e505b6ec14f8f186936687f9624a8919139cf37fce8a8",
+    "compact_path": "cas/candidate/41/7f/417f4dcd78447156a17e505b6ec14f8f186936687f9624a8919139cf37fce8a8",
+    "bytes": 5950,
+    "sha256": "f92bc5d6e205d6bcff97201f55f07c5f56c12615939aae311705e5c06832448d"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/46/03/4603cbf1c95a3d6bf0cf314d980358830dac773d19f908974ad486a92da41994",
+    "compact_path": "cas/candidate/46/03/4603cbf1c95a3d6bf0cf314d980358830dac773d19f908974ad486a92da41994",
+    "bytes": 548,
+    "sha256": "98aac520e30c0e934c162cfc36143a9721772859db04e44af0a0e70b5d4b7233"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/7b/95/7b95edf92e7f4be5bc8bd4ecec153d461724db81d7f48e16b5391af3c64c51e5",
+    "compact_path": "cas/candidate/7b/95/7b95edf92e7f4be5bc8bd4ecec153d461724db81d7f48e16b5391af3c64c51e5",
+    "bytes": 3754,
+    "sha256": "72b9770e48a5fbce7337119ae93e0f3a94b7f0bbdbe0b74e7f316314ace8c8a2"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/80/ab/80ab5a6ea53f4c40186b6653f741651a41aec051eccb25ab7f18c167860be475",
+    "compact_path": "cas/candidate/80/ab/80ab5a6ea53f4c40186b6653f741651a41aec051eccb25ab7f18c167860be475",
+    "bytes": 2324,
+    "sha256": "927f4858d1287fccd0da366b45206b518ed0ba47dbbf75887619f3f3158b263c"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/af/02/af02ba1f4e23ffe37ddbde2b891c18a7a5bcf251666ebaf5d3a1a8a83a4616d1",
+    "compact_path": "cas/candidate/af/02/af02ba1f4e23ffe37ddbde2b891c18a7a5bcf251666ebaf5d3a1a8a83a4616d1",
+    "bytes": 10654,
+    "sha256": "73962083012c1542b9004f7f9328e333fae609b8ba39cd44238c9f011dfced69"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/e0/6c/e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+    "compact_path": "cas/candidate/e0/6c/e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+    "bytes": 7,
+    "sha256": "b7ad567477c83756aab9a542b2be04f77dbae25115d85f22070d74d8cc4779dc"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/e2/84/e284f822ea36e444b138708f3572c50d843e9182d2e718359958b9722a5a299f",
+    "compact_path": "cas/candidate/e2/84/e284f822ea36e444b138708f3572c50d843e9182d2e718359958b9722a5a299f",
+    "bytes": 2393,
+    "sha256": "324a23942ce375dfdca8d09ef26404523ae2a218b33490408761d145f212e729"
+  },
+  {
+    "arm": "candidate",
+    "original_path": "/workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/f9/e0/f9e01e344c46a78c164fcddddf43ed924d2413781c54049b7eeac3d5e93b4200",
+    "compact_path": "cas/candidate/f9/e0/f9e01e344c46a78c164fcddddf43ed924d2413781c54049b7eeac3d5e93b4200",
+    "bytes": 7351,
+    "sha256": "b606fa5ae73071c120659739100c635ff31425ae88812c97b400f43bbbe34a41"
+  }
+]

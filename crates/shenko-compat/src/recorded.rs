@@ -35,10 +35,10 @@ struct ObservationSeal {
 
 /// Seal the actual observation bytes. Small values stay inline; larger values
 /// stream once through CAS (fixed staging memory) and get a per-1 MiB chunk
-/// manifest that `compat.artifact.read` can range over with per-chunk
+/// manifest that the caller's reader can range over with per-chunk
 /// authentication. The manifest is the public identity: `learning_source`
 /// keeps pointing at a small, retrievable object.
-fn seal_observation(store: &Store, value: &Value) -> Result<ObservationSeal> {
+fn seal_observation(store: &Store, value: &Value, reader: Value) -> Result<ObservationSeal> {
     let bytes = serde_json::to_vec(value)?;
     if bytes.len() <= INLINE_OBSERVATION_BYTES {
         let receipt = seal(store, &value, "compat-observation")?;
@@ -58,7 +58,7 @@ fn seal_observation(store: &Store, value: &Value) -> Result<ObservationSeal> {
         receipt: manifest,
         observation: json!({"status": "observation_outlined",
             "artifact": {"digest": artifact.digest, "bytes": bytes.len()},
-            "read": {"handler": "compat.artifact.read", "digest": "use source_receipt digest"}}),
+            "read": reader}),
     })
 }
 
@@ -110,7 +110,16 @@ impl RecordedCall {
 
     pub fn observe(&self, store: &Store, value: Value, outcome: Option<OperationOutcome>, effect: EffectStatus,
         level: Option<ObservationLevel>) -> Result<OperationRecord> {
-        let sealed = seal_observation(store, &value)?;
+        self.observe_with_reader(store, value, outcome, effect, level,
+            json!({"handler":"compat.artifact.read","digest":"use source_receipt digest"}))
+    }
+
+    /// An independently installed plugin can expose the shared authenticated
+    /// reader through its own handler and keep that lifetime independent.
+    /// Inline observations and the sealed artifact format are unchanged.
+    pub fn observe_with_reader(&self, store: &Store, value: Value, outcome: Option<OperationOutcome>, effect: EffectStatus,
+        level: Option<ObservationLevel>, reader: Value) -> Result<OperationRecord> {
+        let sealed = seal_observation(store, &value, reader)?;
         // Existing cognition.unit.write verifies this immutable CAS source.
         // It remains an observation, never an automatic adoption judgement.
         let normalized = seal(store, &json!({"observation":sealed.observation,"source_receipt":sealed.receipt,

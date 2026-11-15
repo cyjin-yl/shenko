@@ -18,6 +18,16 @@ pub struct StoredSessionEvent {
     pub data: String,
 }
 
+/// One immutable raw-session descriptor. `started_at` is source time when
+/// known; an empty value denotes an imported source whose time is unknown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRawSession {
+    pub session_id: EntityId,
+    pub agent_id: EntityId,
+    pub started_at: String,
+    pub data: String,
+}
+
 /// Bounded chronological read parameters over one raw session.
 ///
 /// Empty type/role filters mean all values. The JSON1 predicates keep filter
@@ -82,6 +92,49 @@ pub(crate) fn parse_row(
 }
 
 impl Store {
+    /// Page raw-session descriptors without interpreting a provider's data.
+    /// The stable UUID cursor is a listing coordinate, not temporal order.
+    pub fn raw_sessions_for_agent(
+        &self,
+        agent_id: EntityId,
+        after: Option<EntityId>,
+        limit: usize,
+    ) -> Result<Vec<StoredRawSession>, ShenkoError> {
+        let limit = i64::try_from(limit)
+            .map_err(|_| ShenkoError::other("session limit exceeds SQLite INTEGER"))?;
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT session_id, agent_id, started_at, data FROM raw_sessions
+             WHERE agent_id = ?1 AND (?2 IS NULL OR session_id > ?2)
+             ORDER BY session_id LIMIT ?3",
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let rows = stmt.query_map(params![agent_id.to_string(), after.map(|id| id.to_string()), limit], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+        }).map_err(|e| ShenkoError::storage(e.to_string()))?
+            .collect::<rusqlite::Result<Vec<_>>>().map_err(|e| ShenkoError::storage(e.to_string()))?;
+        rows.into_iter().map(|(session_id, agent_id, started_at, data)| Ok(StoredRawSession {
+            session_id: session_id.parse().map_err(|e| ShenkoError::storage(format!("bad session id: {e}")))?,
+            agent_id: agent_id.parse().map_err(|e| ShenkoError::storage(format!("bad agent id: {e}")))?,
+            started_at,
+            data,
+        })).collect()
+    }
+
+    pub fn raw_session(&self, session_id: EntityId) -> Result<Option<StoredRawSession>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        conn.query_row(
+            "SELECT agent_id, started_at, data FROM raw_sessions WHERE session_id = ?1",
+            params![session_id.to_string()],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+        ).optional().map_err(|e| ShenkoError::storage(e.to_string()))?
+            .map(|(agent, started_at, data)| Ok(StoredRawSession {
+                session_id,
+                agent_id: agent.parse().map_err(|e| ShenkoError::storage(format!("bad agent id: {e}")))?,
+                started_at,
+                data,
+            })).transpose()
+    }
+
     /// Events of `session_id` with `from <= seq <= to`, in seq order.
     pub fn session_events_range(
         &self,

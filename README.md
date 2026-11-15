@@ -69,6 +69,7 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 - **WASM 工具**：`shenko tool install --file <artifact> --name <n> --version <v> --abi wasi_preview1` 安装真实二进制，`shenko tool exec --tool <name>` 在受管 mount 下执行。声明了 ABI 但没有可核验工件的目标会被如实标记为未解析。
 
 - **第三方生态适配**：`compat.mcp` 与 `compat.skill` 是两个**独立、可选**的插件。用 `shenko compat mcp import <file> --unit-id <id>` 记录一个显式配置的 MCP 端点，或用 `shenko compat skill import <dir> --unit-id <id>` 原样导入一份 Agent Skill 材料，然后 `shenko compat enable <unit-id>` 才会向主体提供。产品不内置任何厂商 server、厂商 Skill、账号流程或依赖安装；第三方实现保持独立可移除，说明见 [docs/specs/ecosystem-adapters.md](docs/specs/ecosystem-adapters.md)。
+- **外部历史研究（可选）**：`shenko history obelisk configure --file <config.json>` 配置已审计的独立 Obelisk 源码 CLI 与 Codex / OMP / Pi 来源，再用 `shenko history obelisk enable` 发布 `history.external.query` 能力。完整原文和引用保存在现有 CAS / 认知归档中，中文与长输出可分页检索；原始文件离线后仍能读已归档证据。见 [合同与配置](docs/specs/external-history.md)、[TODO 与验证状态](docs/development/obelisk-history.md)。
 
 开发入口与协作规则见 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 是指向它的符号链接）与 [shenko-dev Skill](.agents/skills/shenko-dev/SKILL.md)。
 

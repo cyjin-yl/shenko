@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-11-15T17:58:50.421344+00:00",
+  "round": 2,
+  "run_id": "run-409eec7a-0807-444c-9d28-e03c9a0cea69",
+  "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+  "executable_sha256": "f043116ebbb25f98bda4a4619474e1e2b22a9b9e2ff2411052cecc394f985fdb",
+  "strict_result": "inconclusive_or_failed",
+  "complete": false,
+  "cleanup_ok": true,
+  "operator_interrupted": false,
+  "entrypoint": "EVIDENCE.md",
+  "machine_readable_summary": "analysis/result-summary.json",
+  "source_root": "/workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116",
+  "all_original_CAS_included": true,
+  "CAS_count": 77,
+  "database_row_export": "analysis/db-audit.json",
+  "original_database_and_installation_binary_files": "Full archive only",
+  "model_ELF_and_server_binaries_bundled": false,
+  "final_service_observation_and_log": [
+    {
+      "path": "model-service/service-final-observation.json",
+      "bytes": 863,
+      "sha256": "13a2e21a156b0c868ac8fbb48c007ed2a914075cf03eea58967d651a9bba759f"
+    },
+    {
+      "path": "model-service/logs/server-context16384.log",
+      "bytes": 23972,
+      "sha256": "2378697f6deaeeaff45483634aa92793a1acd3e329b75a6002bf459535979128"
+    }
+  ],
+  "omitted_from_compact": [
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/napcat-ingress.db",
+      "bytes": 61440,
+      "sha256": "72d4176d6e66dc2c7863f682774099274c967480596f09bde60757ab1ad8dde5"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/node/node.sqlite3",
+      "bytes": 262144,
+      "sha256": "09fd456bd19fff733d738829f34b0c9821668842e2554860d010813ea71107a9"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/shenko.db",
+      "bytes": 4096,
+      "sha256": "1fe8f6113488865c546d2faa55b21482662ce4be19d4f505eeefa09bc3131489"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/shenko.db-shm",
+      "bytes": 32768,
+      "sha256": "daae8ca3b808890cfbb5028ed7d78f5e5044beca6b2a9ba68918c3db3941142d"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/shenko.db-wal",
+      "bytes": 4058232,
+      "sha256": "cb9c860bc8f91a9e2e11fbee2743c109dae856db9bc8ec5c046663dd7f1a39f2"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/shenko.db.cognition-import.sqlite",
+      "bytes": 8192,
+      "sha256": "3b9a317478078dfc966424f053fdbb6edefd222899fcebb1be8cb3114f370b4b"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/compat-units/units/history.obelisk/1/blake3_f14c1d65a83da656b9de2d224eb6c16d80f69a79699c4d81db429ccdc8cdef44.aaad0cce/package.bin",
+      "bytes": 136,
+      "sha256": "1cc4c0bcdd8619d3b4917989af51e09be5aa4f09be910409dfc48883fbfe114f"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/napcat-ingress.db",
+      "bytes": 61440,
+      "sha256": "405658b3756fa17bd0cb27addaf185ca0acb885ff6e8f5e9b926f7c16a0182e3"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/node/node.sqlite3",
+      "bytes": 262144,
+      "sha256": "ad3c01fa732ebe2d6347ccba2c137948d91548cd4c861da05b7053113a32916c"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/shenko.db",
+      "bytes": 1323008,
+      "sha256": "b7a03a37b2f4ea144e3ee51d99946b30539012d316b4c5774a1c0f0c08bf4795"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/shenko.db-shm",
+      "bytes": 32768,
+      "sha256": "c5138f0defa14bad3ca3e762a56d62c27a8b20aa940c6956651a1081a58016b8"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/shenko.db-wal",
+      "bytes": 4157112,
+      "sha256": "948958a281ab71ddd40bb2ca6e1361aca16310d57ede82e391153fd0a0a6904a"
+    },
+    {
+      "path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/shenko.db.cognition-import.sqlite",
+      "bytes": 8192,
+      "sha256": "3b9a317478078dfc966424f053fdbb6edefd222899fcebb1be8cb3114f370b4b"
+    }
+  ],
+  "note": "Compact inventory covers copied bytes plus compact metadata. analysis/inventory.sha256.json covers the full source tree and may list paths intentionally omitted here."
+}

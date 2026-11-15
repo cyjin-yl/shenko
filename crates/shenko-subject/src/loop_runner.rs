@@ -597,6 +597,12 @@ impl SubjectLoopState {
         self
     }
 
+    /// Initialize the real model/prompt binding before preparing a context
+    /// window. The next step rechecks this same binding before it adopts input.
+    pub fn bind_context_profile(&self) -> Result<Digest, ShenkoError> {
+        crate::context_projection::bind_context_profile(self)
+    }
+
     pub fn with_model_capabilities(mut self, capabilities: Option<shenko_broker::request::ProviderCapabilities>) -> Self {
         self.model_capabilities = capabilities.map(Arc::new);
         self

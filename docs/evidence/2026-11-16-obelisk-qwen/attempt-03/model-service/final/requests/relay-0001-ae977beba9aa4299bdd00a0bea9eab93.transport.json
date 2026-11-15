@@ -1,0 +1,11 @@
+{
+  "id": "0001-ae977beba9aa4299bdd00a0bea9eab93",
+  "method": "GET",
+  "path": "/v1/models",
+  "received_at_utc": "2026-11-15T17:56:53.416479+00:00",
+  "body_bytes": 0,
+  "request_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "content_type": "application/json",
+  "authorization_header_present": false,
+  "transport": "Box connector file relay; whole-response buffering including SSE"
+}

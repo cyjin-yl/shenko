@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "purpose": "Independent merge-review follow-up: source-root normalization and real-model acceptance context isolation",
+  "created_at_utc": "2026-11-15T17:54:20.280539+00:00",
+  "base_sha": "054817b0d5729fed56ec5a974d101c31edfd1410",
+  "previous_published_head": "524849a58c0dfb3b89eb28aa8e1dc64ec57c9706",
+  "path_fix_source": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+  "context_and_prompt_fix_source": "012370b76735daaa97623bbea4401313b3d9be06",
+  "upstream_source": "cc75c2dd1aead4f4374758a7536385307934e177",
+  "toolchain": {
+    "rust": "1.98.1",
+    "node": "24.22.1"
+  },
+  "path_fix": {
+    "why": "Upstream trim/normalize otherwise changed source identity or made the manifest prefix miss explicit roots",
+    "behavior": "Lexically normalize dot/repeated separators; reject original or normalized roots changed by ECMAScript trim before index writes; do not require source existence or resolve symlinks",
+    "runtime_tests": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "elapsed_seconds": 35.53,
+      "log": "obelisk-path-validation/runtime-tests.log",
+      "real_cli_scenarios": 2,
+      "configuration_scenarios": 1
+    },
+    "native_runs": {
+      "candidate_head": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+      "results": [
+        {
+          "name": "obelisk_lifecycle",
+          "status": "passed",
+          "exit_code": 0,
+          "elapsed_ms": 624,
+          "executable_sha256": "d89df012d54bfd6a79e5e5610772db608bf3fa55a5ec348120a48d568563d5cb"
+        },
+        {
+          "name": "obelisk_native_receipt",
+          "status": "passed",
+          "exit_code": 0,
+          "elapsed_ms": 9108,
+          "executable_sha256": "3b9aa551d2c5a4a17e060f36c64c205945bc46c7bb865bff1f7943a140d9a007"
+        }
+      ]
+    },
+    "artifacts": "obelisk-path-validation/bound-artifacts.json"
+  },
+  "acceptance_fix": {
+    "why": "The first real small-model run exposed baseline corpus directly in the initial raw context and an incomplete live-index usage description",
+    "behavior": "Retain baseline raw corpus; bind actual subject profile; install existing NotesRollover retain_units=0; prepare and commit via PolicyRegistry; verify nonempty Pointer-only window and unchanged raw; uninstall before scenario input/inference",
+    "profile_helper": "Normal S0 and pre-inference setup use one binding implementation; later profile changes still rebind normally",
+    "deployment_capacity": "Required explicit SHENKO_OBELISK_ACCEPTANCE_CONTEXT_TOKENS; same value in both arms; reference to actual service metadata belongs to each model attempt",
+    "prompt": "Complete scenario-independent live-index JSON examples; archive/live distinction; authentic later task_result and returned identifiers",
+    "unchanged": [
+      "scenario message",
+      "four-message corpus",
+      "rubric",
+      "strict actual-reader condition",
+      "first committed continuation selection",
+      "production provider sampling options"
+    ],
+    "build": {
+      "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+      "command": [
+        "flock",
+        "/tmp/shenko-cargo.lock",
+        "/home/agent/.cargo/bin/cargo",
+        "--config",
+        "/workspace/scratch/549c30a35cef/obelisk-validation-evidence/validation-cargo-profile.toml",
+        "build",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko",
+        "--example",
+        "obelisk_acceptance",
+        "--message-format=json-render-diagnostics"
+      ],
+      "profile_sha256": "afe415b7b79df106316c0466f94535d7ccd2801e629b2165555d4a8cf8128c53",
+      "started_at_utc": "2026-11-15T17:39:37.069795+00:00",
+      "exit_code": 0,
+      "finished_at_utc": "2026-11-15T17:40:41.461695+00:00"
+    },
+    "artifacts": [
+      {
+        "name": "obelisk_acceptance",
+        "executable": "/workspace/scratch/d013f3e3b824/shenko-target/debug/examples/obelisk_acceptance",
+        "sha256": "f043116ebbb25f98bda4a4619474e1e2b22a9b9e2ff2411052cecc394f985fdb",
+        "bytes": 79397480,
+        "fresh": false,
+        "source_head": "012370b76735daaa97623bbea4401313b3d9be06"
+      }
+    ],
+    "focused_lint": {
+      "exit_code": 0,
+      "diagnostics_on_changed_lines": 0,
+      "report": "obelisk-qwen-candidate-validation/clippy-result.json",
+      "limitation": "Focused check, not the full CI baseline ratchet"
+    }
+  },
+  "structural_checks": [
+    {
+      "name": "docs",
+      "exit_code": 0,
+      "log": "obelisk-qwen-candidate-validation/docs.log"
+    },
+    {
+      "name": "migration",
+      "exit_code": 0,
+      "log": "obelisk-qwen-candidate-validation/migration.log"
+    },
+    {
+      "name": "kernel-boundary",
+      "exit_code": 0,
+      "reviewed_baseline": "054817b0d5729fed56ec5a974d101c31edfd1410",
+      "log": "obelisk-qwen-candidate-validation/boundary.log"
+    }
+  ],
+  "independent_review": {
+    "agents": [
+      "/root/merge_obelisk_301",
+      "/root/merge_obelisk_301/runtime_audit"
+    ],
+    "method": "Read-only source and raw-evidence review; a missing local binding found during extraction was fixed before the recorded build",
+    "scope": "Profile/window preparation semantics and actual native capability description; no human approval claim"
+  },
+  "evidence_reuse": {
+    "archive_and_store": "Earlier executed evidence remains in ../2026-11-15-obelisk-validation.json; these implementation/test files did not change in the follow-up",
+    "path_runtime_and_native": "Recorded on 1ff6725; 012370b changes model-facing description and context/sandbox setup, not these runtime/archive/lifecycle mechanisms"
+  },
+  "scenario_count": {
+    "independent_total": 9,
+    "rust_tests": 7,
+    "explicit_runners": 2,
+    "new_since_previous_record": 1,
+    "note": "Repeated/model-varied executions reuse the single existing acceptance scenario; no extra test table or ignored test"
+  },
+  "limits": [
+    "These engineering checks do not establish model efficacy",
+    "Each real-model attempt retains its own exact source, ELF, deployment and unmodified wire receipts",
+    "Latest pushed-head CI and final merge state must be read from PR #301; this record does not assert them"
+  ]
+}

@@ -1,0 +1,1 @@
+"never repeat an armed request after controller loss; original E1 remains queryable; a new archive request can idempotently finish the same source version"

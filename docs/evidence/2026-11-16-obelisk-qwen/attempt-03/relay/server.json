@@ -1,0 +1,12 @@
+{
+  "pid": 2,
+  "host": "127.0.0.1",
+  "port": 18835,
+  "started_at_utc": "2026-11-15T17:56:53.412405+00:00",
+  "source_sha256": "55ca394a81341efaa2c654fc3044ba5b0d929907c343c207082bc1d2060d9e19",
+  "upstream": "Box 127.0.0.1:18834",
+  "inference_retries": 0,
+  "body_transformations": "none",
+  "streaming": "buffered without changing SSE bytes",
+  "namespace": "relay and runner share this persistent exec session; other exec calls use file queue only"
+}

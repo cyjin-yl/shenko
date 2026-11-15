@@ -1,0 +1,33 @@
+{
+  "candidate_head": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+  "artifacts": {
+    "obelisk_native_receipt": {
+      "executable": "/workspace/scratch/d013f3e3b824/shenko-target/debug/examples/obelisk_native_receipt",
+      "src_path": "/workspace/scratch/549c30a35cef/shenko-obelisk/bin/shenko/examples/obelisk_native_receipt.rs",
+      "kind": [
+        "example"
+      ],
+      "fresh": false,
+      "sha256": "3b9aa551d2c5a4a17e060f36c64c205945bc46c7bb865bff1f7943a140d9a007"
+    },
+    "obelisk_acceptance": {
+      "executable": "/workspace/scratch/d013f3e3b824/shenko-target/debug/examples/obelisk_acceptance",
+      "src_path": "/workspace/scratch/549c30a35cef/shenko-obelisk/bin/shenko/examples/obelisk_acceptance.rs",
+      "kind": [
+        "example"
+      ],
+      "fresh": false,
+      "sha256": "cde88a9f97a22e297a3ad76e02dfce809431b7f6d7887114abd707bbb6626b3e"
+    },
+    "obelisk_lifecycle": {
+      "executable": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/obelisk_lifecycle-7b22478f79cff6a1",
+      "src_path": "/workspace/scratch/549c30a35cef/shenko-obelisk/bin/shenko/tests/obelisk_lifecycle.rs",
+      "kind": [
+        "test"
+      ],
+      "fresh": false,
+      "sha256": "d89df012d54bfd6a79e5e5610772db608bf3fa55a5ec348120a48d568563d5cb"
+    }
+  },
+  "profile_config_sha256": "afe415b7b79df106316c0466f94535d7ccd2801e629b2165555d4a8cf8128c53"
+}

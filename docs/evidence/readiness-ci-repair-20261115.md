@@ -235,6 +235,10 @@ Store all-targets/all-features Clippy at worker source `d896241` exited zero, wi
 | Native artifact `14174356687` ZIP | `062c014d0879cec08bff5a5bc5fbdaef92bc712eba661821e6bc56f3390429f1` |
 | Nightly Rust job log | `5d6e0d3fa0ee7c4e0c10c02a3d52040240ebd674fcfa007e000ddf02855d6a8f` |
 
+## Concurrent upstream merge
+
+A fresh pre-push branch-ref check found that main had merged [Obelisk PR #301](https://github.com/cyjin-yl/shenko/pull/301) as `bfc3d04de445968dcaed3f40cb8a937da437f61e`, while the PR snapshot still showed the older base. Publication stopped before pushing the staged candidate `5c79ae0`. The new main is integrated with both histories retained. The single textual conflict only added module declarations: `runtime_branches`, `runtime_authority` and upstream `obelisk` all remain. Upstream source/evidence remains its authors' contribution; raw evidence bytes were not normalized or relabeled. The final six CI and two Nightly jobs must execute the merged candidate, with the new main as the independent event baseline.
+
 ## Publication and final evidence
 
 The corrected source must execute all six CI jobs and both explicit Nightly

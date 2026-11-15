@@ -1,0 +1,364 @@
+{
+  "scope": "This retained run only; exact returned records and fixture text checks, not a revised scoring rubric",
+  "baseline_Store_original_texts_equal_candidate_source_file_texts": true,
+  "baseline_fixture_event_ids": [
+    "ed58f3f8-9734-1f03-35cf-0e0b121883bc",
+    "c92a7768-9135-92c5-6819-0f31c9006bd4",
+    "f28e864d-1c42-f591-463e-1d3ddbe4f7df",
+    "59e63e45-4bac-2798-2775-4e7a712372e3"
+  ],
+  "candidate_source_messages": [
+    {
+      "file": "acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex/sessions/2026/11/rollout-019ed000-0000-7000-8000-000000000001.jsonl",
+      "line": 2,
+      "session_id": "019ed000-0000-7000-8000-000000000001",
+      "timestamp": "2026-11-01T10:00:01Z",
+      "type": "user_message",
+      "text": "Hydra auth refresh 并发时旧响应覆盖新会话。最初怀疑 SameSite cookie，请查明原因。"
+    },
+    {
+      "file": "acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex/sessions/2026/11/rollout-019ed000-0000-7000-8000-000000000001.jsonl",
+      "line": 3,
+      "session_id": "019ed000-0000-7000-8000-000000000001",
+      "timestamp": "2026-11-01T10:00:02Z",
+      "type": "agent_message",
+      "text": "候选方案：将 SameSite Lax 改为 None，但尚未实施。随后重放发现 refresh 响应乱序，问题可能是 generation 竞争。"
+    },
+    {
+      "file": "acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex/sessions/2026/11/rollout-019ed000-0000-7000-8000-000000000002.jsonl",
+      "line": 2,
+      "session_id": "019ed000-0000-7000-8000-000000000002",
+      "timestamp": "2026-11-05T10:00:01Z",
+      "type": "user_message",
+      "text": "继续 Hydra auth refresh 竞争问题，保留诊断日志，不改变 cookie 策略。"
+    },
+    {
+      "file": "acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex/sessions/2026/11/rollout-019ed000-0000-7000-8000-000000000002.jsonl",
+      "line": 3,
+      "session_id": "019ed000-0000-7000-8000-000000000002",
+      "timestamp": "2026-11-05T10:00:02Z",
+      "type": "agent_message",
+      "text": "最终修改 src/auth/refresh.ts 和 tests/auth/refresh-race.test.ts。refresh generation 计数器确保只有最新请求能提交会话；旧响应仅记日志，不覆盖状态。已重放响应乱序，回归测试通过。SameSite 仍为 Lax；之前的 None 方案未实施。"
+    }
+  ],
+  "native_calls": [
+    {
+      "condition": "baseline",
+      "task_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+      "result_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+      "raw_native_input": {
+        "from_seq": 0,
+        "limit": 20,
+        "op": "search",
+        "query": "Hydra auth refresh 并发问题"
+      },
+      "frozen_native_input": {
+        "schema_version": 1,
+        "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "query": {
+          "op": "search",
+          "query": "Hydra auth refresh 并发问题",
+          "filter": {
+            "from_seq": 0,
+            "to_seq": 9223372036854775807,
+            "limit": 20,
+            "event_types": [],
+            "roles": []
+          }
+        }
+      },
+      "outcome": "succeeded",
+      "returned_record_array_counts": [
+        {
+          "json_path": "$.events",
+          "count": 3
+        }
+      ],
+      "returned_known_fixture_event_ids": [],
+      "query_literal_occurrences_in_fixture": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "actual_result_answer_literal_counts": {
+        "src/auth/refresh.ts": 0,
+        "tests/auth/refresh-race.test.ts": 0,
+        "SameSite": 0,
+        "None": 0,
+        "Lax": 0,
+        "generation": 0,
+        "旧响应": 0,
+        "最新请求": 0
+      },
+      "provider_visible": [
+        {
+          "relay_id": "0004-61bb163160c14492affd28819b898fa2",
+          "message_index": 7,
+          "entire_task_result_JSON_semantically_equal": true,
+          "message_content_sha256": "9355a7e74e9c483f7ccb3755ccec19a664db61ce7501494c554b3082bcc6d4a1",
+          "wire_request_sha256": "6177731e3cf75e21609b4625654f527a84436078853caa36488cbfc623dbf1b5"
+        },
+        {
+          "relay_id": "0005-e74daf70aa3449f5b3015995817b8bbd",
+          "message_index": 7,
+          "entire_task_result_JSON_semantically_equal": true,
+          "message_content_sha256": "9355a7e74e9c483f7ccb3755ccec19a664db61ce7501494c554b3082bcc6d4a1",
+          "wire_request_sha256": "4105b1c9f5a9d51ba55e9ac2e94d73aeedc2d4c0372fc844ee0168d7cd48a0db"
+        }
+      ],
+      "subject_event_dispositions": [
+        {
+          "branch_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+          "event_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+          "step_id": "c1bd014c-a9ea-4767-ba04-b180de3af478",
+          "disposition": {
+            "event_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+            "disposition": "ignored",
+            "reason": "主体未在本轮处置"
+          },
+          "commit_seq": 37
+        }
+      ]
+    },
+    {
+      "condition": "baseline",
+      "task_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+      "result_id": "cf3e79e9-0923-428a-a6af-767bcc3dc6e7",
+      "raw_native_input": {
+        "event_types": [
+          "issue",
+          "patch"
+        ],
+        "op": "list"
+      },
+      "frozen_native_input": {
+        "schema_version": 1,
+        "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "query": {
+          "op": "list",
+          "filter": {
+            "from_seq": 0,
+            "to_seq": 9223372036854775807,
+            "limit": 20,
+            "event_types": [
+              "issue",
+              "patch"
+            ],
+            "roles": []
+          }
+        }
+      },
+      "outcome": "succeeded",
+      "returned_record_array_counts": [
+        {
+          "json_path": "$.events",
+          "count": 0
+        }
+      ],
+      "returned_known_fixture_event_ids": [],
+      "query_literal_occurrences_in_fixture": null,
+      "actual_result_answer_literal_counts": {
+        "src/auth/refresh.ts": 0,
+        "tests/auth/refresh-race.test.ts": 0,
+        "SameSite": 0,
+        "None": 0,
+        "Lax": 0,
+        "generation": 0,
+        "旧响应": 0,
+        "最新请求": 0
+      },
+      "provider_visible": [
+        {
+          "relay_id": "0005-e74daf70aa3449f5b3015995817b8bbd",
+          "message_index": 10,
+          "entire_task_result_JSON_semantically_equal": true,
+          "message_content_sha256": "9a62a29165469d76f07262ef07e40df998f8bacd89c5670d4d28863cb4813220",
+          "wire_request_sha256": "4105b1c9f5a9d51ba55e9ac2e94d73aeedc2d4c0372fc844ee0168d7cd48a0db"
+        }
+      ],
+      "subject_event_dispositions": []
+    },
+    {
+      "condition": "baseline",
+      "task_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+      "result_id": "492db926-0856-4a01-8451-f096f5f0e6dc",
+      "raw_native_input": {
+        "event_types": [
+          "issue",
+          "patch"
+        ],
+        "op": "list"
+      },
+      "frozen_native_input": {
+        "schema_version": 1,
+        "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "query": {
+          "op": "list",
+          "filter": {
+            "from_seq": 0,
+            "to_seq": 9223372036854775807,
+            "limit": 20,
+            "event_types": [
+              "issue",
+              "patch"
+            ],
+            "roles": []
+          }
+        }
+      },
+      "outcome": "succeeded",
+      "returned_record_array_counts": [
+        {
+          "json_path": "$.events",
+          "count": 0
+        }
+      ],
+      "returned_known_fixture_event_ids": [],
+      "query_literal_occurrences_in_fixture": null,
+      "actual_result_answer_literal_counts": {
+        "src/auth/refresh.ts": 0,
+        "tests/auth/refresh-race.test.ts": 0,
+        "SameSite": 0,
+        "None": 0,
+        "Lax": 0,
+        "generation": 0,
+        "旧响应": 0,
+        "最新请求": 0
+      },
+      "provider_visible": [],
+      "subject_event_dispositions": []
+    },
+    {
+      "condition": "candidate",
+      "task_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+      "result_id": "1368c165-f5dc-48ee-828c-e119f1ab6793",
+      "raw_native_input": {
+        "op": "obelisk",
+        "request": {
+          "limit": 20,
+          "op": "search",
+          "query": "Hydra auth refresh 并发问题"
+        }
+      },
+      "frozen_native_input": {
+        "op": "obelisk",
+        "request": {
+          "op": "search",
+          "query": "Hydra auth refresh 并发问题",
+          "provider": null,
+          "session_id": null,
+          "project_path": null,
+          "after": null,
+          "before": null,
+          "limit": 20,
+          "include_inactive": false,
+          "literal_fallback": true
+        }
+      },
+      "outcome": "succeeded",
+      "returned_record_array_counts": [
+        {
+          "json_path": "$.observation.result.data.hits",
+          "count": 0
+        }
+      ],
+      "returned_known_fixture_event_ids": [],
+      "query_literal_occurrences_in_fixture": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "actual_result_answer_literal_counts": {
+        "src/auth/refresh.ts": 0,
+        "tests/auth/refresh-race.test.ts": 0,
+        "SameSite": 0,
+        "None": 0,
+        "Lax": 0,
+        "generation": 0,
+        "旧响应": 0,
+        "最新请求": 0
+      },
+      "provider_visible": [
+        {
+          "relay_id": "0008-47169a59965e4fb2a867707f6eae2f7c",
+          "message_index": 6,
+          "entire_task_result_JSON_semantically_equal": true,
+          "message_content_sha256": "ec30f7079c310ca2d0d30114d87a2a7f4ad0f763ee49096015add782e4d875e3",
+          "wire_request_sha256": "c577928b0ea2efbd7b6256da8eb47c506de26b67a4c49eb73e691e0cdbee37e3"
+        }
+      ],
+      "subject_event_dispositions": []
+    },
+    {
+      "condition": "candidate",
+      "task_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+      "result_id": "2ae72948-b6ee-4663-ae3a-11355ac7b510",
+      "raw_native_input": {
+        "op": "obelisk",
+        "request": {
+          "limit": 20,
+          "op": "search",
+          "query": "Hydra auth refresh 并发问题"
+        }
+      },
+      "frozen_native_input": {
+        "op": "obelisk",
+        "request": {
+          "op": "search",
+          "query": "Hydra auth refresh 并发问题",
+          "provider": null,
+          "session_id": null,
+          "project_path": null,
+          "after": null,
+          "before": null,
+          "limit": 20,
+          "include_inactive": false,
+          "literal_fallback": true
+        }
+      },
+      "outcome": "succeeded",
+      "returned_record_array_counts": [
+        {
+          "json_path": "$.observation.result.data.hits",
+          "count": 0
+        }
+      ],
+      "returned_known_fixture_event_ids": [],
+      "query_literal_occurrences_in_fixture": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "actual_result_answer_literal_counts": {
+        "src/auth/refresh.ts": 0,
+        "tests/auth/refresh-race.test.ts": 0,
+        "SameSite": 0,
+        "None": 0,
+        "Lax": 0,
+        "generation": 0,
+        "旧响应": 0,
+        "最新请求": 0
+      },
+      "provider_visible": [],
+      "subject_event_dispositions": []
+    }
+  ],
+  "committed_reply_controls_by_arm": {
+    "baseline": 0,
+    "candidate": 0
+  },
+  "judge_calls_by_arm": {
+    "baseline": 0,
+    "candidate": 0
+  },
+  "assessment": [
+    "The native execution and receipt chains are real: three baseline history.query results and two candidate history.external.query results are retained.",
+    "The baseline search returns this run question and its own call records, not fixture seq1..4. Two list calls use issue/patch filters and return empty events.",
+    "Both candidate live searches return mode literal_index_fallback with empty hits; their CLI processes exit0 and are reaped with readers drained.",
+    "None of these actual result payloads contains the checked fixture-answer literals. Both arms terminate without a final committed reply or judge.",
+    "This establishes execution of the native paths, not successful retrieval of the requested historical answer or a model efficacy/token-saving result."
+  ]
+}

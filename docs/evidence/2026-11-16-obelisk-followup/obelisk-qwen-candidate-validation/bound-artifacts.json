@@ -1,0 +1,10 @@
+[
+  {
+    "name": "obelisk_acceptance",
+    "executable": "/workspace/scratch/d013f3e3b824/shenko-target/debug/examples/obelisk_acceptance",
+    "sha256": "f043116ebbb25f98bda4a4619474e1e2b22a9b9e2ff2411052cecc394f985fdb",
+    "bytes": 79397480,
+    "fresh": false,
+    "source_head": "012370b76735daaa97623bbea4401313b3d9be06"
+  }
+]

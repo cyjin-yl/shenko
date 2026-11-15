@@ -1,0 +1,44 @@
+{
+  "observed_at_utc": "2026-11-15T18:11:36.488844+00:00",
+  "server_process_exists": false,
+  "supervisor_process_exists": false,
+  "resource_samples": 512,
+  "max_observed_rss_kib": 3782740,
+  "min_observed_available_kib": 2044828,
+  "first_resource_sample": {
+    "utc": "2026-11-15T17:53:49.893279+00:00",
+    "pid": 49309,
+    "rss_kib": 472,
+    "MemTotal_kib": 8113128,
+    "MemAvailable_kib": 4290976,
+    "SwapTotal_kib": 0,
+    "SwapFree_kib": 0
+  },
+  "last_resource_sample": {
+    "utc": "2026-11-15T18:10:52.377932+00:00",
+    "pid": 49309,
+    "rss_kib": 3143524,
+    "MemTotal_kib": 8113128,
+    "MemAvailable_kib": 2652316,
+    "SwapTotal_kib": 0,
+    "SwapFree_kib": 0
+  },
+  "server_exit": {
+    "server_pid": 49309,
+    "ended_at_utc": "2026-11-15T18:10:54.380335+00:00",
+    "returncode": 0,
+    "signal": null,
+    "observed_guard_reason": null,
+    "memory_after": {
+      "MemTotal_kib": 8113128,
+      "MemAvailable_kib": 3739164,
+      "SwapTotal_kib": 0,
+      "SwapFree_kib": 0
+    },
+    "kernel_cause_not_inferred": true
+  },
+  "resource_stop_exists": false,
+  "model_requests_after_paired_runner": 0,
+  "reason_for_owned_stop": "paired run completed; root authorized release CPU",
+  "runner_exit_preceded_operator_stop": true
+}

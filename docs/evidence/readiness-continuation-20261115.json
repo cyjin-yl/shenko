@@ -655,5 +655,33 @@
       "Focused local checks do not establish full product, actual model/channel/seat, cross-ledger materialization, or seven/thirty-day acceptance."
     ],
     "corrected_hosted_result": "Pending at this checkpoint. All six CI jobs and both Nightly jobs must execute on the published integrated candidate; actual results and artifact identities belong to the PR progress comment."
+  },
+  "upstream_base_reconciliation": {
+    "previous_base": "054817b0d5729fed56ec5a974d101c31edfd1410",
+    "current_upstream_base": "bfc3d04de445968dcaed3f40cb8a937da437f61e",
+    "upstream_pr": "https://github.com/cyjin-yl/shenko/pull/301",
+    "upstream_head": "a20cbfab36908e845001c158d44e83fe996c6a56",
+    "local_candidate_before_merge": "5c79ae088b1ffb89bc2f5b79a00137dc19f291a3",
+    "why": "A fresh pre-push branch-ref check found main had merged Obelisk while the PR snapshot still displayed the old base. Publication stopped before push; the new main was fetched and merged without replacing either history.",
+    "resolution": "The only textual conflict was the runtime module declaration block; preserve runtime_branches, runtime_authority and the upstream public obelisk module. Retain upstream automatic merges in runtime installation, raw session snapshot/query, cognition sandbox context, docs and lint discovery. Upstream evidence bytes remain identical to main.",
+    "validation": "All six CI jobs and both explicit Nightly jobs must run on the final merged head. The independent event baseline for these final ratchets is the new main, not the historical base recorded above.",
+    "ownership_boundary": "Obelisk implementation and model evidence belong to merged upstream PR 301, not this PR. Existing failed model efficacy observations retain their original sources and do not establish this integrated candidate.",
+    "local_structural_checks": {
+      "docs": {
+        "errors": [],
+        "domain_specs_registered": 32,
+        "domain_specs_present": 32,
+        "product_tested": false
+      },
+      "kernel_boundary": {
+        "baseline": "bfc3d04de445968dcaed3f40cb8a937da437f61e",
+        "workspace_members": 33,
+        "plugins": 27,
+        "new_violations": [],
+        "errors": [],
+        "product_tested": false
+      },
+      "diff_check": "passed against current main; upstream raw evidence retained byte-for-byte"
+    }
   }
 }

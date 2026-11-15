@@ -33,6 +33,11 @@
 
 ## 持久状态与主体
 
+- **外部 Harness 历史研究（`history.obelisk`）** — 已接线（可选 Node 安装单元；`bin/shenko/src/obelisk.rs` 在主体和 capability discovery 两条装配路径观察启停）
+  - [外部历史合同](specs/external-history.md)与 [TODO / 验证记录](development/obelisk-history.md)
+  - `shenko-exec-host::external_history` 保存完整原件、来源版本、字节引用与有界全文投影；`obelisk_runtime` 拥有独立 CLI 查询进程。
+  - 现有 Store raw session/CAS 及 cognition archive 复制证据；不替换 `history.query`，不新增记忆真相源。此状态不代表真实模型或长期运行验收已通过。
+
 - **Store（SQLite WAL + CAS + ledger）** — 已接线
   - [§41.2](specs/durable-state.md#spec-41-2)、[§36](specs/durable-state.md#spec-36)
   - docs/specs/durable-state.md

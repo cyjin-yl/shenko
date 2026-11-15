@@ -1,0 +1,263 @@
+{
+  "repository": "https://github.com/tommy0103/obelisk",
+  "revision": "cc75c2dd1aead4f4374758a7536385307934e177",
+  "license": "AGPL-3.0-only",
+  "contract": "shenko.obelisk.source-cli-v1",
+  "files": [
+    {
+      "path": "package.json",
+      "bytes": 1154,
+      "blake3": "d7f81137edfa182d52686cf0ff80d0b09743a8ed818751d0cb8dd643e448b92c"
+    },
+    {
+      "path": "packages/cli/package.json",
+      "bytes": 448,
+      "blake3": "be632604eee25d0e7629c2fdd16a9cb91ee9e6c2b6210547e3eed6f619d3f4f9"
+    },
+    {
+      "path": "packages/cli/src/obelisk.ts",
+      "bytes": 6471,
+      "blake3": "b9489dfdaed231fb2d0dc084647528db2f9d19b2155f875def95945e06c3c98a"
+    },
+    {
+      "path": "packages/core/package.json",
+      "bytes": 1721,
+      "blake3": "56d3f3bcb972ef269141973e24bad4fff253f6593ba89dc6dc537ee99d3e9d31"
+    },
+    {
+      "path": "packages/core/src/core.ts",
+      "bytes": 22292,
+      "blake3": "817c6ffa85a5eafb8f11cefadb0fba85e35286880d39e0e2c79337e48aa9fc36"
+    },
+    {
+      "path": "packages/core/src/db.ts",
+      "bytes": 7652,
+      "blake3": "27d9adbdbc41dd6fb6c9d795b309f56984a30302d09d0678b740eee1890d8c6a"
+    },
+    {
+      "path": "packages/core/src/index-finalize.ts",
+      "bytes": 14160,
+      "blake3": "bb7585ef7b875ad9d0b7278d97061e75b06a9e000f63f6aef1e1a3679467891a"
+    },
+    {
+      "path": "packages/core/src/indexer.ts",
+      "bytes": 19905,
+      "blake3": "57193cb8e56a4f375bd23920bbb9f36cf16d323ce5ef870346e71b06ad4e21ad"
+    },
+    {
+      "path": "packages/core/src/parsing.ts",
+      "bytes": 20457,
+      "blake3": "6e61b931b0b248a4715e6d623de36c876b9aa2ea3bf8e9e2ad93cfd52df49c64"
+    },
+    {
+      "path": "packages/core/src/paths.ts",
+      "bytes": 3686,
+      "blake3": "fc937e77fcc6372c6aa1c5251c8a29c55bc1c45a70151e9ce850ecc15dd91e31"
+    },
+    {
+      "path": "packages/core/src/persist.ts",
+      "bytes": 17120,
+      "blake3": "f6b9fc02a0aed7e599d91c7a3b9bb71f77a889940c08f10a5cca404a6f7312c8"
+    },
+    {
+      "path": "packages/core/src/provider-indexing.ts",
+      "bytes": 20669,
+      "blake3": "af75b9758e68815293112c9c49c1bf69ac1f5b826f6b73a6415ce85fff8cfea2"
+    },
+    {
+      "path": "packages/core/src/provider-settings.ts",
+      "bytes": 7849,
+      "blake3": "282edb18064de397f6f69564bb579bfcb3a77905657851decba6a03d74e67d2f"
+    },
+    {
+      "path": "packages/core/src/providers/builtins.ts",
+      "bytes": 2578,
+      "blake3": "85666d9dd82741e1bc935cf2fc9549b1bd68fd1d0b68c7712f51bb2b09470b23"
+    },
+    {
+      "path": "packages/core/src/providers/claude.ts",
+      "bytes": 29625,
+      "blake3": "dfe1a10dd7a1cd8ecbce57cefb29a09ad4d727019a368f1c84f42f05adf3890d"
+    },
+    {
+      "path": "packages/core/src/providers/codex.ts",
+      "bytes": 60197,
+      "blake3": "d9f028e54626bd25e7a2546924b84ed6482d3a2e3c0c7a427ba37e6c039160ea"
+    },
+    {
+      "path": "packages/core/src/providers/codexhost-antigravity.ts",
+      "bytes": 22574,
+      "blake3": "4bb39921423c22d6f163970081b096c35738d25c57ce0f9c163fd2fff85c212a"
+    },
+    {
+      "path": "packages/core/src/providers/copilot-node.ts",
+      "bytes": 418,
+      "blake3": "01bbeeee1164b1b01dc6558e4de4505289215670c2b4425307df9b8a774e1155"
+    },
+    {
+      "path": "packages/core/src/providers/copilot.ts",
+      "bytes": 34364,
+      "blake3": "149feeb036376a448540e19c5f287431b536e3f7d0ba1acfc99187c4dbd63776"
+    },
+    {
+      "path": "packages/core/src/providers/deepseek-identity.ts",
+      "bytes": 1731,
+      "blake3": "d343329431033de0ffcd1089786647f61669c3e9d530c9fb50197cdcd38e673f"
+    },
+    {
+      "path": "packages/core/src/providers/deepseek.ts",
+      "bytes": 86062,
+      "blake3": "cdd5b611c89c44994ce27c7a9127fcd75cfbd80277fb652578543369d618e29f"
+    },
+    {
+      "path": "packages/core/src/providers/hermes-node.ts",
+      "bytes": 397,
+      "blake3": "3e4fa0b9313c986c909a723bd770353a808a658a30098b12f5246c5d39f05e2d"
+    },
+    {
+      "path": "packages/core/src/providers/hermes.ts",
+      "bytes": 61655,
+      "blake3": "623d88846d3c0b1df10afc9c010dc1720eaba5ed518b5e0470df6767393ee0f3"
+    },
+    {
+      "path": "packages/core/src/providers/kimi-manifest.ts",
+      "bytes": 5570,
+      "blake3": "4293ad19ce2eb8a3fe1c23e91b6ead9f6e2476d4ceafa807f423fd2c38f6ed39"
+    },
+    {
+      "path": "packages/core/src/providers/kimi.ts",
+      "bytes": 39957,
+      "blake3": "106a29d619549353c2feac9edac58e65839eb4ff93215158d348e7fa761ca2ed"
+    },
+    {
+      "path": "packages/core/src/providers/kiro.ts",
+      "bytes": 33035,
+      "blake3": "027a6c7fefb34056300f6516ed76b6c0857fdd7d7f88af3a90420c1857e2a9b4"
+    },
+    {
+      "path": "packages/core/src/providers/omp.ts",
+      "bytes": 1590,
+      "blake3": "f6b97f8662a50ce733948fd4e703b228668ce5014ea8c6cf5b7c1ed5782ddc64"
+    },
+    {
+      "path": "packages/core/src/providers/opencode-decode.ts",
+      "bytes": 4626,
+      "blake3": "98e6dbe1d7fdc3f1bacaadf769a173bc16b1d69bd9ee5c20672e4604d6527139"
+    },
+    {
+      "path": "packages/core/src/providers/opencode-identity.ts",
+      "bytes": 1657,
+      "blake3": "9ff042b833c2598fa43e85150a75eef26f6a41dd1ff275fabe9b2bb32c311b24"
+    },
+    {
+      "path": "packages/core/src/providers/opencode-manifest.ts",
+      "bytes": 3860,
+      "blake3": "ddc8bbb3771b42495eab8bed45693db8e0df382139572d900406a2e7ed06d0b8"
+    },
+    {
+      "path": "packages/core/src/providers/opencode-node.ts",
+      "bytes": 439,
+      "blake3": "39d188e947281fb358486ed82d200b96b35ff62a6f0ef00d9676abe1d45c7459"
+    },
+    {
+      "path": "packages/core/src/providers/opencode-project.ts",
+      "bytes": 42144,
+      "blake3": "a47e75b4546ffcd605309469c215ff31378b639313e337c594015ec5148dd32f"
+    },
+    {
+      "path": "packages/core/src/providers/opencode-source.ts",
+      "bytes": 7039,
+      "blake3": "10b99f0daa56e8662116333c0cd1c0f4a927a67c0a56c3954550ab54261eabd5"
+    },
+    {
+      "path": "packages/core/src/providers/opencode.ts",
+      "bytes": 38847,
+      "blake3": "22bf352f7d7e3977c37ce974d997c47a71b29787d5a0357e32779988fb41bba7"
+    },
+    {
+      "path": "packages/core/src/providers/pi.ts",
+      "bytes": 57932,
+      "blake3": "a313c6f6845666cf95c01e4eb39ccf8782cbe2e5216b18d89327cd8c62d89c18"
+    },
+    {
+      "path": "packages/core/src/providers/registry.ts",
+      "bytes": 2810,
+      "blake3": "877feb6c7e9c58096cba0873d297da61c3ce7624dfc4e7574bd076af78a98cba"
+    },
+    {
+      "path": "packages/core/src/providers/source-read-error.ts",
+      "bytes": 614,
+      "blake3": "24fba2cffeea5d7051631ec2fe181f0f820a404133e80d4da53d31d21f266e03"
+    },
+    {
+      "path": "packages/core/src/providers/types.ts",
+      "bytes": 14929,
+      "blake3": "8f37ba13264a5823ce55f7d8d75734ceeab88bfdd09e8bedcd61ca903aaaac11"
+    },
+    {
+      "path": "packages/core/src/providers/zcode.ts",
+      "bytes": 41780,
+      "blake3": "28beb3750a8c2708bd13b137159c24868878b122a4622c4cc80046cd8b1df06c"
+    },
+    {
+      "path": "packages/core/src/query.ts",
+      "bytes": 54163,
+      "blake3": "b4b72cfc1d7518575e091a7e5ab05457f65ccfafbb4fdff1906be36e8f184653"
+    },
+    {
+      "path": "packages/core/src/schema-migrations.ts",
+      "bytes": 2247,
+      "blake3": "ff26348293a51fe026f3f9d8806e7086b1906b7719061dab3f78a8641cebe13e"
+    },
+    {
+      "path": "packages/core/src/schema.sql",
+      "bytes": 6413,
+      "blake3": "37e42d6cce78890a0343dff589a6d3b7b88f79f55910257f411527b5a6ade51e"
+    },
+    {
+      "path": "packages/core/src/session-detail.ts",
+      "bytes": 25121,
+      "blake3": "3c4e3c8049d745c3787dbc85b216b2276ca5f5f86077b564408bd4aa3bbf90d8"
+    },
+    {
+      "path": "packages/core/src/snapshot.ts",
+      "bytes": 4824,
+      "blake3": "3fc68444a7608945d908a5c41ede37548318cd7557228e89f665f5bce347f3bb"
+    },
+    {
+      "path": "packages/core/src/sqlite-types.ts",
+      "bytes": 1556,
+      "blake3": "e63131298a48c46d9b957de288d801e2a344aa049d9feb1a4fae7e7ead2955ba"
+    },
+    {
+      "path": "packages/core/src/tx.ts",
+      "bytes": 4475,
+      "blake3": "a56a07afff997b229770838d8453effdb8a8a8b953e0cccd9af256d11b1c3ced"
+    },
+    {
+      "path": "packages/core/src/vendor/README.md",
+      "bytes": 2515,
+      "blake3": "1879a64b56618625ee61f0991ef81a1ec4bcdbd8f19bb9a1aa8da7bc5f343d8e"
+    },
+    {
+      "path": "packages/core/src/vendor/dsh-chunk-rows.ts",
+      "bytes": 7069,
+      "blake3": "3efc311af95add50cac11e400e72612b302b26246e9d1255c044b1fdf23bb381"
+    },
+    {
+      "path": "packages/core/src/vendor/dsh-zstd.ts",
+      "bytes": 12916,
+      "blake3": "540a1149aae83c8c9fec220231f5ab25a3df9989346fa0b534e854da09ba8887"
+    },
+    {
+      "path": "packages/core/src/write-coordinator.ts",
+      "bytes": 3274,
+      "blake3": "fe3be20d2d8ec8d711a57c0be324c9b2cfce577630fd945608c82ee3e8a3c102"
+    },
+    {
+      "path": "packages/core/src/writer-lease.ts",
+      "bytes": 2710,
+      "blake3": "773ee133e7c7071050e66e3e9299365c79109a7da49c15aaec7746a38ce1183a"
+    }
+  ]
+}
