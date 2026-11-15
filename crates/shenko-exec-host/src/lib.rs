@@ -17,6 +17,7 @@ pub use history_task::*;
 
 pub mod obelisk_runtime;
 pub use obelisk_runtime::*;
+pub mod external_history;
 
 pub mod net_probe;
 pub use net_probe::*;

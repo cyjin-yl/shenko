@@ -38,7 +38,8 @@ pub struct RawInboxEvent {
 pub struct RawSession {
     pub session_id: EntityId,
     pub agent_id: EntityId,
-    /// RFC 3339
+    /// RFC 3339 source time, or empty for an imported snapshot with unknown
+    /// source time. Local receipt time is recorded by the admission ledger.
     pub started_at: String,
     /// JSON-serialised session metadata
     pub data: String,
