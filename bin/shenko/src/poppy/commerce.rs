@@ -429,7 +429,7 @@ async fn rest_documents(
         );
         let document = tokio::select! {
             _ = cancellation.cancelled() => anyhow::bail!("commerce schema discovery cancelled"),
-            fetched = client.fetch_schema(&uri) => fetched?,
+            _fetched = client.fetch_schema(&uri) => _fetched?,
         };
         bytes = bytes.saturating_add(serde_json::to_vec(&document)?.len());
         ensure!(
@@ -551,7 +551,7 @@ async fn run_rest_request(
     envelope["request_dispatched"] = true.into();
     let response = tokio::select! {
         _ = cancellation.cancelled() => anyhow::bail!("commerce cancelled after dispatch; outcome is unknown"),
-        sent = client.send_signed_plan(&plan) => sent?,
+        _sent = client.send_signed_plan(&plan) => _sent?,
     };
     envelope["http_status"] = response.status.into();
     let mut resource: Value =
@@ -587,7 +587,7 @@ async fn read_rest_checkout(
     schemas.validate_request(&plan)?;
     let response = tokio::select! {
         _ = cancellation.cancelled() => anyhow::bail!("checkout observation cancelled"),
-        sent = client.send_signed_plan(&plan) => sent?,
+        _sent = client.send_signed_plan(&plan) => _sent?,
     };
     let mut resource: Value =
         serde_json::from_slice(&response.body).context("checkout result is not UCP JSON")?;

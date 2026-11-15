@@ -336,7 +336,7 @@ impl Runtime {
         let mut stop_reason = None;
         let observed = loop {
             tokio::select! { biased;
-                result = &mut work => break result,
+                _result = &mut work => break _result,
                 _ = self.workers.stop.cancelled() => {
                     stop_reason = Some("Poppy plugin retired");
                     cancellation.cancel();
