@@ -1,13 +1,14 @@
-//! One archive consumer, compiled twice: once against the schema-5 tree
-//! (a `d6eb9fb` checkout, `ARCHIVE_SCHEMA == 5`) and once against the current
-//! schema-6 tree. Every mode uses only APIs that both trees export, so the
-//! two binaries are the *actual* old writer/reader and the *actual* current
-//! writer/reader, not a simulated version switch.
+//! One archive consumer used by the historical two-binary schema-5/schema-6
+//! proof: once against the schema-5 tree (a `d6eb9fb` checkout,
+//! `ARCHIVE_SCHEMA == 5`) and once against its schema-6 tree. Every mode uses
+//! APIs both trees export, so the proof uses actual version-native binaries,
+//! not a simulated version switch. A build in today's tree reports its own
+//! schema and does not become a historical schema-6 consumer.
 //!
 //! Build the old binary from a crate whose `[[bin]] path` is this file while
 //! its `shenko-store` dependency points at the old tree (the retained
-//! `old5-reader` probe crate is exactly that). Build the current binary with
-//! `cargo build --example obligation_archive_consumer`.
+//! `old5-reader` probe crate is exactly that). Build the other binary with
+//! `cargo build --example obligation_archive_consumer` in its selected tree.
 //!
 //! Modes (positional arguments and `--name=value` options):
 //!
