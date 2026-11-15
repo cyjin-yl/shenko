@@ -815,7 +815,19 @@ impl ObeliskRuntime {
                 "configured_root_relative_path",
             )
         };
-        let (availability, size, modified, error) = match tokio::fs::metadata(&path).await {
+        let metadata = async {
+            let metadata = tokio::fs::metadata(&path).await?;
+            if metadata.is_file() {
+                // A directory entry can be visible while its contents are not
+                // readable. Probe the original without changing any bytes;
+                // this is availability at observation time, not a snapshot.
+                tokio::fs::File::open(&path).await?.metadata().await
+            } else {
+                Ok(metadata)
+            }
+        }
+        .await;
+        let (availability, size, modified, error) = match metadata {
             Ok(metadata) if metadata.is_file() => (
                 ObeliskSourceAvailability::Available,
                 Some(metadata.len()),
