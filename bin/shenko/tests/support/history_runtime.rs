@@ -40,6 +40,7 @@ pub fn initialize(store: &Store) -> Result<(TaskRecord, AuthorityRef)> {
     let head = SubjectBranchHead {
         agent_id: agent,
         branch_id: BranchId::new(),
+        branch_origin: None,
         subject_root_task_id: EntityId::new(),
         controller_epoch: ControllerEpoch(1),
         software_generation: RuntimeGeneration("external-history-fixture".into()),
