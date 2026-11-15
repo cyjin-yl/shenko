@@ -449,3 +449,5 @@ Session 也不证明用户批准了某张订单。当前没有新增业务判断
 协议依据：[Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec)、
 [0.4 兼容文档](https://personalagentprotocol.org/docs/0.4/spec)、
 [UCP extension](https://personalagentprotocol.org/docs/1.0/extensions/ucp)。
+
+本次验证及未取得的证据见 [Poppy 首个增量验证记录](../evidence/poppy-foundation-20261115.md)。
