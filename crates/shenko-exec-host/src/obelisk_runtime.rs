@@ -675,7 +675,7 @@ impl ObeliskRuntime {
                 _ = cancellation.cancelled() => { observation.status = ObeliskRunStatus::Cancelled; None }
                 _ = exceeded.cancelled() => { observation.status = ObeliskRunStatus::OutputLimit; None }
                 _ = tokio::time::sleep(Duration::from_millis(self.config.limits.timeout_ms)) => { observation.status = ObeliskRunStatus::TimedOut; None }
-                result = child.wait() => Some(result),
+                _result = child.wait() => Some(_result),
             }
         };
         if let Some(result) = completed {
@@ -729,10 +729,10 @@ impl ObeliskRuntime {
             observation.process.stderr_base64 =
                 Some(base64::engine::general_purpose::STANDARD.encode(&stderr.bytes));
         }
-        if stdout.truncated || stderr.truncated {
-            if observation.status == ObeliskRunStatus::Succeeded {
-                observation.status = ObeliskRunStatus::OutputLimit;
-            }
+        if (stdout.truncated || stderr.truncated)
+            && observation.status == ObeliskRunStatus::Succeeded
+        {
+            observation.status = ObeliskRunStatus::OutputLimit;
         }
         if let Some(error) = stdout.error.or(stderr.error) {
             observation.process.error = Some(error);
