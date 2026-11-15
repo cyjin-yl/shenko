@@ -37,6 +37,16 @@ impl std::fmt::Display for AuthorityRecoveryRequired {
 }
 impl std::error::Error for AuthorityRecoveryRequired {}
 
+fn has_storage_failure(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<ShenkoError>().is_some_and(|error| matches!(error, ShenkoError::Storage(_)))
+        || error.chain().any(|cause| cause.downcast_ref::<ShenkoError>()
+            .is_some_and(|error| matches!(error, ShenkoError::Storage(_))))
+}
+
+pub(crate) fn requires_reconstruction(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<AuthorityRecoveryRequired>().is_some() && !has_storage_failure(error)
+}
+
 impl RuntimeAuthority {
     pub fn attach(data_dir: &Path, store: &Arc<Store>, cancel: CancellationToken) -> Result<Arc<Self>> {
         let node = crate::node_sync::open_node(data_dir, store)?;
@@ -120,12 +130,14 @@ impl RuntimeAuthority {
         // A storage failure remains a storage failure; restarting authority
         // must not hide a closed or corrupt ledger behind a network retry.
         if self.store.upgrade().is_some_and(|store| !store.ledger.writer_is_open()) {
-            return result.and_then(|()| Err(ShenkoError::storage(
-                "the Store writer closed during runtime work; its original failure requires recovery").into()));
+            let failure = ShenkoError::storage(
+                "the Store writer closed during runtime work; its original failure requires recovery");
+            return match result {
+                Ok(()) => Err(failure.into()),
+                Err(error) => Err(error.context(failure)),
+            };
         }
-        if result.as_ref().err().is_some_and(|error| error.chain().any(|cause| {
-            cause.downcast_ref::<ShenkoError>().is_some_and(|error| matches!(error, ShenkoError::Storage(_)))
-        })) { return result; }
+        if result.as_ref().err().is_some_and(has_storage_failure) { return result; }
         match self.recovery_required() {
             Some(recovery) => match result {
                 Ok(()) => Err(recovery.into()),

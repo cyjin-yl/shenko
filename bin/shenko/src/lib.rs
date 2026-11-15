@@ -1324,8 +1324,8 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
         let restart = runtime_authority::restart_command(&command);
         let runtime = tokio::runtime::Runtime::new()?;
         let result = runtime.block_on(run(command, data_dir.clone()));
-        let recovery = result.as_ref().err().is_some_and(|error|
-            error.downcast_ref::<runtime_authority::AuthorityRecoveryRequired>().is_some());
+        let recovery = result.as_ref().err()
+            .is_some_and(runtime_authority::requires_reconstruction);
         if recovery {
             // Original blocking calls may still finish and append E1. Their
             // canceled provider cannot admit another send, and the next
@@ -2180,7 +2180,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 consumer_cancel.cancel();
                 match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
                     Ok(Ok(Ok(()))) => {},
-                    Ok(Ok(Err(error))) => return authority_runtime.finish_result(Err(error)),
+                    Ok(Ok(Err(error))) => return Err(error),
                     Ok(Err(error)) => return Err(error.into()),
                     Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
                 }
@@ -2190,7 +2190,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
                     }
                 } else { replication_task.await?; }
-                return authority_runtime.finish_result(runtime_result);
+                return runtime_result;
             }
 
             // Start inference only after the model-independent recovery services.
@@ -3110,18 +3110,18 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     Ok(Ok(Ok(()))) => {},
                     Ok(Ok(Err(error))) => {
                         consumer_cancel.cancel();
-                        return authority_runtime.finish_result(Err(error.into()));
+                        return Err(error.into());
                     },
                     Ok(Err(error)) => return Err(error.into()),
                     Err(_) => {
                         consumer_cancel.cancel();
                         let (_, step) = store.load_subject(agent_id)?;
-                        return authority_runtime.finish_result(Err(anyhow::anyhow!(
+                        return Err(anyhow::anyhow!(
                             "shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
                             step.step_id,
                             step.state,
                             step.active_request_id
-                        )));
+                        ));
                     }
                 }
             }
@@ -3130,7 +3130,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             consumer_cancel.cancel();
             match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
                 Ok(Ok(Ok(()))) => {},
-                Ok(Ok(Err(error))) => return authority_runtime.finish_result(Err(error)),
+                Ok(Ok(Err(error))) => return Err(error),
                 Ok(Err(error)) => return Err(error.into()),
                 Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
             }
@@ -3140,29 +3140,38 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
                 }
             } else { replication_task.await?; }
-            authority_runtime.finish_result(runtime_result)?;
+            runtime_result?;
             info!("Shenko stopped");
         }
     }
 
     Ok(())
     }.await;
-    let result = match active_authority {
-        Some(authority) => authority.finish_result(result),
-        None => result,
-    };
-    let rebuilding = result.as_ref().err().is_some_and(|error|
-        error.downcast_ref::<runtime_authority::AuthorityRecoveryRequired>().is_some());
-    if rebuilding {
+    let rebuilding = active_authority.as_ref()
+        .is_some_and(|authority| authority.recovery_required().is_some())
+        || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);
+    let result = if rebuilding {
         match tokio::time::timeout(std::time::Duration::from_secs(15), supervisor.stop()).await {
             Ok(Ok(())) => {},
             Ok(Err(error)) => tracing::warn!(error=%error, "authority teardown incomplete; original facts retained"),
             Err(_) => tracing::warn!("authority teardown observation timed out; original admitted effects remain unresolved"),
         }
+        result
     } else {
-        supervisor.stop().await?;
+        match supervisor.stop().await {
+            Ok(()) => result,
+            Err(cleanup) => match result {
+                Ok(()) => Err(cleanup),
+                Err(error) => Err(error.context(format!("supervisor cleanup also failed: {cleanup}"))),
+            },
+        }
+    };
+    // Classify once, after cleanup can no longer replace a genuine storage
+    // failure with an earlier authority-recovery wrapper.
+    match active_authority {
+        Some(authority) => authority.finish_result(result),
+        None => result,
     }
-    result
 }
 
 /// `shenko browser` — drive the native browser provider directly.
