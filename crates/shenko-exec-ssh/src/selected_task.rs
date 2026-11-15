@@ -508,7 +508,9 @@ mod tests {
             software_generation: f.ctx.software_generation.clone(),
             genesis_ref: GenesisRef { ledger_id: f.store.ledger.ledger_id(), genesis_id },
             committed_step_no: 0, committed_step_id: None, committed_at: zero,
-            next_step_id: EntityId::new(), mode: SubjectMode::Active,
+            // The task's recorded source must be a registered step in this
+            // branch, including when the permission fixture adds a parent.
+            next_step_id: f.authority.decision_ref, mode: SubjectMode::Active,
             mode_reason_ref: None, record_revision: RecordRevision(0),
         };
         let genesis = SubjectGenesis {
