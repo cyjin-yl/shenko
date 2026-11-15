@@ -30,6 +30,26 @@ impl NodeAuthorityGuard {
         &self.snapshot
     }
 
+    /// Verify the original chosen action from this reserved connection. A
+    /// recovered certificate may contain another valid acknowledgement set;
+    /// the immutable value identity and descriptor must remain identical.
+    pub fn validate_admission_grant(
+        &self, grant: &shenko_types::authority::CommitAuthorityGrant,
+    ) -> Result<()> {
+        let stored = Node::committed_admission_conn(&self.node.conn, &grant.admission)?
+            .context("admission has no committed local control value")?;
+        anyhow::ensure!(stored.grant_id == grant.grant_id
+            && stored.admission == grant.admission,
+            "admission grant does not match its actual committed value");
+        anyhow::ensure!(grant.admission.subject_id == self.snapshot.identity.agent_id
+            && grant.admission.branch_id.0 == self.snapshot.identity.branch_id.0,
+            "admission grant belongs to another actual subject branch");
+        if !grant.replayed {
+            Node::validate_admission_current_conn(&self.node.conn, &grant.admission)?;
+        }
+        Ok(())
+    }
+
     /// Internal projection repair may write while preserving this reservation.
     /// It must not begin another transaction or release the connection early.
     pub(crate) fn connection(&self) -> &Connection {
