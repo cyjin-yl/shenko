@@ -2502,7 +2502,7 @@ impl Store {
                                 ("branch_id".into(), row.value("branch_id").map(str::to_owned)),
                                 ("data".into(), Some(data.to_owned()))],
                         };
-                        let history_spec = spec_for("subject_head_history").expect("registered branch history");
+                        let history_spec = spec_for("subject_head_history").context("branch history table is not registered")?;
                         match read_existing(&tx, history_spec, &historical)? {
                             Some(existing) => {
                                 ensure!(rows_equivalent(history_spec, &existing, &historical.values), "historical head content collision");

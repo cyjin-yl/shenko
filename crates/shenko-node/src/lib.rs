@@ -1141,15 +1141,15 @@ impl Node {
             .optional()?;
         if let Some((fence_term, fence_epoch)) = fence {
             let claim: Option<PrimaryClaim> = election::get_state(&tx, "primary")?;
-            if let Some(claim) = claim {
-                if fence_epoch != claim.epoch.to_string() || fence_term != claim.term.to_string() {
-                    return evidence_only(
-                        tx,
-                        receipt_seq,
-                        "fenced_by_election",
-                        "evidence_only_fenced_by_election",
-                    );
-                }
+            if let Some(claim) = claim
+                && (fence_epoch != claim.epoch.to_string() || fence_term != claim.term.to_string())
+            {
+                return evidence_only(
+                    tx,
+                    receipt_seq,
+                    "fenced_by_election",
+                    "evidence_only_fenced_by_election",
+                );
             }
         }
         if t.kind != KIND

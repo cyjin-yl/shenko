@@ -927,19 +927,18 @@ pub fn establish_primary(
         // Do not invalidate a known, authenticated reachable primary merely
         // because this installation was started. Catch-up verifies committed
         // control facts; it does not claim the peer's model is healthy.
-        if let Some(fence) = node.fencing_token()? {
-            if fence.leader_id != own
-                && caught_up.iter().any(|outcome| {
-                    outcome["outcome"] == "synchronized"
-                        && outcome["member"] == json!(fence.leader_id)
-                })
-            {
-                return Err(PrimaryNotSelected(format!(
-                    "authenticated primary {} retains term {}",
-                    fence.leader_id, fence.term
-                ))
-                .into());
-            }
+        if let Some(fence) = node.fencing_token()?
+            && fence.leader_id != own
+            && caught_up.iter().any(|outcome| {
+                outcome["outcome"] == "synchronized"
+                    && outcome["member"] == json!(fence.leader_id)
+            })
+        {
+            return Err(PrimaryNotSelected(format!(
+                "authenticated primary {} retains term {}",
+                fence.leader_id, fence.term
+            ))
+            .into());
         }
         let campaign = node.campaign()?;
         let request = campaign.request.clone();
