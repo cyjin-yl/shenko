@@ -20,6 +20,12 @@ pub struct CommitAdmission {
     pub subject_id: EntityId,
     pub branch_id: BranchId,
     pub conflict_key: String,
+    /// Additional immutable decision positions consumed by this same action,
+    /// such as a task predecessor revision shared by claim/cancel/T1/T2.
+    /// The provider must reserve all keys atomically, before acknowledging the
+    /// value. An empty field preserves retained descriptor bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflict_aliases: Vec<String>,
     pub action_id: EntityId,
     pub expected_parent: Option<CommitRef>,
     pub expected_head_revision: Option<RecordRevision>,
