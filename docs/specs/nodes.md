@@ -39,7 +39,9 @@ a count of replicated agent processes (one replicated identity is one vote).
 - Authority is a *fencing epoch*: every committed decision carries a
   monotonic `FencingToken { term, epoch }`. Authority-bearing writes check the
   epoch (`Node::check_fencing`); an instance that lost the election cannot
-  keep acting as primary once a newer epoch is committed locally.
+  keep acting as primary once a newer epoch is committed locally. The check
+  also refuses a historical claim after a higher term is observed locally,
+  a mismatched configuration revision, or removal of the claimed leader.
 - Eligibility has no OS gate, no model-name gate and no local-LLM requirement
   ([§5.4.1](nodes.md#spec-5-4-1)): a member is a capable node; credentials and grants are never
   exported, copied, or discovered by this slice.
@@ -64,7 +66,8 @@ Library (`shenko-node`, all durable, additive storage schema 8):
 - Configuration catch-up: a push supplies the full continuous log from index
   1 and covers every retained index. It preserves identical committed bytes,
   requires the advertised configuration to be committed by the supplied log,
-  and applies only newly inserted entries. Equal configuration revisions may
+  and applies entries above the old committed frontier, including identical
+  retained rows explicitly certified by that push. Equal configuration revisions may
   still carry a newer primary suffix. Empty, sparse, shorter or divergent
   histories are refused atomically; configuration revision never substitutes
   for a log index. Only the verified entries can establish a configuration;
@@ -177,6 +180,18 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   they are not retroactive proof that the original evidence was retained.
 - An interrupted vote solicitation leaves no partial claim: only `tally`
   commits, and only on quorum of the committed configuration.
+- A delayed vote response cannot lower the durable term or authorize a tally
+  from an obsolete campaign/configuration. Authenticated late observations
+  remain under non-ballot receipt scopes in `node_votes`; exact replay is a
+  no-op. Historical voting membership can retain a receipt but cannot grant
+  authority in the current configuration.
+- Membership tally retries return the original committed transition at
+  `base_revision + 1`; a changed transition conflicts. Votes from an older
+  term cannot be relabelled with today's term. Both append and full-prefix
+  push verify certificate identities and old/new majorities against the
+  preceding configuration, including elections during a joint transition.
+  An older committed suffix can be caught up after a newer local campaign;
+  it does not rewind the observed term or restore its historical primary.
 
 ## What is deliberately not evidence here
 
@@ -190,6 +205,12 @@ domain-primary claim. The deterministic no-model path observes with `None`.
 - Model/provider locality, privacy posture and reachability live in the
   capability/quota slices; this slice keeps subject_id/count truth bound and
   separate from role observation.
+- [2026-11-15 control-state regression evidence](../evidence/node-authority-20261115.md)
+  covers delayed responses, replay and configuration lineage. Certificates
+  still rely on the authenticated transport; their voter lists are not
+  independently signed proofs. Startup election and role observation do not
+  establish a continuously supervised subject-loop authority consumer or
+  autonomous failover. Isolated branches remain allowed to retain experience.
 
 <a id="spec-5-4"></a>
 <!-- migrated-contract: SPEC:5.4 -->
