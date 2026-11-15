@@ -24,6 +24,9 @@ use super::{
     vault::Vault,
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum AccountAction {
@@ -337,6 +340,7 @@ async fn begin_direct(
             &client.operator().signer,
             client.nonce_for(endpoint.as_str()).as_deref(),
         )?;
+        client.check_endpoint_ready(request.endpoint())?;
         pending.flight = Some(flight(operation_id, "pushed_authorization")?);
         write_pending(client, &pending)?;
         let response = client.send_oauth(request.into_request()).await?;
@@ -408,6 +412,7 @@ async fn complete_direct(
             .nonce_for(server.token_endpoint().as_str())
             .as_deref(),
     )?;
+    client.check_endpoint_ready(request.endpoint())?;
     pending.flight = Some(flight(operation_id, "authorization_code")?);
     write_pending(client, &pending)?;
     let response = client.send_oauth(request.into_request()).await?;
@@ -433,6 +438,7 @@ async fn begin_device(
         scopes.to_vec(),
     )?;
     let request = attempt.request(&client.operator().signer)?;
+    client.check_endpoint_ready(request.endpoint())?;
     let mut pending = new_flow(client, FlowKind::Device, None)?;
     pending.flight = Some(flight(operation_id, "device_authorization")?);
     write_pending(client, &pending)?;
@@ -489,6 +495,7 @@ async fn poll_device(client: &CompanyClient, operation_id: EntityId) -> Result<V
             .nonce_for(server.token_endpoint().as_str())
             .as_deref(),
     )?;
+    client.check_endpoint_ready(request.endpoint())?;
     pending.secret_state = Some(encode_secret(attempt.export_node_local_secret()?));
     pending.flight = Some(flight(operation_id, "device_token")?);
     write_pending(client, &pending)?;
@@ -548,6 +555,7 @@ async fn refresh(
             .nonce_for(server.token_endpoint().as_str())
             .as_deref(),
     )?;
+    client.check_endpoint_ready(request.endpoint())?;
     record
         .active
         .as_mut()
@@ -728,6 +736,7 @@ async fn drain_replaced(
         }
         let tokens = restore_tokens(grant, client.operator(), client.connection())?;
         let request = tokens.revocation_request(server, &client.operator().signer)?;
+        client.check_endpoint_ready(request.endpoint())?;
         record.replaced[index].flight = Some(flight(operation_id, "revocation")?);
         write_account(client, record)?;
         let response = client.send_oauth(request.into_request()).await?;
