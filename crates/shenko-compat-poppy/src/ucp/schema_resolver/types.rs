@@ -125,10 +125,10 @@ impl VersionConstraint {
         if version < self.min.as_str() {
             return false;
         }
-        if let Some(ref max) = self.max {
-            if version > max.as_str() {
-                return false;
-            }
+        if let Some(ref max) = self.max
+            && version > max.as_str()
+        {
+            return false;
         }
         true
     }

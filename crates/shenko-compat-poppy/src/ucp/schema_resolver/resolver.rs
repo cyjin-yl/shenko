@@ -564,38 +564,38 @@ fn inject_annotations(
         .and_then(|p| p.as_object_mut())
     {
         for (name, ann) in annotations {
-            if let Some(prop) = props.get_mut(name) {
-                if let Some(obj) = prop.as_object_mut() {
-                    // Skip if this property already has its own annotation
-                    if obj.contains_key(ann_key) {
-                        continue;
-                    }
-
-                    // Monotonicity check: required fields cannot be weakened
-                    if base_required.contains(name) {
-                        let (vis, _) = get_visibility_from_annotation(
-                            ann,
-                            &options.operation,
-                            &format!("{}/properties/{}", path, name),
-                        )?;
-                        if matches!(vis, Visibility::Omit | Visibility::Optional) {
-                            return Err(ResolveError::MonotonicityViolation {
-                                path: format!("{}/properties/{}", path, name),
-                                field: name.clone(),
-                                base_status: "required".into(),
-                                attempted: match vis {
-                                    Visibility::Omit => "omit",
-                                    Visibility::Optional => "optional",
-                                    Visibility::Required => "required",
-                                    Visibility::Include => "include",
-                                }
-                                .into(),
-                            });
-                        }
-                    }
-
-                    obj.insert(ann_key.to_string(), ann.clone());
+            if let Some(prop) = props.get_mut(name)
+                && let Some(obj) = prop.as_object_mut()
+            {
+                // Skip if this property already has its own annotation
+                if obj.contains_key(ann_key) {
+                    continue;
                 }
+
+                // Monotonicity check: required fields cannot be weakened
+                if base_required.contains(name) {
+                    let (vis, _) = get_visibility_from_annotation(
+                        ann,
+                        &options.operation,
+                        &format!("{}/properties/{}", path, name),
+                    )?;
+                    if matches!(vis, Visibility::Omit | Visibility::Optional) {
+                        return Err(ResolveError::MonotonicityViolation {
+                            path: format!("{}/properties/{}", path, name),
+                            field: name.clone(),
+                            base_status: "required".into(),
+                            attempted: match vis {
+                                Visibility::Omit => "omit",
+                                Visibility::Optional => "optional",
+                                Visibility::Required => "required",
+                                Visibility::Include => "include",
+                            }
+                            .into(),
+                        });
+                    }
+                }
+
+                obj.insert(ann_key.to_string(), ann.clone());
             }
         }
     }
@@ -617,19 +617,19 @@ fn validate_allof_types(branches: &[Value], path: &str) -> Result<(), ResolveErr
             .and_then(|p| p.as_object());
         if let Some(props) = props {
             for (name, prop) in props {
-                if let Some(type_val) = prop.as_object().and_then(|p| p.get("type")) {
-                    if let Some(type_str) = type_val.as_str() {
-                        if let Some(existing) = prop_types.get(name) {
-                            if existing != type_str {
-                                return Err(ResolveError::TypeConflict {
-                                    path: format!("{}/properties/{}", path, name),
-                                    base_type: existing.clone(),
-                                    ext_type: type_str.to_string(),
-                                });
-                            }
-                        } else {
-                            prop_types.insert(name.clone(), type_str.to_string());
+                if let Some(type_val) = prop.as_object().and_then(|p| p.get("type"))
+                    && let Some(type_str) = type_val.as_str()
+                {
+                    if let Some(existing) = prop_types.get(name) {
+                        if existing != type_str {
+                            return Err(ResolveError::TypeConflict {
+                                path: format!("{}/properties/{}", path, name),
+                                base_type: existing.clone(),
+                                ext_type: type_str.to_string(),
+                            });
                         }
+                    } else {
+                        prop_types.insert(name.clone(), type_str.to_string());
                     }
                 }
             }

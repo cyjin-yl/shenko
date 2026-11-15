@@ -19,6 +19,6 @@ Source: <https://crates.io/crates/ucp-schema/1.4.1>.
 - Adjust private module paths; implement the five pure resolver errors' original Display messages directly instead of taking a thiserror dependency.
 - Use the workspace's existing serde_json map representation. Do not enable preserve_order: JSON object ordering has no schema meaning, and changing that global feature would change unrelated Shenko CAS serialization.
 - `../rest_schema.rs` adapts the loader's inlining/fragment behavior to an explicitly supplied in-memory document map, with depth/node bounds. Recursive edges remain absolute references into that same supplied, annotation-resolved document set. Unbound anchors and dynamic references fail closed. It does not copy the filesystem or HTTP loader.
-- Apply rustfmt and equivalent clippy cleanups without changing annotation semantics.
+- Apply rustfmt and equivalent clippy cleanups without changing annotation semantics, including Rust 2024 let-chain normalization of nested property/type and version-bound checks.
 
 This code does no network or filesystem I/O. Its caller bounds documents before resolution and supplies every external schema explicitly to the JSON Schema validator. Unsupported or missing reference bindings fail closed; they do not trigger a remote loader.
