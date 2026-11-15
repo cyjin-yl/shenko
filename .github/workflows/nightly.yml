@@ -42,7 +42,8 @@ jobs:
           workspaces: . -> .ci/target/nightly
           shared-key: rust-1.98.1-nightly
       - name: Run the full workspace feature suite and doctests
-        run: cargo test --workspace --all-features --locked -j2
+        # Continue through later targets and doctests while preserving failure.
+        run: cargo test --workspace --all-features --locked --no-fail-fast -j2
       # Existing ignored OS-process fixtures require explicit fresh roots or
       # fixed local helper execution. Provision them here; never add ignores to
       # make the per-PR gate green. Hardware-only /dev/uinput proofs still need

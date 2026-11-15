@@ -57,7 +57,9 @@ completion of a child does not by itself revoke a reply already authored.
 written atomically with the actual transition. It is deliberately absent from
 cognition exports. The replicated `authority.admission_applied` inbox event
 remains evidence of its source; importing it cannot create local materialization.
-The provider is told that an action completed only after SQL COMMIT succeeds.
+The durable receipt commits in that same Store transaction. Only after SQL
+COMMIT succeeds does the local reservation set its in-memory completion flag;
+an incomplete reservation notifies the provider to request recovery when dropped.
 A chosen value whose final reservation or Store transition fails requests the
 ordinary runtime's coherent reconstruction. A storage error remains fatal and
 is not disguised as a retryable authority transition.

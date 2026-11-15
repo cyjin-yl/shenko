@@ -210,6 +210,184 @@
       "test_expectations_changed": false
     },
     "independent_source_review": "Canonical request binding, optional attempt mismatch, stale state/plan, final transactional recheck, broker Send boundary and historical grant replay refusal reviewed; no concrete remaining defect found in this bounded scope.",
-    "corrected_hosted_result": "Pending at this versioned checkpoint; the PR progress comment binds the actual final candidate to all eight executed hosted jobs."
+    "corrected_hosted_result": "The d6aba950 CI passed five jobs but failed Rust at exec-host after all 19 MCP cases passed. Its full compiler passed; its Nightly workspace failed at the same exec-host target. See generic_external_t1_followup.",
+    "correction_checkpoint": "d6aba9500cacce9d671c6102146ccfc3fc3f8201"
+  },
+  "generic_external_t1_followup": {
+    "failed_candidate": "d6aba9500cacce9d671c6102146ccfc3fc3f8201",
+    "ci": {
+      "run": "https://github.com/cyjin-yl/shenko/actions/runs/43744064517",
+      "passed": [
+        "kernel-boundary",
+        "docs",
+        "docs-migration",
+        "web",
+        "clippy-ratchet"
+      ],
+      "failed": [
+        "rust"
+      ],
+      "clippy_errors": [],
+      "node_unwrap_before": 421,
+      "node_unwrap_after": 421,
+      "mcp_lifecycle": {
+        "passed": 19,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      }
+    },
+    "nightly": {
+      "compiler": {
+        "head": "d6aba9500cacce9d671c6102146ccfc3fc3f8201",
+        "run_id": 43744091245,
+        "job_id": 132903459658,
+        "job_status": "completed",
+        "job_conclusion": "success",
+        "artifact_id": 14172609952,
+        "artifact_workflow_run": {
+          "id": 43744091245,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "fix/ship-readiness-20261115",
+          "head_sha": "d6aba9500cacce9d671c6102146ccfc3fc3f8201"
+        },
+        "zip_bytes": 60797,
+        "zip_sha256": "55b1aa7ae92dbb66338ec3a5f708924c5d5d94b23fa8cfc05476db45d21769c2",
+        "compiler_log_bytes": 557162,
+        "compiler_log_sha256": "3e27d2306dc4e5ce8f3b39cd03000be8d1dcb8dd42bf50aa3d13269869d5bba9",
+        "job_log_bytes": 920064,
+        "job_log_sha256": "e26440e053789998b0bd49f58543aa2a05681edadf9ceb94b41fd0bd7f5ba268",
+        "selected_result_lines": [
+          "stdout | packages/compiler/test/native-support-migration.test.ts > actual CLI native-support directory migration > retains a filesystem baseline with one byte-identical legacy support instance",
+          " ✓ packages/compiler/test/native-support-migration.test.ts (69 tests | 1 skipped) 7667ms",
+          "   ✓ actual CLI native-support directory migration > retains a filesystem baseline with one byte-identical legacy support instance 3109ms",
+          " ✓ packages/compiler/test/pointer-facts-native.test.ts (65 tests) 20447ms",
+          " ✓ packages/compiler/test/web-component-native-browser.test.ts (29 tests) 2657ms",
+          " Test Files  76 passed (76)",
+          "      Tests  1514 passed | 1 skipped (1515)",
+          "   Duration  250.45s (transform 5.37s, setup 0ms, collect 27.81s, tests 206.03s, environment 5.36s, prepare 3.08s)"
+        ],
+        "toolchain_lines": [
+          "2026-11-15T17:59:18.2481354Z Chromium 156.0.8078.79 built on Debian GNU/Linux 12 (bookworm)",
+          "2026-11-15T17:59:28.0985139Z node: v24.22.1",
+          "2026-11-15T17:59:33.7579777Z Done in 5.1s using pnpm v10.32.1",
+          "2026-11-15T17:59:33.8096964Z pnpm exec vitest run packages/compiler --maxWorkers=1 --minWorkers=1 2>&1 | tee \"$GITHUB_WORKSPACE/.ci/evidence/compiler-vitest.log\""
+        ],
+        "source_inputs": {
+          "pin": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+          "node": "24.22.1",
+          "pnpm": "pnpm@10.32.1",
+          "upstream_lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422"
+        }
+      },
+      "native": {
+        "head": "d6aba9500cacce9d671c6102146ccfc3fc3f8201",
+        "run_id": 43744091245,
+        "job_id": 132903459843,
+        "job_conclusion": "failure",
+        "artifact_id": 14173702138,
+        "artifact_workflow_run": {
+          "id": 43744091245,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "fix/ship-readiness-20261115",
+          "head_sha": "d6aba9500cacce9d671c6102146ccfc3fc3f8201"
+        },
+        "zip_bytes": 8209811,
+        "zip_sha256": "4a9e388d224dca44559cd749af8054baeb25c990d35ca00483bd7f86a5164ef1",
+        "job_log_bytes": 507913,
+        "job_log_sha256": "35f7e9f712eb1cf3f4625f0d340a1d27f9a8d30e26040a05307312e393735725",
+        "partition": {
+          "state": "passed",
+          "checks": 17,
+          "passed": 17,
+          "failed_checks": [],
+          "receipt_bytes": 362758,
+          "receipt_sha256": "7ac224efa0728af4e11b336b9e7aa127ca36c4473d2c0ae8bbcbcb87426b7662",
+          "schema_checks": [
+            "peer-a_archive_is_genuine_schema7",
+            "peer-b_archive_is_genuine_schema7"
+          ],
+          "execution_lines": [
+            "2026-11-15T18:02:51.1576549Z test loop_runner::recovery_tests::obligation_partition_tests::partition_child_relay_store_e ... ok",
+            "2026-11-15T18:02:51.1577084Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.14s",
+            "2026-11-15T18:02:51.4005354Z test loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator ... ok",
+            "2026-11-15T18:02:51.4006286Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.86s"
+          ]
+        },
+        "helpers": {
+          "lost-reply": {
+            "status": "passed",
+            "name": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay",
+            "returncode": 0,
+            "listing": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay: test\n\n1 test, 0 benchmarks\n",
+            "stdout": "\nrunning 1 test\ntest recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 1.66s\n\n",
+            "stderr_bytes": 0,
+            "receipt_sha256": "b21ed07e8a6d08264ce58d68c395f648eaf238837e22bf847c9c14a19c414134",
+            "stdout_sha256": "552ba08a286fb1aa7e76642e0433677da00e0d36cf7e1aa70b10f230a80f3519"
+          },
+          "identity-refusal": {
+            "status": "passed",
+            "name": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper",
+            "returncode": 0,
+            "listing": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper: test\n\n1 test, 0 benchmarks\n",
+            "stdout": "\nrunning 1 test\ntest recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.52s\n\n",
+            "stderr_bytes": 0,
+            "receipt_sha256": "4e95c39f31083bfb2c806687e461ad471ea93a130481d0c415cd31edd2974962",
+            "stdout_sha256": "8350b566278411d3ac4ab8787daad1424234d82c521af70ec4eaa14c5afb0ea6"
+          }
+        },
+        "workspace_failure_summaries": [
+          "2026-11-15T18:02:19.2792214Z test result: FAILED. 33 passed; 18 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.44s"
+        ],
+        "ignored_test_lines": [
+          "2026-11-15T18:02:01.4489823Z test recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay ... ignored, requires fixed no-socket helper/CLI execution approval",
+          "2026-11-15T18:02:01.4491405Z test recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper ... ignored, requires fixed no-socket helper/CLI execution approval"
+        ]
+      },
+      "retained_originals_directory": "/workspace/shenko-final-evidence-d6aba950-20261115",
+      "overall_nightly_conclusion": "failure",
+      "claim_boundary": "Compiler full suite passed under explicit single-worker policy; full Rust workspace stopped at shenko-exec-host with 18 failures. Later partition and helper proofs passed separately. No whole-product or real-service acceptance claim."
+    },
+    "cause": "Two unconditional subject/owner reads in generic external T1 required a Subject runtime for independent trusted executors. The previous run stopped at MCP before reaching this target.",
+    "correction": {
+      "file": "crates/shenko-store/src/external.rs",
+      "sha256": "7f0a3d2a25a40afd658b36fc7432ce8cb72bda1ec27641004c3f476f42e35dbe",
+      "source_commit": "851a60b8853bbbbb5671c1e7f4c2818717ac97f9",
+      "scope": "Remove only the duplicate unconditional subject reads. Preserve native branch/owner checks, bound task ancestry, final durable authority policy, task/invocation/revision/abort/Armed identity and dispatch fencing."
+    },
+    "local_exec_host": {
+      "command": "cargo test --offline --all-features --locked -j1 -p shenko-exec-host --lib -- --nocapture --test-threads=1",
+      "passed": 51,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "duration_seconds": 23.41,
+      "source_commit": "851a60b8853bbbbb5671c1e7f4c2818717ac97f9",
+      "log": "exec-host-unbound-t1-tests.log",
+      "log_sha256": "0e7ad16fbf84c1c2b3f953235a45539ea9d4ed4584eaaa4453d1dd4e65e85ff1",
+      "tests_changed": false
+    },
+    "workspace_diagnostics": "Both existing workspace commands now use --no-fail-fast to execute later targets and doctests while preserving a failing exit status for any failure. Selection, ignores and deadlines are unchanged.",
+    "changed_workflow_sha256": {
+      ".github/workflows/ci.yml": "d06b3cbdb87c7f2201870384f7ba7173f79454ce5dd3f7e8072fb020d2cb940b",
+      ".github/workflows/nightly.yml": "9eea0ccfe156f8b2a01f7e355c88740f11b35fdee65cc142572052dc590e6b77"
+    },
+    "independent_source_review": "Exact four-line removal reviewed against generic T1, native dispatch, bound ancestry and durable-required policy; no concrete remaining defect found in this bounded scope.",
+    "documentation_correction": "The receipt is committed atomically with Store changes. A local in-memory completion flag is set after COMMIT; only unmaterialized actions notify the provider. No Node applied ACK is claimed.",
+    "corrected_hosted_result": "Pending at this checkpoint; actual final candidate results belong to the PR progress comment.",
+    "local_authority_regression": {
+      "source_commit": "851a60b8853bbbbb5671c1e7f4c2818717ac97f9",
+      "command": "cargo test --offline --locked -j1 -p shenko --lib runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners -- --exact --nocapture --test-threads=1",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 39,
+      "duration_seconds": 1.47,
+      "log": "unbound-t1-authority-fences.log",
+      "log_sha256": "a11117523c5ae2b65be94a5aad58f7b440ea8158ad246ab2c82b957fb604cf36",
+      "boundary": "Existing assertions preserve ancestor cancellation, required-policy missing-adapter refusal and late original E1."
+    }
   }
 }

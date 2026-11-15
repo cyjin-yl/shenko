@@ -209,8 +209,9 @@ they have focused process and library evidence in the continuation report.
 
 The Node/Store boundary now has a reservation held across local grant validation
 and Store CAS, plus exact admission keys/read fences in the control log. The
-applied-here record is local, nonreplicated and set only after successful Store
-COMMIT. The real fork path retains a Store parent head, frozen history and
+applied-here receipt is local, nonreplicated and written in the Store transition's
+transaction. The reservation's in-memory completion flag is set only after that
+COMMIT succeeds. The real fork path retains a Store parent head, frozen history and
 uncommitted input selections, creates new branch/task/step identities, and
 repairs Node projection from the Store's own receipt. The runtime adapter and
 owned-consumer reconstruction path are source-wired through `58b30ba`; their
