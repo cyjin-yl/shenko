@@ -23,8 +23,15 @@ async fn wait_definition(native: &NativeChildService, enabled: bool) -> Result<(
     .context("Node change did not update the native definition")
 }
 
-#[tokio::test]
-async fn optional_archive_queries_survive_source_loss_disable_and_restart() -> Result<()> {
+#[test]
+fn optional_archive_queries_survive_source_loss_disable_and_restart() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run_lifecycle())
+}
+
+async fn run_lifecycle() -> Result<()> {
     let root: PathBuf =
         std::env::temp_dir().join(format!("shenko-obelisk-lifecycle-{}", EntityId::new()));
     std::fs::create_dir_all(root.join("sources"))?;

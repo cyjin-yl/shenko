@@ -314,8 +314,14 @@ async fn run_arm(
     Ok(report)
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     let root = std::env::var_os("SHENKO_OBELISK_ACCEPTANCE_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| {

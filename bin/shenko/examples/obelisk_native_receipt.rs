@@ -14,8 +14,14 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 mod support;
 use support::{initialize, runtime, tool};
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     use shenko_types::operation::EffectStatus;
     let executable =
         std::env::var_os("SHENKO_OBELISK_EXECUTABLE").context("real Node executable required")?;
