@@ -248,6 +248,51 @@ impl RequestPlan {
         })
     }
 
+    /// Reconstruct the exact destination from a discovered service base. A signer
+    /// uses this to reject mutated public plan fields before credentials leave.
+    pub fn validate_destination(&self, service_endpoint: &str) -> Result<()> {
+        let mut endpoint = https_url(service_endpoint)?;
+        let id = self.arguments.get("id").and_then(Value::as_str);
+        ensure!(
+            id.is_some() == self.operation.needs_resource_id(),
+            "request resource id mismatch"
+        );
+        match self.transport {
+            Transport::Mcp => ensure!(self.method == "POST", "MCP plan method changed"),
+            Transport::Rest => {
+                ensure!(endpoint.query().is_none(), "REST base has a query");
+                ensure!(
+                    self.method == self.operation.rest_method(),
+                    "UCP plan method changed"
+                );
+                let mut path = endpoint
+                    .path_segments_mut()
+                    .map_err(|()| anyhow::anyhow!("invalid REST endpoint"))?;
+                path.pop_if_empty();
+                for segment in self.operation.rest_path() {
+                    path.push(segment);
+                }
+                if let Some(id) = id {
+                    path.push(id);
+                }
+                if self.operation == Operation::CompleteCheckout {
+                    path.push("complete");
+                }
+                if matches!(
+                    self.operation,
+                    Operation::CancelCart | Operation::CancelCheckout
+                ) {
+                    path.push("cancel");
+                }
+            }
+        }
+        ensure!(
+            self.endpoint == endpoint.as_str(),
+            "UCP plan destination changed"
+        );
+        Ok(())
+    }
+
     /// Exact `tools/call` params for the existing MCP SDK. The SDK owns JSON-RPC
     /// request IDs; the transport signer signs the actual resulting HTTP bytes.
     pub fn mcp_params(&self) -> Value {
