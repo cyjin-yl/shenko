@@ -145,7 +145,7 @@ cursor is described by size/digest instead of filling the result budget.
 
 Searches retain distinct historical versions. Repeated versions of the same
 logical event are not independent corroboration. `freshness=not_revalidated`
-does not mean current; missing CAS bytes differ from no hits. Raw original
+does not mean current; missing CAS bytes differ from no hits.
 Source filtering reports `present_in_scanned_range`, `not_found_in_scanned_range`,
 or `not_archived` only when an initial complete scan establishes absence;
 a later empty page does not erase evidence seen in earlier pages. Raw original

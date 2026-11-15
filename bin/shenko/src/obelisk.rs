@@ -411,8 +411,8 @@ impl HistoryRuntime {
                             None,
                         )
                     }
-                    // Runtime errors are returned only before spawning. Once
-                    // started, even parsing/cleanup failures are observations.
+                    // Runtime errors are returned only before local preparation.
+                    // Preparation, parsing and cleanup failures are observations.
                     Err(error) => (
                         json!({"status":"not_started","error":format!("{error:#}")}),
                         Some(OperationOutcome::Failed),
