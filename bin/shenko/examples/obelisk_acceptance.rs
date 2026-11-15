@@ -2,6 +2,7 @@
 //!
 //! SHENKO_USE_LOCAL_MODEL=1 SHENKO_LOCAL_MODEL_URL=<base URL without /v1>
 //! SHENKO_LOCAL_MODEL=<served model> SHENKO_OBELISK_CONFIG=<compatible config JSON>
+//! SHENKO_OBELISK_ACCEPTANCE_CONTEXT_TOKENS=<verified deployment context limit>
 //! cargo run -p shenko --example obelisk_acceptance
 //!
 //! The config supplies only the independently installed, source-pinned CLI.
@@ -20,7 +21,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko::obelisk::{self, HistoryCommand, ObeliskCommand};
 use shenko_awareness_core::CognitionCatalog;
-use shenko_broker::broker::{Broker, BrokerHandle};
+use shenko_broker::{
+    broker::{Broker, BrokerHandle},
+    request::ProviderCapabilities,
+};
+use shenko_compact_rollover::{NotesRolloverPlugin, RolloverConfig, RolloverHosts};
+use shenko_context_policy::{
+    HistorySource, PolicyRegistry, StoreHistory, StoreNotesJournal, WindowEntry, estimate_tokens,
+};
 use shenko_exec_host::{
     Condition, HistoryHandler, JudgeReceiptIdentity, JudgeVerdict, PreparedSandbox,
     SandboxJudgeContext, SandboxJudgement, SandboxRuntime, judge_sandbox_output,
@@ -30,7 +38,7 @@ use shenko_exec_host::{
 use shenko_kernel::{Supervisor, task::NativeTaskHandler};
 use shenko_node::Node;
 use shenko_store::Store;
-use shenko_subject::NativeTaskHandlerPlugin;
+use shenko_subject::{NativeTaskHandlerPlugin, SubjectLoopState, input_model_caps};
 use shenko_types::{
     ids::EntityId,
     object::{Digest, ObjectRef},
@@ -121,6 +129,7 @@ fn write_codex_corpus(root: &Path, corpus: &[Message]) -> Result<Vec<Value>> {
 struct Runtime {
     node: Arc<Mutex<Node>>,
     candidate: bool,
+    capabilities: ProviderCapabilities,
 }
 
 impl SandboxRuntime for Runtime {
@@ -146,6 +155,73 @@ impl SandboxRuntime for Runtime {
         }
         Ok(())
     }
+
+    async fn prepare_subject(
+        &self,
+        supervisor: &Supervisor,
+        sandbox: &PreparedSandbox,
+        state: SubjectLoopState,
+    ) -> Result<SubjectLoopState> {
+        let state = state.with_model_capabilities(Some(self.capabilities.clone()));
+        let profile = state.bind_context_profile()?;
+        let registry = supervisor
+            .context()
+            .try_service::<PolicyRegistry>()
+            .map_err(|error| anyhow::anyhow!("context policy: {error}"))?;
+        if !self.candidate {
+            // Preserve the corpus in this branch for the real history reader,
+            // but begin after a normal window rollover, with no answer summary.
+            // Binding first prevents the first S0 from restoring a full-raw root.
+            let scope = EntityId(state.head.branch_id.0);
+            let history =
+                StoreHistory::new(sandbox.store().clone(), scope, Arc::new(estimate_tokens));
+            let caps = input_model_caps(&self.capabilities, u32::try_from(state.max_tokens)?)
+                .context(
+                    "deployment context must leave room after the subject output reservation",
+                )?;
+            ensure!(caps.max_context > 0, "no input budget remains");
+            let fiber = supervisor
+                .spawn(
+                    NotesRolloverPlugin,
+                    RolloverHosts {
+                        config: RolloverConfig {
+                            retain_units: 0,
+                            ..RolloverConfig::default()
+                        },
+                        notes: Arc::new(StoreNotesJournal::new(sandbox.store().clone(), scope)),
+                        registry: registry.clone(),
+                    },
+                )
+                .await?;
+            let leaf = history.leaf_seq()?.context("baseline corpus is empty")?;
+            let raw = history.read_range(0, leaf)?;
+            let (window, _) =
+                registry.prepare(&history, &caps, raw.iter().map(|item| item.tokens).sum())?;
+            let committed = registry.commit(window, &history)?;
+            ensure!(
+                committed
+                    .entries
+                    .iter()
+                    .all(|entry| matches!(entry, WindowEntry::Pointer { .. }))
+                    && !committed.entries.is_empty(),
+                "baseline corpus leaked into the starting window"
+            );
+            ensure!(
+                history.read_range(0, leaf)? == raw,
+                "window preparation changed raw history"
+            );
+            supervisor.uninstall(&fiber).await?;
+        }
+        write_json(
+            &sandbox.installation().join("starting-context.json"),
+            &json!({
+                "profile_digest":profile, "capabilities":self.capabilities,
+                "context_limit_basis":"explicit verified deployment input, not inferred from model name",
+                "window":registry.ledger().current()?,
+            }),
+        )?;
+        Ok(state)
+    }
 }
 
 async fn run_arm(
@@ -155,6 +231,7 @@ async fn run_arm(
     configuration: &Path,
     corpus: &[Message],
     deadline_ms: u64,
+    context_tokens: u32,
 ) -> Result<Value> {
     let name = if candidate { "candidate" } else { "baseline" };
     let prepared = PreparedSandbox::fresh(name, root)?;
@@ -219,6 +296,7 @@ async fn run_arm(
         &json!({"scenario":SCENARIO,
         "corpus_digest":Digest::blake3(CORPUS), "message":MESSAGE, "model":handle.binding().model(),
         "deadline_ms":deadline_ms, "evaluation_scope":"bounded_production_smoke",
+        "context_tokens":context_tokens, "context_limit_basis":"explicit verified deployment input",
         "sampling":"unchanged production defaults; exact payloads remain in request receipts"}),
         "configuration",
     )?;
@@ -237,7 +315,15 @@ async fn run_arm(
         catalog,
         MESSAGE,
         stop,
-        &Runtime { node, candidate },
+        &Runtime {
+            node,
+            candidate,
+            capabilities: ProviderCapabilities {
+                binding: handle.binding().clone(),
+                max_context_tokens: Some(context_tokens),
+                vision: None,
+            },
+        },
     )
     .await?;
     let mut retrievals = Vec::new();
@@ -333,6 +419,7 @@ async fn run() -> Result<()> {
         "SHENKO_LOCAL_MODEL_URL",
         "SHENKO_LOCAL_MODEL",
         "SHENKO_OBELISK_CONFIG",
+        "SHENKO_OBELISK_ACCEPTANCE_CONTEXT_TOKENS",
     ];
     let missing: Vec<_> = required
         .into_iter()
@@ -379,6 +466,13 @@ async fn run() -> Result<()> {
         (30_000..=900_000).contains(&deadline_ms),
         "arm deadline must be 30..=900 seconds"
     );
+    let context_tokens = std::env::var("SHENKO_OBELISK_ACCEPTANCE_CONTEXT_TOKENS")?
+        .parse::<u32>()
+        .context("deployment context tokens must be a positive integer")?;
+    ensure!(
+        context_tokens > 8192,
+        "deployment context must exceed the judge output reservation"
+    );
     let (broker, handle) = Broker::new()?;
     let broker_task = tokio::spawn(broker.run());
     let mut arms = Vec::new();
@@ -390,6 +484,7 @@ async fn run() -> Result<()> {
             &configuration,
             &corpus,
             deadline_ms,
+            context_tokens,
         )
         .await
         {
