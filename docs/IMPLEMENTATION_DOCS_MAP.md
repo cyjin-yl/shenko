@@ -196,6 +196,10 @@
   - [§20](specs/media.md#spec-20)
   - docs/specs/media.md
 
+- **OXR 文档解析（`document.parse/v1`）** — 已配置时接线（`bin/shenko/src/document_runtime.rs` 在绑定实际 endpoint、model、account 与凭据后注册 native handler；使用现有 Task/Operation/Attempt/CAS/E1 记录一次原始上传、异步任务句柄、原始等待期限与页结果，恢复只对账原尝试。未配置时不注册；本地协议与恢复测试不等于真实 OXR 引擎验收）
+  - [§20](specs/media.md#spec-20)
+  - docs/evidence/document-parse-recovery-20261115.md
+
 - **Web UI（shenko-ui：时间线、ws、api、playground）** — 已接线
   - [§21](specs/web-interface.md#spec-21)、[§43](specs/configuration-playground.md#spec-43)
   - docs/specs/web-interface.md
@@ -215,9 +219,10 @@
   - [§22](specs/nodes.md#spec-22)、[§44](specs/plugins.md#spec-44)
   - docs/specs/nodes.md
 
-- **选举、quorum、fencing** — 已接线（`shenko-node/election.rs` 保留任期、成员配置、投票及主节点证明；`node_sync::establish_primary` 在启动时获取主节点 fence，无法获得 quorum 时进入显式 availability branch。控制接口的证明不等于完整运行时自动失效检测与跨物理节点容灾已验收）
+- **选举、quorum、fencing** — 部分已接线（`shenko-node/election.rs` 保留任期、成员配置、投票及主节点证明；当前 fence 由同一快照核验任期、配置和证明，成员变更绑定当前 leader 与原配置。`node_sync::establish_primary` 在启动时获取 fence，无 quorum 时记录 availability branch 元数据；该元数据尚未自动绑定实际 Store 主体分支。控制日志条目的 quorum 持久化、Node 权限与 Store S1/效果提交的原子桥接，以及运行中的自动失效检测仍未闭合）
   - [§22](specs/nodes.md#spec-22)
   - docs/specs/nodes.md
+  - docs/evidence/node-authority-20261115.md
 
 - **跨节点认知复制（store/cognition.rs）** — 已接线（经 `shenko sync` 导出/接收/确认）
   - [§10.6](specs/durable-state.md#spec-10-6)
