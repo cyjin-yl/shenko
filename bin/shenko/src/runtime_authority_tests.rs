@@ -285,5 +285,32 @@ fn chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown()
     assert!(store.claim_native_task(new_task.task_id, new_task.implementation_ref, false)?.is_some());
     assert!(!runtime.recover_before_consumers()?);
     assert_eq!(store.load_subject(agent)?.0.branch_id, head.branch_id);
+
+    // Learning another term ends this branch's opening authority. A new
+    // singleton election can select the same actual branch, but fresh work
+    // must then enter the quorum log instead of reusing its historical mode.
+    let mut node = crate::node_sync::open_node(&fixture.0, &store)?;
+    let admissions_before = node.committed_admissions(0)?.len();
+    node.campaign()?;
+    let revoked = runtime.acquire(None)?;
+    assert!(revoked.stamp().is_none());
+    drop(revoked);
+    assert!(runtime.recovery_required().is_some());
+    let successor = fixture.open()?;
+    let _global = self::runtime(&fixture.0, &successor)?;
+    let selected = crate::node_sync::open_node(&fixture.0, &successor)?.reserve_authority()?;
+    assert!(!selected.snapshot().is_current_availability());
+    assert_eq!(selected.snapshot().identity.branch_id.0, head.branch_id.0);
+    drop(selected);
+    assert_eq!(successor.load_subject(agent)?.0.branch_id, head.branch_id);
+    let (connected_task, event) = pending(&successor, agent, None)?;
+    successor.admit_native_task(&connected_task, &event)?;
+    let admissions = crate::node_sync::open_node(&fixture.0, &successor)?.committed_admissions(0)?;
+    assert_eq!(admissions.len(), admissions_before + 1);
+    let connected_grant = admissions.iter().find(|grant|
+        grant.admission.conflict_key == format!("task/{}/create", connected_task.task_id))
+        .context("connected admission missing from its actual quorum log")?;
+    assert_eq!(connected_grant.admission.branch_id, head.branch_id);
+    assert!(successor.control_admission_applied_here(&connected_grant.admission)?);
     Ok(())
 }
