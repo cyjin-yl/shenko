@@ -19,9 +19,9 @@ Contract: [external history](../specs/external-history.md).
 
 These items are one coherent optional-plugin increment. They do not depend on
 merging unrelated open PRs #298 or #299 and do not spend separate test quotas
-per commit or agent. The initial new-test budget is seven independent
-scenarios: three archive, two upstream runtime, one lifecycle and one opt-in
-model scenario.
+per commit or agent. The new-test budget is eight independent scenarios:
+three archive, two upstream runtime, two native lifecycle/receipt scenarios
+and one opt-in model scenario.
 
 ## Reproduce the mechanism checks
 

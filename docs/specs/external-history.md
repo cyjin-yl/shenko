@@ -97,11 +97,12 @@ two events; byte deduplication never asserts event equality. Old versions and
 their source metadata remain visible. Source timestamps order observations
 only when meaningful; no wall-clock last-writer-wins truth rule is applied.
 
-The archive uses the existing `raw_sessions`/`raw_session_events` fact classes
+The archive uses the existing `raw_sessions`/`session_events` fact classes
 and CAS. The Store atomically admits a complete session snapshot, checks
 immutable replays and object tombstones, and records deterministic unknown
-event creation time where the source has none. The import's real observation
-time belongs to its E1 receipt. This avoids a fabricated conflict when two
+imported-row creation time. Source timestamps remain in the record metadata
+and original bytes; the import's real observation time belongs to its E1
+receipt. This avoids a fabricated conflict when two
 nodes independently capture identical source facts.
 
 Projection keys such as role, native ID, timestamp, parent, branch and tool
@@ -121,6 +122,7 @@ object. All source lookups are restricted to that task's subject archive.
 | `search` | `query`, `source?`, `cursor?`, `limit?` | Literal full-text search, including CJK and content beyond upstream text prefixes. Match-centered bounded previews retain source digest, record and byte span; scan budgets return a continuation even for an empty page. |
 | `read` | `event_id`, `offset_chars?`, `limit_chars?`, `include_retired?` | An authenticated record projection page; defaults to 4096 Unicode scalar values, maximum 16384. Original source bytes remain available separately. |
 | `original` | `archive_session_id`, `offset?`, `limit?`, `include_retired?` | Base64 byte page with authenticated chunk hashes, original digest, total size and next offset; native page maximum 65536 bytes. |
+| `artifact` | `digest`, `offset?`, `limit?` | Bounded authenticated read of a small receipt or an outlined observation manifest; maximum 128 KiB. Uses this plugin's own task lifetime, independently of MCP installation. |
 | `archive` | `source`, `file`, `max_bytes?` | Complete selected file version, subject to configured provider roots and matching source instance. Returns source version and full raw CAS reference. |
 | `obelisk` | `request` | Explicit independent CLI execution: `manifest`, `sessions`, `search`, `messages`, `raw_page` or composable `script`. Upstream hit coverage and local source availability remain separate from archival completeness. |
 
@@ -144,6 +146,9 @@ cursor is described by size/digest instead of filling the result budget.
 Searches retain distinct historical versions. Repeated versions of the same
 logical event are not independent corroboration. `freshness=not_revalidated`
 does not mean current; missing CAS bytes differ from no hits. Raw original
+Source filtering reports `present_in_scanned_range`, `not_found_in_scanned_range`,
+or `not_archived` only when an initial complete scan establishes absence;
+a later empty page does not erase evidence seen in earlier pages. Raw original
 offsets are **bytes**, record projection offsets are **Unicode scalar values**,
 and upstream `raw_page` offsets are **UTF-16 code units**.
 
@@ -163,8 +168,11 @@ process groups cannot attest that a deliberately detached descendant or an
 already issued external effect stopped. Custom JavaScript has host authority;
 Node's `vm` and read-only SQL helpers are not a security sandbox.
 
-An observed successful query completes the query operation, not a research
-claim. A missing, cancelled, malformed or lost process outcome remains
+An observed successful standard query completes the query operation, not a
+research claim. A custom script's result is retained while its unverified
+host effects remain unknown even after a successful exit. Index preparation
+is recorded separately, so failure before spawn does not falsely imply zero
+local writes. A missing, cancelled, malformed or lost process outcome remains
 unknown when effects may have occurred. Recovery reads the original attempt
 and E1 without executing the CLI again. Re-enabling or restarting does not
 invent another attempt for a completed task. Generic distributed authority

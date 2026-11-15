@@ -159,6 +159,11 @@ async fn run_arm(
     let name = if candidate { "candidate" } else { "baseline" };
     let prepared = PreparedSandbox::fresh(name, root)?;
     let installation = prepared.installation().to_path_buf();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&installation, std::fs::Permissions::from_mode(0o700))?;
+    }
     let store = prepared.store().clone();
     let mut source_facts = Vec::new();
     if candidate {
@@ -393,16 +398,17 @@ async fn same_corpus_history_research_through_real_model_and_cli() -> Result<()>
         }
     }
     let shutdown = handle.quiesce_for_handoff().await;
-    write_json(
+    let shutdown_artifact = write_json(
         &root.join("broker-shutdown.json"),
         &match &shutdown {
             Ok(snapshot) => snapshot.clone(),
             Err(error) => json!({"error":format!("{error:#}"), "remote_termination_claimed":false}),
         },
-    )?;
+    );
     broker_task.abort();
     let joined = broker_task.await;
     let cleanup_ok = shutdown.is_ok()
+        && shutdown_artifact.is_ok()
         && match joined {
             Ok(_) => true,
             Err(error) => error.is_cancelled(),
@@ -419,6 +425,7 @@ async fn same_corpus_history_research_through_real_model_and_cli() -> Result<()>
         "status":if passed { "passed_smoke" } else { "inconclusive_or_failed" },
         "scenario":SCENARIO, "planned_arms":2, "complete":complete,
         "cleanup_ok":cleanup_ok, "corpus_digest":Digest::blake3(CORPUS),
+        "shutdown_artifact_error":shutdown_artifact.err().map(|error| format!("{error:#}")),
         "evaluation_scope":"one bounded production-path comparison; no efficacy or token-saving claim",
         "arms":arms}),
     )?;

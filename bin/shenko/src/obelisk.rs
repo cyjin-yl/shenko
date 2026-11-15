@@ -96,6 +96,13 @@ pub enum HistoryQuery {
         #[serde(default = "page_limit")]
         limit: usize,
     },
+    Artifact {
+        digest: Digest,
+        #[serde(default)]
+        offset: u64,
+        #[serde(default)]
+        limit: u64,
+    },
     Obelisk {
         request: ObeliskQuery,
     },
@@ -178,6 +185,16 @@ fn prepare_query(query: &mut HistoryQuery, config: Option<&ObeliskConfig>) -> Re
             (1..=16384).contains(limit_chars),
             "record page must be 1..=16384 characters"
         ),
+        HistoryQuery::Artifact { digest, limit, .. } => {
+            ensure!(
+                digest.canonical_blake3_hex().is_some(),
+                "invalid artifact digest"
+            );
+            ensure!(
+                *limit <= shenko_compat::artifact::MAX_RANGE_BYTES,
+                "artifact page exceeds 128 KiB"
+            );
+        }
     }
     Ok(())
 }
@@ -263,6 +280,18 @@ fn local_query(store: &Store, agent_id: EntityId, query: HistoryQuery) -> Result
             after_session,
             limit,
         )?)?,
+        HistoryQuery::Artifact {
+            digest,
+            offset,
+            limit,
+        } => shenko_compat::artifact::read_artifact(
+            store,
+            &shenko_compat::artifact::ArtifactReadInput {
+                digest,
+                offset,
+                limit,
+            },
+        )?,
         HistoryQuery::Obelisk { .. } => {
             anyhow::bail!("external execution requires its async process owner")
         }
@@ -324,12 +353,13 @@ impl HistoryRuntime {
                 .abort_request
                 .is_some()
         {
-            return call.observe(
+            return call.observe_with_reader(
                 &self.store,
                 json!({"status":"cancelled_before_dispatch"}),
                 Some(OperationOutcome::Cancelled),
                 EffectStatus::None,
                 None,
+                artifact_reader(),
             );
         }
         let (value, outcome, effect, level) = match query {
@@ -352,7 +382,9 @@ impl HistoryRuntime {
                 };
                 match result {
                     Ok(observation) => {
-                        let (outcome, effect) = if !observation.process.started {
+                        let (outcome, effect) = if !observation.process.started
+                            && !observation.process.index_preparation_started
+                        {
                             (
                                 Some(if observation.status == ObeliskRunStatus::Cancelled {
                                     OperationOutcome::Cancelled
@@ -361,18 +393,19 @@ impl HistoryRuntime {
                                 }),
                                 EffectStatus::None,
                             )
-                        } else if observation.status == ObeliskRunStatus::Succeeded {
-                            (Some(OperationOutcome::Succeeded), EffectStatus::Complete)
-                        } else if observation.status == ObeliskRunStatus::Failed
+                        } else if observation.status == ObeliskRunStatus::Succeeded
+                            && !observation.process.custom_script_host_authority
                             && observation.process.reaped
                             && observation.process.readers_joined
+                            && observation.process.readers_drained
+                            && !observation.process.termination_requested
                         {
-                            (Some(OperationOutcome::Failed), EffectStatus::Complete)
+                            (Some(OperationOutcome::Succeeded), EffectStatus::Complete)
                         } else {
                             (None, EffectStatus::Unknown)
                         };
                         (
-                            json!({"result":observation,"effect_scope":"observed_cli_execution","host_side_effects_independently_verified":false}),
+                            json!({"result":observation,"effect_scope":"configured_query_and_observed_local_preparation","host_side_effects_independently_verified":false}),
                             outcome,
                             effect,
                             None,
@@ -428,8 +461,19 @@ impl HistoryRuntime {
                 }
             }
         };
-        call.observe(&self.store, value, outcome, effect, level)
+        call.observe_with_reader(
+            &self.store,
+            value,
+            outcome,
+            effect,
+            level,
+            artifact_reader(),
+        )
     }
+}
+
+fn artifact_reader() -> Value {
+    json!({"handler":TASK_KIND,"input":{"op":"artifact","digest":"use source_receipt digest","offset":0,"limit":65536}})
 }
 
 fn descriptor() -> NativeTaskDescriptor {
@@ -550,9 +594,7 @@ impl Plugin for Generation {
         .map_err(std::io::Error::other)?;
         let handler: Arc<dyn NativeTaskHandler> = Arc::new(Handler(runtime));
         NativeTaskHandlerPlugin.apply(ctx.clone(), &handler).await?;
-        shenko_compat::artifact::ArtifactReadPlugin
-            .apply(ctx, &config.0)
-            .await
+        Ok(())
     }
 }
 
