@@ -239,6 +239,14 @@ Store all-targets/all-features Clippy at worker source `d896241` exited zero, wi
 
 A fresh pre-push branch-ref check found that main had merged [Obelisk PR #301](https://github.com/cyjin-yl/shenko/pull/301) as `bfc3d04de445968dcaed3f40cb8a937da437f61e`, while the PR snapshot still showed the older base. Publication stopped before pushing the staged candidate `5c79ae0`. The new main is integrated with both histories retained. The single textual conflict only added module declarations: `runtime_branches`, `runtime_authority` and upstream `obelisk` all remain. Upstream source/evidence remains its authors' contribution; raw evidence bytes were not normalized or relabeled. The final six CI and two Nightly jobs must execute the merged candidate, with the new main as the independent event baseline.
 
+## Merged Obelisk fixture compile failure and correction
+
+Published merge candidate `45cb2b7c526fdc2f58290fa5508a76aaaa96a619` preserved the new main `bfc3d04`. [CI 43749212303](https://github.com/cyjin-yl/shenko/actions/runs/43749212303) finished with **four successful jobs and two failures**. Rust all-targets checking and Clippy candidate all-targets compilation both found `E0063` in the newly merged `bin/shenko/tests/support/history_runtime.rs:40`: its root `SubjectBranchHead` literal omitted the new `branch_origin` field. Workspace tests and doctests did not execute. Clippy compiled the two baseline scopes and candidate production successfully, but never wrote `ratchet.json`; absence of that report is not a successful ratchet.
+
+[Nightly 43749249460](https://github.com/cyjin-yl/shenko/actions/runs/43749249460) also failed before workspace test execution on the same compiler error. Its separate compiler job succeeded with **76/76 files, 1514 passed, zero failed, one existing skip** in **222.85 s**; the original timeout case took **1917/5000 ms**. Later partition and helper proofs actually executed separately and passed; they do not establish workspace completion. The continuation JSON retains the exact artifact IDs, hashes and original failed result.
+
+Correction `3936e16d37bebd78404376412041ba91dd4954d6` adds only `branch_origin: None` to this existing genesis fixture; it has no fork origin. Production behavior and all assertions are unchanged. The existing `obelisk_lifecycle` suite then executed **1 passed / 0 failed / 0 ignored / 0 filtered**, **0.57 s**, at that exact source, covering source loss, plugin disable and restart. Log SHA256: `fb877662d6449966b442abdd71298c97a4554acc04833dfa22d2a90b845dae18`. This corrects the merge integration gap, while the next published candidate still requires every full gate.
+
 ## Publication and final evidence
 
 The corrected source must execute all six CI jobs and both explicit Nightly

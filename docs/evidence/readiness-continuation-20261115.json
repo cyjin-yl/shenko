@@ -683,5 +683,489 @@
       },
       "diff_check": "passed against current main; upstream raw evidence retained byte-for-byte"
     }
+  },
+  "merged_fixture_followup": {
+    "failed_candidate": "45cb2b7c526fdc2f58290fa5508a76aaaa96a619",
+    "ci": {
+      "run": {
+        "id": 43749212303,
+        "url": "https://github.com/cyjin-yl/shenko/actions/runs/43749212303",
+        "event": "pull_request",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": "2026-11-15T18:52:40Z",
+        "updated_at": "2026-11-15T18:57:13Z"
+      },
+      "identity": {
+        "head_sha": "45cb2b7c526fdc2f58290fa5508a76aaaa96a619",
+        "head_tree": "eb699ab0038117bb1c3909370f9a3d8eccec6f6e",
+        "event_base_sha": "bfc3d04de445968dcaed3f40cb8a937da437f61e",
+        "checkout_sha": "6fba5aa72d1cee71f1526fb9c193f52ad0d0cfea",
+        "checkout_tree": "eb699ab0038117bb1c3909370f9a3d8eccec6f6e",
+        "checkout_parents": [
+          "bfc3d04de445968dcaed3f40cb8a937da437f61e",
+          "45cb2b7c526fdc2f58290fa5508a76aaaa96a619"
+        ],
+        "head_and_checkout_trees_identical": true,
+        "checkout_source": "Actual actions/checkout log in completed kernel/docs/docs-migration/Rust jobs; GitHub git/commits endpoint verifies the merge tree."
+      },
+      "summary": {
+        "job_count": 6,
+        "success": 4,
+        "failure": 2,
+        "cancelled": 0,
+        "skipped": 0,
+        "fully_passed": false
+      },
+      "rust": {
+        "check_command": "cargo check --workspace --all-targets --locked -j2",
+        "check_conclusion": "failure",
+        "check_exit_code": 101,
+        "test_command": "cargo test --workspace --locked --no-fail-fast -j2",
+        "test_conclusion": "skipped",
+        "executed_workspace_test_targets": 0,
+        "executed_doctest_targets": 0,
+        "test_result_counts": null,
+        "failure": {
+          "kind": "compile_error",
+          "code": "E0063",
+          "package": "shenko",
+          "target": "test obelisk_lifecycle",
+          "file": "bin/shenko/tests/support/history_runtime.rs",
+          "line": 40,
+          "column": 16,
+          "message": "missing field `branch_origin` in initializer of `shenko_types::SubjectBranchHead`",
+          "classification": "Merge integration mismatch: upstream Obelisk genesis fixture literal predates PR299's optional branch_origin field.",
+          "smallest_fix": "Set branch_origin: None for this existing genesis fixture; preserve production code and assertions."
+        },
+        "prior_ssh_store_subject_targets": "Not executed in this CI run because the preceding all-targets check failed.",
+        "upstream_obelisk_tests": "Not executed in this CI run; compilation of the lifecycle target exposed the missing field."
+      },
+      "clippy": {
+        "artifact_id": 14175313993,
+        "event_baseline": "bfc3d04de445968dcaed3f40cb8a937da437f61e",
+        "candidate_checkout": "6fba5aa72d1cee71f1526fb9c193f52ad0d0cfea",
+        "baseline_updated": false,
+        "ratchet_json_present": false,
+        "ratchet_errors": null,
+        "ratchet_verdict": "not_completed",
+        "reason": "Candidate all-targets compilation failed with E0063 before ratchet.json could be written. Absence of a report is not errors=[].",
+        "streams": [
+          {
+            "name": "base-production",
+            "build_success": true,
+            "compiler_error_count": 0
+          },
+          {
+            "name": "base-all-targets",
+            "build_success": true,
+            "compiler_error_count": 0
+          },
+          {
+            "name": "candidate-production",
+            "build_success": true,
+            "compiler_error_count": 0
+          },
+          {
+            "name": "candidate-all-targets",
+            "build_success": false,
+            "compiler_error_count": 1,
+            "errors": [
+              {
+                "code": "E0063",
+                "file": "bin/shenko/tests/support/history_runtime.rs",
+                "line": 40,
+                "message": "missing field `branch_origin` in initializer of `shenko_types::SubjectBranchHead`"
+              }
+            ]
+          }
+        ],
+        "toolchain": "1.98.1",
+        "compiler_unavailable_warning_lints": [
+          "tail-call-track-caller"
+        ],
+        "full_log": {
+          "location": "Box:/workspace/shenko-final-evidence-45cb2b7-20261115/clippy-job.log",
+          "bytes": 10817175,
+          "sha256": "a24ab00ff6418520834d207ab2db2f0ca2fab41d1ad32ecfeff0bf0cecfdd281"
+        },
+        "connector_log_error": "github_fetch_workflow_job_logs returned Transport closed; read-only authenticated gh api fetched the actual full job log."
+      },
+      "ancillary": {
+        "kernel_boundary": {
+          "errors": [],
+          "baseline_updated": false,
+          "trusted_baseline_commit": "bfc3d04de445968dcaed3f40cb8a937da437f61e"
+        },
+        "docs": {
+          "errors": []
+        },
+        "docs_migration": {
+          "errors": []
+        },
+        "web": {
+          "independent_payload_and_provenance_match": true,
+          "upstream_pin": "7521cd501f454b4e013ec6e9656fb4b6e4951514"
+        }
+      },
+      "artifacts": [
+        {
+          "id": 14175471939,
+          "name": "web-rebuild-evidence",
+          "size_in_bytes": 1278043,
+          "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14175471939",
+          "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14175471939/zip",
+          "expired": false,
+          "created_at": "2026-11-15T18:54:16Z",
+          "expires_at": "2027-02-13T18:52:41Z",
+          "updated_at": "2026-11-15T18:54:16Z",
+          "digest": "sha256:01d3f53be89a5f3f82fc20321b4f40e26ef27545c03c20a8715395cf08480604",
+          "workflow_run": {
+            "id": 43749212303,
+            "repository_id": 1430340138,
+            "head_repository_id": 1430340138,
+            "head_branch": "fix/ship-readiness-20261115",
+            "head_sha": "45cb2b7c526fdc2f58290fa5508a76aaaa96a619"
+          },
+          "sha256": "01d3f53be89a5f3f82fc20321b4f40e26ef27545c03c20a8715395cf08480604",
+          "local_path": "/workspace/scratch/4de31219f954/evidence/continuation/ci-45cb2b7-web.zip",
+          "downloaded": true,
+          "digest_verified": true
+        },
+        {
+          "id": 14175313993,
+          "name": "clippy-ratchet-evidence",
+          "size_in_bytes": 1937649,
+          "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14175313993",
+          "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14175313993/zip",
+          "expired": false,
+          "created_at": "2026-11-15T18:57:09Z",
+          "expires_at": "2027-02-13T18:52:41Z",
+          "updated_at": "2026-11-15T18:57:09Z",
+          "digest": "sha256:8daecda7f342f6ce740494959d47c1ba818eba7811a62fe73fdc5d81c60d57e5",
+          "workflow_run": {
+            "id": 43749212303,
+            "repository_id": 1430340138,
+            "head_repository_id": 1430340138,
+            "head_branch": "fix/ship-readiness-20261115",
+            "head_sha": "45cb2b7c526fdc2f58290fa5508a76aaaa96a619"
+          },
+          "sha256": "8daecda7f342f6ce740494959d47c1ba818eba7811a62fe73fdc5d81c60d57e5",
+          "local_path": "/workspace/scratch/4de31219f954/evidence/continuation/ci-45cb2b7-clippy.zip",
+          "downloaded": true,
+          "digest_verified": true
+        },
+        {
+          "id": 14175049535,
+          "name": "kernel-boundary-evidence",
+          "size_in_bytes": 231,
+          "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14175049535",
+          "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14175049535/zip",
+          "expired": false,
+          "created_at": "2026-11-15T18:53:12Z",
+          "expires_at": "2027-02-13T18:52:41Z",
+          "updated_at": "2026-11-15T18:53:12Z",
+          "digest": "sha256:c025466cf1ff3c1c850ebef8666be7fb63d7a655e49043ce90fa0b24f4a611b3",
+          "workflow_run": {
+            "id": 43749212303,
+            "repository_id": 1430340138,
+            "head_repository_id": 1430340138,
+            "head_branch": "fix/ship-readiness-20261115",
+            "head_sha": "45cb2b7c526fdc2f58290fa5508a76aaaa96a619"
+          },
+          "sha256": "c025466cf1ff3c1c850ebef8666be7fb63d7a655e49043ce90fa0b24f4a611b3",
+          "local_path": "/workspace/scratch/4de31219f954/evidence/continuation/ci-45cb2b7-kernel-boundary.zip",
+          "downloaded": true,
+          "digest_verified": true
+        }
+      ],
+      "claim_boundary": "This snapshot describes only CI run43749212303 at head45cb2b7. Four ancillary jobs passed; Rust and Clippy failed on the same merged fixture compile error. Workspace tests and doctests were skipped and no ratchet verdict exists. Later fixes/local tests do not retroactively change this result."
+    },
+    "ci_summary_sha256": "c555db531b635203f7db4e7c4ba12ba7fe57d63cca428f9d12827d2ad238fcc4",
+    "nightly": {
+      "run": "https://github.com/cyjin-yl/shenko/actions/runs/43749249460",
+      "conclusion": "failure",
+      "compiler": {
+        "job_id": 132919304219,
+        "job_conclusion": "success",
+        "artifact_id": 14176090217,
+        "zip_sha256": "5691b08109529eb6a7c6ce0c45fe34b6c5b60f2b004f16453f1db2eab604b246",
+        "compiler_log_sha256": "c10d3bc510a9525b8a966d27e0d6e917276600c7c7fac5e38dfbaf567e2203d5",
+        "counts": {
+          "files_passed": 76,
+          "files_failed": 0,
+          "files_total": 76,
+          "tests_passed": 1514,
+          "tests_failed": 0,
+          "tests_skipped": 1,
+          "tests_total": 1515
+        },
+        "duration_seconds": 222.85,
+        "migration_baseline_ms": 1917,
+        "unchanged_test_deadline_ms": 5000
+      },
+      "native": {
+        "job_id": 132919304013,
+        "job_conclusion": "failure",
+        "artifact_id": 14176050888,
+        "zip_sha256": "72218993dab39fb344c1d9d651309778d5e11c72e660ef1ca1b9f9d654f8a378",
+        "job_log_sha256": "87abb8225bacc4a5f8a4cf8b72a882da17ce6271e0343f0c6c0025b9bec19376",
+        "workspace": {
+          "command": "cargo test --workspace --all-features --locked --no-fail-fast -j2",
+          "outcome": "compile_failure_before_test_execution",
+          "exit_code": 101,
+          "error_code": "E0063",
+          "target": "shenko test obelisk_lifecycle",
+          "location": "bin/shenko/tests/support/history_runtime.rs:40:16",
+          "error": "missing field branch_origin in initializer of shenko_types::SubjectBranchHead",
+          "test_result_lines_before_failure": [],
+          "tests_executed": false,
+          "doctests_executed": false,
+          "failure_excerpt": [
+            "2026-11-15T18:55:19.1739777Z warning: `shenko` (lib test) generated 8 warnings (5 duplicates) (run `cargo fix --lib -p shenko --tests` to apply 2 suggestions)",
+            "2026-11-15T18:55:19.3510729Z error[E0063]: missing field `branch_origin` in initializer of `shenko_types::SubjectBranchHead`",
+            "2026-11-15T18:55:19.3511732Z   --> bin/shenko/tests/support/history_runtime.rs:40:16",
+            "2026-11-15T18:55:19.3512560Z    |",
+            "2026-11-15T18:55:19.3513022Z 40 |     let head = SubjectBranchHead {",
+            "2026-11-15T18:55:19.3513772Z    |                ^^^^^^^^^^^^^^^^^ missing `branch_origin`",
+            "2026-11-15T18:55:19.3514191Z ",
+            "2026-11-15T18:55:19.3807284Z For more information about this error, try `rustc --explain E0063`.",
+            "2026-11-15T18:55:19.3881102Z error: could not compile `shenko` (test \"obelisk_lifecycle\") due to 1 previous error",
+            "2026-11-15T18:55:19.3881985Z warning: build failed, waiting for other jobs to finish...",
+            "2026-11-15T18:55:19.9687466Z ##[error]Process completed with exit code 101."
+          ],
+          "claim_boundary": "The workspace command failed during compilation. Later proof jobs execute selected tests separately; they do not establish whole-workspace completion."
+        },
+        "partition": {
+          "state": "passed",
+          "check_count": 17,
+          "passed_count": 17,
+          "failed_checks": [],
+          "checks": [
+            {
+              "check": "fresh_root",
+              "passed": true
+            },
+            {
+              "check": "origin_commits_one_open_obligation",
+              "passed": true
+            },
+            {
+              "check": "peers_fork_one_origin",
+              "passed": true
+            },
+            {
+              "check": "peer_a_settles_completed",
+              "passed": true
+            },
+            {
+              "check": "peer_b_settles_cancelled",
+              "passed": true
+            },
+            {
+              "check": "settlements_overlap_in_process_lifetimes",
+              "passed": true
+            },
+            {
+              "check": "peers_compete_on_one_obligation",
+              "passed": true
+            },
+            {
+              "check": "peer-a_archive_is_genuine_schema7",
+              "passed": true
+            },
+            {
+              "check": "peer-b_archive_is_genuine_schema7",
+              "passed": true
+            },
+            {
+              "check": "competing_settlement_refused_as_one_unit",
+              "passed": true
+            },
+            {
+              "check": "refusal_publishes_no_rows_in_a",
+              "passed": true
+            },
+            {
+              "check": "converged_store_accepts_the_winning_settlement",
+              "passed": true
+            },
+            {
+              "check": "competing_settlement_after_convergence_never_replaces",
+              "passed": true
+            },
+            {
+              "check": "competing_settlement_refused_over_replicated_facts",
+              "passed": true
+            },
+            {
+              "check": "relay_preserves_typed_settlements",
+              "passed": true
+            },
+            {
+              "check": "archives_are_byte_stable",
+              "passed": true
+            },
+            {
+              "check": "every_store_reopens_and_validates",
+              "passed": true
+            }
+          ],
+          "receipt_bytes": 362758,
+          "receipt_sha256": "cdf0fc3e64589081e577d6cf476e3f3ad98afd0388c565e348d945b48e21f659",
+          "selector_lines": [
+            "2026-11-15T18:55:57.0473158Z test loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator ... ok",
+            "2026-11-15T18:55:57.0473479Z ",
+            "2026-11-15T18:55:57.0473734Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 3.03s",
+            "2026-11-15T18:55:57.0474006Z ",
+            "2026-11-15T18:55:57.0503499Z ##[group]Run python3 scripts/ci/native_ssh_memory_helper.py prepare"
+          ]
+        },
+        "helpers": [
+          {
+            "name": "lost-reply",
+            "result": {
+              "name": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay",
+              "status": "passed",
+              "installed_cli": {
+                "path": "/fixed-shenko-cli",
+                "bytes": 299652520,
+                "sha256": "e9b18c33c3f45aa98cf4ff42c8adaf6d8396f8e87cc16afe9c1b47da336cabea"
+              },
+              "test_executable": {
+                "path": "/__w/shenko/shenko/.ci/target/nightly/debug/deps/shenko-3017374e5ce28498",
+                "bytes": 178051152,
+                "sha256": "c0f90de7d486bbed054073a2cba670c534a902313729a8bd080108143284dfc6"
+              }
+            },
+            "result_sha256": "14f359c91e0d99d7771ffeede98e06354772c11ad77015e4e5527a947334e0da",
+            "listing_stdout": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay: test\n\n1 test, 0 benchmarks\n",
+            "proof_stdout": "\nrunning 1 test\ntest recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 1.82s\n\n",
+            "proof_stdout_sha256": "e6496c6e1743af469fe83463341758c355d3ae4f3707d73a570b52a7e8e54732",
+            "proof_stderr_bytes": 0
+          },
+          {
+            "name": "identity-refusal",
+            "result": {
+              "name": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper",
+              "status": "passed",
+              "installed_cli": {
+                "path": "/fixed-shenko-cli",
+                "bytes": 299652520,
+                "sha256": "e9b18c33c3f45aa98cf4ff42c8adaf6d8396f8e87cc16afe9c1b47da336cabea"
+              },
+              "test_executable": {
+                "path": "/__w/shenko/shenko/.ci/target/nightly/debug/deps/shenko-3017374e5ce28498",
+                "bytes": 178051152,
+                "sha256": "c0f90de7d486bbed054073a2cba670c534a902313729a8bd080108143284dfc6"
+              }
+            },
+            "result_sha256": "89daaa3dfdfbcb618a4e0842d03c3108fda689a8536c5e569ec52a1e2334617a",
+            "listing_stdout": "recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper: test\n\n1 test, 0 benchmarks\n",
+            "proof_stdout": "\nrunning 1 test\ntest recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 1.09s\n\n",
+            "proof_stdout_sha256": "0df7872f64f1c74b2e7fc9ca020ff8b827829fe3fb7455c44134c8aae9623e02",
+            "proof_stderr_bytes": 0
+          }
+        ]
+      },
+      "summary_sha256": "bf4f2425da87fba69fbf9f3382cfb85d0cc3c6883838fe9f46be0dabb9c8a1a3",
+      "boundary": "Full pinned compiler and separate native receipts pass. Whole Rust workspace did not execute because an upstream merged test fixture lacks branch_origin; Nightly overall failure is preserved. No final readiness or zero-skip claim."
+    },
+    "correction": {
+      "source_commit": "3936e16d37bebd78404376412041ba91dd4954d6",
+      "file": "bin/shenko/tests/support/history_runtime.rs",
+      "sha256": "dcf0d83a71e17a5a87f3676cdf373210a449029053080e5246cfbeeffbab5661",
+      "change": "Set branch_origin: None on the upstream genesis fixture. One inserted field; no production change or assertion relaxation."
+    },
+    "local_check": {
+      "source_commit": "3936e16d37bebd78404376412041ba91dd4954d6",
+      "command": "cargo test --offline --all-features --locked -j1 -p shenko --test obelisk_lifecycle -- --nocapture --test-threads=1",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "duration_seconds": 0.57,
+      "log": "merged-obelisk-lifecycle-tests.log",
+      "log_sha256": "fb877662d6449966b442abdd71298c97a4554acc04833dfa22d2a90b845dae18",
+      "scope": "Existing optional archive journey through source loss, disable and restart. Not real model efficacy or final workspace evidence."
+    },
+    "corrected_hosted_result": "The final fixture-corrected candidate must execute all six CI and both Nightly jobs. Actual final results are recorded in the PR progress comment, not inferred from this focused pass."
+  },
+  "additional_model_resource_inspection": {
+    "observed_at_utc": "2026-11-15T18:59:01.893773+00:00",
+    "status": "blocked_resources_before_model_child_launch",
+    "initial_candidate": "45cb2b7c526fdc2f58290fa5508a76aaaa96a619",
+    "resolved_candidate": "3936e16d37bebd78404376412041ba91dd4954d6",
+    "scoped_prompt_provider_parser_and_behavior_test_diff": "empty",
+    "cargo_invocations": 0,
+    "inference_requests": 0,
+    "model_children_started": 0,
+    "test_status": "not_run; no skip claimed as pass",
+    "context_tokens": 8192,
+    "owned_supervisors_gone": true,
+    "scope": "installed assets and documented Box connector path confirmed; current model behavior, Store/restart, 27B baseline, awareness and efficacy unverified",
+    "summary_sha256": "28a9b5d3da1cedabf54f65ae5eede84567033dbfa6e44ed4ebcc5c6257e4f1ad",
+    "raw_preflight_evidence_sha256": "17f772cecf0a8b7b681d9e1af4714a4ac64d032843bd07a7efb4d9531e4e0fdc",
+    "service_version": "llama.cpp b12359 / b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "resource_plans": [
+      {
+        "observed_at_utc": "2026-11-15T18:56:14.422285+00:00",
+        "model_bytes": 2497280256,
+        "q8_kv_estimate_bytes": 641728512,
+        "other_and_cache_reserve_bytes": 469762048,
+        "additional_initial_headroom_bytes": 536870912,
+        "max_rss_kib": 3932160,
+        "min_available_kib": 524288,
+        "context_tokens": 8192,
+        "automatic_restart": false,
+        "initial_samples": [
+          {
+            "utc": "2026-11-15T18:56:14.422329+00:00",
+            "MemTotal_kib": 8113128,
+            "MemAvailable_kib": 4303580,
+            "SwapTotal_kib": 0,
+            "SwapFree_kib": 0
+          },
+          {
+            "utc": "2026-11-15T18:56:16.424085+00:00",
+            "MemTotal_kib": 8113128,
+            "MemAvailable_kib": 4219580,
+            "SwapTotal_kib": 0,
+            "SwapFree_kib": 0
+          },
+          {
+            "utc": "2026-11-15T18:56:18.425083+00:00",
+            "MemTotal_kib": 8113128,
+            "MemAvailable_kib": 3911204,
+            "SwapTotal_kib": 0,
+            "SwapFree_kib": 0
+          }
+        ],
+        "required_initial_available_bytes": 4145641728
+      },
+      {
+        "observed_at_utc": "2026-11-15T18:57:18.286291+00:00",
+        "model_bytes": 1834426016,
+        "q8_kv_estimate_bytes": 499122176,
+        "other_and_cache_reserve_bytes": 469762048,
+        "additional_initial_headroom_bytes": 536870912,
+        "max_rss_kib": 3145728,
+        "min_available_kib": 524288,
+        "context_tokens": 8192,
+        "automatic_restart": false,
+        "initial_samples": [
+          {
+            "utc": "2026-11-15T18:57:18.286326+00:00",
+            "MemTotal_kib": 8113128,
+            "MemAvailable_kib": 3232140,
+            "SwapTotal_kib": 0,
+            "SwapFree_kib": 0
+          }
+        ],
+        "required_initial_available_bytes": 3340181152
+      }
+    ],
+    "details": "readiness-runtime-resources-20261115.md"
   }
 }
