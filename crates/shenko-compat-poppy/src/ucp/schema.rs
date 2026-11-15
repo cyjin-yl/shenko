@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{Context, Result, anyhow, ensure};
-use jsonschema::{Retrieve, Uri, Validator};
+use jsonschema::{PatternOptions, Retrieve, Uri, Validator};
 use serde_json::Value;
 
 use super::{NegotiatedProfile, Operation, RequestPlan, bounded_json, https_url};
@@ -176,6 +176,14 @@ pub(super) fn compile(schema: &Value, documents: SuppliedDocuments) -> Result<Va
     bounded_json(schema, 256 * 1024)?;
     jsonschema::options()
         .with_retriever(documents)
+        // Keep the ECMA-compatible engine, with explicit finite per-pattern
+        // execution and allocation bounds instead of relying on its defaults.
+        .with_pattern_options(
+            PatternOptions::fancy_regex()
+                .backtrack_limit(1_000_000)
+                .size_limit(2 * 1024 * 1024)
+                .dfa_size_limit(2 * 1024 * 1024),
+        )
         .should_validate_formats(true)
         .build(schema)
         .map_err(|_| anyhow!("merchant JSON Schema could not be compiled without implicit I/O"))
