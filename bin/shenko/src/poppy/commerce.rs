@@ -743,13 +743,13 @@ pub(super) fn record_resource(
     resource: Value,
     envelope: &mut Value,
 ) -> Result<()> {
-    if resource["ucp"]["status"] != "error" {
-        if let Some(expected) = envelope["request"]["id"].as_str() {
-            ensure!(
-                resource["id"].as_str() == Some(expected),
-                "merchant returned a different resource identity"
-            );
-        }
+    if resource["ucp"]["status"] != "error"
+        && let Some(expected) = envelope["request"]["id"].as_str()
+    {
+        ensure!(
+            resource["id"].as_str() == Some(expected),
+            "merchant returned a different resource identity"
+        );
     }
     envelope["business_status"] = resource["ucp"]["status"]
         .as_str()

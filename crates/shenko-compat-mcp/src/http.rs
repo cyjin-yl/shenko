@@ -482,9 +482,11 @@ impl StreamableHttpClient for BoundedHttpClient {
             let is_json = content_type
                 .as_deref()
                 .is_some_and(|value| value.as_bytes().starts_with(JSON_MIME_TYPE.as_bytes()));
-            let http_error = status_error(status, response.headers());
-            if http_error.is_some() && (!is_json || status == StatusCode::TOO_MANY_REQUESTS) {
-                return Err(http_error.expect("checked").into());
+            let mut http_error = status_error(status, response.headers());
+            if (!is_json || status == StatusCode::TOO_MANY_REQUESTS)
+                && let Some(error) = http_error.take()
+            {
+                return Err(error.into());
             }
             let response_session = response
                 .headers()
@@ -509,10 +511,11 @@ impl StreamableHttpClient for BoundedHttpClient {
                 }
                 let auth_failure =
                     matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN);
-                if !auth_failure && is_json {
-                    if let Some(message) = json_rpc_error(&body) {
-                        return Ok(StreamableHttpPostResponse::Json(message, response_session));
-                    }
+                if !auth_failure
+                    && is_json
+                    && let Some(message) = json_rpc_error(&body)
+                {
+                    return Ok(StreamableHttpPostResponse::Json(message, response_session));
                 }
                 if let Some(error) = http_error {
                     return Err(error.into());

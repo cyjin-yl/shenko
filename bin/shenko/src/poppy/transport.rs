@@ -612,27 +612,26 @@ impl HttpRequestAuthorizer for CompanyAuthorizer {
             if let Some(bytes) = request.body().and_then(reqwest::Body::as_bytes)
                 && let Ok(rpc) = serde_json::from_slice::<Value>(bytes)
                 && let Some(meta) = rpc.pointer("/params/arguments/meta")
+                && let Some(profile) = meta.pointer("/ucp-agent/profile").and_then(Value::as_str)
             {
-                if let Some(profile) = meta.pointer("/ucp-agent/profile").and_then(Value::as_str) {
-                    ensure!(
-                        profile == self.profile_url,
-                        "MCP and HTTP UCP platform profiles differ"
-                    );
-                    let expected = format!("profile=\"{}\"", self.profile_url);
-                    ensure!(
+                ensure!(
+                    profile == self.profile_url,
+                    "MCP and HTTP UCP platform profiles differ"
+                );
+                let expected = format!("profile=\"{}\"", self.profile_url);
+                ensure!(
+                    request
+                        .headers()
+                        .get("ucp-agent")
+                        .and_then(|value| value.to_str().ok())
+                        == Some(expected.as_str()),
+                    "UCP MCP request lacks its exact platform header"
+                );
+                for name in ["idempotency-key", "request-id"] {
+                    if let Some(key) = meta.get(name).and_then(Value::as_str) {
                         request
-                            .headers()
-                            .get("ucp-agent")
-                            .and_then(|value| value.to_str().ok())
-                            == Some(expected.as_str()),
-                        "UCP MCP request lacks its exact platform header"
-                    );
-                    for name in ["idempotency-key", "request-id"] {
-                        if let Some(key) = meta.get(name).and_then(Value::as_str) {
-                            request
-                                .headers_mut()
-                                .insert(HeaderName::from_static(name), HeaderValue::from_str(key)?);
-                        }
+                            .headers_mut()
+                            .insert(HeaderName::from_static(name), HeaderValue::from_str(key)?);
                     }
                 }
             }
