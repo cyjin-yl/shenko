@@ -43,6 +43,7 @@ pub struct EndpointBinding {
 enum Scope {
     Exact(Url, &'static [&'static str]),
     Conversation(Url),
+    PlannedRequest { url: Url, method: &'static str },
     OpenApi(Vec<ApiRoute>),
 }
 
@@ -177,7 +178,12 @@ impl EndpointBinding {
             .flatten()
             .any(|service| {
                 service.get("transport").and_then(Value::as_str) == Some("rest")
-                    && service.get("endpoint").and_then(Value::as_str) == Some(endpoint.as_str())
+                    && service
+                        .get("endpoint")
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| {
+                            Url::parse(value).is_ok_and(|candidate| candidate == endpoint)
+                        })
                     && service.get("schema").and_then(Value::as_str) == Some(schema_url)
             });
         ensure!(
@@ -191,6 +197,60 @@ impl EndpointBinding {
         let mut binding = Self::new(report, Scope::OpenApi(routes), options)?;
         binding.excluded.push(source);
         Ok(binding)
+    }
+
+    /// Bind a typed UCP request to the exact URL derived from a service in the
+    /// observed company profile. RequestPlan reconstructs its own route; the
+    /// signer does not maintain a second table of commerce operations.
+    pub fn from_ucp_plan(report: &DiscoveryReport, plan: &crate::ucp::RequestPlan) -> Result<Self> {
+        Self::from_ucp_plan_with_options(report, plan, DiscoveryOptions::default())
+    }
+
+    pub fn from_ucp_plan_with_options(
+        report: &DiscoveryReport,
+        plan: &crate::ucp::RequestPlan,
+        options: DiscoveryOptions,
+    ) -> Result<Self> {
+        let endpoint = checked_url(&plan.endpoint, &options)?;
+        let services = report
+            .ucp
+            .as_ref()
+            .and_then(|ucp| ucp.metadata.pointer("/ucp/services"))
+            .and_then(|services| services.get(crate::ucp::SHOPPING_SERVICE))
+            .and_then(Value::as_array)
+            .context("company shopping services are missing")?;
+        let transport = match plan.transport {
+            crate::ucp::Transport::Mcp => "mcp",
+            crate::ucp::Transport::Rest => "rest",
+        };
+        let mut found = false;
+        for service in services {
+            if service.get("transport").and_then(Value::as_str) != Some(transport)
+                || service.get("version").and_then(Value::as_str) != Some(crate::ucp::VERSION)
+            {
+                continue;
+            }
+            let Some(base) = service.get("endpoint").and_then(Value::as_str) else {
+                continue;
+            };
+            checked_url(base, &options)?;
+            if plan.validate_destination(base).is_ok() {
+                found = true;
+                break;
+            }
+        }
+        ensure!(
+            found,
+            "UCP request is not derived from the company's declared service"
+        );
+        let scope = match plan.transport {
+            crate::ucp::Transport::Mcp => Scope::Exact(endpoint, &["GET", "POST", "DELETE"]),
+            crate::ucp::Transport::Rest => Scope::PlannedRequest {
+                url: endpoint,
+                method: plan.method,
+            },
+        };
+        Self::new(report, scope, options)
     }
 
     /// Fetch one website page without a browser. Browser navigation instead
@@ -239,6 +299,17 @@ impl EndpointBinding {
         );
         if let Some(ucp) = &report.ucp {
             excluded.push(checked_url(&ucp.source.url, &options)?);
+            if let Some(services) = ucp
+                .metadata
+                .pointer("/ucp/services")
+                .and_then(Value::as_object)
+            {
+                for service in services.values().filter_map(Value::as_array).flatten() {
+                    if let Some(schema) = service.get("schema").and_then(Value::as_str) {
+                        excluded.push(checked_url(schema, &options)?);
+                    }
+                }
+            }
         }
         if let Some(auth) = &report.oauth.authorization_server {
             excluded.push(checked_url(&auth.source.url, &options)?);
@@ -290,6 +361,10 @@ impl EndpointBinding {
                         .is_none_or(|query| Some(query) == url.query())
             }
             Scope::Conversation(endpoint) => conversation_route(endpoint, method, url),
+            Scope::PlannedRequest {
+                url: planned,
+                method: planned_method,
+            } => planned == url && *planned_method == method,
             Scope::OpenApi(routes) => routes.iter().any(|route| {
                 route.method.eq_ignore_ascii_case(method)
                     && path_under_base(&route.server, url)
@@ -613,6 +688,7 @@ impl RequestSigner {
             "idempotency-key",
             "content-digest",
             "content-type",
+            "shopify-buyer-ip",
         ] {
             if let Some(value) = request.headers().get(name) {
                 ensure!(
