@@ -15,6 +15,9 @@ pub use browser::*;
 pub mod history_task;
 pub use history_task::*;
 
+pub mod obelisk_runtime;
+pub use obelisk_runtime::*;
+
 pub mod net_probe;
 pub use net_probe::*;
 
