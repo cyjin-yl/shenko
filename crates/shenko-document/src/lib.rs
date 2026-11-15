@@ -28,8 +28,8 @@ pub use attempt::{
 };
 pub use oxr_client::{
     CredentialHandle, DEFAULT_POLL_INTERVAL, DEFAULT_POLL_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrParsedPage, OxrSubmission, OxrTaskHandle,
-    OxrTransport,
+    OxrBodyState, OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrHttpResponse,
+    OxrObservation, OxrParsedPage, OxrSubmission, OxrTaskHandle, OxrTransport,
 };
 pub use provider::{
     DocumentProvider, OxrEngineBinding, OxrProvider, OxrProviderConfig, PageCountOutcome,

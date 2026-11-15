@@ -7,8 +7,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_document::{
     CredentialHandle, DocumentProvider, OxrAttemptBinding, OxrAttemptClaim, OxrAttemptContext,
-    OxrAttemptReceipt, OxrAttemptStore, OxrClient, OxrClientConfig, OxrEngineBinding, OxrProvider,
-    OxrProviderConfig, OxrTransport, ParseOptions, ParseRequest, ParseRun, ParseState, run_parse,
+    OxrAttemptReceipt, OxrAttemptStore, OxrBodyState, OxrClient, OxrClientConfig, OxrEngineBinding,
+    OxrHttpResponse, OxrProvider, OxrProviderConfig, OxrTransport, ParseOptions, ParseRequest,
+    ParseRun, ParseState, run_parse,
 };
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_store::{Store, external::ExternalEvidenceFold};
@@ -128,9 +129,13 @@ struct DocumentHandler {
 
 fn seal<T: Serialize>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
     let bytes = serde_json::to_vec(value)?;
+    seal_bytes(store, &bytes, "application/json", schema)
+}
+
+fn seal_bytes(store: &Store, bytes: &[u8], mime: &str, schema: &str) -> Result<ObjectRef> {
     match store
         .cas
-        .seal_object(&bytes, "application/json", "native-document", schema, 1)
+        .seal_object(bytes, mime, "native-document", schema, 1)
     {
         Ok(sealed) => Ok(sealed.object),
         Err(error) => {
@@ -438,6 +443,30 @@ struct TransportObservation {
     schema_version: u32,
     binding_digest: String,
     receipt: OxrAttemptReceipt,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response: Option<ArchivedResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ArchivedResponse {
+    path: String,
+    status: u16,
+    declared_length: Option<u64>,
+    body_state: OxrBodyState,
+    body: Option<ObjectRef>,
+}
+
+fn transport_observation(
+    store: &Store,
+    evidence: &EvidenceReceipt,
+) -> Result<TransportObservation> {
+    read(
+        store,
+        evidence
+            .normalized_ref
+            .as_ref()
+            .unwrap_or(&evidence.raw_ref),
+    )
 }
 
 /// A receipt view over the existing operation. Only an execute invocation
@@ -541,11 +570,34 @@ impl StoreReceipts {
                 evidence.attempt_id == Some(binding.attempt_id),
                 "document transport evidence belongs to another attempt"
             );
-            let observed: TransportObservation = read(&self.store, &evidence.raw_ref)?;
+            let observed = transport_observation(&self.store, &evidence)?;
             ensure!(
-                observed.schema_version == 1 && observed.binding_digest == binding.digest()?,
+                matches!(observed.schema_version, 1 | 2)
+                    && observed.binding_digest == binding.digest()?,
                 "document transport receipt binding mismatch"
             );
+            if let Some(response) = &observed.response {
+                if let Some(body) = &response.body {
+                    ensure!(
+                        body == &evidence.raw_ref,
+                        "document response body reference mismatch"
+                    );
+                }
+                let expected = response
+                    .body
+                    .as_ref()
+                    .filter(|_| response.body_state == OxrBodyState::Complete)
+                    .map(|body| body.digest.to_string());
+                ensure!(
+                    observed.receipt.raw_output_ref == expected,
+                    "document raw output provenance mismatch"
+                );
+            } else {
+                ensure!(
+                    observed.receipt.raw_output_ref.is_none(),
+                    "document raw output has no original response"
+                );
+            }
             let incoming = observed.receipt;
             if let Some(previous) = &result {
                 if let (Some(old), Some(new)) = (&previous.task, &incoming.task) {
@@ -567,6 +619,7 @@ impl StoreReceipts {
             result = Some(OxrAttemptReceipt {
                 task,
                 outcome: incoming.outcome,
+                raw_output_ref: incoming.raw_output_ref,
             });
         }
         Ok(result)
@@ -588,7 +641,14 @@ impl StoreReceipts {
             source_instance_id: self.attempt.node_id.to_string(),
             source_event_key: None,
             producer_epoch: Some(self.attempt.epoch.0),
-            producer_schema_version: Some("1".into()),
+            producer_schema_version: Some(
+                if source == TRANSPORT_RECEIPT {
+                    "2"
+                } else {
+                    "1"
+                }
+                .into(),
+            ),
             raw_ref: raw,
             decoder_ref: Some(self.operation.contract_ref.receipt_reader_ref.clone()),
             decode_status: DecodeStatus::Decoded,
@@ -649,25 +709,61 @@ impl OxrAttemptStore for StoreReceipts {
         Ok(OxrAttemptClaim::Replay(self.replay(binding)?))
     }
 
-    fn append(&self, binding: &OxrAttemptBinding, receipt: &OxrAttemptReceipt) -> Result<()> {
+    fn append(
+        &self,
+        binding: &OxrAttemptBinding,
+        receipt: &OxrAttemptReceipt,
+        response: Option<&OxrHttpResponse>,
+    ) -> Result<OxrAttemptReceipt> {
         self.validate(binding)?;
-        let raw = seal(
+        let response = response
+            .map(|response| {
+                let body = if response.body_state == OxrBodyState::CredentialEchoWithheld {
+                    None
+                } else {
+                    Some(seal_bytes(
+                        &self.store,
+                        response.body(),
+                        "application/octet-stream",
+                        "oxr-http-response-body",
+                    )?)
+                };
+                Ok::<_, anyhow::Error>(ArchivedResponse {
+                    path: response.path.clone(),
+                    status: response.status,
+                    declared_length: response.declared_length,
+                    body_state: response.body_state,
+                    body,
+                })
+            })
+            .transpose()?;
+        let mut receipt = receipt.clone();
+        receipt.raw_output_ref = response
+            .as_ref()
+            .filter(|response| response.body_state == OxrBodyState::Complete)
+            .and_then(|response| response.body.as_ref())
+            .map(|body| body.digest.to_string());
+        let normalized = seal(
             &self.store,
             &TransportObservation {
-                schema_version: 1,
+                schema_version: 2,
                 binding_digest: binding.digest()?,
                 receipt: receipt.clone(),
+                response: response.clone(),
             },
             "oxr-transport-observation",
         )?;
-        let level = if terminal(receipt) {
+        let level = if terminal(&receipt) {
             Some(ObservationLevel::RemoteCompleted)
         } else if receipt.task.is_some() {
             Some(ObservationLevel::ProviderAccepted)
         } else {
             None
         };
-        let evidence = self.evidence(TRANSPORT_RECEIPT, raw, None, level);
+        let raw = response
+            .and_then(|response| response.body)
+            .unwrap_or_else(|| normalized.clone());
+        let evidence = self.evidence(TRANSPORT_RECEIPT, raw, Some(normalized), level);
         for _ in 0..MAX_FOLD_RETRIES {
             let current = self.validate(binding)?;
             let conflict = if current.outcome_conflict {
@@ -675,7 +771,7 @@ impl OxrAttemptStore for StoreReceipts {
             } else {
                 self.replay(binding)?
                     .as_ref()
-                    .is_some_and(|previous| receipts_conflict(previous, receipt))
+                    .is_some_and(|previous| receipts_conflict(previous, &receipt))
             };
             // This E1 persists transport facts, not task completion. A
             // contradictory terminal body is admitted with sticky Unknown in
@@ -695,7 +791,7 @@ impl OxrAttemptStore for StoreReceipts {
                     !committed.outcome_conflict,
                     "document attempt has conflicting terminal evidence"
                 );
-                return Ok(());
+                return Ok(receipt);
             }
         }
         anyhow::bail!("document receipt head kept changing; original attempt remains reconcilable")
@@ -845,12 +941,14 @@ mod tests {
         }
     }
 
+    const MALFORMED_BODY: &str = " {\n \"code\":0,\"unmapped\":{\"retained\":true},\"data\":{\"metadata\":{\"page_num\":1},\"result\":{\"outputs\":{\"json\":{}}}}}\n";
+
     fn success(text: &str) -> String {
-        serde_json::json!({"code":0,"data":{"task_id":"original-task","status":"success",
+        let value = serde_json::json!({"code":0,"unmapped":{"retained":true},"data":{"task_id":"original-task","status":"success",
         "metadata":{"page_num":1},"result":{"outputs":{"json":{"pages":[
             {"page_num":0,"blocks":[{"idx":0,"content":text,"type":"Text","format":"text"}]}
-        ]}}}}})
-        .to_string()
+        ]}}}}});
+        format!(" \n{value}\n")
     }
 
     async fn wire(hold_first_probe: bool) -> Result<Wire> {
@@ -901,9 +999,7 @@ mod tests {
                         state.release_upload.notified().await;
                         // A nominally successful envelope with no pages array
                         // cannot establish an empty completed document.
-                        serde_json::json!({"code":0,"data":{"metadata":{"page_num":1},
-                            "result":{"outputs":{"json":{}}}}})
-                        .to_string()
+                        MALFORMED_BODY.to_owned()
                     } else if target.ends_with("/parse/async") {
                         state.uploads.fetch_add(1, Ordering::SeqCst);
                         serde_json::json!({"code":0,"data":{"task_id":"original-task"}}).to_string()
@@ -1223,6 +1319,22 @@ mod tests {
                 wire.state.release_upload.notify_one();
                 assert!(second.await??.outcome.is_none());
                 let originals = store.external_operation_evidence(fixture.operation_id)?;
+                let original_response = originals
+                    .iter()
+                    .find(|receipt| receipt.source_id == TRANSPORT_RECEIPT)
+                    .context("missing malformed transport receipt")?;
+                assert_eq!(
+                    store.cas.read_object(&original_response.raw_ref.digest)?,
+                    MALFORMED_BODY.as_bytes()
+                );
+                let captured = transport_observation(&store, original_response)?;
+                assert_eq!(
+                    captured
+                        .response
+                        .context("missing response metadata")?
+                        .body_state,
+                    OxrBodyState::Complete
+                );
                 let run: ParseRun = read(
                     &store,
                     &originals
@@ -1273,6 +1385,9 @@ mod tests {
                 );
                 for original in originals {
                     assert!(reopened.cas.read_object(&original.raw_ref.digest).is_ok());
+                    if let Some(normalized) = original.normalized_ref {
+                        assert!(reopened.cas.read_object(&normalized.digest).is_ok());
+                    }
                 }
                 Ok(())
             })
@@ -1298,13 +1413,12 @@ mod tests {
                 tokio::time::timeout(Duration::from_secs(3), wire.state.first_check.notified())
                     .await?;
                 let accepted = store.external_operation_evidence(fixture.operation_id)?;
-                let accepted: TransportObservation = read(
+                let accepted = transport_observation(
                     &store,
-                    &accepted
+                    accepted
                         .iter()
                         .find(|r| r.source_id == TRANSPORT_RECEIPT)
-                        .context("missing transport receipt")?
-                        .raw_ref,
+                        .context("missing transport receipt")?,
                 )?;
                 let original_task = accepted.receipt.task.context("missing accepted task")?;
                 worker.abort();
@@ -1335,14 +1449,13 @@ mod tests {
                 assert_eq!(unknown.state, OperationState::Reconciling);
                 assert!(unknown.outcome.is_none());
                 let evidence = reopened.external_operation_evidence(fixture.operation_id)?;
-                let last_transport: TransportObservation = read(
+                let last_transport = transport_observation(
                     &reopened,
-                    &evidence
+                    evidence
                         .iter()
                         .rev()
                         .find(|r| r.source_id == TRANSPORT_RECEIPT)
-                        .context("missing transport receipt")?
-                        .raw_ref,
+                        .context("missing transport receipt")?,
                 )?;
                 assert_eq!(last_transport.receipt.task, Some(original_task.clone()));
                 assert!(matches!(
@@ -1369,16 +1482,16 @@ mod tests {
                     let bridge = bridge.clone();
                     let task = original_task.clone();
                     tokio::spawn(async move {
-                        let document = client
-                            .check_document(&task)
-                            .await?
-                            .context("task did not complete")?;
+                        let observed = client.check_document_observed(&task).await;
+                        let document = observed.outcome?.context("task did not complete")?;
                         bridge.append(
                             &binding,
                             &OxrAttemptReceipt {
                                 task: Some(task),
                                 outcome: Some(Ok(document)),
+                                raw_output_ref: None,
                             },
+                            observed.response.as_ref(),
                         )?;
                         Ok::<(), anyhow::Error>(())
                     })
@@ -1408,6 +1521,35 @@ mod tests {
                 assert_eq!(pending.state, OperationState::Reconciling);
                 let succeeded = recovered.reconcile(&task, operation_id).await?;
                 assert_eq!(succeeded.outcome, Some(OperationOutcome::Succeeded));
+                let success_evidence = reopened.external_operation_evidence(operation_id)?;
+                let terminal_body = success_evidence
+                    .iter()
+                    .find(|receipt| {
+                        receipt.source_id == TRANSPORT_RECEIPT
+                            && receipt.raw_ref.digest
+                                == Digest::blake3(success("original").as_bytes())
+                    })
+                    .context("missing exact original terminal response")?;
+                assert_eq!(
+                    reopened.cas.read_object(&terminal_body.raw_ref.digest)?,
+                    success("original").as_bytes()
+                );
+                let run_receipt = success_evidence
+                    .iter()
+                    .rev()
+                    .find(|receipt| receipt.source_id == RESULT_RECEIPT)
+                    .context("missing completed parse receipt")?;
+                let run: ParseRun = read(&reopened, &run_receipt.raw_ref)?;
+                assert_eq!(run.checkpoints.len(), 1);
+                let page = run
+                    .checkpoints
+                    .first()
+                    .and_then(|checkpoint| checkpoint.result.as_ref())
+                    .context("missing parsed page")?;
+                assert_eq!(
+                    page.provenance.raw_output_ref,
+                    Some(terminal_body.raw_ref.digest.to_string())
+                );
                 // A changed page selection shares the transport binding, but
                 // is not the original frozen native request. It must not be
                 // silently answered with that request's settled success.
@@ -1433,6 +1575,20 @@ mod tests {
                 assert_eq!(reopened.external_operation_attempts(operation_id)?.len(), 1);
                 let retained = reopened.external_operation_evidence(operation_id)?;
                 assert!(retained.len() > before_conflict.len());
+                let conflict_body = retained
+                    .iter()
+                    .find(|receipt| {
+                        receipt.source_id == TRANSPORT_RECEIPT
+                            && receipt.raw_ref.digest
+                                == Digest::blake3(
+                                    success("contradictory late observation").as_bytes(),
+                                )
+                    })
+                    .context("missing exact contradictory terminal response")?;
+                assert_eq!(
+                    reopened.cas.read_object(&conflict_body.raw_ref.digest)?,
+                    success("contradictory late observation").as_bytes()
+                );
                 for original in before_conflict {
                     assert!(retained.iter().any(|r| r.receipt_id == original.receipt_id));
                 }

@@ -7,7 +7,7 @@
 use crate::attempt::{OxrAttemptBinding, OxrAttemptClaim, OxrAttemptContext, OxrAttemptReceipt};
 use crate::oxr_client::{
     CredentialHandle, DEFAULT_POLL_INTERVAL, DEFAULT_POLL_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrSubmission, OxrTransport,
+    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrObservation, OxrSubmission, OxrTransport,
 };
 use crate::types::{
     DOCUMENT_PARSE_DEFINITION_VERSION, PageProvenance, PageRef, PageResult, ParseRequest,
@@ -168,7 +168,20 @@ pub struct OxrProviderConfig {
 /// scope, credential — and reports an honest Unavailable listing exactly the
 /// missing prerequisite when it cannot run, per issue #89: an absent
 /// capability is reported, never auto-substituted.
-type SharedDocument = Arc<OnceCell<Result<Arc<OxrDocument>, OxrError>>>;
+#[derive(Debug)]
+struct StoredDocument {
+    document: OxrDocument,
+    raw_output_ref: Option<String>,
+}
+
+impl std::ops::Deref for StoredDocument {
+    type Target = OxrDocument;
+    fn deref(&self) -> &Self::Target {
+        &self.document
+    }
+}
+
+type SharedDocument = Arc<OnceCell<Result<Arc<StoredDocument>, OxrError>>>;
 
 pub struct OxrProvider {
     endpoint: Option<String>,
@@ -281,7 +294,7 @@ impl OxrProvider {
         client: &OxrClient,
         source_bytes: &[u8],
         req: &ParseRequest,
-    ) -> Result<Arc<OxrDocument>, OxrError> {
+    ) -> Result<Arc<StoredDocument>, OxrError> {
         let attempt = self
             .attempt
             .as_ref()
@@ -355,17 +368,17 @@ impl OxrProvider {
         source_bytes: &[u8],
         attempt: &OxrAttemptContext,
         binding: &OxrAttemptBinding,
-    ) -> Result<OxrDocument, OxrError> {
+    ) -> Result<StoredDocument, OxrError> {
         let claim = attempt
             .store
             .claim(binding)
             .map_err(|error| OxrError::Receipt(error.to_string()))?;
         let task = match claim {
             OxrAttemptClaim::Dispatch => {
-                match client
-                    .submit_document(&binding.source_name, source_bytes)
-                    .await
-                {
+                let observed = client
+                    .submit_document_observed(&binding.source_name, source_bytes)
+                    .await;
+                match observed.outcome {
                     Ok(OxrSubmission::Accepted(task)) => {
                         attempt
                             .store
@@ -374,7 +387,9 @@ impl OxrProvider {
                                 &OxrAttemptReceipt {
                                     task: Some(task.clone()),
                                     outcome: None,
+                                    raw_output_ref: None,
                                 },
+                                observed.response.as_ref(),
                             )
                             .map_err(|error| OxrError::Receipt(error.to_string()))?;
                         task
@@ -384,22 +399,32 @@ impl OxrProvider {
                             OxrSubmission::Completed(document) => document,
                             OxrSubmission::Accepted(_) => unreachable!("handled above"),
                         });
-                        attempt
+                        let saved = attempt
                             .store
                             .append(
                                 binding,
                                 &OxrAttemptReceipt {
                                     task: None,
                                     outcome: Some(outcome.clone()),
+                                    raw_output_ref: None,
                                 },
+                                observed.response.as_ref(),
                             )
                             .map_err(|error| OxrError::Receipt(error.to_string()))?;
-                        return outcome;
+                        return outcome.map(|document| StoredDocument {
+                            document,
+                            raw_output_ref: saved.raw_output_ref,
+                        });
                     }
                 }
             }
             OxrAttemptClaim::Replay(Some(receipt)) => match (&receipt.outcome, receipt.task) {
-                (Some(Ok(document)), _) => return Ok(document.clone()),
+                (Some(Ok(document)), _) => {
+                    return Ok(StoredDocument {
+                        document: document.clone(),
+                        raw_output_ref: receipt.raw_output_ref,
+                    });
+                }
                 (Some(Err(error)), _) if !error.outcome_is_unknown() => return Err(error.clone()),
                 (_, Some(task)) => task,
                 (Some(Err(error)), None) => return Err(error.clone()),
@@ -415,8 +440,28 @@ impl OxrProvider {
         };
         // A later reconciliation may check an expired task once. It never
         // invents a fresh polling budget or submits the document again.
+        let mut last_receipt = None;
+        let mut observe = |observed: &OxrObservation<Option<OxrDocument>>| {
+            last_receipt = Some(
+                attempt
+                    .store
+                    .append(
+                        binding,
+                        &OxrAttemptReceipt {
+                            task: Some(task.clone()),
+                            outcome: observed.outcome.clone().transpose(),
+                            raw_output_ref: None,
+                        },
+                        observed.response.as_ref(),
+                    )
+                    .map_err(|error| OxrError::Receipt(error.to_string()))?,
+            );
+            Ok(())
+        };
         let outcome = if chrono::Utc::now() >= task.poll_deadline {
-            client.check_document(&task).await.and_then(|document| {
+            let observed = client.check_document_observed(&task).await;
+            observe(&observed)?;
+            observed.outcome.and_then(|document| {
                 document.ok_or_else(|| {
                     OxrError::OutcomeUnknown(
                         "original polling deadline expired; remote task still pending".into(),
@@ -424,19 +469,32 @@ impl OxrProvider {
                 })
             })
         } else {
-            client.poll_document(&task).await
+            client
+                .poll_document_with_observer(&task, &mut observe)
+                .await
         };
-        attempt
-            .store
-            .append(
-                binding,
-                &OxrAttemptReceipt {
-                    task: Some(task),
-                    outcome: Some(outcome.clone()),
-                },
-            )
-            .map_err(|error| OxrError::Receipt(error.to_string()))?;
-        outcome
+        // A timeout before another complete response has no raw body. Retain
+        // the unknown fact without replacing any previously admitted terminal
+        // response. All completed pending polls remain in immutable history.
+        let saved = match last_receipt {
+            Some(receipt) if receipt.outcome.as_ref() == Some(&outcome) => receipt,
+            _ => attempt
+                .store
+                .append(
+                    binding,
+                    &OxrAttemptReceipt {
+                        task: Some(task),
+                        outcome: Some(outcome.clone()),
+                        raw_output_ref: None,
+                    },
+                    None,
+                )
+                .map_err(|error| OxrError::Receipt(error.to_string()))?,
+        };
+        outcome.map(|document| StoredDocument {
+            document,
+            raw_output_ref: saved.raw_output_ref,
+        })
     }
 }
 
@@ -555,7 +613,10 @@ impl DocumentProvider for OxrProvider {
                 page,
                 source_digest: req.source_digest.clone(),
                 blocks: parsed.blocks.clone(),
-                provenance: self.provenance(),
+                provenance: PageProvenance {
+                    raw_output_ref: document.raw_output_ref.clone(),
+                    ..self.provenance()
+                },
                 // Bboxes only mean "restored to the original page" when the
                 // page's own coordinate space is known; without a page_size
                 // the coordinates have no declared space.
@@ -587,8 +648,8 @@ impl DocumentProvider for OxrProvider {
             code_version: self.closure_id().into(),
             model_version: self.model_identity.clone(),
             params_digest: Some(self.params_digest.clone()),
-            // This crate does not retain the raw upstream body in a CAS; the
-            // caller seals the mapped result, so no raw-output ref is claimed.
+            // Provider-wide metadata cannot claim a body. Each parsed page
+            // carries its own admitted original response reference above.
             raw_output_ref: None,
         }
     }

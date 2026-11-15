@@ -4,7 +4,7 @@
 //! its original OperationRecord/AttemptRecord and append-only CAS receipts.
 //! An in-memory implementation cannot provide restart safety.
 
-use crate::{OxrDocument, OxrError, OxrTaskHandle};
+use crate::{OxrDocument, OxrError, OxrHttpResponse, OxrTaskHandle};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 use std::sync::Arc;
@@ -48,7 +48,7 @@ impl OxrAttemptBinding {
 }
 
 /// A typed transport observation; the host owns its durable receipt identity
-/// and serialized CAS payload. This is not an archive of original HTTP bytes.
+/// and its optional archive of the original bounded HTTP response.
 /// A task handle must survive before read-only polling starts.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,6 +57,11 @@ pub struct OxrAttemptReceipt {
     /// `None` is an async acceptance. Errors preserve unknown vs terminal;
     /// an unknown outcome never authorizes a new upload.
     pub outcome: Option<Result<OxrDocument, OxrError>>,
+    /// Host reference to a complete, unmodified response body. Historical
+    /// typed-only receipts, partial reads and withheld credential echoes have
+    /// no reference. The host keeps explicit capture metadata in its receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_output_ref: Option<String>,
 }
 
 /// Result of an atomic claim of the original attempt.
@@ -76,10 +81,12 @@ pub enum OxrAttemptClaim {
 /// may receive Dispatch, including across processes and restarts. A different
 /// binding for an existing identity is an error, never a new attempt.
 ///
-/// `append` must durably retain evidence before returning, preserving a known
+/// `append` must durably retain evidence before returning the admitted receipt,
+/// binding any original response body to that same immutable evidence and
+/// returning its reference. It must preserve a known
 /// task handle and terminal receipts against later unknown observations. A
 /// conflicting terminal receipt remains an explicit conflict, not last-write
-/// wins. Neither method may reset/rearm an existing attempt. Implementations
+/// wins. No method may reset/rearm an existing attempt. Implementations
 /// must reject use with a different operation/attempt than their host binding.
 /// Synchronous calls keep cancellation out of the small ledger transaction;
 /// no network operation belongs inside either transaction.
@@ -93,5 +100,6 @@ pub trait OxrAttemptStore: Send + Sync + std::fmt::Debug {
         &self,
         binding: &OxrAttemptBinding,
         receipt: &OxrAttemptReceipt,
-    ) -> anyhow::Result<()>;
+        response: Option<&OxrHttpResponse>,
+    ) -> anyhow::Result<OxrAttemptReceipt>;
 }

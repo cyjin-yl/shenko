@@ -2,6 +2,9 @@
 
 This is the follow-up to [issue #89](https://github.com/cyjin-yl/shenko/issues/89)
 and the [2026-11-11 provider record](document-parse-provider-20261111.md).
+The later [original-response continuation](document-parse-raw-response-20261115.md)
+adds raw HTTP body retention; the typed-only observations below describe this
+earlier increment and are preserved as its actual verification boundary.
 The candidate starts at main `054817b0d5729fed56ec5a974d101c31edfd1410`;
 the commit containing this record identifies the changed source. The older
 record's in-process single-flight claim did not establish safe failure,

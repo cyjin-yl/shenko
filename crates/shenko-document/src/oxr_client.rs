@@ -69,8 +69,8 @@ impl CredentialHandle {
         }
     }
 
-    /// The secret, for the request builder only. Crate-visible on purpose:
-    /// nothing outside this crate has any business reading the credential.
+    /// The secret, for the request form and response redaction/echo checks.
+    /// Crate-visible on purpose: hosts retain receipts, not credentials.
     pub(crate) fn expose(&self) -> &str {
         &self.secret
     }
@@ -235,6 +235,70 @@ pub enum OxrSubmission {
     Accepted(OxrTaskHandle),
 }
 
+/// Whether the retained bytes cover the complete HTTP entity body. These are
+/// response bytes only: request forms and authorization headers are not retained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OxrBodyState {
+    Complete,
+    Incomplete,
+    /// A recognizable credential echo is deliberately not archived. This is
+    /// an explicit evidence gap, never a claim that redacted bytes are original.
+    CredentialEchoWithheld,
+}
+
+/// One bounded received HTTP response, before its JSON fields are interpreted.
+/// Debug output intentionally omits the body, which can contain document data.
+pub struct OxrHttpResponse {
+    pub path: String,
+    pub status: u16,
+    pub declared_length: Option<u64>,
+    pub body_state: OxrBodyState,
+    body: Vec<u8>,
+}
+
+impl OxrHttpResponse {
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+}
+
+impl std::fmt::Debug for OxrHttpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OxrHttpResponse")
+            .field("path", &self.path)
+            .field("status", &self.status)
+            .field("declared_length", &self.declared_length)
+            .field("body_state", &self.body_state)
+            .field("received_bytes", &self.body.len())
+            .finish()
+    }
+}
+
+/// The mapped fact and the original bounded response that produced it. A
+/// transport interruption before a complete read may have no response receipt.
+#[derive(Debug)]
+pub struct OxrObservation<T> {
+    pub outcome: Result<T, OxrError>,
+    pub response: Option<OxrHttpResponse>,
+}
+
+impl<T> OxrObservation<T> {
+    fn without_response(outcome: Result<T, OxrError>) -> Self {
+        Self {
+            outcome,
+            response: None,
+        }
+    }
+
+    fn and_then<U>(self, f: impl FnOnce(T) -> Result<U, OxrError>) -> OxrObservation<U> {
+        OxrObservation {
+            outcome: self.outcome.and_then(f),
+            response: self.response,
+        }
+    }
+}
+
 /// The real HTTP client for one OXR deployment.
 #[derive(Debug, Clone)]
 pub struct OxrClient {
@@ -340,31 +404,49 @@ impl OxrClient {
         file_name: &str,
         bytes: &[u8],
     ) -> Result<OxrSubmission, OxrError> {
-        let form = self.upload_form(file_name, bytes)?;
+        self.submit_document_observed(file_name, bytes)
+            .await
+            .outcome
+    }
+
+    /// The durable provider uses this path to retain the original response
+    /// alongside the mapped acceptance/result before doing further work.
+    pub async fn submit_document_observed(
+        &self,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> OxrObservation<OxrSubmission> {
+        let form = match self.upload_form(file_name, bytes) {
+            Ok(form) => form,
+            Err(error) => return OxrObservation::without_response(Err(error)),
+        };
         if self.transport == OxrTransport::Sync {
-            return map_document(self.post("/parse/sync", form).await?)
-                .map(OxrSubmission::Completed);
+            return self
+                .post("/parse/sync", form)
+                .await
+                .and_then(|envelope| map_document(envelope).map(OxrSubmission::Completed));
         }
-        let data =
-            self.post("/parse/async", form).await?.data.ok_or_else(|| {
+        self.post("/parse/async", form).await.and_then(|envelope| {
+            let data = envelope.data.ok_or_else(|| {
                 OxrError::MalformedResponse("`data` from the async submit".into())
             })?;
-        let task_id = data
-            .task_id
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| OxrError::MalformedResponse("a nonempty `data.task_id`".into()))?;
-        let accepted_at = chrono::Utc::now();
-        let budget = chrono::Duration::from_std(self.poll_timeout).map_err(|_| {
-            OxrError::OutcomeUnknown("poll deadline overflow after acceptance".into())
-        })?;
-        let poll_deadline = accepted_at.checked_add_signed(budget).ok_or_else(|| {
-            OxrError::OutcomeUnknown("poll deadline overflow after acceptance".into())
-        })?;
-        Ok(OxrSubmission::Accepted(OxrTaskHandle {
-            task_id,
-            accepted_at,
-            poll_deadline,
-        }))
+            let task_id = data
+                .task_id
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| OxrError::MalformedResponse("a nonempty `data.task_id`".into()))?;
+            let accepted_at = chrono::Utc::now();
+            let budget = chrono::Duration::from_std(self.poll_timeout).map_err(|_| {
+                OxrError::OutcomeUnknown("poll deadline overflow after acceptance".into())
+            })?;
+            let poll_deadline = accepted_at.checked_add_signed(budget).ok_or_else(|| {
+                OxrError::OutcomeUnknown("poll deadline overflow after acceptance".into())
+            })?;
+            Ok(OxrSubmission::Accepted(OxrTaskHandle {
+                task_id,
+                accepted_at,
+                poll_deadline,
+            }))
+        })
     }
 
     /// Build the multipart upload. Only the structured `json` output is
@@ -394,44 +476,109 @@ impl OxrClient {
         &self,
         path: &str,
         form: reqwest::multipart::Form,
-    ) -> Result<OxrEnvelope, OxrError> {
-        let mut response = self
+    ) -> OxrObservation<OxrEnvelope> {
+        let mut response = match self
             .http
             .post(format!("{}{path}", self.base))
             .multipart(form)
             .send()
             .await
-            .map_err(|error| OxrError::Transport(error.to_string()))?;
+        {
+            Ok(response) => response,
+            Err(error) => {
+                return OxrObservation::without_response(Err(OxrError::Transport(
+                    error.to_string(),
+                )));
+            }
+        };
         let status = response.status();
-        if response
-            .content_length()
+        let mut raw = OxrHttpResponse {
+            path: path.to_owned(),
+            status: status.as_u16(),
+            declared_length: response.content_length(),
+            body_state: OxrBodyState::Incomplete,
+            body: Vec::new(),
+        };
+        if raw
+            .declared_length
             .is_some_and(|length| length > MAX_RESPONSE_BYTES)
         {
-            return Err(OxrError::MalformedResponse(format!(
+            let error = OxrError::MalformedResponse(format!(
                 "an answer below {MAX_RESPONSE_BYTES} bytes (Content-Length was {:?})",
-                response.content_length()
-            )));
+                raw.declared_length
+            ));
+            return self.observed(raw, Err(error));
         }
         // Content-Length is only an early rejection. Chunked or dishonest
         // responses must be bounded while reading, before allocation of a full body.
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| OxrError::Transport(error.to_string()))?
-        {
-            if chunk.len() as u64 > MAX_RESPONSE_BYTES - body.len() as u64 {
-                return Err(OxrError::MalformedResponse(format!(
-                    "an answer no larger than {MAX_RESPONSE_BYTES} bytes"
-                )));
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(error) => {
+                    return self.observed(raw, Err(OxrError::Transport(error.to_string())));
+                }
+            };
+            let remaining = MAX_RESPONSE_BYTES as usize - raw.body.len();
+            if chunk.len() > remaining {
+                raw.body.extend_from_slice(&chunk[..remaining]);
+                return self.observed(
+                    raw,
+                    Err(OxrError::MalformedResponse(format!(
+                        "an answer no larger than {MAX_RESPONSE_BYTES} bytes"
+                    ))),
+                );
             }
-            body.extend_from_slice(&chunk);
+            raw.body.extend_from_slice(&chunk);
         }
+        raw.body_state = OxrBodyState::Complete;
+        let outcome = self.decode(status, &raw.body);
+        self.observed(raw, outcome)
+    }
+
+    fn observed<T>(
+        &self,
+        mut raw: OxrHttpResponse,
+        mut outcome: Result<T, OxrError>,
+    ) -> OxrObservation<T> {
+        let secret = self.credential.expose();
+        let encoded = serde_json::to_string(secret).ok();
+        let contains = |needle: &[u8]| {
+            !needle.is_empty() && raw.body.windows(needle.len()).any(|part| part == needle)
+        };
+        if !secret.is_empty()
+            && (contains(secret.as_bytes())
+                || encoded
+                    .as_ref()
+                    .and_then(|text| text.strip_prefix('"'))
+                    .and_then(|text| text.strip_suffix('"'))
+                    .is_some_and(|text| contains(text.as_bytes())))
+        {
+            raw.body.clear();
+            raw.body_state = OxrBodyState::CredentialEchoWithheld;
+            // A recognized document field can echo the same credential as
+            // the wire body. Do not archive that decoded success through the
+            // normalized receipt or page result after withholding its bytes.
+            // Decoded refusals already pass through `redact` in `decode`.
+            if outcome.is_ok() {
+                outcome = Err(OxrError::OutcomeUnknown(
+                    "response contained a credential echo; original and decoded content withheld"
+                        .into(),
+                ));
+            }
+        }
+        OxrObservation {
+            outcome,
+            response: Some(raw),
+        }
+    }
+
+    fn decode(&self, status: reqwest::StatusCode, body: &[u8]) -> Result<OxrEnvelope, OxrError> {
         // The body is never echoed into an error: an upstream error page can
         // quote the request, and with it the credential. `code`/`message` are
         // read out of it when they are there.
         if !status.is_success() {
-            if let Ok(envelope) = serde_json::from_slice::<OxrEnvelope>(&body)
+            if let Ok(envelope) = serde_json::from_slice::<OxrEnvelope>(body)
                 && let Some(code) = envelope.code.filter(|code| *code != 0)
             {
                 return Err(OxrError::Upstream {
@@ -443,7 +590,7 @@ impl OxrClient {
                 status: status.as_u16(),
             });
         }
-        let envelope: OxrEnvelope = serde_json::from_slice(&body)
+        let envelope: OxrEnvelope = serde_json::from_slice(body)
             .map_err(|_| OxrError::MalformedResponse("a JSON envelope".into()))?;
         let code = envelope
             .code
@@ -470,6 +617,17 @@ impl OxrClient {
     /// and sleep shares one deadline; neither a slow response nor a restart
     /// resets the budget. Expiry remains unknown, never remote cancellation.
     pub async fn poll_document(&self, task: &OxrTaskHandle) -> Result<OxrDocument, OxrError> {
+        self.poll_document_with_observer(task, |_| Ok(())).await
+    }
+
+    /// Persist every received poll observation synchronously before another
+    /// network request or sleep. The same absolute waiting deadline still
+    /// covers all requests; recording evidence never grants upload authority.
+    pub async fn poll_document_with_observer(
+        &self,
+        task: &OxrTaskHandle,
+        mut observe: impl FnMut(&OxrObservation<Option<OxrDocument>>) -> Result<(), OxrError>,
+    ) -> Result<OxrDocument, OxrError> {
         let now = chrono::Utc::now();
         if now < task.accepted_at || task.poll_deadline < task.accepted_at {
             return Err(OxrError::OutcomeUnknown(
@@ -486,9 +644,11 @@ impl OxrClient {
             if tokio::time::Instant::now() >= deadline {
                 return Err(OxrError::PollTimeout(self.poll_timeout));
             }
-            let document = tokio::time::timeout_at(deadline, self.check_document(task))
+            let observed = tokio::time::timeout_at(deadline, self.check_document_observed(task))
                 .await
-                .map_err(|_| OxrError::PollTimeout(self.poll_timeout))??;
+                .map_err(|_| OxrError::PollTimeout(self.poll_timeout))?;
+            observe(&observed)?;
+            let document = observed.outcome?;
             if tokio::time::Instant::now() >= deadline {
                 return Err(OxrError::PollTimeout(self.poll_timeout));
             }
@@ -510,53 +670,61 @@ impl OxrClient {
         &self,
         task: &OxrTaskHandle,
     ) -> Result<Option<OxrDocument>, OxrError> {
+        self.check_document_observed(task).await.outcome
+    }
+
+    /// The read-only original-task observation with its bounded response.
+    pub async fn check_document_observed(
+        &self,
+        task: &OxrTaskHandle,
+    ) -> OxrObservation<Option<OxrDocument>> {
         if task.task_id.is_empty() || task.poll_deadline < task.accepted_at {
-            return Err(OxrError::OutcomeUnknown(
+            return OxrObservation::without_response(Err(OxrError::OutcomeUnknown(
                 "invalid original async task receipt".into(),
-            ));
+            )));
         }
         let form = reqwest::multipart::Form::new()
             .text("task_id", task.task_id.clone())
             .text("api_key", self.credential.expose().to_owned());
-        let envelope = self
-            .post("/parse/async_check", form)
-            .await
-            .map_err(|error| {
-                if error.outcome_is_unknown() {
-                    error
-                } else {
-                    OxrError::OutcomeUnknown(format!("task observation was refused: {error}"))
-                }
-            })?;
-        let data = envelope
-            .data
-            .as_ref()
-            .ok_or_else(|| OxrError::MalformedResponse("`data` from the async check".into()))?;
-        if data.task_id.as_deref().is_some_and(|id| id != task.task_id) {
-            return Err(OxrError::MalformedResponse(
-                "the original `data.task_id`".into(),
-            ));
-        }
-        match data.status.as_deref() {
-            Some("success") => map_document(envelope).map(Some),
-            Some("failed") => {
-                let reason = data
-                    .error
-                    .as_deref()
-                    .filter(|reason| !reason.is_empty())
-                    .unwrap_or("upstream reported the task as failed")
-                    .to_owned();
-                Err(OxrError::TaskFailed(self.redact(reason)))
+        let mut observed = self.post("/parse/async_check", form).await;
+        observed.outcome = observed.outcome.map_err(|error| {
+            if error.outcome_is_unknown() {
+                error
+            } else {
+                OxrError::OutcomeUnknown(format!("task observation was refused: {error}"))
             }
-            Some("queuing") | Some("processing") => Ok(None),
-            Some(other) => Err(OxrError::MalformedResponse(format!(
-                "a known async task status (got `{}`)",
-                self.redact(other.to_owned())
-            ))),
-            None => Err(OxrError::MalformedResponse(
-                "`data.status` from the async check".into(),
-            )),
-        }
+        });
+        observed.and_then(|envelope| {
+            let data = envelope
+                .data
+                .as_ref()
+                .ok_or_else(|| OxrError::MalformedResponse("`data` from the async check".into()))?;
+            if data.task_id.as_deref().is_some_and(|id| id != task.task_id) {
+                return Err(OxrError::MalformedResponse(
+                    "the original `data.task_id`".into(),
+                ));
+            }
+            match data.status.as_deref() {
+                Some("success") => map_document(envelope).map(Some),
+                Some("failed") => {
+                    let reason = data
+                        .error
+                        .as_deref()
+                        .filter(|reason| !reason.is_empty())
+                        .unwrap_or("upstream reported the task as failed")
+                        .to_owned();
+                    Err(OxrError::TaskFailed(self.redact(reason)))
+                }
+                Some("queuing") | Some("processing") => Ok(None),
+                Some(other) => Err(OxrError::MalformedResponse(format!(
+                    "a known async task status (got `{}`)",
+                    self.redact(other.to_owned())
+                ))),
+                None => Err(OxrError::MalformedResponse(
+                    "`data.status` from the async check".into(),
+                )),
+            }
+        })
     }
 }
 

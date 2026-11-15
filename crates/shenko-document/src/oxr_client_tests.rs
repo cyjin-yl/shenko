@@ -246,7 +246,8 @@ impl OxrAttemptStore for MemoryReceipts {
         &self,
         binding: &OxrAttemptBinding,
         receipt: &OxrAttemptReceipt,
-    ) -> anyhow::Result<()> {
+        _response: Option<&OxrHttpResponse>,
+    ) -> anyhow::Result<OxrAttemptReceipt> {
         let mut records = self
             .0
             .lock()
@@ -256,7 +257,7 @@ impl OxrAttemptStore for MemoryReceipts {
             .ok_or_else(|| anyhow::anyhow!("test attempt was not armed"))?;
         anyhow::ensure!(original == binding, "attempt binding changed");
         *saved = Some(receipt.clone());
-        Ok(())
+        Ok(receipt.clone())
     }
 }
 
@@ -631,6 +632,85 @@ fn credential_is_redacted_in_every_rendering() {
         }
     });
     assert!(!reason.contains("sk-super-secret"), "{reason}");
+}
+
+/// A credential-echo journey across refusal and nominal document success:
+/// neither the original body nor recognized success fields may retain it.
+#[test]
+fn credential_echo_is_withheld_from_original_response_archive() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let secret = "fixture\"\ncredential";
+            let mut leaked_document: serde_json::Value =
+                serde_json::from_str(&upstream_document_json())?;
+            leaked_document["warnings"] = json!([secret]);
+            leaked_document["data"]["result"]["file_name"] = json!(secret);
+            leaked_document["data"]["result"]["outputs"]["json"]["pages"][0]["blocks"][0]
+                ["content"] = json!(secret);
+            let mut routes = HashMap::new();
+            routes.insert(
+                "/parse/sync",
+                VecDeque::from(vec![
+                    (
+                        403,
+                        json!({"code":1104,"message":format!("rejected {secret}"),"unmapped":secret})
+                            .to_string(),
+                    ),
+                    (200, leaked_document.to_string()),
+                ]),
+            );
+            let (base, state, _server) = spawn_mock(routes);
+            let mut config = OxrClientConfig::new(base, CredentialHandle::new(secret));
+            config.transport = OxrTransport::Sync;
+            let client = OxrClient::new(config)?;
+            let observed = client
+                .submit_document_observed("fixture.pdf", b"%PDF fixture")
+                .await;
+            let error = observed
+                .outcome
+                .as_ref()
+                .err()
+                .ok_or_else(|| anyhow::anyhow!("refusal was lost"))?;
+            assert!(!error.outcome_is_unknown());
+            assert!(!error.to_string().contains(secret));
+            assert!(!format!("{observed:?}").contains(secret));
+            let response = observed
+                .response
+                .ok_or_else(|| anyhow::anyhow!("response metadata missing"))?;
+            assert_eq!(response.status, 403);
+            assert_eq!(response.body_state, OxrBodyState::CredentialEchoWithheld);
+            assert!(response.body().is_empty());
+            // An explicit separate request receives an otherwise valid body.
+            // It must not leave secret-bearing typed success for a host to seal.
+            let observed = client
+                .submit_document_observed("fixture.pdf", b"%PDF fixture")
+                .await;
+            let error = observed
+                .outcome
+                .as_ref()
+                .err()
+                .ok_or_else(|| anyhow::anyhow!("credential-bearing typed success escaped"))?;
+            assert!(error.outcome_is_unknown());
+            assert!(!error.to_string().contains(secret));
+            assert!(!format!("{observed:?}").contains("fixture"));
+            let response = observed
+                .response
+                .ok_or_else(|| anyhow::anyhow!("success capture metadata missing"))?;
+            assert_eq!(response.status, 200);
+            assert_eq!(response.body_state, OxrBodyState::CredentialEchoWithheld);
+            assert!(response.body().is_empty());
+            assert_eq!(
+                state
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("fixture mutex poisoned"))?
+                    .requests
+                    .len(),
+                2
+            );
+            Ok(())
+        })
 }
 
 // ----- bounded concurrency ------------------------------------------------
