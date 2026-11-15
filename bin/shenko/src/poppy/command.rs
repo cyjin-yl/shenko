@@ -111,6 +111,8 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             {
                 connection.user_id = old.user_id;
                 if old.report.request_protocol_version == connection.report.request_protocol_version
+                    && shenko_compat_poppy::transport::session_extensions(&old.report)
+                        == shenko_compat_poppy::transport::session_extensions(&connection.report)
                 {
                     connection.session_id = old.session_id;
                 }
@@ -192,6 +194,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             unit_id,
             checkout_observation,
             resource,
+            signed_out,
         } => {
             uuid::Uuid::parse_str(
                 reference
@@ -208,20 +211,31 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             );
             let node = crate::compat::node_of(data_dir)?;
             let connection = Connection::read(&node, &self::reference(&node, &unit_id)?)?;
+            ensure!(
+                !signed_out || resource.is_none(),
+                "a signed-out credential binding cannot select an account token resource"
+            );
+            let authentication = if signed_out {
+                Authentication::SignedOut
+            } else {
+                Authentication::Account { resource }
+            };
             let client = CompanyClient::new(
                 Vault::open(data_dir, false)?,
                 connection,
-                &Authentication::Account { resource },
+                &authentication,
                 Duration::from_secs(60),
             )?;
             let store = crate::compat::store_of(data_dir)?;
-            let record = commerce::payment_credential_record(
+            let mut record = commerce::payment_credential_record(
                 &client,
                 &store,
                 checkout_observation,
                 instrument,
             )?;
-            let encoded = zeroize::Zeroizing::new(serde_json::to_vec(&record)?);
+            let encoded = serde_json::to_vec(&record);
+            super::transport::clear_json(&mut record);
+            let encoded = zeroize::Zeroizing::new(encoded?);
             client.vault().write(&reference, &encoded)?;
             json!({"credential_ref":reference,"checkout_observation":checkout_observation,
                 "node_local":true,"secret_exported":false})
@@ -244,51 +258,71 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
                 Connection::read(&guard_node.lock(), &guard_reference)?;
                 Ok(())
             }));
-            // Verify the public documents actually reachable at the configured
-            // URLs; writing JSON locally is not public identity deployment.
-            let expected = client.operator().public_documents()?;
-            for name in ["client_metadata", "jwks", "ucp_profile"] {
-                let url = expected[name]["url"]
-                    .as_str()
-                    .context("public document URL missing")?;
-                let actual = client.fetch_schema(url).await?;
-                ensure!(
-                    actual == expected[name]["document"],
-                    "published {name} does not match this node's public identity"
-                );
+            match probe(&client, &reference).await {
+                Ok(mut observation) => {
+                    client.redact_observation(&mut observation)?;
+                    observation
+                }
+                Err(error) => {
+                    let mut diagnostic = json!({"error":format!("{error:#}")});
+                    client.redact_observation(&mut diagnostic)?;
+                    return Err(error);
+                }
             }
-            let business = &client
-                .connection()
-                .report
-                .ucp
-                .as_ref()
-                .context("company has no UCP profile")?
-                .metadata;
-            let negotiated = NegotiatedProfile::from_business(business, client.profile())?;
-            let service = negotiated.service(Transport::Mcp)?;
-            let mut session = client
-                .connect_mcp(
-                    &service.endpoint,
-                    BTreeMap::from([("UCP-Agent".into(), client.profile().agent_header())]),
-                )
-                .await?;
-            let server = session.server_info()?;
-            let request = serde_json::from_value(json!({"method":"tools/list","params":{}}))?;
-            let result = session
-                .request(
-                    request,
-                    Duration::from_secs(60),
-                    &tokio_util::sync::CancellationToken::new(),
-                )
-                .await;
-            let closed = session.close().await;
-            json!({"connection":reference,"published_identity_verified":true,"declared_intersection":negotiated,
-                "server":server,"tools_observation":result?,"connection_closed":closed.is_ok(),
-                "account_access_attempted":false,"commerce_mutation_attempted":false})
         }
     };
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+async fn probe(client: &CompanyClient, reference: &UnitRef) -> Result<Value> {
+    // Local export is not deployment: verify all three actual public documents.
+    let expected = client.operator().public_documents()?;
+    for name in ["client_metadata", "jwks", "ucp_profile"] {
+        let url = expected[name]["url"]
+            .as_str()
+            .context("public document URL missing")?;
+        let actual = client.fetch_schema(url).await?;
+        ensure!(
+            actual == expected[name]["document"],
+            "published {name} does not match this node's public identity"
+        );
+    }
+    let business = &client
+        .connection()
+        .report
+        .ucp
+        .as_ref()
+        .context("company has no UCP profile")?
+        .metadata;
+    let negotiated = NegotiatedProfile::from_business(business, client.profile())?;
+    let service = negotiated.service(Transport::Mcp)?;
+    let mut session = client
+        .connect_mcp(
+            &service.endpoint,
+            BTreeMap::from([("UCP-Agent".into(), client.profile().agent_header())]),
+        )
+        .await?;
+    let observed = async {
+        let server = session.server_info()?;
+        let request = serde_json::from_value(json!({"method":"tools/list","params":{}}))?;
+        let result = session
+            .request(
+                request,
+                Duration::from_secs(60),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await?;
+        Ok::<Value, anyhow::Error>(json!({"connection":reference,
+            "published_identity_verified":true,"declared_intersection":negotiated,
+            "server":server,"tools_observation":result,
+            "account_access_attempted":false,"commerce_mutation_attempted":false}))
+    }
+    .await;
+    let closed = session.close().await;
+    let mut value = observed?;
+    value["connection_closed"] = closed.is_ok().into();
+    Ok(value)
 }
 
 fn payment_handlers(path: &Path) -> Result<BTreeMap<String, Vec<Value>>> {

@@ -7,7 +7,7 @@ use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod node_sync;
 mod compat;
@@ -257,6 +257,8 @@ pub enum CompatPoppyCommand {
         #[arg(long)] unit_id: String,
         #[arg(long)] checkout_observation: shenko_types::ids::EntityId,
         #[arg(long)] resource: Option<String>,
+        /// Bind to an observed guest checkout without using an account grant.
+        #[arg(long)] signed_out: bool,
     },
     /// Read the actual merchant MCP tool catalogue with signed-out Poppy identity.
     Probe { unit_id: String },
@@ -1315,11 +1317,16 @@ fn spawn_runtime_hook_pump(
 pub fn run_cli() -> Result<()> {
     let cli = Cli::parse();
 
-    fmt()
-        .with_env_filter(EnvFilter::new(&cli.log))
-        .with_writer(std::io::stderr)
-        .with_target(true)
-        .compact()
+    // The SDK logs full protocol messages, including private payment payloads,
+    // at INFO/TRACE. Keep these events out even when a more specific --log
+    // directive enables them. Our own bounded operation receipts remain the
+    // source of protocol observations; filtering after formatting is too late.
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(&cli.log))
+        .with(tracing_subscriber::filter::filter_fn(|metadata| {
+            metadata.target() != "rmcp" && !metadata.target().starts_with("rmcp::")
+        }))
+        .with(fmt::layer().with_writer(std::io::stderr).with_target(true).compact())
         .init();
 
     let data_dir = cli.data_dir.unwrap_or_else(|| {

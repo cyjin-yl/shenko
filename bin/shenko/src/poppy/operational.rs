@@ -1,4 +1,6 @@
 //! Operational Poppy capabilities use the existing native task/effect ledger.
+#[cfg(test)]
+mod tests;
 use std::{borrow::Cow, convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context as _, Result, ensure};
@@ -252,7 +254,7 @@ impl Runtime {
         )?;
         let mut binding = json!({"unit_id":UNIT_ID,"connection":input.connection,
             "company":client.connection().report.company_identifier,"user_id":client.connection().user_id,
-            "session_id":client.connection().session_id,"client_id":client.client_id(),
+            "session_id":client.session_id(),"session_extensions":client.session_extensions(),"client_id":client.client_id(),
             "account_binding":client.account_binding(),"platform_profile":client.profile().url()});
         if input.account.is_some() {
             binding["account_state"] = account::binding_snapshot(&client)?;
@@ -291,18 +293,22 @@ impl Runtime {
         }
         let owner = self.clone();
         let context = invocation.task_invocation.clone();
+        let frozen_connection = input.connection.clone();
         let cancellation = self.workers.stop.child_token();
         let send_cancellation = cancellation.clone();
-        let client = client.with_guard(Arc::new(move || {
-            ensure!(
-                !send_cancellation.is_cancelled()
-                    && !owner.workers.stop.is_cancelled()
-                    && plugin_enabled(&owner.node.lock(), UNIT_ID)?
-                    && owner.store.native_invocation_current(&context)?,
-                "Poppy operation lost its current dispatch authority"
-            );
-            Ok(())
-        }));
+        let client = client
+            .with_cancellation(cancellation.clone())
+            .with_guard(Arc::new(move || {
+                ensure!(
+                    !send_cancellation.is_cancelled()
+                        && !owner.workers.stop.is_cancelled()
+                        && plugin_enabled(&owner.node.lock(), UNIT_ID)?
+                        && owner.store.native_invocation_current(&context)?,
+                    "Poppy operation lost its current dispatch authority"
+                );
+                Connection::read(&owner.node.lock(), &frozen_connection)?;
+                Ok(())
+            }));
         let work = async {
             if let Some(action) = &input.account {
                 account::execute(
@@ -342,7 +348,8 @@ impl Runtime {
                     break work.as_mut().await;
                 },
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    if !self.store.native_invocation_current(&invocation.task_invocation).unwrap_or(false) {
+                    if !self.store.native_invocation_current(&invocation.task_invocation).unwrap_or(false)
+                        || Connection::read(&self.node.lock(), &input.connection).is_err() {
                         stop_reason = Some("Poppy task lost its current authority");
                         cancellation.cancel();
                         break work.as_mut().await;

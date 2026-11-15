@@ -136,6 +136,11 @@ impl CompanyClient {
         self.cancellation = Some(cancellation);
         self
     }
+    pub fn operation_guard(&self) -> Result<Arc<dyn Fn() -> Result<()> + Send + Sync>> {
+        self.guard
+            .clone()
+            .context("Poppy operation authority guard is missing")
+    }
     pub fn vault(&self) -> &Vault {
         &self.vault
     }
@@ -650,7 +655,7 @@ impl HttpRequestAuthorizer for CompanyAuthorizer {
                 .transpose()?;
             self.signer.authorize(request, token)?;
             let mut secrets = self.http.secrets.lock();
-            for name in ["poppy-session", "dpop"] {
+            for name in ["poppy-session", "dpop", "signature", "signature-input"] {
                 if let Some(value) = request.headers().get(name) {
                     secrets.remember(
                         value

@@ -643,6 +643,8 @@ shenko compat poppy credential \
 instrument 必须由实际提供方取得，包含其 `id`、`handler_id`、`type` 等真实资料；不能用示例
 字符串伪造。导入将它与原观察的公司、用户、操作者、grant、checkout 和条款摘要一起封存。
 没有资源专用 token 时省略 `--resource`，只有与真实服务 metadata 相符时才可使用默认 token。
+原观察属于未登录 checkout 时使用 `--signed-out`，不指定 `--resource`；导入仍核对原观察的
+公司、用户和条款，不把已登录账号的凭据改绑为访客身份。
 随后动作形状为：
 
 ```json
