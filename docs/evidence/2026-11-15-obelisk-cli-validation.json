@@ -97,13 +97,13 @@
     "reason": "No reachable authorized local-model endpoint in either executor or connected Box; documented local gateways returned HTTP 502/403 and the Tailnet gateway returned HTTP 503 or CONNECT 403. The connected Box reports Tailscale logged out.",
     "network_or_credentials_modified": false,
     "mock_substituted": false,
-    "test": "cargo test -p shenko --test obelisk_acceptance -- --ignored --nocapture",
     "required_environment": [
       "SHENKO_USE_LOCAL_MODEL=1",
       "SHENKO_LOCAL_MODEL_URL",
       "SHENKO_LOCAL_MODEL",
       "SHENKO_OBELISK_CONFIG"
     ],
-    "claim_limit": "No model-accuracy, negative-effect, token-saving, or statistical-efficacy conclusion."
+    "claim_limit": "No model-accuracy, negative-effect, token-saving, or statistical-efficacy conclusion.",
+    "runner": "cargo run -p shenko --example obelisk_acceptance"
   }
 }

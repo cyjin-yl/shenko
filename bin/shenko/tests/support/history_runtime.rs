@@ -1,5 +1,5 @@
 //! Shared real Store/Node/native-runtime fixture for history verification.
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use parking_lot::Mutex;
 use shenko::obelisk::{self, ObeliskPlugin, TASK_KIND};
 use shenko_compat::runtime::AdapterHost;
