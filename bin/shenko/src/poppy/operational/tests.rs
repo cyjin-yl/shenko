@@ -91,6 +91,12 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
         package_root: root.join("units").display().to_string(),
         enable: Some(true),
     })?;
+    // Import retains the dependency without enabling it. Match the separate
+    // `compat enable compat.poppy` action before using the company connection.
+    node.handle_unit_request(UnitRequest::SetEnabled {
+        unit_id: UNIT_ID.into(),
+        enabled: true,
+    })?;
     let client = CompanyClient::new(
         Vault::open(root, false)?,
         Connection::read(&node, &reference)?,
