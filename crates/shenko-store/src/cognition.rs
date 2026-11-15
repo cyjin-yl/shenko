@@ -2794,7 +2794,7 @@ impl Store {
                     let mut branch_rows = Vec::new();
                     for spec in TABLES.iter().filter(|spec| matches!(spec.name,
                         "subject_branch_forks" | "subject_head_history" | "subject_branch_heads"
-                        | "subject_steps" | "tasks" | "session_events" | "context_notes"))
+                        | "subject_steps" | "tasks" | "session_events" | "subject_raw_inputs" | "context_notes"))
                     {
                         branch_rows.extend(read_table(&tx, spec)?);
                     }
