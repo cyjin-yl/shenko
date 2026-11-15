@@ -248,8 +248,10 @@ impl Store {
                 && !task.memos.contains_key("native_settlement_only")
                 && matches!(task.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
                     if invocation_id == ctx.invocation_id && epoch == ctx.epoch), "stale or inadmissible T1 invocation");
-            let (head, _) = crate::store::read_subject(&tx, task.agent_id)?;
-            crate::child::ensure_owner_active(&tx, &task, &head)?;
+            // Generic T1 also serves trusted executors without a Subject
+            // runtime. Native tasks retain their branch/owner checks here;
+            // a bound authority reserves its task ancestry below, and its
+            // durable policy is checked again in the final transaction.
             if native_dispatch || crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
                 ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale native T1 authority");
             }
@@ -344,8 +346,6 @@ impl Store {
             |r| r.get(0),
         )?;
         let mut task: TaskRecord = serde_json::from_str(&data)?;
-        let (head, _) = crate::store::read_subject(&tx, task.agent_id)?;
-        crate::child::ensure_owner_active(&tx, &task, &head)?;
         ensure!(
             task.task_revision == ctx.task_revision && task.record_revision == ctx.record_revision,
             "stale_task"
