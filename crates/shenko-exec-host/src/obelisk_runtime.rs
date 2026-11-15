@@ -314,6 +314,11 @@ pub struct ObeliskRuntime {
     config: ObeliskConfig,
 }
 
+fn upstream_trim_space(character: char) -> bool {
+    // ECMAScript String.trim includes BOM but excludes Unicode's NEL.
+    character == '\u{feff}' || (character != '\u{0085}' && character.is_whitespace())
+}
+
 impl ObeliskConfig {
     pub fn validate(&self) -> Result<()> {
         let config = self;
@@ -348,6 +353,14 @@ impl ObeliskConfig {
             ensure!(
                 source.path.is_absolute() && source.path.to_str().is_some(),
                 "source roots must be absolute UTF-8 paths"
+            );
+            let literal = source.path.to_string_lossy();
+            let normalized: PathBuf = source.path.components().collect();
+            let effective = normalized.to_string_lossy();
+            ensure!(
+                literal.trim_matches(upstream_trim_space) == literal.as_ref()
+                    && effective.trim_matches(upstream_trim_space) == effective.as_ref(),
+                "source roots must not be rewritten by upstream whitespace trimming"
             );
             ensure!(
                 !source.root_label.trim().is_empty()
@@ -391,8 +404,14 @@ impl ObeliskConfig {
 }
 
 impl ObeliskRuntime {
-    pub fn new(config: ObeliskConfig) -> Result<Self> {
+    pub fn new(mut config: ObeliskConfig) -> Result<Self> {
         config.validate()?;
+        // Upstream lexically normalizes provider roots before indexing. Use the
+        // same effective spelling for settings, queries and source manifests;
+        // resolving symlinks or requiring a live source would break offline use.
+        for source in &mut config.sources {
+            source.path = source.path.components().collect();
+        }
         Ok(Self { config })
     }
 

@@ -40,6 +40,9 @@
 Node 24 可直接执行这一份 TypeScript 源码。`index_home` 是可重建缓存；原件目录保持只读使用。
 桥原子创建完整 settings 文件，并拒绝覆盖已有不同设置。所有已知上游 provider 均显式设置，
 没有选中的 provider 不参与默认历史发现。根标签是逻辑名，绝对路径只属于当前节点。
+源根中的 `.` 与重复分隔符按词法折叠，settings、查询和 manifest 共用该有效路径；
+不解析 symlink，也不要求源目录当前存在。原始拼写或折叠后会被上游 JavaScript
+`trim()` 改写的根在任何写入或进程启动前明确拒绝，避免改查另一个目录。
 
 ## 查询与原件是两层
 
@@ -83,7 +86,8 @@ Linux、Android、Apple 平台对进程组发停止信号；其他平台只声�
 
 ## 最小真实验证
 
-两个测试位于 `obelisk_runtime/tests.rs`，未配置真实 CLI 时明确输出未执行：
+两个真实 CLI 场景位于 `obelisk_runtime/tests.rs`，未配置真实 CLI 时明确输出未执行；
+另一个配置拒绝场景不依赖 CLI，并确认验证阶段不准备索引：
 
 ```sh
 SHENKO_OBELISK_EXECUTABLE=/absolute/path/to/node \

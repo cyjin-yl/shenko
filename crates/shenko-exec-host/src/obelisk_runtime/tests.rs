@@ -40,7 +40,13 @@ fn runtime() -> Result<Option<(Fixture, ObeliskRuntime)>> {
         sources.push(ObeliskSourceRoot {
             provider,
             root_label: provider.as_str().into(),
-            path,
+            // Exercise the real index/manifest flow with an equivalent spelling
+            // that upstream normalizes before storing its source locators.
+            path: if provider == ObeliskProvider::Pi {
+                PathBuf::from(format!("{}//./pi", directory.display()))
+            } else {
+                path
+            },
         });
     }
     Ok(Some((
@@ -89,6 +95,49 @@ fn run_scenario(future: impl std::future::Future<Output = Result<()>>) -> Result
         .enable_all()
         .build()?
         .block_on(future)
+}
+
+#[test]
+fn source_root_trim_rewrite_is_rejected_before_index_preparation() -> Result<()> {
+    let directory =
+        std::env::temp_dir().join(format!("shenko-obelisk-trim-{}", uuid::Uuid::new_v4()));
+    let source_checkout = directory.join("upstream");
+    let mut config = ObeliskConfig {
+        executable: directory.join("node"),
+        arguments: vec![
+            source_checkout
+                .join("packages/cli/src/obelisk.ts")
+                .to_string_lossy()
+                .into_owned(),
+        ],
+        source_checkout,
+        index_home: directory.join("index"),
+        source_instance: "trim-rejection".into(),
+        sources: vec![ObeliskSourceRoot {
+            provider: ObeliskProvider::Pi,
+            root_label: "pi".into(),
+            path: directory.join("pi"),
+        }],
+        limits: ObeliskLimits::default(),
+    };
+    // Configuration remains valid while the local installation/source is gone.
+    ObeliskRuntime::new(config.clone())?;
+    config
+        .sources
+        .first_mut()
+        .context("fixture source root is missing")?
+        .path
+        .as_mut_os_string()
+        .push(" \u{feff}");
+    let error = ObeliskRuntime::new(config)
+        .err()
+        .context("upstream would trim this source root to a different directory")?;
+    ensure!(
+        error.to_string().contains("upstream whitespace trimming"),
+        "unexpected configuration failure: {error:#}"
+    );
+    assert!(!directory.exists(), "validation must not prepare an index");
+    Ok(())
 }
 
 #[test]
