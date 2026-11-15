@@ -4,8 +4,9 @@ Historical checkpoint: the commands, hashes and limits below describe the
 initial authority fixes and their immediate follow-ups. The later
 [durable-control continuation](control-quorum-20261115.md) replaces the
 vote-only persistence boundary and wires the Store authority bridge, actual
-branch continuation and runtime reconstruction through `4baed97`. Their final
-combined behavior gate remains pending. The old observations below are evidence
+branch continuation and runtime reconstruction through `58b30ba`. Their combined
+local journeys now pass; see [the final local record](readiness-continuation-20261115.json).
+The old observations below are evidence
 for their stated source; they are not a claim that those three mechanisms are
 still wholly absent today.
 
@@ -212,8 +213,9 @@ applied-here record is local, nonreplicated and set only after successful Store
 COMMIT. The real fork path retains a Store parent head, frozen history and
 uncommitted input selections, creates new branch/task/step identities, and
 repairs Node projection from the Store's own receipt. The runtime adapter and
-owned-consumer reconstruction path are source-wired through `4baed97`; their
-combined behavior gate is pending, not an absent integration.
+owned-consumer reconstruction path are source-wired through `58b30ba`; their
+combined reservation, cancellation, crash/fork and reconstruction journeys passed
+at `60e9963`.
 
 The remaining canonical-materialization boundary is explicit: a quorum-chosen
 original plan is not a deterministic cross-node S1 result. Unconfirmed apply
@@ -233,7 +235,7 @@ cannot be undone from a stale snapshot. The runtime checks this origin at fresh
 admission; receipt-proven historical projection repair grants no new authority.
 
 The continuation also records the staged-but-uncommitted input-inheritance
-source correction and its pending integrated behavior gate. See the
+source correction and its passing integrated branch journeys. See the
 [current Node contract](../specs/nodes.md#implementation-and-evidence-status)
 for the current mechanism/evidence mapping; these later changes do not alter
 the historical checks or source hashes above.

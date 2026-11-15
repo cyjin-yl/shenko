@@ -1,0 +1,153 @@
+{
+  "kind": "bounded_distributed_runtime_continuation",
+  "date_utc": "2026-11-15",
+  "pr": "https://github.com/cyjin-yl/shenko/pull/299",
+  "baseline": "054817b0d5729fed56ec5a974d101c31edfd1410",
+  "behavior_source_commit": "60e996327f0a191f60a73b5b4e7625b7242fbe09",
+  "lint_source_commit": "c09c6c3809d7a6dc0486e435202df23384518a78",
+  "source_sha256": {
+    "bin/shenko/src/node_sync.rs": "962b25f4d9aabbd645539e7c80de03db62d41414a147abf517f81f52905bb41b",
+    "bin/shenko/src/runtime_authority.rs": "b64d15a478e648ba924342bfad6ed347ded739745adca75a76359f69af1a7665",
+    "bin/shenko/src/runtime_authority_tests.rs": "2261645651b373bc45e264649a30c5e26ffb7ce76540efdf1f941373f03e0832",
+    "bin/shenko/src/runtime_branches.rs": "c0a3c33738b8bb14087d0bdf3ab3202451b7feff55a36a6283ccedaabd2f85dd",
+    "bin/shenko/src/lib.rs": "5b5a2bbe95b4bcd492b7af231fb15b2802a83a38cb4a1a20aa404a41aa393525",
+    "crates/shenko-node/src/control.rs": "e595b0f0e3d95fa45b652b485827af97afddd304342fd62867acd88a8ad65e7a",
+    "crates/shenko-node/src/control_transport.rs": "19aa0e2adb3079d8bcce5787346a79ea49025afc1ae40999b4904a5b2f32da2e",
+    "crates/shenko-node/src/election.rs": "dec01046da6ca28a1483bd36de021cedc47724d783ccc2427a0b86ec37691280",
+    "crates/shenko-node/src/authority_guard.rs": "4bf82ee5d62987f8b42564a2613ab6983912a90c17d435ba578f3691c9849baa",
+    "crates/shenko-node/src/branch_binding.rs": "ce5640e0cd07440156b4949055aece63fbc7c93cce7f3db726f5b0d839503bde",
+    "crates/shenko-store/src/authority.rs": "2706005a326457f33c1093ad1734000e961c145c921abf8547421b346ecbd671",
+    "crates/shenko-store/src/subject_branches.rs": "577cf3c85221922eea89bf607973787003dc50e5955ce9645854ca0ed38c9ff8",
+    "crates/shenko-store/src/control_predecessor.rs": "362f15743ea7ea223969879bcc6508388a87e486b4d8a91790152d5d4a934ec8",
+    "crates/shenko-store/src/control_recovery.rs": "8bc9c8d071f9e551488e761e87628c2f9fbd9b6a105ae52ceb55868716fb3b72",
+    "crates/shenko-store/src/cognition.rs": "c00944f0a27565011411af4a51cf06109d68d551e1c9ef80cd6da76ede1d31cc",
+    "crates/shenko-store/src/cognition_archive.rs": "314c3473a5a677186e10a5583313efc6eff03b83bf3f7de4416fd2c1a09d839b",
+    "crates/shenko-store/src/intents.rs": "36b2769821cdb9c90da9c1935a66a9bb4b2c8e7817d6519ad94002d0c44a412c",
+    "crates/shenko-store/src/child.rs": "aec3f041e04e89c1166da663cb7f54d229935a57f71a61d63a9fa2b2ab0a5e42",
+    "crates/shenko-store/src/channel.rs": "91d8a21ddddf3942d03d32ecf99edb5711b22751925c4eb6a03fec34d0b5ffa4",
+    "crates/shenko-subject/src/obligation_partition_tests.rs": "606501d19592720942e78a564c14c7a7c8bf53125e35d2336ac8650d645b3b31"
+  },
+  "environment": {
+    "rust": "1.98.1",
+    "jobs": 1,
+    "incremental": false,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "offline": true,
+    "locked": true,
+    "shared_build_lock_used": true
+  },
+  "checks": [
+    {
+      "name": "integrated_runtime_and_branch_journeys",
+      "source_commit": "60e996327f0a191f60a73b5b4e7625b7242fbe09",
+      "command": "cargo test --offline --locked -j1 -p shenko --lib runtime_ -- --nocapture --test-threads=1",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "log": "combined-runtime-journeys-verified.log",
+      "log_sha256": "26082f08b2755dee6a0d437fe6aa0b4bf80061af6cd8a0dbcab01cd22804bd58"
+    },
+    {
+      "name": "schema_6_and_7_required_membership",
+      "source_commit": "60e996327f0a191f60a73b5b4e7625b7242fbe09",
+      "command": "cargo test --offline --locked -j1 -p shenko-store --lib unknown_fact_does_not_produce_a_verified_partial_import -- --nocapture",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "archive-membership-final.log",
+      "log_sha256": "45107521d43e70ab4d7d4be503c7a33d1da32bb5b3a58ba2948882dc9a7b57d2"
+    },
+    {
+      "name": "node_library",
+      "source_commit": "60e996327f0a191f60a73b5b4e7625b7242fbe09",
+      "command": "cargo test --offline --locked -j1 -p shenko-node --lib -- --test-threads=1",
+      "passed": 34,
+      "failed": 0,
+      "ignored": 0,
+      "log": "node-library-final.log",
+      "log_sha256": "a6ecae3b14bcf2ab4710b13418c21ee5d81ec74a4a9a9f0bad61fd100f122776"
+    }
+  ],
+  "new_runtime_journeys": 4,
+  "existing_owner_regressions_in_same_filter": 1,
+  "clippy": {
+    "status": "command_passed",
+    "command": "cargo clippy --offline --locked -j1 -p shenko --all-targets --message-format=json -- --force-warn clippy::all --force-warn clippy::unwrap_used --force-warn clippy::expect_used",
+    "log_sha256": "d8d2383062cba9fe02b7a9433abfaeade544734216766f7bfbdbcc90c7c89f6e",
+    "summary_sha256": "16d1502aad6ab2101172986aaec254e24ed96a7959187500260c33d5049b23cb",
+    "new_diagnostics_fixed": 9,
+    "remaining_changed_line_diagnostic": "The existing fixture unwrap remains on a changed branch-history lookup. The same unwrap existed at the published baseline; its lint count did not increase.",
+    "limit": "This targeted check is not the independently compiled whole-workspace baseline ratchet."
+  },
+  "structural_checks": {
+    "documentation": {
+      "kind": "documentation_integrity_only",
+      "product_tested": false,
+      "migrated_contract_chunks": 365,
+      "requirements": 165,
+      "behaviors": 63,
+      "source_records": 59,
+      "acceptance_definitions": 236,
+      "archived_sources": 46,
+      "archived_entrypoints": 32,
+      "development_skills": 9,
+      "domain_specs_registered": 31,
+      "domain_specs_present": 31,
+      "domain_specs_pending": [],
+      "errors": []
+    },
+    "kernel_boundary": {
+      "kind": "kernel_boundary_structure_only",
+      "product_tested": false,
+      "workspace_members": 33,
+      "plugins": 27,
+      "violations": {
+        "plugin_reaches_core": 19,
+        "core_depends_on_plugin": 7,
+        "interface_depends_outward": 0
+      },
+      "new_violations": [],
+      "resolved_violations": [],
+      "baseline_updated": false,
+      "trusted_baseline_commit": "054817b0d5729fed56ec5a974d101c31edfd1410",
+      "errors": []
+    }
+  },
+  "historical_failures_retained": [
+    {
+      "log": "branch-journeys-predecessor-final.log",
+      "reason": "rustc for shenko-exec-host received SIGKILL before tests ran"
+    },
+    {
+      "log": "authority-runtime-tests-3.log",
+      "reason": "legitimate self-owned root was incorrectly treated as an ancestor cycle; fixed by preserving the root read dependency then terminating at the actual subject root"
+    },
+    {
+      "log": "combined-runtime-journeys-final.log",
+      "log_sha256": "4a44013eba4f264221e3b4d26e3962b4cfbd4f9b30dc9666251a6d9594a983ab",
+      "reason": "four of five passed; the dedicated malformed-source fixture was stopped by source foreign keys before its missing-step injection; only that fault connection now bypasses source FK, while production import verification remains unchanged"
+    }
+  ],
+  "hosted_gates": {
+    "checks": "https://github.com/cyjin-yl/shenko/pull/299/checks",
+    "actions": "https://github.com/cyjin-yl/shenko/actions?query=branch%3Afix%2Fship-readiness-20261115",
+    "required_jobs": [
+      "rust",
+      "clippy-ratchet",
+      "docs",
+      "docs-migration",
+      "kernel-boundary",
+      "web",
+      "nightly-rust-long",
+      "nightly-compiler-full"
+    ],
+    "policy": "Every job must execute against the published candidate. The final PR comment records actual run URLs and results; local focused results never substitute for a skipped or failed hosted job."
+  },
+  "remaining_boundaries": [
+    "Canonical cross-ledger Store write units and exact S1 materialization are not implemented; the original plan and unavailable materialization remain visible debt.",
+    "Connected-minority unique coordinator and resident follower lifecycle are not implemented; reachable election loss returns PrimaryNotSelected.",
+    "Independent local reservation is not a distributed lease, Byzantine proof, or global exactly-once physical delivery guarantee.",
+    "Real model/OXR/channel/seat journeys, target platform acceptance, the S2 self-development cycle and actual seven/thirty-day operation remain distinct required evidence."
+  ]
+}

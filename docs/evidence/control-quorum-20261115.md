@@ -5,9 +5,11 @@ process journeys and existing election regressions. This proves the stated
 control-plane paths and retention of original frozen plans at the source scope
 recorded below. The continuation now wires Store authority reservations, actual
 availability forks with inherited input selections, and live runtime
-reconstruction through `4baed97`. Final combined behavior results are pending
-the integrator's candidate evidence; the earlier Node results do not test this
-later runtime wiring.
+reconstruction through `58b30ba`. Four integrated runtime/branch journeys plus
+the existing owner-lock regression passed at `60e9963`. The separate final Node
+library run passed 34/34; [the combined record](readiness-continuation-20261115.json)
+binds these results and the archive/Clippy checks to their exact inputs. Earlier
+Node results below retain their own narrower source scope.
 There is no canonical cross-node S1 materialization claim. See the
 [current distributed boundary](../specs/nodes.md#implementation-and-evidence-status)
 for the three original gaps and their distinct evidence status.
@@ -131,8 +133,8 @@ is still current, it creates an actual availability branch before starting new
 consumers. This selected-plan recovery path is distinct from isolated-election
 fallback. It cannot rebase the original epoch, assign its request/attempt to the
 new owner, or gain another physical send opportunity. A reconstructed original
-grant is historical evidence. The final adapter is source-wired; its combined
-behavior gate remains pending.
+grant is historical evidence. The integrated process-exit and reconstruction
+journey now passes; its limits remain in the runtime authority evidence.
 
 Canonical transition replay remains a separate requirement: it needs an
 explicit typed read set, fixed write/result identities, and a logical decision
@@ -145,8 +147,8 @@ The three original gaps are now narrowed as follows:
 | Original gap | Source checkpoint | Evidence boundary |
 | --- | --- | --- |
 | Vote quorum without persisted entries | `97602f5`, bounded transport/key fences `31010ab`, legacy-admission refusal `e0dffa0` | Focused Node journeys and library/Clippy results below; the final four-line legacy refusal awaits the combined candidate's checks. |
-| Node authority not coupled to Store commit | Reservation `c429dea`, fresh-grant read checks `e7d4571`, Store/runtime integration `2169cb8`, failure-lifecycle correction `b066224`, final wiring `4baed97` | The reservation spans exact grant validation and Store CAS; local materialization follows successful COMMIT. Live reconstruction is wired. Final integrated behavior remains pending; the local lock is not a remote lease. |
-| Availability fact without a real Store fork | Store/Node/context fork `d09b087`, coherent predecessor/head validation `25207eb`, inherited-input/closure/version corrections `004df65`/`4a4a365`/`aa745a4`, origin/branch CAS `61ba367`/`43f4580`, final wiring `4baed97` | Actual fork/projection and guarded startup/reconstruction paths are wired. Combined fork/rebuild, inherited-input and authority-change behavior remain integration gates. |
+| Node authority not coupled to Store commit | Reservation `c429dea`, fresh-grant read checks `e7d4571`, Store/runtime integration `2169cb8`, failure-lifecycle correction `b066224`, final wiring `4baed97` | The reservation spans exact grant validation and Store CAS; local materialization follows successful COMMIT. Integrated reservation/cancellation and reconstruction journeys passed; the local lock is not a remote lease. |
+| Availability fact without a real Store fork | Store/Node/context fork `d09b087`, coherent predecessor/head validation `25207eb`, inherited-input/closure/version corrections `004df65`/`4a4a365`/`aa745a4`, origin/branch CAS `61ba367`/`43f4580`, final wiring `4baed97`/`58b30ba` | Combined fork/rebuild, inherited-input, parallel rejoin/refusal and authority-change journeys passed at the recorded source. Real physical partitions remain a distinct acceptance level. |
 
 Targeted fork review found a delivery boundary separate from raw retention.
 A web/Playground/media/self-wake input staged in the parent's current step has
@@ -177,8 +179,8 @@ The targeted source review found no additional defect in the index migration,
 frozen ancestor normalization, multiple-generation first-step references or
 media admission binding after those corrections. Two existing branch recovery
 journeys were extended by the root slice; this read-only review added no
-independent scenario or runtime test. Source closure is fixed, while combined
-fork/rebuild behavior remains pending verification at this evidence checkpoint.
+independent scenario or runtime test. The subsequent combined run passed both
+extended journeys, as recorded in the branch-continuity evidence.
 
 ## Final source integration boundary
 
@@ -214,13 +216,19 @@ not current permission. Receipt-proven repair of an already committed Store fork
 still preserves the original fact even after authority changed, without
 restoring fresh local authority.
 
+The episode correction in `58b30ba` freezes validity before the next campaign.
+Only a previously current no-fence availability branch, unchanged identity,
+configuration and full branch fact, with exactly one new local term, may reuse
+its branch identity. A branch that recovered quorum or learned a newer term
+must create a new real fork on later isolation; its old metadata cannot hide
+that new divergence. Missing legacy origins are not reused.
+
 These source changes close the earlier claim that PLAN quorum, the Store bridge
 and real branch transition are wholly disconnected. They do not supply canonical
 cross-ledger S1 state-machine replay, a unique coordinator in each connected
-minority component, or the final runtime acceptance results. The product
-requirements remain unchanged. The final combined checks are pending and must
-be recorded against the actual integrated candidate, not inferred from the
-historical focused results below.
+minority component, or real model/multi-device/long-run acceptance. The product
+requirements remain unchanged. The integrated local checks are now recorded
+against their actual source, independently of the historical focused results below.
 
 ## Bounded transfer and immutable closure retention
 

@@ -17,9 +17,11 @@
 
 [§5.4](nodes.md#spec-5-4)、[§22](nodes.md#spec-22)、[§38](cognition-units.md#spec-38)、[§41](architecture.md#spec-41)、[§44](plugins.md#spec-44); C17.
 The sections below describe the implemented control/runtime boundary at
-continuation source `4baed97` on 2026-11-15. Durable original-plan admission,
+continuation source through `58b30ba` on 2026-11-15. Durable original-plan admission,
 the Store authority bridge and real branch continuation are wired into startup
-and runtime reconstruction; their final combined behavior gate is pending.
+and runtime reconstruction. Four integrated runtime/branch fault journeys and
+the existing owner-lock regression passed at `60e9963`; see the
+[source-bound verification record](../evidence/readiness-continuation-20261115.json).
 The product
 requirements beginning at [§5.4](#spec-5-4) remain the acceptance contract.
 Passing a Node protocol journey does not, by itself, qualify runtime takeover
@@ -351,12 +353,13 @@ their evidence boundaries and remaining work are distinct.
 | Initial gap | Implemented continuation | Evidence still required |
 | --- | --- | --- |
 | Votes counted as persisted control entries | Actual durable prepare/accept/ACK/commit, accepted-value recovery, joint quorums and bounded log/CAS transfer. | Integrated runtime and production-route acceptance beyond the focused Node journeys. |
-| Node authority disconnected from Store mutation | Exact grant/read-fence checks under a Node reservation, Store authority binding, post-COMMIT local materialization records and live-consumer reconstruction. | Final combined stale-controller, cancellation, effect-admission and reconstruction checks; a local guard alone proves no remote lease. |
-| Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix and staged-input selections, new task/step, origin/branch CAS and crash-recoverable Node projection. | Final integrated fork/rebuild, input-inheritance and authority-change behavior. |
+| Node authority disconnected from Store mutation | Exact grant/read-fence checks under a Node reservation, Store authority binding, post-COMMIT local materialization records and live-consumer reconstruction. | Integrated reservation, cancellation and crash/reconstruction journeys passed; real multi-device/provider acceptance remains. A local guard alone proves no remote lease. |
+| Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix and staged-input selections, new task/step, origin/branch CAS and crash-recoverable Node projection. | Integrated fork/rebuild, input-inheritance, rejoin/refusal and authority-change journeys passed; physical partition and long-run acceptance remains. |
 
 Canonical cross-ledger transition replay, connected-minority component
-coordination and a persistent follower are still implementation gaps. The final
-integrated candidate's behavior results are pending the integrator's evidence.
+coordination and a persistent follower are still implementation gaps. The
+[runtime authority evidence](../evidence/runtime-authority-bridge-20261115.md)
+records the passing integrated journeys without claiming those remaining goals.
 
 [Durable control evidence](../evidence/control-quorum-20261115.md) records four
 passing process journeys, 34 passing Node library tests and focused Clippy,

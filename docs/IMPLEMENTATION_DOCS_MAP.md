@@ -4,7 +4,7 @@
 
 2026-11-15 按 `054817b0d5729fed56ec5a974d101c31edfd1410` 及本次修复复核装配入口。下面的“已接线”不等于真实账号、模型、硬件或故障旅程已经验收；较早源码观察保留日期，不能当成当前缺失项。
 
-本页“多节点”部分另按 continuation 的 `4baed97` 装配源码更新：实际控制日志持久化、Store authority bridge 和真实分支已接线，最终整合行为结果等待对应候选证据。该更新不扩大其他领域原有观察的范围。
+本页“多节点”部分另按 continuation 至 `58b30ba` 的装配源码更新：实际控制日志持久化、Store authority bridge 和真实分支已接线；`60e9963` 的四条整合故障旅程及既有 owner 回归通过，具体命令、输入和边界见 [整合验证记录](evidence/readiness-continuation-20261115.json)。该更新不扩大其他领域原有观察的范围。
 
 状态含义：
 
@@ -226,7 +226,7 @@
   - docs/specs/nodes.md
   - docs/evidence/control-quorum-20261115.md
 
-- **Node–Store 提交边界与运行时重建** — 已接线（`authority_guard.rs`、Store admission 与 `runtime_authority.rs` 在网络 admission 后持有 Node reservation，核验精确 grant/read fence，直到 Store 自身 head/task/epoch/cancellation CAS 提交；本地 materialization 标记仅在成功提交后成立。运行时接到权限恢复信号会清理并重建消费者；无法确认 materialization 的原计划保留 CAS 证据和 reconciliation debt，不重新取得物理发送许可。最终故障旅程仍待整合证据，本地锁不等于网络租约）
+- **Node–Store 提交边界与运行时重建** — 已接线（`authority_guard.rs`、Store admission 与 `runtime_authority.rs` 在网络 admission 后持有 Node reservation，核验精确 grant/read fence，直到 Store 自身 head/task/epoch/cancellation CAS 提交；本地 materialization 标记仅在成功提交后成立。运行时接到权限恢复信号会清理并重建消费者；无法确认 materialization 的原计划保留 CAS 证据和 reconciliation debt，不重新取得物理发送许可。整合 reservation/cancellation/crash-rebuild 旅程已通过，本地锁不等于网络租约）
   - docs/specs/nodes.md
   - docs/evidence/control-quorum-20261115.md
 
