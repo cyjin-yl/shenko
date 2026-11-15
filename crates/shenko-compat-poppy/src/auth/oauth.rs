@@ -476,7 +476,10 @@ impl AuthorizationAttempt {
         );
         if let Some(error) = parameters.get("error") {
             validate_error(error)?;
-            bail!("OAuth authorization declined ({error})");
+            // Even a syntactically valid extension error is remote input and
+            // can contain a credential. Never project it out of this private
+            // callback parser into a durable task error.
+            bail!("OAuth authorization was declined");
         }
         let code = parameters
             .remove("code")
