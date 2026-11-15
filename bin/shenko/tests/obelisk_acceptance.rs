@@ -24,7 +24,7 @@ use shenko_broker::broker::{Broker, BrokerHandle};
 use shenko_exec_host::{
     Condition, HistoryHandler, JudgeReceiptIdentity, JudgeVerdict, PreparedSandbox,
     SandboxJudgeContext, SandboxJudgement, SandboxRuntime, judge_sandbox_output,
-    obelisk_runtime::{ObeliskProvider, ObeliskSourceRoot},
+    obelisk_runtime::{ObeliskProvider, ObeliskRuntime, ObeliskSourceRoot},
     run_prepared_sandbox,
 };
 use shenko_kernel::{Supervisor, task::NativeTaskHandler};
@@ -340,6 +340,22 @@ async fn same_corpus_history_research_through_real_model_and_cli() -> Result<()>
     let corpus: Vec<Message> = serde_json::from_slice(CORPUS)?;
     let configuration =
         PathBuf::from(std::env::var_os("SHENKO_OBELISK_CONFIG").context("config path")?);
+    let installation_proof = obelisk::load_config(&configuration)
+        .and_then(ObeliskRuntime::new)
+        .and_then(|runtime| runtime.verify_installation());
+    match installation_proof {
+        Ok(proof) => write_json(&root.join("upstream-installation.json"), &proof)?,
+        Err(error) => {
+            write_json(
+                &root.join("report.json"),
+                &json!({"schema_version":1,
+                "status":"blocked_external", "complete":false, "scenario":SCENARIO,
+                "reason":"the independently installed CLI failed its preflight",
+                "error":format!("{error:#}"), "scored":0}),
+            )?;
+            return Err(error.context("blocked_external: no model request was started"));
+        }
+    }
     let deadline_ms = std::env::var("SHENKO_OBELISK_ACCEPTANCE_DEADLINE_MS")
         .ok()
         .map(|value| value.parse::<u64>())
@@ -386,8 +402,11 @@ async fn same_corpus_history_research_through_real_model_and_cli() -> Result<()>
     )?;
     broker_task.abort();
     let joined = broker_task.await;
-    let cleanup_ok = shutdown.is_ok() && joined.as_ref().is_ok_and(|_| true)
-        || shutdown.is_ok() && joined.as_ref().is_err_and(|error| error.is_cancelled());
+    let cleanup_ok = shutdown.is_ok()
+        && match joined {
+            Ok(_) => true,
+            Err(error) => error.is_cancelled(),
+        };
     let complete = arms.len() == 2 && arms.iter().all(|arm| arm["status"] == "scored");
     let passed = complete
         && cleanup_ok
