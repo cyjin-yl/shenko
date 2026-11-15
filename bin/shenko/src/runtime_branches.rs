@@ -127,12 +127,13 @@ mod tests {
         let original = shenko_types::inbox::InboxEvent {
             event_id: EntityId::new(), kind: shenko_types::inbox::InboxEventKind::Message,
             payload: serde_json::json!({"text":"retain this unresolved input"}),
-            created_at: chrono::Utc::now(), source: shenko_store::WEB_INPUT_SOURCE.into(),
+            created_at: chrono::Utc::now(), source: shenko_store::web_input::WEB_INPUT_SOURCE.into(),
         };
         store.admit_web_submission(head.agent_id, "branch-input", &original.payload.to_string(),
             &shenko_types::store::RawInboxEvent {
                 event_id: original.event_id, agent_id: head.agent_id, kind: "message".into(),
                 source: original.source.clone(), payload_json: serde_json::to_string(&original)?,
+                received_at_ms: original.created_at.timestamp_millis(),
             })?;
         assert_eq!(store.pending_inbox_events(head.agent_id, 8)?.len(), 1);
         let staged = store.stage_subject_inputs(head, step, &[shenko_store::SubjectHistoryInput {
