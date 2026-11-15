@@ -38,6 +38,16 @@ facts. Generic WriteBatch cannot create new armed attempts or mutable task
 control in an authority-bound ledger; immutable replay and independent E1
 facts remain ingestible.
 
+The request row owns the canonical attempt identity at dispatch. The ordinary
+subject loop legitimately leaves `active_attempt_id` empty; when present, that
+optional step pointer must match the original request attempt. Both preflight
+and the final Store transaction require an active head, an `AwaitingModel`
+step, the exact active request/step, and the same frozen input plan. The final
+transaction also re-reads the request's `Armed` state before changing it once
+to `Dispatched`. This preserves the first send without granting a resend to a
+dispatched or unknown attempt. The full existing MCP lifecycle suite exposed
+and verified this correction; see [the hosted repair evidence](readiness-ci-repair-20261115.md).
+
 A child-authored publication keeps its original parent task revision as an
 additional authorization dependency. Cancellation consumes that dependency;
 the publication's final T1 checks it under the source reservation. Normal
