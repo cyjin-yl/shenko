@@ -371,7 +371,7 @@ impl HistoryRuntime {
                 tokio::pin!(result);
                 let result = loop {
                     tokio::select! {
-                        value = &mut result => break value,
+                        _value = &mut result => break _value,
                         _ = tokio::time::sleep(Duration::from_millis(100)) => {
                             match (self.store.external_task(invocation.task.task_id), plugin_enabled(&self.node.lock(), UNIT_ID)) {
                                 (Ok(task), Ok(true)) if task.abort_request.is_none() => {},

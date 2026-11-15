@@ -353,9 +353,8 @@ pub fn archive_bytes(
                 "external-history-text-projection",
                 1,
             )
-            .map_err(|error| {
+            .inspect_err(|_| {
                 store.close_external_writer();
-                error
             })?
             .object;
         text_ref.locator.clear();
@@ -428,9 +427,8 @@ pub fn archive_bytes(
             "external-history-original",
             1,
         )
-        .map_err(|error| {
+        .inspect_err(|_| {
             store.close_external_writer();
-            error
         })?
         .object;
     // A node-local file:// locator would make independently imported copies
