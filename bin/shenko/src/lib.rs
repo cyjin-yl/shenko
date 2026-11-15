@@ -5279,7 +5279,7 @@ mod recovery_integration_tests {
         let profile = shenko_types::object::Digest::blake3(b"native-recovery-fixture");
         ledger.rebind_model(1, &profile.0).unwrap();
         let window = ledger.current().unwrap();
-        let leaf_seq = store.session_leaf_seq(scope).unwrap()
+        let leaf_seq = store.branch_history_leaf_seq(scope).unwrap()
             .map(|seq| u64::try_from(seq).unwrap());
         let input = serde_json::json!({
             "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",

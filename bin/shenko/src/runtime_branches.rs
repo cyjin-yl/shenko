@@ -121,6 +121,28 @@ mod tests {
         Ok(bytes)
     }
 
+    fn stage_web_input(store: &Store, head: &SubjectBranchHead, step: &SubjectStep)
+        -> Result<(shenko_types::inbox::InboxEvent, shenko_store::StoredSessionEvent)>
+    {
+        let original = shenko_types::inbox::InboxEvent {
+            event_id: EntityId::new(), kind: shenko_types::inbox::InboxEventKind::Message,
+            payload: serde_json::json!({"text":"retain this unresolved input"}),
+            created_at: chrono::Utc::now(), source: shenko_store::WEB_INPUT_SOURCE.into(),
+        };
+        store.admit_web_submission(head.agent_id, "branch-input", &original.payload.to_string(),
+            &shenko_types::store::RawInboxEvent {
+                event_id: original.event_id, agent_id: head.agent_id, kind: "message".into(),
+                source: original.source.clone(), payload_json: serde_json::to_string(&original)?,
+            })?;
+        assert_eq!(store.pending_inbox_events(head.agent_id, 8)?.len(), 1);
+        let staged = store.stage_subject_inputs(head, step, &[shenko_store::SubjectHistoryInput {
+            event_id: original.event_id, event_type: "user".into(),
+            data: serde_json::json!({"v":1,"text":"retain this unresolved input","inbox_event":original}),
+        }])?;
+        assert!(store.pending_inbox_events(head.agent_id, 8)?.is_empty());
+        Ok((original, staged[0].clone()))
+    }
+
     #[test]
     fn fork_recovers_between_stores_without_replaying_original_attempts() -> Result<()> {
         let root = Root::new()?;
@@ -128,6 +150,7 @@ mod tests {
         let agent = genesis(&store)?;
         let (parent, mut parent_step) = store.load_subject(agent)?;
         let raw = event(&store, agent, "parent's retained observation")?;
+        let (original, staged) = stage_web_input(&store, &parent, &parent_step)?;
         let plan = crate::recovery_integration_tests::prepare_fixture_s0(&store, &parent, &parent_step);
         parent_step.input_plan_ref = Some(plan.clone());
         parent_step.state = SubjectStepState::Preparing;
@@ -150,6 +173,7 @@ mod tests {
         let admission = shenko_types::authority::CommitAdmission {
             schema_version: 1, subject_id: agent, branch_id: parent.branch_id.clone(),
             conflict_key: "fixture/original-dispatch".into(), action_id: EntityId::new(),
+            conflict_aliases: vec![], required_unconsumed: vec![],
             expected_parent: None, expected_head_revision: None,
             controller_epoch: parent.controller_epoch, software_generation: parent.software_generation.clone(),
             operation_id: None, attempt_id: Some(request.attempt_id), payload_ref: predecessor.clone(),
@@ -182,18 +206,32 @@ mod tests {
         drop(guard); // Crash after durable Store publication, before Node projection.
         drop(store);
 
-        let store = root.store("subject")?;
+        let store = std::sync::Arc::new(root.store("subject")?);
         assert_eq!(Node::open(&root.0.join("node"))?.local_identity()?, Some(identity));
         repair_pending_projection(&root.0, &store)?;
         let mut node = crate::node_sync::open_node(&root.0, &store)?;
         assert_eq!(node.local_identity()?.unwrap().branch_id, branch);
         repair_pending_projection(&root.0, &store)?; // Recovery is idempotent.
-        let (head, step) = store.load_subject(agent)?;
+        let (head, mut step) = store.load_subject(agent)?;
         assert_eq!(head.branch_id, fork.branch_id);
         assert_eq!(head.genesis_ref, parent.genesis_ref);
         assert_ne!(head.subject_root_task_id, parent.subject_root_task_id);
         assert_eq!(step.state, SubjectStepState::Planned);
         assert!(step.active_request_id.is_none() && step.active_attempt_id.is_none());
+        assert_eq!(store.stage_subject_inputs(&head, &step, &[])?, vec![staged.clone()]);
+        assert_eq!(store.first_subject_input(agent, original.event_id)?, Some(staged.clone()));
+        assert!(store.pending_inbox_events(agent, 8)?.is_empty());
+        assert_eq!(store.web_input_selected_step(agent, original.event_id)?, None);
+        assert_eq!(fork.inherited_inputs.len(), 1);
+        assert_eq!(fork.inherited_inputs[0].source_step_id, parent_step.step_id);
+        assert_eq!(fork.inherited_inputs[0].raw_event_id, staged.event_id);
+        // Seal a new S0 containing the original selection. This is a new
+        // branch decision input, not a replay of the parent's dispatched call.
+        step.input_plan_ref = Some(crate::recovery_integration_tests::prepare_fixture_s0(&store, &head, &step));
+        step.state = SubjectStepState::Preparing;
+        step.record_revision = RecordRevision(1);
+        store.upsert_step(&step, &head, RecordRevision(0))?;
+        assert_eq!(store.web_input_selected_step(agent, original.event_id)?, Some(step.step_id));
         let retained = store.subject_request_attempt(request.request_id)?.unwrap();
         assert_eq!(retained.state, SubjectRequestState::Dispatched);
         assert_eq!(retained.attempt_id, request.attempt_id);
@@ -201,8 +239,8 @@ mod tests {
         assert_eq!(store.fork_subject_branch(&parent, fork.branch_id.clone(), "quorum unavailable")?.created_commit, fork.created_commit);
         assert!(store.fork_subject_branch(&parent, fork.branch_id.clone(), "different facts").is_err());
         let child_raw = event(&store, agent, "child's observation")?;
-        assert_eq!(child_raw.seq, raw.seq + 1);
-        assert_eq!(store.branch_history_range(branch, 0, i64::MAX)?, vec![raw.clone(), child_raw]);
+        assert_eq!(child_raw.seq, staged.seq + 1);
+        assert_eq!(store.branch_history_range(branch, 0, i64::MAX)?, vec![raw.clone(), staged, child_raw]);
         assert_eq!(store.branch_history_event(branch, raw.event_id)?, Some(raw));
         let late = node.handle(Request::Accept { from_node: node_id, receipt: receipt.clone() })?;
         assert_eq!(late["accepted"], false);
@@ -229,8 +267,9 @@ mod tests {
         let left = root.store("left")?;
         let right = root.store("right")?;
         let agent = genesis(&left)?;
-        let (parent, _) = left.load_subject(agent)?;
+        let (parent, parent_step) = left.load_subject(agent)?;
         let common = event(&left, agent, "shared before partition")?;
+        let (original, staged) = stage_web_input(&left, &parent, &parent_step)?;
         left.append_context_note(EntityId(parent.branch_id.0), None, "old working note", "tool", 1, true)?;
         left.append_context_note(EntityId(parent.branch_id.0), Some(1), "", "reset", 2, false)?;
         right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
@@ -243,19 +282,35 @@ mod tests {
         let before = serde_json::to_value(right.load_subject(agent)?.0)?;
         right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
         assert_eq!(serde_json::to_value(right.load_subject(agent)?.0)?, before);
-        assert_eq!(right.branch_history_range(EntityId(left_branch.0), 0, i64::MAX)?, vec![common.clone(), left_event]);
-        assert_eq!(right.branch_history_range(EntityId(right_branch.0), 0, i64::MAX)?, vec![common.clone(), right_event]);
+        assert_eq!(right.branch_history_range(EntityId(left_branch.0), 0, i64::MAX)?, vec![common.clone(), staged.clone(), left_event]);
+        assert_eq!(right.branch_history_range(EntityId(right_branch.0), 0, i64::MAX)?, vec![common.clone(), staged.clone(), right_event]);
         let inherited_note = right.context_note_head(EntityId(right_branch.0))?.unwrap();
         assert!(!inherited_note.visible && inherited_note.body.is_empty());
         assert_eq!(inherited_note.source, "fork");
         let next_branch = BranchId::new();
         let (right_head, _) = right.load_subject(agent)?;
         right.fork_subject_branch(&right_head, next_branch.clone(), "later independent partition")?;
+        let (next_head, next_step) = right.load_subject(agent)?;
+        assert_eq!(right.stage_subject_inputs(&next_head, &next_step, &[])?, vec![staged.clone()]);
+        assert_eq!(right.first_subject_input(agent, original.event_id)?, Some(staged.clone()));
         let frozen = right.branch_history_range(EntityId(next_branch.0), 0, i64::MAX)?;
         let late = event(&left, agent, "parent peer continued after child fork")?;
         right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
         assert_eq!(right.branch_history_range(EntityId(next_branch.0), 0, i64::MAX)?, frozen);
         assert!(right.branch_history_event(EntityId(next_branch.0), late.event_id)?.is_none());
+
+        // A receipt without its inherited selection would lose this consumed
+        // but uncommitted input. Reject before publishing any imported facts.
+        let fault = rusqlite::Connection::open(root.0.join("left.db"))?;
+        let first = left.subject_branch_fork(left_branch.clone())?.unwrap().first_step_id;
+        fault.execute("CREATE TEMP TABLE saved_inherited_input AS SELECT * FROM subject_raw_inputs WHERE step_id=?1",
+            [first.to_string()])?;
+        fault.execute("DELETE FROM subject_raw_inputs WHERE step_id=?1", [first.to_string()])?;
+        let missing_input = archive(&left)?;
+        fault.execute_batch("INSERT INTO subject_raw_inputs SELECT * FROM saved_inherited_input; DROP TABLE saved_inherited_input;")?;
+        let before = serde_json::to_value(right.load_subject(agent)?.0)?;
+        assert!(right.import_cognition_archive(&missing_input[..], &CognitionImportOptions::default()).is_err());
+        assert_eq!(serde_json::to_value(right.load_subject(agent)?.0)?, before);
 
         // A historical head's registered step is also required ancestry, even
         // when the child has a valid first step and a complete raw prefix.

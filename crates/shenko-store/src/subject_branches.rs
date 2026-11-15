@@ -18,7 +18,7 @@ use shenko_types::{
     task::TaskRecord,
 };
 
-use crate::{Store, StoredSessionEvent, store::{checked_head, storage_error}};
+use crate::{Store, StoredSessionEvent, store::{checked_head, read_step, storage_error, validate_step_binding}};
 
 pub(crate) const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS subject_head_history (
@@ -53,10 +53,38 @@ pub struct SubjectBranchFork {
     pub parent_history_count: u64,
     pub parent_history_digest: Digest,
     pub parent_note_revision: Option<i64>,
+    /// Uncommitted selections retained by the first child step. The original
+    /// raw rows, source step, inbox identities and physical attempts stay put.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inherited_inputs: Vec<SubjectBranchInput>,
     pub root_task_id: EntityId,
     pub first_step_id: EntityId,
     pub created_commit: CommitRef,
     pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubjectBranchInput {
+    pub source_step_id: EntityId,
+    pub source_event_id: EntityId,
+    pub raw_event_id: EntityId,
+    pub session_id: EntityId,
+    pub seq: i64,
+}
+
+pub(crate) fn input_links(conn: &Connection, step: EntityId)
+    -> Result<Vec<SubjectBranchInput>, ShenkoError>
+{
+    let mut stmt = conn.prepare_cached("SELECT source_event_id,raw_event_id,session_id,seq FROM subject_raw_inputs WHERE step_id=?1 ORDER BY seq")
+        .map_err(storage_error)?;
+    let links = stmt.query_map([step.to_string()], |row| Ok((
+        row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?,
+    ))).map_err(storage_error)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage_error)?;
+    links.into_iter().map(|(source, raw, session, seq)| Ok(SubjectBranchInput {
+        source_step_id: step, source_event_id: source.parse().map_err(storage_error)?,
+        raw_event_id: raw.parse().map_err(storage_error)?, session_id: session.parse().map_err(storage_error)?, seq,
+    })).collect()
 }
 
 pub(crate) fn read_fork(conn: &Connection, branch: EntityId)
@@ -169,6 +197,12 @@ impl Store {
                 return Ok(fork);
             }
             let parent = checked_head(&tx, expected)?;
+            let pending = read_step(&tx, &parent.branch_id, parent.next_step_id)?
+                .ok_or_else(|| ShenkoError::conflict("fork parent successor missing"))?;
+            validate_step_binding(&parent, &pending)?;
+            if pending.state == SubjectStepState::Committed {
+                return Err(ShenkoError::conflict("fork parent successor already committed"));
+            }
             let parent_data = serde_json::to_string(&parent)?;
             let parent_snapshot_id = Digest::blake3(parent_data.as_bytes());
             let parent_history = history_range_conn(&tx, EntityId(parent.branch_id.0), 0, i64::MAX)?;
@@ -182,6 +216,7 @@ impl Store {
                 parent_history_digest: history_digest(&parent_history)?,
                 parent_note_revision: tx.query_row("SELECT MAX(revision) FROM context_notes WHERE scope_id=?1",
                     [parent.branch_id.0.to_string()], |row| row.get(0)).map_err(storage_error)?,
+                inherited_inputs: input_links(&tx, parent.next_step_id)?,
                 root_task_id: EntityId::new(), first_step_id: EntityId::new(),
                 created_commit: commit, reason: reason.to_owned(),
             };
@@ -221,6 +256,14 @@ impl Store {
             tx.execute("INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,?3)",
                 params![root.task_id.to_string(), serde_json::to_string(&root)?, seq.0 as i64]).map_err(storage_error)?;
             crate::store::insert_step(&tx, &step, seq.0)?;
+            // Staging consumed the volatile delivery before S1. Preserve its
+            // selection in the child without redelivering or cloning the raw
+            // fact. The immutable fork receipt is the provenance for each link.
+            let inherited = tx.execute("INSERT INTO subject_raw_inputs(step_id,source_event_id,raw_event_id,session_id,seq,commit_seq) SELECT ?1,source_event_id,raw_event_id,session_id,seq,?2 FROM subject_raw_inputs WHERE step_id=?3",
+                params![step.step_id.to_string(), seq.0 as i64, parent.next_step_id.to_string()]).map_err(storage_error)?;
+            if inherited != fork.inherited_inputs.len() {
+                return Err(ShenkoError::conflict("fork input selection changed"));
+            }
             let changed = tx.execute("UPDATE subject_branch_heads SET branch_id=?1,committed_step_no=0,committed_step_id=NULL,next_step_id=?2,mode='active',record_revision=?3,data=?4,updated_commit_seq=?5 WHERE agent_id=?6 AND branch_id=?7 AND record_revision=?8",
                 params![branch.0.to_string(), head.next_step_id.to_string(), head.record_revision.0 as i64,
                     serde_json::to_string(&head)?, seq.0 as i64, head.agent_id.to_string(),
@@ -232,7 +275,7 @@ impl Store {
             // never resurrect an earlier visible note after a reset.
             tx.execute("INSERT INTO context_notes(scope_id,revision,body,source,written_at_ms,visible) SELECT ?1,1,body,'fork',written_at_ms,visible FROM context_notes WHERE scope_id=?2 ORDER BY revision DESC LIMIT 1",
                 params![branch.0.to_string(), parent.branch_id.0.to_string()]).map_err(storage_error)?;
-            self.record_subject_commit(&tx, commit, 7)?;
+            self.record_subject_commit(&tx, commit, 7 + inherited as i64)?;
             tx.commit().map_err(storage_error)?;
             Ok(fork)
         }, |error| matches!(error, ShenkoError::Storage(_)))
@@ -286,6 +329,7 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
     let mut heads = Vec::new();
     let mut snapshots = HashMap::new();
     let mut steps = HashMap::new();
+    let mut links = HashMap::new();
     let mut current_heads = HashSet::new();
     let mut events: HashMap<EntityId, Vec<StoredSessionEvent>> = HashMap::new();
     for row in rows {
@@ -324,6 +368,17 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
                     && row.value("branch_id") == Some(step.branch_id.0.to_string().as_str()), "subject step identity mismatch");
                 ensure!(steps.insert(step.step_id, step).is_none(), "duplicate subject step identity");
             }
+            "subject_raw_inputs" => {
+                let input = SubjectBranchInput {
+                    source_step_id: row.value("step_id").context("input step missing")?.parse()?,
+                    source_event_id: row.value("source_event_id").context("input source missing")?.parse()?,
+                    raw_event_id: row.value("raw_event_id").context("input raw identity missing")?.parse()?,
+                    session_id: row.value("session_id").context("input session missing")?.parse()?,
+                    seq: row.value("seq").context("input sequence missing")?.parse()?,
+                };
+                ensure!(links.insert((input.source_step_id, input.source_event_id), input).is_none(),
+                    "duplicate subject input selection");
+            }
             "session_events" => {
                 let event = StoredSessionEvent {
                     event_id: row.value("event_id").context("raw event id missing")?.parse()?,
@@ -339,6 +394,23 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
         }
     }
     for raw in events.values_mut() { raw.sort_by_key(|event| event.seq); }
+    let raw_by_id: HashMap<_, _> = events.values().flatten().map(|event| (event.event_id, event)).collect();
+    let mut original_selections = HashSet::new();
+    for link in links.values() {
+        let raw = raw_by_id.get(&link.raw_event_id).context("selected input original missing")?;
+        let step = steps.get(&link.source_step_id).context("input selection step missing")?;
+        ensure!(raw.session_id == link.session_id && raw.seq == link.seq,
+            "input selection changed its raw source coordinates");
+        if step.branch_id.0 == link.session_id.0 {
+            ensure!(original_selections.insert(link.raw_event_id), "raw input has multiple original selections");
+        } else {
+            let fork = forks.get(&EntityId(step.branch_id.0)).context("input crossed branches without a fork")?;
+            ensure!(step.step_id == fork.first_step_id && fork.inherited_inputs.iter().any(|input|
+                input.source_event_id == link.source_event_id && input.raw_event_id == link.raw_event_id
+                    && input.session_id == link.session_id && input.seq == link.seq),
+                "cross-branch input has no exact first-step fork selection");
+        }
+    }
     for head in &heads {
         let successor = steps.get(&head.next_step_id).context("subject head's registered successor is missing")?;
         ensure!(successor.branch_id == head.branch_id
@@ -417,6 +489,28 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
             && inherited.len() as u64 == fork.parent_history_count
             && history_digest(&inherited)? == fork.parent_history_digest,
             "fork inherited raw prefix is incomplete or changed");
+        let prefix_ids: HashSet<_> = inherited.iter().map(|event| event.event_id).collect();
+        let parent_inputs: Vec<_> = links.values().filter(|input|
+            input.source_step_id == fork.parent_head.next_step_id && prefix_ids.contains(&input.raw_event_id)).collect();
+        ensure!(parent_inputs.len() == fork.inherited_inputs.len(),
+            "fork omitted uncommitted input selections from its parent prefix");
+        let mut sources = HashSet::new();
+        let mut raws = HashSet::new();
+        for input in &fork.inherited_inputs {
+            ensure!(input.source_step_id == fork.parent_head.next_step_id
+                && sources.insert(input.source_event_id) && raws.insert(input.raw_event_id)
+                && prefix_ids.contains(&input.raw_event_id)
+                && links.get(&(input.source_step_id, input.source_event_id)) == Some(input),
+                "fork inherited input has no exact parent selection in its frozen prefix");
+            let child = links.get(&(fork.first_step_id, input.source_event_id))
+                .context("fork first step omitted an inherited input")?;
+            ensure!(child.raw_event_id == input.raw_event_id && child.session_id == input.session_id
+                && child.seq == input.seq, "fork input changed its original raw identity");
+            let raw = raw_by_id.get(&input.raw_event_id).context("fork input raw original missing")?;
+            let data: serde_json::Value = serde_json::from_str(&raw.data)?;
+            ensure!(data.pointer("/inbox_event/event_id").and_then(serde_json::Value::as_str)
+                == Some(input.source_event_id.to_string().as_str()), "fork input differs from its admitted original");
+        }
         if let Some(revision) = fork.parent_note_revision {
             let parent_scope = fork.parent_head.branch_id.0.to_string();
             let child_scope = branch.to_string();
