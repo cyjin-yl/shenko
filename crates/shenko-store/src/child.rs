@@ -1012,9 +1012,6 @@ impl Store {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction()?;
             let Some(task) = read_task(&tx, ctx.task_id)? else { return Ok(NativeDispatchTransition::Fenced); };
-            if has_native_dispatch(&task, ctx, operation_id, attempt_id)? {
-                return Ok(NativeDispatchTransition::AlreadyCommitted);
-            }
             let operation: OperationRecord = read_json(&tx,
                 "SELECT data FROM operations WHERE operation_id=?1", operation_id)?.context("dispatch operation missing")?;
             let attempt: AttemptRecord = read_json(&tx,
@@ -1023,6 +1020,9 @@ impl Store {
                 && attempt.operation_id == operation_id && attempt.attempt_id == attempt_id
                 && attempt.invocation_id == ctx.invocation_id && attempt.epoch == ctx.epoch,
                 "dispatch operation/attempt belongs to another invocation");
+            if has_native_dispatch(&task, ctx, operation_id, attempt_id)? {
+                return Ok(NativeDispatchTransition::AlreadyCommitted);
+            }
             if !self.native_invocation_current_tx(&tx, &task, ctx)? { return Ok(NativeDispatchTransition::Fenced); }
             if operation.state != OperationState::InFlight || attempt.dispatch_stage != AttemptDispatchStage::Armed
                 || attempt.final_receipt_id.is_some() { return Ok(NativeDispatchTransition::Fenced); }

@@ -1290,6 +1290,7 @@ fn native_dispatch_is_once_per_attempt_across_steps_cancellation_and_reopen() {
     let results: Vec<_> = racers.into_iter().map(|racer| racer.join().unwrap()).collect();
     assert_eq!(results.iter().filter(|result| **result == Won).count(), 1);
     assert_eq!(results.iter().filter(|result| **result == AlreadyCommitted).count(), 1);
+    assert!(store.commit_native_dispatch(&foreign, first.0, first.1).is_err());
     assert_eq!(store.commit_native_dispatch(&ctx, second.0, second.1).unwrap(), Won);
     // A send-boundary commit is not a fabricated provider acknowledgement.
     assert_eq!(store.external_attempt(first.1).unwrap().dispatch_stage, AttemptDispatchStage::Armed);

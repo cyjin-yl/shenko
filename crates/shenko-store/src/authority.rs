@@ -101,7 +101,7 @@ impl AuthorityRuntime {
 
     fn prepare(&self, admission: CommitAdmission) -> Result<AuthorityReservation, ShenkoError> {
         let Some(provider) = self.provider.read().clone() else {
-            return Ok(AuthorityReservation { guard: None, provider: None, recorded: AtomicBool::new(false), admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false });
+            return Ok(AuthorityReservation::unbound());
         };
         let grant = provider.prepare(&admission)?;
         if grant.as_ref().is_some_and(|grant| grant.admission != admission) {
@@ -115,6 +115,14 @@ impl AuthorityRuntime {
 }
 
 impl AuthorityReservation {
+    /// Capture absence without rereading the source. An adapter attached
+    /// afterward must not upgrade this unordered action into a guarded one;
+    /// the final transaction will reject its new durable required policy.
+    fn unbound() -> Self {
+        Self { guard: None, provider: None, recorded: AtomicBool::new(false),
+            admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false }
+    }
+
     pub(crate) fn check(
         &self, conn: &Connection, incarnation: EntityId, subject: Option<EntityId>,
     ) -> Result<(), ShenkoError> {
@@ -267,7 +275,7 @@ impl Store {
     pub(crate) fn reserve_admission<T: Serialize>(
         &self, head: &SubjectBranchHead, mut position: AdmissionPosition, payload: &T,
     ) -> Result<AuthorityReservation, ShenkoError> {
-        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
+        if self.ledger.authority.provider.read().is_none() { return Ok(AuthorityReservation::unbound()); }
         {
             let current = self.reserve_authority()?;
             current.check(&self.ledger.conn.lock(), self.capabilities.incarnation, Some(head.agent_id))?;
@@ -309,6 +317,9 @@ impl Store {
         let tx = conn.transaction().map_err(storage_error)?;
         let task = crate::child::read_task(&tx, task_id).map_err(storage_error)?
             .ok_or_else(|| ShenkoError::not_found("admission task"))?;
+        if task.task_id != task_id {
+            return Err(ShenkoError::conflict("admission task identity mismatch"));
+        }
         self.task_admission_position_tx(&tx, &task, key)
     }
 
@@ -365,7 +376,7 @@ impl Store {
         &self, positions: Vec<(SubjectBranchHead, AdmissionPosition)>,
         key: String, payload: &T,
     ) -> Result<AuthorityReservation, ShenkoError> {
-        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
+        if self.ledger.authority.provider.read().is_none() { return Ok(AuthorityReservation::unbound()); }
         let head = positions.first().ok_or_else(|| ShenkoError::conflict("empty task admission batch"))?.0.clone();
         let mut combined = AdmissionPosition { key, bind_parent: true, ..Default::default() };
         let mut tasks = std::collections::BTreeMap::new();
@@ -397,7 +408,7 @@ impl Store {
         &self, task_id: EntityId, conflict_key: String, operation_id: EntityId,
         attempt_id: EntityId, payload: &T,
     ) -> Result<AuthorityReservation, ShenkoError> {
-        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
+        if self.ledger.authority.provider.read().is_none() { return Ok(AuthorityReservation::unbound()); }
         let (head, mut position) = self.task_admission_position(task_id, conflict_key)?;
         position.operation_id = Some(operation_id);
         position.attempt_id = Some(attempt_id);
@@ -407,7 +418,7 @@ impl Store {
     pub(crate) fn reserve_task_control<T: Serialize>(
         &self, task_id: EntityId, phase: &str, payload: &T,
     ) -> Result<AuthorityReservation, ShenkoError> {
-        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
+        if self.ledger.authority.provider.read().is_none() { return Ok(AuthorityReservation::unbound()); }
         let (head, mut position) = self.task_admission_position(task_id, String::new())?;
         let task = position.expected_tasks.first().ok_or_else(|| ShenkoError::not_found("admission task"))?;
         position.key = format!("task/{}/{}/{}", task_id, phase, task.record_revision.0);
