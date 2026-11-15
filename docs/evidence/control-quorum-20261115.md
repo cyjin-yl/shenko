@@ -146,12 +146,31 @@ already set `inbox_events.consumed = 1`. Its original raw event survives in the
 child's frozen history, but the initial fork does not give the child's new step
 a `subject_raw_inputs` reference. The ordinary pending query and S0 recovery
 therefore omit it from the child's selected `InputPlan.events`; an obligation
-naming that input is then refused as unselected. The correction is being made
-in the root fork slice: inherit only unresolved selected input references with
-their original provenance, without clearing all inbox flags, moving the old
-request/attempt, or replaying an external action. No new independent scenario
-was added by this read-only review, and this report does not assert that the
-pending correction has passed its integration gate.
+naming that input is then refused as unselected. The source correction in
+`004df65` freezes the unresolved selections in the fork receipt and links the
+child's first step to the same raw originals. It changes the old unique-raw-link
+index into a nonunique index without changing any row; `(step, source)` remains
+unique. Original raw/session/sequence, normalization, inbox flags, requests and
+attempts retain their provenance. Multiple generations inherit those references;
+media still verifies every link against the original admitted event.
+
+Independent review caught a follow-up import refusal: the post-merge closure
+reader omitted `subject_raw_inputs`, so complete incoming forks with inherited
+inputs were revalidated against an artificially empty link map. `4a4a365`
+includes those rows in the actual reconciled closure. Review also identified
+an intermediate-format distinction: `aa745a4` makes new complete receipts schema
+2. An old schema-1 receipt is accepted only when it has no inherited selections
+and its frozen parent prefix has no unresolved selections. Otherwise complete
+import explicitly requires continuation repair and preserves the original
+files/database; it does not fabricate an old proof. These schema-1 receipts
+belong to unpublished continuation candidates, not the pre-continuation baseline.
+
+The targeted source review found no additional defect in the index migration,
+frozen ancestor normalization, multiple-generation first-step references or
+media admission binding after those corrections. Two existing branch recovery
+journeys were extended by the root slice; this read-only review added no
+independent scenario or runtime test. Source closure is fixed, while combined
+fork/rebuild behavior remains pending verification at this evidence checkpoint.
 
 ## Bounded transfer and immutable closure retention
 

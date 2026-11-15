@@ -210,7 +210,8 @@ original plan is not a deterministic cross-node S1 result. Unconfirmed apply
 must retain original plan/CAS evidence and durable reconciliation debt, continue
 on a real child branch before new consumers start, and never rebase the old
 epoch or reissue its physical attempt. The continuation also records the
-staged-but-uncommitted input-inheritance correction under review. See the
+staged-but-uncommitted input-inheritance source correction and its pending
+integrated behavior gate. See the
 [current Node contract](../specs/nodes.md#implementation-and-evidence-status)
 for the current mechanism/evidence mapping; these later changes do not alter
 the historical checks or source hashes above.

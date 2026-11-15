@@ -237,14 +237,27 @@ facts; the child's first step is a new planned identity. This preserves local
 intelligence without pretending that a global quorum exists.
 
 Raw-history retention and pending-input delivery are separate obligations.
-Review of the initial fork implementation found that web/Playground/media or
-self-wake input staged before S1 has `consumed = 1`, while its raw-input link
-still belongs to the old step. The child sees the original in inherited history
-but does not automatically select it into its sealed `InputPlan.events`.
-Explicit branch-local pending-input inheritance is still required for this
-case, with original provenance and without resurrecting the old request/attempt.
-Unstaged inbox input and branch-scoped native evidence follow different paths;
-resetting every inbox flag is not a valid repair.
+The initial fork retained staged-but-uncommitted input as history while omitting
+it from the child's selected `InputPlan.events`. Schema-2 fork receipts now
+freeze each inherited source event, raw event, original selection step, session
+and sequence. Only the new first step receives another selection link; raw rows,
+inbox flags, parent requests and attempts keep their original identities.
+`first_subject_input` follows the frozen ancestry to preserve the original
+normalization across multiple forks. Media accepts multiple such selection
+links only when the original admission and branch provenance remain complete.
+Both the incoming archive and the actual reconciled Store closure validate the
+parent link, child first-step link and frozen raw prefix before publication.
+The source fix is implemented; its integrated fork/rebuild behavior is still
+awaiting the combined candidate's checks.
+
+Schema-1 fork receipts occurred in intermediate continuation candidates, before
+this fork mechanism was published. Their bytes remain unchanged. Complete
+import accepts them only when the frozen parent prefix has no unresolved input
+selection and the receipt has no inherited selections. A legacy receipt missing
+that provenance explicitly requires continuation repair; import cannot invent
+it, erase the original archive or reassign an attempt. The pre-continuation
+baseline had no Store fork receipts. Unstaged inbox input and branch-scoped native
+evidence retain their existing paths; no global inbox-flag reset is introduced.
 
 ## Recovery and refusal boundaries
 
@@ -276,7 +289,7 @@ replacement mechanisms have different evidence boundaries:
 | --- | --- | --- |
 | Votes counted as persisted control entries | Actual durable prepare/accept/ACK/commit, accepted-value recovery, joint quorums and bounded log/CAS transfer. | Integrated runtime and production-route acceptance beyond the focused Node journeys. |
 | Node authority disconnected from Store mutation | Exact grant/read-fence checks under a Node reservation and an explicit Store authority binding. | Completed live-consumer reconstruction and integrated stale-controller/effect fencing; a local guard alone proves no remote lease. |
-| Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix, new task/step and crash-recoverable Node projection. | Integrated fork/rebuild behavior, including unresolved staged-input inheritance. |
+| Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix, new task/step and crash-recoverable Node projection. | Integrated fork/rebuild behavior, including the new explicit staged-input inheritance. |
 
 [Durable control evidence](../evidence/control-quorum-20261115.md) records four
 passing process journeys, 34 passing Node library tests and focused Clippy,
