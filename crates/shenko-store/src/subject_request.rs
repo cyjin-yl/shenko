@@ -83,6 +83,20 @@ pub struct SubjectRequestAttempt {
     pub created_commit: CommitRef,
 }
 
+fn request_owns_step(
+    attempt: &SubjectRequestAttempt,
+    step: &shenko_types::subject::SubjectStep,
+) -> bool {
+    // The immutable request row owns the canonical attempt identity. The
+    // ordinary subject loop leaves the step's optional attempt pointer empty;
+    // a retained explicit pointer must still name this exact original attempt.
+    step.state == shenko_types::subject::SubjectStepState::AwaitingModel
+        && step.step_id == attempt.step_id
+        && step.active_request_id == Some(attempt.request_id)
+        && step.active_attempt_id.is_none_or(|id| id == attempt.attempt_id)
+        && step.input_plan_ref.as_ref() == Some(&attempt.input_plan_ref)
+}
+
 impl Store {
     /// Commit the armed attempt before any wire send. Idempotent on
     /// `request_id`: an existing identical row replays its commit; the same
@@ -217,8 +231,8 @@ impl Store {
             return Err(ShenkoError::conflict("subject request already crossed its dispatch boundary"));
         }
         let (head, step) = self.load_subject(attempt.agent_id)?;
-        if step.step_id != attempt.step_id || step.active_request_id != Some(request_id)
-            || step.active_attempt_id != Some(attempt.attempt_id)
+        if head.mode != shenko_types::subject::SubjectMode::Active
+            || !request_owns_step(&attempt, &step)
         {
             return Err(shenko_types::authority::authority_fenced("request no longer owns the registered step"));
         }
@@ -302,8 +316,7 @@ impl Store {
             authority.check(&tx, self.capabilities.incarnation, Some(attempt.agent_id))?;
             let (head, step) = crate::store::read_subject(&tx, attempt.agent_id)?;
             if head.mode != shenko_types::subject::SubjectMode::Active
-                || step.step_id != attempt.step_id || step.active_request_id != Some(request_id)
-                || step.active_attempt_id != Some(attempt.attempt_id)
+                || !request_owns_step(&attempt, &step)
             {
                 return Err(shenko_types::authority::authority_fenced("request lost its active step before dispatch"));
             }
