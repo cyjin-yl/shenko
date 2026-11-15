@@ -87,25 +87,73 @@ not sufficient proof of local materialization.
 
 ## Verification and review status
 
-The two existing branch journeys in
-[runtime_branches.rs](../../bin/shenko/src/runtime_branches.rs) now exercise:
+The two branch journeys authored in this continuation, in
+[runtime_branches.rs](../../bin/shenko/src/runtime_branches.rs), passed on source
+`60e996327f0a191f60a73b5b4e7625b7242fbe09`:
 
-| Journey | Intended observation |
+| Journey | Observed boundary |
 | --- | --- |
-| Store-first crash/reopen and original attempt | Repair only the exact Node projection; preserve the dispatched parent request; recover its unresolved input into a genuinely sealed child S0; refuse old execution; accept late original evidence; inspect predecessor without mutation. |
-| Parallel branches and later rejoin | Keep the receiver's current branch, retain both real histories and clearing notes, inherit the same original input across another fork, freeze ancestor visibility, and reject missing input links, successor steps or original raw facts before partial publication. |
+| `runtime_branches::tests::fork_recovers_between_stores_without_replaying_original_attempts` | Repair only the exact Node projection; preserve the dispatched parent request; recover its unresolved input into a genuinely sealed child S0; refuse old execution; accept late original evidence; inspect predecessor without mutation. |
+| `runtime_branches::tests::parallel_branch_rejoin_keeps_local_head_and_refuses_incomplete_ancestry` | Keep the receiver's current branch, retain both real histories and clearing notes, inherit the same original input across another fork, freeze ancestor visibility, and reject missing input links, successor steps or original raw facts before partial publication. |
+
+The combined command, run from
+`/workspace/scratch/4de31219f954/shenko-ship`, was:
+
+```bash
+cargo test --offline --locked -j1 -p shenko --lib runtime_ -- --nocapture --test-threads=1
+```
+
+The result was **5 passed, 0 failed, 0 ignored**. Besides the two branch
+journeys above, it passed these two new authority journeys:
+
+- `runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners`
+- `runtime_authority::tests::chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown`
+
+The remaining test,
+`runtime_owner::tests::same_directory_inode_excludes_another_owner_without_creating_a_file`,
+is an existing owner-lock regression, not a fifth new journey. The retained
+log is `/workspace/scratch/4de31219f954/combined-runtime-journeys-verified.log`,
+SHA-256 `26082f08b2755dee6a0d437fe6aa0b4bf80061af6cd8a0dbcab01cd22804bd58`.
+The later `dacf8c1` change was documentation only.
+
+Execution used the shared
+`/workspace/scratch/d013f3e3b824/shenko-build.lock` with `flock`, the target
+directory `/workspace/scratch/d013f3e3b824/shenko-target`, one build job,
+incremental compilation disabled, both dev/test debug profiles set to zero,
+and `/home/agent/.cargo/bin` on `PATH`. No `RUSTFLAGS` override was used.
+
+The existing membership regression also passed at the same source revision:
+
+```bash
+cargo test --offline --locked -j1 -p shenko-store --lib unknown_fact_does_not_produce_a_verified_partial_import -- --nocapture
+```
+
+Result: **1 passed, 0 failed, 0 ignored**. The extended regression refuses
+missing mandatory membership in both schema 6 and schema 7 and verifies that
+no receiver rows or commit sequence are published. Its full name is
+`cognition::archive_admission_tests::unknown_fact_does_not_produce_a_verified_partial_import`.
+The log is `/workspace/scratch/4de31219f954/archive-membership-final.log`,
+SHA-256 `45107521d43e70ab4d7d4be503c7a33d1da32bb5b3a58ba2948882dc9a7b57d2`.
+The historical schema-5/schema-6 two-binary script remains a separate proof
+with its original formats; it was not relabelled as schema-7 evidence.
 
 These are deterministic real Store/Node/CAS journeys. They do not call a model,
 send a production channel action, simulate a physical power cut or prove
-long-term performance. Final combined execution results will be recorded with
-the exact published candidate; they were still pending when this source
-checkpoint was committed.
+long-term performance. Final Node, Clippy and wider acceptance results remain
+separate from the passing commands recorded here.
 
 A preceding local build of the branch journeys exited 101 after `rustc` for
 `shenko-exec-host` was killed by SIGKILL, before any test ran. It is retained as
 an environment/build failure, not a passing test result. Earlier fixture and
 compile errors were corrected without weakening the actual dispatch or closure
 checks.
+
+The first combined execution also exposed an FK failure in the test's own
+attempt to delete a parent step still referenced by staged input. `60e9963`
+sets `PRAGMA foreign_keys=OFF` only on the dedicated fault-injection connection
+used to create those deliberately incomplete source archives. Production
+Store connections and admission checks are unchanged; the final passing run
+still requires rejection before partial publication.
 
 Independent source review found and closed three concrete gaps: missing
 registered-successor validation, missing inherited input selections, and omission

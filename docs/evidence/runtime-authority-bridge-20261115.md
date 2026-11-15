@@ -123,12 +123,67 @@ physical global single activity across partitions.
 
 ## Verification status
 
-The focused Store library check passed during implementation with the shared
-one-job, non-incremental profile. Two independent fault journeys are authored:
-source reservation through an actual Store commit and ancestor-cancellation
-race; and a process exit after durable quorum selection before Store apply,
-followed by actual fork/context reconstruction and retention of the original
-unknown request. Their execution and the integrated binary/Clippy result are
-recorded by the follow-up verification checkpoint; authored tests alone are
-not a passing result. No real-model, physical multi-device or long-run evidence
-is asserted.
+The integrated source at
+`60e996327f0a191f60a73b5b4e7625b7242fbe09` passed the combined runtime
+journeys on 2026-11-15. The subsequent `dacf8c1` change touched documentation
+only. The command ran from
+`/workspace/scratch/4de31219f954/shenko-ship`:
+
+```bash
+cargo test --offline --locked -j1 -p shenko --lib runtime_ -- --nocapture --test-threads=1
+```
+
+Both commands in this section ran under
+`flock /workspace/scratch/d013f3e3b824/shenko-build.lock`, with
+`/home/agent/.cargo/bin` prepended to `PATH`,
+`CARGO_TARGET_DIR=/workspace/scratch/d013f3e3b824/shenko-target`,
+`CARGO_BUILD_JOBS=1`, `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`
+and `CARGO_PROFILE_TEST_DEBUG=0`. No `RUSTFLAGS` override was used.
+
+The result was **5 passed, 0 failed, 0 ignored**: these four new journeys and
+one existing owner-lock regression.
+
+| New journey | Observed boundary |
+| --- | --- |
+| `runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners` | A real Node write reservation remains held through Store COMMIT; a chosen ancestor cancellation fences a delayed descendant grant; takeover binds the head, step and activation selector coherently; late original E1 remains appendable. |
+| `runtime_authority::tests::chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown` | A process exits after actual quorum selection and before Store apply; reopen preserves the original unknown request and reconstructs an actual branch with visible debt. A new term revokes that branch's opening authority, and later global selection of the same branch makes a fresh native admission enter the quorum log. |
+| `runtime_branches::tests::fork_recovers_between_stores_without_replaying_original_attempts` | Store-first fork recovery repairs only its exact Node projection, retains original attempts and input provenance, and seals a real child S0. |
+| `runtime_branches::tests::parallel_branch_rejoin_keeps_local_head_and_refuses_incomplete_ancestry` | Rejoin preserves the local active head and both histories; frozen ancestry and original input links survive further forks; incomplete closure is refused before partial publication. |
+
+The fifth test,
+`runtime_owner::tests::same_directory_inode_excludes_another_owner_without_creating_a_file`,
+is an existing regression and is not counted as a new journey. The nested
+process launched by the chosen-action test is that journey's crash injection,
+not another independent scenario.
+
+The retained log is
+`/workspace/scratch/4de31219f954/combined-runtime-journeys-verified.log`.
+Its SHA-256 is
+`26082f08b2755dee6a0d437fe6aa0b4bf80061af6cd8a0dbcab01cd22804bd58`.
+
+At the same source revision, the existing archive-membership regression also
+passed after being extended to reject omitted membership in both schema 6 and
+the current schema 7 without publishing rows or advancing the commit sequence:
+
+```bash
+cargo test --offline --locked -j1 -p shenko-store --lib unknown_fact_does_not_produce_a_verified_partial_import -- --nocapture
+```
+
+Result: **1 passed, 0 failed, 0 ignored**. Its full test name is
+`cognition::archive_admission_tests::unknown_fact_does_not_produce_a_verified_partial_import`.
+The log is `/workspace/scratch/4de31219f954/archive-membership-final.log`,
+SHA-256 `45107521d43e70ab4d7d4be503c7a33d1da32bb5b3a58ba2948882dc9a7b57d2`.
+This extends one existing admission regression; it does not claim a new
+historical two-binary compatibility proof.
+
+An earlier combined run stopped at an FK error while its dedicated test
+connection tried to remove a required ancestor referenced by staged input.
+`60e9963` disables foreign keys only on that fault-injection connection, so the
+fixture can construct the deliberately incomplete source archive. Production
+Store connections and import validation retain their constraints. Earlier
+`rustc` SIGKILL exits occurred before test execution and are not passing results.
+
+The focused Store library check also passed during implementation. Final Node,
+Clippy and wider acceptance checks are tracked separately; they were not yet
+complete when this evidence checkpoint was written. No real-model, physical
+multi-device or long-run evidence is asserted.
