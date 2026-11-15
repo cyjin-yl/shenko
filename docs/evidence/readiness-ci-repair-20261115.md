@@ -189,12 +189,58 @@ successful result/proof receipts. The earlier workspace failure remains.
 | Native artifact `14173702138` ZIP | 8209811 | `4a9e388d224dca44559cd749af8054baeb25c990d35ca00483bd7f86a5164ef1` |
 | Full native job log | 507913 | `35f7e9f712eb1cf3f4625f0d340a1d27f9a8d30e26040a05307312e393735725` |
 
+## Full workspace result on `3c7c6af` and recovery correction
+
+Candidate `3c7c6afef4a2116e3e4be2cdf80f723996751264` ran both workspace commands with `--no-fail-fast`, retaining a failing exit code while reaching every later target and doctests. [CI 43745682771](https://github.com/cyjin-yl/shenko/actions/runs/43745682771) passed its other five jobs; the complete Clippy ratchet had `errors=[]` against unchanged baseline `054817b0d5729fed56ec5a974d101c31edfd1410`. Its merge checkout `c0a72a26369302f8667d07c9715359f97aa94160` had the published head's tree, `881a68d436b7835f2da27dcd11f85c91a70a3c4a`.
+
+[Nightly 43745690980](https://github.com/cyjin-yl/shenko/actions/runs/43745690980) failed on exactly the same three Rust targets:
+
+| Target | Actual result | Cause and correction |
+| --- | --- | --- |
+| `shenko-exec-ssh --lib` | 79 passed / 13 failed | The fixture named the authority decision as its task source but initialized a different genesis step. Register that exact source through the existing API; retain production fences and negative permission assertions. |
+| `shenko-store --test store_roundtrip` | 28 passed / 4 failed | Recovery had become separately committed tasks and skipped cancelled work; dispatch checked currentness before original identity. Restore one fenced recovery transaction and parked cleanup. The superseded-authority fixture now updates its head and registered successor coherently. |
+| `shenko-subject --lib` | 109 passed / 1 failed / 7 existing ignored | A test invoking the current writer still asserted schema 6. Name and assert its genuine schema 7; retain exact reopen, replay, relay and settlement assertions. Historical two-binary schema 5/6 proof is unchanged. |
+
+The previously failing exec-host suite passed **51/51**. The full pinned compiler passed **76/76 files, 1514 tests, 0 failures, 1 existing capture-stage skip**, in **284.44 s**. Its original filesystem baseline took **2716 ms** against the unchanged **5000 ms** deadline. Native partition receipts passed **17/17**, and the partition selector and both helper selectors each actually ran and passed one test. These separate successes do not override the workspace failure.
+
+### Recovery and admission safety
+
+Recovery now freezes the complete paginated candidate set, subject heads, selected rows, ancestors and cleanup disposition in one read snapshot. It releases the Store read lock, obtains one source admission, then re-scans and compares the entire snapshot in the final Store `BEGIN IMMEDIATE` transaction before its first write. A corrupt late page, concurrent insertion or changed ancestor/head publishes no prefix. Selected rows and their local materialization receipt commit together; the in-memory completion flag follows COMMIT.
+
+Same-branch cancelled tasks and tasks with inactive ancestors retain their checkpoint, cancellation and original attempts as Pending/Parked cleanup. Ordinary admission still requires active ownership; foreign-branch tasks remain untouched. Source-bound batches require one subject branch. Oversized descriptors are refused before durable acceptance, never split into independent commits that would lose atomicity.
+
+Review found a provider-attachment race: an operation could first observe no provider, then reread a newly attached provider and obtain a stamp without its quorum admission. No-provider fast paths now capture immutable unbound reservations. If attachment commits its durable required policy first, the old operation is fenced by the final transaction; otherwise the unbound transaction linearizes before attachment.
+
+Ordinary task JSON identity is checked against its lookup ID; ancestor identity and subject are checked separately. Both dispatch preflight and the final transaction check original operation/attempt identity before historical markers and current invocation. The existing journey holds invocation and task revision constant after `Won`, changes only epoch, and requires rejection. This distinguishes the former marker-first early return without another test matrix or sending opportunity.
+
+### Focused evidence and source identity
+
+Integrated behavior checkpoint: `35ddedcee0c64e5ecb3554de71ca726ae8dc2b23`. The continuation JSON records exact commands, integrated commits and source-file digests.
+
+| Check | Source consumed | Actual result | Log SHA256 |
+| --- | --- | --- | --- |
+| SSH library | `07d4909bb7f36b6b7195de63647201b44bad0b45` | 92 passed / 0 failed / 0 ignored / 0 filtered | `a25e98bee6d2675762db7064336a6df9b5518d91619fe51d6c92437be70d6dbf` |
+| Schema 7 exact settlements | `be2400cd74ece1657a49b43fa4325e9f88b9e5ae` | 1 passed / 0 failed / 0 ignored / 116 filtered | `f3cf8703dd205a8593800ec88d4386ffce180bc8919cd531ab9f83742392c09d` |
+| Store roundtrip | `d896241a779004d9f586c36f81cd0153821504c6` | 32 passed / 0 failed / 0 ignored / 0 filtered | `e26f2fe5e0f95ce0a904dca90ef0f0e491f5e8622234b54f84e675426660c7e1` |
+
+The schema selector began at `be2400c`; only the unrelated SSH fixture was integrated as `329a2cf` during execution. Subject/Store inputs were unchanged. Its genuine schema 7 archive SHA256 is `ab081600ff2084eaab79770d09ee8758c9ca48d1c2822e5e6a5eb23996b16c66`. An earlier invocation received `SIGKILL` compiling `shenko-types`, before tests ran; that failed log is retained and its cause was not established.
+
+Store all-targets/all-features Clippy at worker source `d896241` exited zero, with **zero diagnostics on newly added lines**, retaining existing warnings. JSONL SHA256: `8d25258377fa90a912e009d7ea6e32939e6c00c6583e00ffe9dbe7db3085f9ec`; added-line audit SHA256: `3a91e0188f51f317262d7f02d2ef3e3679267753d66c431d08c3786cf4d4ad81`. This targeted result does not replace the complete hosted ratchet. Independent read-only review of all three Store commits and the final epoch assertion found no remaining blocker within this scope.
+
+| Preserved `3c7c6af` original | SHA256 |
+| --- | --- |
+| CI Rust job log | `5f341ad73b3dc988d3b6b5d689b198e47c27d648c1b94f25a49ae0497e893477` |
+| Compiler artifact `14174710957` ZIP | `b47828a51197495fa5ca830c222a7f8724e26b9d5b89b0f3d57cc6fe35d364e3` |
+| Compiler test log | `390489193987dd13aabc63da3bfb68e75dc455eae569ed5443958064ede231de` |
+| Native artifact `14174356687` ZIP | `062c014d0879cec08bff5a5bc5fbdaef92bc712eba661821e6bc56f3390429f1` |
+| Nightly Rust job log | `5d6e0d3fa0ee7c4e0c10c02a3d52040240ebd674fcfa007e000ddf02855d6a8f` |
+
 ## Publication and final evidence
 
 The corrected source must execute all six CI jobs and both explicit Nightly
 jobs on its published head. Their actual run URLs, results, retained artifact
 contents and candidate identity are recorded in the PR progress comment.
 Focused local success, a skipped job or a success on an older candidate cannot
-stand in for those gates. This checkpoint records the corrections and local
-MCP result; the corrected hosted results were not yet available when it was
-written. The remaining product boundaries in the continuation record remain.
+stand in for those gates. This checkpoint records the successive hosted failures and focused
+corrections; the final integrated hosted results were not yet available
+when it was written. The remaining product boundaries in the continuation record remain.

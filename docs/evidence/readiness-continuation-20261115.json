@@ -376,7 +376,7 @@
     },
     "independent_source_review": "Exact four-line removal reviewed against generic T1, native dispatch, bound ancestry and durable-required policy; no concrete remaining defect found in this bounded scope.",
     "documentation_correction": "The receipt is committed atomically with Store changes. A local in-memory completion flag is set after COMMIT; only unmaterialized actions notify the provider. No Node applied ACK is claimed.",
-    "corrected_hosted_result": "Pending at this checkpoint; actual final candidate results belong to the PR progress comment.",
+    "corrected_hosted_result": "On 3c7c6af the exec-host library passed 51/51, while three later workspace targets failed. Full actual results and corrections are recorded in full_workspace_recovery_followup.",
     "local_authority_regression": {
       "source_commit": "851a60b8853bbbbb5671c1e7f4c2818717ac97f9",
       "command": "cargo test --offline --locked -j1 -p shenko --lib runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners -- --exact --nocapture --test-threads=1",
@@ -389,5 +389,271 @@
       "log_sha256": "a11117523c5ae2b65be94a5aad58f7b440ea8158ad246ab2c82b957fb604cf36",
       "boundary": "Existing assertions preserve ancestor cancellation, required-policy missing-adapter refusal and late original E1."
     }
+  },
+  "full_workspace_recovery_followup": {
+    "failed_candidate": "3c7c6afef4a2116e3e4be2cdf80f723996751264",
+    "integrated_behavior_source": "35ddedcee0c64e5ecb3554de71ca726ae8dc2b23",
+    "details": "readiness-ci-repair-20261115.md",
+    "ci": {
+      "run_id": 43745682771,
+      "head": "3c7c6afef4a2116e3e4be2cdf80f723996751264",
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "id": 132908355383,
+          "name": "kernel-boundary",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 132908355536,
+          "name": "clippy-ratchet",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 132908355592,
+          "name": "web",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 132908355620,
+          "name": "rust",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "id": 132908355641,
+          "name": "docs",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 132908355645,
+          "name": "docs-migration",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "clippy": {
+        "artifact_id": 14173898883,
+        "zip_sha256": "52dd22b4212953e4db94c9477e3e7715df51baedfcd6b8f4c3db0994ca40432d",
+        "ratchet_sha256": "d801f48002fc736ab27c9104412b1f7083dc7b030537d690250a95d5ecd1ff69",
+        "baseline": "054817b0d5729fed56ec5a974d101c31edfd1410",
+        "candidate": "c0a72a26369302f8667d07c9715359f97aa94160",
+        "candidate_tree": "881a68d436b7835f2da27dcd11f85c91a70a3c4a",
+        "head_tree": "881a68d436b7835f2da27dcd11f85c91a70a3c4a",
+        "errors": []
+      },
+      "rust_log_sha256": "5f341ad73b3dc988d3b6b5d689b198e47c27d648c1b94f25a49ae0497e893477"
+    },
+    "nightly": {
+      "run": "https://github.com/cyjin-yl/shenko/actions/runs/43745690980",
+      "conclusion": "failure",
+      "native_job": "https://github.com/cyjin-yl/shenko/actions/runs/43745690980/job/132908365353",
+      "native_conclusion": "failure",
+      "workspace": {
+        "command": "cargo test --workspace --all-features --locked --no-fail-fast -j2",
+        "result_summary_count": 142,
+        "doctest_summary_count": 32,
+        "failed_targets": [
+          {
+            "target": "2026-11-15T18:18:52.2894180Z      Running unittests src/lib.rs (.ci/target/nightly/debug/deps/shenko_exec_ssh-68fffde80a436d2c)",
+            "result": "2026-11-15T18:18:54.8920570Z test result: FAILED. 79 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.60s"
+          },
+          {
+            "target": "2026-11-15T18:19:13.2658263Z      Running tests/store_roundtrip.rs (.ci/target/nightly/debug/deps/store_roundtrip-efe3fc5fce89e571)",
+            "result": "2026-11-15T18:19:18.4321222Z test result: FAILED. 28 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.16s"
+          },
+          {
+            "target": "2026-11-15T18:19:18.4322021Z      Running unittests src/lib.rs (.ci/target/nightly/debug/deps/shenko_subject-f5976ffed96441b6)",
+            "result": "2026-11-15T18:19:26.4124619Z test result: FAILED. 109 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 7.98s"
+          }
+        ],
+        "exec_host_lib": {
+          "target": "2026-11-15T18:18:45.9602746Z      Running unittests src/lib.rs (.ci/target/nightly/debug/deps/shenko_exec_host-2f5c7965449bd217)",
+          "result": "2026-11-15T18:18:51.7726494Z test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.81s"
+        },
+        "exit_code": 101,
+        "end_diagnostic": "error: 3 targets failed",
+        "boundary": "Harness totals include only this workspace command, before its exit101. Later explicitly selected proofs are separate. Authored fixtures and configuration-no-op tests do not prove actual services.",
+        "raw_harness_summary_totals_not_unique_test_count": {
+          "passed": 1005,
+          "failed": 18,
+          "ignored": 11,
+          "measured": 0,
+          "filtered_out": 78
+        },
+        "counting_note": "The raw log also carries nested child harness results and filtered selectors, so these sums are not a unique whole-workspace test count. Use the exact three failed target summaries and separate proof receipts for claims."
+      },
+      "compiler": {
+        "job_url": "https://github.com/cyjin-yl/shenko/actions/runs/43745690980/job/132908365029",
+        "job_conclusion": "success",
+        "artifact_id": 14174710957,
+        "zip_sha256": "b47828a51197495fa5ca830c222a7f8724e26b9d5b89b0f3d57cc6fe35d364e3",
+        "compiler_log_sha256": "390489193987dd13aabc63da3bfb68e75dc455eae569ed5443958064ede231de",
+        "job_log_sha256": "ee173e02eb379d89f1e8879493e2c83a0c3644524518a6df93d23261c39fcbd3",
+        "counts": {
+          "files_passed": 76,
+          "files_failed": 0,
+          "files_total": 76,
+          "tests_passed": 1514,
+          "tests_failed": 0,
+          "tests_skipped": 1,
+          "tests_total": 1515
+        },
+        "duration_seconds": 284.44,
+        "migration_baseline_ms": 2716,
+        "unchanged_test_deadline_ms": 5000,
+        "consumer_workers": {
+          "max": 1,
+          "min": 1
+        }
+      },
+      "compiler_pin": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+      "native_artifact": {
+        "artifact_id": 14174356687,
+        "zip_sha256": "062c014d0879cec08bff5a5bc5fbdaef92bc712eba661821e6bc56f3390429f1",
+        "job_log_sha256": "5d6e0d3fa0ee7c4e0c10c02a3d52040240ebd674fcfa007e000ddf02855d6a8f"
+      },
+      "partition": {
+        "state": "passed",
+        "check_count": 17,
+        "passed_count": 17,
+        "failed_checks": [],
+        "receipt_sha256": "73479c3a62a88d3ff2eff8ed407178cd243737f3cabe69fd7c08dc52714a8dc3"
+      },
+      "helpers": [
+        {
+          "name": "lost-reply",
+          "status": "passed",
+          "executed_tests": 1,
+          "result_sha256": "8432b2b8b4614daaf3387030f191482eb79fe2c2054011c7352cfd7b43443e68",
+          "stdout_sha256": "552ba08a286fb1aa7e76642e0433677da00e0d36cf7e1aa70b10f230a80f3519"
+        },
+        {
+          "name": "identity-refusal",
+          "status": "passed",
+          "executed_tests": 1,
+          "result_sha256": "2deb8582cf10407996fc626dc0f587d3dedbc059cc9bb68232ee88a700181e92",
+          "stdout_sha256": "8350b566278411d3ac4ab8787daad1424234d82c521af70ec4eaa14c5afb0ea6"
+        }
+      ],
+      "boundary": "Full pinned compiler and separate native receipts pass; complete Rust workspace fails in three targets, so neither CI nor Nightly is globally green. Earlier7fe/d6 evidence retained separately."
+    },
+    "retained_originals_directory": "/workspace/shenko-final-evidence-3c7c6af-20261115",
+    "retained_summary_sha256": "ccd871ec58ee9d98436d0ff2c697e5437831f7d358d937e6b0675170cc3a6ae4",
+    "corrections": [
+      {
+        "area": "SSH permission fixture",
+        "source_commit": "07d4909bb7f36b6b7195de63647201b44bad0b45",
+        "integrated_commit": "329a2cf29c17cafb736ace56ac9dce295e394122",
+        "why": "The fixture created its task from the authority decision step but initialized a different genesis step. Register the actual source through initialize_genesis; preserve every production fence and negative permission assertion."
+      },
+      {
+        "area": "Current archive writer fixture",
+        "source_commit": "be2400cd74ece1657a49b43fa4325e9f88b9e5ae",
+        "why": "The test invokes the current Store writer, which genuinely emits schema 7. Name and assert that version while retaining exact reopen, replay, relay and settlement assertions. Historical two-binary schema 5/6 proof remains unchanged; no relabeled archive or new cross-version claim."
+      },
+      {
+        "area": "Atomic native recovery and authority admission",
+        "source_commits": [
+          "dadcbf602dcb2c566b9cda6383321fcf017f625b",
+          "95c4545b832320e1b39111c92f3d4b2d186a4d75",
+          "d896241a779004d9f586c36f81cd0153821504c6"
+        ],
+        "integrated_commits": [
+          "2e263729d08fbb0ec601b6ff279c093362e44062",
+          "3b826b22efdf8d8732ed4c33c22af3405234e2c1",
+          "35ddedcee0c64e5ecb3554de71ca726ae8dc2b23"
+        ],
+        "why": [
+          "Freeze every scan page, candidate, subject head, selected task and ancestor in one read snapshot; acquire one source admission; rescan under the final Store IMMEDIATE transaction before any write; materialize every selected row and the local receipt atomically.",
+          "Same-branch crashed tasks with cancellation or inactive ancestry retain their checkpoint, abort and original attempts as Pending/Parked cleanup. Foreign-branch tasks remain untouched; ordinary admission still requires active ownership.",
+          "Capture provider absence as an immutable unbound reservation. A later attach/activate cannot promote an unordered operation to a stamped one; the final durable required-policy check fences it.",
+          "Validate ordinary and ancestor task JSON IDs against lookup IDs. Check original operation/attempt identity before a historical dispatch marker and current invocation; the existing journey now distinguishes an incorrect epoch after Won.",
+          "Correct only the superseded-authority fixture so the head and its registered next step change epoch together; retain the original authoring step and never-dispatched assertions."
+        ]
+      }
+    ],
+    "source_sha256": {
+      "crates/shenko-store/src/authority.rs": "fbc47be83609bcf875c4b772a6ac8869998ee4677570da31a75ac364aad54052",
+      "crates/shenko-store/src/child.rs": "5f2338ea111130661ac8e2e8dc5f5eb1e4167ec3bb8dae29889e8d300c6bf5d9",
+      "crates/shenko-store/tests/store_roundtrip.rs": "c494de09d708c5b4636962336c4b3e2fe58a6c3b01d1dd505ce93772449da6c7",
+      "crates/shenko-exec-ssh/src/selected_task.rs": "ea263359fdcf229c7cecd580447b221e4f5f5c04935549a7abee2b4a73b13374",
+      "crates/shenko-subject/src/obligation_tests.rs": "d760d24b0deb9ff2dd4d3a3e45284581ccbdada388b1c0497bb9da1f96575df2",
+      "crates/shenko-store/examples/obligation_archive_consumer.rs": "bb3d7c71dc95cc771e79682510ddbcd63a375e372191c5da97ad19525aa26257"
+    },
+    "local_checks": [
+      {
+        "name": "SSH library",
+        "source_commit": "07d4909bb7f36b6b7195de63647201b44bad0b45",
+        "command": "cargo test --locked -p shenko-exec-ssh --lib --all-features -- --nocapture",
+        "passed": 92,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0,
+        "log": "ssh-permission-branch-fixture-tests.log",
+        "log_sha256": "a25e98bee6d2675762db7064336a6df9b5518d91619fe51d6c92437be70d6dbf",
+        "duration_seconds": 1.73
+      },
+      {
+        "name": "Current schema 7 exact settlements",
+        "source_commit": "be2400cd74ece1657a49b43fa4325e9f88b9e5ae",
+        "command": "cargo test --offline --all-features --locked -j1 -p shenko-subject --lib loop_runner::recovery_tests::obligation_tests::obligation_schema7_archive_reopens_replays_and_relays_exact_settlements -- --exact --nocapture --test-threads=1",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 116,
+        "log": "current-schema7-roundtrip-verified.log",
+        "log_sha256": "f3cf8703dd205a8593800ec88d4386ffce180bc8919cd531ab9f83742392c09d",
+        "duration_seconds": 0.18,
+        "head_at_readback": "329a2cf29c17cafb736ace56ac9dce295e394122",
+        "source_boundary": "Only the unrelated SSH fixture changed during execution; Subject and Store inputs were unchanged. Final Store integration is independently subject to complete hosted gates.",
+        "archive_sha256": "ab081600ff2084eaab79770d09ee8758c9ca48d1c2822e5e6a5eb23996b16c66"
+      },
+      {
+        "name": "Store roundtrip",
+        "source_commit": "d896241a779004d9f586c36f81cd0153821504c6",
+        "command": "cargo test --offline --all-features --locked -j1 -p shenko-store --test store_roundtrip -- --nocapture --test-threads=1",
+        "passed": 32,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0,
+        "log": "full-gate-store-roundtrip-verified.log",
+        "log_sha256": "e26f2fe5e0f95ce0a904dca90ef0f0e491f5e8622234b54f84e675426660c7e1",
+        "duration_seconds": 5.33
+      }
+    ],
+    "local_clippy": {
+      "source": "d896241a779004d9f586c36f81cd0153821504c6",
+      "base": "3c7c6afef4a2116e3e4be2cdf80f723996751264",
+      "command": "cargo clippy --offline --all-features --locked -j1 -p shenko-store --all-targets --message-format=json -- --force-warn clippy::all --force-warn clippy::unwrap_used --force-warn clippy::expect_used",
+      "exit_code": 0,
+      "compiler_warning_or_error_messages": 1646,
+      "owned_file_messages": {
+        "crates/shenko-store/src/child.rs": 2,
+        "crates/shenko-store/tests/store_roundtrip.rs": 352
+      },
+      "added_line_diagnostics": [],
+      "log_sha256": "8d25258377fa90a912e009d7ea6e32939e6c00c6583e00ffe9dbe7db3085f9ec",
+      "stderr_sha256": "00bc94cc767846c5b8851343a324f4a47d00218acf0926fe5ac69acdc1ef054d",
+      "added_line_audit_sha256": "3a91e0188f51f317262d7f02d2ef3e3679267753d66c431d08c3786cf4d4ad81",
+      "boundary": "Targeted Store check, not the final complete workspace ratchet; existing warnings were retained."
+    },
+    "independent_review": "Read-only review of final d896241 and all three Store commits found no remaining source blocker in this scope. The epoch-only post-Won assertion distinguishes the former marker-first early return.",
+    "retained_local_failure": {
+      "log": "current-schema7-roundtrip.log",
+      "log_sha256": "444892d5011bf173ca2eb0d0348f5723cb8e6db7ea6036b72d34ceb9423a453e",
+      "result": "rustc for shenko-types received SIGKILL before any test ran; exit 101. Cause was not proven. The later exact selector independently compiled and passed."
+    },
+    "boundaries": [
+      "Cleanup admission is atomic and never split into multiple durable grants to fit a size limit. An oversized descriptor is refused before durable acceptance; cross-subject source-bound batches are refused.",
+      "A local materialization receipt is committed in the Store transaction; the in-memory completion flag follows COMMIT. There is no claimed Node applied ACK.",
+      "Existing dispatch/Unknown identity, ordinary owner checks, original assertions, lint baseline, compiler pin and test deadlines are preserved.",
+      "Focused local checks do not establish full product, actual model/channel/seat, cross-ledger materialization, or seven/thirty-day acceptance."
+    ],
+    "corrected_hosted_result": "Pending at this checkpoint. All six CI jobs and both Nightly jobs must execute on the published integrated candidate; actual results and artifact identities belong to the PR progress comment."
   }
 }
