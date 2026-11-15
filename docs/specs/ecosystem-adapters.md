@@ -1,4 +1,4 @@
-# 可选生态适配器：MCP 与 Agent Skills
+# 可选生态适配器：MCP、Agent Skills 与 Poppy
 
 **内核定位。** 可选的参考插件，建立在[内核合同](kernel.md)之上。第三方材料不携带权限（[内核 6](kernel.md#kernel-6)），经[内核 7](kernel.md#kernel-7)登记，以单元的形式安装和启停（[内核 8](kernel.md#kernel-8)）。
 
@@ -9,24 +9,27 @@
 ## 产品边界
 
 产品**不内置**任何第三方实现：没有厂商 MCP server、没有厂商 Skill、没有厂商账号流程、没有
-自动安装脚本。产品提供的是两个**可选适配器**，让操作者自己选定的外部实现可以在既有安装、
+自动安装脚本。产品提供**可选适配器**，让操作者自己选定的外部实现可以在既有安装、
 任务效果与认知单元机制下被使用；第三方实现保持独立、可移除，并由操作者自己的安装与账号
 状态负责。
 
-两个适配器彼此独立：
+适配器彼此独立：
 
 | 单元 | crate | 作用 | 不做什么 |
 | --- | --- | --- | --- |
 | `compat.mcp` | `shenko-compat-mcp` | 与显式配置的外部 MCP 端点通信 | 不实现 server、不捆绑目录、不读账号 |
 | `compat.skill` | `shenko-compat-skill` | 读取原样保留的 Agent Skill 材料 | 不执行脚本、不安装依赖、不授予工具 |
+| `compat.poppy` | `shenko-compat-poppy`；宿主接线在 `bin/shenko/src/poppy.rs` | 读取公开 Poppy/UCP 发现资料 | 当前不连接账号、不协商 UCP、不下单；签名库尚未接入商家传输 |
 
-`crates/shenko-compat` 只放二者共用的安装、回执与安装观察机制（`installation`、`recorded`、
+`crates/shenko-compat` 只放共用的安装、回执与安装观察机制（`installation`、`recorded`、
 `runtime`），本身既不是生态插件，也不维护另一套安装或服务注册表。
 
 CLI 的 Cargo feature 也独立：默认编译 `compat-mcp` 与 `compat-skill`，但不代表安装或启用。
 `cargo build -p shenko --no-default-features --features compat-skill` 只编译 Skill 适配器，不引入
 MCP crate 或 `rmcp` SDK；将 feature 换为 `compat-mcp` 则只编译 MCP 适配器。只给
-`--no-default-features` 时两者都不编译，对应子命令也不存在，`compat status` 仍可检查安装。
+`--no-default-features` 时适配器都不编译，对应子命令也不存在，`compat status` 仍可检查安装。
+Poppy 默认不编译，显式加 `--features compat-poppy` 才提供；其首个增量边界见
+[Poppy：发现与签名基础](#poppy-foundation)。
 
 ```rust
 // 安装：普通单元导入，先禁用地记录
@@ -384,3 +387,65 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 - 结果声明 `observations_only`：摘要不代替主体判断。采纳路径不变——主体以某个 exemplar 摘要作 `cognition.unit.write` 的 `derived_from{kind:"cas_object"}`，写出的单元仍为候选。
 
 <!-- /migrated-contract: SPEC:50.2 -->
+
+<a id="poppy-foundation"></a>
+## Poppy：发现与签名基础
+
+**Why。** 个人 agent 需要在访问外部服务时说明身份、保留账号边界，并能重新观察不确定结果。
+Poppy 身份、OAuth 账号授权、UCP 商务能力分别接入既有插件和任务机制；商家声明不自动变成
+主体权限或购买决定。[Issue #297](https://github.com/cyjin-yl/shenko/issues/297) 跟踪完整方向；
+当前增量只交付公开发现与纯签名基础。
+
+**发现。** `shenko-compat-poppy` 不依赖 Store、Subject 或新的服务注册表。它先读取公司的
+`/.well-known/poppy.json`，检查最终 domain、版本与渠道声明，再读取 OAuth protected-resource
+和必要的授权服务器 metadata。公司身份使用核验后的 issuer；只有 404 或有效的无 AS 声明
+才允许 issuerless，公司标识此时为 HTTPS origin。网络错误、错误 issuer 和无效 JSON 都报错，
+不会伪装成无账号服务。版本文档必须同 origin、不可重定向且身份一致；支持 1.x 文档时将未来
+请求版本明确记为 `1.0`，旧版只接受 `0.4`。
+
+读取使用独立的匿名 HTTPS client，不携带 Session、token 或 cookie，不使用环境代理或自动
+重试。每次连接前检查并固定 DNS 地址；默认拒绝私网和非标准端口。库中可显式配置例外，
+CLI/native 输入不提供这些开关。每请求限 12 秒、整次限 60 秒、单文档限 512 KiB，主发现至多
+跟随 5 次重定向。所选版本、OAuth 与 UCP metadata 都不跟随重定向。
+
+声明 UCP 时，只读取同一公司 origin 的 `/.well-known/ucp`。结果保留来源 URL、响应时间、
+已读取正文的摘要、原始声明和 `state: discovered`；未读取的 404 正文不伪造摘要。
+能力声明、协商成功、账号授权和业务完成是不同事实，这个入口只产生第一种。
+
+**运行时。** `compat-poppy` 是默认关闭的编译 feature。`compat.poppy` 使用普通 Node 单元的
+安装事实，由既有 `watch_installed` 发布/撤回 `compat.poppy.discover:1`。装配根中的 handler
+在任何网络读取前，通过 `RecordedCall` 冻结 origin、武装操作；成功回执只证明公开 metadata
+被观察到。超时、取消或不完整发现保留 unknown。卸载取消并 join 自有读取；恢复只读原始
+回执，自动重放关闭。大观察沿用 CAS 和 `compat.artifact.read`。
+包含 Poppy 的应用装配由一个独立 watcher 管理共用 reader：MCP/Poppy 任一精确安装启用时
+保持驻留，最后一个禁用才撤回，因此启用顺序和单独卸载不会重复登记或拔掉对方的 reader。
+独立使用 MCP crate 的原有拥有关系保留；`compat.usage.digest` 仍只属于 MCP，此增量未扩展
+其观察集合到 Poppy。
+
+```sh
+cargo build -p shenko --features compat-poppy
+shenko compat poppy discover https://www.allbirds.com
+shenko compat enable compat.poppy
+shenko compat disable compat.poppy
+```
+
+`poppy discover` 是操作者直接运行的公开诊断，输出 JSON，不初始化主体或创建任务。
+运行中的主体通过 native 定义委派时，输入为
+`{"origin":"https://merchant.example","timeout_secs":60}`，走持久操作和回执路径。
+默认编译支持的其他插件不因 Poppy 的启停改变。
+
+**签名。** 库接受操作者提供的 P-256 PKCS#8 长期密钥，生成公开 client metadata/JWKS，
+并为固定的公司、用户和 Session 绑定生成短期委托密钥。delegation 最长 24 小时，每次请求
+重新产生 Session JWT 的时间与随机 nonce；ES256 输出为 JOSE 的 `r || s`。请求绑定方法、
+去掉 query/fragment 的实际 URL，以及有 token 时的 `ath`。长期密钥不直接签 Session，
+delegation 不包含公司和用户信息，公开 JWKS 不含私钥。公司 identifier 必须来自已核验的
+发现资料，稳定的 pairwise user ID 由宿主保密持久化。
+
+**尚未接线。** 公开平台 metadata/JWKS 托管、节点凭据持久化、签名向真实 API/MCP 请求的
+注入、OAuth/DPoP、浏览器 session join、HTTP Message Signature、UCP 平台 profile 协商、
+购物车、付款和订单核对均保留为 Issue #297 后续工作。签名原语可验证不代表商家已接受身份；
+Session 也不证明用户批准了某张订单。当前没有新增业务判断、全局审批或自动购买策略。
+
+协议依据：[Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec)、
+[0.4 兼容文档](https://personalagentprotocol.org/docs/0.4/spec)、
+[UCP extension](https://personalagentprotocol.org/docs/1.0/extensions/ucp)。

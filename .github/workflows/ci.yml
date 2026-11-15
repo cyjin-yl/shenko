@@ -64,9 +64,9 @@ jobs:
           workspaces: . -> .ci/target/rust
           shared-key: rust-1.98.1-workspace
       - name: Check every workspace target with the lockfile
-        run: cargo check --workspace --all-targets --locked -j2
+        run: cargo check --workspace --all-targets --features shenko/compat-poppy --locked -j2
       - name: Test the workspace, including integration tests and doctests
-        run: cargo test --workspace --locked -j2
+        run: cargo test --workspace --features shenko/compat-poppy --locked -j2
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4
