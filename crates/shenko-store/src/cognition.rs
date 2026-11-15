@@ -3750,6 +3750,10 @@ fn local_fact_classes(include_local_control: bool) -> Vec<String> {
     names
 }
 
+// Membership became mandatory in schema 6. A later writer schema must not
+// silently extend the legacy exemption to archives that already required it.
+const MEMBERSHIP_REQUIRED_SCHEMA: u32 = 6;
+
 /// The archive's membership must be a membership this reader knows, and
 /// every row must belong to it. An archive naming an unknown class, or
 /// carrying a row outside its own declared membership, is refused whole:
@@ -3764,13 +3768,11 @@ fn check_archive_membership(manifest: &CognitionManifest) -> Result<()> {
         );
     }
     if manifest.fact_classes.is_empty() {
-        // An archive of the current schema must declare its membership: a
-        // current archive that hides which fact classes it carries is
-        // refused. An archive written before the membership existed
-        // declares nothing and is admitted under its own older schema.
+        // Only archives predating mandatory membership can omit it. This is
+        // a format-introduction boundary, not the latest writer version.
         ensure!(
-            manifest.schema < crate::cognition_archive::ARCHIVE_SCHEMA,
-            "current cognition archive must declare its fact classes"
+            manifest.schema < MEMBERSHIP_REQUIRED_SCHEMA,
+            "cognition schema 6 and later must declare its fact classes"
         );
         return Ok(());
     }
@@ -6536,12 +6538,12 @@ mod archive_admission_tests {
     }
 
     #[test]
-    fn unknown_fact_does_not_produce_a_verified_partial_import() {
+    fn unknown_fact_does_not_produce_a_verified_partial_import() -> Result<()> {
         let root = std::env::temp_dir().join(format!("shenko-cognition-{}", EntityId::new()));
-        fs::create_dir(&root).unwrap();
-        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
-        source.insert_memory_entry(&MemoryEntry::new(EntityId::new(), "known fact")).unwrap();
-        let mut export = source.export_cognition(&Default::default()).unwrap();
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        source.insert_memory_entry(&MemoryEntry::new(EntityId::new(), "known fact"))?;
+        let mut export = source.export_cognition(&Default::default())?;
         export.manifest.rows.push(CognitionRow {
             table: "future_required_fact".into(),
             key: "1".into(),
@@ -6549,10 +6551,27 @@ mod archive_admission_tests {
         });
         export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
         let mut archive = Vec::new();
-        export.write_archive(&mut archive).unwrap();
-        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
         assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
-        assert!(receiver.list_memory(10).unwrap().is_empty());
+        assert!(receiver.list_memory(10)?.is_empty());
+        let before = receiver.current_commit_seq()?;
+        // Both the introduction format and the current writer format must
+        // reject an intentionally malformed declaration before publishing.
+        for schema in [MEMBERSHIP_REQUIRED_SCHEMA, crate::cognition_archive::ARCHIVE_SCHEMA] {
+            let mut missing = source.export_cognition(&Default::default())?;
+            missing.manifest.schema = schema;
+            missing.manifest.fact_classes.clear();
+            missing.manifest.fingerprint = fingerprint_of_manifest(&missing.manifest);
+            let mut archive = Vec::new();
+            missing.write_archive(&mut archive)?;
+            let error = receiver.import_cognition_archive(&archive[..], &Default::default())
+                .err().context("archive without required membership was admitted")?;
+            assert!(error.to_string().contains("must declare its fact classes"));
+            assert_eq!(receiver.current_commit_seq()?, before);
+            assert!(receiver.list_memory(10)?.is_empty());
+        }
+        Ok(())
     }
 
     /// Cognitive atoms are REQUIRED archive facts (docs/specs/cognition-units.md#spec-51-1). They travel
