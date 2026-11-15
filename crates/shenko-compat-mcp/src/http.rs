@@ -19,6 +19,7 @@ use rmcp::{
 use sse_stream::{Error as SseError, Sse, SseStream};
 
 pub const MAX_JSON_BODY_BYTES: usize = 128 * 1024;
+const MAX_JSON_BODY_CAP: usize = 1024 * 1024;
 const SSE_DATA_CAP: usize = 16 * 1024 * 1024;
 
 fn scope_from_header(header: &str) -> Option<String> {
@@ -46,6 +47,10 @@ fn custom_headers(mut builder: reqwest::RequestBuilder, headers: HashMap<HeaderN
     Ok(builder)
 }
 
+fn authorization_error(reason: &'static str) -> StreamableHttpError<reqwest::Error> {
+    StreamableHttpError::UnexpectedServerResponse(Cow::Borrowed(reason))
+}
+
 fn auth_error(response: &reqwest::Response) -> Option<StreamableHttpError<reqwest::Error>> {
     let status = response.status();
     let header = || response.headers().get(WWW_AUTHENTICATE)?.to_str().ok().map(str::to_owned);
@@ -63,18 +68,18 @@ fn status_error(status: StatusCode, headers: &HeaderMap) -> Option<HttpStatusErr
         .and_then(|value| value.to_str().ok()).map(str::to_owned)).into()
 }
 
-fn too_large() -> StreamableHttpError<reqwest::Error> {
+fn too_large(max_bytes: usize) -> StreamableHttpError<reqwest::Error> {
     StreamableHttpError::UnexpectedServerResponse(Cow::Owned(format!(
-        "HTTP response body exceeds {MAX_JSON_BODY_BYTES} bytes")))
+        "HTTP response body exceeds {max_bytes} bytes")))
 }
 
-async fn bounded_body(response: reqwest::Response) -> Result<Vec<u8>, StreamableHttpError<reqwest::Error>> {
-    if response.content_length().is_some_and(|bytes| bytes > MAX_JSON_BODY_BYTES as u64) { return Err(too_large()); }
+async fn bounded_body(response: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>, StreamableHttpError<reqwest::Error>> {
+    if response.content_length().is_some_and(|bytes| bytes > max_bytes as u64) { return Err(too_large(max_bytes)); }
     let mut stream = response.bytes_stream();
     let mut body = Vec::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(StreamableHttpError::Client)?;
-        if body.len() + chunk.len() > MAX_JSON_BODY_BYTES { return Err(too_large()); }
+        if chunk.len() > max_bytes.saturating_sub(body.len()) { return Err(too_large(max_bytes)); }
         body.extend_from_slice(&chunk);
     }
     Ok(body)
@@ -161,10 +166,48 @@ where
 #[derive(Clone)]
 pub struct BoundedHttpClient {
     client: reqwest::Client,
+    authorizer: Option<Arc<dyn crate::protocol::HttpRequestAuthorizer>>,
 }
 
 impl BoundedHttpClient {
-    pub fn new(client: reqwest::Client) -> Self { Self { client } }
+    pub fn new(client: reqwest::Client, authorizer: Option<Arc<dyn crate::protocol::HttpRequestAuthorizer>>) -> Self { Self { client, authorizer } }
+
+    fn max_json_bytes(&self) -> usize {
+        self.authorizer.as_ref().map_or(MAX_JSON_BODY_BYTES, |authorizer| authorizer.max_json_bytes().clamp(1, MAX_JSON_BODY_CAP))
+    }
+
+    async fn execute(&self, builder: reqwest::RequestBuilder) -> Result<reqwest::Response, StreamableHttpError<reqwest::Error>> {
+        let mut request = builder.build()?;
+        let url = request.url().clone();
+        let method = request.method().clone();
+        let mut client = self.client.clone();
+        if let Some(authorizer) = &self.authorizer {
+            if let Some(prepared) = authorizer.prepare_client(&url).await.map_err(|_| authorization_error("HTTP request client preparation failed"))? {
+                client = prepared;
+            }
+            // JSON-RPC HTTP bodies are materialized. Keep the frozen payload
+            // invariant across a credential provider that may only add headers.
+            let body = match request.body() {
+                Some(body) => Some(body.as_bytes().ok_or_else(|| authorization_error("HTTP authorization requires a materialized body"))?.to_vec()),
+                None => None,
+            };
+            let protocol_headers = ["accept", "content-type", "mcp-session-id", "mcp-protocol-version", "last-event-id"]
+                .map(|name| (name, request.headers().get_all(name).iter().cloned().collect::<Vec<_>>()));
+            authorizer.authorize(&mut request).await.map_err(|_| authorization_error("HTTP request authorization failed"))?;
+            if protocol_headers.iter().any(|(name, before)| request.headers().get_all(*name).iter().ne(before.iter())) {
+                return Err(authorization_error("HTTP authorization changed a protocol-owned header"));
+            }
+            if request.url() != &url || request.method() != method || request.body().and_then(reqwest::Body::as_bytes) != body.as_deref() {
+                return Err(authorization_error("HTTP authorization changed the frozen method, destination or payload"));
+            }
+        }
+        let response = client.execute(request).await?;
+        if let Some(authorizer) = &self.authorizer {
+            authorizer.observe_response(&url, response.status().as_u16(), response.headers())
+                .map_err(|_| authorization_error("HTTP response authorization metadata could not be retained"))?;
+        }
+        Ok(response)
+    }
 }
 
 impl StreamableHttpClient for BoundedHttpClient {
@@ -196,7 +239,7 @@ impl StreamableHttpClient for BoundedHttpClient {
         request = custom_headers(request, headers)?;
         let session_attached = session_id.is_some();
         if let Some(session) = session_id { request = request.header(HEADER_SESSION_ID, session.as_ref()); }
-        let response = request.json(&message).send().await?;
+        let response = self.execute(request.json(&message)).await?;
         if let Some(error) = auth_error(&response) { return Err(error); }
         let status = response.status();
         if matches!(status, StatusCode::ACCEPTED | StatusCode::NO_CONTENT) { return Ok(StreamableHttpPostResponse::Accepted); }
@@ -213,7 +256,7 @@ impl StreamableHttpClient for BoundedHttpClient {
             return Ok(StreamableHttpPostResponse::Accepted);
         }
         if !status.is_success() {
-            let body = bounded_body(response).await?;
+            let body = bounded_body(response, self.max_json_bytes()).await?;
             if let Some(response) = legacy_discover(&message, session_attached, status, &body) { return Ok(response); }
             let auth_failure = matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN);
             if !auth_failure && is_json {
@@ -227,7 +270,7 @@ impl StreamableHttpClient for BoundedHttpClient {
                 Ok(StreamableHttpPostResponse::Sse(bounded_sse(response.bytes_stream(), max_sse_event_size), response_session))
             }
             Some(value) if value.as_bytes().starts_with(JSON_MIME_TYPE.as_bytes()) => {
-                let body = bounded_body(response).await?;
+                let body = bounded_body(response, self.max_json_bytes()).await?;
                 match serde_json::from_slice::<ServerJsonRpcMessage>(&body) {
                     Ok(message) => Ok(StreamableHttpPostResponse::Json(message, response_session)),
                     Err(error) if matches!(message, JsonRpcMessage::Notification(_) | JsonRpcMessage::Response(_) | JsonRpcMessage::Error(_)) => {
@@ -252,7 +295,7 @@ impl StreamableHttpClient for BoundedHttpClient {
         let mut request = self.client.delete(uri.as_ref()).header(HEADER_SESSION_ID, session_id.as_ref());
         if let Some(auth) = auth_header { request = request.bearer_auth(auth); }
         request = custom_headers(request, headers)?;
-        let response = request.send().await?;
+        let response = self.execute(request).await?;
         if response.status() == StatusCode::METHOD_NOT_ALLOWED { return Ok(()); }
         let _ = response.error_for_status()?;
         Ok(())
@@ -284,7 +327,7 @@ impl StreamableHttpClient for BoundedHttpClient {
         if let Some(last) = last_event_id { request = request.header("last-event-id", last); }
         if let Some(auth) = auth_header { request = request.bearer_auth(auth); }
         request = custom_headers(request, headers)?;
-        let response = request.send().await?;
+        let response = self.execute(request).await?;
         if response.status() == StatusCode::METHOD_NOT_ALLOWED { return Err(StreamableHttpError::ServerDoesNotSupportSse); }
         if let Some(error) = auth_error(&response) { return Err(error); }
         if let Some(error) = status_error(response.status(), response.headers()) { return Err(error.into()); }

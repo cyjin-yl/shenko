@@ -1,7 +1,7 @@
 //! Protocol-only MCP client. No server implementation, vendor catalogue,
 //! installer or account authorization flow is embedded here.
 
-use std::{collections::BTreeMap, path::PathBuf, process::Stdio, time::Duration};
+use std::{collections::BTreeMap, future::Future, path::PathBuf, pin::Pin, process::Stdio, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, ensure};
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
@@ -15,6 +15,31 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
+
+/// Per-request authorization owned by the application that holds credentials.
+/// Implementations only change headers, never the method, URL or body that the
+/// durable caller froze. Proofs are made after all protocol headers are present.
+/// There is no retry on an authorization challenge or a failed observation.
+pub trait HttpRequestAuthorizer: Send + Sync {
+    fn authorize<'a>(&'a self, request: &'a mut reqwest::Request)
+        -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+
+    /// An optional isolated client for this exact request. For discovered
+    /// services this lets the credential owner pin checked DNS addresses at
+    /// every send. Such a client must disable redirects and automatic retries.
+    fn prepare_client<'a>(&'a self, _url: &'a reqwest::Url)
+        -> Pin<Box<dyn Future<Output = Result<Option<reqwest::Client>>> + Send + 'a>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// A bounded response budget for a known service's large tool catalogue.
+    /// The backend caps this at 1 MiB regardless of the value supplied here.
+    fn max_json_bytes(&self) -> usize { crate::http::MAX_JSON_BODY_BYTES }
+
+    /// Record challenge metadata (e.g. a DPoP nonce) for a later explicit
+    /// operation. This callback does not authorize retransmitting a request.
+    fn observe_response(&self, _url: &reqwest::Url, _status: u16, _headers: &reqwest::header::HeaderMap) -> Result<()> { Ok(()) }
+}
 
 /// Public connection description. Secrets are installation-local environment
 /// references, resolved only while opening a connection and never serialized.
@@ -78,6 +103,17 @@ impl Session {
     /// Only called for an explicitly configured external service. The caller
     /// must arm its durable operation before this can launch a process.
     pub async fn connect(spec: &ConnectionSpec, deadline: Duration) -> Result<Self> {
+        Self::connect_with_authorizer(spec, deadline, None).await
+    }
+
+    /// Use a live credential/proof provider for every HTTP exchange, including
+    /// negotiation, notifications, SSE connection/resumption and DELETE.
+    pub async fn connect_authorized(spec: &ConnectionSpec, deadline: Duration, authorizer: Arc<dyn HttpRequestAuthorizer>) -> Result<Self> {
+        ensure!(matches!(spec, ConnectionSpec::StreamableHttp { .. }), "HTTP authorization requires an HTTP MCP connection");
+        Self::connect_with_authorizer(spec, deadline, Some(authorizer)).await
+    }
+
+    async fn connect_with_authorizer(spec: &ConnectionSpec, deadline: Duration, authorizer: Option<Arc<dyn HttpRequestAuthorizer>>) -> Result<Self> {
         spec.validate()?;
         let client = ClientConfig::new(
             ClientCapabilities::default(),
@@ -132,7 +168,7 @@ impl Session {
                         value.set_sensitive(true);
                         config.custom_headers.insert(name, value);
                     }
-                    let transport = StreamableHttpClientTransport::with_client(crate::http::BoundedHttpClient::new(http), config);
+                    let transport = StreamableHttpClientTransport::with_client(crate::http::BoundedHttpClient::new(http, authorizer.clone()), config);
                     client.serve_with_lifecycle(transport, lifecycle).await
                         .context("MCP HTTP negotiation failed")
                 }
