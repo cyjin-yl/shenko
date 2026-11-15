@@ -38,7 +38,8 @@ pub struct DiscoverySource {
     pub redirects: Vec<String>,
     pub http_status: u16,
     pub fetched_at_unix_ms: u64,
-    pub body_sha256: String,
+    /// Hash of the retained document body; absent for a 404 whose body is not read.
+    pub body_sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -734,7 +735,8 @@ fn source(response: &Fetched) -> DiscoverySource {
         redirects: response.redirects.clone(),
         http_status: response.status,
         fetched_at_unix_ms: response.fetched_at_unix_ms,
-        body_sha256: format!("{:x}", Sha256::digest(&response.body)),
+        body_sha256: (response.status == 200)
+            .then(|| format!("{:x}", Sha256::digest(&response.body))),
     }
 }
 
