@@ -1195,6 +1195,7 @@ async fn install_native_definitions(
     let native_child = supervisor
         .context()
         .try_service::<shenko_subject::NativeChildService>()?;
+    playground_state.with_native(Arc::clone(&native_child));
     handoff_participants.register_admission_barrier(Arc::new(update_runtime::NativeWorkers(
         Arc::clone(&native_child),
     )));
@@ -1881,6 +1882,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &media,
             )
             .await?;
+            installed.playground_state.with_inbox(subject_inbox.sender());
             if let Some(path) = ssh_targets {
                 let ssh_node = node_sync::open_node(&data_dir, &store)?;
                 install_native_ssh(&supervisor, Arc::clone(&store), ssh_node, &path).await?;

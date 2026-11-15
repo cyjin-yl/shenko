@@ -216,7 +216,34 @@ impl UiServer {
         self.artifact_services.clone()
     }
 
+    /// Production assembly for both the shared and server-created Playground.
+    /// Existing clones held by native handlers see these same live services.
+    pub(crate) fn configured_playground(&self) -> Result<Option<Arc<PlaygroundState>>> {
+        let playground = match self.playground_state.clone() {
+            Some(shared) => Some(shared),
+            None => self
+                .store
+                .clone()
+                .map(|store| {
+                    PlaygroundState::open(self.playground_root.clone(), store).map(Arc::new)
+                })
+                .transpose()?,
+        };
+        if let Some(pg) = &playground {
+            if let Some(tx) = self.inbox_tx.clone() {
+                pg.with_inbox(tx);
+            }
+            if let Some(native) = self.native.clone() {
+                pg.with_native(native);
+            }
+        }
+        Ok(playground)
+    }
+
     pub async fn run(self) -> Result<()> {
+        // Artifact changes reach the same durable inbox and live dispatcher
+        // whether composition supplied the Playground or the server opened it.
+        let playground_state = self.configured_playground()?;
         let mut state = self.state;
         // Build the durable input service when the real store, genesis
         // subject, and live inbox are all present (docs/specs/web-interface.md#spec-41-18). Without all
@@ -246,21 +273,6 @@ impl UiServer {
             }
         }
         state.stream = state.stream.or_else(|| self.stream_sink.clone());
-
-        // Playground shares the inbox the WS handler already writes to, so
-        // artifact changes are perceived by the same subject loop. docs/specs/configuration-playground.md#spec-43-2.
-        let playground_root = self.playground_root;
-        let playground_state = match self.playground_state.clone() {
-            Some(shared) => Some(shared),
-            None => {
-                if let Some(store) = self.store.clone() {
-                    let mut pg = PlaygroundState::open(playground_root.clone(), store)?;
-                    if let Some(tx) = self.inbox_tx.clone() { pg = pg.with_inbox(tx); }
-                    if let Some(native) = self.native.clone() { pg = pg.with_native(native); }
-                    Some(Arc::new(pg))
-                } else { None }
-            }
-        };
 
         // Observe the subject outbox independently of any browser client, so
         // `/api/self` knows the last committed thought step and whether the
@@ -338,7 +350,7 @@ impl UiServer {
             .merge(api::router(api_state))
             .merge(media::router(media_state))
             .layer(Extension(state));
-        info!(addr=%self.bind, playground=%playground_root.display(), "UI server starting");
+        info!(addr=%self.bind, playground=%self.playground_root.display(), "UI server starting");
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
         axum::serve(listener, app).await?;
         Ok(())

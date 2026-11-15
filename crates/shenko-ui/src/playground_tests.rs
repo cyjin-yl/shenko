@@ -98,7 +98,7 @@ async fn http(app: &Router, method: &str, uri: &str, body: Vec<u8>) -> (StatusCo
 }
 
 #[test]
-fn interrupted_versions_and_exact_rollback_keep_new_business_data() {
+fn interrupted_versions_and_exact_rollback_keep_new_business_data() -> anyhow::Result<()> {
     let (root, store, _) = fixture("versions");
     let pg_root = root.join("playground");
     let pg = PlaygroundState::open(pg_root.clone(), store.clone()).unwrap();
@@ -113,7 +113,7 @@ fn interrupted_versions_and_exact_rollback_keep_new_business_data() {
     write_immutable(&pg.version_path(id, orphan), b"not published").unwrap();
     drop(pg);
     let pg = PlaygroundState::open(pg_root, store.clone()).unwrap();
-    assert_eq!(pg.get(&id).unwrap().revision, newer.revision);
+    assert_eq!(pg.get(&id)?.context("artifact exists")?.revision, newer.revision);
     assert!(!pg.revisions(id).unwrap().contains(&orphan));
     let restored = pg.rollback(id, original.revision).unwrap();
     assert!(restored.revision > orphan);
@@ -130,6 +130,7 @@ fn interrupted_versions_and_exact_rollback_keep_new_business_data() {
         &serde_json::to_value(&event).unwrap()).unwrap(), shenko_store::InboxAdmission::Replay);
     drop(pg); drop(store);
     fs::remove_dir_all(root).unwrap();
+    Ok(())
 }
 
 /// A reader's action on a work is bound to the revision they saw and to the
@@ -139,13 +140,13 @@ fn interrupted_versions_and_exact_rollback_keep_new_business_data() {
 /// whatever is there now; the request id rides the durable transition, so a
 /// repeated submit is recognisable as the same request rather than a new one.
 #[test]
-fn a_readers_action_is_bound_to_a_revision_and_a_request() {
+fn a_readers_action_is_bound_to_a_revision_and_a_request() -> anyhow::Result<()> {
     let (root, store, _) = fixture("reader-action");
     let pg_root = root.join("playground");
     let pg = PlaygroundState::open(pg_root.clone(), store.clone()).unwrap();
     let id = EntityId::new();
     pg.put(id, "first".into(), "text/plain".into(), b"first body").unwrap();
-    let first = pg.get(&id).unwrap();
+    let first = pg.get(&id)?.context("artifact exists")?;
 
     // The complete mutation, not a separate preflight, binds the revision.
     pg.stage_artifact(id, Some(first.revision), Some("reader-first")).unwrap();
@@ -160,7 +161,7 @@ fn a_readers_action_is_bound_to_a_revision_and_a_request() {
     // A stage with the current revision succeeds, and the durable transition
     // names the request that asked for it.
     let request_id = "reader-request-1";
-    let revision = pg.get(&id).unwrap().revision;
+    let revision = pg.get(&id)?.context("artifact exists")?.revision;
     pg.stage_artifact(id, Some(revision), Some(request_id)).unwrap();
     let record = pg.durable_record(id).unwrap().expect("the work has a durable record");
     let staged = pg.state_event(&record, "stage", Some(request_id));
@@ -187,6 +188,7 @@ fn a_readers_action_is_bound_to_a_revision_and_a_request() {
     drop(pg);
     drop(store);
     fs::remove_dir_all(root).unwrap();
+    Ok(())
 }
 
 #[test]
@@ -240,16 +242,26 @@ fn concurrent_content_stage_and_publish_preserve_committed_facts() {
     assert!(record.candidate_manifest_refs.contains(&candidate));
 }
 
-#[tokio::test]
-async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
+#[test]
+fn public_action_executes_wasi_and_reopen_replays_original_receipt() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+
     let (root, store, agent) = fixture("http");
     let pg_root = root.join("playground");
     let host = runtime(store.clone(), pg_root.clone()).await;
-    let (tx, _rx) = tokio::sync::mpsc::channel(1); // later wakes fill it; facts stay durable
-    let pg = PlaygroundState::open(pg_root.clone(), store.clone()).unwrap().with_native(host.native.clone()).with_inbox(tx);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1); // later wakes fill it; facts stay durable
+    let shared = Arc::new(PlaygroundState::open(pg_root.clone(), store.clone())?);
+    let pg = shared.as_ref().clone(); // a handler already holds this clone
+    let assembled = crate::server::UiServer::new(0)
+        .with_store(store.clone()).with_native(host.native.clone()).with_inbox(tx)
+        .with_playground_state(shared.clone()).configured_playground()?.context("shared playground is assembled")?;
+    assert!(Arc::ptr_eq(&shared, &assembled));
     let id = EntityId::new();
     let app = router(pg.clone());
     assert_eq!(http(&app, "PUT", &format!("/playground/{id}"), b"binary counter application".to_vec()).await.0, StatusCode::OK);
+    let wake = rx.try_recv().context("server assembly attaches the shared subject inbox")?;
+    assert_eq!(wake.payload["artifact_id"], json!(id));
+    drop(assembled); drop(shared);
     let (status, bound) = http(&app, "PUT", &format!("/playground/{id}/backend"), COUNTER.to_vec()).await;
     assert_eq!(status, StatusCode::OK);
     let record: ArtifactVersion = serde_json::from_value(bound["artifact"].clone()).unwrap();
@@ -272,6 +284,34 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     let ready = store.ready_native_results(agent, 10).unwrap();
     assert!(ready.iter().any(|result| result.task_id == task_id && result.result.as_ref().unwrap()["state_after"].is_object()));
     let operation_id: EntityId = serde_json::from_value(result["receipt"]["operation"]["operation_id"].clone()).unwrap();
+    // Reader responses can be lost independently of the backend response.
+    // Publish A, adopt B later, roll back once, then author a newer draft.
+    // Replaying either earlier request after reopen must report its exact
+    // original result without selecting an older artifact state again.
+    let stage_uri = format!("/playground/{id}/stage");
+    let publish_uri = format!("/playground/{id}/publish");
+    let rollback_uri = format!("/playground/{id}/rollback");
+    let (status, staged_a) = http(&app, "POST", &stage_uri, serde_json::to_vec(&json!({
+        "revision": record.revision, "request_id": "reader-stage-a"}))?).await;
+    assert_eq!(status, StatusCode::OK, "{staged_a}");
+    let candidate_a = staged_a["record"]["candidate_manifest_refs"][0]["digest"].clone();
+    let newer = pg.put(id, "candidate B".into(), "text/plain".into(), b"candidate B")?;
+    let (status, staged_b) = http(&app, "POST", &stage_uri, serde_json::to_vec(&json!({
+        "revision": newer.revision, "request_id": "reader-stage-b"}))?).await;
+    assert_eq!(status, StatusCode::OK, "{staged_b}");
+    let candidate_b = staged_b["record"]["candidate_manifest_refs"][1]["digest"].clone();
+    let publish_a = json!({"revision": newer.revision, "request_id": "reader-publish-a", "manifest_digest": candidate_a});
+    let (status, published_a) = http(&app, "POST", &publish_uri, serde_json::to_vec(&publish_a)?).await;
+    assert_eq!(status, StatusCode::OK, "{published_a}");
+    let publish_b = json!({"revision": newer.revision, "request_id": "reader-publish-b", "manifest_digest": candidate_b});
+    let (status, published_b) = http(&app, "POST", &publish_uri, serde_json::to_vec(&publish_b)?).await;
+    assert_eq!(status, StatusCode::OK, "{published_b}");
+    let rollback_request = json!({"revision": record.revision, "request_id": "reader-rollback"});
+    let (status, rolled_back) = http(&app, "POST", &rollback_uri, serde_json::to_vec(&rollback_request)?).await;
+    assert_eq!(status, StatusCode::OK, "{rolled_back}");
+    pg.put(id, "newer after rollback".into(), "text/plain".into(), b"keep this draft")?;
+    let reader_head = pg.durable_record(id)?.context("current reader head")?;
+    let reader_history = pg.revisions(id)?;
     host.supervisor.stop().await.unwrap();
     drop(app); drop(pg); drop(host); drop(store);
 
@@ -286,6 +326,27 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     host.native.run_once().await.unwrap();
     assert_eq!(store.external_operation_attempts(operation_id).unwrap().len(), 1);
     assert_eq!(fs::read(pg.artifact_dir(id).join("state/counter.bin")).unwrap(), vec![1]);
+    let app = router(pg.clone());
+    let (status, published_replay) = http(&app, "POST", &publish_uri, serde_json::to_vec(&publish_a)?).await;
+    assert_eq!(status, StatusCode::OK, "{published_replay}");
+    assert_eq!(published_replay["replayed"], true);
+    assert_eq!(published_replay["record"], published_a["record"]);
+    assert_eq!(published_replay["receipt_ref"], published_a["receipt_ref"]);
+    let (status, rollback_replay) = http(&app, "POST", &rollback_uri, serde_json::to_vec(&rollback_request)?).await;
+    assert_eq!(status, StatusCode::OK, "{rollback_replay}");
+    assert_eq!(rollback_replay["replayed"], true);
+    assert_eq!(rollback_replay["version"], rolled_back["version"]);
+    assert_eq!(rollback_replay["receipt_ref"], rolled_back["receipt_ref"]);
+    let mut changed_publish = publish_a;
+    changed_publish["manifest_digest"] = candidate_b;
+    assert_eq!(http(&app, "POST", &publish_uri, serde_json::to_vec(&changed_publish)?).await.0, StatusCode::CONFLICT);
+    let mut changed_rollback = rollback_request;
+    changed_rollback["revision"] = json!(newer.revision);
+    assert_eq!(http(&app, "POST", &rollback_uri, serde_json::to_vec(&changed_rollback)?).await.0, StatusCode::CONFLICT);
+    assert_eq!(pg.durable_record(id)?.context("retained reader head")?.updated_commit, reader_head.updated_commit);
+    assert_eq!(pg.revisions(id)?, reader_history);
+    assert_eq!(pg.read_content(&pg.get(&id)?.context("current artifact")?)?, b"keep this draft");
+    assert_eq!(fs::read(pg.artifact_dir(id).join("state/counter.bin"))?, vec![1]);
     let mut conflict = action.clone();
     conflict.input = json!({"amount":2});
     assert!(matches!(pg.invoke_action(id, conflict, &actor), Err(ActionError::Conflict)));
@@ -293,9 +354,25 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     let mut old_page = action;
     old_page.request_id = "new-click-from-old-page".into();
     assert!(matches!(pg.invoke_action(id, old_page, &actor), Err(ActionError::Stale)));
+    // A real unavailable CAS head is an availability error, never absence
+    // or an empty successful list. Restore the owned fixture after observing it.
+    let head = pg.durable_record(id)?.context("head before closure fault")?;
+    let head_path = store.cas.verified_object_path(&head.state_ref)?;
+    let head_bytes = fs::read(&head_path)?;
+    fs::write(&head_path, b"corrupt fixture head")?;
+    assert_eq!(http(&app, "GET", &format!("/playground/{id}"), Vec::new()).await.0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(http(&app, "GET", &format!("/playground/{id}/versions"), Vec::new()).await.0, StatusCode::INTERNAL_SERVER_ERROR);
+    let surface = crate::api::router(crate::api::ApiState::new().with_store(store.clone()).with_playground(pg.clone()));
+    let (_, unavailable) = http(&surface, "GET", "/api/playground", Vec::new()).await;
+    assert_eq!(unavailable["available"], false);
+    assert!(unavailable["error"].is_string());
+    fs::write(head_path, head_bytes)?;
+    drop(surface); drop(app);
     host.supervisor.stop().await.unwrap();
     drop(pg); drop(host); drop(store);
     fs::remove_dir_all(root).unwrap();
+    Ok(())
+    })
 }
 
 #[tokio::test]
