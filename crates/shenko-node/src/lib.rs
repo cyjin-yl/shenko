@@ -23,6 +23,8 @@ mod selection;
 pub use selection::*;
 mod election;
 pub use election::*;
+mod authority_guard;
+pub use authority_guard::*;
 mod cognition;
 pub use cognition::*;
 
