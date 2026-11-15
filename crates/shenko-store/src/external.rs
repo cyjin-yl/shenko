@@ -1,7 +1,7 @@
 //! Conditional T1 and append-only E1 for native external executors.
 //! No network I/O occurs under these transactions; task completion is separate.
 use crate::{InterventionReminder, Store};
-use anyhow::{Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::evidence::EvidenceReceipt;

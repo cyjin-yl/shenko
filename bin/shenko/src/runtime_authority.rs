@@ -119,7 +119,10 @@ impl RuntimeAuthority {
     pub fn finish_result(&self, result: Result<()>) -> Result<()> {
         // A storage failure remains a storage failure; restarting authority
         // must not hide a closed or corrupt ledger behind a network retry.
-        if result.is_err() && self.store.upgrade().is_some_and(|store| !store.ledger.writer_is_open()) { return result; }
+        if self.store.upgrade().is_some_and(|store| !store.ledger.writer_is_open()) {
+            return result.and_then(|()| Err(ShenkoError::storage(
+                "the Store writer closed during runtime work; its original failure requires recovery").into()));
+        }
         if result.as_ref().err().is_some_and(|error| error.chain().any(|cause| {
             cause.downcast_ref::<ShenkoError>().is_some_and(|error| matches!(error, ShenkoError::Storage(_)))
         })) { return result; }
