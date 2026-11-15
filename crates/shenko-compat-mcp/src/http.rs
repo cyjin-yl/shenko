@@ -22,7 +22,7 @@ use rmcp::{
     },
 };
 use sse_stream::{Error as SseError, Sse, SseStream};
-use tokio_util::{sync::CancellationToken, task::TaskTrackerToken};
+use tokio_util::{sync::CancellationToken, task::task_tracker::TaskTrackerToken};
 
 pub const MAX_JSON_BODY_BYTES: usize = 128 * 1024;
 const MAX_JSON_BODY_CAP: usize = 1024 * 1024;

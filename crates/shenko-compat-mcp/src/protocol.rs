@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
+use parking_lot::Mutex;
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use rmcp::{
     ClientLifecycleMode, RoleClient,
@@ -163,7 +164,9 @@ pub struct Session {
     service: RunningService<RoleClient, ClientConfig>,
     child: Option<Box<dyn ChildWrapper>>,
     retirement: CancellationToken,
-    reclaim: Option<ReclaimFuture>,
+    // The cleanup future is polled only by the exclusive owner in close().
+    // A mutex keeps Session shareable while that Send future is parked.
+    reclaim: Mutex<Option<ReclaimFuture>>,
     http_lifetimes: TaskTracker,
 }
 
@@ -319,7 +322,7 @@ impl Session {
                 service,
                 child,
                 retirement,
-                reclaim,
+                reclaim: Mutex::new(reclaim),
                 http_lifetimes,
             }),
             Err(error) => {
@@ -441,7 +444,8 @@ impl Session {
             (Err(error), _) => Err(error),
             (Ok(_), process) => process,
         };
-        let reclaimed = if let Some(reclaim) = self.reclaim.take() {
+        let reclaim = self.reclaim.get_mut().take();
+        let reclaimed = if let Some(reclaim) = reclaim {
             reclaim.await
         } else {
             Ok(())
