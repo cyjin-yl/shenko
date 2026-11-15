@@ -112,7 +112,7 @@ impl CheckoutObservation {
     }
 
     /// Preserve every unrecognized extension field as a term. Only fields with
-    /// defined lifecycle/navigation meanings are excluded; prices are never
+    /// defined protocol, lifecycle or payment-execution meanings are excluded; prices are never
     /// recomputed or substituted into the merchant's terms.
     pub fn terms_sha256(&self) -> Result<String> {
         let mut terms = self
@@ -120,7 +120,16 @@ impl CheckoutObservation {
             .as_object()
             .context("checkout resource must be an object")?
             .clone();
-        for field in ["status", "continue_url", "expires_at", "order", "actions"] {
+        for field in [
+            "ucp",
+            "payment",
+            "messages",
+            "status",
+            "continue_url",
+            "expires_at",
+            "order",
+            "actions",
+        ] {
             terms.remove(field);
         }
         Ok(format!(
@@ -178,6 +187,9 @@ impl CheckoutObservation {
 pub struct CompletionBinding {
     pub identity: ResourceIdentity,
     pub terms_sha256: String,
+    /// Handler availability/configuration must still match immediately before
+    /// completion, but it is execution metadata and may disappear on receipts.
+    pub payment_handlers_sha256: String,
     pub idempotency_key: String,
     pub credential_ref: String,
 }
@@ -197,6 +209,7 @@ impl CompletionBinding {
         Ok(Self {
             identity: checkout.identity.clone(),
             terms_sha256: checkout.terms_sha256()?,
+            payment_handlers_sha256: payment_handlers_sha256(checkout)?,
             idempotency_key: idempotency_key.into(),
             credential_ref: credential_ref.into(),
         })
@@ -212,6 +225,10 @@ impl CompletionBinding {
         ensure!(
             self.terms_sha256 == latest.terms_sha256()?,
             "checkout terms changed since purchase binding"
+        );
+        ensure!(
+            self.payment_handlers_sha256 == payment_handlers_sha256(latest)?,
+            "checkout payment handler metadata changed since purchase binding"
         );
         latest.ready_for_completion()
     }
@@ -316,6 +333,15 @@ impl CompletionBinding {
             Ok(None)
         }
     }
+}
+
+fn payment_handlers_sha256(checkout: &CheckoutObservation) -> Result<String> {
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&canonical(
+            &checkout.resource["ucp"]["payment_handlers"],
+        ))?)
+    ))
 }
 
 fn canonical(value: &Value) -> Value {

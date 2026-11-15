@@ -13,7 +13,7 @@ use shenko_compat_poppy::ucp::{
 };
 use shenko_store::Store;
 use shenko_types::{
-    evidence::DecodeStatus,
+    evidence::{DecodeStatus, ObservationLevel},
     ids::EntityId,
     object::{Digest, ObjectRef},
 };
@@ -737,7 +737,7 @@ fn request_binding(plan: &RequestPlan) -> Result<Value> {
     )
 }
 
-fn record_resource(
+pub(super) fn record_resource(
     client: &CompanyClient,
     operation: Operation,
     resource: Value,
@@ -800,25 +800,13 @@ async fn reconcile(
     cancellation: &CancellationToken,
     envelope: &mut Value,
 ) -> Result<()> {
-    let original = store.external_operation(operation_id)?;
-    ensure!(
-        original.operation_name == HANDLER,
-        "reconciliation target is not Poppy commerce"
-    );
-    let frozen = read_observation(store, &original.final_input_ref)?;
-    let action: CommerceAction = serde_json::from_value(frozen["commerce"].clone())
-        .context("original operation has no frozen commerce action")?;
-    let CommerceAction::Request(request) = action else {
-        anyhow::bail!("original operation has no commerce business request")
-    };
-    let bindings = read_observation(store, &original.resource_bindings_ref)?;
-    validate_binding_owner(&bindings["extra"], client)?;
+    let request = original_request(store, operation_id, client)?;
     envelope["reconciles_operation"] = json!(operation_id);
     envelope["original_idempotency_key"] = json!(request.idempotency_key);
     envelope["original_request_replayed"] = false.into();
     envelope["original_effect_resolved"] = false.into();
     let attempt = store.external_operation_attempt(operation_id)?;
-    let observed = if attempt.final_receipt_id.is_some() {
+    let observed = if request.id.is_none() && attempt.final_receipt_id.is_some() {
         Some(load_observation(store, operation_id, client)?)
     } else {
         None
@@ -848,6 +836,21 @@ async fn reconcile(
         buyer_ip: request.buyer_ip.clone(),
     };
     run_request(client, store, negotiated, &query, cancellation, envelope).await?;
+    observe_reconciliation(client, store, operation_id, envelope)
+}
+
+/// Fold one already validated, identity-bound read into a claim about the
+/// original operation. This does no I/O beyond reading immutable local facts.
+pub(super) fn observe_reconciliation(
+    client: &CompanyClient,
+    store: &Store,
+    operation_id: EntityId,
+    envelope: &mut Value,
+) -> Result<()> {
+    let request = original_request(store, operation_id, client)?;
+    validate_binding_owner(envelope, client)?;
+    envelope["reconciles_operation"] = json!(operation_id);
+    envelope["original_idempotency_key"] = json!(request.idempotency_key);
     envelope["original_request_replayed"] = false.into();
     envelope["original_effect_resolved"] = false.into();
     if request.operation == Operation::CompleteCheckout
@@ -864,7 +867,17 @@ async fn reconcile(
                 .context("original purchase terms observation missing")?,
             client,
         )?;
-        let current: CheckoutObservation = serde_json::from_value(envelope["checkout"].clone())?;
+        let current = CheckoutObservation::from_resource(
+            &client.connection().report.company_identifier,
+            &client.connection().user_id,
+            envelope["resource"].clone(),
+        )?;
+        ensure!(
+            current.status == CheckoutStatus::Completed
+                && request.id.as_deref() == Some(current.identity.resource_id.as_str()),
+            "recovery did not observe the original completed checkout"
+        );
+        let id = &current.identity.resource_id;
         ensure!(
             authorized.identity == current.identity,
             "completed checkout differs from original purchase"
@@ -886,6 +899,28 @@ async fn reconcile(
     // A later cart/checkout state alone cannot prove which update or cancel
     // caused it. Preserve the fact without converting it into a mutation ACK.
     Ok(())
+}
+
+fn original_request(
+    store: &Store,
+    operation_id: EntityId,
+    client: &CompanyClient,
+) -> Result<CommerceRequest> {
+    let original = store.external_operation(operation_id)?;
+    ensure!(
+        original.operation_name == HANDLER,
+        "reconciliation target is not Poppy commerce"
+    );
+    let frozen = read_observation(store, &original.final_input_ref)?;
+    let action: CommerceAction = serde_json::from_value(frozen["commerce"].clone())
+        .context("original operation has no frozen commerce action")?;
+    action.validate()?;
+    let CommerceAction::Request(request) = action else {
+        anyhow::bail!("original operation has no commerce business request")
+    };
+    let bindings = read_observation(store, &original.resource_bindings_ref)?;
+    validate_binding_owner(&bindings["extra"], client)?;
+    Ok(request)
 }
 
 fn validate_binding_owner(extra: &Value, client: &CompanyClient) -> Result<()> {
@@ -1003,11 +1038,24 @@ fn load_observation(
     ensure!(
         receipt.operation_id == Some(operation_id)
             && receipt.attempt_id == Some(attempt.attempt_id)
-            && receipt.source_id == HANDLER
+            && matches!(
+                receipt.source_id.as_str(),
+                HANDLER | "compat.poppy.commerce.recovery"
+            )
             && receipt.decode_status == DecodeStatus::Decoded,
         "original commerce receipt identity mismatch"
     );
     let observed = read_observation(store, &receipt.raw_ref)?;
+    if receipt.source_id == "compat.poppy.commerce.recovery" {
+        ensure!(
+            receipt.observation_level == Some(ObservationLevel::PostconditionVerified)
+                && observed["reconciles_operation"] == json!(operation_id)
+                && observed["original_effect_resolved"] == true
+                && observed["original_terms_match"] == true
+                && observed["original_request_replayed"] == false,
+            "original commerce recovery receipt lacks its bound completion proof"
+        );
+    }
     ensure!(
         observed["commerce_schema"] == 1
             && observed["company"].as_str() == Some(&client.connection().report.company_identifier)
@@ -1021,7 +1069,7 @@ fn load_observation(
     Ok(observed)
 }
 
-fn read_observation(store: &Store, object: &ObjectRef) -> Result<Value> {
+pub(super) fn read_observation(store: &Store, object: &ObjectRef) -> Result<Value> {
     ensure!(
         object.bytes <= 1024 * 1024,
         "commerce receipt exceeds index bound"
@@ -1034,11 +1082,13 @@ fn read_observation(store: &Store, object: &ObjectRef) -> Result<Value> {
         &object.digest,
     )?;
     let value: Value = serde_json::from_slice(&raw)?;
-    if value["format"] != "compat-indexed-observation" {
+    if object.codec.name != "compat-observation-index" {
         return Ok(value);
     }
     ensure!(
-        value["schema_version"] == 1 && value["chunk_bytes"] == 1024 * 1024,
+        value["format"] == "compat-indexed-observation"
+            && value["schema_version"] == 1
+            && value["chunk_bytes"] == 1024 * 1024,
         "unsupported commerce receipt index"
     );
     let bytes = value["bytes"]
