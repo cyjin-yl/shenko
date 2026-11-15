@@ -144,6 +144,7 @@ async fn discover_using(
     let initial_metadata = http::parse_json(&initial)?;
     let discovery_source = source(&initial);
     let initial_version = document_version(&initial_metadata)?;
+    let initial_issuer = declared_issuer(&initial_metadata)?.map(str::to_owned);
     validate_company_domain(&initial_metadata, &initial.url, initial_version, options)?;
     let candidates = supported_versions(&initial_metadata, &initial.url, options)?;
     let selected_version = select_version(initial_version, &candidates)
@@ -164,11 +165,11 @@ async fn discover_using(
             document_version(&value)? == selected_version,
             "versioned Poppy document protocol_version does not match supported_versions key"
         );
-        validate_company_domain(&value, &initial.url, selected_version, options)?;
         ensure!(
-            declared_issuer(&value)? == declared_issuer(&initial_metadata)?,
-            "Poppy company issuer changed between protocol versions"
+            value.get("supported_versions").is_none(),
+            "versioned Poppy document must not contain supported_versions"
         );
+        validate_company_domain(&value, &initial.url, selected_version, options)?;
         (response, value)
     };
     let company_url = origin_with_options(&initial_url_origin(&selected.url, &metadata)?, options)?;
@@ -176,6 +177,17 @@ async fn discover_using(
     let capabilities = validate_capabilities(&metadata, selected_version, options)?;
     validate_auth(&metadata, &capabilities, options)?;
     let (issuer, oauth) = discover_issuer(fetcher, &company_url, &metadata, options).await?;
+    if selected_version != initial_version {
+        let servers = authorization_servers(
+            oauth.protected_resource_metadata.as_ref(),
+            &company_origin,
+            options,
+        )?;
+        ensure!(
+            select_issuer(initial_issuer.as_deref(), &servers)? == issuer,
+            "Poppy company issuer changed between protocol versions"
+        );
+    }
     let ucp = if advertises_ucp(&metadata)? {
         let response = fetcher
             .get(company_url.join("/.well-known/ucp")?, false)
@@ -454,7 +466,7 @@ fn validate_auth(
             ensure!(
                 metadata
                     .get("extensions")
-                    .and_then(|v| v.get("mediated_signin"))
+                    .and_then(|v| v.get("mediated-sign-in"))
                     .is_none(),
                 "auth.disabled cannot advertise mediated sign-in"
             );
@@ -502,35 +514,13 @@ async fn discover_issuer(
     };
     let company_origin = company.origin().ascii_serialization();
     let servers = authorization_servers(resource_metadata.as_ref(), &company_origin, options)?;
-    let declared = declared_issuer(metadata)?;
-    let chosen = match servers.as_slice() {
-        [] => {
-            ensure!(
-                declared.is_none(),
-                "auth.issuer is advertised but protected-resource metadata has no authorization server"
-            );
-            ensure!(
-                !offers_sign_in(metadata),
-                "company advertises sign-in without a discovered authorization server"
-            );
-            None
-        }
-        [only] => {
-            ensure!(
-                declared.is_none_or(|issuer| issuer == only),
-                "auth.issuer does not match the protected-resource authorization server"
-            );
-            Some(only.clone())
-        }
-        _ => {
-            let issuer = declared.context("multiple authorization servers require auth.issuer")?;
-            ensure!(
-                servers.iter().any(|server| server == issuer),
-                "auth.issuer is not listed by protected-resource metadata"
-            );
-            Some(issuer.to_owned())
-        }
-    };
+    let chosen = select_issuer(declared_issuer(metadata)?, &servers)?;
+    if chosen.is_none() {
+        ensure!(
+            !offers_sign_in(metadata),
+            "company advertises sign-in without a discovered authorization server"
+        );
+    }
     let authorization_server = if let Some(issuer) = &chosen {
         let url = authorization_metadata_url(issuer, options)?;
         let response = fetcher.get(url.clone(), false).await?;
@@ -573,6 +563,33 @@ async fn discover_issuer(
             authorization_server,
         },
     ))
+}
+
+fn select_issuer(declared: Option<&str>, servers: &[String]) -> Result<Option<String>> {
+    Ok(match servers {
+        [] => {
+            ensure!(
+                declared.is_none(),
+                "auth.issuer is advertised but protected-resource metadata has no authorization server"
+            );
+            None
+        }
+        [only] => {
+            ensure!(
+                declared.is_none_or(|issuer| issuer == only),
+                "auth.issuer does not match the protected-resource authorization server"
+            );
+            Some(only.clone())
+        }
+        _ => {
+            let issuer = declared.context("multiple authorization servers require auth.issuer")?;
+            ensure!(
+                servers.iter().any(|server| server == issuer),
+                "auth.issuer is not listed by protected-resource metadata"
+            );
+            Some(issuer.to_owned())
+        }
+    })
 }
 
 fn authorization_servers(
@@ -634,7 +651,7 @@ fn offers_sign_in(metadata: &Value) -> bool {
         })
         || metadata
             .get("extensions")
-            .and_then(|extensions| extensions.get("mediated_signin"))
+            .and_then(|extensions| extensions.get("mediated-sign-in"))
             .is_some()
 }
 
@@ -783,6 +800,7 @@ mod tests {
                 json!({
                     "protocol_version": "1.1",
                     "organization": {"name": "Shop", "domain": "shop.example"},
+                "auth": {"issuer": "https://identity.example/tenant/shop"},
                     "agent": {"protocols": [{"type": "ucp", "endpoint": "https://shop.example/.well-known/ucp", "description": "Shopping profile"}]},
                     "web": {}, "extensions": {"ucp": [{"version": "1"}]}
                 }),
