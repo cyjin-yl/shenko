@@ -58,7 +58,7 @@ fn runtime() -> Result<Option<(Fixture, ObeliskRuntime)>> {
 }
 
 fn write_jsonl(path: &Path, records: &[Value]) -> Result<()> {
-    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::create_dir_all(path.parent().context("fixture file has no parent")?)?;
     let bytes = records
         .iter()
         .map(Value::to_string)
@@ -127,12 +127,12 @@ async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection(
     assert_eq!(sessions.as_array().context("sessions shape")?.len(), 3);
     let pi_id = sessions
         .as_array()
-        .unwrap()
+        .context("sessions shape")?
         .iter()
         .find(|row| row["source"] == "pi")
         .context("missing Pi session")?["id"]
         .as_str()
-        .unwrap()
+        .context("Pi session id is not a string")?
         .to_owned();
     let found = successful(
         runtime
@@ -153,7 +153,12 @@ async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection(
             .await?,
     )?;
     assert_eq!(found["mode"], "literal_index_fallback");
-    assert!(!found["hits"].as_array().unwrap().is_empty());
+    assert!(
+        !found["hits"]
+            .as_array()
+            .context("search hits shape")?
+            .is_empty()
+    );
     assert_eq!(found["full_original_coverage"], false);
     let manifest = runtime
         .execute(
@@ -170,7 +175,7 @@ async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection(
         .source_manifests
         .iter()
         .find(|source| source.provider == ObeliskProvider::Pi)
-        .unwrap();
+        .context("Pi source manifest is missing")?;
     assert_eq!(source.local_path, pi_path);
     assert_eq!(source.observed_size, Some(before.len() as u64));
     assert_eq!(source.indexed_complete, None);
@@ -188,9 +193,21 @@ async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection(
             )
             .await?,
     )?;
-    let row = messages["messages"].as_array().unwrap().last().unwrap();
-    assert!(!row["text"].as_str().unwrap().contains("原文尾部"));
-    let message_uuid = row["uuid"].as_str().unwrap().to_owned();
+    let row = messages["messages"]
+        .as_array()
+        .context("messages shape")?
+        .last()
+        .context("Pi message list is empty")?;
+    assert!(
+        !row["text"]
+            .as_str()
+            .context("message text is not a string")?
+            .contains("原文尾部")
+    );
+    let message_uuid = row["uuid"]
+        .as_str()
+        .context("message uuid is not a string")?
+        .to_owned();
     let mut offset = 0;
     let mut raw = String::new();
     loop {
@@ -208,7 +225,11 @@ async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection(
                 .await?,
         )?;
         assert_eq!(page["status"], "available");
-        raw.push_str(page["text"].as_str().unwrap());
+        raw.push_str(
+            page["text"]
+                .as_str()
+                .context("raw page text is not a string")?,
+        );
         match page["next_offset_utf16"].as_u64() {
             Some(next) => {
                 ensure!(next > offset as u64, "raw pagination did not advance");
