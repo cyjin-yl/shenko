@@ -1159,10 +1159,10 @@ mod tests {
             Ok(Self(path))
         }
         fn store(&self, name: &str) -> Result<Store> {
-            Ok(Store::open(
+            Store::open(
                 self.0.join(format!("{name}.db")),
                 self.0.join(format!("{name}-cas")),
-            )?)
+            )
         }
     }
     impl Drop for Temp {
