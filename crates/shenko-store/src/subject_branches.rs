@@ -209,7 +209,7 @@ impl Store {
             let seq = self.ledger.allocate_seq(&tx)?;
             let commit = CommitRef::new(self.ledger.ledger_id(), seq);
             let fork = SubjectBranchFork {
-                schema_version: 1, agent_id: parent.agent_id, branch_id: branch.clone(),
+                schema_version: 2, agent_id: parent.agent_id, branch_id: branch.clone(),
                 parent_head: parent.clone(), parent_snapshot_id: parent_snapshot_id.clone(),
                 parent_history_leaf: parent_history.last().map(|event| event.seq),
                 parent_history_count: parent_history.len() as u64,
@@ -336,7 +336,7 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
         match row.table.as_str() {
             "subject_branch_forks" => {
                 let fork: SubjectBranchFork = serde_json::from_str(row.value("data").context("fork data missing")?)?;
-                ensure!(fork.schema_version == 1
+                ensure!(matches!(fork.schema_version, 1 | 2)
                     && row.value("branch_id") == Some(fork.branch_id.0.to_string().as_str())
                     && row.value("agent_id") == Some(fork.agent_id.to_string().as_str())
                     && row.value("parent_branch_id") == Some(fork.parent_head.branch_id.0.to_string().as_str())
@@ -492,6 +492,8 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
         let prefix_ids: HashSet<_> = inherited.iter().map(|event| event.event_id).collect();
         let parent_inputs: Vec<_> = links.values().filter(|input|
             input.source_step_id == fork.parent_head.next_step_id && prefix_ids.contains(&input.raw_event_id)).collect();
+        ensure!(fork.schema_version != 1 || (parent_inputs.is_empty() && fork.inherited_inputs.is_empty()),
+            "legacy fork omitted uncommitted input provenance; explicit continuation repair required");
         ensure!(parent_inputs.len() == fork.inherited_inputs.len(),
             "fork omitted uncommitted input selections from its parent prefix");
         let mut sources = HashSet::new();
