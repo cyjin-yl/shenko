@@ -99,7 +99,7 @@ impl Operation {
         }
     }
 
-    fn rest_method(self) -> &'static str {
+    pub(super) fn rest_method(self) -> &'static str {
         match self {
             Self::GetCart | Self::GetCheckout | Self::GetOrder => "GET",
             Self::UpdateCart | Self::UpdateCheckout => "PUT",
@@ -107,7 +107,7 @@ impl Operation {
         }
     }
 
-    fn rest_path(self) -> &'static [&'static str] {
+    pub(super) fn rest_path(self) -> &'static [&'static str] {
         match self {
             Self::SearchCatalog => &["catalog", "search"],
             Self::LookupCatalog => &["catalog", "lookup"],
@@ -226,8 +226,6 @@ impl RequestPlan {
                 }
                 let body = if operation.payload_name().is_some() {
                     Some(payload)
-                } else if operation.rest_method() == "POST" {
-                    Some(json!({}))
                 } else {
                     None
                 };

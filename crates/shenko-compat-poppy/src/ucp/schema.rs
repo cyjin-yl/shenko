@@ -19,7 +19,13 @@ struct ToolSchema {
 }
 
 #[derive(Clone)]
-struct SuppliedDocuments(Arc<BTreeMap<String, Value>>);
+pub(super) struct SuppliedDocuments(Arc<BTreeMap<String, Value>>);
+
+impl SuppliedDocuments {
+    pub(super) fn new(documents: BTreeMap<String, Value>) -> Self {
+        Self(Arc::new(documents))
+    }
+}
 
 impl Retrieve for SuppliedDocuments {
     fn retrieve(
@@ -166,7 +172,7 @@ impl ToolSchemas {
     }
 }
 
-fn compile(schema: &Value, documents: SuppliedDocuments) -> Result<Validator> {
+pub(super) fn compile(schema: &Value, documents: SuppliedDocuments) -> Result<Validator> {
     bounded_json(schema, 256 * 1024)?;
     jsonschema::options()
         .with_retriever(documents)

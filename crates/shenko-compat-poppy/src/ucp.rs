@@ -10,10 +10,13 @@
 
 mod continuation;
 mod request;
+mod rest_schema;
 mod schema;
+mod schema_resolver;
 
 pub use continuation::{CheckoutObservation, CheckoutStatus, CompletionBinding, ResourceIdentity};
 pub use request::{Operation, RequestPlan, Transport};
+pub use rest_schema::{RestSchemas, referenced_schema_documents};
 pub use schema::ToolSchemas;
 
 use std::collections::BTreeMap;
