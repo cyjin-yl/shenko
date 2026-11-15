@@ -230,7 +230,8 @@ mod tests {
         // Fault injection removes a required original at the source. Its
         // normally generated archive has a VALID fingerprint for those bad
         // bytes, so the receiver must reject lineage, not merely framing.
-        left.ledger.conn.lock().execute("DELETE FROM session_events WHERE event_id=?1", [common.event_id.to_string()])?;
+        rusqlite::Connection::open(root.0.join("left.db"))?.execute(
+            "DELETE FROM session_events WHERE event_id=?1", [common.event_id.to_string()])?;
         let new_event = event(&left, agent, "must not partially publish")?;
         let before = serde_json::to_value(right.load_subject(agent)?.0)?;
         assert!(right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default()).is_err());

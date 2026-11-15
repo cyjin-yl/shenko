@@ -3744,6 +3744,7 @@ dependencies = [
  "dirs-next",
  "libc",
  "parking_lot",
+ "rusqlite",
  "russh",
  "serde",
  "serde_json",
