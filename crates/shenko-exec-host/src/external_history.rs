@@ -31,6 +31,9 @@ const MAX_PROJECTION_BYTES: usize = 128 * 1024;
 const SEARCH_BYTE_BUDGET: usize = 16 * 1024 * 1024;
 const SEARCH_RECORD_BUDGET: usize = 256;
 const MAX_SOURCE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SOURCE_RECORDS: usize = 32_768;
+const MAX_DECODED_PROJECTION_BYTES: usize = 128 * 1024 * 1024;
+const MAX_INDEX_PROJECTION_BYTES: usize = 256 * 1024 * 1024;
 const MAX_PAGE_BYTES: usize = 128 * 1024;
 const MAX_PAGE_RECORDS: usize = 100;
 const SESSION_SCAN_BUDGET: usize = 256;
@@ -338,6 +341,7 @@ pub fn archive_bytes(
         .cloned()
         .unwrap_or_default();
     let mut events = Vec::new();
+    let mut index_bytes = 0usize;
     for mut record in records {
         let text = std::mem::take(&mut record.text);
         let mut text_ref = store
@@ -368,6 +372,11 @@ pub fn archive_bytes(
             data.len() <= MAX_PROJECTION_BYTES,
             "external-history record metadata exceeds projection bound"
         );
+        index_bytes += data.len();
+        ensure!(
+            index_bytes <= MAX_INDEX_PROJECTION_BYTES,
+            "external-history index projection exceeds 256 MiB; no partial snapshot committed"
+        );
         events.push(RawSessionEvent {
             event_id: record.event_id,
             session_id: archive_id,
@@ -388,6 +397,11 @@ pub fn archive_bytes(
             ensure!(
                 data.len() <= MAX_PROJECTION_BYTES,
                 "external-history text chunk exceeds projection bound"
+            );
+            index_bytes += data.len();
+            ensure!(
+                index_bytes <= MAX_INDEX_PROJECTION_BYTES,
+                "external-history index projection exceeds 256 MiB; no partial snapshot committed"
             );
             events.push(RawSessionEvent {
                 event_id: stable_id(
@@ -491,9 +505,15 @@ fn parse_records(
     origin: &[u8],
 ) -> Result<Vec<ArchivedRecord>> {
     let mut result = Vec::new();
+    let origin_bytes = serde_json::to_vec(source)?.len();
+    let mut projection_bytes = 0usize;
     let mut stream = serde_json::Deserializer::from_slice(bytes).into_iter::<serde_json::Value>();
     let mut start = 0usize;
     while let Some(value) = stream.next() {
+        ensure!(
+            result.len() < MAX_SOURCE_RECORDS,
+            "external-history source exceeds 32768 records; use an explicitly identified source partition"
+        );
         let end = if value.is_ok() {
             stream.byte_offset()
         } else {
@@ -528,6 +548,14 @@ fn parse_records(
                 )
             }
         };
+        projection_bytes += text.len()
+            + origin_bytes
+            + serde_json::to_vec(&fields)?.len()
+            + std::mem::size_of::<ArchivedRecord>();
+        ensure!(
+            projection_bytes <= MAX_DECODED_PROJECTION_BYTES,
+            "external-history decoded projection exceeds 128 MiB; no prefix archived"
+        );
         result.push(ArchivedRecord {
             format: FORMAT.into(),
             event_id: stable_id(
