@@ -269,6 +269,23 @@ impl CompletionBinding {
                         .any(|candidate| candidate["version"] == instance["version"]),
                     "payment handler version was not negotiated"
                 );
+                ensure!(
+                    negotiated
+                        .platform_payment_handlers
+                        .get(name)
+                        .is_some_and(|providers| providers.iter().any(
+                            |provider| provider["version"] == instance["version"]
+                                && provider
+                                    .get("available_instruments")
+                                    .is_none_or(|available| available.as_array().is_some_and(
+                                        |instruments| instruments
+                                            .iter()
+                                            .any(|instrument| instrument["type"].as_str()
+                                                == Some(instrument_type))
+                                    ))
+                        )),
+                    "payment instrument type is not implemented by the selected platform handler"
+                );
                 if let Some(instruments) = instance["available_instruments"].as_array() {
                     ensure!(
                         instruments

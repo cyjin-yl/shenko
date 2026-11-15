@@ -146,6 +146,9 @@ pub struct NegotiatedProfile {
     pub platform_profile: String,
     pub capabilities: BTreeMap<String, Value>,
     pub payment_handlers: BTreeMap<String, Vec<Value>>,
+    /// Public declarations of actually provisioned platform providers. Keep
+    /// these distinct from the business's instances and runtime preferences.
+    pub platform_payment_handlers: BTreeMap<String, Vec<Value>>,
     pub services: Vec<Service>,
     pub excluded: BTreeMap<String, String>,
 }
@@ -174,6 +177,7 @@ impl NegotiatedProfile {
             platform_profile: platform.url.clone(),
             capabilities: BTreeMap::new(),
             payment_handlers: BTreeMap::new(),
+            platform_payment_handlers: BTreeMap::new(),
             services: Vec::new(),
             excluded: BTreeMap::new(),
         };
@@ -221,6 +225,9 @@ impl NegotiatedProfile {
                 .collect();
             if !matching.is_empty() {
                 result.payment_handlers.insert(name.clone(), matching);
+                result
+                    .platform_payment_handlers
+                    .insert(name.clone(), supported.clone());
             }
         }
         let services = ucp
