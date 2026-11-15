@@ -13,6 +13,11 @@ path = "src/main.rs"
 name = "shenko"
 path = "src/lib.rs"
 
+[[example]]
+name = "obelisk_native_receipt"
+path = "examples/obelisk_native_receipt.rs"
+required-features = ["compat-mcp"]
+
 [features]
 default = ["compat-mcp", "compat-skill"]
 compat-mcp = ["dep:shenko-compat-mcp"]

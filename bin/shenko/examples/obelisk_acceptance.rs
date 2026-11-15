@@ -1,8 +1,8 @@
-//! One opt-in, real-model comparison through the production subject sandbox.
+//! One real-model comparison through the production subject sandbox.
 //!
 //! SHENKO_USE_LOCAL_MODEL=1 SHENKO_LOCAL_MODEL_URL=<base URL without /v1>
 //! SHENKO_LOCAL_MODEL=<served model> SHENKO_OBELISK_CONFIG=<compatible config JSON>
-//! cargo test -p shenko --test obelisk_acceptance -- --ignored --nocapture
+//! cargo run -p shenko --example obelisk_acceptance
 //!
 //! The config supplies only the independently installed, source-pinned CLI.
 //! Every provider root is replaced with this test's synthetic corpus. The
@@ -42,7 +42,7 @@ use std::{
     time::Duration,
 };
 
-const CORPUS: &[u8] = include_bytes!("fixtures/obelisk_auth_history.json");
+const CORPUS: &[u8] = include_bytes!("../tests/fixtures/obelisk_auth_history.json");
 const SCENARIO: &str = "auth_history_candidate_and_implemented_change";
 const MESSAGE: &str = "上次 Hydra auth refresh 并发问题最后改了哪些文件，为什么这么改？请用本次可用的历史检索能力核实，给出可回查的来源，并区分候选方案与已实施的修改。";
 const RUBRIC: &str = "回答是否根据实际读取的历史指出最终改动的两个文件与 generation 防止旧响应覆盖新会话的原因，区分未实施的 SameSite None 候选方案与保持 Lax 的最终决定，并给出能对应本次检索结果的来源？对‘测试通过’等事实应归因于历史记录，不把历史里的说法伪装成本次重新运行代码的证据。没有成功检索、缺乏来源或把候选方案说成最终修改均判 NOT_EFFECTIVE。";
@@ -314,9 +314,8 @@ async fn run_arm(
     Ok(report)
 }
 
-#[tokio::test(flavor = "current_thread")]
-#[ignore = "requires a reachable real local model and independently installed pinned Obelisk source; never mocked"]
-async fn same_corpus_history_research_through_real_model_and_cli() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     let root = std::env::var_os("SHENKO_OBELISK_ACCEPTANCE_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| {

@@ -109,7 +109,7 @@ pub enum HistoryQuery {
 }
 
 pub fn config_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("node/obelisk.json")
+    data_dir.join("obelisk.json")
 }
 
 pub fn load_config(path: &Path) -> Result<ObeliskConfig> {
