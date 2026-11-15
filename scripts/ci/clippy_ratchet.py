@@ -23,6 +23,37 @@ EDITION = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package
 CLIPPY_LINTS = ('clippy::all', 'clippy::unwrap_used', 'clippy::expect_used')
 
 
+def probe_rust_lints(rustc, environment, names, output, label):
+    """The help table can include unstable lints the same stable rustc rejects."""
+    flags = [argument for name in names for argument in ('--force-warn', name)]
+    metadata_path = output / f'rustc-lint-probe-{label}.rmeta'
+    command = [rustc, '--edition', EDITION, '--crate-name', 'shenko_ci_lint_probe',
+               '--emit=metadata', '--error-format=json', '-o', str(metadata_path), *flags, '-']
+    source = 'fn main() {}\n'
+    result = subprocess.run(command, cwd=ROOT, env=environment, input=source,
+                            text=True, capture_output=True)
+    diagnostics_path = output / f'rustc-lint-probe-{label}.jsonl'
+    stdout_path = output / f'rustc-lint-probe-{label}.stdout.log'
+    diagnostics_path.write_text(result.stderr)
+    stdout_path.write_text(result.stdout)
+    unavailable = set()
+    for line in result.stderr.splitlines():
+        diagnostic = json.loads(line)
+        if (diagnostic.get('code') or {}).get('code') != 'unknown_lints':
+            continue
+        reported = re.fullmatch(r'unknown lint: `([a-z][a-z0-9_-]*)`', diagnostic['message'])
+        if not reported or reported[1].replace('_', '-') not in names:
+            raise RuntimeError(f'Unexpected unknown lint in compiler probe; retained {diagnostics_path}')
+        unavailable.add(reported[1].replace('_', '-'))
+    if result.returncode:
+        raise RuntimeError(f'Compiler lint probe failed ({result.returncode}); retained {diagnostics_path}')
+    return sorted(unavailable), {
+        'command': command, 'source': source, 'returncode': result.returncode,
+        'diagnostics_path': str(diagnostics_path), 'stdout_path': str(stdout_path),
+        'metadata_path': str(metadata_path),
+    }
+
+
 def lint_policy(output):
     # Bind discovery and both source graphs to one native compiler. Inherited
     # flags or wrappers must not replace that compiler or suppress its lints.
@@ -55,6 +86,14 @@ def lint_policy(output):
     warnings = sorted(name for name, level in levels.items() if level == 'warn' and name != 'warnings')
     if not warnings:
         raise RuntimeError(f'No default Rust warning lints discovered; retained {listing_path}')
+    discovered = warnings
+    unavailable, original_probe = probe_rust_lints(rustc, environment, discovered, output, 'original')
+    warnings = [name for name in discovered if name not in unavailable]
+    if not warnings:
+        raise RuntimeError(f'No compiler-accepted warning lints remain; retained {listing_path}')
+    rejected, filtered_probe = probe_rust_lints(rustc, environment, warnings, output, 'filtered')
+    if rejected:
+        raise RuntimeError(f'Filtered compiler lint probe still rejects {rejected}; retained {filtered_probe["diagnostics_path"]}')
     flags = [argument for name in (*warnings, *CLIPPY_LINTS) for argument in ('--force-warn', name)]
     policy = {
         'toolchain': TOOLCHAIN, 'edition': EDITION, 'rustc_path': rustc,
@@ -62,6 +101,9 @@ def lint_policy(output):
         'clippy': subprocess.check_output(
             ['cargo', 'clippy', '--version'], cwd=ROOT, env=environment, text=True).strip(),
         'lint_discovery_command': command, 'rust_warning_lints': warnings, 'flags': flags,
+        'discovered_rust_warning_lints': discovered,
+        'unavailable_rust_warning_lints': unavailable,
+        'rust_lint_probes': {'original': original_probe, 'filtered': filtered_probe},
     }
     # Retain the shared policy even if the first compilation fails.
     (output / 'lint-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
