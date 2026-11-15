@@ -30,6 +30,15 @@ pub struct CommitAdmission {
     pub payload_ref: ObjectRef,
 }
 
+/// Verified content retained with a chosen admission. The descriptor alone
+/// cannot recover a decision whose source disappears before Store applies it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommitAdmissionObject {
+    pub reference: ObjectRef,
+    pub bytes: Vec<u8>,
+}
+
 /// Provider-specific proof of an ordered admission. The provider verifies
 /// `proof` under its actual reservation; the Store only binds it to the exact
 /// descriptor. A replay is historical permission, never a new physical send.
