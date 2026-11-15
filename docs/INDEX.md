@@ -41,6 +41,7 @@
 | [documentation](specs/documentation.md) | ArchDocs | 分域规范、接口、Why、错误与恢复 |
 | [durable-state](specs/durable-state.md) | ArchLedger | 分域规范、接口、Why、错误与恢复 |
 | [ecosystem-adapters](specs/ecosystem-adapters.md) | ArchEcosystem | 分域规范、接口、Why、错误与恢复 |
+| [external-history](specs/external-history.md) | ArchMemory | 可选 Obelisk 查询、完整原文与稳定引用、跨节点归档、执行及恢复边界 |
 | [inference](specs/inference.md) | ArchBroker | 分域规范、接口、Why、错误与恢复 |
 | [kernel](specs/kernel.md) | parent | 九条内核不变量、六栏 Why、参考插件的边界 |
 | [media](specs/media.md) | ArchMedia | 分域规范、接口、Why、错误与恢复 |

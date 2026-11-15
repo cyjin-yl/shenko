@@ -30,7 +30,7 @@ share a host. The targeted commands, after integration, are:
 
 ```bash
 cargo test -p shenko-exec-host external_history::tests --lib
-SHENKO_OBELISK_CHECKOUT=/absolute/path/to/audited/obelisk cargo test -p shenko-exec-host obelisk_runtime::tests --lib -- --nocapture
+SHENKO_OBELISK_EXECUTABLE=/absolute/path/to/node SHENKO_OBELISK_SOURCE_CHECKOUT=/absolute/path/to/audited/obelisk cargo test -p shenko-exec-host obelisk_runtime::tests --lib -- --nocapture
 cargo test -p shenko --test obelisk_lifecycle -- --nocapture
 python3 scripts/check_kernel_boundary.py --baseline-ref 054817b0d5729fed56ec5a974d101c31edfd1410
 ```
