@@ -42,14 +42,20 @@ pub struct EndpointBinding {
 
 enum Scope {
     Exact(Url, &'static [&'static str]),
-    Conversation(Url),
-    PlannedRequest { url: Url, method: &'static str },
+    Mcp(Url, String),
+    Conversation(Url, String),
+    PlannedRequest {
+        url: Url,
+        method: &'static str,
+        service: String,
+    },
     OpenApi(Vec<ApiRoute>),
 }
 
 struct ApiRoute {
     method: String,
     server: Url,
+    resource: String,
     path: String,
 }
 
@@ -68,14 +74,17 @@ impl EndpointBinding {
         let mut scope = None;
         for api in &report.capabilities.apis {
             if api.api_type == "mcp" && endpoint == checked_url(&api.url, &options)? {
-                scope = Some(Scope::Exact(endpoint.clone(), &["GET", "POST", "DELETE"]));
+                scope = Some(Scope::Mcp(endpoint.clone(), api.url.clone()));
             }
         }
         for protocol in &report.capabilities.agent {
-            if protocol.protocol_type == "poppy"
-                && endpoint == checked_url(&protocol.endpoint, &options)?
-            {
-                scope = Some(Scope::Conversation(endpoint.clone()));
+            if protocol.protocol_type == "poppy" {
+                let base = checked_url(&protocol.endpoint, &options)?;
+                if conversation_route(&base, "GET", &endpoint)
+                    || conversation_route(&base, "POST", &endpoint)
+                {
+                    scope = Some(Scope::Conversation(base, protocol.endpoint.clone()));
+                }
             }
         }
         if let Some(tasks) = &report.capabilities.tasks_endpoint
@@ -117,7 +126,7 @@ impl EndpointBinding {
                     continue;
                 }
                 if service.get("transport").and_then(Value::as_str) == Some("mcp") {
-                    scope = Some(Scope::Exact(endpoint.clone(), &["GET", "POST", "DELETE"]));
+                    scope = Some(Scope::Mcp(endpoint.clone(), url.into()));
                 }
             }
         }
@@ -164,6 +173,7 @@ impl EndpointBinding {
         schema: &Value,
         options: DiscoveryOptions,
     ) -> Result<Self> {
+        let resource = endpoint.to_owned();
         let endpoint = checked_url(endpoint, &options)?;
         let source = checked_url(schema_url, &options)?;
         let services = report
@@ -193,6 +203,7 @@ impl EndpointBinding {
         let mut routes = openapi_routes(&source, schema, &options, Some(&endpoint))?;
         for route in &mut routes {
             route.server = endpoint.clone();
+            route.resource.clone_from(&resource);
         }
         let mut binding = Self::new(report, Scope::OpenApi(routes), options)?;
         binding.excluded.push(source);
@@ -223,7 +234,7 @@ impl EndpointBinding {
             crate::ucp::Transport::Mcp => "mcp",
             crate::ucp::Transport::Rest => "rest",
         };
-        let mut found = false;
+        let mut service_base = None;
         for service in services {
             if service.get("transport").and_then(Value::as_str) != Some(transport)
                 || service.get("version").and_then(Value::as_str) != Some(crate::ucp::VERSION)
@@ -235,19 +246,18 @@ impl EndpointBinding {
             };
             checked_url(base, &options)?;
             if plan.validate_destination(base).is_ok() {
-                found = true;
+                service_base = Some(base.to_owned());
                 break;
             }
         }
-        ensure!(
-            found,
-            "UCP request is not derived from the company's declared service"
-        );
+        let service = service_base
+            .context("UCP request is not derived from the company's declared service")?;
         let scope = match plan.transport {
-            crate::ucp::Transport::Mcp => Scope::Exact(endpoint, &["GET", "POST", "DELETE"]),
+            crate::ucp::Transport::Mcp => Scope::Mcp(endpoint, service),
             crate::ucp::Transport::Rest => Scope::PlannedRequest {
                 url: endpoint,
                 method: plan.method,
+                service,
             },
         };
         Self::new(report, scope, options)
@@ -343,6 +353,38 @@ impl EndpointBinding {
         &self.version
     }
 
+    /// The service identifier for this actual route, as required by Poppy
+    /// section 4.5. Preserve the original absolute identifier: OAuth resource
+    /// equality does not normalize an origin-only URL by adding a slash.
+    /// Protocol-default endpoints (tasks, browser authorization, website) have
+    /// no separate service identifier and may only use the default token.
+    pub fn service_url(&self, method: &str, url: &Url) -> Result<Option<&str>> {
+        self.validate(method, url)?;
+        match &self.scope {
+            Scope::Exact(..) => Ok(None),
+            Scope::Mcp(_, service)
+            | Scope::Conversation(_, service)
+            | Scope::PlannedRequest { service, .. } => Ok(Some(service)),
+            Scope::OpenApi(routes) => {
+                let mut selected = None;
+                for route in routes.iter().filter(|route| route.matches(method, url)) {
+                    ensure!(
+                        selected.is_none_or(|resource| resource == route.resource.as_str()),
+                        "OpenAPI request matches different service resource identifiers"
+                    );
+                    selected = Some(route.resource.as_str());
+                }
+                Ok(selected)
+            }
+        }
+    }
+
+    /// MCP's authorization profile requires verified protected-resource
+    /// metadata; a missing document cannot make it a default-token service.
+    pub fn requires_resource_metadata(&self) -> bool {
+        matches!(self.scope, Scope::Mcp(..))
+    }
+
     pub fn validate(&self, method: &str, url: &Url) -> Result<()> {
         http::validate_url(url, &self.options)?;
         ensure!(
@@ -360,22 +402,30 @@ impl EndpointBinding {
                         .query()
                         .is_none_or(|query| Some(query) == url.query())
             }
-            Scope::Conversation(endpoint) => conversation_route(endpoint, method, url),
+            Scope::Mcp(endpoint, _) => {
+                matches!(method, "GET" | "POST" | "DELETE") && endpoint == url
+            }
+            Scope::Conversation(endpoint, _) => conversation_route(endpoint, method, url),
             Scope::PlannedRequest {
                 url: planned,
                 method: planned_method,
+                ..
             } => planned == url && *planned_method == method,
-            Scope::OpenApi(routes) => routes.iter().any(|route| {
-                route.method.eq_ignore_ascii_case(method)
-                    && path_under_base(&route.server, url)
-                        .is_some_and(|path| path_template_matches(&route.path, path))
-            }),
+            Scope::OpenApi(routes) => routes.iter().any(|route| route.matches(method, url)),
         };
         ensure!(
             allowed,
             "request destination is outside the selected Poppy endpoint binding"
         );
         Ok(())
+    }
+}
+
+impl ApiRoute {
+    fn matches(&self, method: &str, url: &Url) -> bool {
+        self.method.eq_ignore_ascii_case(method)
+            && path_under_base(&self.server, url)
+                .is_some_and(|path| path_template_matches(&self.path, path))
     }
 }
 
@@ -416,6 +466,7 @@ fn openapi_routes(
                 routes.push(ApiRoute {
                     method: method.into(),
                     server: server.clone(),
+                    resource: server.to_string(),
                     path: path.clone(),
                 });
                 continue;
@@ -435,6 +486,7 @@ fn openapi_routes(
                 routes.push(ApiRoute {
                     method: method.into(),
                     server: source.join("/")?,
+                    resource: source.join("/")?.to_string(),
                     path: path.clone(),
                 });
             }
@@ -466,9 +518,15 @@ fn openapi_routes(
                 let server = source.join(&value)?;
                 http::validate_url(&server, options)?;
                 ensure!(server.query().is_none(), "OpenAPI server URL has a query");
+                let resource = if Url::parse(&value).is_ok() {
+                    value
+                } else {
+                    server.to_string()
+                };
                 routes.push(ApiRoute {
                     method: method.into(),
                     server,
+                    resource,
                     path: path.clone(),
                 });
             }
@@ -686,6 +744,7 @@ impl RequestSigner {
             "dpop",
             "ucp-agent",
             "idempotency-key",
+            "request-id",
             "content-digest",
             "content-type",
             "shopify-buyer-ip",
