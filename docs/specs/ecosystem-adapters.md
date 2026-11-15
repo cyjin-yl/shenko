@@ -475,9 +475,12 @@ Session/version/extensions 头。
 
 实际操作冻结公司、pairwise user、操作者、连接版本、Session 和账号 grant binding。
 每次成功的新登录生成新的 grant binding；refresh 保持原 binding 和原 DPoP 密钥，返回
-Bearer 访问 token 也不丢弃绑定 refresh token 的 DPoP 密钥。连接协议版本变化必须使用新
-Session；新 grant 也必须与可能属于另一商家账号的旧 Session 隔离。账号不根据 opaque
-token 内容猜测。服务资源按 protected-resource metadata 与 issuer 核对，MCP 的 resource
+Bearer 访问 token 也不丢弃绑定 refresh token 的 DPoP 密钥。未登录请求使用连接的基础
+Session ID；账号请求根据基础 Session ID 与持久 grant binding 派生稳定的独立 Session ID，
+刷新保持不变，每次成功的新登录分开处理。首次登录也不隐式继承匿名购物车或浏览器 cookie。
+操作冻结的是实际发送的 Session ID。协议版本或 `Poppy-Extensions` 声明变化须开始新
+Session，远端错误不会触发自动切换和重发。账号不根据 opaque token 内容猜测。
+服务资源按 protected-resource metadata 与 issuer 核对，MCP 的 resource
 必须精确匹配实际端点；资源 token 不得用于其他 API 或浏览器加入。
 
 节点凭据保存在数据目录下的 `poppy-private`，与可共享的 Node 连接、任务输入和 CAS 分开。
@@ -547,7 +550,7 @@ DPoP nonce 按 AS/RS 角色及精确 endpoint 分开持久化，成功响应中�
 | `{"action":"poll_device"}` | 按保存的 interval 查询一次，处理 pending/slow_down，不自动循环 |
 | `{"action":"refresh","resource":"<服务资源 URL>","scopes":["<已获授权 scope>"]}` | 用原 grant/DPoP key 获取此资源的访问 token；省略 scopes 保留原 grant 范围 |
 | `{"action":"revoke"}` | 逐个撤销当前和已被替换的已知 refresh grant，保留未确认结果 |
-| `{"action":"join_browser","session_id":"<浏览器 Session UUID>","tab_id":"<已有 tab>","lease_token":"<有效 lease UUID>","controller_epoch":1}` | 在既有受控浏览器及当前租约中完成私有加入；不是 Poppy Session UUID 输入 |
+| `{"action":"join_browser","session_id":"<浏览器 Session UUID>","tab_id":"<已有 tab>","lease_token":"<有效 lease UUID>","controller_epoch":1}` | 在既有受控浏览器及当前租约中完成私有加入；这里的 session_id 是浏览器 ID |
 
 Direct/device 都要求用户在商家实际授权页面完成登录与同意。`begin_*` 只证明流程启动，
 不证明已登录。Direct 使用登记的 HTTPS 回调或受支持的 loopback URI；当前宿主不声称已
