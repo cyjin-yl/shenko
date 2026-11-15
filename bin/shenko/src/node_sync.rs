@@ -897,6 +897,16 @@ pub fn establish_primary(
     // establishes a new durable primary; each subsequent connected-branch
     // Store admission also needs its own actual control-slot quorum.
     let own = node.local_node_id()?.context("node not initialized")?;
+    // Freeze whether this was still the same isolated episode BEFORE this
+    // startup advances the term. An old open metadata row may have survived a
+    // real quorum takeover and must not erase the next actual Store fork.
+    let previous_availability = if node.local_identity()?.is_some() {
+        let reservation = Node::open(&data_dir.join("node"))?.reserve_authority()?;
+        let previous = reservation.snapshot();
+        (previous.is_current_availability() && previous.fence.is_none()).then(|| previous.clone())
+    } else {
+        None
+    };
     let mut contacted = BTreeSet::new();
     // Bound contested recovery. Learning a prefix can require another prepare,
     // but an active competing primary must not cause an endless campaign loop.
@@ -1072,20 +1082,25 @@ pub fn establish_primary(
             );
         }
         drop(reservation);
-        // Only the actual current open branch can continue the same episode.
-        // An orphan metadata fact from another crash is not a Store lineage.
-        let branch_id = expected
-            .branch
-            .as_ref()
-            .filter(|branch| {
-                branch.branch_id == expected.identity.branch_id
-                    && branch.subject_id == Some(expected.identity.agent_id)
-                    && branch.kind == shenko_node::BranchKind::Availability
-                    && !branch.global_quorum
-                    && branch.merged.is_none()
-            })
-            .map(|branch| branch.branch_id)
-            .unwrap_or_else(EntityId::new);
+        // Only an unchanged, previously live isolated episode can continue.
+        // Recovered quorum, a learned term, rejoin, missing legacy origin or
+        // an orphan metadata fact all require a new actual branch instead.
+        let same_episode = match &previous_availability {
+            Some(previous) => {
+                previous.node_id == expected.node_id
+                    && previous.identity == expected.identity
+                    && previous.term.checked_add(1) == Some(expected.term)
+                    && previous.configuration == expected.configuration
+                    && serde_json::to_value(&previous.branch)?
+                        == serde_json::to_value(&expected.branch)?
+            }
+            None => false,
+        };
+        let branch_id = if same_episode {
+            expected.identity.branch_id
+        } else {
+            EntityId::new()
+        };
         let reason = format!(
             "election term {} found no authenticated reachable other voter of the committed configuration",
             campaign.term
