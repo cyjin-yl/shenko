@@ -26,6 +26,11 @@ pub struct CommitAdmission {
     /// value. An empty field preserves retained descriptor bytes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflict_aliases: Vec<String>,
+    /// Read dependencies such as an ancestor task's still-live revision.
+    /// Reads do not consume a position; a later chosen writer does. A fresh
+    /// dispatch must recheck them under the provider's final reservation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_unconsumed: Vec<String>,
     pub action_id: EntityId,
     pub expected_parent: Option<CommitRef>,
     pub expected_head_revision: Option<RecordRevision>,
