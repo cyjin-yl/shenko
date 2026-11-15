@@ -309,18 +309,44 @@ impl Store {
         let tx = conn.transaction().map_err(storage_error)?;
         let task = crate::child::read_task(&tx, task_id).map_err(storage_error)?
             .ok_or_else(|| ShenkoError::not_found("admission task"))?;
-        let (head, _) = crate::store::read_subject(&tx, task.agent_id)?;
-        crate::child::ensure_owner_active(&tx, &task, &head).map_err(|error|
+        self.task_admission_position_tx(&tx, &task, key)
+    }
+
+    /// A multi-task transition freezes every task and ancestor inside the
+    /// same read snapshot, before acquiring its one source reservation.
+    pub(crate) fn task_admission_position_tx(
+        &self, tx: &Transaction<'_>, task: &TaskRecord, key: String,
+    ) -> Result<(SubjectBranchHead, AdmissionPosition), ShenkoError> {
+        let (head, position) = self.task_recovery_position_tx(tx, task, key)?;
+        crate::child::ensure_owner_active(tx, task, &head).map_err(|error|
             ShenkoError::conflict(format!("task branch/owner is not current: {error}")))?;
+        Ok((head, position))
+    }
+
+    /// Cleanup may park a crashed task whose ancestor is no longer active.
+    /// This structural position preserves that ancestor as a read dependency;
+    /// it does not establish eligibility to claim or dispatch the task.
+    pub(crate) fn task_recovery_position_tx(
+        &self, tx: &Transaction<'_>, task: &TaskRecord, key: String,
+    ) -> Result<(SubjectBranchHead, AdmissionPosition), ShenkoError> {
+        let (head, _) = crate::store::read_subject(tx, task.agent_id)?;
+        if !crate::child::task_in_current_branch(tx, task, &head).map_err(|error|
+            ShenkoError::conflict(format!("task branch structure is not current: {error}")))?
+        {
+            return Err(ShenkoError::conflict("task does not belong to the current subject branch"));
+        }
         let mut position = AdmissionPosition { key,
-            aliases: vec![task_revision_position(&task)], expected_tasks: vec![task.clone()],
+            aliases: vec![task_revision_position(task)], expected_tasks: vec![task.clone()],
             ..Default::default() };
-        let mut owner = task.owner;
+        let mut owner = task.owner.clone();
         let mut seen = std::collections::BTreeSet::new();
         while let TaskOwner::Task { id } = owner {
             if !seen.insert(id) || seen.len() > 64 { return Err(ShenkoError::conflict("task owner cycle")); }
-            let parent = crate::child::read_task(&tx, id).map_err(storage_error)?
+            let parent = crate::child::read_task(tx, id).map_err(storage_error)?
                 .ok_or_else(|| ShenkoError::not_found("task authority ancestor"))?;
+            if parent.task_id != id || parent.agent_id != head.agent_id {
+                return Err(ShenkoError::conflict("task authority ancestor identity or subject mismatch"));
+            }
             position.reads.push(task_revision_position(&parent));
             owner = parent.owner.clone();
             position.expected_tasks.push(parent);
@@ -330,6 +356,41 @@ impl Store {
             if id == head.subject_root_task_id { break; }
         }
         Ok((head, position))
+    }
+
+    /// One atomic batch consumes every selected task revision. It is never
+    /// split into separately committed admissions to fit a provider's limit:
+    /// an oversized descriptor must be refused before that source accepts it.
+    pub(crate) fn reserve_task_batch_admission<T: Serialize>(
+        &self, positions: Vec<(SubjectBranchHead, AdmissionPosition)>,
+        key: String, payload: &T,
+    ) -> Result<AuthorityReservation, ShenkoError> {
+        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
+        let head = positions.first().ok_or_else(|| ShenkoError::conflict("empty task admission batch"))?.0.clone();
+        let mut combined = AdmissionPosition { key, bind_parent: true, ..Default::default() };
+        let mut tasks = std::collections::BTreeMap::new();
+        for (current, position) in positions {
+            if serde_json::to_value(&current)? != serde_json::to_value(&head)? {
+                return Err(authority_fenced("one task batch must bind one current subject branch"));
+            }
+            combined.aliases.extend(position.aliases);
+            combined.reads.extend(position.reads);
+            if position.operation_id.is_some() || position.attempt_id.is_some() {
+                return Err(ShenkoError::conflict("task cleanup batch cannot authorize an external attempt"));
+            }
+            combined.snapshot_tasks.extend(position.snapshot_tasks);
+            combined.expected_steps.extend(position.expected_steps);
+            for task in position.expected_tasks {
+                if let Some(previous) = tasks.get(&task.task_id)
+                    && serde_json::to_value(previous)? != serde_json::to_value(&task)?
+                {
+                    return Err(ShenkoError::conflict("task batch contains inconsistent ancestor snapshots"));
+                }
+                tasks.insert(task.task_id, task);
+            }
+        }
+        combined.expected_tasks = tasks.into_values().collect();
+        self.reserve_admission(&head, combined, payload)
     }
 
     pub(crate) fn reserve_task_admission<T: Serialize>(

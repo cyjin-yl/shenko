@@ -14,7 +14,7 @@ use shenko_types::{
     subject::{SubjectBranchHead, SubjectMode},
     task::*,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub(crate) const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS task_results(
@@ -149,6 +149,23 @@ struct CompletionMemo {
     evidence_ref: ObjectRef,
 }
 
+/// The complete startup scan, including rows that remain on another branch.
+/// Rechecking this snapshot prevents a concurrent insertion or owner change
+/// from turning a prepared batch into a different recovery decision.
+#[derive(Serialize)]
+struct NativeRecoverySnapshot {
+    candidates: Vec<(String, TaskRecord)>,
+    heads: BTreeMap<EntityId, SubjectBranchHead>,
+    authority_tasks: BTreeMap<EntityId, TaskRecord>,
+    selected: Vec<EntityId>,
+    inactive_owners: BTreeSet<EntityId>,
+}
+
+struct NativeRecoveryPlan {
+    snapshot: NativeRecoverySnapshot,
+    positions: Vec<(SubjectBranchHead, crate::authority::AdmissionPosition)>,
+}
+
 pub fn memo_uuid(task: &TaskRecord, key: &str) -> Option<EntityId> {
     task.memos
         .get(key)
@@ -239,54 +256,87 @@ impl Store {
     /// Recover only finite native work. Old unbound running delegations are
     /// quarantined as pending/parked; their raw input and effects stay intact.
     pub fn recover_native_tasks(&self) -> Result<usize> {
-        let mut changed = 0;
+        let NativeRecoveryPlan { snapshot, positions } = {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            self.native_recovery_plan(&tx)?
+        };
+        if snapshot.selected.is_empty() { return Ok(0); }
+        let frozen = serde_json::to_value(&snapshot)?;
+        let key = format!("native-recovery/{}", Digest::blake3(&serde_json::to_vec(&frozen)?));
+        let authority = self.reserve_task_batch_admission(positions, key, &serde_json::json!({
+            "kind":"native.recover_batch", "snapshot":frozen,
+        }))?;
+        self.ledger.with_mutation(|| -> Result<usize> {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
+            self.check_dispatch_owner(&tx)?;
+            let NativeRecoveryPlan { snapshot: current, .. } = self.native_recovery_plan(&tx)?;
+            ensure!(serde_json::to_value(&current)? == frozen,
+                "native recovery scan changed after its atomic batch was prepared");
+            let selected: HashSet<_> = current.selected.into_iter().collect();
+            let commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
+            let mut changed = 0;
+            for (_, mut task) in current.candidates {
+                if !selected.contains(&task.task_id) { continue; }
+                task.state = TaskState::Pending { checkpoint_ref: pending_checkpoint(&task.state) };
+                task.record_revision = task.record_revision.next();
+                if memo_flag(&task, NATIVE_CHILD) {
+                    task.memos.insert(NATIVE_RECOVERY.into(), true.into());
+                    task.dispatch_eligibility = if task.abort_request.is_some() {
+                        parked(task.task_id, "cancel_requested", None)
+                    } else if current.inactive_owners.contains(&task.task_id) {
+                        parked(task.task_id, "owner_inactive", None)
+                    } else { DispatchEligibility::Ready };
+                } else {
+                    task.memos.insert(NATIVE_PARK.into(), "legacy_unbound".into());
+                    task.dispatch_eligibility = parked(task.task_id, "legacy_unbound", None);
+                }
+                task.updated_commit = commit;
+                write_task(&tx, &task)?;
+                changed += 1;
+            }
+            authority.record_admission(&tx, commit)?;
+            child_log(&tx, self, commit, changed as i64)?;
+            tx.commit()?;
+            authority.materialized();
+            Ok(changed)
+        }, storage_failure)
+    }
+
+    fn native_recovery_plan(&self, tx: &Transaction<'_>) -> Result<NativeRecoveryPlan> {
+        let mut snapshot = NativeRecoverySnapshot {
+            candidates: Vec::new(), heads: BTreeMap::new(), authority_tasks: BTreeMap::new(),
+            selected: Vec::new(), inactive_owners: BTreeSet::new(),
+        };
+        let mut positions = Vec::new();
         let mut after = String::new();
         loop {
-            let tasks = read_recovery_candidates_tx(&self.ledger.conn.lock(), &after)?;
+            let tasks = read_recovery_candidates_tx(tx, &after)?;
             if tasks.is_empty() { break; }
             for (key, task) in tasks {
                 ensure!(task.task_id.to_string() == key, "recovery task identity mismatch");
-                after = key;
-                {
-                    let conn = self.ledger.conn.lock();
-                    let head = read_head(&conn, task.agent_id)?;
-                    if task.abort_request.is_some() || !task_owner_active(&conn, &task, &head)? { continue; }
-                }
-                let authority = self.reserve_task_control(task.task_id, "recover", &serde_json::json!({
-                    "kind":"native.recover", "task_id":task.task_id,
-                }))?;
-                changed += self.ledger.with_mutation(|| -> Result<usize> {
-                    let mut conn = self.ledger.conn.lock();
-                    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-                    authority.check(&tx, self.capabilities.incarnation, Some(task.agent_id))?;
-                    self.check_dispatch_owner(&tx)?;
-                    let mut task = read_task(&tx, task.task_id)?.context("recovery task missing")?;
-                    if !matches!(task.state, TaskState::Running { .. }) { return Ok(0); }
-                    let head = read_head(&tx, task.agent_id)?;
-                    ensure_owner_active(&tx, &task, &head)?;
-                    task.state = TaskState::Pending { checkpoint_ref: pending_checkpoint(&task.state) };
-                    task.record_revision = task.record_revision.next();
-                    if memo_flag(&task, NATIVE_CHILD) {
-                        task.memos.insert(NATIVE_RECOVERY.into(), true.into());
-                        task.dispatch_eligibility = if task.abort_request.is_some() {
-                            parked(task.task_id, "cancel_requested", None)
-                        } else { DispatchEligibility::Ready };
-                    } else {
-                        task.memos.insert(NATIVE_PARK.into(), "legacy_unbound".into());
-                        task.dispatch_eligibility = parked(task.task_id, "legacy_unbound", None);
+                after = key.clone();
+                let head = read_head(tx, task.agent_id)?;
+                // Cancellation, including an inactive ancestor, survives as
+                // parked cleanup. A retained parent branch remains untouched.
+                if task_in_current_branch(tx, &task, &head)? {
+                    let (head, position) = self.task_recovery_position_tx(tx, &task, String::new())?;
+                    if !task_owner_active(tx, &task, &head)? {
+                        snapshot.inactive_owners.insert(task.task_id);
                     }
-                    let commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
-                    task.updated_commit = commit;
-                    write_task(&tx, &task)?;
-                    authority.record_admission(&tx, commit)?;
-                    child_log(&tx, self, commit, 1)?;
-                    tx.commit()?;
-                    authority.materialized();
-                    Ok(1)
-                }, storage_failure)?;
+                    for expected in &position.expected_tasks {
+                        snapshot.authority_tasks.insert(expected.task_id, expected.clone());
+                    }
+                    positions.push((head, position));
+                    snapshot.selected.push(task.task_id);
+                }
+                snapshot.heads.insert(task.agent_id, head);
+                snapshot.candidates.push((key, task));
             }
         }
-        Ok(changed)
+        Ok(NativeRecoveryPlan { snapshot, positions })
     }
 
     /// Read one durable task record without claiming it. Returns `None` for
@@ -965,7 +1015,6 @@ impl Store {
             if has_native_dispatch(&task, ctx, operation_id, attempt_id)? {
                 return Ok(NativeDispatchTransition::AlreadyCommitted);
             }
-            if !self.native_invocation_current_tx(&tx, &task, ctx)? { return Ok(NativeDispatchTransition::Fenced); }
             let operation: OperationRecord = read_json(&tx,
                 "SELECT data FROM operations WHERE operation_id=?1", operation_id)?.context("dispatch operation missing")?;
             let attempt: AttemptRecord = read_json(&tx,
@@ -974,6 +1023,7 @@ impl Store {
                 && attempt.operation_id == operation_id && attempt.attempt_id == attempt_id
                 && attempt.invocation_id == ctx.invocation_id && attempt.epoch == ctx.epoch,
                 "dispatch operation/attempt belongs to another invocation");
+            if !self.native_invocation_current_tx(&tx, &task, ctx)? { return Ok(NativeDispatchTransition::Fenced); }
             if operation.state != OperationState::InFlight || attempt.dispatch_stage != AttemptDispatchStage::Armed
                 || attempt.final_receipt_id.is_some() { return Ok(NativeDispatchTransition::Fenced); }
             (operation, attempt)
