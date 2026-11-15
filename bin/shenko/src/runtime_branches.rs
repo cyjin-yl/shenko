@@ -124,20 +124,46 @@ mod tests {
     #[test]
     fn fork_recovers_between_stores_without_replaying_original_attempts() -> Result<()> {
         let root = Root::new()?;
-        let store = root.store("subject")?;
+        let store = std::sync::Arc::new(root.store("subject")?);
         let agent = genesis(&store)?;
-        let (parent, parent_step) = store.load_subject(agent)?;
+        let (parent, mut parent_step) = store.load_subject(agent)?;
         let raw = event(&store, agent, "parent's retained observation")?;
-        let plan = store.cas.seal_object(b"{\"original\":true}", "application/json", "test", "raw", 1)?.object;
+        let plan = crate::recovery_integration_tests::prepare_fixture_s0(&store, &parent, &parent_step);
+        parent_step.input_plan_ref = Some(plan.clone());
+        parent_step.state = SubjectStepState::Preparing;
+        parent_step.record_revision = RecordRevision(1);
+        store.upsert_step(&parent_step, &parent, RecordRevision(0))?;
         let request = SubjectRequestAttempt { schema_version: 1, request_id: EntityId::new(),
             attempt_id: EntityId::new(), agent_id: agent, step_id: parent_step.step_id, send_id: None,
             state: SubjectRequestState::Armed, input_plan_ref: plan, payload_digest: Digest::blake3(b"frozen request"),
             provider_binding_digest: Digest::blake3(b"original provider binding"), terminal: None,
             created_commit: parent.committed_at };
-        // Existing recovery API, then its actual durable send marker. No model
-        // service is contacted: this journey proves journal/crash semantics.
-        store.arm_subject_request(&request)?;
+        // Real S0 and atomic request ownership precede the durable send marker.
+        // No model service is contacted: this proves journal/crash semantics.
+        parent_step.state = SubjectStepState::AwaitingModel;
+        parent_step.active_request_id = Some(request.request_id);
+        parent_step.active_attempt_id = Some(request.attempt_id);
+        parent_step.record_revision = RecordRevision(2);
+        store.upsert_step_arming_request(&parent_step, &parent, RecordRevision(1), None, &request)?;
         store.mark_subject_request_dispatched(request.request_id)?;
+        let predecessor = store.prepare_control_predecessor(&parent)?;
+        let admission = shenko_types::authority::CommitAdmission {
+            schema_version: 1, subject_id: agent, branch_id: parent.branch_id.clone(),
+            conflict_key: "fixture/original-dispatch".into(), action_id: EntityId::new(),
+            expected_parent: None, expected_head_revision: None,
+            controller_epoch: parent.controller_epoch, software_generation: parent.software_generation.clone(),
+            operation_id: None, attempt_id: Some(request.attempt_id), payload_ref: predecessor.clone(),
+        };
+        let replica = root.store("evidence-only-replica")?;
+        for object in store.admission_objects(&predecessor)? {
+            replica.cas.seal_object(&object.bytes, &object.reference.media_type,
+                &object.reference.store_namespace, &object.reference.codec.name, object.reference.codec.major)?;
+        }
+        let evidence = replica.inspect_control_predecessor(&predecessor, &admission)?;
+        assert!(!evidence.original_source);
+        assert_eq!(evidence.source_ledger_id, store.ledger.ledger_id());
+        assert!(replica.get_existing_agent_id()?.is_none());
+        assert!(replica.subject_request_attempt(request.request_id)?.is_none());
         let mut node = crate::node_sync::open_node(&root.0, &store)?;
         let identity = node.local_identity()?.context("node identity")?;
         let node_id = node.local_node_id()?.context("node id")?;
@@ -188,6 +214,10 @@ mod tests {
             outcome: serde_json::json!({"kind":"unknown","reason":"original source lost"}), result_ref: None,
             recorded_commit: parent.committed_at,
         })?;
+        let before_inspection = store.current_commit_seq()?;
+        assert!(store.inspect_control_predecessor(&predecessor, &admission)?.original_source);
+        assert_eq!(store.current_commit_seq()?, before_inspection);
+        assert_eq!(store.subject_request_attempt(request.request_id)?.unwrap().state, SubjectRequestState::Terminal);
         assert_eq!(store.subject_request_attempt(request.request_id)?.unwrap().attempt_id, request.attempt_id);
         assert_eq!(store.load_subject(agent)?.1.active_request_id, None);
         Ok(())
@@ -226,6 +256,18 @@ mod tests {
         right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
         assert_eq!(right.branch_history_range(EntityId(next_branch.0), 0, i64::MAX)?, frozen);
         assert!(right.branch_history_event(EntityId(next_branch.0), late.event_id)?.is_none());
+
+        // A historical head's registered step is also required ancestry, even
+        // when the child has a valid first step and a complete raw prefix.
+        let fault = rusqlite::Connection::open(root.0.join("left.db"))?;
+        fault.execute("CREATE TEMP TABLE saved_parent_step AS SELECT * FROM subject_steps WHERE step_id=?1",
+            [parent.next_step_id.to_string()])?;
+        fault.execute("DELETE FROM subject_steps WHERE step_id=?1", [parent.next_step_id.to_string()])?;
+        let missing_step = archive(&left)?;
+        fault.execute_batch("INSERT INTO subject_steps SELECT * FROM saved_parent_step; DROP TABLE saved_parent_step;")?;
+        let before = serde_json::to_value(right.load_subject(agent)?.0)?;
+        assert!(right.import_cognition_archive(&missing_step[..], &CognitionImportOptions::default()).is_err());
+        assert_eq!(serde_json::to_value(right.load_subject(agent)?.0)?, before);
 
         // Fault injection removes a required original at the source. Its
         // normally generated archive has a VALID fingerprint for those bad

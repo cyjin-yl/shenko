@@ -4,6 +4,8 @@
 pub mod migrations;
 pub mod store;
 pub mod authority;
+mod control_predecessor;
+pub use control_predecessor::ControlPredecessorEvidence;
 pub mod activation;
 pub mod cas;
 pub mod ledger;

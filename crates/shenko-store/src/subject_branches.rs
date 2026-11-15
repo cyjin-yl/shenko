@@ -285,6 +285,8 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
     let mut forks = HashMap::new();
     let mut heads = Vec::new();
     let mut snapshots = HashMap::new();
+    let mut steps = HashMap::new();
+    let mut current_heads = HashSet::new();
     let mut events: HashMap<EntityId, Vec<StoredSessionEvent>> = HashMap::new();
     for row in rows {
         match row.table.as_str() {
@@ -311,8 +313,16 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
                     let digest = Digest::blake3(data.as_bytes());
                     ensure!(row.value("snapshot_id") == Some(digest.0.as_str()), "historical head digest mismatch");
                     snapshots.insert(digest.0, data);
+                } else {
+                    current_heads.insert((head.agent_id, head.next_step_id, head.record_revision.0));
                 }
                 heads.push(head);
+            }
+            "subject_steps" => {
+                let step: SubjectStep = serde_json::from_str(row.value("data").context("subject step data missing")?)?;
+                ensure!(row.value("step_id") == Some(step.step_id.to_string().as_str())
+                    && row.value("branch_id") == Some(step.branch_id.0.to_string().as_str()), "subject step identity mismatch");
+                ensure!(steps.insert(step.step_id, step).is_none(), "duplicate subject step identity");
             }
             "session_events" => {
                 let event = StoredSessionEvent {
@@ -330,6 +340,24 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
     }
     for raw in events.values_mut() { raw.sort_by_key(|event| event.seq); }
     for head in &heads {
+        let successor = steps.get(&head.next_step_id).context("subject head's registered successor is missing")?;
+        ensure!(successor.branch_id == head.branch_id
+            && successor.step_no == head.committed_step_no.checked_add(1).context("subject step number exhausted")?
+            && successor.expected_parent_commit == head.committed_at,
+            "subject head successor has another branch, position or parent");
+        if current_heads.contains(&(head.agent_id, head.next_step_id, head.record_revision.0)) {
+            ensure!(successor.controller_epoch == head.controller_epoch
+                && successor.software_generation == head.software_generation,
+                "current subject successor has another epoch or generation");
+        }
+        if let Some(committed_id) = head.committed_step_id {
+            let committed = steps.get(&committed_id).context("subject head's committed step is missing")?;
+            ensure!(committed.branch_id == head.branch_id && committed.step_no == head.committed_step_no
+                && committed.state == SubjectStepState::Committed && committed.commit_ref == Some(head.committed_at),
+                "subject head committed step has another decision binding");
+        } else {
+            ensure!(head.committed_step_no == 0, "subject head omitted its committed step identity");
+        }
         if let Some(origin) = &head.branch_origin {
             let fork = forks.get(&EntityId(head.branch_id.0)).context("subject head omitted its fork receipt")?;
             let bytes = serde_json::to_vec(fork)?;

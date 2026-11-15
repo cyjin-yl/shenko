@@ -1217,42 +1217,6 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // Recording control and priority inputs (media.rs v2): the recording
-    // projection and its immutable control notices. A control notice is the
-    // armed effect behind a recording; the media stream is its anchor.
-    TableSpec {
-        name: "media_recordings",
-        key: &["stream_key", "recording_id"],
-        columns: &[
-            "stream_key", "recording_id", "agent_id", "state", "started_at_ms",
-            "stopped_at_ms", "scope_json", "start_control_id",
-            "stop_control_id", "reason", "event_id", "admitted_at_ms",
-            "admitted_commit_ref",
-        ],
-        local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "media_recording_controls",
-        key: &["stream_key", "control_id"],
-        columns: &[
-            "stream_key", "control_id", "recording_id", "action", "state",
-            "data", "event_id", "admitted_at_ms", "admitted_commit_ref",
-        ],
-        local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "media_priority_inputs",
-        key: &["stream_key", "priority_id"],
-        columns: &[
-            "stream_key", "priority_id", "kind", "text", "occurred_at_ms",
-            "audio_json", "reason", "data", "event_id", "admitted_at_ms",
-            "admitted_commit_ref",
-        ],
-        local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
     // Playground artifacts (artifacts.rs): the artifact record, its
     // version manifests and the runtime instances bound to it. Divergent
     // peer revisions reconcile through the existing baseline/conflict-unit
@@ -1544,6 +1508,28 @@ struct GitBaseline {
 }
 
 impl Store {
+    /// The control-plane predecessor uses the same membership, semantic-unit
+    /// and CAS closure checks as a normal cognition import. It deliberately
+    /// excludes installation credentials, writer leases and filesystem state.
+    pub(crate) fn validate_control_manifest(&self, manifest: &CognitionManifest) -> Result<()> {
+        ensure!(manifest.fingerprint == fingerprint_of_manifest(manifest), "control snapshot fingerprint differs");
+        ensure!(manifest.files.is_empty() && manifest.file_origins.is_empty() && manifest.git_history.is_none(),
+            "control predecessor is not a filesystem handover");
+        check_archive_membership(manifest)?;
+        ensure!(!LOCAL_CONTROL_CLASSES.iter().any(|class| manifest.fact_classes.iter().any(|declared| declared == *class)
+            || manifest.rows.iter().any(|row| row.table == **class)), "control predecessor carries installation-local control");
+        validate_cognition_rows(manifest)?;
+        self.validate_obligation_rows(&manifest.rows)?;
+        let mut gaps = manifest.gaps.clone();
+        gaps.extend(memory_intent_binding_gaps(&manifest.rows));
+        gaps.extend(crate::media::media_recovery_gaps(&manifest.rows));
+        gaps.extend(archive_membership_gaps(&manifest.rows));
+        gaps.extend(self.verify_manifest_closure(manifest));
+        ensure!(!gaps.iter().any(|gap| gap.blocking), "control predecessor has an incomplete required fact closure: {gaps:?}");
+        Ok(())
+    }
+
+
     /// Export the recovery snapshot of this store.
     ///
     /// The facts come from one consistent read snapshot. The CAS closure is
@@ -2045,16 +2031,10 @@ impl Store {
         }))
     }
 
-    fn collect_snapshot(
-        &self,
-        options: &CognitionSnapshotOptions,
-        allocate_order: bool,
-    ) -> Result<Collected> {
-        let (rows, derivatives, agent_id, high_water, snapshot_seq) =
-            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
+    pub(crate) fn cognition_object_roots(&self, rows: &[CognitionRow]) -> (Vec<ObjectRef>, Vec<Digest>) {
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
-        for row in &rows {
+        for row in rows {
             for (name, value) in &row.values {
                 if let Some(value) = value.as_deref() {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
@@ -2076,6 +2056,17 @@ impl Store {
                 roots.push(object);
             }
         }
+        (roots, external)
+    }
+
+    fn collect_snapshot(
+        &self,
+        options: &CognitionSnapshotOptions,
+        allocate_order: bool,
+    ) -> Result<Collected> {
+        let (rows, derivatives, agent_id, high_water, snapshot_seq) =
+            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
+        let (roots, external) = self.cognition_object_roots(&rows);
         let (objects, missing) = self.collect_closure(&roots)?;
 
         let mut files: Vec<(CognitionFileDescriptor, PathBuf)> = Vec::new();

@@ -5259,7 +5259,7 @@ mod recovery_integration_tests {
         shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap()
     }
 
-    fn prepare_fixture_s0(
+    pub(super) fn prepare_fixture_s0(
         store: &Arc<shenko_store::store::Store>,
         head: &shenko_types::subject::SubjectBranchHead,
         step: &shenko_types::subject::SubjectStep,
