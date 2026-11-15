@@ -110,6 +110,35 @@ struct DispatchCommit {
     commit: CommitRef,
 }
 
+/// Add a new attempt's marker to a task already checked by its caller's
+/// immediate transaction. The caller owns authority checks and persistence;
+/// this shared encoder never replaces a previous send or a legacy marker.
+pub(crate) fn insert_native_dispatch_marker(
+    task: &mut TaskRecord,
+    ctx: &TaskInvocation,
+    operation_id: EntityId,
+    attempt_id: EntityId,
+    commit: CommitRef,
+) -> Result<()> {
+    ensure!(task.task_id == ctx.task_id, "native dispatch task identity mismatch");
+    let attempt_key = attempt_id.to_string();
+    let value = serde_json::to_value(DispatchCommit {
+        operation_id,
+        invocation_id: ctx.invocation_id,
+        task_revision: ctx.task_revision,
+        commit,
+    })?;
+    let marker = task.memos.entry(NATIVE_DISPATCH).or_insert_with(||
+        serde_json::json!({"schema_version": 2, "attempts": {}}));
+    ensure!(marker.get("schema_version").and_then(|v| v.as_u64()) == Some(2),
+        "unsupported native dispatch marker");
+    let attempts = marker.get_mut("attempts").and_then(|v| v.as_object_mut())
+        .context("invalid native dispatch attempt ledger")?;
+    ensure!(!attempts.contains_key(&attempt_key), "native dispatch attempt already committed");
+    attempts.insert(attempt_key, value);
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CompletionMemo {
     operation_id: EntityId,
@@ -879,14 +908,7 @@ impl Store {
                     "native dispatch attempt is not armed");
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                task.memos.entry(NATIVE_DISPATCH).or_insert_with(||
-                    serde_json::json!({"schema_version": 2, "attempts": {}}))
-                    .get_mut("attempts").and_then(|v| v.as_object_mut())
-                    .context("invalid native dispatch attempt ledger")?
-                    .insert(attempt_key, serde_json::to_value(DispatchCommit {
-                        operation_id, invocation_id: ctx.invocation_id,
-                        task_revision: ctx.task_revision, commit,
-                    })?);
+                insert_native_dispatch_marker(&mut task, ctx, operation_id, attempt_id, commit)?;
                 task.record_revision = task.record_revision.next();
                 task.updated_commit = commit;
                 write_task(&tx, &task)?;
