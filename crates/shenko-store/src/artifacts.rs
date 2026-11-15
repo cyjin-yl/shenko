@@ -318,6 +318,7 @@ impl Store {
                 );
             }
         }
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(|| {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -378,6 +379,8 @@ impl Store {
                 Some(operation)
             } else { None };
 
+            authority.check(&tx, self.capabilities.incarnation,
+                transition.as_ref().map(|transition| transition.record.subject_id))?;
             let mut unchanged_record = None;
             if let Some(transition) = &transition {
                 let stored: Option<String> = tx.query_row(
@@ -679,10 +682,12 @@ impl Store {
                 Some(serde_json::to_string(&notification.payload)?)
             }
         };
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, Some(record.subject_id))?;
                 let stored: Option<String> = tx
                     .query_row(
                         "SELECT data FROM artifact_records WHERE artifact_id=?1",

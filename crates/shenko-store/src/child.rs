@@ -188,10 +188,12 @@ impl Store {
         if intent_ids.is_empty() {
             return Ok(0);
         }
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let Some(mut task) = read_task(&tx, task_id)? else {
                     return Ok(0);
@@ -231,10 +233,12 @@ impl Store {
     /// Recover only finite native work. Old unbound running delegations are
     /// quarantined as pending/parked; their raw input and effects stay intact.
     pub fn recover_native_tasks(&self) -> Result<usize> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let mut changed = 0;
                 let mut commit = None;
@@ -327,10 +331,12 @@ impl Store {
         detail: &str,
         retryable: bool,
     ) -> Result<bool> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let Some(mut task) = read_task(&tx, task_id)? else {
                     return Ok(false);
@@ -390,10 +396,12 @@ impl Store {
         implementation: ImplementationRef,
         settlement_only: bool,
     ) -> Result<Option<NativeTaskClaim>> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let claim =
                     self.claim_native_task_tx(&tx, task_id, &implementation, settlement_only)?;
@@ -570,10 +578,12 @@ impl Store {
         input_ref: ObjectRef,
         implementation: ImplementationRef,
     ) -> Result<Option<NativeTaskClaim>> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let Some(current_parent) = read_task(&tx, parent.task_id)? else {
                     return Ok(None);
@@ -711,10 +721,13 @@ impl Store {
                     "native admission event identity already committed").into());
             }
         }
-        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event), storage_failure)
+        let authority = self.reserve_authority()?;
+        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event, &authority), storage_failure)
     }
 
-    fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
+    fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent,
+        authority: &crate::authority::AuthorityReservation,
+    ) -> Result<Option<TaskRecord>> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(existing) = read_task(&tx, task.task_id)? {
@@ -745,6 +758,7 @@ impl Store {
             return Err(shenko_types::error::ShenkoError::conflict(
                 "native admission event identity already committed").into());
         }
+        authority.check(&tx, self.capabilities.incarnation, Some(task.agent_id))?;
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         let mut admitted = task.clone();
@@ -779,10 +793,12 @@ impl Store {
         reason: &str,
         scope: AbortScope,
     ) -> Result<TaskCancellation> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let all = read_all_tasks(&tx)?;
                 let by_id: HashMap<_, _> = all
@@ -860,6 +876,18 @@ impl Store {
         operation_id: EntityId,
         attempt_id: EntityId,
     ) -> Result<NativeDispatchTransition> {
+        if let Some(task) = self.get_task(ctx.task_id)? {
+            if has_native_dispatch(&task, ctx, operation_id, attempt_id)? {
+                return Ok(NativeDispatchTransition::AlreadyCommitted);
+            }
+        }
+        let operation = self.external_operation(operation_id)?;
+        let attempt = self.external_operation_attempt(operation_id)?;
+        ensure!(attempt.attempt_id == attempt_id, "dispatch attempt identity mismatch");
+        let authority = self.reserve_task_admission(ctx.task_id,
+            format!("attempt/{attempt_id}/dispatch"), operation_id, attempt_id,
+            &serde_json::json!({"kind": "native.dispatch", "invocation": ctx,
+                "operation": operation, "attempt": attempt}))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -879,26 +907,10 @@ impl Store {
                     && attempt.attempt_id == attempt_id && attempt.operation_id == operation_id
                     && attempt.invocation_id == ctx.invocation_id && attempt.epoch == ctx.epoch,
                     "dispatch operation/attempt belongs to another invocation");
-                let attempt_key = attempt_id.to_string();
-                if let Some(marker) = task.memos.get(NATIVE_DISPATCH) {
-                    // Old commits do not identify the attempted send. They
-                    // remain unresolved, never a license to send a new attempt.
-                    if marker.get("schema_version").is_none() {
-                        return Ok(NativeDispatchTransition::AlreadyCommitted);
-                    }
-                    ensure!(marker.get("schema_version").and_then(|v| v.as_u64()) == Some(2),
-                        "unsupported native dispatch marker");
-                    let attempts = marker.get("attempts").and_then(|v| v.as_object())
-                        .context("invalid native dispatch attempt ledger")?;
-                    if let Some(value) = attempts.get(&attempt_key) {
-                        let previous = DispatchCommit::deserialize(value)?;
-                        ensure!(previous.operation_id == operation_id
-                            && previous.invocation_id == ctx.invocation_id
-                            && previous.task_revision == ctx.task_revision,
-                            "native dispatch commit identity mismatch");
-                        return Ok(NativeDispatchTransition::AlreadyCommitted);
-                    }
+                if has_native_dispatch(&task, ctx, operation_id, attempt_id)? {
+                    return Ok(NativeDispatchTransition::AlreadyCommitted);
                 }
+                authority.check(&tx, self.capabilities.incarnation, Some(task.agent_id))?;
                 if !self.native_invocation_current_tx(&tx, &task, ctx)? {
                     return Ok(NativeDispatchTransition::Fenced);
                 }
@@ -913,8 +925,10 @@ impl Store {
                 task.updated_commit = commit;
                 write_task(&tx, &task)?;
                 child_log(&tx, self, commit, 1)?;
+                let replayed = authority.record_admission(&tx, commit)?;
                 tx.commit()?;
-                Ok(NativeDispatchTransition::Won)
+                Ok(if replayed { NativeDispatchTransition::AlreadyCommitted }
+                    else { NativeDispatchTransition::Won })
             },
             storage_failure,
         )
@@ -946,10 +960,12 @@ impl Store {
         operation: &OperationRecord,
     ) -> Result<Option<TaskResult>> {
         let completion = self.validate_completion(claim.operation_id, operation)?;
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let Some(mut task) = read_task(&tx, claim.task.task_id)? else {
                     return Ok(None);
@@ -994,10 +1010,12 @@ impl Store {
 
     /// Completing is reopened from its memo, not from an in-memory callback.
     pub fn finish_native_completing(&self, task_id: EntityId) -> Result<Option<TaskResult>> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let Some(task) = read_task(&tx, task_id)? else {
                     return Ok(None);
@@ -1507,4 +1525,30 @@ fn child_log(tx: &Transaction<'_>, store: &Store, commit: CommitRef, count: i64)
 
 fn storage_failure(error: &anyhow::Error) -> bool {
     error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+}
+
+fn has_native_dispatch(
+    task: &TaskRecord, ctx: &TaskInvocation, operation_id: EntityId, attempt_id: EntityId,
+) -> Result<bool> {
+    let attempt_key = attempt_id.to_string();
+    if let Some(marker) = task.memos.get(NATIVE_DISPATCH) {
+        // Old commits do not identify the attempted send. They
+        // remain unresolved, never a license to send a new attempt.
+        if marker.get("schema_version").is_none() {
+            return Ok(true);
+        }
+        ensure!(marker.get("schema_version").and_then(|v| v.as_u64()) == Some(2),
+            "unsupported native dispatch marker");
+        let attempts = marker.get("attempts").and_then(|v| v.as_object())
+            .context("invalid native dispatch attempt ledger")?;
+        if let Some(value) = attempts.get(&attempt_key) {
+            let previous = DispatchCommit::deserialize(value)?;
+            ensure!(previous.operation_id == operation_id
+                && previous.invocation_id == ctx.invocation_id
+                && previous.task_revision == ctx.task_revision,
+                "native dispatch commit identity mismatch");
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

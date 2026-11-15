@@ -569,10 +569,12 @@ impl Store {
         ensure!(parent.abort_request.is_none() && !parent.is_terminal(), invalid());
         ensure!(!intent.content.trim().is_empty(), invalid());
         let payload = serde_json::to_value(intent)?;
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let existing: Option<String> = tx
                     .query_row(
@@ -658,8 +660,10 @@ impl Store {
     /// Called once before releasing the recovered subject. Invalidates only
     /// dispatch authority; old callbacks can still enter EvidenceIngress.
     pub fn start_subject_dispatcher(&self) -> Result<()> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(|| {
             let mut c=self.ledger.conn.lock(); let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
             let old_steps = {
                 let mut q=tx.prepare("SELECT s.data,h.data FROM subject_steps s JOIN subject_branch_heads h ON s.branch_id=h.branch_id LEFT JOIN subject_intent_steps i ON i.step_id=s.step_id WHERE s.state='committed' AND i.step_id IS NULL ORDER BY s.updated_commit_seq")?;
                 q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
@@ -814,8 +818,10 @@ impl Store {
     /// Deterministic memory worker: same DB transaction as its progress/result.
     /// No model, network or filesystem worker runs under this mutation line.
     pub fn settle_subject_memory(&self) -> Result<usize> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(|| {
             let mut c=self.ledger.conn.lock();let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
             self.check_dispatch_owner(&tx)?;
             let rows={let mut q=tx.prepare("SELECT i.intent_id,i.payload,i.revision,m.agent_id,m.content,m.scope,m.created_at_ms FROM subject_intents i JOIN memory_intents m ON i.intent_id=m.intent_id WHERE i.kind='memory' AND i.state='ready' ORDER BY i.created_seq LIMIT 32")?;
                 q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?)))?.collect::<rusqlite::Result<Vec<_>>>()?};

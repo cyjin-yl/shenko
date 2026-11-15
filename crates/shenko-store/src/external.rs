@@ -209,57 +209,10 @@ impl Store {
 
     /// Returns None for a new armed admission, or the original operation for a
     /// matching repeated logical key. A hit NEVER authorizes another dispatch.
-    pub fn arm_external_operation(
-        &self,
-        ctx: &TaskInvocation,
-        op: &mut OperationRecord,
-        att: &mut AttemptRecord,
+    fn matching_external_operation(
+        &self, conn: &rusqlite::Connection, ctx: &TaskInvocation, op: &OperationRecord,
     ) -> Result<Option<OperationRecord>> {
-        self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, None, false),
-            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
-        )
-    }
-
-    /// Native non-inference admission after preflight: T1 and the original
-    /// attempt's one dispatch marker commit atomically. None grants exactly
-    /// this fresh caller its send; Some is read-only replay, never a new send.
-    /// A duplicate cannot observe an armed operation without its dispatch
-    /// decision, then retire that live sender by recording an Unknown result.
-    pub fn arm_native_operation_for_dispatch(
-        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
-    ) -> Result<Option<OperationRecord>> {
-        self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, None, true),
-            |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
-        )
-    }
-
-    /// Child model T1 atomically claims the gate's exact R→S reservation with
-    /// the native operation/attempt. Native tools keep the non-inference path.
-    pub fn arm_external_inference_operation(
-        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
-        binding: &InferenceSendBinding,
-    ) -> Result<Option<OperationRecord>> {
-        self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, Some(binding), false),
-            |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
-                || error.downcast_ref::<shenko_types::error::ShenkoError>()
-                    .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
-        )
-    }
-
-    fn try_arm_external_operation(
-        &self,
-        ctx: &TaskInvocation,
-        op: &mut OperationRecord,
-        att: &mut AttemptRecord,
-        inference: Option<&InferenceSendBinding>,
-        native_dispatch: bool,
-    ) -> Result<Option<OperationRecord>> {
-        let mut c = self.ledger.conn.lock();
-        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing: Option<String> = tx.query_row(
+        let existing: Option<String> = conn.query_row(
             "SELECT data FROM operations WHERE json_extract(data,'$.task_id')=?1 AND json_extract(data,'$.logical_key')=?2",
             params![ctx.task_id.to_string(), op.logical_key], |r| r.get(0)).optional()?;
         if let Some(data) = existing {
@@ -279,6 +232,81 @@ impl Store {
             );
             return Ok(Some(old));
         }
+        Ok(None)
+    }
+
+    fn prepare_external_authority(
+        &self, ctx: &TaskInvocation, op: &OperationRecord, att: &AttemptRecord,
+        inference: Option<&InferenceSendBinding>, native_dispatch: bool,
+    ) -> Result<crate::authority::AuthorityReservation> {
+        self.reserve_task_admission(ctx.task_id,
+            format!("task/{}/operation/{}", ctx.task_id,
+                shenko_types::object::Digest::blake3(op.logical_key.as_bytes())),
+            op.operation_id, att.attempt_id,
+            &serde_json::json!({"kind": "external.arm", "invocation": ctx,
+                "operation": op, "attempt": att, "inference": inference,
+                "native_dispatch": native_dispatch})).map_err(Into::into)
+    }
+
+    pub fn arm_external_operation(
+        &self,
+        ctx: &TaskInvocation,
+        op: &mut OperationRecord,
+        att: &mut AttemptRecord,
+    ) -> Result<Option<OperationRecord>> {
+        if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        let authority = self.prepare_external_authority(ctx, op, att, None, false)?;
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, None, false, &authority),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Native non-inference admission after preflight: T1 and the original
+    /// attempt's one dispatch marker commit atomically. None grants exactly
+    /// this fresh caller its send; Some is read-only replay, never a new send.
+    /// A duplicate cannot observe an armed operation without its dispatch
+    /// decision, then retire that live sender by recording an Unknown result.
+    pub fn arm_native_operation_for_dispatch(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+    ) -> Result<Option<OperationRecord>> {
+        if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        let authority = self.prepare_external_authority(ctx, op, att, None, true)?;
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, None, true, &authority),
+            |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Child model T1 atomically claims the gate's exact R→S reservation with
+    /// the native operation/attempt. Native tools keep the non-inference path.
+    pub fn arm_external_inference_operation(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+        binding: &InferenceSendBinding,
+    ) -> Result<Option<OperationRecord>> {
+        if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        let authority = self.prepare_external_authority(ctx, op, att, Some(binding), false)?;
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, Some(binding), false, &authority),
+            |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+                || error.downcast_ref::<shenko_types::error::ShenkoError>()
+                    .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
+        )
+    }
+
+    fn try_arm_external_operation(
+        &self,
+        ctx: &TaskInvocation,
+        op: &mut OperationRecord,
+        att: &mut AttemptRecord,
+        inference: Option<&InferenceSendBinding>,
+        native_dispatch: bool,
+        authority: &crate::authority::AuthorityReservation,
+    ) -> Result<Option<OperationRecord>> {
+        let mut c = self.ledger.conn.lock();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(old) = self.matching_external_operation(&tx, ctx, op)? { return Ok(Some(old)); }
+        authority.check(&tx, self.capabilities.incarnation, None)?;
         // Subject publications use this same T1, with a revocable dispatcher
         // owner. A stale callback can enter E1 but cannot arm a new send.
         let subject_owner: Option<String> = tx.query_row(
@@ -444,8 +472,9 @@ impl Store {
                 self.capabilities.incarnation.to_string()
             ],
         )?;
+        let replayed = authority.record_admission(&tx, commit)?;
         tx.commit()?;
-        Ok(None)
+        Ok(replayed.then(|| op.clone()))
     }
 
     /// Durably admit one subject inbox event from an external producer.

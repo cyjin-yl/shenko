@@ -170,6 +170,17 @@ enum PublicationAdmission {
     },
 }
 
+#[derive(Serialize)]
+struct PublicationSendPlan {
+    intent_id: EntityId,
+    dispatch: ChannelDispatch,
+    task: TaskRecord,
+    authoring_step: EntityId,
+    epoch: ControllerEpoch,
+    attempt_id: EntityId,
+    invocation_id: EntityId,
+}
+
 /// The result of one T1 attempt, after its transaction settled.
 enum PublicationArm {
     Armed(ArmedPublication),
@@ -304,8 +315,26 @@ impl Store {
         intent_id: EntityId,
         dispatch: &ChannelDispatch,
     ) -> Result<Option<ArmedPublication>> {
+        let plan = {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            match self.publication_admission(&tx, intent_id)? {
+                PublicationAdmission::Arm { task, authoring_step, epoch } => Some(PublicationSendPlan {
+                    intent_id, dispatch: dispatch.clone(), task, authoring_step, epoch,
+                    attempt_id: EntityId::derived("publication-attempt-v1", intent_id.to_string().as_bytes()),
+                    invocation_id: EntityId::derived("publication-invocation-v1", intent_id.to_string().as_bytes()),
+                }),
+                _ => None,
+            }
+        };
+        let authority = match &plan {
+            Some(plan) => self.reserve_task_admission(intent_id,
+                format!("publication/{intent_id}/dispatch"), intent_id, plan.attempt_id,
+                &serde_json::json!({"kind": "publication.arm", "plan": plan}))?,
+            None => self.reserve_authority()?,
+        };
         let outcome = self.ledger.with_mutation(
-            || self.try_arm_publication(intent_id, dispatch),
+            || self.try_arm_publication(intent_id, plan.as_ref(), &authority),
             |error| {
                 error.is::<rusqlite::Error>()
                     || error.is::<serde_json::Error>()
@@ -342,10 +371,12 @@ impl Store {
     fn try_arm_publication(
         &self,
         intent_id: EntityId,
-        dispatch: &ChannelDispatch,
+        plan: Option<&PublicationSendPlan>,
+        authority: &crate::authority::AuthorityReservation,
     ) -> Result<PublicationArm> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        authority.check(&tx, self.capabilities.incarnation, None)?;
         self.check_dispatch_owner(&tx)?;
         let (task, authoring_step, epoch) = match self.publication_admission(&tx, intent_id)? {
             PublicationAdmission::NotReady | PublicationAdmission::Deferred(_) => {
@@ -360,26 +391,30 @@ impl Store {
                 epoch,
             } => (task, authoring_step, epoch),
         };
-        let armed = self.arm_publication_tx(&tx, intent_id, dispatch, &task, authoring_step, epoch)?;
+        let plan = plan.context("publication became ready after authority preparation; retry its exact plan")?;
+        ensure!(serde_json::to_value(&task)? == serde_json::to_value(&plan.task)?
+            && authoring_step == plan.authoring_step && epoch == plan.epoch,
+            "publication changed after its immutable admission was prepared");
+        let (armed, replayed) = self.arm_publication_tx(&tx, plan, authority)?;
         tx.commit()?;
-        Ok(PublicationArm::Armed(armed))
+        Ok(if replayed { PublicationArm::Idle } else { PublicationArm::Armed(armed) })
     }
 
     fn arm_publication_tx(
-        &self,
-        tx: &Transaction<'_>,
-        intent_id: EntityId,
-        dispatch: &ChannelDispatch,
-        task: &TaskRecord,
-        authoring_step: EntityId,
-        epoch: ControllerEpoch,
-    ) -> Result<ArmedPublication> {
+        &self, tx: &Transaction<'_>, plan: &PublicationSendPlan,
+        authority: &crate::authority::AuthorityReservation,
+    ) -> Result<(ArmedPublication, bool)> {
+        let intent_id = plan.intent_id;
+        let dispatch = &plan.dispatch;
+        let task = &plan.task;
+        let authoring_step = plan.authoring_step;
+        let epoch = plan.epoch;
         let mut record = self.publication_operation(intent_id, dispatch, authoring_step)?;
         let seq = self.ledger.allocate_seq(tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         record.prepared_commit = commit;
-        let attempt_id = EntityId::new();
-        let invocation_id = EntityId::new();
+        let attempt_id = plan.attempt_id;
+        let invocation_id = plan.invocation_id;
         let attempt = AttemptRecord {
             record_schema_version: 1,
             attempt_id,
@@ -459,13 +494,18 @@ impl Store {
                 self.capabilities.incarnation.to_string()
             ],
         )?;
-        Ok(ArmedPublication {
+        let replayed = authority.record_admission(tx, commit)?;
+        if replayed {
+            tx.execute("UPDATE subject_intents SET state='unknown',owner=NULL WHERE intent_id=?1",
+                [intent_id.to_string()])?;
+        }
+        Ok((ArmedPublication {
             operation_id: intent_id,
             attempt_id,
             task_id: intent_id,
             account: dispatch.account.clone(),
             armed_commit: commit,
-        })
+        }, replayed))
     }
 
     /// Classify one publication intent from its committed facts.
@@ -684,10 +724,12 @@ impl Store {
                 1,
             )?
             .object;
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let state: Option<String> = tx
                     .query_row(
@@ -987,10 +1029,12 @@ impl Store {
                 }
                             }
                         }
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let rows: Vec<(String, String)> = {
                     // An acknowledged intent is only revisited when the

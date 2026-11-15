@@ -15,6 +15,7 @@ pub struct Ledger {
     incarnation: EntityId,
     ledger_id: EntityId,
     mutation_open: Mutex<bool>,
+    pub(crate) authority: crate::authority::AuthorityRuntime,
 }
 
 impl Ledger {
@@ -49,6 +50,7 @@ impl Ledger {
             incarnation,
             ledger_id,
             mutation_open: Mutex::new(true),
+            authority: crate::authority::AuthorityRuntime::default(),
         })
     }
 
@@ -92,8 +94,13 @@ impl Ledger {
 
     #[instrument(skip(self, batch))]
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
+        let controls = !batch.task_upserts.is_empty()
+            || batch.operation_upserts.iter().any(|operation| matches!(operation.state,
+                shenko_types::operation::OperationState::Prepared | shenko_types::operation::OperationState::InFlight))
+            || batch.attempt_upserts.iter().any(|attempt| attempt.dispatch_stage == shenko_types::operation::AttemptDispatchStage::Armed);
+        let authority = controls.then(|| self.authority.reserve()).transpose()?;
         self.with_mutation(
-            || match self.try_commit(&batch) {
+            || match self.try_commit(&batch, authority.as_ref()) {
                 // The batch is refused whole, so nothing it carried is
                 // durable. The receipt it contradicted is preserved on its
                 // own committed line before the caller learns of the
@@ -107,7 +114,8 @@ impl Ledger {
             // A contradiction inside the caller's own facts is not storage
             // damage: the single writer stays usable so the caller can record
             // the correct fact instead of reopening the ledger.
-            |error| !crate::receipt_admission::is_key_conflict(error),
+            |error| !crate::receipt_admission::is_key_conflict(error)
+                && !shenko_types::authority::is_authority_fenced(error),
         )
     }
 
@@ -149,11 +157,32 @@ impl Ledger {
         Ok(())
     }
 
-    fn try_commit(&self, batch: &WriteBatch) -> Result<CommitReceipt, ShenkoError> {
+    fn try_commit(&self, batch: &WriteBatch,
+        authority: Option<&crate::authority::AuthorityReservation>,
+    ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.conn.lock();
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        if let Some(authority) = authority {
+            authority.check(&tx, self.incarnation, None)?;
+            for task in &batch.task_upserts {
+                authority.check(&tx, self.incarnation, Some(task.agent_id))?;
+            }
+        }
+        let bound: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM commit_authority_policy)", [], |row| row.get(0))
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if bound {
+            for attempt in &batch.attempt_upserts {
+                if attempt.dispatch_stage == shenko_types::operation::AttemptDispatchStage::Armed {
+                    let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM attempts WHERE attempt_id=?1)",
+                        [attempt.attempt_id.to_string()], |row| row.get(0))
+                        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                    if !exists { return Err(shenko_types::authority::authority_fenced(
+                        "new effects require the original operation admission boundary")); }
+                }
+            }
+        }
         let seq = self.allocate_seq(&tx)?;
         let commit_ref = CommitRef::new(self.ledger_id, seq);
         let mut updated = vec![];

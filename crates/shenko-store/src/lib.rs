@@ -3,6 +3,7 @@
 //! Configures: journal_mode=WAL, synchronous=FULL, foreign_keys=ON
 pub mod migrations;
 pub mod store;
+pub mod authority;
 pub mod activation;
 pub mod cas;
 pub mod ledger;
