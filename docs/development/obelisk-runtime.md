@@ -68,6 +68,10 @@ JSON 参数通过序列化放进 JS，进程通过 `Command` argv 启动，不�
 
 ## 生命周期与可观察限制
 
+`index_preparation_started` 与 `index_preparation_complete` 分别记录缓存准备是否开始与完成；
+`started` 只记录外部进程是否实际启动。配置和源码字节预检失败返回调用错误；任何可能写入缓存
+之后的失败均保留结构化观察。因此进程未启动也不被当作没有发生本地准备写入的证明。
+
 stdout/stderr 同时读取并限制内存；达到输出预算、取消或 host wall-clock deadline 后请求停止进程，
 等待原进程回收，继续有界 drain，然后 join 原来的 reader。读回、回收与终止请求各自有字段，
 不会把超时或 `kill_on_drop` 当成已停止的证明。

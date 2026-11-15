@@ -90,8 +90,8 @@ switch (request.op) {
   }
   case 'manifest': {
     // index_state enumerates actual indexed source files, including Codex child
-    // files that are not standalone rows in sessions. Private cursor bytes are
-    // carried unchanged; they are not parsed as portable identities.
+    // files that are not standalone rows in sessions. Private cursor contents
+    // stay in the index and are not parsed as portable identities.
     const predicates = [];
     const args = [request.after_path ?? ''];
     for (const source of binding.sources) {

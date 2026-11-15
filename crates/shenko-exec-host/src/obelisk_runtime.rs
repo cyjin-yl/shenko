@@ -245,6 +245,10 @@ pub struct ObeliskProcessObservation {
     pub arguments: Vec<String>,
     pub index_home: PathBuf,
     pub query_digest: String,
+    /// Preparing the dedicated disposable index and query file can write local
+    /// files before an external process starts. Neither flag implies a spawn.
+    pub index_preparation_started: bool,
+    pub index_preparation_complete: bool,
     pub started: bool,
     pub pid: Option<u32>,
     pub termination_requested: bool,
@@ -525,13 +529,6 @@ impl ObeliskRuntime {
     ) -> Result<ObeliskObservation> {
         let script = self.script(&request)?;
         let installation = self.verify_installation()?;
-        self.prepare()?;
-        let query_file = QueryFile::create(&self.config.index_home, script.as_bytes())?;
-        let mut arguments = self.config.arguments.clone();
-        arguments.extend([
-            "--query".into(),
-            query_file.0.to_string_lossy().into_owned(),
-        ]);
         let mut observation = ObeliskObservation {
             schema_version: 1,
             status: ObeliskRunStatus::Unavailable,
@@ -544,9 +541,11 @@ impl ObeliskRuntime {
                 "scope":"node_local_snapshot", "distributed_frontier":null}),
             process: ObeliskProcessObservation {
                 executable: self.config.executable.clone(),
-                arguments: arguments.clone(),
+                arguments: self.config.arguments.clone(),
                 index_home: self.config.index_home.clone(),
                 query_digest: blake3::hash(script.as_bytes()).to_hex().to_string(),
+                index_preparation_started: false,
+                index_preparation_complete: false,
                 started: false,
                 pid: None,
                 termination_requested: false,
@@ -596,6 +595,33 @@ impl ObeliskRuntime {
             observation.status = ObeliskRunStatus::Cancelled;
             return Ok(observation);
         }
+        // Everything that may write is represented in the observation. Err is
+        // reserved for the parameter and source-byte checks above, before any
+        // index preparation or process dispatch.
+        observation.process.index_preparation_started = true;
+        if let Err(error) = self.prepare() {
+            observation.process.error = Some(format!("index preparation failed: {error:#}"));
+            return Ok(observation);
+        }
+        let query_file = match QueryFile::create(&self.config.index_home, script.as_bytes()) {
+            Ok(file) => file,
+            Err(error) => {
+                observation.process.error =
+                    Some(format!("query file preparation failed: {error:#}"));
+                return Ok(observation);
+            }
+        };
+        observation.process.index_preparation_complete = true;
+        let mut arguments = self.config.arguments.clone();
+        arguments.extend([
+            "--query".into(),
+            query_file.0.to_string_lossy().into_owned(),
+        ]);
+        observation.process.arguments = arguments.clone();
+        if cancellation.is_cancelled() {
+            observation.status = ObeliskRunStatus::Cancelled;
+            return Ok(observation);
+        }
         let mut command = Command::new(&self.config.executable);
         command
             .args(&arguments)
@@ -620,22 +646,29 @@ impl ObeliskRuntime {
         observation.process.started = true;
         observation.process.pid = pid;
         let exceeded = CancellationToken::new();
+        let pipe_missing = child.stdout.is_none() || child.stderr.is_none();
         let stdout = tokio::spawn(capture(
-            child.stdout.take().context("missing stdout")?,
+            child.stdout.take(),
             self.config.limits.stdout_bytes,
             exceeded.clone(),
         ));
         let stderr = tokio::spawn(capture(
-            child.stderr.take().context("missing stderr")?,
+            child.stderr.take(),
             self.config.limits.stderr_bytes,
             exceeded.clone(),
         ));
-        let completed = tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => { observation.status = ObeliskRunStatus::Cancelled; None }
-            _ = exceeded.cancelled() => { observation.status = ObeliskRunStatus::OutputLimit; None }
-            _ = tokio::time::sleep(Duration::from_millis(self.config.limits.timeout_ms)) => { observation.status = ObeliskRunStatus::TimedOut; None }
-            result = child.wait() => Some(result),
+        let completed = if pipe_missing {
+            observation.status = ObeliskRunStatus::Failed;
+            observation.process.error = Some("spawned process pipe is unavailable".into());
+            None
+        } else {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => { observation.status = ObeliskRunStatus::Cancelled; None }
+                _ = exceeded.cancelled() => { observation.status = ObeliskRunStatus::OutputLimit; None }
+                _ = tokio::time::sleep(Duration::from_millis(self.config.limits.timeout_ms)) => { observation.status = ObeliskRunStatus::TimedOut; None }
+                result = child.wait() => Some(result),
+            }
         };
         if let Some(result) = completed {
             match result {
@@ -706,7 +739,10 @@ impl ObeliskRuntime {
         }
         if observation.status == ObeliskRunStatus::Succeeded {
             match serde_json::from_slice::<Value>(&stdout.bytes) {
-                Ok(envelope) if envelope.get("schema_version") == Some(&json!(1)) => {
+                Ok(envelope)
+                    if envelope.get("schema_version") == Some(&json!(1))
+                        && envelope.get("data").is_some() =>
+                {
                     observation.data = envelope.get("data").cloned();
                     observation.coverage["index_observation"] = envelope
                         .get("index_observation")
@@ -872,10 +908,16 @@ struct Capture {
     error: Option<String>,
 }
 async fn capture(
-    mut reader: impl AsyncRead + Unpin,
+    reader: Option<impl AsyncRead + Unpin>,
     limit: usize,
     exceeded: CancellationToken,
 ) -> Capture {
+    let Some(mut reader) = reader else {
+        return Capture {
+            error: Some("spawned process pipe is unavailable".into()),
+            ..Default::default()
+        };
+    };
     let mut capture = Capture::default();
     let mut buffer = [0_u8; 8192];
     loop {
