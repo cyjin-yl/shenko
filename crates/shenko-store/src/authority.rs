@@ -326,6 +326,10 @@ impl Store {
             position.reads.push(task_revision_position(&parent));
             owner = parent.owner.clone();
             position.expected_tasks.push(parent);
+            // The current subject root is the owner-chain boundary. Its
+            // genesis representation may own itself; retain its read fence
+            // without interpreting that terminal link as a task cycle.
+            if id == head.subject_root_task_id { break; }
         }
         Ok((head, position))
     }
