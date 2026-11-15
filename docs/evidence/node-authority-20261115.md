@@ -3,9 +3,11 @@
 Historical checkpoint: the commands, hashes and limits below describe the
 initial authority fixes and their immediate follow-ups. The later
 [durable-control continuation](control-quorum-20261115.md) replaces the
-vote-only persistence boundary and implements parts of the two Store/runtime
-gaps. The old observations remain evidence for their stated source; they are
-not a claim that those three mechanisms are still wholly absent today.
+vote-only persistence boundary and wires the Store authority bridge, actual
+branch continuation and runtime reconstruction through `4baed97`. Their final
+combined behavior gate remains pending. The old observations below are evidence
+for their stated source; they are not a claim that those three mechanisms are
+still wholly absent today.
 
 Date: 2026-11-15. Branch: `fix/readiness-distributed-20261115`.
 Base: `054817b0d5729fed56ec5a974d101c31edfd1410`.
@@ -41,8 +43,9 @@ Candidate: `crates/shenko-node/src/election.rs` SHA-256
   regressing a later observed term. Explicit full-prefix push also applies the
   projection of matching retained rows above its old recorded frontier.
 
-The existing schema and wire remain unchanged. Receipt observations use
-content-addressed, non-ballot scopes in the existing `node_votes` table; they
+At this initial checkpoint, the existing schema and wire remained unchanged.
+Receipt observations use content-addressed, non-ballot scopes in the existing
+`node_votes` table; they
 cannot be counted by `votes_for`. No fact journal, child result or unknown
 external effect is replayed by this change.
 
@@ -76,41 +79,44 @@ remain. No runtime services, remote nodes or user effects were started.
 This is control-plane safety evidence, not full distributed product acceptance.
 Certificates contain voter identities, not independent cryptographic vote
 signatures; authenticated peer transport is still a required trust boundary.
-This patch does not prove Byzantine tolerance or full log-commit safety.
+This initial patch did not prove Byzantine tolerance or full log-commit safety.
 Membership ballots were scoped only by proposal digest, so the same voter
 could grant two different proposals from one base in a term. The follow-up
-below fences that concrete conflict. A proposal vote still does not durably
-append the proposed entry to the voter's control log before the proposer calls it committed.
-Thus a crash before replication can leave another voting majority unaware of
-that entry. Refusing divergent prefixes preserves evidence but does not by
-itself supply Raft's log-commit safety. Quorum persistence of the actual
-control entry remains a distributed-release blocker.
+below fences that concrete conflict. At that checkpoint, a proposal vote did
+not durably append the proposed entry to the voter's control log before the
+proposer called it committed. Thus a crash before replication could leave
+another voting majority unaware of that entry. Refusing divergent prefixes
+preserved evidence but did not by itself supply Raft's log-commit safety.
+Quorum persistence of the actual
+control entry was a distributed-release blocker, addressed by the later
+prepare/accept continuation rather than by these initial tests.
 
-`bin/shenko/src/lib.rs` establishes a primary or explicit availability branch
-before spawning `run_subject_loop`, and records a fenced role observation.
-The long-running main loop does not continuously consume that node authority.
-Therefore this patch alone cannot claim that a later local election result
-stops an already-running old controller's new subject decisions/effects, or
+At the initial checkpoint, `bin/shenko/src/lib.rs` established a primary or
+explicit availability branch fact before spawning `run_subject_loop`, and
+recorded a fenced role observation. The long-running main loop did not
+continuously consume that Node authority. Therefore this patch alone could
+not claim that a later local election result stops an already-running old
+controller's new subject decisions/effects, or
 that reconnect automatically hands control to the smartest usable peer.
-The subject's branch/controller commit guard remains a separate local Store
-mechanism. Connecting those boundaries must preserve the requirement that
+The subject's branch/controller commit guard was a separate local Store
+mechanism. Connecting those boundaries had to preserve the requirement that
 isolated intelligent branches may continue with their own explicit history;
 absence of a global quorum is not a blanket prohibition on local work.
 
-The startup no-quorum path additionally creates a Node `BranchFact` with a
-fresh identifier, without changing the Store head or the Node's subject
-identity. It therefore does not perform the actual subject branch fork. The
+The initial startup no-quorum path additionally created a Node `BranchFact`
+with a fresh identifier, without changing the Store head or the Node's subject
+identity. It therefore did not perform the actual subject branch fork. The
 existing update adapter correctly requires all three branch identities to
 match; creating a branch fact alone cannot satisfy that binding.
 
-A bounded next integration needs an explicit durable authority binding at the
-Store's existing S1 and dispatch fences, and a crash-recoverable Node/Store
+A bounded next integration therefore needed an explicit durable authority
+binding at the Store's existing S1 and dispatch fences, and a crash-recoverable Node/Store
 transition with a fixed lock order. S1 already checks `checked_head`; native
 dispatch already checks controller epoch and dispatcher ownership; publication
 arming already checks the authoring epoch. A newly observed authoritative
 change must fence those same resources while retaining late result/receipt
 facts. Merely polling Node between Store operations leaves a check/commit race.
-The availability path also needs a real fresh-branch continuation with causal
+The availability path also needed a real fresh-branch continuation with causal
 parent and unknown-effect history, rather than overwriting the old branch or
 gating all local work on global quorum.
 
@@ -187,8 +193,10 @@ retained prefix for finalization and checks that no pending proposal remains
 after Final. This adds no independent test journey. The earlier command results
 and hashes above describe their recorded candidates, not this later change;
 the updated source and combined CLI compilation remain the integrator's gate.
-This recovery adapter does not supply the still-missing quorum persistence of
-actual control-log entries or automatic partition/failover qualification.
+At that checkpoint this recovery adapter did not supply quorum persistence of
+actual control-log entries or automatic partition/failover qualification. The
+later durable-control continuation supersedes the first missing mechanism;
+these recorded CLI checks do not qualify its behavior retroactively.
 
 ## Continuation status: the three distributed gaps
 
@@ -200,18 +208,32 @@ they have focused process and library evidence in the continuation report.
 
 The Node/Store boundary now has a reservation held across local grant validation
 and Store CAS, plus exact admission keys/read fences in the control log. The
-real fork path now retains a Store parent head and frozen history, creates new
-branch/task/step identities, and repairs Node projection from the Store's own
-receipt. These are implementation advances, not yet a claim that all live
-runtime consumers and reconstruction paths passed their combined gate.
+applied-here record is local, nonreplicated and set only after successful Store
+COMMIT. The real fork path retains a Store parent head, frozen history and
+uncommitted input selections, creates new branch/task/step identities, and
+repairs Node projection from the Store's own receipt. The runtime adapter and
+owned-consumer reconstruction path are source-wired through `4baed97`; their
+combined behavior gate is pending, not an absent integration.
 
 The remaining canonical-materialization boundary is explicit: a quorum-chosen
 original plan is not a deterministic cross-node S1 result. Unconfirmed apply
-must retain original plan/CAS evidence and durable reconciliation debt, continue
-on a real child branch before new consumers start, and never rebase the old
-epoch or reissue its physical attempt. The continuation also records the
-staged-but-uncommitted input-inheritance source correction and its pending
-integrated behavior gate. See the
+retains original plan/CAS evidence and durable reconciliation debt. A still
+selected local primary rechecks its original authority before continuing on a
+real child branch ahead of new consumers; it cannot rebase the old epoch or
+reissue its physical attempt.
+
+Automatic election fallback is separately restricted to a recovery attempt
+with no authenticated response from another configured voter and an unchanged
+failed-campaign authority snapshot. Connected refusal or minority without
+quorum returns `PrimaryNotSelected` and stops local Start after bounded
+catch-up; unique minority-component coordination and a resident follower remain
+unimplemented. The opening origin binds holder, term, configuration and fence.
+Conditional open compares the complete branch fact too, so a concurrent rejoin
+cannot be undone from a stale snapshot. The runtime checks this origin at fresh
+admission; receipt-proven historical projection repair grants no new authority.
+
+The continuation also records the staged-but-uncommitted input-inheritance
+source correction and its pending integrated behavior gate. See the
 [current Node contract](../specs/nodes.md#implementation-and-evidence-status)
 for the current mechanism/evidence mapping; these later changes do not alter
 the historical checks or source hashes above.

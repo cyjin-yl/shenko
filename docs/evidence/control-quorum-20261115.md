@@ -2,9 +2,12 @@
 
 Status: the Node protocol and bounded transport have passed their focused
 process journeys and existing election regressions. This proves the stated
-control-plane paths and retention of original frozen plans. Store authority
-reservations and actual availability forks now have implementation checkpoints;
-the live runtime reconstruction and combined behavior gates remain separate.
+control-plane paths and retention of original frozen plans at the source scope
+recorded below. The continuation now wires Store authority reservations, actual
+availability forks with inherited input selections, and live runtime
+reconstruction through `4baed97`. Final combined behavior results are pending
+the integrator's candidate evidence; the earlier Node results do not test this
+later runtime wiring.
 There is no canonical cross-node S1 materialization claim. See the
 [current distributed boundary](../specs/nodes.md#implementation-and-evidence-status)
 for the three original gaps and their distinct evidence status.
@@ -20,8 +23,11 @@ control decision. A certificate listing voters does not establish replication.
 The control plane now distinguishes durable prepare promises, durable accepted
 values, actual accept acknowledgements, and learned committed facts. Experiences,
 raw inputs, external results and isolated availability branches remain outside
-this consensus log. Lack of a connected control quorum must lead to an explicit
-branch continuation; it is not a global prohibition on intelligence.
+this consensus log. Lack of a global control quorum is not a prohibition on
+local intelligence. The current automatic election fallback is narrower than
+the full component contract: it requires no authenticated response from another
+configured voter during that recovery attempt. Connected minority coordination
+and a persistent follower remain implementation gaps.
 
 ## Protocol and assumptions
 
@@ -118,13 +124,15 @@ the source-review gap in which task revision R could name aliases while a
 later snapshot silently carried R+1. This report records that source correction;
 its integrated Store behavior checks belong to the enclosing candidate.
 
-For a chosen plan whose materialization cannot be confirmed, the runtime
-boundary is to preserve its exact descriptor, original payload and CAS evidence,
-record durable reconciliation debt, and create an actual availability branch
-before starting new consumers. It must not rebase the original epoch, assign
-its request/attempt to the new owner, or gain another physical send opportunity.
-A reconstructed original grant is historical evidence. The final live runtime
-adapter and its checks are still integration work at this checkpoint.
+For a chosen plan whose materialization cannot be confirmed, the live runtime
+adapter preserves its exact descriptor, original payload and CAS evidence and
+records durable reconciliation debt. If the original selected local authority
+is still current, it creates an actual availability branch before starting new
+consumers. This selected-plan recovery path is distinct from isolated-election
+fallback. It cannot rebase the original epoch, assign its request/attempt to the
+new owner, or gain another physical send opportunity. A reconstructed original
+grant is historical evidence. The final adapter is source-wired; its combined
+behavior gate remains pending.
 
 Canonical transition replay remains a separate requirement: it needs an
 explicit typed read set, fixed write/result identities, and a logical decision
@@ -137,8 +145,8 @@ The three original gaps are now narrowed as follows:
 | Original gap | Source checkpoint | Evidence boundary |
 | --- | --- | --- |
 | Vote quorum without persisted entries | `97602f5`, bounded transport/key fences `31010ab`, legacy-admission refusal `e0dffa0` | Focused Node journeys and library/Clippy results below; the final four-line legacy refusal awaits the combined candidate's checks. |
-| Node authority not coupled to Store commit | Reservation `c429dea`, exact fresh-grant read checks `e7d4571`, Store provider integration | The Node reservation closes the local check/commit race. It is not a remote lease; live adapter, reconstruction and Store behavior still need integrated evidence. |
-| Availability fact without a real Store fork | Store/Node/context fork `d09b087`, retained predecessor/head validation `25207eb` | Actual fork/projection source exists. Combined fork/rebuild and inherited-input behavior remain integration gates. |
+| Node authority not coupled to Store commit | Reservation `c429dea`, fresh-grant read checks `e7d4571`, Store/runtime integration `2169cb8`, failure-lifecycle correction `b066224`, final wiring `4baed97` | The reservation spans exact grant validation and Store CAS; local materialization follows successful COMMIT. Live reconstruction is wired. Final integrated behavior remains pending; the local lock is not a remote lease. |
+| Availability fact without a real Store fork | Store/Node/context fork `d09b087`, coherent predecessor/head validation `25207eb`, inherited-input/closure/version corrections `004df65`/`4a4a365`/`aa745a4`, origin/branch CAS `61ba367`/`43f4580`, final wiring `4baed97` | Actual fork/projection and guarded startup/reconstruction paths are wired. Combined fork/rebuild, inherited-input and authority-change behavior remain integration gates. |
 
 Targeted fork review found a delivery boundary separate from raw retention.
 A web/Playground/media/self-wake input staged in the parent's current step has
@@ -171,6 +179,48 @@ media admission binding after those corrections. Two existing branch recovery
 journeys were extended by the root slice; this read-only review added no
 independent scenario or runtime test. Source closure is fixed, while combined
 fork/rebuild behavior remains pending verification at this evidence checkpoint.
+
+## Final source integration boundary
+
+The Store provider now prepares an exact action before local locks, then holds
+the Node reservation across the Store's own head/task/epoch/cancellation CAS
+and COMMIT. Fresh grants recheck read dependencies; old grants remain readable
+without renewing dispatch. The applied-here marker is local and nonreplicated,
+so an imported inbox receipt cannot claim local materialization. The live
+runtime stops and drains its consumers on an authority-recovery signal before
+the next owned Start reconstructs them. A closed writer or storage error keeps
+its actual failure; it is not converted into an endless election retry.
+
+The final election adapter records authenticated contact across catch-up,
+prepare, accept and dissemination, including refusing or malformed replies via
+`PeerResponded`/`rpc_observed`. It permits at most three prefix/term recovery
+rounds. After connected failure it waits 200–455 ms, catches up once without
+recampaigning, then returns `PrimaryNotSelected` and stops this local Start.
+Only an attempt with no authenticated other-voter response can use automatic
+isolated fallback, and only if the failed term/configuration and no-fence
+observation still match the reserved Node state. This is neither a proof of
+permanent isolation nor an implementation of connected-minority coordination.
+There is no resident follower lifecycle in this path.
+
+Availability opening retains holder, term, configuration revision/digest and
+the exact optional fence in the same immediate transaction as the fact. The
+conditional API compares the complete expected authority snapshot and branch
+fact. That branch CAS refuses a concurrent rejoin that changed only merged
+state or reconciliation floor, instead of reopening it from an older snapshot.
+The Store-fork adapter checks expected parent identity and target opening origin
+under the reservation. Runtime admission uses `is_current_availability` and
+includes the origin in its authority stamp; a historical branch fact alone is
+not current permission. Receipt-proven repair of an already committed Store fork
+still preserves the original fact even after authority changed, without
+restoring fresh local authority.
+
+These source changes close the earlier claim that PLAN quorum, the Store bridge
+and real branch transition are wholly disconnected. They do not supply canonical
+cross-ledger S1 state-machine replay, a unique coordinator in each connected
+minority component, or the final runtime acceptance results. The product
+requirements remain unchanged. The final combined checks are pending and must
+be recorded against the actual integrated candidate, not inferred from the
+historical focused results below.
 
 ## Bounded transfer and immutable closure retention
 

@@ -4,6 +4,8 @@
 
 2026-11-15 按 `054817b0d5729fed56ec5a974d101c31edfd1410` 及本次修复复核装配入口。下面的“已接线”不等于真实账号、模型、硬件或故障旅程已经验收；较早源码观察保留日期，不能当成当前缺失项。
 
+本页“多节点”部分另按 continuation 的 `4baed97` 装配源码更新：实际控制日志持久化、Store authority bridge 和真实分支已接线，最终整合行为结果等待对应候选证据。该更新不扩大其他领域原有观察的范围。
+
 状态含义：
 
 - **已接线** — 该能力在 `bin/shenko` 的装配路径上有实际调用点。
@@ -219,10 +221,26 @@
   - [§22](specs/nodes.md#spec-22)、[§44](specs/plugins.md#spec-44)
   - docs/specs/nodes.md
 
-- **选举、quorum、fencing** — 部分已接线（`shenko-node/election.rs` 保留任期、成员配置、投票及主节点证明；当前 fence 由同一快照核验任期、配置和证明，成员变更绑定当前 leader 与原配置。`node_sync::establish_primary` 在启动时获取 fence，无 quorum 时记录 availability branch 元数据；该元数据尚未自动绑定实际 Store 主体分支。控制日志条目的 quorum 持久化、Node 权限与 Store S1/效果提交的原子桥接，以及运行中的自动失效检测仍未闭合）
-  - [§22](specs/nodes.md#spec-22)
+- **控制日志、原始计划 quorum 与 fencing** — 已接线（`shenko-node/control.rs`、`control_transport.rs` 通过持久化 prepare/accept/ACK/commit 保留真实控制值、最高已接受原值和完整 CAS 闭包；Joint/Final 检查 old/new quorum，正常传输使用有界后缀与对象块。`node_sync::establish_primary` 获取新 quorum，缓存主节点证明不能直接跳过确认。此处选择的是原始计划，不是跨 ledger 的确定性 Store 结果）
+  - [§5.4](specs/nodes.md#spec-5-4)、[§22](specs/nodes.md#spec-22)
   - docs/specs/nodes.md
-  - docs/evidence/node-authority-20261115.md
+  - docs/evidence/control-quorum-20261115.md
+
+- **Node–Store 提交边界与运行时重建** — 已接线（`authority_guard.rs`、Store admission 与 `runtime_authority.rs` 在网络 admission 后持有 Node reservation，核验精确 grant/read fence，直到 Store 自身 head/task/epoch/cancellation CAS 提交；本地 materialization 标记仅在成功提交后成立。运行时接到权限恢复信号会清理并重建消费者；无法确认 materialization 的原计划保留 CAS 证据和 reconciliation debt，不重新取得物理发送许可。最终故障旅程仍待整合证据，本地锁不等于网络租约）
+  - docs/specs/nodes.md
+  - docs/evidence/control-quorum-20261115.md
+
+- **真实 availability branch 与输入继承** — 已接线（`subject_branches.rs`、`runtime_branches.rs` 保留父 head、冻结历史和未提交输入选择，创建真实新 branch/root task/first step，再由本地 Store receipt 投影 Node identity；原 request/attempt 不挪动。opening authority 绑定 holder、term、configuration 和 fence，conditional open 同时比较完整 branch 事实，Store fork 前再次验证，运行时拒绝已过期 origin。历史 receipt 修复不伪造当前权限）
+  - docs/specs/nodes.md
+  - docs/evidence/branch-continuity-20261115.md
+
+- **选举失败后的分区接管** — 部分已接线（自动隔离 fallback 仅适用于本轮选举恢复没有收到任何其他 configured voter 的 authenticated route response，且失败的 authority snapshot 仍有效。连通拒票、不可用协议响应或少数组件返回 `PrimaryNotSelected` 并停止本地 Start；有限退让和一次 catch-up 不是常驻 follower。连通少数组件唯一统筹者与常驻 follower 生命周期尚未实现，完整合同不变）
+  - [§5.4.1](specs/nodes.md#spec-5-4-1)
+  - docs/specs/nodes.md
+
+- **跨 ledger 的 canonical S1 状态机复制** — 未实现（quorum 已保存的原始计划与本地 Store 实际 materialization 分开记录；仍需固定 read/write/result 身份的 typed transition，以及独立于各 ledger 物理 receipt 的逻辑决定身份）
+  - docs/specs/nodes.md
+  - docs/evidence/control-quorum-20261115.md
 
 - **跨节点认知复制（store/cognition.rs）** — 已接线（经 `shenko sync` 导出/接收/确认）
   - [§10.6](specs/durable-state.md#spec-10-6)
