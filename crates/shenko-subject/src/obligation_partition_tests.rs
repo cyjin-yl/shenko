@@ -1051,7 +1051,7 @@ async fn partition_converge_body(started_at_ms: u64) -> anyhow::Result<serde_jso
     anyhow::ensure!(outcome.conflicts.is_empty(), "a convergent import reported conflicts: {:?}", outcome.conflicts);
     let obligation_after_import = partition_obligation(&store_dir, obligation);
     anyhow::ensure!(
-        replicated_obligation_projection(&obligation_after_import)
+        replicated_obligation_projection(&obligation_after_import)?
             == partition_row(&incoming_manifest, "subject_obligations", &obligation.to_string())
                 .map(|row| archive_row_as_projection(&row))
                 .ok_or_else(|| anyhow::anyhow!("the archive declares no such obligation"))?,
@@ -1256,7 +1256,7 @@ fn partition_relay_body(started_at_ms: u64) -> anyhow::Result<serde_json::Value>
         "the relayed typed settlement differs from the archive"
     );
     anyhow::ensure!(
-        replicated_obligation_projection(&partition_obligation(&store_dir, obligation))
+        replicated_obligation_projection(&partition_obligation(&store_dir, obligation))?
             == partition_row(&incoming_manifest, "subject_obligations", &obligation.to_string())
                 .map(|row| archive_row_as_projection(&row))
                 .ok_or_else(|| anyhow::anyhow!("the archive declares no such obligation"))?,
@@ -1330,10 +1330,13 @@ fn archive_settlements(manifest: &serde_json::Value) -> serde_json::Value {
 /// Replicated facts exclude `updated_seq`: it records the receiver's local
 /// import transaction, not the source's settlement commit. Creation and
 /// settlement provenance still travel in `created_seq` and the typed receipt.
-fn replicated_obligation_projection(projection: &serde_json::Value) -> serde_json::Value {
+fn replicated_obligation_projection(projection: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let mut replicated = projection.clone();
-    replicated.as_object_mut().expect("obligation projection object").remove("updated_seq");
     replicated
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("obligation projection must be an object"))?
+        .remove("updated_seq");
+    Ok(replicated)
 }
 
 /// A fresh receiver must stamp the imported projection with its own actual
