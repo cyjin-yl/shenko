@@ -84,8 +84,19 @@ fn successful(observation: ObeliskObservation) -> Result<Value> {
     observation.data.context("successful response has no data")
 }
 
-#[tokio::test]
-async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection() -> Result<()> {
+fn run_scenario(future: impl std::future::Future<Output = Result<()>>) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(future)
+}
+
+#[test]
+fn real_cli_history_preserves_source_locators_and_reads_beyond_projection() -> Result<()> {
+    run_scenario(history_source_flow())
+}
+
+async fn history_source_flow() -> Result<()> {
     let Some((fixture, runtime)) = runtime()? else {
         return Ok(());
     };
@@ -263,8 +274,12 @@ async fn real_cli_history_preserves_source_locators_and_reads_beyond_projection(
     Ok(())
 }
 
-#[tokio::test]
-async fn real_cli_async_script_is_stopped_by_host_deadline_and_readers_join() -> Result<()> {
+#[test]
+fn real_cli_async_script_is_stopped_by_host_deadline_and_readers_join() -> Result<()> {
+    run_scenario(asynchronous_deadline_flow())
+}
+
+async fn asynchronous_deadline_flow() -> Result<()> {
     let Some((_fixture, initial)) = runtime()? else {
         return Ok(());
     };
