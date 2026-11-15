@@ -715,7 +715,17 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         store.latest_identity(agent_id).ok()?
     });
 
+    let (control_reconciliations, control_reconciliations_error) = match (&state.store, subject_id) {
+        (Some(store), Some(agent_id)) => match store.pending_control_reconciliations(agent_id) {
+            Ok(facts) => (Some(facts), None),
+            Err(error) => (None, Some(error.to_string())),
+        },
+        _ => (None, None),
+    };
+
     Json(json!({
+        "control_reconciliations": control_reconciliations,
+        "control_reconciliations_error": control_reconciliations_error,
         "status": status,
         "status_source": "no live subject-state binding; recent outbox is not a thinking signal",
         "subject_id": subject_id.map(|id| id.to_string()),

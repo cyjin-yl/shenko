@@ -485,10 +485,12 @@ impl Store {
     ) -> Result<CommitReceipt, ShenkoError> {
         let previous = self.get_step(&expected_head.branch_id, step.step_id)?
             .ok_or_else(|| ShenkoError::not_found("registered request step"))?;
-        let authority = self.reserve_admission(expected_head,
-            format!("step/{}/request-after/{}", step.step_id,
+        let authority = self.reserve_admission(expected_head, crate::authority::AdmissionPosition {
+            key: format!("step/{}/request-after/{}", step.step_id,
                 previous.active_request_id.unwrap_or_else(EntityId::nil)),
-            None, Some(attempt.attempt_id),
+            aliases: vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)],
+            attempt_id: Some(attempt.attempt_id), expected_steps: vec![previous], ..Default::default()
+        },
             &serde_json::json!({"kind": "subject.request_arm", "step": step,
                 "expected_head": expected_head, "expected_revision": expected_revision,
                 "claim_send": claim_send, "attempt": attempt}))?;
@@ -628,6 +630,7 @@ impl Store {
         authority.record_admission(&tx, commit_ref)?;
         self.record_subject_commit(&tx, commit_ref, 2)?;
         tx.commit().map_err(storage_error)?;
+        authority.materialized();
         Ok(self.subject_receipt(
             commit_ref,
             vec![UpdatedEntity {
@@ -782,15 +785,30 @@ impl Store {
         expected_head: &SubjectBranchHead,
         next_step_id: EntityId,
     ) -> Result<CommitReceipt, ShenkoError> {
-        {
+        let (previous, expected_tasks) = {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction().map_err(storage_error)?;
-            self.validate_step_commit(&tx, step, expected_head, next_step_id)?;
-        }
-        let authority = self.reserve_admission(expected_head,
-            format!("branch/{}/successor/{}:{}", expected_head.branch_id.0,
+            let (head, previous, decision) = self.validate_step_commit(&tx, step, expected_head, next_step_id)?;
+            let mut tasks = std::collections::BTreeMap::new();
+            for intent in &decision.child_dialogue_intents {
+                if intent.direction != shenko_types::subject::DialogueDirection::ToChild { continue; }
+                if let Some(task) = crate::child::read_task(&tx, intent.target_task_id).map_err(storage_error)? {
+                    if task.agent_id == head.agent_id && !task.is_terminal() && task.abort_request.is_none()
+                        && crate::child::task_in_current_branch(&tx, &task, &head).map_err(storage_error)? {
+                        tasks.insert(task.task_id, task);
+                    }
+                }
+            }
+            (previous, tasks.into_values().collect::<Vec<_>>())
+        };
+        let mut aliases = vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)];
+        aliases.extend(expected_tasks.iter().map(crate::authority::task_revision_position));
+        let authority = self.reserve_admission(expected_head, crate::authority::AdmissionPosition {
+            key: format!("branch/{}/successor/{}:{}", expected_head.branch_id.0,
                 expected_head.committed_at.ledger_id, expected_head.committed_at.seq.0),
-            None, None,
+            aliases, expected_tasks, expected_steps: vec![previous],
+            bind_parent: true, ..Default::default()
+        },
             &serde_json::json!({"kind": "subject.step_commit", "step": step,
                 "expected_head": expected_head, "next_step_id": next_step_id}))?;
         self.ledger.with_mutation(
@@ -846,7 +864,7 @@ impl Store {
         Ok((head, previous, decision))
     }
 
-    fn try_commit_step_and_advance_head(
+    pub(crate) fn try_commit_step_and_advance_head(
         &self,
         step: &SubjectStep,
         expected_head: &SubjectBranchHead,
@@ -1038,6 +1056,7 @@ impl Store {
         authority.record_admission(&tx, commit_ref)?;
         self.record_subject_commit(&tx, commit_ref, 4)?;
         tx.commit().map_err(storage_error)?;
+        authority.materialized();
         Ok(self.subject_receipt(
             commit_ref,
             vec![

@@ -15,7 +15,8 @@ use shenko_types::{
     error::ShenkoError,
     ids::{ControllerEpoch, EntityId, RuntimeGeneration},
     inbox::{InboxEvent, InboxEventKind},
-    subject::{SubjectBranchHead, SubjectMode},
+    subject::{SubjectBranchHead, SubjectMode, SubjectStep},
+    task::{TaskOwner, TaskRecord},
 };
 
 use crate::{Store, store::{checked_head_mode, read_step, storage_error, validate_step_binding}};
@@ -26,6 +27,10 @@ CREATE TABLE IF NOT EXISTS commit_authority_policy (
 );
 CREATE TABLE IF NOT EXISTS subject_authority_bindings (
  agent_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_commit_seq INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS control_materializations (
+ conflict_key TEXT PRIMARY KEY, action_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL,
+ updated_commit_seq INTEGER NOT NULL
 );
 "#;
 
@@ -48,32 +53,65 @@ pub struct SubjectAuthorityBinding {
     pub committed_at: CommitRef,
 }
 
+/// Generic decision positions and factual read dependencies. Concrete Store
+/// boundaries supply them; the authority source only orders these identities.
+#[derive(Default)]
+pub(crate) struct AdmissionPosition {
+    pub key: String,
+    pub aliases: Vec<String>,
+    pub reads: Vec<String>,
+    pub operation_id: Option<EntityId>,
+    pub attempt_id: Option<EntityId>,
+    pub bind_parent: bool,
+    pub expected_tasks: Vec<TaskRecord>,
+    /// Rows whose structural authority fields are checked by the boundary
+    /// itself; later factual progress need not invalidate that authority.
+    pub snapshot_tasks: Vec<TaskRecord>,
+    pub expected_steps: Vec<SubjectStep>,
+}
+
+pub(crate) fn task_revision_position(task: &TaskRecord) -> String {
+    format!("task/{}/revision/{}", task.task_id, task.record_revision.0)
+}
+
+pub(crate) fn task_authority_position(task: &TaskRecord) -> String {
+    format!("task/{}/authority/{}", task.task_id, task.task_revision.0)
+}
+
 /// Retain this value until AFTER the Store transaction commits or rolls back.
 pub(crate) struct AuthorityReservation {
     guard: Option<Box<dyn CommitAuthorityGuard>>,
+    provider: Option<Arc<dyn CommitAuthorityProvider>>,
+    recorded: AtomicBool,
     admission: Option<CommitAdmission>,
     grant: Option<CommitAuthorityGrant>,
+    expected_tasks: Vec<TaskRecord>,
+    expected_steps: Vec<SubjectStep>,
+    recovery: bool,
 }
 
 impl AuthorityRuntime {
     pub(crate) fn reserve(&self) -> Result<AuthorityReservation, ShenkoError> {
         let provider = self.provider.read().clone();
         Ok(AuthorityReservation {
-            guard: provider.map(|provider| provider.acquire(None)).transpose()?,
-            admission: None, grant: None,
+            guard: provider.as_ref().map(|provider| provider.acquire(None)).transpose()?,
+            provider, recorded: AtomicBool::new(false), admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false,
         })
     }
 
     fn prepare(&self, admission: CommitAdmission) -> Result<AuthorityReservation, ShenkoError> {
         let Some(provider) = self.provider.read().clone() else {
-            return Ok(AuthorityReservation { guard: None, admission: None, grant: None });
+            return Ok(AuthorityReservation { guard: None, provider: None, recorded: AtomicBool::new(false), admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false });
         };
         let grant = provider.prepare(&admission)?;
         if grant.as_ref().is_some_and(|grant| grant.admission != admission) {
             return Err(authority_fenced("authority returned a grant for another immutable action"));
         }
-        let guard = provider.acquire(grant.as_ref())?;
-        Ok(AuthorityReservation { guard: Some(guard), admission: Some(admission), grant })
+        let guard = provider.acquire(grant.as_ref()).map_err(|error| {
+            if let Some(grant) = &grant { provider.action_unmaterialized(grant); }
+            error
+        })?;
+        Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(admission), grant, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false })
     }
 }
 
@@ -92,9 +130,10 @@ impl AuthorityReservation {
         {
             return Err(authority_fenced("authority source or subject binding changed"));
         }
-        let binding = read_binding(conn, stamp.subject_id)?
-            .ok_or_else(|| authority_fenced("subject authority has not been activated"))?;
-        if binding.stamp != *stamp || binding.writer_incarnation != incarnation {
+        let binding = read_binding(conn, stamp.subject_id)?;
+        if !self.recovery && binding.as_ref().is_none_or(|binding|
+            binding.stamp != *stamp || binding.writer_incarnation != incarnation)
+        {
             return Err(authority_fenced("the writer or its authority commitment was superseded"));
         }
         let raw: String = conn.query_row(
@@ -102,20 +141,37 @@ impl AuthorityReservation {
             [stamp.subject_id.to_string()], |r| r.get(0),
         ).map_err(storage_error)?;
         let head: SubjectBranchHead = serde_json::from_str(&raw)?;
-        if head.branch_id != stamp.branch_id || head.controller_epoch != binding.controller_epoch
-            || head.software_generation != binding.software_generation
+        if head.branch_id != stamp.branch_id
             || !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused)
+            || (!self.recovery && binding.as_ref().is_none_or(|binding|
+                head.controller_epoch != binding.controller_epoch
+                    || head.software_generation != binding.software_generation))
         {
             return Err(authority_fenced("the active branch, epoch or software generation changed"));
         }
         if let Some(admission) = &self.admission {
             if admission.subject_id != head.agent_id || admission.branch_id != head.branch_id
+                || admission.expected_parent.is_some_and(|parent| parent != head.committed_at)
                 || admission.controller_epoch != head.controller_epoch
                 || admission.software_generation != head.software_generation
-                || admission.expected_parent.is_some_and(|parent| parent != head.committed_at)
                 || admission.expected_head_revision.is_some_and(|revision| revision != head.record_revision)
             {
                 return Err(authority_fenced("the ordered action no longer names this Store predecessor"));
+            }
+        }
+        for expected in &self.expected_tasks {
+            let raw: String = conn.query_row("SELECT data FROM tasks WHERE task_id=?1",
+                [expected.task_id.to_string()], |row| row.get(0)).map_err(storage_error)?;
+            let current: TaskRecord = serde_json::from_str(&raw)?;
+            if serde_json::to_value(&current)? != serde_json::to_value(expected)? {
+                return Err(ShenkoError::conflict("task or ancestor changed after its authority plan was frozen"));
+            }
+        }
+        for expected in &self.expected_steps {
+            let current = read_step(conn, &expected.branch_id, expected.step_id)?
+                .ok_or_else(|| ShenkoError::not_found("admission subject step"))?;
+            if serde_json::to_value(&current)? != serde_json::to_value(expected)? {
+                return Err(ShenkoError::conflict("subject step changed after its authority plan was frozen"));
             }
         }
         Ok(())
@@ -128,31 +184,41 @@ impl AuthorityReservation {
     ) -> Result<bool, ShenkoError> {
         let Some(admission) = &self.admission else { return Ok(false) };
         let event_id = EntityId::derived("commit-authority-admission-v1", admission.conflict_key.as_bytes());
-        let existing: Option<String> = tx.query_row(
-            "SELECT data FROM inbox_events WHERE event_id=?1", [event_id.to_string()], |r| r.get(0),
-        ).optional().map_err(storage_error)?;
-        if let Some(raw) = existing {
-            let event: InboxEvent = serde_json::from_str(&raw)?;
-            let previous: CommitAdmission = serde_json::from_value(event.payload["admission"].clone())?;
-            if event.event_id != event_id || event.source != "commit-authority"
-                || event.kind != InboxEventKind::SystemEvent || previous != *admission
-                || event.payload["kind"] != "authority.admission_applied"
-            {
-                return Err(authority_fenced("a decision position already holds another admission"));
-            }
-            return Ok(true);
+        let existing = admission_applied(tx, admission)?;
+        if !existing {
+            let event = InboxEvent {
+                event_id, kind: InboxEventKind::SystemEvent, source: "commit-authority".into(),
+                created_at: chrono::Utc::now(),
+                payload: serde_json::json!({"kind": "authority.admission_applied", "admission": admission,
+                    "grant": self.grant, "committed_at": commit}),
+            };
+            tx.execute("INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data)
+                VALUES(?1,?2,'system_event','commit-authority',0,?3)",
+                params![event_id.to_string(), admission.subject_id.to_string(), serde_json::to_string(&event)?],
+            ).map_err(storage_error)?;
         }
-        let event = InboxEvent {
-            event_id, kind: InboxEventKind::SystemEvent, source: "commit-authority".into(),
-            created_at: chrono::Utc::now(),
-            payload: serde_json::json!({"kind": "authority.admission_applied", "admission": admission,
-                "grant": self.grant, "committed_at": commit}),
-        };
-        tx.execute("INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data)
-            VALUES(?1,?2,'system_event','commit-authority',0,?3)",
-            params![event_id.to_string(), admission.subject_id.to_string(), serde_json::to_string(&event)?],
-        ).map_err(storage_error)?;
-        Ok(self.grant.as_ref().is_some_and(|grant| grant.replayed))
+        // This local receipt is deliberately absent from cognition exports.
+        // A replicated source event cannot create local materialization.
+        if !admission_materialized(tx, admission)? {
+            tx.execute("INSERT INTO control_materializations(conflict_key,action_id,data,updated_commit_seq)
+                VALUES(?1,?2,?3,?4)", params![admission.conflict_key, admission.action_id.to_string(),
+                serde_json::to_string(&serde_json::json!({"admission":admission, "grant":self.grant, "committed_at":commit}))?,
+                commit.seq.0 as i64]).map_err(storage_error)?;
+        }
+        Ok(existing || self.grant.as_ref().is_some_and(|grant| grant.replayed))
+    }
+
+    /// Call only after the enclosing SQLite COMMIT succeeded. Merely staging
+    /// a receipt does not survive a later SQL error or failed commit.
+    pub(crate) fn materialized(&self) { self.recorded.store(true, Ordering::Release); }
+
+}
+
+impl Drop for AuthorityReservation {
+    fn drop(&mut self) {
+        if !self.recorded.load(Ordering::Acquire)
+            && let (Some(provider), Some(grant)) = (&self.provider, &self.grant)
+        { provider.action_unmaterialized(grant); }
     }
 }
 
@@ -171,17 +237,24 @@ impl Store {
         if installed.as_ref().is_some_and(|old| old.source_id() != provider.source_id()) {
             return Err(authority_fenced("a different authority source is already attached"));
         }
-        let mut conn = self.ledger.conn.lock();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
-        let source: Option<String> = tx.query_row(
-            "SELECT source_id FROM commit_authority_policy WHERE singleton=1", [], |r| r.get(0),
-        ).optional().map_err(storage_error)?;
-        if source.as_ref().is_some_and(|source| source != provider.source_id()) {
-            return Err(authority_fenced("this ledger is bound to another authority source"));
-        }
-        tx.execute("INSERT OR IGNORE INTO commit_authority_policy VALUES(1,?1)",
-            [provider.source_id()]).map_err(storage_error)?;
-        tx.commit().map_err(storage_error)?;
+        self.ledger.with_mutation(|| {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let source: Option<String> = tx.query_row(
+                "SELECT source_id FROM commit_authority_policy WHERE singleton=1", [], |row| row.get(0),
+            ).optional().map_err(storage_error)?;
+            if source.as_ref().is_some_and(|source| source != provider.source_id()) {
+                return Err(authority_fenced("this ledger is bound to another authority source"));
+            }
+            if source.is_none() {
+                let seq = self.ledger.allocate_seq(&tx)?;
+                tx.execute("INSERT INTO commit_authority_policy VALUES(1,?1)", [provider.source_id()])
+                    .map_err(storage_error)?;
+                self.ledger.record_commit(&tx, seq, 1)?;
+            }
+            tx.commit().map_err(storage_error)?;
+            Ok(())
+        }, |error| matches!(error, ShenkoError::Storage(_)))?;
         *installed = Some(provider);
         drop(guard);
         Ok(())
@@ -194,29 +267,67 @@ impl Store {
     /// Seal the proposal before network consensus. The caller must revalidate
     /// all expected rows in its final Store transaction under the reservation.
     pub(crate) fn reserve_admission<T: Serialize>(
-        &self, head: &SubjectBranchHead, conflict_key: String,
-        operation_id: Option<EntityId>, attempt_id: Option<EntityId>, payload: &T,
+        &self, head: &SubjectBranchHead, mut position: AdmissionPosition, payload: &T,
     ) -> Result<AuthorityReservation, ShenkoError> {
-        if self.ledger.authority.provider.read().is_none() {
-            return self.reserve_authority();
-        }
+        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
         {
             let current = self.reserve_authority()?;
             current.check(&self.ledger.conn.lock(), self.capabilities.incarnation, Some(head.agent_id))?;
         }
-        let payload_ref = self.cas.seal_object(&serde_json::to_vec(payload)?, "application/json",
-            "commit-authority", "commit-admission", 1)?.object;
-        self.ledger.authority.prepare(CommitAdmission {
+        position.aliases.sort(); position.aliases.dedup();
+        position.reads.sort(); position.reads.dedup();
+        let snapshot_tasks = position.expected_tasks.iter().chain(&position.snapshot_tasks).cloned().collect::<Vec<_>>();
+        let predecessor_ref = self.prepare_control_predecessor_for_admission(
+            head, &snapshot_tasks, &position.expected_steps)?;
+        let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1, "kind": "store.control_admission", "head": head,
+            "source_ledger_id": self.ledger.ledger_id(), "predecessor_ref": predecessor_ref,
+            "expected_tasks": position.expected_tasks, "snapshot_tasks": position.snapshot_tasks,
+            "expected_steps": position.expected_steps,
+            "action": payload,
+        }))?, "application/json", "commit-authority", "commit-admission", 1)?.object;
+        let mut reservation = self.ledger.authority.prepare(CommitAdmission {
             schema_version: 1, subject_id: head.agent_id, branch_id: head.branch_id.clone(),
-            action_id: EntityId::derived("commit-admission-action-v1", conflict_key.as_bytes()),
-            conflict_key,
-            // Effects bind their frozen task/attempt, not an unrelated later
-            // S1 head. Decisions bind the precise predecessor they replace.
-            expected_parent: (operation_id.is_none() && attempt_id.is_none()).then_some(head.committed_at),
-            expected_head_revision: (operation_id.is_none() && attempt_id.is_none()).then_some(head.record_revision),
+            action_id: EntityId::derived("commit-admission-action-v1", position.key.as_bytes()),
+            conflict_key: position.key, conflict_aliases: position.aliases,
+            required_unconsumed: position.reads,
+            expected_parent: position.bind_parent.then_some(head.committed_at),
+            expected_head_revision: position.bind_parent.then_some(head.record_revision),
             controller_epoch: head.controller_epoch, software_generation: head.software_generation.clone(),
-            operation_id, attempt_id, payload_ref,
-        })
+            operation_id: position.operation_id, attempt_id: position.attempt_id, payload_ref,
+        })?;
+        reservation.expected_tasks = position.expected_tasks;
+        reservation.expected_steps = position.expected_steps;
+        Ok(reservation)
+    }
+
+    /// One task write consumes its prior record revision. Ancestors are reads:
+    /// siblings may use them concurrently, but a chosen ancestor cancellation
+    /// fences every later descendant send even before its Store projection.
+    pub(crate) fn task_admission_position(
+        &self, task_id: EntityId, key: String,
+    ) -> Result<(SubjectBranchHead, AdmissionPosition), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction().map_err(storage_error)?;
+        let task = crate::child::read_task(&tx, task_id).map_err(storage_error)?
+            .ok_or_else(|| ShenkoError::not_found("admission task"))?;
+        let (head, _) = crate::store::read_subject(&tx, task.agent_id)?;
+        crate::child::ensure_owner_active(&tx, &task, &head).map_err(|error|
+            ShenkoError::conflict(format!("task branch/owner is not current: {error}")))?;
+        let mut position = AdmissionPosition { key,
+            aliases: vec![task_revision_position(&task)], expected_tasks: vec![task.clone()],
+            ..Default::default() };
+        let mut owner = task.owner;
+        let mut seen = std::collections::BTreeSet::new();
+        while let TaskOwner::Task { id } = owner {
+            if !seen.insert(id) || seen.len() > 64 { return Err(ShenkoError::conflict("task owner cycle")); }
+            let parent = crate::child::read_task(&tx, id).map_err(storage_error)?
+                .ok_or_else(|| ShenkoError::not_found("task authority ancestor"))?;
+            position.reads.push(task_revision_position(&parent));
+            owner = parent.owner.clone();
+            position.expected_tasks.push(parent);
+        }
+        Ok((head, position))
     }
 
     pub(crate) fn reserve_task_admission<T: Serialize>(
@@ -224,10 +335,35 @@ impl Store {
         attempt_id: EntityId, payload: &T,
     ) -> Result<AuthorityReservation, ShenkoError> {
         if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
-        let task = self.get_task(task_id).map_err(storage_error)?
-            .ok_or_else(|| authority_fenced("admission task is absent"))?;
-        let (head, _) = self.load_subject(task.agent_id)?;
-        self.reserve_admission(&head, conflict_key, Some(operation_id), Some(attempt_id), payload)
+        let (head, mut position) = self.task_admission_position(task_id, conflict_key)?;
+        position.operation_id = Some(operation_id);
+        position.attempt_id = Some(attempt_id);
+        self.reserve_admission(&head, position, payload)
+    }
+
+    pub(crate) fn reserve_task_control<T: Serialize>(
+        &self, task_id: EntityId, phase: &str, payload: &T,
+    ) -> Result<AuthorityReservation, ShenkoError> {
+        if self.ledger.authority.provider.read().is_none() { return self.reserve_authority(); }
+        let (head, mut position) = self.task_admission_position(task_id, String::new())?;
+        let task = position.expected_tasks.first().ok_or_else(|| ShenkoError::not_found("admission task"))?;
+        position.key = format!("task/{}/{}/{}", task_id, phase, task.record_revision.0);
+        self.reserve_admission(&head, position, payload)
+    }
+
+    pub(crate) fn reserve_recovered_admission(
+        &self, mut grant: CommitAuthorityGrant,
+        expected_tasks: Vec<TaskRecord>, expected_steps: Vec<SubjectStep>,
+    ) -> Result<AuthorityReservation, ShenkoError> {
+        grant.replayed = true;
+        let provider = self.ledger.authority.provider.read().clone()
+            .ok_or_else(|| authority_fenced("original admission recovery requires its actual authority source"))?;
+        let guard = provider.acquire(Some(&grant)).map_err(|error| {
+            provider.action_unmaterialized(&grant);
+            error
+        })?;
+        Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(grant.admission.clone()),
+            grant: Some(grant), expected_tasks, expected_steps, recovery: true })
     }
 
     /// Reuse the same typed closure verifier as cognition replication. Every
@@ -363,4 +499,40 @@ fn read_binding(conn: &Connection, agent: EntityId) -> Result<Option<SubjectAuth
     let raw: Option<String> = conn.query_row("SELECT data FROM subject_authority_bindings WHERE agent_id=?1",
         [agent.to_string()], |r| r.get(0)).optional().map_err(storage_error)?;
     raw.map(|raw| serde_json::from_str(&raw).map_err(ShenkoError::from)).transpose()
+}
+
+/// An exact applied fact is historical and remains readable without a live
+/// source reservation. Both the indexed columns and the original JSON agree.
+pub(crate) fn admission_applied(conn: &Connection, admission: &CommitAdmission) -> Result<bool, ShenkoError> {
+    let event_id = EntityId::derived("commit-authority-admission-v1", admission.conflict_key.as_bytes());
+    let row: Option<(String, String, String, String)> = conn.query_row(
+        "SELECT agent_id,kind,source,data FROM inbox_events WHERE event_id=?1",
+        [event_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).optional().map_err(storage_error)?;
+    let Some((agent, kind, source, raw)) = row else { return Ok(false); };
+    let event: InboxEvent = serde_json::from_str(&raw)?;
+    let original: CommitAdmission = serde_json::from_value(event.payload["admission"].clone())?;
+    if agent != admission.subject_id.to_string() || kind != "system_event" || source != "commit-authority"
+        || event.event_id != event_id || event.kind != InboxEventKind::SystemEvent
+        || event.source != source || original != *admission
+        || event.payload["kind"] != "authority.admission_applied"
+    { return Err(ShenkoError::conflict("applied admission identity or immutable descriptor differs")); }
+    Ok(true)
+}
+
+pub(crate) fn admission_materialized(conn: &Connection, admission: &CommitAdmission) -> Result<bool, ShenkoError> {
+    let row: Option<(String, String, i64)> = conn.query_row(
+        "SELECT action_id,data,updated_commit_seq FROM control_materializations WHERE conflict_key=?1",
+        [&admission.conflict_key], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional().map_err(storage_error)?;
+    let Some((action_id, raw, seq)) = row else { return Ok(false); };
+    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    let original: CommitAdmission = serde_json::from_value(value["admission"].clone())?;
+    let commit: CommitRef = serde_json::from_value(value["committed_at"].clone())?;
+    let local: String = conn.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))
+        .map_err(storage_error)?;
+    if action_id != admission.action_id.to_string() || original != *admission
+        || commit.ledger_id.to_string() != local || i64::try_from(commit.seq.0).ok() != Some(seq)
+    { return Err(ShenkoError::conflict("local control materialization identity differs")); }
+    Ok(true)
 }

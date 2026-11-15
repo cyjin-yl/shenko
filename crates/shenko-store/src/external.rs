@@ -239,6 +239,25 @@ impl Store {
         &self, ctx: &TaskInvocation, op: &OperationRecord, att: &AttemptRecord,
         inference: Option<&InferenceSendBinding>, native_dispatch: bool,
     ) -> Result<crate::authority::AuthorityReservation> {
+        {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            let task = crate::child::read_task(&tx, ctx.task_id)?.context("task missing before T1")?;
+            ensure!(task.task_revision == ctx.task_revision && task.record_revision == ctx.record_revision
+                && task.abort_request.is_none() && matches!(task.dispatch_eligibility, DispatchEligibility::Ready)
+                && !task.memos.contains_key("native_settlement_only")
+                && matches!(task.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
+                    if invocation_id == ctx.invocation_id && epoch == ctx.epoch), "stale or inadmissible T1 invocation");
+            let (head, _) = crate::store::read_subject(&tx, task.agent_id)?;
+            crate::child::ensure_owner_active(&tx, &task, &head)?;
+            if native_dispatch || crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
+                ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale native T1 authority");
+            }
+            ensure!(op.task_id == ctx.task_id && op.state == OperationState::InFlight
+                && att.operation_id == op.operation_id && att.dispatch_stage == AttemptDispatchStage::Armed
+                && att.invocation_id == ctx.invocation_id && att.epoch == ctx.epoch,
+                "invalid armed operation");
+        }
         self.reserve_task_admission(ctx.task_id,
             format!("task/{}/operation/{}", ctx.task_id,
                 shenko_types::object::Digest::blake3(op.logical_key.as_bytes())),
@@ -325,6 +344,8 @@ impl Store {
             |r| r.get(0),
         )?;
         let mut task: TaskRecord = serde_json::from_str(&data)?;
+        let (head, _) = crate::store::read_subject(&tx, task.agent_id)?;
+        crate::child::ensure_owner_active(&tx, &task, &head)?;
         ensure!(
             task.task_revision == ctx.task_revision && task.record_revision == ctx.record_revision,
             "stale_task"
@@ -474,6 +495,7 @@ impl Store {
         )?;
         let replayed = authority.record_admission(&tx, commit)?;
         tx.commit()?;
+        authority.materialized();
         Ok(replayed.then(|| op.clone()))
     }
 

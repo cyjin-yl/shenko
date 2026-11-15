@@ -136,6 +136,10 @@ impl Store {
             ));
         }
         authority.check(&tx, self.capabilities.incarnation, Some(attempt.agent_id))?;
+        let ordered: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM commit_authority_policy)", [], |row| row.get(0))
+            .map_err(storage_error)?;
+        if ordered { return Err(shenko_types::authority::authority_fenced(
+            "new subject requests require the atomic ordered S0 boundary")); }
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         let mut stored = attempt.clone();
@@ -218,9 +222,11 @@ impl Store {
         {
             return Err(shenko_types::authority::authority_fenced("request no longer owns the registered step"));
         }
-        let authority = self.reserve_admission(&head,
-            format!("attempt/{}/dispatch", attempt.attempt_id), None,
-            Some(attempt.attempt_id),
+        let authority = self.reserve_admission(&head, crate::authority::AdmissionPosition {
+            key: format!("attempt/{}/dispatch", attempt.attempt_id),
+            reads: vec![format!("step/{}/revision/{}", step.step_id, step.record_revision.0)],
+            attempt_id: Some(attempt.attempt_id), expected_steps: vec![step], ..Default::default()
+        },
             &serde_json::json!({"kind": "subject.request_dispatch", "attempt": attempt}))?;
         self.ledger.with_mutation(
             || self.try_transition_subject_request(
@@ -329,6 +335,7 @@ impl Store {
         let replayed = authority.map(|authority| authority.record_admission(&tx, commit)).transpose()?.unwrap_or(false);
         self.record_subject_commit(&tx, commit, 1 + i64::from(authority.is_some()))?;
         tx.commit().map_err(storage_error)?;
+        if let Some(authority) = authority { authority.materialized(); }
         if replayed {
             return Err(shenko_types::authority::authority_fenced("historical dispatch grant remains an original unknown attempt"));
         }

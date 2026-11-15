@@ -569,7 +569,33 @@ impl Store {
         ensure!(parent.abort_request.is_none() && !parent.is_terminal(), invalid());
         ensure!(!intent.content.trim().is_empty(), invalid());
         let payload = serde_json::to_value(intent)?;
-        let authority = self.reserve_authority()?;
+        {
+            let conn = self.ledger.conn.lock();
+            let existing: Option<String> = conn.query_row(
+                "SELECT payload FROM subject_intents WHERE intent_id=?1 AND kind='publication'",
+                [intent.intent_id.to_string()], |row| row.get(0)).optional()?;
+            if let Some(existing) = existing {
+                ensure!(existing == payload.to_string(), "child publication identity already committed with different content");
+                return Ok(None);
+            }
+        }
+        let (head, mut position) = self.task_admission_position(parent.task_id,
+            format!("publication/{}/create", intent.intent_id))?;
+        let expected = position.expected_tasks.first().context("publication parent missing")?;
+        let same_invocation = match (&parent.state, &expected.state) {
+            (TaskState::Running { invocation_id: old, epoch: old_epoch, .. },
+             TaskState::Running { invocation_id, epoch, .. }) => old == invocation_id && old_epoch == epoch && *epoch == head.controller_epoch,
+            _ => serde_json::to_value(&parent.state)? == serde_json::to_value(&expected.state)?,
+        };
+        ensure!(expected.task_revision == parent.task_revision && expected.agent_id == parent.agent_id
+            && expected.owner == parent.owner && expected.created_by_step_id == parent.created_by_step_id
+            && expected.abort_request.is_none() && !expected.is_terminal() && same_invocation, invalid());
+        let current_parent = expected.clone();
+        let parent = &current_parent;
+        position.reads.append(&mut position.aliases);
+        let authority = self.reserve_admission(&head, position, &serde_json::json!({
+            "kind":"publication.child_admit", "parent":parent, "intent":intent, "decision_ref":decision_ref,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -635,10 +661,11 @@ impl Store {
                         checkpoint_ref: None,
                     },
                     abort_request: None,
-                    memos: serde_json::Map::from_iter([(
-                        "intent_id".into(),
-                        serde_json::json!(intent.intent_id),
-                    )]),
+                    memos: serde_json::Map::from_iter([
+                        ("intent_id".into(), serde_json::json!(intent.intent_id)),
+                        ("publication_parent_task_id".into(), serde_json::json!(parent.task_id)),
+                        ("publication_parent_task_revision".into(), serde_json::json!(parent.task_revision)),
+                    ]),
                     residual_case_ids: vec![],
                     created_by_step_id: Some(step_id),
                     dispatch_eligibility: DispatchEligibility::Ready,
@@ -649,8 +676,10 @@ impl Store {
                     updated_commit: commit,
                 };
                 insert_task(&tx, &task, commit)?;
+                authority.record_admission(&tx, commit)?;
                 self.intent_log(&tx, commit)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(Some(intent.clone()))
             },
             storage_failure,
@@ -1031,6 +1060,9 @@ fn deliver_child_dialogue(
         return Ok(DialogueOutcome::Late(
             "the dialogue endpoint belongs to another subject".into(),
         ));
+    }
+    if !crate::child::task_in_current_branch(tx, &target, head).map_err(crate::store::storage_error)? {
+        return Ok(DialogueOutcome::Late("the dialogue endpoint belongs to a retained parent branch".into()));
     }
     if target.abort_request.is_some() {
         return Ok(DialogueOutcome::Late(

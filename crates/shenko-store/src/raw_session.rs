@@ -581,7 +581,7 @@ fn stage_input(
     tx.execute(
         "UPDATE inbox_events SET consumed=1
          WHERE event_id=?1 AND consumed=0
-           AND (source IN (?2, 'playground', 'subject') OR source LIKE 'media/%')",
+           AND (source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR source LIKE 'media/%')",
         params![input.event_id.to_string(), crate::web_input::WEB_INPUT_SOURCE],
     )
     .map_err(storage_error)?;
@@ -854,7 +854,7 @@ impl Store {
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
              WHERE i.agent_id=?1 AND (
-               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject') OR i.source LIKE 'media/%'))
+               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR i.source LIKE 'media/%'))
                OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
                     OR json_extract(d.disposition,'$.disposition')='deferred')))
              ORDER BY i.rowid LIMIT ?4",

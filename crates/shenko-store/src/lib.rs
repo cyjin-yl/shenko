@@ -4,6 +4,8 @@
 pub mod migrations;
 pub mod store;
 pub mod authority;
+mod control_recovery;
+pub use control_recovery::{ControlRecoveryOutcome, CONTROL_RECONCILIATION_SOURCE};
 mod control_predecessor;
 pub use control_predecessor::ControlPredecessorEvidence;
 pub mod activation;

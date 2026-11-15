@@ -188,7 +188,11 @@ impl Store {
         if intent_ids.is_empty() {
             return Ok(0);
         }
-        let authority = self.reserve_authority()?;
+        let pending = self.pending_child_dialogue(task_id)?;
+        if !pending.iter().any(|delivery| intent_ids.contains(&delivery.intent_id)) { return Ok(0); }
+        let authority = self.reserve_task_control(task_id, "dialogue-consume", &serde_json::json!({
+            "kind":"native.dialogue_consume", "task_id":task_id, "intent_ids":intent_ids,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -215,6 +219,7 @@ impl Store {
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 task.updated_commit = commit;
                 write_task(&tx, &task)?;
+                authority.record_admission(&tx, commit)?;
                 child_log(&tx, self, commit, 1)?;
                 for intent_id in intent_ids {
                     tx.execute(
@@ -224,6 +229,7 @@ impl Store {
                     )?;
                 }
                 tx.commit()?;
+                authority.materialized();
                 Ok(before - inbox.len())
             },
             storage_failure,
@@ -233,65 +239,54 @@ impl Store {
     /// Recover only finite native work. Old unbound running delegations are
     /// quarantined as pending/parked; their raw input and effects stay intact.
     pub fn recover_native_tasks(&self) -> Result<usize> {
-        let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(
-            || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-                authority.check(&tx, self.capabilities.incarnation, None)?;
-                self.check_dispatch_owner(&tx)?;
-                let mut changed = 0;
-                let mut commit = None;
-                let mut after = String::new();
-                loop {
-                    let tasks = read_recovery_candidates_tx(&tx, &after)?;
-                    if tasks.is_empty() {
-                        break;
-                    }
-                    for (key, mut task) in tasks {
-                        ensure!(task.task_id.to_string() == key, "recovery task identity mismatch");
-                        after = key;
-                        let commit_ref = match commit {
-                            Some(commit_ref) => commit_ref,
-                            None => {
-                                let seq = self.ledger.allocate_seq(&tx)?;
-                                let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
-                                commit = Some(commit_ref);
-                                commit_ref
-                            }
-                        };
-                        let native = memo_flag(&task, NATIVE_CHILD);
-                        let checkpoint = pending_checkpoint(&task.state);
-                        task.state = TaskState::Pending {
-                            checkpoint_ref: checkpoint,
-                        };
-                        task.record_revision = task.record_revision.next();
-                        if native {
-                            task.memos.insert(NATIVE_RECOVERY.into(), true.into());
-                            task.dispatch_eligibility = if task.abort_request.is_some() {
-                                parked(task.task_id, "cancel_requested", None)
-                            } else {
-                                DispatchEligibility::Ready
-                            };
-                        } else {
-                            task.memos.insert(
-                                NATIVE_PARK.into(),
-                                serde_json::Value::String("legacy_unbound".into()),
-                            );
-                            task.dispatch_eligibility = parked(task.task_id, "legacy_unbound", None);
-                        }
-                        task.updated_commit = commit_ref;
-                        write_task(&tx, &task)?;
-                        changed += 1;
-                    }
+        let mut changed = 0;
+        let mut after = String::new();
+        loop {
+            let tasks = read_recovery_candidates_tx(&self.ledger.conn.lock(), &after)?;
+            if tasks.is_empty() { break; }
+            for (key, task) in tasks {
+                ensure!(task.task_id.to_string() == key, "recovery task identity mismatch");
+                after = key;
+                {
+                    let conn = self.ledger.conn.lock();
+                    let head = read_head(&conn, task.agent_id)?;
+                    if task.abort_request.is_some() || !task_owner_active(&conn, &task, &head)? { continue; }
                 }
-                let Some(commit) = commit else { return Ok(0) };
-                child_log(&tx, self, commit, changed as i64)?;
-                tx.commit()?;
-                Ok(changed)
-            },
-            storage_failure,
-        )
+                let authority = self.reserve_task_control(task.task_id, "recover", &serde_json::json!({
+                    "kind":"native.recover", "task_id":task.task_id,
+                }))?;
+                changed += self.ledger.with_mutation(|| -> Result<usize> {
+                    let mut conn = self.ledger.conn.lock();
+                    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                    authority.check(&tx, self.capabilities.incarnation, Some(task.agent_id))?;
+                    self.check_dispatch_owner(&tx)?;
+                    let mut task = read_task(&tx, task.task_id)?.context("recovery task missing")?;
+                    if !matches!(task.state, TaskState::Running { .. }) { return Ok(0); }
+                    let head = read_head(&tx, task.agent_id)?;
+                    ensure_owner_active(&tx, &task, &head)?;
+                    task.state = TaskState::Pending { checkpoint_ref: pending_checkpoint(&task.state) };
+                    task.record_revision = task.record_revision.next();
+                    if memo_flag(&task, NATIVE_CHILD) {
+                        task.memos.insert(NATIVE_RECOVERY.into(), true.into());
+                        task.dispatch_eligibility = if task.abort_request.is_some() {
+                            parked(task.task_id, "cancel_requested", None)
+                        } else { DispatchEligibility::Ready };
+                    } else {
+                        task.memos.insert(NATIVE_PARK.into(), "legacy_unbound".into());
+                        task.dispatch_eligibility = parked(task.task_id, "legacy_unbound", None);
+                    }
+                    let commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
+                    task.updated_commit = commit;
+                    write_task(&tx, &task)?;
+                    authority.record_admission(&tx, commit)?;
+                    child_log(&tx, self, commit, 1)?;
+                    tx.commit()?;
+                    authority.materialized();
+                    Ok(1)
+                }, storage_failure)?;
+            }
+        }
+        Ok(changed)
     }
 
     /// Read one durable task record without claiming it. Returns `None` for
@@ -331,7 +326,22 @@ impl Store {
         detail: &str,
         retryable: bool,
     ) -> Result<bool> {
-        let authority = self.reserve_authority()?;
+        {
+            let conn = self.ledger.conn.lock();
+            let Some(task) = read_task(&conn, task_id)? else { return Ok(false); };
+            let head = read_head(&conn, task.agent_id)?;
+            if task.kind == "subject_root" || task.is_terminal()
+                || matches!(task.state, TaskState::Completing { .. })
+                || task.record_revision != expected_revision || !task_owner_active(&conn, &task, &head)?
+                || (park_reason(&task) == Some(reason)
+                    && matches!(task.dispatch_eligibility, DispatchEligibility::Parked { .. })
+                    && matches!(task.state, TaskState::Pending { .. }))
+            { return Ok(false); }
+        }
+        let authority = self.reserve_task_control(task_id, "park", &serde_json::json!({
+            "kind":"native.park", "task_id":task_id, "expected_revision":expected_revision,
+            "reason":reason, "detail":detail, "retryable":retryable,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -379,8 +389,10 @@ impl Store {
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 task.updated_commit = commit;
                 write_task(&tx, &task)?;
+                authority.record_admission(&tx, commit)?;
                 child_log(&tx, self, commit, 1)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(true)
             },
             storage_failure,
@@ -396,17 +408,49 @@ impl Store {
         implementation: ImplementationRef,
         settlement_only: bool,
     ) -> Result<Option<NativeTaskClaim>> {
-        let authority = self.reserve_authority()?;
+        {
+            let conn = self.ledger.conn.lock();
+            let Some(task) = read_task(&conn, task_id)? else { return Ok(None); };
+            let head = read_head(&conn, task.agent_id)?;
+            if task.is_terminal() || task.abort_request.is_some()
+                || !matches!(task.state, TaskState::Pending { .. })
+                || task.memos.contains_key(COGNITION_IMPORTED)
+                || !task.memos.contains_key(NATIVE_INPUT)
+                || head.mode != SubjectMode::Active || !task_owner_active(&conn, &task, &head)?
+            { return Ok(None); }
+            let operation_id = native_claim_ids(&task).0;
+            let exists = operation_exists(&conn, operation_id)?;
+            if settlement_only {
+                ensure!(memo_flag(&task, NATIVE_RECOVERY) && exists, "settlement_requires_original_operation");
+            } else if (memo_flag(&task, NATIVE_RECOVERY) && exists)
+                || !(matches!(task.dispatch_eligibility, DispatchEligibility::Ready)
+                    || (matches!(task.dispatch_eligibility, DispatchEligibility::Parked { .. })
+                        && matches!(park_reason(&task), Some("handler_unavailable" | "reconciling"))))
+            { return Ok(None); }
+            if memo_flag(&task, NATIVE_CHILD) {
+                ensure!(task.implementation_ref.plugin_id == implementation.plugin_id
+                    && task.implementation_ref.artifact_digest == implementation.artifact_digest,
+                    "native_implementation_unavailable");
+            }
+        }
+        let authority = self.reserve_task_control(task_id, "claim", &serde_json::json!({
+            "kind":"native.claim", "task_id":task_id, "implementation":implementation,
+            "settlement_only":settlement_only,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
-                let claim =
-                    self.claim_native_task_tx(&tx, task_id, &implementation, settlement_only)?;
+                let claim = self.claim_native_task_tx(&tx, task_id, &implementation, settlement_only)?;
+                let replayed = match &claim {
+                    Some(claim) => authority.record_admission(&tx, claim.task.updated_commit)?,
+                    None => false,
+                };
                 tx.commit()?;
-                Ok(claim)
+                if claim.is_some() { authority.materialized(); }
+                Ok(if replayed { None } else { claim })
             },
             storage_failure,
         )
@@ -451,9 +495,7 @@ impl Store {
         } else {
             (*implementation).clone()
         };
-        let operation_id =
-            memo_uuid(&task, NATIVE_OPERATION_ID).unwrap_or_else(EntityId::new);
-        let result_id = memo_uuid(&task, NATIVE_RESULT_ID).unwrap_or_else(EntityId::new);
+        let (operation_id, result_id, invocation_id) = native_claim_ids(&task);
         let operation_exists = operation_exists(tx, operation_id)?;
         let recovery = memo_flag(&task, NATIVE_RECOVERY);
         if settlement_only {
@@ -493,7 +535,6 @@ impl Store {
         }
 
         let old_revision = task.record_revision;
-        let invocation_id = EntityId::new();
         let checkpoint = pending_checkpoint(&task.state);
         let seq = self.ledger.allocate_seq(tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
@@ -578,7 +619,19 @@ impl Store {
         input_ref: ObjectRef,
         implementation: ImplementationRef,
     ) -> Result<Option<NativeTaskClaim>> {
-        let authority = self.reserve_authority()?;
+        if self.get_task(tool_task_id)?.is_some() { return Ok(None); }
+        let (head, mut position) = self.task_admission_position(parent.task_id,
+            format!("task/{tool_task_id}/create"))?;
+        let current_parent = position.expected_tasks.first().context("tool parent missing")?;
+        ensure!(current_parent.task_revision == parent.task_revision
+            && current_parent.record_revision == parent.record_revision
+            && current_parent.abort_request.is_none() && !current_parent.is_terminal(), "stale_child_tool_parent");
+        position.reads.append(&mut position.aliases);
+        let authority = self.reserve_admission(&head, position, &serde_json::json!({
+            "kind":"native.child_tool_claim", "parent":parent, "task_id":tool_task_id,
+            "task_kind":kind, "definition_version":definition_version,
+            "input_ref":input_ref, "implementation":implementation,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -627,6 +680,7 @@ impl Store {
                     },
                     abort_request: None,
                     memos: serde_json::Map::from_iter([
+                        ("subject_branch_id".into(), serde_json::json!(head.branch_id.0)),
                         (
                             NATIVE_INPUT.into(),
                             serde_json::Value::String("object".into()),
@@ -648,8 +702,13 @@ impl Store {
                 insert_task(&tx, &task, commit)?;
                 let claim =
                     self.claim_native_task_tx(&tx, tool_task_id, &implementation, false)?;
+                let replayed = match &claim {
+                    Some(claim) => authority.record_admission(&tx, claim.task.updated_commit)?,
+                    None => false,
+                };
                 tx.commit()?;
-                Ok(claim)
+                if claim.is_some() { authority.materialized(); }
+                Ok(if replayed { None } else { claim })
             },
             storage_failure,
         )
@@ -721,7 +780,20 @@ impl Store {
                     "native admission event identity already committed").into());
             }
         }
-        let authority = self.reserve_authority()?;
+        if let Some(existing) = self.get_task(task.task_id)? {
+            ensure!(existing.input_ref.digest == task.input_ref.digest
+                && existing.input_ref.bytes == task.input_ref.bytes && existing.agent_id == task.agent_id,
+                "native task identity already committed with different input");
+            return Ok(Some(existing));
+        }
+        let (head, _) = self.load_subject(task.agent_id)?;
+        let authority = self.reserve_admission(&head, crate::authority::AdmissionPosition {
+            key: format!("task/{}/create", task.task_id), ..Default::default()
+        }, &serde_json::json!({"kind":"native.admit", "task":task, "input_event":{
+            "event_id":input_event.event_id, "agent_id":input_event.agent_id,
+            "kind":input_event.kind, "source":input_event.source, "payload_json":input_event.payload_json,
+            "received_at_ms":input_event.received_at_ms,
+        }}))?;
         self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event, &authority), storage_failure)
     }
 
@@ -746,7 +818,7 @@ impl Store {
         }
         // The subject head must exist or this task would be undispatchable
         // forever: claims resolve the owner chain against the live head.
-        read_head(&tx, task.agent_id)?;
+        let head = read_head(&tx, task.agent_id)?;
         // Repeat under BEGIN IMMEDIATE: a competing event admission may have
         // won since preflight. A reused caller identity is not disk failure
         // and MUST NOT close the writer incarnation.
@@ -762,6 +834,7 @@ impl Store {
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         let mut admitted = task.clone();
+        admitted.memos.insert("subject_branch_id".into(), serde_json::json!(head.branch_id.0));
         admitted.created_commit = commit;
         admitted.updated_commit = commit;
         tx.execute(
@@ -778,8 +851,10 @@ impl Store {
             params![input_event.event_id.to_string(), input_event.agent_id.to_string(),
                 input_event.kind, input_event.source, input_event.payload_json],
         )?;
+        authority.record_admission(&tx, commit)?;
         child_log(&tx, self, commit, 2)?;
         tx.commit()?;
+        authority.materialized();
         Ok(None)
     }
 
@@ -793,40 +868,45 @@ impl Store {
         reason: &str,
         scope: AbortScope,
     ) -> Result<TaskCancellation> {
-        let authority = self.reserve_authority()?;
+        let (selected, mut summary) = {
+            let conn = self.ledger.conn.lock();
+            let all = read_all_tasks(&conn)?;
+            let by_id: HashMap<_, _> = all.iter().map(|task| (task.task_id, task.clone())).collect();
+            let target = by_id.get(&task_id).context("task_not_found")?;
+            let head = read_head(&conn, target.agent_id)?;
+            ensure!(task_in_current_branch(&conn, target, &head)?, "cancellation target belongs to another branch");
+            let mut summary = TaskCancellation::default();
+            let mut selected = Vec::new();
+            for task in all {
+                if !in_cancel_scope(&by_id, task.task_id, task_id, scope) { continue; }
+                if task.is_terminal() { summary.already_terminal.push(task.task_id); continue; }
+                if task.abort_request.is_none() { selected.push(task); }
+            }
+            (selected, summary)
+        };
+        if selected.is_empty() { return Ok(summary); }
+        let (head, mut position) = self.task_admission_position(task_id,
+            format!("task/{task_id}/cancel/{cancel_id}"))?;
+        for task in &selected {
+            position.aliases.push(crate::authority::task_revision_position(task));
+            position.aliases.push(crate::authority::task_authority_position(task));
+            if !position.expected_tasks.iter().any(|expected| expected.task_id == task.task_id) {
+                position.expected_tasks.push(task.clone());
+            }
+        }
+        let authority = self.reserve_admission(&head, position, &serde_json::json!({
+            "kind":"native.cancel", "task_id":task_id, "cancel_id":cancel_id,
+            "decision_ref":decision_ref, "reason":reason, "scope":scope, "selected":selected,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-                authority.check(&tx, self.capabilities.incarnation, None)?;
+                authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
                 self.check_dispatch_owner(&tx)?;
-                let all = read_all_tasks(&tx)?;
-                let by_id: HashMap<_, _> = all
-                    .iter()
-                    .map(|task| (task.task_id, task.clone()))
-                    .collect();
-                ensure!(by_id.contains_key(&task_id), "task_not_found");
-                let mut summary = TaskCancellation::default();
-                let mut selected = Vec::new();
-                for task in all {
-                    if !in_cancel_scope(&by_id, task.task_id, task_id, scope) {
-                        continue;
-                    }
-                    if task.is_terminal() {
-                        summary.already_terminal.push(task.task_id);
-                        continue;
-                    }
-                    if task.abort_request.is_some() {
-                        continue;
-                    }
-                    selected.push(task);
-                }
-                if selected.is_empty() {
-                    return Ok(summary);
-                }
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                for mut task in selected {
+                for mut task in selected.clone() {
                     task.task_revision = task.task_revision.next();
                     task.record_revision = task.record_revision.next();
                     task.abort_request = Some(AbortRequest {
@@ -845,9 +925,11 @@ impl Store {
                     write_task(&tx, &task)?;
                     summary.cancelled.push(task.task_id);
                 }
+                authority.record_admission(&tx, commit)?;
                 child_log(&tx, self, commit, summary.cancelled.len() as i64)?;
                 tx.commit()?;
-                Ok(summary)
+                authority.materialized();
+                Ok(summary.clone())
             },
             storage_failure,
         )
@@ -876,14 +958,26 @@ impl Store {
         operation_id: EntityId,
         attempt_id: EntityId,
     ) -> Result<NativeDispatchTransition> {
-        if let Some(task) = self.get_task(ctx.task_id)? {
+        let (operation, attempt) = {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            let Some(task) = read_task(&tx, ctx.task_id)? else { return Ok(NativeDispatchTransition::Fenced); };
             if has_native_dispatch(&task, ctx, operation_id, attempt_id)? {
                 return Ok(NativeDispatchTransition::AlreadyCommitted);
             }
-        }
-        let operation = self.external_operation(operation_id)?;
-        let attempt = self.external_operation_attempt(operation_id)?;
-        ensure!(attempt.attempt_id == attempt_id, "dispatch attempt identity mismatch");
+            if !self.native_invocation_current_tx(&tx, &task, ctx)? { return Ok(NativeDispatchTransition::Fenced); }
+            let operation: OperationRecord = read_json(&tx,
+                "SELECT data FROM operations WHERE operation_id=?1", operation_id)?.context("dispatch operation missing")?;
+            let attempt: AttemptRecord = read_json(&tx,
+                "SELECT data FROM attempts WHERE attempt_id=?1", attempt_id)?.context("dispatch attempt missing")?;
+            ensure!(operation.operation_id == operation_id && operation.task_id == ctx.task_id
+                && attempt.operation_id == operation_id && attempt.attempt_id == attempt_id
+                && attempt.invocation_id == ctx.invocation_id && attempt.epoch == ctx.epoch,
+                "dispatch operation/attempt belongs to another invocation");
+            if operation.state != OperationState::InFlight || attempt.dispatch_stage != AttemptDispatchStage::Armed
+                || attempt.final_receipt_id.is_some() { return Ok(NativeDispatchTransition::Fenced); }
+            (operation, attempt)
+        };
         let authority = self.reserve_task_admission(ctx.task_id,
             format!("attempt/{attempt_id}/dispatch"), operation_id, attempt_id,
             &serde_json::json!({"kind": "native.dispatch", "invocation": ctx,
@@ -927,6 +1021,7 @@ impl Store {
                 child_log(&tx, self, commit, 1)?;
                 let replayed = authority.record_admission(&tx, commit)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(if replayed { NativeDispatchTransition::AlreadyCommitted }
                     else { NativeDispatchTransition::Won })
             },
@@ -959,8 +1054,18 @@ impl Store {
         claim: &NativeTaskClaim,
         operation: &OperationRecord,
     ) -> Result<Option<TaskResult>> {
+        {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            let Some(task) = read_task(&tx, claim.task.task_id)? else { return Ok(None); };
+            if task.is_terminal() { return read_result_for_task(&tx, task.task_id); }
+            if !self.native_invocation_current_tx(&tx, &task, &claim.invocation)? { return Ok(None); }
+        }
         let completion = self.validate_completion(claim.operation_id, operation)?;
-        let authority = self.reserve_authority()?;
+        let authority = self.reserve_task_control(claim.task.task_id, "complete", &serde_json::json!({
+            "kind":"native.complete", "task_id":claim.task.task_id,
+            "invocation":claim.invocation, "completion":completion,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -996,12 +1101,16 @@ impl Store {
                     let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                     task.updated_commit = commit;
                     write_task(&tx, &task)?;
+                    authority.record_admission(&tx, commit)?;
                     child_log(&tx, self, commit, 1)?;
                     tx.commit()?;
+                    authority.materialized();
                     return Ok(None);
                 }
                 let result = finalize_task(&tx, self, task, completion)?;
+                authority.record_admission(&tx, result.commit_ref)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(Some(result))
             },
             storage_failure,
@@ -1010,7 +1119,17 @@ impl Store {
 
     /// Completing is reopened from its memo, not from an in-memory callback.
     pub fn finish_native_completing(&self, task_id: EntityId) -> Result<Option<TaskResult>> {
-        let authority = self.reserve_authority()?;
+        {
+            let conn = self.ledger.conn.lock();
+            let Some(task) = read_task(&conn, task_id)? else { return Ok(None); };
+            if task.is_terminal() { return read_result_for_task(&conn, task_id); }
+            let head = read_head(&conn, task.agent_id)?;
+            if !matches!(task.state, TaskState::Completing { .. }) || unfinished_children(&conn, task_id)?
+                || !task_owner_active(&conn, &task, &head)? { return Ok(None); }
+        }
+        let authority = self.reserve_task_control(task_id, "finish", &serde_json::json!({
+            "kind":"native.finish", "task_id":task_id,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -1036,7 +1155,9 @@ impl Store {
                 )?;
                 ensure_current_operation(&tx, &completion)?;
                 let result = finalize_task(&tx, self, task, completion)?;
+                authority.record_admission(&tx, result.commit_ref)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(Some(result))
             },
             storage_failure,
@@ -1269,34 +1390,73 @@ fn finalize_task(
     Ok(result)
 }
 
-fn ensure_owner_active(
-    tx: &Transaction<'_>,
-    task: &TaskRecord,
-    head: &SubjectBranchHead,
-) -> Result<()> {
+/// A fork never transfers pending execution merely because the agent ID is
+/// unchanged. New calls need the current authoring branch or an explicit local
+/// admission into that branch; original E1 does not use this check.
+pub(crate) fn task_in_current_branch(
+    conn: &rusqlite::Connection, task: &TaskRecord, head: &SubjectBranchHead,
+) -> Result<bool> {
+    let mut current = task.clone();
+    let mut bound = false;
+    let mut seen = HashSet::new();
+    for _ in 0..64 {
+        ensure!(current.agent_id == head.agent_id, "task owner subject mismatch");
+        if current.kind == "subject_root" {
+            return Ok(current.task_id == head.subject_root_task_id);
+        }
+        if let Some(step_id) = current.created_by_step_id {
+            let raw: String = conn.query_row("SELECT data FROM subject_steps WHERE step_id=?1",
+                [step_id.to_string()], |row| row.get(0))?;
+            let step: shenko_types::subject::SubjectStep = serde_json::from_str(&raw)?;
+            if step.branch_id != head.branch_id { return Ok(false); }
+            bound = true;
+        }
+        if let Some(branch) = current.memos.get("subject_branch_id") {
+            let branch: EntityId = serde_json::from_value(branch.clone())?;
+            if branch.0 != head.branch_id.0 { return Ok(false); }
+            bound = true;
+        }
+        match current.owner {
+            TaskOwner::Conversation { id } => {
+                ensure!(id == task.conversation_id, "conversation_owner_mismatch");
+                return Ok(bound || head.branch_origin.is_none());
+            }
+            TaskOwner::Task { id } => {
+                if id == head.subject_root_task_id { return Ok(true); }
+                ensure!(seen.insert(id), "task_owner_cycle");
+                current = read_task(conn, id)?.context("task_owner_missing")?;
+            }
+        }
+    }
+    anyhow::bail!("task_owner_depth_exceeded")
+}
+
+fn task_owner_active(
+    conn: &rusqlite::Connection, task: &TaskRecord, head: &SubjectBranchHead,
+) -> Result<bool> {
+    if !task_in_current_branch(conn, task, head)? { return Ok(false); }
     let mut owner = task.owner.clone();
     let mut seen = HashSet::new();
     for _ in 0..64 {
         match owner {
-            TaskOwner::Conversation { id } => {
-                ensure!(id == task.conversation_id, "conversation_owner_mismatch");
-                return Ok(());
-            }
+            TaskOwner::Conversation { .. } => return Ok(true),
             TaskOwner::Task { id } => {
-                if id == head.subject_root_task_id {
-                    return Ok(());
-                }
+                if id == head.subject_root_task_id { return Ok(true); }
                 ensure!(seen.insert(id), "task_owner_cycle");
-                let parent = read_task(tx, id)?.context("task_owner_missing")?;
-                ensure!(
-                    parent.abort_request.is_none() && !parent.is_terminal(),
-                    "task_owner_inactive_or_cancelled"
-                );
+                let parent = read_task(conn, id)?.context("task_owner_missing")?;
+                if parent.abort_request.is_some() || parent.is_terminal() { return Ok(false); }
                 owner = parent.owner;
             }
         }
     }
     anyhow::bail!("task_owner_depth_exceeded")
+}
+
+pub(crate) fn ensure_owner_active(
+    tx: &Transaction<'_>, task: &TaskRecord, head: &SubjectBranchHead,
+) -> Result<()> {
+    ensure!(task_owner_active(tx, task, head)?, "task branch or owner is inactive");
+    Ok(())
 }
 
 fn in_cancel_scope(
@@ -1336,6 +1496,13 @@ fn in_cancel_scope(
     false
 }
 
+fn native_claim_ids(task: &TaskRecord) -> (EntityId, EntityId, EntityId) {
+    let stable = task.task_id.to_string();
+    (memo_uuid(task, NATIVE_OPERATION_ID).unwrap_or_else(|| EntityId::derived("native-operation-v1", stable.as_bytes())),
+     memo_uuid(task, NATIVE_RESULT_ID).unwrap_or_else(|| EntityId::derived("native-result-v1", stable.as_bytes())),
+     EntityId::derived("native-invocation-v1", format!("{}:{}", task.task_id, task.record_revision.0).as_bytes()))
+}
+
 fn pending_checkpoint(state: &TaskState) -> Option<ObjectRef> {
     match state {
         TaskState::Pending { checkpoint_ref }
@@ -1358,7 +1525,7 @@ fn parked(
     }
 }
 
-fn read_candidates_tx(
+fn read_candidate_page(
     conn: &rusqlite::Connection,
     after: Option<(&str, EntityId)>,
     limit: usize,
@@ -1386,20 +1553,48 @@ fn read_candidates_tx(
         .collect()
 }
 
+fn read_candidates_tx(
+    conn: &rusqlite::Connection, after: Option<(&str, EntityId)>, limit: usize,
+) -> Result<Vec<(String, TaskRecord)>> {
+    if limit == 0 { return Ok(Vec::new()); }
+    let mut cursor = after.map(|(created, id)| (created.to_owned(), id));
+    let mut candidates = Vec::new();
+    let page_size = limit.min(256);
+    loop {
+        let page = read_candidate_page(conn, cursor.as_ref().map(|(created, id)| (created.as_str(), *id)), page_size)?;
+        let count = page.len();
+        for (created, task) in page {
+            cursor = Some((created.clone(), task.task_id));
+            let head = read_head(conn, task.agent_id)?;
+            if task_in_current_branch(conn, &task, &head)? { candidates.push((created, task)); }
+            if candidates.len() == limit { return Ok(candidates); }
+        }
+        if count < page_size { return Ok(candidates); }
+    }
+}
+
 fn read_scan_upper_tx(conn: &rusqlite::Connection) -> Result<Option<(String, EntityId)>> {
-    let row = conn.query_row(
-        "SELECT data, created_at FROM tasks
-         WHERE json_extract(data,'$.kind') NOT IN ('subject_publication','subject_root')
-           AND json_extract(data,'$.memos.cognition_imported') IS NULL
-           AND json_extract(data,'$.state.status') IN ('pending','running','completing')
-         ORDER BY created_at DESC, task_id DESC LIMIT 1",
-        [],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-    ).optional()?;
-    row.map(|(data, created)| {
-        let task: TaskRecord = serde_json::from_str(&data)?;
-        Ok((created, task.task_id))
-    }).transpose()
+    let mut before = (String::new(), String::new());
+    loop {
+        let mut query = conn.prepare(
+            "SELECT data,created_at FROM tasks
+             WHERE json_extract(data,'$.kind') NOT IN ('subject_publication','subject_root')
+               AND json_extract(data,'$.memos.cognition_imported') IS NULL
+               AND json_extract(data,'$.state.status') IN ('pending','running','completing')
+               AND (?1='' OR created_at<?1 OR (created_at=?1 AND task_id<?2))
+             ORDER BY created_at DESC, task_id DESC LIMIT 256")?;
+        let rows = query.query_map(params![before.0, before.1],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let count = rows.len();
+        for (data, created) in rows {
+            let task: TaskRecord = serde_json::from_str(&data)?;
+            let head = read_head(conn, task.agent_id)?;
+            if task_in_current_branch(conn, &task, &head)? { return Ok(Some((created, task.task_id))); }
+            before = (created, task.task_id.to_string());
+        }
+        if count < 256 { return Ok(None); }
+    }
 }
 
 fn read_recovery_candidates_tx(conn: &rusqlite::Connection, after: &str) -> Result<Vec<(String, TaskRecord)>> {

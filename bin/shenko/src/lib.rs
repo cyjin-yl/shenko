@@ -11,6 +11,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 pub mod node_sync;
 mod runtime_branches;
+mod runtime_authority;
 mod compat;
 mod runtime_owner;
 mod context_policy;
@@ -1318,9 +1319,28 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     } else {
         (None, data_dir)
     };
-    let runtime = tokio::runtime::Runtime::new()?;
-    let result = runtime.block_on(run(command, data_dir));
-    drop(runtime);
+    let mut command = command;
+    let result = loop {
+        let restart = runtime_authority::restart_command(&command);
+        let runtime = tokio::runtime::Runtime::new()?;
+        let result = runtime.block_on(run(command, data_dir.clone()));
+        let recovery = result.as_ref().err().is_some_and(|error|
+            error.downcast_ref::<runtime_authority::AuthorityRecoveryRequired>().is_some());
+        if recovery {
+            // Original blocking calls may still finish and append E1. Their
+            // canceled provider cannot admit another send, and the next
+            // source binding fences every control write across incarnations.
+            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+            if let Some(next) = restart {
+                tracing::warn!("reconstructing runtime from durable authority and branch facts");
+                command = next;
+                continue;
+            }
+        } else {
+            drop(runtime);
+        }
+        break result;
+    };
     drop(owner);
     result
 }
@@ -1361,6 +1381,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let _quota_strategy_plugin = supervisor
         .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
         .await?;
+    let mut active_authority = None;
     let result: Result<()> = async {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -1855,6 +1876,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             );
             // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
+            // Establish the actual branch before constructing any scoped
+            // registry or dispatch consumer, including model-free services.
+            let mut primary_fence = tokio::task::spawn_blocking({
+                let data_dir = data_dir.clone();
+                let store = Arc::clone(&store);
+                let cancel = cancel.clone();
+                move || node_sync::establish_primary(&data_dir, &store, &cancel)
+            }).await??;
+            let authority_runtime = runtime_authority::RuntimeAuthority::attach(
+                &data_dir, &store, cancel.clone())?;
+            active_authority = Some(authority_runtime.clone());
+            if authority_runtime.recover_before_consumers()? { primary_fence = None; }
+            authority_runtime.activate()?;
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
             // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
             store.start_subject_dispatcher()?;
@@ -2128,7 +2162,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&store), data_dir.clone(), consumer_cancel.clone(),
             );
             if !model_profile.configured {
-                node_sync::observe(&data_dir, &store, runtime_instance, None)?;
+                node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
                 if napcat.is_some() {
                     tracing::warn!("NapCat not started without a subject model; durable bootstrap remains available");
                 }
@@ -2145,11 +2179,18 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state).await;
                 consumer_cancel.cancel();
                 match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
-                    Ok(result) => result??,
+                    Ok(Ok(Ok(()))) => {},
+                    Ok(Ok(Err(error))) => return authority_runtime.finish_result(Err(error)),
+                    Ok(Err(error)) => return Err(error.into()),
                     Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
                 }
-                replication_task.await?;
-                return runtime_result;
+                if authority_runtime.recovery_required().is_some() {
+                    match tokio::time::timeout(std::time::Duration::from_secs(2), replication_task).await {
+                        Ok(joined) => joined?,
+                        Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
+                    }
+                } else { replication_task.await?; }
+                return authority_runtime.finish_result(runtime_result);
             }
 
             // Start inference only after the model-independent recovery services.
@@ -2996,17 +3037,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let connector_stop = consumer_cancel.clone();
             tokio::spawn(async move { connector_stop.cancelled().await; connector_failure.cancel(); });
             let cancel_subject = cancel.clone();
-            // Verified consensus before the subject loop claims any domain
-            // authority: only a committed election claim fences the Primary
-            // observation. Without a reachable quorum the node opens an
-            // availability branch and starts without a primary claim.
-            let primary_fence = tokio::task::spawn_blocking({
-                let data_dir = data_dir.clone();
-                let store = Arc::clone(&store);
-                let cancel = cancel.clone();
-                move || node_sync::establish_primary(&data_dir, &store, &cancel)
-            })
-            .await??;
             let subject_driver = update_runtime::SubjectDriver::new(Arc::clone(&handoff_participants));
             let mut subject_task = tokio::spawn(async move {
                 let _subject_driver = subject_driver;
@@ -3077,17 +3107,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task)
                     .await
                 {
-                    Ok(Ok(result)) => result?,
+                    Ok(Ok(Ok(()))) => {},
+                    Ok(Ok(Err(error))) => {
+                        consumer_cancel.cancel();
+                        return authority_runtime.finish_result(Err(error.into()));
+                    },
                     Ok(Err(error)) => return Err(error.into()),
                     Err(_) => {
                         consumer_cancel.cancel();
                         let (_, step) = store.load_subject(agent_id)?;
-                        anyhow::bail!(
+                        return authority_runtime.finish_result(Err(anyhow::anyhow!(
                             "shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
                             step.step_id,
                             step.state,
                             step.active_request_id
-                        );
+                        )));
                     }
                 }
             }
@@ -3095,18 +3129,39 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // consumers first. Their unfinished work remains queryable on reopen.
             consumer_cancel.cancel();
             match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
-                Ok(result) => result??,
+                Ok(Ok(Ok(()))) => {},
+                Ok(Ok(Err(error))) => return authority_runtime.finish_result(Err(error)),
+                Ok(Err(error)) => return Err(error.into()),
                 Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
             }
-            replication_task.await?;
-            runtime_result?;
+            if authority_runtime.recovery_required().is_some() {
+                match tokio::time::timeout(std::time::Duration::from_secs(2), replication_task).await {
+                    Ok(joined) => joined?,
+                    Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
+                }
+            } else { replication_task.await?; }
+            authority_runtime.finish_result(runtime_result)?;
             info!("Shenko stopped");
         }
     }
 
     Ok(())
     }.await;
-    supervisor.stop().await?;
+    let result = match active_authority {
+        Some(authority) => authority.finish_result(result),
+        None => result,
+    };
+    let rebuilding = result.as_ref().err().is_some_and(|error|
+        error.downcast_ref::<runtime_authority::AuthorityRecoveryRequired>().is_some());
+    if rebuilding {
+        match tokio::time::timeout(std::time::Duration::from_secs(15), supervisor.stop()).await {
+            Ok(Ok(())) => {},
+            Ok(Err(error)) => tracing::warn!(error=%error, "authority teardown incomplete; original facts retained"),
+            Err(_) => tracing::warn!("authority teardown observation timed out; original admitted effects remain unresolved"),
+        }
+    } else {
+        supervisor.stop().await?;
+    }
     result
 }
 

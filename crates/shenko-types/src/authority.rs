@@ -92,6 +92,12 @@ pub trait CommitAuthorityProvider: Send + Sync {
     fn prepare(&self, admission: &CommitAdmission)
         -> Result<Option<CommitAuthorityGrant>, ShenkoError>;
 
+    /// A chosen action left its Store boundary without an applied marker.
+    /// This notification must not block or acquire a database lock: it can run
+    /// while the source reservation is still held. Runtime adapters use it to
+    /// request their ordinary coherent recovery/rebuild, never to resend.
+    fn action_unmaterialized(&self, _grant: &CommitAuthorityGrant) {}
+
     /// Acquire the source reservation BEFORE acquiring the Store write lock.
     /// Dropping the guard releases it. No external effect runs while held.
     fn acquire(&self, grant: Option<&CommitAuthorityGrant>)
