@@ -17,6 +17,7 @@ use shenko_store::{
 };
 use shenko_types::{ids::EntityId, object::Digest};
 use std::{
+    collections::BTreeSet,
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -879,21 +880,25 @@ pub fn establish_primary(
     Ok(None)
 }
 
-/// Give a node added to the domain the configuration it must know before it
-/// may vote: a voter never trusts a base configuration it has not seen, and it
-/// refuses a proposal whose base it does not hold. Without this catch-up the
-/// new member can never grant the vote that the joint quorum requires.
-fn catch_up_added_members(
+/// Give voters the committed prefix they need before an election or a
+/// membership vote. During recovery this includes old members that voted for
+/// a joint transition but never received its committed entry. Divergent
+/// prefixes retain the normal PushConfig refusal; this cannot replace them.
+fn catch_up_members(
     node: &mut Node,
-    added: &[EntityId],
+    members: &[EntityId],
     cancel: &CancellationToken,
 ) -> Result<Vec<Value>> {
     let Some(config) = node.member_configuration()? else {
         return Ok(Vec::new());
     };
     let entries = node.control_log()?;
-    let mut outcomes = Vec::with_capacity(added.len());
-    for member in added {
+    let own = node.local_node_id()?;
+    let mut outcomes = Vec::with_capacity(members.len());
+    for member in members {
+        if Some(*member) == own {
+            continue;
+        }
         let Some(peer) = peer_route(node, *member)? else {
             outcomes.push(json!({
                 "member": member,
@@ -939,34 +944,61 @@ fn member_change(
         !add.is_empty() || !remove.is_empty(),
         "membership change must add or remove at least one member"
     );
+    let mut node = open_node(data_dir, store)?;
+    let config = node.ensure_member_configuration()?;
+    let requested: BTreeSet<_> = config.members.iter().chain(add.iter())
+        .copied().filter(|id| !remove.contains(id)).collect();
+    let pending = node.pending_joint_proposal()?;
+    let resumed_joint = pending.is_some();
+    let resume_catch_up = if let Some(proposal) = &pending {
+        ensure!(proposal.old_members == config.members
+            && config.joint_new.as_ref() == Some(&proposal.new_members)
+            && proposal.base_revision.checked_add(1) == Some(config.revision),
+            "member configuration changed while reading its pending transition; retry from current facts");
+        ensure!(requested.iter().copied().collect::<Vec<_>>() == proposal.new_members,
+            "membership change conflicts with the pending joint target; finish the existing transition before requesting another target");
+        // A voter may have granted the joint ballot without applying its
+        // committed entry. Catch up the full old/new union BEFORE campaigning;
+        // otherwise the current joint majority cannot recognize this base.
+        let voters = config.voters().into_iter().collect::<Vec<_>>();
+        catch_up_members(&mut node, &voters, cancel)?
+    } else {
+        ensure!(config.joint_new.is_none(),
+            "member configuration changed while reading its pending transition; retry from current facts");
+        if requested.iter().copied().collect::<Vec<_>>() == config.members {
+            return Ok(json!({"outcome": "already_current", "member_configuration": config}));
+        }
+        Vec::new()
+    };
     ensure!(establish_primary(data_dir, store, cancel)?.is_some(),
         "membership change requires a current primary; local availability work may continue without domain reconfiguration");
-    let mut node = open_node(data_dir, store)?;
-    node.ensure_member_configuration()?;
-    let revision = node
-        .member_configuration()?
-        .context("no committed member configuration")?
-        .revision;
-    let joint = node.propose_member_change(MemberChangeRequest {
-        operation_id: EntityId::new(),
-        expected_revision: revision,
-        add: add.clone(),
-        remove,
-        reason: "operator membership change over authenticated control path".into(),
-    })?;
-    let catch_up = catch_up_added_members(&mut node, &add, cancel)?;
-    let joint_votes = solicit_member_votes(&mut node, &joint, cancel)?;
-    let joint_outcome = node.tally_member_change(&joint.proposal)?;
-    if !joint_outcome.quorum_met {
-        bail!(
-            "joint membership change found no quorum; votes={joint_votes:?} reason={}",
-            joint_outcome.reason
-        );
-    }
-    // The final phase is approved against the committed joint configuration,
-    // so an added member must hold that exact revision before it may vote.
-    let joint_catch_up = catch_up_added_members(&mut node, &add, cancel)?;
-    let fin = node.propose_final_member_change(&joint.proposal)?;
+    let (proposal, catch_up, joint_votes, joint_outcome) = match pending {
+        Some(proposal) => {
+            let outcome = node.tally_member_change(&proposal)?;
+            (proposal, resume_catch_up, Vec::new(), outcome)
+        }
+        None => {
+            let revision = node.member_configuration()?
+                .context("no committed member configuration")?.revision;
+            let joint = node.propose_member_change(MemberChangeRequest {
+                operation_id: EntityId::new(), expected_revision: revision, add, remove,
+                reason: "operator membership change over authenticated control path".into(),
+            })?;
+            let catch_up = catch_up_members(&mut node, &joint.members, cancel)?;
+            let votes = solicit_member_votes(&mut node, &joint, cancel)?;
+            let outcome = node.tally_member_change(&joint.proposal)?;
+            if !outcome.quorum_met {
+                bail!("joint membership change found no quorum; votes={votes:?} reason={}", outcome.reason);
+            }
+            (joint.proposal, catch_up, votes, outcome)
+        }
+    };
+    let voters = proposal.old_members.iter().chain(proposal.new_members.iter())
+        .copied().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    // Both old and new voters must hold the committed joint configuration
+    // before they can approve its final phase.
+    let joint_catch_up = catch_up_members(&mut node, &voters, cancel)?;
+    let fin = node.propose_final_member_change(&proposal)?;
     let final_votes = solicit_member_votes(&mut node, &fin, cancel)?;
     let final_outcome = node.tally_member_change(&fin.proposal)?;
     if !final_outcome.quorum_met {
@@ -975,10 +1007,11 @@ fn member_change(
             final_outcome.reason
         );
     }
-    // The added members must hold the committed configuration before they can
-    // vote in the next election; their own revision is otherwise still joint.
-    let final_catch_up = catch_up_added_members(&mut node, &add, cancel)?;
+    // Inform the old/new union, including removed members, that the final
+    // configuration is committed rather than leaving their view joint.
+    let final_catch_up = catch_up_members(&mut node, &voters, cancel)?;
     Ok(json!({
+        "resumed_joint": resumed_joint,
         "catch_up": catch_up,
         "joint_catch_up": joint_catch_up,
         "final_catch_up": final_catch_up,

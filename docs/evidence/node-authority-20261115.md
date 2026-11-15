@@ -154,3 +154,31 @@ No real-model behavior, physical multi-device partition, automatic takeover,
 full update/rollback or long-running reliability result is asserted. Acceptance
 and coverage status remain owned by the integration task; no requirement is
 promoted to `verified_real` by this report.
+
+## Follow-up: interrupted CLI membership changes
+
+The strict prohibition on a second joint transition exposed a CLI recovery
+gap: add/remove always began a new joint round, even when the previous command
+had committed its joint configuration and stopped before Final. The CLI now
+compares the requested target against the retained joint target, deriving that
+request from the old member set. A different target is an explicit conflict.
+A read-only Node lookup reconstructs the original joint proposal from its
+retained predecessor and the existing proposal digest rules.
+
+For a matching resume, the CLI pushes the validated retained prefix to the
+old/new voter union before establishing current primary authority. This lets
+voters that granted ballots but missed the committed entry catch up before an
+election under the joint quorum. Existing divergent-prefix refusals remain in
+force. The command then proposes only Final under the current primary; it does
+not author another Joint. Both phases' catch-up cover the voter union, including
+surviving old members and removed members that need to learn the final fact.
+When no transition is pending and the requested set is already current, the
+command reports that fact without producing another pair of configurations.
+
+The existing membership journey now reconstructs the proposal from a follower's
+retained prefix for finalization and checks that no pending proposal remains
+after Final. This adds no independent test journey. The earlier command results
+and hashes above describe their recorded candidates, not this later change;
+the updated source and combined CLI compilation remain the integrator's gate.
+This recovery adapter does not supply the still-missing quorum persistence of
+actual control-log entries or automatic partition/failover qualification.

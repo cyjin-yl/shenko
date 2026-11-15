@@ -2059,6 +2059,34 @@ impl Node {
         })
     }
 
+    /// Recover the exact proposal behind a retained joint configuration.
+    /// This is a read-only fact lookup, not a new proposal or a grant to lead
+    /// its final phase. A restarted/new primary can use the original base
+    /// digest without relying on a caller's lost in-memory round.
+    pub fn pending_joint_proposal(&self) -> Result<Option<MemberProposal>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let Some(config) = Self::committed_config(&tx)? else { return Ok(None) };
+        let Some(new_members) = config.joint_new else { return Ok(None) };
+        let base_revision = config.revision.checked_sub(1)
+            .context("joint configuration has no preceding revision")?;
+        let base = Self::config_at(&tx, base_revision)?
+            .context("joint configuration's original base is not retained")?;
+        ensure!(base.digest == config_digest(&base.members, base.joint_new.as_deref())?,
+            "joint configuration's original base digest is invalid");
+        let mut proposal = MemberProposal {
+            kind: ProposalKind::Joint,
+            base_revision,
+            base_digest: base.digest.clone(),
+            old_members: config.members,
+            new_members,
+            digest: Digest::blake3(b""),
+        };
+        proposal.digest = proposal_digest(&proposal)?;
+        verify_proposal(&base, &proposal)?;
+        tx.commit()?;
+        Ok(Some(proposal))
+    }
+
     /// The second phase of a membership change: the final configuration is
     /// approved against the joint configuration that phase one committed.
     pub fn propose_final_member_change(
@@ -3331,7 +3359,12 @@ mod tests {
         assert!(refused.reason.starts_with("unverified_entry"));
         b.adopt_member_configuration(&committed, &real)?;
 
-        let final_round = a.propose_final_member_change(&joint.proposal)?;
+        // A resumed command may recover the original joint proposal from a
+        // follower's retained prefix instead of the original caller's memory.
+        let retained_joint = b.pending_joint_proposal()?
+            .context("the committed joint proposal must remain recoverable")?;
+        assert_eq!(retained_joint.digest, joint.proposal.digest);
+        let final_round = a.propose_final_member_change(&retained_joint)?;
         let vote = b.handle_vote_request(&final_round.request)?;
         a.record_vote_response(&final_round.request, &vote)?;
         let final_config = a
@@ -3339,6 +3372,7 @@ mod tests {
             .committed
             .context("the membership tally must return its committed configuration")?;
         let final_log = a.control_log()?;
+        assert!(a.pending_joint_proposal()?.is_none());
         assert_eq!(
             a.tally_member_change(&joint.proposal)?
                 .committed
