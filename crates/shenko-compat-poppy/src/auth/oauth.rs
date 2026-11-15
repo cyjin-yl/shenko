@@ -37,6 +37,7 @@ pub struct OAuthServer {
     pub(super) device_supported: bool,
     pub(super) sign_in_disabled: bool,
     pub(super) use_dpop: bool,
+    dpop_advertised: bool,
     pub(super) browser_join_supported: bool,
 }
 
@@ -124,10 +125,10 @@ impl OAuthServer {
                     .as_array()
                     .context("invalid DPoP algorithm metadata")?;
                 ensure!(
-                    algorithms.iter().any(|v| v.as_str() == Some("ES256")),
-                    "issuer advertises no implemented DPoP algorithm (ES256)"
+                    algorithms.iter().all(Value::is_string),
+                    "invalid DPoP algorithm metadata"
                 );
-                true
+                algorithms.iter().any(|v| v.as_str() == Some("ES256"))
             }
         };
         Ok(Self {
@@ -148,6 +149,7 @@ impl OAuthServer {
             direct_supported,
             device_supported,
             use_dpop,
+            dpop_advertised: document.get("dpop_signing_alg_values_supported").is_some(),
             sign_in_disabled: report
                 .metadata
                 .pointer("/auth/disabled")
@@ -174,11 +176,18 @@ impl OAuthServer {
     pub fn has_par(&self) -> bool {
         self.par_endpoint.is_some()
     }
+    pub fn par_endpoint(&self) -> Option<&Url> {
+        self.par_endpoint.as_ref()
+    }
 
     pub(super) fn check_sign_in(&self, requested_scopes: &[String]) -> Result<()> {
         ensure!(
             !self.sign_in_disabled,
             "company currently disables new sign-in"
+        );
+        ensure!(
+            !self.dpop_advertised || self.use_dpop,
+            "issuer advertises no implemented DPoP algorithm (ES256)"
         );
         scopes(requested_scopes)?;
         ensure!(
