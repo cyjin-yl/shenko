@@ -70,7 +70,7 @@ impl OperatorSigner {
     /// Load an operator-provisioned P-256 key without retaining its PKCS#8 input.
     /// The caller owns that input and its storage/zeroization policy.
     pub fn from_pkcs8(client_id: &str, key_id: &str, pkcs8: &[u8]) -> Result<Self> {
-        https_url(client_id)?;
+        client_id_url(client_id)?;
         opaque_id(key_id, "operator key ID")?;
         let key = EcdsaKeyPair::from_pkcs8(
             &ECDSA_P256_SHA256_FIXED_SIGNING,
@@ -328,6 +328,40 @@ struct SessionClaims<'a> {
     jti: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     ath: Option<String>,
+}
+
+fn client_id_url(value: &str) -> Result<Url> {
+    let url = https_url(value)?;
+    ensure!(
+        url.path() != "/",
+        "client ID must have a non-root document path"
+    );
+    ensure!(
+        !value.contains('\\'),
+        "client ID must not contain a backslash"
+    );
+    // Check the original path: Url::parse removes dot segments, including
+    // percent-encoded dots. CIMD compares client IDs byte-for-byte and forbids
+    // these segments; retaining the original spelling must not mask them.
+    let without_query = value.split('?').next().unwrap_or(value);
+    let (_, authority_and_path) = without_query
+        .split_once("://")
+        .context("client ID must be an absolute HTTPS URL")?;
+    let (authority, raw_path) = authority_and_path
+        .split_once('/')
+        .unwrap_or((authority_and_path, ""));
+    ensure!(
+        !authority.is_empty() && !authority.contains('@'),
+        "client ID must have an authority without userinfo"
+    );
+    ensure!(
+        !raw_path.split('/').any(|segment| matches!(
+            segment.to_ascii_lowercase().as_str(),
+            "." | ".." | "%2e" | ".%2e" | "%2e." | "%2e%2e"
+        )),
+        "client ID must not contain dot path segments"
+    );
+    Ok(url)
 }
 
 fn https_url(value: &str) -> Result<Url> {
