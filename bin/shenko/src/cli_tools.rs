@@ -1,5 +1,5 @@
 //! Named WASM tool and environment commands over the Node installation authority.
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 
@@ -136,7 +136,7 @@ fn parse_network_target(spec: &str) -> Result<shenko_node::NetworkTarget> {
 /// same authority node_sync replicates — while list is a pure read of that
 /// inventory. `<data>/tools` is only where the unit authority materializes
 /// bytes; no separate tool registry exists to diverge or adopt foreign data.
-pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
+pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> {
     use shenko_node::Node;
     use shenko_wasm::{
         InputFile, OutputFile, ToolAbi, ToolSource, WasiRunOutcome, installed_tools,
@@ -303,7 +303,7 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
             // Install requires an existing managed installation: the record
             // is this installation's own unit inventory entry.
             let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
-                .unwrap_or_else(|| data_dir.clone());
+                .unwrap_or_else(|| data_dir.to_path_buf());
             anyhow::ensure!(
                 live_slot.join(shenko_update::SLOT_DB_FILENAME).is_file(),
                 "no managed installation at {}; run `shenko start` once",

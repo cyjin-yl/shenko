@@ -1,5 +1,5 @@
 //! Cognition installation and native readers over the existing Node authority.
-use std::{path::{Path, PathBuf}, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
 use tracing::info;
@@ -9,7 +9,7 @@ use crate::{compat, node_sync, obelisk};
 pub(crate) async fn install(
     supervisor: &shenko_kernel::Supervisor,
     store: &Arc<shenko_store::Store>,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     native_child: &Arc<shenko_subject::NativeChildService>,
     self_knowledge: &Arc<shenko_awareness_core::SelfKnowledgeProvider>,
 ) -> Result<Arc<shenko_awareness_core::CognitionCatalog>> {
