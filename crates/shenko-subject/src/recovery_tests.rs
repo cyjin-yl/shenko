@@ -665,7 +665,7 @@ fn personality_stays_out_of_the_tool_contract() {
     let prompt = &prepared.payload.system_prompt;
     // The persona is prompt text only: it never adds a tool, never changes the
     // sealed protocol, and it is placed after the stable contract plus the
-    // installed native definitions (docs/specs/subject-runtime.md#spec-6 ordering, R053/R054).
+    // installed native definitions (ordering, R053/R054).
     assert!(prepared.payload.tools.is_empty());
     let contract = crate::canonical_system_prompt(&subject.channels);
     assert!(prompt.starts_with(&contract));
@@ -1563,7 +1563,7 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// docs/specs/subject-runtime.md#spec-6 R053/R054/R117：人格只在 S0 边界生效，合同前缀不随身份变化，改名不换 agent。
+/// R053/R054/R117：人格只在 S0 边界生效，合同前缀不随身份变化，改名不换 agent。
 #[tokio::test]
 async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
     use shenko_types::identity::{IdentityChange, IdentitySource, NamingOrigin};
@@ -2495,7 +2495,7 @@ async fn unselected_obligation_origin_preserves_evidence_and_reopens_correction(
     assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
 }
 
-/// R143/docs/specs/subject-runtime.md#spec-41-5: a wait is a durable subject decision, not an in-memory flag.
+/// R143: a wait is a durable subject decision, not an in-memory flag.
 /// Polling never renews its deadline, an unrelated message does not end it and
 /// a late continue cannot resurrect a wait that already ended.
 async fn commit_output(
@@ -2718,7 +2718,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Resu
     Ok(())
 }
 
-/// docs/specs/subject-runtime.md#spec-5-6/B03: a finite child whose handler waits is driven by a bounded managed
+/// B03: a finite child whose handler waits is driven by a bounded managed
 /// execution, not by the dispatcher pass. One short child must still project
 /// its T2/result while a sibling holds an execution. The fixture seals real
 /// T1/E1 records; nothing fakes a terminal outcome.
@@ -3046,7 +3046,7 @@ async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
     // Keep the fixture on container disk for independent inspection.
 }
 
-/// docs/specs/subject-runtime.md#spec-5-6/C02 fairness: a wave of earlier children that keep finishing
+/// C02 fairness: a wave of earlier children that keep finishing
 /// unresolved must not recapture every worker slot. Without least-recent-
 /// admission ordering the eight reconciling tasks are re-claimed before the
 /// later ready child on every pass, leaving it Pending forever. The ready
@@ -3186,7 +3186,7 @@ async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
     // Keep the fixture on container disk for independent inspection.
 }
 
-/// docs/specs/subject-runtime.md#spec-5-6/C02 teardown: managed executions belong to the Cordis lifetime, not
+/// C02 teardown: managed executions belong to the Cordis lifetime, not
 /// to any retained `Arc<NativeChildService>`. Stopping the supervisor while a
 /// worker is gated must abort/join it before `stop()` returns; releasing the
 /// gate afterwards must not let the worker commit a late T2, and admission
@@ -3330,7 +3330,7 @@ async fn catalog_publication_does_not_recover_or_fence_a_live_dispatcher() {
     live.stop().await.unwrap();
 }
 
-/// docs/specs/subject-runtime.md#spec-5-6/C02 restart: Cordis seals the plugin input at spawn, so a same-Fiber
+/// C02 restart: Cordis seals the plugin input at spawn, so a same-Fiber
 /// `restart` re-applies the SAME `Arc<NativeChildService>` — still `closed`
 /// from its teardown. Reactivation must reopen admission only after the
 /// prior close+join barrier and after aborted Running claims were recovered
@@ -3481,7 +3481,7 @@ async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
     // Keep the fixture on container disk for independent inspection.
 }
 
-/// docs/specs/subject-runtime.md#spec-5-6/C02 admission distinction: a task whose reconciliation worker is
+/// C02 admission distinction: a task whose reconciliation worker is
 /// still in flight is a per-task skip, NOT global capacity exhaustion. With
 /// seven slots free, one gated reconcile must not stop the scan before a
 /// later ready child is visited — pre-fix `NoCapacity` made every pass halt
@@ -3588,7 +3588,7 @@ async fn a_single_gated_reconciliation_cannot_block_a_later_ready_child() {
     // Keep the fixture on container disk for independent inspection.
 }
 
-/// docs/specs/subject-runtime.md#spec-5-6/C02 scan-boundary race: `native_task_scan_upper` reads before the
+/// C02 scan-boundary race: `native_task_scan_upper` reads before the
 /// candidate fetch. A producer can insert a full page in between — the
 /// recorded state is exactly fresh_round=true, upper=None, nonempty page.
 /// The pass must freeze a finite upper at this page's last key BEFORE the
@@ -3707,7 +3707,7 @@ fn stop_registry(point: HookPointId) -> (HookRegistry, shenko_kernel::hooks::Hoo
     (hooks, registration, failing)
 }
 
-/// docs/specs/context-policies.md#spec-41-8 stop_unit at the real production boundaries. A stopped
+/// stop_unit at the real production boundaries. A stopped
 /// BeforeInference dispatch submits nothing to the broker and the step stays
 /// Preparing; a stopped BeforeOperation dispatch leaves the head, ledger
 /// record and outbox untouched. In both cases the durable step keeps its
@@ -3803,7 +3803,7 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// docs/specs/cognition-units.md#spec-45-14: a runtime error that stops the loop commits as a durable
+/// A runtime error that stops the loop commits as a durable
 /// `runtime_error` fact in the subject's own raw session, readable after the
 /// loop is gone. A malformed durable inbox row is the failure trigger.
 #[tokio::test]
@@ -3842,7 +3842,7 @@ async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
         .unwrap();
     // The loop's own stop is one durable runtime_error fact. Other facts may
     // share the type (an undecodable input is journaled as its own cause,
-    // docs/specs/durable-state.md#spec-41-4 X11), so what is pinned here is the loop's fact, not the total
+    // X11), so what is pinned here is the loop's fact, not the total
     // number of runtime errors in the session.
     let loop_facts: Vec<serde_json::Value> = events
         .iter()
@@ -3928,7 +3928,7 @@ fn broker_admission_error_journal_preserves_primary_and_cleanup_errors() {
 }
 
 /// One admitted input this build cannot decode is a durable FACT, not a
-/// licence to stop the subject (docs/specs/durable-state.md#spec-41-4 X11): the row stays pending with
+/// licence to stop the subject (X11): the row stays pending with
 /// its identity, the skip is journaled once, and the readable input beside it
 /// still reaches a sealed S0.
 #[tokio::test]
@@ -4374,7 +4374,7 @@ fn the_policy_control_line_parses_into_a_policy_request() {
     assert_eq!(policy.description, "把更多算力分给探索任务");
 }
 
-/// AW13 / docs/specs/subject-runtime.md#spec-57-3: the attention budget is the subject's own setting. The
+/// AW13: the attention budget is the subject's own setting. The
 /// installed unit that provides `cap.attention-policy` states the numbers;
 /// the harness keeps only the bounds that prevent starvation.
 #[test]
