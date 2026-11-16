@@ -428,6 +428,10 @@ pub struct AvailabilityAuthority {
     pub configuration_revision: Option<u64>,
     pub configuration_digest: Option<Digest>,
     pub fence: Option<FencingToken>,
+    #[serde(default)]
+    pub component_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<Digest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2740,6 +2744,8 @@ impl Node {
                     && current.term == expected.term
                     && current.configuration == expected.configuration
                     && current.fence == expected.fence
+                    && current.component_revision == expected.component_revision
+                    && current.component == expected.component
                     // Rejoin can close the current branch without advancing
                     // the control term. Never turn that newer fact back into
                     // an open branch from an older fallback observation.
@@ -2758,12 +2764,20 @@ impl Node {
         let now = chrono::Utc::now();
         let floor = Self::last_reconciliation_seq(&tx)?;
         let configuration = Self::committed_config(&tx)?;
+        let (component_revision, component) = Self::component_state_conn(&tx)?;
+        if let Some(component) = &component {
+            ensure!(Some(component.proposal.coordinator) == Self::stored_node_id(&tx)?
+                && component.proposal.branch_id == branch_id,
+                "only the selected component coordinator may open its agreed branch");
+        }
         let authority = AvailabilityAuthority {
             holder_node_id: Self::stored_node_id(&tx)?.context("node is not initialized")?,
             opening_term: state_number(&tx, "term")?,
             configuration_revision: configuration.as_ref().map(|config| config.revision),
             configuration_digest: configuration.as_ref().map(|config| config.digest.clone()),
             fence: Self::fencing_token_conn(&tx)?,
+            component_revision,
+            component: component.as_ref().map(crate::ComponentCertificate::digest).transpose()?,
         };
         let fact = match existing {
             Some(raw) => {

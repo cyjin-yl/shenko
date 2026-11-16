@@ -545,6 +545,13 @@ pub enum ToolCommand {
         /// KEY=VALUE guest environment entries (repeatable).
         #[arg(long = "env")]
         env: Vec<String>,
+        /// Explicit transport grant host:port[:connect|listen,accept] (repeatable).
+        /// IPv6 literals use [address]:port; an omitted grant opens no sockets.
+        #[arg(long = "network")]
+        network: Vec<String>,
+        /// Guest deadline in seconds (1..=300), including admitted socket waits.
+        #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=300))]
+        timeout_secs: u64,
         /// Host file whose bytes become guest stdin (default: empty).
         #[arg(long)]
         stdin_file: Option<PathBuf>,

@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/__w/shenko/shenko/scripts/real_single_node_journey.py", line 223, in run
+    first, messages = await collect(ws, process, data_dir, args.evidence_dir / "first.websocket.jsonl", args.timeout,
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/__w/shenko/shenko/scripts/real_single_node_journey.py", line 146, in collect
+    message = json.loads(await asyncio.wait_for(ws.recv(), timeout=1))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/tasks.py", line 479, in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+  File "/__w/shenko/shenko/.ci/python/lib/python3.11/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: no close frame received or sent

@@ -128,6 +128,20 @@ pub async fn run_committed_dispatcher(
                     Ok(())
                 }.await;
                 if let Err(error) = pass {
+                    // Graceful stop revokes new authority admissions while a
+                    // dispatcher pass can still be finishing. That precise
+                    // refusal leaves the work durable for reopen; another
+                    // authority conflict or a storage failure remains an error.
+                    if subject_stopping.is_cancelled()
+                        && matches!(
+                            error.downcast_ref::<shenko_types::error::ShenkoError>(),
+                            Some(shenko_types::error::ShenkoError::Protocol(protocol))
+                                if protocol.code == "runtime_authority_fenced"
+                                    && protocol.details["reason"] == "runtime admission is canceled"
+                        )
+                    {
+                        return Ok(());
+                    }
                     store.journal_runtime_error(
                         agent_id,
                         shenko_store::RuntimeErrorContext {

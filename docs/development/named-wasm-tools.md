@@ -4,6 +4,16 @@
 需求 R008/R014/R019/R101；验收 case A09（仅部分推进，未完成 A09 要求的
 Git/SSH 端到端认证）。
 
+2026-11-16 更新：候选 `6782627` 的真实 SSH guest 已在
+[CI job 133289317901](https://github.com/cyjin-yl/shenko/actions/runs/43864453626/job/133289317901)
+完成模块内 keygen、loopback OpenSSH 认证、exec、SFTP 和拒绝旅程；
+[原始收据与散列](../evidence/ssh-wasi-ci-6782627-20261116/observation.json)保留其范围。
+这条旅程直接运行模块，不证明 `tool install`、真实远端部署或完整 A09 已通过。
+下文早期切片的 1 MiB 限制指 Node 内联对象；现行 `tool_install::install_one`
+已将较大工件分块封存到 CAS，并由安装单元绑定 pointer，执行通过
+`tool_module_with_store` 重新验证。不得据早期限制判断现行较大工具必然不能安装，
+也不得据这条实现路径宣称某个真实工具已经完成安装验收。
+
 ## 架构（authority = installation-unit inventory）
 
 工具的注册权威是节点既有的安装单元库存（`unit_versions`/`unit_current`
@@ -88,7 +98,7 @@ Git/SSH 端到端认证）。
 | git | unresolved | 无已核验 wasm32-wasip1 Git client；WASIX ports 需要 WASIX runtime |
 | gh | unresolved | wasi-gh 存在但需专用 HTTP/exec host imports（[§8.2](../specs/wasm-tools.md#spec-8-2) W2），本 runtime 不提供 |
 | tea | unresolved | 未发现可核验的 Gitea CLI WASM 成品 |
-| ssh | unresolved | OpenSSH WASIX port 需要 WASIX runtime + socket imports；wasmtime-45 preview1 均无；宿主 ssh 不算 WASM SSH（R019） |
+| ssh | **源码端口与真实模块旅程已验证；每个安装仍需导入确切工件** | `ports/ssh-wasi/` 的 pinned russh 0.65.0 preview1 guest 在 WASM 内完成 keygen、认证、exec 和 SFTP；宿主只提供准入后的 TCP、时钟与熵；本次未验明真实远端安装（R019） |
 
 ## 给受管构建者的获取配方（parent action）
 
@@ -162,5 +172,6 @@ b3sum toywasm-v76/**/toywasm.wasm   # 得 <hex>
   （wasmtime 能力边界，如实标注）；此时 worker 仍会被 join 等待。
 - `tool install` 的同名@同版本检查依赖单写入者假设（与 home manifest 同级
   强度）；并发 install 竞态不在防御范围。
-- A09 要求（私有 Git/GitHub/Gitea 端到端认证、真实 WASM SSH keygen/exec/
-  transfer）**未达成**；该 case 保持 open。
+- A09 整体仍**未达成**，该 case 保持 open。2026-11-16 的 SSH 模块旅程补上了
+  loopback OpenSSH 的 keygen/exec/transfer 真实证据；私有 Git/GitHub/Gitea
+  端到端认证、实际安装与远端部署不能由这条旅程代替。

@@ -4,7 +4,7 @@
 //! do not leak into this binding. The endpoint, model and credential are read
 //! once at construction, and the sealed binding keeps the exact identity the
 //! request was sent with.
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use base64::Engine as _;
 use tracing::{info, instrument};
 
@@ -26,6 +26,10 @@ use crate::stream::{
 
 const DEFAULT_MODEL: &str = "qwen3.8-27b";
 pub(crate) const SERIALIZER_REVISION: u32 = 3;
+// Older readers ignore unknown JSON fields but reject an unsupported sealed
+// revision. An explicit timeout therefore cannot be run as 180 seconds by a
+// rollback binary that predates the timeout field.
+const TIMEOUT_BINDING_REVISION: u32 = 4;
 
 /// A configured OpenAI-compatible binding.
 #[derive(Debug, Clone)]
@@ -35,12 +39,14 @@ pub struct LocalModelProvider {
     pub allow_invalid_certs: bool,
     profile: ProviderProfile,
     api_key: Option<String>,
+    request_timeout_ms: Option<u64>,
 }
 
 impl LocalModelProvider {
     pub fn new(base_url: String, model: String) -> Self {
         let profile = local_profile(&base_url, &model, None, "unclassified.local");
-        Self { base_url, model, allow_invalid_certs: false, profile, api_key: None }
+        Self { base_url, model, allow_invalid_certs: false, profile, api_key: None,
+            request_timeout_ms: None }
     }
 
     /// Build from environment without embedding a private deployment endpoint.
@@ -59,13 +65,33 @@ impl LocalModelProvider {
             api_key.as_ref().map(|key| credential_fingerprint(key)),
             "unclassified.local",
         );
-        Ok(Self {
+        let provider = Self {
             base_url,
             model,
             allow_invalid_certs: std::env::var("SHENKO_LOCAL_INSECURE").as_deref() == Ok("1"),
             profile,
             api_key,
-        })
+            request_timeout_ms: None,
+        };
+        match std::env::var("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS") {
+            Ok(raw) => provider.with_request_timeout_ms(raw.parse()
+                .context("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS must be integer milliseconds")?),
+            Err(std::env::VarError::NotPresent) => Ok(provider),
+            Err(_) => Err(anyhow!("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS must be valid UTF-8")),
+        }
+    }
+
+    /// Configure a finite observation limit before requests are sealed. The
+    /// one-day ceiling rejects accidental unbounded waits; zero never disables
+    /// the limit. A timeout still leaves the provider outcome unknown.
+    pub fn with_request_timeout_ms(mut self, timeout_ms: u64) -> Result<Self> {
+        anyhow::ensure!((1..=86_400_000).contains(&timeout_ms),
+            "local model request timeout must be 1..=86400000 milliseconds");
+        self.request_timeout_ms = Some(timeout_ms);
+        self.profile.revision = TIMEOUT_BINDING_REVISION;
+        self.profile.request_schema_revision = TIMEOUT_BINDING_REVISION;
+        self.profile.serializer_revision = TIMEOUT_BINDING_REVISION;
+        Ok(self)
     }
 
     /// The physical resource domain this binding belongs to.
@@ -92,8 +118,9 @@ impl LocalModelProvider {
             base_url: self.base_url.clone(),
             model: self.model.clone(),
             allow_invalid_certs: self.allow_invalid_certs,
-            serializer_revision: SERIALIZER_REVISION,
+            serializer_revision: self.profile.serializer_revision,
             default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+            request_timeout_ms: self.request_timeout_ms,
         }
     }
 
@@ -104,14 +131,16 @@ impl LocalModelProvider {
             allow_invalid_certs,
             serializer_revision,
             default_max_tokens,
+            request_timeout_ms,
         } = &req.provider_binding
         else {
             return Err(ProviderWireError::BindingMismatch.into());
         };
         if base_url != &self.base_url
             || allow_invalid_certs != &self.allow_invalid_certs
-            || *serializer_revision != SERIALIZER_REVISION
+            || *serializer_revision != self.profile.serializer_revision
             || *default_max_tokens != crate::request::DEFAULT_MAX_TOKENS
+            || request_timeout_ms != &self.request_timeout_ms
         {
             return Err(ProviderWireError::BindingMismatch.into());
         }
@@ -122,7 +151,9 @@ impl LocalModelProvider {
     }
 
     fn client(&self) -> Result<reqwest::Client> {
-        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(180));
+        let timeout_ms = self.request_timeout_ms
+            .unwrap_or(crate::request::DEFAULT_LOCAL_REQUEST_TIMEOUT_MS);
+        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_millis(timeout_ms));
         if self.allow_invalid_certs {
             builder = builder.danger_accept_invalid_certs(true);
         }
@@ -382,8 +413,8 @@ impl ProviderRuntime for LocalModelProvider {
     async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
         let client = self.client()?;
         let mut evidence: Vec<serde_json::Value> = Vec::new();
-        match client
-            .get(format!("{}/v1/models", self.base_url.trim_end_matches('/')))
+        match self
+            .apply_auth(client.get(format!("{}/v1/models", self.base_url.trim_end_matches('/'))))
             .send()
             .await
         {

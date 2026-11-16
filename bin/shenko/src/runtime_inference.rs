@@ -134,6 +134,11 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<InferenceServ
         },
     )
     .await?;
+    installed.config_service.register(Arc::new(
+        crate::policy_config::ContextPreferenceNamespace::open(
+            Arc::clone(store), Arc::clone(&context_registry),
+        )?,
+    ));
     let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
     inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(store));
     handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));

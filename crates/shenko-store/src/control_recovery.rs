@@ -1,6 +1,6 @@
 //! Preserve a chosen control action without inventing a foreign Store commit.
-//! A source-local S1 may finish against its exact original predecessor. Every
-//! other unapplied action remains evidence for reconciliation; no replay here
+//! Frozen S1, native dispatch and native T2 may materialize their exact predecessor.
+//! Other unapplied actions remain evidence for reconciliation; no replay here
 //! grants permission to execute an external attempt.
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
@@ -39,10 +39,71 @@ struct AdmissionEnvelope {
 pub enum ControlRecoveryOutcome {
     Applied,
     RecoveredOriginal,
+    RecoveredCanonical,
     ReconciliationRequired,
 }
 
+/// Startup must resolve these before it activates fresh branch consumers.
+/// A missing grant is explicitly a local preparation, never quorum evidence.
+#[derive(Debug, Clone)]
+pub struct PreparedStepDebt {
+    pub action_id: EntityId,
+    pub grant_id: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct PreparedStepRecovery {
+    pub applied: usize,
+    pub unresolved: Vec<PreparedStepDebt>,
+}
+
 impl Store {
+    pub(crate) fn retain_prepared_step_debt(
+        &self, admission: &CommitAdmission, grant: Option<&CommitAuthorityGrant>, reason: &str,
+    ) -> Result<()> {
+        let envelope: AdmissionEnvelope = serde_json::from_slice(&self.cas.read_object(&admission.payload_ref.digest)?)?;
+        let evidence = self.inspect_control_predecessor(&envelope.predecessor_ref, admission)?;
+        if let Some(grant) = grant {
+            ensure!(&grant.admission == admission, "prepared recovery grant changed");
+            return self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint);
+        }
+        let event_id = EntityId::derived("control-preparation-reconciliation-v1", admission.action_id.to_string().as_bytes());
+        self.ledger.with_mutation(|| -> Result<()> {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if admission_materialized(&tx, admission)? { return Ok(()); }
+            let old: Option<(String, String, String, String)> = tx.query_row(
+                "SELECT agent_id,kind,source,data FROM inbox_events WHERE event_id=?1",
+                [event_id.to_string()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+            ).optional()?;
+            if let Some((agent, kind, source, data)) = old {
+                let event: InboxEvent = serde_json::from_str(&data)?;
+                ensure!(agent == admission.subject_id.to_string() && kind == "system_event"
+                    && source == CONTROL_RECONCILIATION_SOURCE && event.source == source
+                    && event.event_id == event_id && event.kind == InboxEventKind::SystemEvent
+                    && event.payload["kind"] == "authority.prepared_transition_blocked"
+                    && event.payload["admission"] == serde_json::to_value(admission)?,
+                    "prepared action debt conflicts with retained source fact");
+                return Ok(());
+            }
+            let commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
+            let event = InboxEvent { event_id, kind: InboxEventKind::SystemEvent,
+                source: CONTROL_RECONCILIATION_SOURCE.into(), created_at: chrono::Utc::now(),
+                payload: serde_json::json!({"kind":"authority.prepared_transition_blocked", "reason":reason,
+                    "admission":admission, "original_branch":admission.branch_id,
+                    "payload_ref":admission.payload_ref, "predecessor_ref":envelope.predecessor_ref,
+                    "predecessor_fingerprint":evidence.fingerprint, "source_ledger_id":envelope.source_ledger_id,
+                    "chosen_grant":null, "recorded_at":commit}),
+            };
+            tx.execute("INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data) VALUES(?1,?2,'system_event',?3,0,?4)",
+                params![event_id.to_string(),admission.subject_id.to_string(),CONTROL_RECONCILIATION_SOURCE,serde_json::to_string(&event)?])?;
+            self.record_subject_commit(&tx,commit,1)?;
+            tx.commit()?;
+            Ok(())
+        }, |error| error.is::<rusqlite::Error>()
+            || error.downcast_ref::<ShenkoError>().is_some_and(|error| matches!(error, ShenkoError::Storage(_))))
+    }
+
     /// Exact facts win before current authority checks, including after a
     /// newer branch or epoch has replaced the source runtime.
     pub fn control_admission_applied(&self, admission: &CommitAdmission) -> Result<bool, ShenkoError> {
@@ -83,6 +144,55 @@ impl Store {
             && serde_json::to_value(&evidence.original_head)? == serde_json::to_value(&envelope.head)?,
             "chosen control predecessor disagrees with its source envelope");
         let current = self.load_subject(grant.admission.subject_id)?.0;
+        // Learned log entries also retain historical branches. They are
+        // evidence, not requests to acquire authority for the live branch.
+        // The real Node provider correctly refuses such a reservation; keep
+        // the original debt instead of turning that refusal into startup loss.
+        if current.branch_id != grant.admission.branch_id {
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
+        if envelope.action["kind"] == "native.dispatch"
+            && let Some(reference) = envelope.action.get("transition_ref")
+        {
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            match self.recover_dispatch_transition(grant, &reference) {
+                Ok(_) => return Ok(ControlRecoveryOutcome::RecoveredCanonical),
+                Err(ShenkoError::Conflict(_) | ShenkoError::NotFound(_) | ShenkoError::ResnapshotRequired { .. }) => {}
+                Err(error) => return Err(error.into()),
+            }
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
+        if matches!(envelope.action["kind"].as_str(), Some("native.complete" | "native.finish"))
+            && let Some(reference) = envelope.action.get("transition_ref")
+        {
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            match self.recover_native_transition(grant, &reference) {
+                Ok(_) => return Ok(ControlRecoveryOutcome::RecoveredCanonical),
+                Err(ShenkoError::Conflict(_) | ShenkoError::NotFound(_) | ShenkoError::ResnapshotRequired { .. }) => {}
+                Err(error) => return Err(error.into()),
+            }
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
+        if envelope.action["kind"] == "subject.step_commit"
+            && let Some(reference) = envelope.action.get("transition_ref")
+        {
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            let step: SubjectStep = serde_json::from_value(envelope.action["step"].clone())?;
+            let expected_head: SubjectBranchHead = serde_json::from_value(envelope.action["expected_head"].clone())?;
+            let next: EntityId = serde_json::from_value(envelope.action["next_step_id"].clone())?;
+            ensure!(serde_json::to_value(&expected_head)? == serde_json::to_value(&envelope.head)?,
+                "canonical S1 head differs from its admitted envelope");
+            match self.recover_step_transition(grant, &reference, &step, &expected_head, next) {
+                Ok(_) => return Ok(ControlRecoveryOutcome::RecoveredCanonical),
+                Err(ShenkoError::Conflict(_) | ShenkoError::NotFound(_) | ShenkoError::ResnapshotRequired { .. }) => {}
+                Err(error) => return Err(error.into()),
+            }
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
         let compatible = evidence.original_source && !self.control_admission_applied(&grant.admission)?
             && serde_json::to_value(&current)? == serde_json::to_value(&envelope.head)?;
         if try_original && compatible && envelope.action["kind"] == "subject.step_commit" {
@@ -184,12 +294,18 @@ impl Store {
         for (id, data) in rows {
             let event: InboxEvent = serde_json::from_str(&data)?;
             ensure!(event.event_id.to_string() == id && event.kind == InboxEventKind::SystemEvent
-                && event.source == CONTROL_RECONCILIATION_SOURCE
-                && event.payload["kind"] == "authority.reconciliation_required",
+                && event.source == CONTROL_RECONCILIATION_SOURCE,
                 "control reconciliation event identity mismatch");
-            let grant: CommitAuthorityGrant = serde_json::from_value(event.payload.get("grant")
-                .cloned().context("control reconciliation grant missing")?)?;
-            if !admission_materialized(&conn, &grant.admission)? { debts.push(event); }
+            let admission = match event.payload["kind"].as_str() {
+                Some("authority.reconciliation_required") => {
+                    let grant: CommitAuthorityGrant = serde_json::from_value(event.payload.get("grant")
+                        .cloned().context("control reconciliation grant missing")?)?;
+                    grant.admission
+                },
+                Some("authority.prepared_transition_blocked") => serde_json::from_value(event.payload["admission"].clone())?,
+                _ => anyhow::bail!("unknown control reconciliation kind"),
+            };
+            if !admission_materialized(&conn, &admission)? { debts.push(event); }
         }
         Ok(debts)
     }

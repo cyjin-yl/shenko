@@ -190,6 +190,7 @@ fn legacy_zero_without_a_bound_raw_input_count_is_not_observed() {
         allow_invalid_certs: false,
         serializer_revision: 1,
         default_max_tokens: 4096,
+        request_timeout_ms: None,
     };
     assert_eq!(super::observed_input_tokens(&outcome, Some(&binding)), None);
     drop(store);

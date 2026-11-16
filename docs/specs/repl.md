@@ -147,8 +147,8 @@ claiming that a stopped interpreter is still live.
 ## Native task surface
 
 Two handler kinds, both following the `wasi.exec` ledger pattern
-(T1 `arm_external_operation` → blocking op under `spawn_blocking` → sealed
-frozen input / observation / bounded normalized result →
+(sealed complete input and resource binding → T1 `arm_external_operation`
+→ blocking op under `spawn_blocking` → sealed observation / bounded normalized result →
 `record_external_evidence`; InFlight-after-recovery settles E1 unknown with
 no second attempt):
 
@@ -162,6 +162,47 @@ Interpreter modules are admitted only from the canonical
 canonical-containment check. Resolution refusals (`REPL_SESSION_UNAVAILABLE`,
 `REPL_KERNEL_UNAVAILABLE`, admission refusals) are recorded as the task's
 explicit result.
+
+The internal request seal is schema 2. It retains the original task input
+reference and full request, including cell source and dependency arguments;
+it also freezes the resolved kernel profile/artifact digests or existing
+session identity and environment generation. New session, fork and cell
+identities are allocated before T1. The cell's actual journal sequence is
+assigned during execution and appears only in the original attempt's E1 and
+result. An installed entry is resolved before T1; the worker uses that frozen
+profile and verifies its resource binding rather than resolving a mutable
+entry name again.
+
+An existing operation is checked before discovery or session opening.
+Matching requests return its original facts; changed payloads conflict.
+Only a fresh successful T1 starts the worker. `SessionStore::open` can repair
+journal state, so it is also behind T1. Explicit `repl.session cancel` keeps
+its independent signal path and does not wait for the executing cell's mutex.
+Durable task `abort_request` is not yet bridged to that session token; this
+boundary does not prove that cancelling a task physically stops its interpreter.
+A provable
+refusal before session opening settles the already armed attempt without
+creating a replacement attempt. Opening may already have healed metadata or
+completed an interrupted reset; later readiness or binding failures therefore
+keep the original attempt unknown. Other failures after T1 remain uncertain until original
+evidence arrives. The handler implementation identity changes with this
+boundary. Historical schema-1 operations retain their original records and
+cannot be promoted into fresh execution. The native registry currently parks
+tasks pinned to the older implementation as `implementation_unavailable`;
+automatic recovery through a separately admitted compatible receipt reader
+remains work to implement. Existing receipts can still be read, and an
+installed original reader can reconcile the original attempt. Keeping the
+old implementation digest for the new writer would falsely let an older
+binary interpret these new requests, so this debt stays explicit.
+
+Full stdout/stderr bytes are sealed to CAS while the bounded prefix is
+captured from the same reads. Results retain those full stream references,
+their byte counts, and a truthful truncation flag. The focused native-handler
+journey `native_repl_t1_precedes_effect_and_recovery_never_reexecutes` checks
+denied admission, a real WASI effect count, duplicate/conflicting requests,
+stream previews, and reopening an armed attempt without repeating it. This
+journey is a native T1 boundary check, not evidence of a named language
+runtime or cross-ledger canonical T1 materialization.
 
 ## Named kernel targets
 

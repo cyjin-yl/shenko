@@ -54,6 +54,52 @@ pub struct SessionManifest {
     pub disposed_unix_ms: Option<i64>,
 }
 
+/// The resource identity a native task freezes before T1. Reading it does not
+/// open an interpreter or repair the journal. The active session verifies the
+/// same binding under its mutex before it accepts that task's work.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SessionExecutionBinding {
+    session_id: EntityId,
+    created_unix_ms: i64,
+    kernel: KernelProfile,
+    module_blake3: String,
+    bind: TaskBinding,
+    limits: ResourceLimits,
+    environment_generation: shenko_types::ids::RuntimeGeneration,
+}
+
+impl SessionExecutionBinding {
+    fn from_manifest(manifest: &SessionManifest) -> Self {
+        Self {
+            session_id: manifest.session_id,
+            created_unix_ms: manifest.created_unix_ms,
+            kernel: manifest.kernel.clone(),
+            module_blake3: manifest.module_blake3.clone(),
+            bind: manifest.bind.clone(),
+            limits: manifest.limits.clone(),
+            environment_generation: manifest.environment_generation.clone(),
+        }
+    }
+
+    pub(crate) fn read(dir: &Path) -> Result<Self> {
+        if !dir.join(jrn::SESSION_MANIFEST).is_file() {
+            bail!("REPL_SESSION_UNAVAILABLE: no session at {}", dir.display());
+        }
+        let dir = dir.canonicalize()?;
+        let manifest = read_manifest(&dir)?;
+        validate_manifest(&dir, &manifest)?;
+        Ok(Self::from_manifest(&manifest))
+    }
+
+    pub(crate) fn verify_manifest(&self, dir: &Path) -> Result<()> {
+        let current = Self::read(dir)?;
+        if serde_json::to_value(&current)? != serde_json::to_value(self)? {
+            bail!("REPL_BINDING_STALE: session resource changed after T1 preparation");
+        }
+        Ok(())
+    }
+}
+
 fn unix_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64).unwrap_or_default()
@@ -85,9 +131,23 @@ impl ReplProvider for WasiReplProvider {
     fn kernels(&self) -> Vec<kernel::KernelTarget> { kernel::named_targets() }
 
     fn create(&self, request: CreateSession) -> Result<WasiReplSession> {
+        self.create_bound(request, EntityId::new(), None)
+    }
+
+    fn reopen(&self, session_dir: &Path) -> Result<WasiReplSession> {
+        open_session(session_dir, DEFAULT_PREVIEW_BYTES)
+    }
+}
+
+impl WasiReplProvider {
+    pub(crate) fn create_bound(
+        &self, request: CreateSession, session_id: EntityId, expected_module: Option<&str>,
+    ) -> Result<WasiReplSession> {
+        if session_id == EntityId::nil() {
+            bail!("REPL_SESSION_INVALID: a new session needs a unique identity");
+        }
         kernel::validate_profile(&request.kernel)?;
         let expected_root = prospective_path(&self.sessions_root)?;
-        let session_id = EntityId::new();
         let dir = expected_root.join(session_id.to_string());
         // Admit the complete namespace and effective state owner before even
         // creating the sessions root. An external owner is capability-opened
@@ -101,6 +161,9 @@ impl ReplProvider for WasiReplProvider {
         // kernel would never be able to execute, before any session exists.
         kernel::validate_module_mode(&request.kernel, module_path)?;
         let module_blake3 = jrn::hash_bytes(&module_bytes);
+        if expected_module.is_some_and(|expected| expected != module_blake3) {
+            bail!("REPL_BINDING_STALE: interpreter changed after T1 preparation");
+        }
         let environment_generation = kernel::environment_generation(&request.kernel);
         let root = self.canonical_root()?;
         if root != expected_root {
@@ -137,9 +200,6 @@ impl ReplProvider for WasiReplProvider {
             oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: preview_len(request.preview_bytes) })
     }
 
-    fn reopen(&self, session_dir: &Path) -> Result<WasiReplSession> {
-        open_session(session_dir, DEFAULT_PREVIEW_BYTES)
-    }
 }
 
 /// Driver material under the session home tree (guest-visible, host-written).
@@ -594,6 +654,20 @@ pub struct WasiReplSession {
 }
 
 impl WasiReplSession {
+    pub(crate) fn verify_native_binding(&self, expected: &SessionExecutionBinding) -> Result<()> {
+        let mut current = SessionExecutionBinding::from_manifest(&self.manifest);
+        current.environment_generation = self.journal.generation().clone();
+        if serde_json::to_value(&current)? != serde_json::to_value(expected)? {
+            bail!("REPL_BINDING_STALE: active session differs from the frozen native request");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_native_cell(&self, expected: &SessionExecutionBinding) -> Result<()> {
+        self.verify_native_binding(expected)?;
+        self.ensure_ready()
+    }
+
     fn has_current_cells(&self) -> bool {
         self.journal.cells.last().is_some_and(|cell| self.journal.last_reset.as_ref()
             .is_none_or(|reset| cell.seq > reset.after_cell_seq))
@@ -1035,10 +1109,55 @@ fn ensure_stream_file(path: &Path) -> Result<()> {
     }
 }
 
-impl ReplSession for WasiReplSession {
-    fn execute(&mut self, request: CellRequest) -> Result<CellResult> {
+impl WasiReplSession {
+    pub(crate) fn fork_identified(&self, sessions_root: &Path, new_id: EntityId) -> Result<Box<dyn ReplSession>> {
         self.ensure_ready()?;
-        let cell = EntityId::new();
+        if self.state.as_ref().is_some_and(|state| !state.private) {
+            bail!("REPL_FORK_UNSUPPORTED: external state preopen cannot be isolated");
+        }
+        let root = prospective_path(sessions_root)?;
+        if new_id == EntityId::nil() || new_id == self.manifest.session_id {
+            bail!("REPL_SESSION_INVALID: a fork needs a new unique identity");
+        }
+        let dir = root.join(new_id.to_string());
+        validate_fork_destination(&self.dir, &dir)?;
+        let preopens = session_preopens(&dir, &self.manifest.kernel)?;
+        let prepared_state = prepare_state(&preopens, &self.manifest.kernel.persistence)?;
+        fs::create_dir_all(&root)?;
+        if root.canonicalize()? != root {
+            bail!("REPL_MOUNT_CONFLICT: fork root changed after admission");
+        }
+        sync_directory_ancestors(&root)?;
+        let dir = root.join(new_id.to_string());
+        validate_fork_destination(&self.dir, &dir)?;
+        validate_extra_mounts(&dir, &self.manifest.kernel)?;
+        fs::create_dir(&dir)?;
+        fs::create_dir(dir.join(jrn::CELLS_DIR))?;
+        fs::create_dir(dir.join(jrn::REPLAYS_DIR))?;
+        copy_fork_home(&self.dir.join(jrn::GUEST_HOME_DIR), &dir.join(jrn::GUEST_HOME_DIR))?;
+        jrn::copy_dir(&self.dir.join(jrn::GUEST_WORK_DIR), &dir.join(jrn::GUEST_WORK_DIR))?;
+        File::create(dir.join(jrn::JOURNAL_FILE))?.sync_all()?;
+        File::open(&dir)?.sync_all()?;
+        File::open(&root)?.sync_all()?;
+        let dir = dir.canonicalize()?;
+        let state = prepared_state.map(|state| state.bind(&preopens)).transpose()?;
+        let baseline = match &state { Some(state) => state.file.snapshot(&dir)?, None => None };
+        let manifest = SessionManifest { forked_from: Some(self.manifest.session_id), session_id: new_id,
+            baseline, created_unix_ms: unix_ms(), disposed_unix_ms: None, ..self.manifest.clone() };
+        let engine = build_engine(&dir, &manifest.kernel, preopens)?;
+        jrn::write_manifest(&dir, &manifest)?;
+        let journal = load_journal(&dir, &manifest)?;
+        Ok(Box::new(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
+            oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: self.preview_bytes }))
+    }
+
+    /// Native handlers allocate this identity before T1; execution only adds
+    /// the actual session sequence and observation to that original cell.
+    pub(crate) fn execute_identified(&mut self, request: CellRequest, cell: EntityId) -> Result<CellResult> {
+        self.ensure_ready()?;
+        if cell == EntityId::nil() || self.journal.cells.iter().any(|known| known.cell == cell) {
+            bail!("REPL_CELL_IDENTITY_CONFLICT: this cell identity cannot execute again");
+        }
         let (outcome, driver_report, stdout_path, stderr_path, wall_clock_ms) = match self.engine.session_model() {
             SessionModel::OneShot => {
                 let stem = cell.to_string();
@@ -1093,6 +1212,12 @@ impl ReplSession for WasiReplSession {
         };
         let record = jrn::append_cell(&mut self.journal, record)?;
         Ok(CellResult { record, stdout, stderr })
+    }
+}
+
+impl ReplSession for WasiReplSession {
+    fn execute(&mut self, request: CellRequest) -> Result<CellResult> {
+        self.execute_identified(request, EntityId::new())
     }
 
     fn inspect(&self) -> Result<SessionInfo> {
@@ -1214,42 +1339,7 @@ impl ReplSession for WasiReplSession {
     }
 
     fn fork(&self, sessions_root: &Path) -> Result<Box<dyn ReplSession>> {
-        self.ensure_ready()?;
-        if self.state.as_ref().is_some_and(|state| !state.private) {
-            bail!("REPL_FORK_UNSUPPORTED: external state preopen cannot be isolated");
-        }
-        let root = prospective_path(sessions_root)?;
-        let new_id = EntityId::new();
-        let dir = root.join(new_id.to_string());
-        validate_fork_destination(&self.dir, &dir)?;
-        let preopens = session_preopens(&dir, &self.manifest.kernel)?;
-        let prepared_state = prepare_state(&preopens, &self.manifest.kernel.persistence)?;
-        fs::create_dir_all(&root)?;
-        if root.canonicalize()? != root {
-            bail!("REPL_MOUNT_CONFLICT: fork root changed after admission");
-        }
-        sync_directory_ancestors(&root)?;
-        let dir = root.join(new_id.to_string());
-        validate_fork_destination(&self.dir, &dir)?;
-        validate_extra_mounts(&dir, &self.manifest.kernel)?;
-        fs::create_dir(&dir)?;
-        fs::create_dir(dir.join(jrn::CELLS_DIR))?;
-        fs::create_dir(dir.join(jrn::REPLAYS_DIR))?;
-        copy_fork_home(&self.dir.join(jrn::GUEST_HOME_DIR), &dir.join(jrn::GUEST_HOME_DIR))?;
-        jrn::copy_dir(&self.dir.join(jrn::GUEST_WORK_DIR), &dir.join(jrn::GUEST_WORK_DIR))?;
-        File::create(dir.join(jrn::JOURNAL_FILE))?.sync_all()?;
-        File::open(&dir)?.sync_all()?;
-        File::open(&root)?.sync_all()?;
-        let dir = dir.canonicalize()?;
-        let state = prepared_state.map(|state| state.bind(&preopens)).transpose()?;
-        let baseline = match &state { Some(state) => state.file.snapshot(&dir)?, None => None };
-        let manifest = SessionManifest { forked_from: Some(self.manifest.session_id), session_id: new_id,
-            baseline, created_unix_ms: unix_ms(), disposed_unix_ms: None, ..self.manifest.clone() };
-        let engine = build_engine(&dir, &manifest.kernel, preopens)?;
-        jrn::write_manifest(&dir, &manifest)?;
-        let journal = load_journal(&dir, &manifest)?;
-        Ok(Box::new(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
-            oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: self.preview_bytes }))
+        self.fork_identified(sessions_root, EntityId::new())
     }
 
     fn cancel(&self) -> Result<CancelOutcome> {

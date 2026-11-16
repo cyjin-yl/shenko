@@ -242,6 +242,7 @@ pub(crate) async fn install_native_definitions(
     let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(
         Arc::clone(store),
     ));
+    config_service.register(Arc::new(crate::policy_config::QuotaNamespace(Arc::clone(store))));
     let config_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_ui::ConfigHandler::new(
             Arc::clone(store),

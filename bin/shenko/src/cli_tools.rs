@@ -502,6 +502,8 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             read_only,
             args,
             env,
+            network,
+            timeout_secs,
             stdin_file,
             stdout_file,
             stderr_file,
@@ -570,10 +572,16 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             let mounts = profile.resolve(&manifest.mounts);
             let granted_environment: std::collections::BTreeMap<String, String> =
                 guest_env.iter().cloned().collect();
-            let granted = shenko_wasm::GrantedCapabilities::of_invocation(
+            let network_targets = network.iter().map(|target| parse_network_target(target))
+                .collect::<Result<Vec<_>>>()?;
+            let network_admission = shenko_wasm::NetworkAdmission::from_granted_targets(&network_targets)?;
+            let mut granted = shenko_wasm::GrantedCapabilities::of_invocation(
                 &mounts,
                 &granted_environment,
             );
+            if network_admission.is_some() {
+                granted = granted.with_network(network_targets);
+            }
             let unmet = shenko_wasm::capability_problems(&record.capabilities, &granted);
             anyhow::ensure!(
                 unmet.is_empty(),
@@ -623,6 +631,8 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             arguments.extend(args);
             command.arguments = arguments;
             command.environment = guest_env;
+            command.network = network_admission;
+            command.control.deadline = Some(std::time::Duration::from_secs(timeout_secs));
             let mut runtime = shenko_wasm::WasmRuntime::with_mounts(mounts)?;
             let code = runtime.run_wasi_module(&module, command);
             if stdout_file.is_none() {

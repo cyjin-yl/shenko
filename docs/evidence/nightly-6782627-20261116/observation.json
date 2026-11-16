@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source_head": "6782627ea89e17774bc65ba54d459ad85804fef1",
+  "run_id": 43865128676,
+  "url": "https://github.com/cyjin-yl/shenko/actions/runs/43865128676",
+  "jobs": {
+    "nightly-compiler-full": "success",
+    "nightly-rust-long": "failure"
+  },
+  "compiler": {
+    "artifact_id": 14228296121,
+    "artifact_zip_sha256": "de37f8e930019f4b03a5f3c0062bff87ccad505cf9be2ef533667571d93c986e",
+    "test_files_passed": 76,
+    "tests_passed": 1514,
+    "upstream_tests_skipped": 1,
+    "duration_seconds": 319.75
+  },
+  "native": {
+    "artifact_id": 14227488587,
+    "artifact_zip_sha256": "903a143f63ce46703065d3cada9dc0a991a507e0822b6bae5d32d102073dd843",
+    "workspace_failure": "sole failed target shenko-broker --lib: original deadline assertion expected only one report instead of timeout plus Unknown",
+    "partition_process_step": "success",
+    "native_lost_reply_step": "success",
+    "native_identity_refusal_step": "success",
+    "retained_receipts": [
+      "native-ssh-memory-helper/lost-reply/tmp/shenko-own-memory-helper-09809615-a8fd-480d-9074-18f10fcfd4e9/receipts/6e1b3159-eba3-b5a8-f504-012e85e20756/receipt.json",
+      "partition/receipt.json"
+    ]
+  },
+  "scope": "Actual old-candidate all-features/partition/helper/compiler observations. The failed Rust job remains failed. These do not validate the later REPL, CLI SSH, native dispatch or startup source and are not physical fault or long-run acceptance."
+}

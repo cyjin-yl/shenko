@@ -1,0 +1,47 @@
+{
+  "kind": "observed_ci_candidate_result",
+  "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
+  "checkout_merge_sha": "afa186615fdfefedaa1569a09353957dbc47c293",
+  "run_id": 43864453626,
+  "job_id": 133289317901,
+  "job_url": "https://github.com/cyjin-yl/shenko/actions/runs/43864453626/job/133289317901",
+  "artifact_id": 14225132630,
+  "artifact_zip_sha256": "9bea62e40d4ef764778d098abf48aae6326fcfba70841e23bcf39ab9fea0101c",
+  "workspace_test_log_sha256": "22cb370adc87da51724e8d5bc3f21ec1b51a7c0580038b540a47185a6db72076",
+  "job_log_sha256": "90ccd44ac68dd341364fb4704e66536305bfb65e6e16be01a67a7424f57b720e",
+  "workspace_all_targets_check": "success",
+  "ssh_guest_build": "success",
+  "ssh_wasi_journey": {
+    "result": "success",
+    "seconds": 176.32,
+    "artifact_sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+    "artifact_bytes": 2552689,
+    "scope": "guest keygen, actual loopback OpenSSH authentication, exec status and separate streams, 100003-byte binary SFTP put/get, wrong host key and absent network grant refusal"
+  },
+  "source_provenance": {
+    "original_source_dirty": true,
+    "source_files": 97,
+    "mismatches_against_head": [],
+    "scope": "independently hashed recorded inputs; original global dirty flag preserved"
+  },
+  "native_t2_journeys": [
+    "canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results",
+    "canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt"
+  ],
+  "native_t2_result": "success",
+  "overall_rust_job": "failure",
+  "failure": "broker local_http_deadline_keeps_the_frozen_request_and_unknown_debt expected only one error; actual existing Unknown settlement also journals INFERENCE_OUTCOME_UNKNOWN; the assertion correction requires a new candidate result",
+  "scope_limits": [
+    "runtime module journey does not verify tool install or real remote device deployment",
+    "native T2 foreign parked predecessor remains debt; no dispatch takeover",
+    "not a complete A09, Node/Bun, S2, physical fault or 7/30-day result"
+  ],
+  "retained_files": {
+    "build-receipt.json": "9a507ba88d09af8aa532d45df56b2463f46cd40870368f5dded340ce4c23eef5",
+    "build.log": "1d464bd11b0232bb1df2f8199e3024b963b0e33daace1bbebf903b8056c4f07b",
+    "openssh-journey.guest-records.jsonl": "88d62a19f66f5dd45d20fb8b37a51e2372e12f95c3f6c1c9004647ca7521f65e",
+    "openssh-journey.json": "683f145c056da93f7a5dff79eca142604e05a7af9bd2ca06e2f9907ab84da616",
+    "openssh-journey.sshd.log": "92094ab1cf496ae3e4e4882f9b5f583e56d79d002da0099163f1345653e94877",
+    "workspace-test-excerpt.txt": "dc6b731765fcf1e81fdd0736bc309c7de836164e119bf18393caf665c37ff38b"
+  }
+}

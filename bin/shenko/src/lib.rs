@@ -17,6 +17,7 @@ mod compat;
 #[cfg(feature = "compat-poppy")]
 mod poppy;
 mod context_policy;
+mod policy_config;
 mod document_runtime;
 mod inference_runtime;
 mod runtime_adapters;
@@ -54,6 +55,11 @@ pub enum Command {
     Start {
         #[arg(long, default_value = "7860")]
         port: u16,
+        /// Pause at a durable clean boundary before starting consumers.
+        /// Receive input through the UI, then continue with `runtime resume`
+        /// and this stable request UUID. An unresolved step cannot be skipped.
+        #[arg(long)]
+        pause_at_start: Option<shenko_types::ids::EntityId>,
         /// Instance name given by the user. Omit it to let the agent name
         /// itself. Existing instances are edited with an explicit revision CAS.
         #[arg(long)]
@@ -260,9 +266,18 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     };
     let mut command = command;
     let result = loop {
-        let restart = runtime_authority::restart_command(&command);
+        let mut restart = runtime_authority::restart_command(&command);
+        let mut startup_pause_applied = false;
         let runtime = tokio::runtime::Runtime::new()?;
-        let result = runtime.block_on(runtime_lifecycle::run(command, data_dir.clone()));
+        let result = runtime.block_on(runtime_lifecycle::run(command, data_dir.clone(), &mut startup_pause_applied));
+        if startup_pause_applied {
+            // The original request is now durable. Reconstruction reads its
+            // current state, including a later explicit resume, instead of
+            // replaying a one-time startup action after authority recovery.
+            if let Some(Command::Start { pause_at_start, .. }) = &mut restart {
+                *pause_at_start = None;
+            }
+        }
         let recovery = result.as_ref().err()
             .is_some_and(runtime_authority::requires_reconstruction);
         if recovery {
