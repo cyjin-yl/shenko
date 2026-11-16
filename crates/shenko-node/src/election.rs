@@ -1,6 +1,6 @@
 //! Real membership, election, quorum and fencing for one Node.
 //!
-//! docs/specs/nodes.md#spec-5-4-1–docs/specs/nodes.md#spec-5-4-3, docs/specs/nodes.md#spec-22: the current primary of a connected domain is
+//! the current primary of a connected domain is
 //! decided by a committed *member configuration* plus a quorum of verified vote
 //! receipts. The number of nodes this process happens to see is never the
 //! quorum, a heartbeat is never an election, and one replicated agent process
@@ -11,10 +11,10 @@
 //! - it does not copy credentials, provider grants, model weights or any
 //!   secret handle between nodes;
 //! - it does not require a member to run a model, a local LLM or a particular
-//!   operating system (docs/specs/nodes.md#spec-5-4-1: an Android node reaching an external API
+//!   operating system (an Android node reaching an external API
 //!   is a capable member; a local LLM is not an eligibility gate);
 //! - it does not merge parallel experience by last-write-wins: conflicting
-//!   facts are retained side by side for the subject to judge (docs/specs/nodes.md#spec-5-4-2).
+//!   facts are retained side by side for the subject to judge.
 //!
 //! Every committed decision carries a monotonic fencing epoch. The resource end
 //! checks the epoch before accepting an authority-bearing write, so an instance
@@ -452,7 +452,7 @@ pub struct BranchFact {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     /// Present once this partition branch was merged back into the domain.
     /// The branch then produces no new decisions and is retained as an
-    /// archived branch with this fact, never reset (docs/specs/nodes.md#spec-5-4-2). `kind` keeps
+    /// archived branch with this fact, never reset. `kind` keeps
     /// saying which role the branch played; `global_quorum` still follows the
     /// committed claim, so an archived branch without a claim stays an
     /// availability branch rather than becoming an authority.
@@ -536,7 +536,7 @@ pub struct PeerExperience {
     pub peer_high_water: Option<String>,
     /// The manifest the peer's process actually ran with. A heterogeneous peer
     /// (another OS/arch/artifact generation) is retained as such instead of
-    /// being adopted as this node's own capability fact (docs/specs/nodes.md#spec-5-4-4).
+    /// being adopted as this node's own capability fact.
     #[serde(default)]
     pub peer_manifest: Option<Manifest>,
     pub note: String,
@@ -1094,7 +1094,7 @@ impl Node {
             // An index this node already committed carries one decision. A
             // different entry at the same index is a diverged branch, not a
             // newer fact: it is refused instead of silently replacing what
-            // this node already committed (docs/specs/nodes.md#spec-5-4-2).
+            // this node already committed.
             if let Some(existing) = Self::control_entry(&tx, entry.index)? {
                 ensure!(
                     existing.term == entry.term
@@ -2015,7 +2015,7 @@ impl Node {
             // log. The next epoch must dominate every epoch already committed
             // in this node's log, otherwise two separated branches could both
             // commit the same epoch under different leaders and the resource
-            // fence could not tell them apart (docs/specs/nodes.md#spec-5-4-1, docs/specs/nodes.md#spec-5-4-3).
+            // fence could not tell them apart.
             .max(Self::logged_max_epoch(tx)?)
             .checked_add(1)
             .context("fencing epoch exhausted")?;
@@ -2698,7 +2698,7 @@ impl Node {
     }
 
     /// Open an explicit availability branch: this node keeps thinking inside
-    /// its connected domain without claiming a global quorum (docs/specs/nodes.md#spec-5-4-1).
+    /// its connected domain without claiming a global quorum.
     pub fn open_availability_branch(
         &mut self,
         branch_id: EntityId,
@@ -2949,7 +2949,7 @@ impl Node {
     }
 
     /// Adopt an existing self: the local independent identity stops producing
-    /// new decisions while its experience is retained (docs/specs/nodes.md#spec-5-4).
+    /// new decisions while its experience is retained.
     pub fn adopt_identity(&mut self, request: AdoptRequest) -> Result<AdoptionRecord> {
         ensure!(
             !request.provenance.trim().is_empty(),
@@ -3033,7 +3033,7 @@ impl Node {
     /// content. Events are deduplicated by identity; conflicting events are
     /// retained side by side as parallel facts. A settled task is never
     /// un-settled and an unknown external effect is never re-sent
-    /// (docs/specs/nodes.md#spec-5-4-2, docs/specs/nodes.md#spec-5-4-3).
+    ///
     pub fn reconcile_peer_experience(
         &mut self,
         peer: &PeerExperience,

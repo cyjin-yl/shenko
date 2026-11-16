@@ -1,4 +1,4 @@
-//! The installed notebook definition — `context.notebook` (docs/specs/context-policies.md#spec-12-3-1).
+//! The installed notebook definition — `context.notebook`.
 //!
 //! One native definition, four operations, all branch-scoped to the caller's
 //! own subject:

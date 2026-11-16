@@ -2,7 +2,7 @@
 //!
 //! The host process performs I/O plumbing and ledger bookkeeping; the actual
 //! tool logic executes inside the WASM module, which is the honest execution
-//! boundary required by docs/specs/wasm-tools.md#spec-8-2/R008 (an H-level host relay never counts).
+//! boundary required (an H-level host relay never counts).
 //! Uninstalled or unresolved named targets produce an explicit
 //! `TOOL_UNSUPPORTED`/`TOOL_UNAVAILABLE` result rather than a silent miss.
 use anyhow::{Result, ensure};
@@ -943,7 +943,7 @@ impl NativeTaskHandler for WasiExecHandler {
         }
     }
 
-    /// docs/specs/durable-state.md#spec-36 effect contract of `wasi.exec.v2`.
+    /// effect contract of `wasi.exec.v2`.
     ///
     /// The guest runs inside the real WASM runtime with the mount closure the
     /// home manifest declares. A read-only profile withdraws every write

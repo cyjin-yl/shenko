@@ -1,4 +1,4 @@
-//! Real subject branches and immutable ancestry — docs/specs/nodes.md#spec-5-4.
+//! Real subject branches and immutable ancestry.
 //!
 //! The one local controller projection changes branches atomically. Originals
 //! on the parent (including unresolved requests and effects) keep their IDs and

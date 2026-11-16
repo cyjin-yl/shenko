@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the dependency boundary between the kernel and its plugins.
 
-This is a structure-only check for docs/specs/kernel.md#kernel-7. It reads
+This is a structure-only check. It reads
 workspace manifests and boundary baselines: it does not build, run or verify the
 Shenko product, and it says nothing about whether a crate's code is correct.
 

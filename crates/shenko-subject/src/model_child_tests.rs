@@ -749,7 +749,7 @@ async fn child_contributions_survive_registry_replacement_and_reopen_without_reu
     assert!(matches!(store.native_task_result(task.task_id).unwrap().unwrap().outcome, TaskOutcome::Succeeded));
     // The inspection trajectory reads the same run back from ledger facts:
     // both model steps in order with their sealed records, the tool call the
-    // first step made, and the final answer (docs/specs/web-interface.md#5-2).
+    // first step made, and the final answer.
     let trajectory = store.task_trajectory(task.agent_id, task.task_id)?.context("the run has a trajectory")?;
     assert_eq!(trajectory.task.kind, crate::model_child::MODEL_CHILD_KIND);
     assert!(trajectory.input.as_ref().is_some_and(|input| input.to_string().contains("Observe prepared context.")),

@@ -1,6 +1,6 @@
 //! Native Linux proof path: a real non-XTEST input device revokes an active
 //! Computer Use write lease and releases machine-held input
-//! (docs/specs/desktop-runtime.md#spec-24-1, docs/specs/desktop-runtime.md#spec-24-3).
+//!
 //!
 //! # What actually runs
 //!

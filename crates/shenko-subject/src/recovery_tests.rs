@@ -3860,6 +3860,74 @@ async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// The loop's real reporting path must retain cleanup failures as structured
+/// facts, even though the original typed error's Display omits its details.
+#[test]
+fn broker_admission_error_journal_preserves_primary_and_cleanup_errors() {
+    use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy};
+
+    let (dir, store, agent) = fixture();
+    let subject = state(store.clone(), agent).unwrap();
+    let session_id = EntityId(subject.head.branch_id.0);
+    let request_id = EntityId::new();
+    let operation_id = EntityId::new();
+    let commit_ref = subject.head.committed_at;
+    let primary = "broker admission failed: accounting is unavailable";
+    let recovery = "unknown charge restoration failed: accounting mutex poisoned";
+    let retry_record = "retry evidence could not commit: step revision changed";
+    let error = ProtocolError::new(
+        "BROKER_ADMISSION_REJECTED", ErrorScope::Request, RetryStrategy::AfterReconcile,
+    )
+    .with_operation(operation_id)
+    .with_commit(commit_ref)
+    .with_details(serde_json::json!({
+        "request_id": request_id,
+        "admission_error": primary,
+        "outcome": "unknown",
+        "unknown_charge_restored": false,
+        "recovery_error": recovery,
+        "retry_record_error": retry_record,
+    }))
+    .into();
+
+    super::journal_subject_loop_error(&subject, &error, None);
+    assert_eq!(store.error_journal_dropped(), 0);
+    drop(subject);
+    drop(store);
+
+    // Read the committed runtime-error fact through the same durable reader
+    // used by errors.read, after reopening the store that owns the session.
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let events = reopened.list_session_events(session_id, &shenko_store::SessionEventFilter {
+        from_seq: 0,
+        to_seq: i64::MAX,
+        limit: 20,
+        event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()],
+        roles: vec![],
+    }).unwrap();
+    assert_eq!(events.len(), 1);
+    let data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+    assert_eq!(data["kind"], "subject_loop");
+    assert_eq!(data["step_no"], 1);
+    assert_eq!(data["journal_dropped_total"], 0);
+    assert_eq!(data["message"], format!("subject loop stopped on error: {error}: {primary}"));
+    let protocol = &data["extra"]["error"];
+    assert_eq!(protocol["code"], "BROKER_ADMISSION_REJECTED");
+    assert_eq!(protocol["scope"], "request");
+    assert_eq!(protocol["retry"], "after_reconcile");
+    assert_eq!(protocol["operation_id"], operation_id.to_string());
+    assert_eq!(protocol["commit_ref"], serde_json::to_value(commit_ref).unwrap());
+    let details = &protocol["details"];
+    assert_eq!(details["request_id"], request_id.to_string());
+    assert_eq!(details["admission_error"], primary);
+    assert_eq!(details["outcome"], "unknown");
+    assert_eq!(details["unknown_charge_restored"], false);
+    assert_eq!(details["recovery_error"], recovery);
+    assert_eq!(details["retry_record_error"], retry_record);
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// One admitted input this build cannot decode is a durable FACT, not a
 /// licence to stop the subject (docs/specs/durable-state.md#spec-41-4 X11): the row stays pending with
 /// its identity, the skip is journaled once, and the readable input beside it

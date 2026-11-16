@@ -1,4 +1,4 @@
-//! The installable context strategies and their runtime wiring — docs/specs/context-policies.md#spec-12-3-1.
+//! The installable context strategies and their runtime wiring.
 //!
 //! Budget compact and snapcompact are two independent strategies. Each one
 //! is an installable code unit: its manifest, version, dependencies and
@@ -37,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-use crate::{ContextCommand, ContextPolicyCommand};
+use crate::cli::{ContextCommand, ContextPolicyCommand};
 
 /// The installation unit id of a context strategy.
 pub fn unit_id(policy_id: &str) -> String {
