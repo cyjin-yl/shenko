@@ -1,0 +1,117 @@
+warning: unused import: `warn`
+  --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/client/mod.rs:49:32
+   |
+49 | use log::{debug, error, trace, warn};
+   |                                ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `sec`
+  --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/keys/format/pkcs5.rs:17:13
+   |
+17 |         let sec = match enc {
+   |             ^^^ help: if this is intentional, prefix it with an underscore: `_sec`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `sender_maximum_packet_size` is never read
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/lib_inner.rs:506:5
+    |
+500 | pub(crate) struct ChannelParams {
+    |                   ------------- field in this struct
+...
+506 |     sender_maximum_packet_size: u32,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `ChannelParams` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `initial_methods` and `principal` are never read
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/auth.rs:354:5
+    |
+353 | pub struct AuthRequest {
+    |            ----------- fields in this struct
+354 |     initial_methods: MethodSet,
+    |     ^^^^^^^^^^^^^^^
+...
+359 |     pub(crate) principal: Option<AuthPrincipal>,
+    |                ^^^^^^^^^
+    |
+    = note: `AuthRequest` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `user` and `service` are never read
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/auth.rs:367:5
+    |
+366 | pub(crate) struct AuthPrincipal {
+    |                   ------------- fields in this struct
+367 |     user: String,
+    |     ^^^^
+368 |     service: String,
+    |     ^^^^^^^
+    |
+    = note: `AuthPrincipal` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: associated items `server` and `bind_or_reset_principal` are never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/auth.rs:390:19
+    |
+389 | impl AuthRequest {
+    | ---------------- associated items in this implementation
+390 |     pub(crate) fn server(methods: MethodSet) -> Self {
+    |                   ^^^^^^
+...
+421 |     pub(crate) fn bind_or_reset_principal(&mut self, user: &str, service: &str) -> bool {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAXIMUM_DECOMPRESSED_PACKET_LEN` is never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/cipher/mod.rs:378:18
+    |
+378 | pub(crate) const MAXIMUM_DECOMPRESSED_PACKET_LEN: usize = MAXIMUM_PACKET_LEN;
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `BUILTIN_SAFE_DH_GROUPS` is never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/kex/dh/groups.rs:319:18
+    |
+319 | pub(crate) const BUILTIN_SAFE_DH_GROUPS: &[&DhGroup] = &[&DH_GROUP14, &DH_GROUP16];
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `validate_client_msg_strict_kex` is never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/msg.rs:125:15
+    |
+125 | pub(crate) fn validate_client_msg_strict_kex(msg_type: u8, seqno: usize) -> Result<(), Error> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `Server` is never constructed
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/negotiation.rs:454:12
+    |
+454 | pub struct Server;
+    |            ^^^^^^
+
+warning: method `read_client_ssh_id` is never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/ssh_read.rs:147:18
+    |
+135 | impl<R: AsyncRead + Unpin> SshRead<R> {
+    | ------------------------------------- method in this implementation
+...
+147 |     pub async fn read_client_ssh_id(&mut self) -> Result<&[u8], Error> {
+    |                  ^^^^^^^^^^^^^^^^^^
+
+warning: method `hash_alg` is never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/helpers.rs:232:12
+    |
+231 |     pub trait AlgorithmExt {
+    |               ------------ method in this trait
+232 |         fn hash_alg(&self) -> Option<HashAlg>;
+    |            ^^^^^^^^
+
+warning: method `debug` is never used
+   --> /workspace/scratch/faaa3ccca531/shenko/third-party/russh-duplex/src/session.rs:240:12
+    |
+131 | impl<C> CommonSession<C> {
+    | ------------------------ method in this implementation
+...
+240 |     pub fn debug(
+    |            ^^^^^
+
+warning: `russh` (lib) generated 13 warnings (run `cargo fix --lib -p russh` to apply 2 suggestions)
+   Compiling shenko-ssh-wasi v0.1.0 (/workspace/scratch/faaa3ccca531/shenko/crates/shenko-wasm/ports/ssh-wasi)
+    Finished `dev` profile [unoptimized] target(s) in 2.51s

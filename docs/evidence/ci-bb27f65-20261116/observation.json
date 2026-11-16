@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "head_sha": "bb27f6542e3c37c693a973b5cc26ca8d2ec8fccf",
+  "run_id": 43872078834,
+  "url": "https://github.com/cyjin-yl/shenko/actions/runs/43872078834",
+  "jobs": {
+    "docs": "success",
+    "docs-migration": "success",
+    "kernel-boundary": "success",
+    "web": "success",
+    "clippy-ratchet": "success",
+    "rust": "failure"
+  },
+  "workspace_all_targets_check": "success",
+  "rust_artifact_id": 14227924196,
+  "rust_artifact_zip_sha256": "74055c8b74bb5e0fce2c18f80d3a5d934690abcb6600c7d1506d496802659b02",
+  "actually_passed": [
+    "canonical native dispatch original permit and recovery journey",
+    "both canonical native T2 journeys",
+    "broker exact timeout and Unknown pair",
+    "REPL refused T1 creates neither session nor cell"
+  ],
+  "actual_failures": [
+    "CLI SSH journey successfully bootstrapped and installed the real chunked module, then incorrectly compared the selected package digest with its module digest; no SSH request was reached in this new CLI journey.",
+    "Strong REPL effect/recovery journey stopped at its first stale-invocation error-name assertion; its later effects/recovery assertions were not reached."
+  ],
+  "raw_files": [
+    {
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/install.stdout",
+      "retained_path": "install.stdout",
+      "sha256": "8e58a275ca85ab10ea8462a9daea831d414d162880e090a100f12c8fc12f0b79",
+      "bytes": 4540
+    },
+    {
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/inventory.stdout",
+      "retained_path": "inventory.stdout",
+      "sha256": "a784b605e8b7188ff2fc1111bca7141cdc4870e7780a0ba58f86d9df13c0a6fb",
+      "bytes": 7440
+    },
+    {
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/processes.jsonl",
+      "retained_path": "processes.jsonl",
+      "sha256": "5cbaa74cc0f1a9aface6c37c5b7c21c8f5c68f0c3a4adc001209d85e57651f2c",
+      "bytes": 609
+    }
+  ],
+  "scope": "These source-specific passes are actual executed checks. Rust remains failed; neither pending follow-up fixes nor the later startup/model flow are accepted by this run."
+}

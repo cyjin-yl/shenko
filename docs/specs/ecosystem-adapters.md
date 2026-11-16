@@ -19,7 +19,7 @@
 | --- | --- | --- | --- |
 | `compat.mcp` | `shenko-compat-mcp` | 与显式配置的外部 MCP 端点通信 | 不实现 server、不捆绑目录、不读账号 |
 | `compat.skill` | `shenko-compat-skill` | 读取原样保留的 Agent Skill 材料 | 不执行脚本、不安装依赖、不授予工具 |
-| `compat.poppy` | `shenko-compat-poppy`；宿主接线在 `bin/shenko/src/poppy.rs` | 读取公开 Poppy/UCP 发现资料 | 当前不连接账号、不协商 UCP、不下单；签名库尚未接入商家传输 |
+| `compat.poppy` | `shenko-compat-poppy`；宿主接线在 `bin/shenko/src/poppy.rs` | 发现、签名访问、OAuth 账号、浏览器加入与 UCP 商务请求 | 不捆绑商家、账号或支付提供方；能力声明与传输成功不等于购买完成 |
 
 `crates/shenko-compat` 只放共用的安装、回执与安装观察机制（`installation`、`recorded`、
 `runtime`），本身既不是生态插件，也不维护另一套安装或服务注册表。
@@ -28,8 +28,8 @@ CLI 的 Cargo feature 也独立：默认编译 `compat-mcp` 与 `compat-skill`�
 `cargo build -p shenko --no-default-features --features compat-skill` 只编译 Skill 适配器，不引入
 MCP crate 或 `rmcp` SDK；将 feature 换为 `compat-mcp` 则只编译 MCP 适配器。只给
 `--no-default-features` 时适配器都不编译，对应子命令也不存在，`compat status` 仍可检查安装。
-Poppy 默认不编译，显式加 `--features compat-poppy` 才提供；其首个增量边界见
-[Poppy：发现与签名基础](#poppy-foundation)。
+Poppy 默认不编译，显式加 `--features compat-poppy` 才提供；安装与接口见
+[Poppy：身份、账号与商务接入](#poppy-foundation)。
 
 ```rust
 // 安装：普通单元导入，先禁用地记录
@@ -389,65 +389,341 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 <!-- /migrated-contract: SPEC:50.2 -->
 
 <a id="poppy-foundation"></a>
-## Poppy：发现与签名基础
+## Poppy：身份、账号与商务接入
 
-**Why。** 个人 agent 需要在访问外部服务时说明身份、保留账号边界，并能重新观察不确定结果。
-Poppy 身份、OAuth 账号授权、UCP 商务能力分别接入既有插件和任务机制；商家声明不自动变成
-主体权限或购买决定。[Issue #297](https://github.com/cyjin-yl/shenko/issues/297) 跟踪完整方向；
-当前增量只交付公开发现与纯签名基础。
+**Why。** 个人 agent 访问外部服务时需要说明身份、保留账号边界，并能重新观察不确定结果。
+Poppy 身份、OAuth 授权和 UCP 请求通过既有可选插件、原生任务与效果账本接入；商家声明
+不自动变成主体权限或购买决定。[Issue #297](https://github.com/cyjin-yl/shenko/issues/297)
+跟踪这一方向。本节说明当前接口，运行结果另按[验证合同](verification.md)记录。
 
-**发现。** `shenko-compat-poppy` 不依赖 Store、Subject 或新的服务注册表。它先读取公司的
-`/.well-known/poppy.json`，检查最终 domain、版本与渠道声明，再读取 OAuth protected-resource
-和必要的授权服务器 metadata。公司身份使用核验后的 issuer；只有 404 或有效的无 AS 声明
-才允许 issuerless，公司标识此时为 HTTPS origin。网络错误、错误 issuer 和无效 JSON 都报错，
-不会伪装成无账号服务。版本文档必须同 origin、不可重定向且身份一致；支持 1.x 文档时将未来
-请求版本明确记为 `1.0`，旧版只接受 `0.4`。
+协议库位于 [`shenko-compat-poppy`](../../crates/shenko-compat-poppy/src/lib.rs)，不依赖 Store、
+Subject 或新的服务注册表。节点身份、凭据与任务接线由
+[`bin/shenko/src/poppy.rs`](../../bin/shenko/src/poppy.rs) 及其子模块拥有。
 
-读取使用独立的匿名 HTTPS client，不携带 Session、token 或 cookie，不使用环境代理或自动
-重试。每次连接前检查并固定 DNS 地址；默认拒绝私网和非标准端口。库中可显式配置例外，
-CLI/native 输入不提供这些开关。每请求限 12 秒、整次限 60 秒、单文档限 512 KiB，主发现至多
-跟随 5 次重定向。所选版本、OAuth 与 UCP metadata 都不跟随重定向。
+### 可选安装与公开身份
 
-声明 UCP 时，只读取同一公司 origin 的 `/.well-known/ucp`。结果保留来源 URL、响应时间、
-已读取正文的摘要、原始声明和 `state: discovered`；未读取的 404 正文不伪造摘要。
-能力声明、协商成功、账号授权和业务完成是不同事实，这个入口只产生第一种。
-
-**运行时。** `compat-poppy` 是默认关闭的编译 feature。`compat.poppy` 使用普通 Node 单元的
-安装事实，由既有 `watch_installed` 发布/撤回 `compat.poppy.discover:1`。装配根中的 handler
-在任何网络读取前，通过 `RecordedCall` 冻结 origin、武装操作；成功回执只证明公开 metadata
-被观察到。超时、取消或不完整发现保留 unknown。卸载取消并 join 自有读取；恢复只读原始
-回执，自动重放关闭。大观察沿用 CAS 和 `compat.artifact.read`。
-包含 Poppy 的应用装配由一个独立 watcher 管理共用 reader：MCP/Poppy 任一精确安装启用时
-保持驻留，最后一个禁用才撤回，因此启用顺序和单独卸载不会重复登记或拔掉对方的 reader。
-独立使用 MCP crate 的原有拥有关系保留；`compat.usage.digest` 仍只属于 MCP，此增量未扩展
-其观察集合到 Poppy。
+`compat-poppy` 默认不编译；它复用 MCP 传输，因此启用这个 feature 会编译 MCP 依赖，
+但不会自动启用 `compat.mcp`。`compat.poppy` 与公司连接均使用普通 Node 安装事实，
+只有当前启用的精确安装版本才向主体提供能力。CLI 子命令见
+[`CompatPoppyCommand`](../../bin/shenko/src/lib.rs)，以下 `shenko` 指带该 feature 的二进制。
+示例域名须替换成操作者控制的公开 HTTPS 地址和实际商家 origin。
 
 ```sh
 cargo build -p shenko --features compat-poppy
-shenko compat poppy discover https://www.allbirds.com
+shenko compat poppy init \
+  --client-id https://agent.example/poppy/client.json \
+  --jwks-uri https://agent.example/poppy/jwks.json \
+  --profile-uri https://agent.example/.well-known/ucp \
+  --redirect-uri https://agent.example/poppy/callback
+shenko compat poppy identity --public-dir ./poppy-public
 shenko compat enable compat.poppy
+shenko compat poppy connect https://merchant.example --unit-id poppy.merchant --enable
+shenko compat poppy connections
+```
+
+`init` 生成本节点的长期签名密钥，保存公开配置，输出公开文档；`identity` 可重新导出文档。
+这两个命令不发布 HTTPS 服务。操作者须把导出的文件按配置托管，提供真实的回调接收能力，
+并保持公开内容与当前密钥、重定向 URI、支付处理器声明一致：
+
+| 导出文件 | 示例公开地址 | 内容 |
+| --- | --- | --- |
+| `client.json` | `https://agent.example/poppy/client.json` | CIMD 客户端 metadata；该 URL 就是 `client_id` |
+| `jwks.json` | `https://agent.example/poppy/jwks.json` | 公开签名密钥；不包含私钥 |
+| `ucp.json` | `https://agent.example/.well-known/ucp` | 操作者级 UCP 平台 profile 与公开验证密钥 |
+
+平台 profile 不包含公司专用用户 ID、账号 token 或私钥。默认支付处理器为空；只有实际
+接入了能提供不透明支付凭据的提供方，才用 `init --payment-handlers-file <file>` 或
+`configure-payments --file <file>` 配置其公开声明，再重新托管 profile。声明文件不是支付凭据。
+Shenko 不提供示例商家账号、支付卡或由商家广告自动启用的付款提供方。
+
+`connect` 执行公开发现并保存连接，输出精确的 `connection:{unit_id,revision,artifact_digest}`。
+它不登录账号。`probe poppy.merchant` 会重新读取并核对上述三个公开文档，然后尝试所选
+UCP MCP 服务的签名 `initialize` / `tools/list`；它要求商家实际声明相应服务。返回的
+`published_identity_verified`、工具目录与本地能力交集不证明账号访问或购买成功。
+
+```sh
+shenko compat poppy discover https://merchant.example
+shenko compat poppy probe poppy.merchant
+shenko compat poppy new-session poppy.merchant
 shenko compat disable compat.poppy
 ```
 
-`poppy discover` 是操作者直接运行的公开诊断，输出 JSON，不初始化主体或创建任务。
-运行中的主体通过 native 定义委派时，输入为
-`{"origin":"https://merchant.example","timeout_secs":60}`，走持久操作和回执路径。
-默认编译支持的其他插件不因 Poppy 的启停改变。
+`discover` 是匿名诊断，输出 JSON，不初始化主体或创建任务。`new-session` 保留公司与用户
+身份、节点 refresh token，换用新的连接 Session；旧购物车或浏览器 cookie 不被假定随之迁移。
+连接更新后应重新取得 `connections` 的 revision/digest。停用插件撤回原生能力并取消、join
+自有请求；它不等同于商家侧退出账号。账号撤销走下述 `revoke` 动作。
 
-**签名。** 库接受操作者提供的 P-256 PKCS#8 长期密钥，生成公开 client metadata/JWKS，
-并为固定的公司、用户和 Session 绑定生成短期委托密钥。delegation 最长 24 小时，每次请求
-重新产生 Session JWT 的时间与随机 nonce；ES256 输出为 JOSE 的 `r || s`。请求绑定方法、
-去掉 query/fragment 的实际 URL，以及有 token 时的 `ath`。长期密钥不直接签 Session，
-delegation 不包含公司和用户信息，公开 JWKS 不含私钥。公司 identifier 必须来自已核验的
-发现资料，稳定的 pairwise user ID 由宿主保密持久化。
+### 发现、签名与凭据边界
 
-**尚未接线。** 公开平台 metadata/JWKS 托管、节点凭据持久化、签名向真实 API/MCP 请求的
-注入、OAuth/DPoP、浏览器 session join、HTTP Message Signature、UCP 平台 profile 协商、
-购物车、付款和订单核对均保留为 Issue #297 后续工作。签名原语可验证不代表商家已接受身份；
-Session 也不证明用户批准了某张订单。当前没有新增业务判断、全局审批或自动购买策略。
+发现从 `/.well-known/poppy.json` 开始，核验最终 domain、版本、渠道和 OAuth 资源/发行方
+的相互声明。公司标识使用核验后的 issuer；只有明确的无 AS 声明或相应 metadata 404
+才使用 HTTPS origin。网络故障、错误 issuer、无效 JSON 不伪装成无账号服务。选择的
+1.x 文档对应请求版本 `1.0`，旧版兼容 `0.4`；版本文档须同 origin、不可重定向且身份一致。
+公司声明 UCP 时读取同 origin 的 `/.well-known/ucp`，保留来源、时间、摘要和原始声明。
+
+发现请求匿名，不带 Session、token、cookie，不使用环境代理或自动重试。每次连接前检查
+并固定 DNS，CLI/native 默认拒绝私网和非标准端口。发现单请求上限 12 秒、总时限 60 秒、
+单文档 512 KiB，主发现至多跟随五次重定向；选定版本、OAuth 与 UCP metadata 不跟随重定向。
+带凭据的传输在已验证的实际目标上生成签名，不把旧签名转发到重定向地址。
+
+连接保留每公司稳定的 opaque pairwise user ID 和 Session 身份。请求在最终 method、URL、
+Authorization、DPoP、UCP metadata 与幂等键确定后签名：短期委托密钥生成每请求新鲜的
+`Poppy-Session`，有 token 时绑定 `ath`，操作者密钥补齐 HTTP Message Signature。
+普通 Session 不授予账号访问。非浏览器网页 GET 始终不带账号 token；浏览器使用自己的
+商家 cookie。OAuth 端点使用 `private_key_jwt`，其 audience 是精确 issuer，不带 Poppy
+Session/version/extensions 头。
+
+实际操作冻结公司、pairwise user、操作者、连接版本、Session 和账号 grant binding。
+每次成功的新登录生成新的 grant binding；refresh 保持原 binding 和原 DPoP 密钥，返回
+Bearer 访问 token 也不丢弃绑定 refresh token 的 DPoP 密钥。未登录请求使用连接的基础
+Session ID；账号请求根据基础 Session ID 与持久 grant binding 派生稳定的独立 Session ID，
+刷新保持不变，每次成功的新登录分开处理。首次登录也不隐式继承匿名购物车或浏览器 cookie。
+操作冻结的是实际发送的 Session ID。协议版本或 `Poppy-Extensions` 声明变化须开始新
+Session，远端错误不会触发自动切换和重发。账号不根据 opaque token 内容猜测。
+服务资源按 protected-resource metadata 与 issuer 核对，MCP 的 resource
+必须精确匹配实际端点；资源 token 不得用于其他 API 或浏览器加入。
+
+商务资源还冻结所选 transport、原始 UCP service endpoint 和精确 OAuth resource
+（包括默认 token 的 null 身份）。原请求读取、checkout 观察加载、instrument 绑定、完成和
+对账都核对这份绑定。保持同一服务、resource 和 grant 的 Session 更新可以继续读取原资源；
+同一 issuer/user/grant 下另一个服务即使返回相同 checkout ID、订单与条款，也不能替代原服务。
+
+节点凭据保存在数据目录下的 `poppy-private`，与可共享的 Node 连接、任务输入和 CAS 分开。
+Unix 实现使用属主校验、0700 目录、0600 且不跟随符号链接的文件、持有期间的 OS 锁，以及
+AES-256-GCM 密文和 fsync；可变账号状态原子替换，instrument 与最终商务请求则完整同步后
+以不覆盖目标的方式发布。未实现对应 ACL 的非 Unix 平台明确拒绝此 vault。
+长期密钥、OAuth state/verifier、callback、refresh/access token、DPoP 私钥和支付 instrument
+留在节点上；
+公开观察只含引用、实际返回的 scope/expiry 等 metadata 和未知结果记录。
+同步连接或迁移任务不能凭空获得另一节点的账号授权。
+
+DPoP nonce 按 AS/RS 角色及精确 endpoint 分开持久化，成功响应中的新 nonce 也会更新。
+429 的 `Retry-After` 在后续发送前检查；无有效时间时记录本地保守等待。OAuth 会在这个
+本地检查通过后才写入发送标记。这里没有自动重试刷新、兑换授权码、撤销或商务写入的循环。
+
+### 原生任务接口
+
+插件通过既有 `watch_installed` 发布四个 version 1 定义：
+
+| 原生定义 | 输入与用途 |
+| --- | --- |
+| `compat.poppy.discover` | `{origin,timeout_secs?}`，公开发现；超时为 1–60 秒 |
+| `compat.poppy.account` | 共用连接封套加 `account:{action,...}`，账号流程与浏览器加入 |
+| `compat.poppy.request` | 共用连接封套加 `request:{action,...}`，签名访问声明的服务 |
+| `compat.poppy.commerce` | 共用连接封套加 `commerce:{action,...}`，UCP 协商、请求与恢复查询 |
+
+后三者的封套为 `{connection,authentication?,timeout_secs?,account|request|commerce}`，只允许
+对应的一种动作。`connection` 必须原样使用当前 `connect` / `connections` 返回的精确引用。
+`authentication` 默认为 `{"mode":"signed_out"}`；账号访问使用
+`{"mode":"account","resource":"https://实际资源地址"}`，公司的默认 token 使用 `resource:null`。
+超时缺省 60 秒，范围 1–120 秒。选择账号访问而凭据缺失、过期、资源不匹配或隔离时会报错，
+不会默默降级成匿名写入。`account` 中除 `join_browser` 外的控制动作自行加载 grant，
+所以过期访问 token 不会阻止 status、refresh 或 revoke。
+
+以下是传给 `delegate:compat.poppy.account:1` 的完整输入示例；尖括号内容均须替换，scope
+须来自实际商家和当前任务需求：
+
+```json
+{
+  "connection": {
+    "unit_id": "poppy.merchant",
+    "revision": "<connections 返回的 revision>",
+    "artifact_digest": "<connections 返回的完整 artifact_digest>"
+  },
+  "account": {
+    "action": "begin_direct",
+    "redirect_uri": "https://agent.example/poppy/callback",
+    "scopes": ["<实际需要且商家支持的 scope>"]
+  }
+}
+```
+
+后续示例的动作对象放入同一个封套的对应字段。任务在外部动作前通过 `RecordedCall` 冻结
+输入并建立 T1、取得本次 dispatch 归属；每次发送前检查当前任务和插件代际。停止与取消
+可以阻止后续发送，但不证明已发出的远端动作停止。原始回执使用既有 E1/CAS 路径；共用
+`compat.artifact.read` 在 MCP/Poppy 任一精确安装启用时保持可用。
+
+商务修改在最终发送边界另保留一次不可变请求事实：MCP 在 SDK 分配 RPC ID、序列化及授权
+完成并通过正文不变检查后，REST 在实际请求序列化与授权后，将最终 method、URL、授权头、
+原始正文字节、RPC ID、Request-Id、幂等键、完成绑定及 instrument 内容摘要封存在同一节点
+vault。共享 CAS 只保存受认证的私有引用、摘要和公开请求标识；既有 Store evidence 批次将它
+关联原 RecordedCall 的 operation/attempt，提交完成后才可发送。该事实没有远端观察级别，
+不冒充商家响应，不改写原 attempt 的 final receipt。中断、持久化失败或已存在的私有请求
+引用都不授予重发资格；无法确定结果时仍按原身份保留 Unknown。
+
+最终请求封存由 session 或原生 operation 的 `CaptureState` 持有 blocking worker：vault
+写入与同步、CAS 封存、SQLite evidence append 和其中的 authority 读取都不占用 async
+worker，也不持有共享 commerce slot 的长锁。每次等待使用请求期限的四分之一，最多五秒；
+MCP 还按同一 RPC 的剩余期限收紧，不给短期限增加最低等待或额外 grace。RPC 的本地封存
+失败通过 SDK 非序列化 extensions 绑定到该请求，保留类型化的 refused、timeout 或 worker
+原因，不把并发请求、SSE 或 DELETE 的失败借给另一次调用。此失败证明该请求没有发送；
+此前发现或读取仍保留各自的真实观察。
+
+取消或超时不强制中断已经进入 OS 的文件同步。放弃等待时，worker 的 join handle 仍归原
+owner 所有，session 关闭或 operation 的 E1 结算前必须 join 并保留迟到错误。各耐久阶段间
+检查取消；已经形成的私有片段或请求事实留存，不删除、不覆盖，也不能据此重发。本地封存
+拒绝记录 `request_dispatched:false` 和原 typed cause，不冒充远端完成级别或商家响应。
+
+### 账号授权与私有浏览器流程
+
+账号动作由 [`account.rs`](../../bin/shenko/src/poppy/account.rs) 实现：
+
+| `account` 对象 | 行为 |
+| --- | --- |
+| `{"action":"status"}` | 读取当前 grant、被替换 grant、待授权流程和隔离标记；不远程验证登录 |
+| `{"action":"begin_direct","redirect_uri":"<已登记 URI>","scopes":["<scope>"]}` | 保存 PKCE/state，返回授权 URL；商家声明 PAR 时先执行 PAR |
+| `{"action":"complete_direct","callback_ref":"oauth-callback-<UUID>"}` | 读取节点私有回调引用，核验 issuer/state/路由后兑换 code |
+| `{"action":"begin_device","scopes":["<scope>"]}` | 返回经核验的 verification URI、user code、公司说明和期限；device code 保持私有 |
+| `{"action":"poll_device"}` | 按保存的 interval 查询一次，处理 pending/slow_down，不自动循环 |
+| `{"action":"refresh","resource":"<服务资源 URL>","scopes":["<已获授权 scope>"]}` | 用原 grant/DPoP key 获取此资源的访问 token；省略 scopes 保留原 grant 范围 |
+| `{"action":"revoke"}` | 逐个撤销当前和已被替换的已知 refresh grant，保留未确认结果 |
+| `{"action":"join_browser","session_id":"<浏览器 Session UUID>","tab_id":"<已有 tab>","lease_token":"<有效 lease UUID>","controller_epoch":1}` | 在既有受控浏览器及当前租约中完成私有加入；这里的 session_id 是浏览器 ID |
+
+Direct/device 都要求用户在商家实际授权页面完成登录与同意。`begin_*` 只证明流程启动，
+不证明已登录。Direct 使用登记的 HTTPS 回调或受支持的 loopback URI；当前宿主不声称已
+验证“回调来自发起设备”，因此始终请求 `prompt=consent`。CLI 不启动回调 HTTP listener，
+也不代用户批准商家页面。真实接收器把完整回调 URL 保存为本属主的 0600 文件后，可导入：
+
+```sh
+shenko compat poppy callback --unit-id poppy.merchant --file /private/path/oauth-callback.txt
+```
+
+输出只有 `callback_ref`。把它用于 `complete_direct`，不要把 callback URL、code、verifier
+或 token 放进任务 JSON、命令行参数或聊天记录。Device 展示给用户的短码与验证 URL 是
+该流程有意公开的交互信息，设备轮询凭据仍留在 vault。待授权、失败的新登录不覆盖已有
+grant；成功替换后旧 refresh token 保留在待撤销队列，HTTP 200 才确认对应撤销请求。
+
+当前账号记录保存一组最新访问 token；切换服务时显式 refresh 到该 resource，需恢复默认
+token 时传 `resource:null`。实际 scopes 与 expiry 作为发行方观察返回，不扩写成更高权限。
+发送授权码兑换、device token、refresh 或 revoke 前保存原 operation ID 和 flight。失去
+响应、进程中断或无法解读成功响应时隔离该 flight；重新打开不会盲用可能已旋转的 token。
+未知的旧授权兑换也不会被后来的登录抹掉，因此 `revoke` 可以报告 incomplete，不能据此
+宣称商家账号已经全局退出。
+
+浏览器加入要求连接声明 `browser_session_endpoint`。适配器只在自己的浏览器中导航到该
+精确端点，私下读取同一文档的隐藏 `code` 与表单；随后由 agent HTTP 请求 `/authorize`。
+只有观察到 204 才允许原浏览器提交原表单，提交前再次检查 URL、文档、字段、caller、租约
+和 controller epoch。签入加入还要求实际 `poppy:browser-sign-in` scope 与公司默认 token。
+`web.unscoped` 是网站声明的访问范围，不能作为主体授权。code、脚本结果和 cookie 不进入
+模型观察；Poppy/Authorization 不注入浏览器全局流量。浏览器提交 ACK 或导航只构成回执，
+尚不证明正确账号 cookie 已生效，结果保留 `application_effect:unverified`。
+
+### 签名 API、MCP 与网页
+
+`request` 支持以下形状，具体路由须来自连接的声明和读取到的 schema：
+
+```json
+{"action":"mcp","endpoint":"https://merchant.example/mcp","request":{"method":"tools/list","params":{}}}
+```
+
+```json
+{"action":"api","description_url":"https://merchant.example/openapi.json","method":"GET","url":"https://merchant.example/api/catalog","headers":{}}
+```
+
+```json
+{"action":"page","url":"https://merchant.example/products"}
+```
+
+例如将第一段作为共用封套的 `request`，委派给 `compat.poppy.request:1`；省略 authentication
+就是带 Poppy 身份的未登录访问。OpenAPI 请求的可选 `body` 是 JSON，`headers` 仅用于公开
+业务头，凭据与签名由宿主生成。OAuth 端点和 schema 文档不接受 Session 注入；`page`
+要求 `signed_out`，显式选择账号认证会被拒绝。通用 API/MCP 可使用商家签发的 Bearer 或
+DPoP token，访问目标和 scope 仍由服务验证。收到 MCP 结果或 HTTP 响应只记录协议/资源观察，不能
+据此判定某项业务目标已完成。
+
+### UCP 请求、续办与未知结果恢复
+
+[`commerce.rs`](../../bin/shenko/src/poppy/commerce.rs) 使用本机公开平台 profile 与商家
+profile 的兼容交集，当前实现版本为 `2026-08-25`。`{"action":"negotiate"}` 会读取实际
+MCP `tools/list` 或商家声明的 REST schema，返回相应协商证据。每次商务请求按实际
+工具/schema 校验操作与 payload；`transport` 为 `mcp`（缺省）或 `rest`，商家必须声明
+相应服务。HTTP `UCP-Agent` 与 MCP 请求 metadata 使用同一平台 profile，Bearer token
+须由所选公司的 issuer 为实际服务签发；UCP 接入不会把其他服务的 DPoP token 当作可用
+Bearer token。
+
+当前操作名为 `search_catalog`、`lookup_catalog`、`get_product`、`create_cart`、`get_cart`、
+`update_cart`、`cancel_cart`、`create_checkout`、`get_checkout`、`update_checkout`、
+`complete_checkout`、`cancel_checkout`、`get_order`。有无 `id` 由操作决定；schema 和商家
+协商结果决定该操作当前是否可用。写入必须携带此原始动作的 UUID 幂等键；重启、超时或
+恢复不生成新键后重发同一写入。
+
+下面的 `commerce` 对象用于读取已经观察到的 checkout，委派给 `compat.poppy.commerce:1`：
+
+```json
+{"action":"request","operation":"get_checkout","transport":"mcp","id":"<原始 checkout ID>"}
+```
+
+购买完成必须引用先前已记录的 checkout operation。节点会重新读取 checkout，核对公司、
+用户、grant、资源 ID、购买条款摘要、可完成状态和有效期；金额、币种、商品、配送等条款
+变化不会被新 payload 偷换。`complete_checkout` 只接受空或缺省 payload，以及绑定到这次
+观察的节点支付凭据引用。具备实际提供方 instrument 后，先从属主私有 JSON 文件导入：
+
+```sh
+shenko compat poppy credential \
+  --reference instrument-7a3efde6-b038-4e3b-bec8-07d817fa811b \
+  --file /private/path/instrument.json \
+  --unit-id poppy.merchant \
+  --checkout-observation "<实际 checkout 观察的 operation UUID>" \
+  --resource "<实际 UCP 服务 resource URL>"
+```
+
+instrument 必须由实际提供方取得，包含其 `id`、`handler_id`、`type` 等真实资料；不能用示例
+字符串伪造。导入将它与原观察的公司、用户、操作者、grant、checkout 和条款摘要一起封存。
+instrument 记录同时绑定原 service/resource，使用新的 canonical `instrument-<UUID>` 引用；
+已有引用不能覆盖或移除。T1 再冻结该私有记录的内容摘要，实际解析必须匹配，另一次导入的
+instrument 不能替换已经封存的完成请求。缺少 service 绑定的旧 credential 记录保留原样，
+须在具备新观察后导入新的引用，不能把当前配置补写成旧请求的历史身份。
+没有资源专用 token 时省略 `--resource`，只有与真实服务 metadata 相符时才可使用默认 token。
+原观察属于未登录 checkout 时使用 `--signed-out`，不指定 `--resource`；导入仍核对原观察的
+公司、用户和条款，不把已登录账号的凭据改绑为访客身份。
+随后动作形状为：
+
+```json
+{
+  "action": "request",
+  "operation": "complete_checkout",
+  "id": "<同一 checkout ID>",
+  "idempotency_key": "93173b3d-6e8f-4cd2-9b24-4256f468e480",
+  "checkout_observation": "<实际 checkout 观察的 operation UUID>",
+  "payment_credential_ref": "instrument-7a3efde6-b038-4e3b-bec8-07d817fa811b"
+}
+```
+
+以上 UUID 仅说明格式；实际新动作使用自己的原始幂等键和已导入引用。任务输入不接受内联
+`payment` 凭据，完成请求的凭据只在节点内解析到最终传输。`buyer_ip` 仅可使用用户侧宿主
+提供的实际地址，不能拿 agent 的出口 IP 猜测。
+
+商家需要网页续办时，观察中返回 `continuation:{kind:"user_browser",url,headers:"none",...}`。
+把该 URL 交给用户浏览器完成商家要求的步骤，再读取原 checkout；这不是 browser join，
+不附加 Poppy/Authorization 头。`incomplete`、`requires_escalation`、`ready_for_complete`、
+`complete_in_progress` 和 `completed` 分开保存。`complete_in_progress` 只表示处理被接受；
+只有实际观察到 completed 及 order ID 才记录订单，仍不据此声称支付结算已被独立核实。
+
+未知结果通过单独的读取任务恢复，动作是：
+
+```json
+{"action":"reconcile","operation_id":"<原始商务操作 UUID>"}
+```
+
+该动作读取冻结输入、受认证的节点私有最终请求及原回执，在同一公司、用户、操作者、平台、
+grant、原 service endpoint 与 OAuth resource 绑定下查询原资源，
+不重发原修改。原 create 的响应丢失且从未取得资源 ID 时，结果继续 unknown。后来看到
+购物车变化不能证明由哪一次 update/cancel 引起；完成订单的恢复还必须匹配原 checkout
+和购买条款，才可形成原操作的后置条件证据。更换账号 grant 后不允许拿新 grant 的结果
+结算旧 grant 下的未知订单。
+
+旧操作缺少不可变 service 绑定或最终发送请求，或当前节点缺少与共享摘要相符的私有快照时，
+拒绝据此加载购买观察、导入支付凭据或对账结算，原始输入与回执仍可按 CAS 身份读取。
+不从当前连接、当前 token 或新 instrument 推测并补造原请求，也不自动重新发送。
+
+本节不声称已完成真实商家登录、真实浏览器账号绑定、付款或购买。用户授权需要实际商家
+流程，协议接受程度由实际响应决定；构建、fixture、工具目录和本地能力交集不能替代这些
+证据。首个发现/签名增量的历史结果见
+[Poppy 首个增量验证记录](../evidence/poppy-foundation-20261115.md)；当前账号、签名传输和
+UCP 接线的检查见[后续增量验证记录](../evidence/poppy-operational-20261115.md)。
 
 协议依据：[Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec)、
 [0.4 兼容文档](https://personalagentprotocol.org/docs/0.4/spec)、
-[UCP extension](https://personalagentprotocol.org/docs/1.0/extensions/ucp)。
-
-本次验证及未取得的证据见 [Poppy 首个增量验证记录](../evidence/poppy-foundation-20261115.md)。
+[UCP extension](https://personalagentprotocol.org/docs/1.0/extensions/ucp)、
+[UCP 2026-08-25](https://ucp.dev/2026-08-25/specification/overview/)、
+[DPoP / RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)。

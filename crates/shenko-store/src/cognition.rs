@@ -377,6 +377,11 @@ pub struct CognitionSubjectOrigin {
     pub imported_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Local receipt coordinates follow the same table catalog as archive import.
+pub(crate) fn control_local_sequence(table: &str) -> Option<&'static str> {
+    rows::TABLES.iter().find(|spec| spec.name == table).and_then(|spec| spec.local_seq)
+}
+
 fn db(error: rusqlite::Error) -> anyhow::Error {
     anyhow::Error::from(error)
 }

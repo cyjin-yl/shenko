@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::Command;
 use crate::cli::{AdminCommand, ContactsCommand, RuntimeCommand};
-use crate::{compat, context_policy, node_sync, obelisk, runtime_authority, runtime_channels, runtime_napcat, runtime_start, update_control};
+use crate::{compat, context_policy, node_sync, obelisk, runtime_channels, runtime_napcat, runtime_start, update_control};
 use crate::cli_browser::browser_batch;
 use crate::cli_root::root_command;
 use crate::cli_tools::tool_command;
@@ -28,7 +28,7 @@ pub(crate) async fn dispatch(
     supervisor: &shenko_kernel::Supervisor,
     identity_context: &cordis_core::Context,
     identity_service: &IdentityService,
-    active_authority: &mut Option<Arc<runtime_authority::RuntimeAuthority>>,
+    runtime_state: &mut crate::runtime_lifecycle::RuntimeState,
 ) -> Result<()> {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -96,6 +96,7 @@ pub(crate) async fn dispatch(
                 supervisor,
                 Arc::clone(&store),
                 Arc::clone(&discovery_node),
+                &data_dir,
             )
             .await?;
             let _obelisk_plugin = obelisk::spawn(supervisor, Arc::clone(&store), discovery_node, &data_dir).await?;
@@ -398,13 +399,13 @@ pub(crate) async fn dispatch(
         }
 
         Command::Start {
-            port, name, napcat, napcat_account, napcat_access_token, napcat_admin_qq,
+            port, pause_at_start, name, napcat, napcat_account, napcat_access_token, napcat_admin_qq,
             napcat_file_root, napcat_file_host, napcat_cli_url, channels_config, ssh_targets,
         } => {
             runtime_start::start(
-                supervisor, identity_context, identity_service, active_authority, data_dir,
+                supervisor, identity_context, identity_service, runtime_state, data_dir,
                 runtime_start::StartConfig {
-                    port, name, ssh_targets,
+                    port, pause_at_start, name, ssh_targets,
                     channels: runtime_channels::ChannelConfig {
                         napcat: runtime_napcat::NapCatOptions { napcat, napcat_account, napcat_access_token, napcat_admin_qq, napcat_file_root, napcat_file_host, napcat_cli_url },
                         channels_config,

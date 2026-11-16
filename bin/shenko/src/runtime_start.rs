@@ -5,7 +5,7 @@ use anyhow::Result;
 use shenko_identity::IdentityService;
 use tracing::info;
 
-use crate::{node_sync, runtime_authority, runtime_channels, runtime_cognition, runtime_inference, runtime_publications, update_control, update_runtime};
+use crate::{node_sync, runtime_channels, runtime_cognition, runtime_inference, runtime_publications, update_control, update_runtime};
 use crate::runtime_bootstrap::{adopt_identity, bootstrap_genesis, create_data_directory_async};
 use crate::runtime_consumers::RuntimeConsumers;
 use crate::runtime_lifecycle::{StoreErrorSink, spawn_runtime_hook_pump};
@@ -13,6 +13,7 @@ use crate::runtime_plugins::{install_native_definitions, install_native_ssh, spa
 
 pub(crate) struct StartConfig {
     pub(crate) port: u16,
+    pub(crate) pause_at_start: Option<shenko_types::ids::EntityId>,
     pub(crate) name: Option<String>,
     pub(crate) channels: runtime_channels::ChannelConfig,
     pub(crate) ssh_targets: Option<PathBuf>,
@@ -22,11 +23,11 @@ pub(crate) async fn start(
     supervisor: &shenko_kernel::Supervisor,
     identity_context: &cordis_core::Context,
     identity_service: &IdentityService,
-    active_authority: &mut Option<Arc<runtime_authority::RuntimeAuthority>>,
+    runtime_state: &mut crate::runtime_lifecycle::RuntimeState,
     data_dir: PathBuf,
     config: StartConfig,
 ) -> Result<()> {
-    let StartConfig { port, name, channels, ssh_targets } = config;
+    let StartConfig { port, pause_at_start, name, channels, ssh_targets } = config;
     if channels.napcat.napcat.is_some() {
         anyhow::ensure!(
             channels.napcat.napcat_account.is_some_and(|account| account > 0),
@@ -142,19 +143,26 @@ pub(crate) async fn start(
     );
     // Deterministic recovery services remain available without an LLM.
     let cancel = tokio_util::sync::CancellationToken::new();
+    let _runtime_cancel_on_exit = cancel.clone().drop_guard();
     // Establish the actual branch before constructing any scoped
     // registry or dispatch consumer, including model-free services.
-    let mut primary_fence = tokio::task::spawn_blocking({
-        let data_dir = data_dir.clone();
-        let store = Arc::clone(&store);
-        let cancel = cancel.clone();
-        move || node_sync::establish_primary(&data_dir, &store, &cancel)
-    }).await??;
-    let authority_runtime = runtime_authority::RuntimeAuthority::attach(
-        &data_dir, &store, cancel.clone())?;
-    *active_authority = Some(authority_runtime.clone());
-    if authority_runtime.recover_before_consumers()? { primary_fence = None; }
+    let (primary_fence, authority_runtime) = match node_sync::establish_runtime(
+        &data_dir, &store, &cancel, runtime_instance, &model_profile,
+    ).await? {
+        node_sync::RuntimeSelection::Selected { fence, authority, heartbeat } => {
+            runtime_state.heartbeat = Some(heartbeat);
+            (fence, authority)
+        },
+        node_sync::RuntimeSelection::Stopped => return Ok(()),
+    };
+    runtime_state.authority = Some(authority_runtime.clone());
     authority_runtime.activate()?;
+    if let Some(request_id) = pause_at_start {
+        let boundary = store.pause_subject_at_start(agent_id, request_id)?;
+        runtime_state.startup_pause_applied = true;
+        info!(%request_id, boundary=?boundary.boundary_at,
+            "startup paused at a durable subject boundary; use runtime resume to continue");
+    }
     let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
     // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
     store.start_subject_dispatcher()?;

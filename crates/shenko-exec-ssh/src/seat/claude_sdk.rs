@@ -26,13 +26,14 @@
 
 use crate::seat::{
     AnswerConfirmation, AnswerTransport, Confidence, PreflightRefusalKind, ProcessIdentity,
-    QuestionKind, QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer, SeatCapability,
+    QuestionKind, QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer,
     SeatEffectPlan, SeatHandle, SeatObservation, SeatOption, SeatPreflight, SeatQuestionCandidate,
     SeatResponse, SeatWriteFence,
 };
 use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use shenko_store::SeatCapability;
 use std::{
     collections::BTreeMap,
     path::PathBuf,

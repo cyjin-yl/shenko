@@ -423,6 +423,12 @@ fn policy_command(data_dir: &Path, command: ContextPolicyCommand) -> Result<()> 
                 return Ok(());
             };
             let installed = installed_policies(&node)?;
+            let preference = crate::policy_config::inspect_context_preference(
+                data_dir, &preference_order(&installed),
+            ).unwrap_or_else(|error| json!({
+                "preference": null, "preference_source": "configuration inspection unavailable",
+                "error": format!("{error:#}"), "runtime_observed": false,
+            }));
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
@@ -433,8 +439,9 @@ fn policy_command(data_dir: &Path, command: ContextPolicyCommand) -> Result<()> 
                         .iter()
                         .map(|policy| policy.id.clone())
                         .collect::<Vec<_>>(),
-                    "preference": preference_order(&installed),
-                    "preference_source": "installation order (the configuration service has no value yet)",
+                    "preference": preference["preference"],
+                    "preference_source": preference["preference_source"],
+                    "preference_configuration": preference,
                 }))?
             );
             Ok(())
@@ -642,11 +649,11 @@ async fn watch_installed_policy(ctx: Context, watch: PolicyWatch) -> Result<()> 
                         && fact.artifact_digest == watch.expected_digest
                 });
                 match current {
-                    None => retire(&watch, &mut resident).await?,
+                    None => retire(&mut resident).await?,
                     Some(fact) => {
                         let config = fact.descriptor.config;
                         if resident.as_ref().is_none_or(|(applied, _)| applied != &config) {
-                            retire(&watch, &mut resident).await?;
+                            retire(&mut resident).await?;
                             let runtime = runtime_from_config(&watch.manifest.id, &config)
                                 .map_err(|error| anyhow::anyhow!(
                                     "{} installation record carries an unusable configuration: {error}",
@@ -664,7 +671,7 @@ async fn watch_installed_policy(ctx: Context, watch: PolicyWatch) -> Result<()> 
         .await;
         // Terminal cleanup uses the native Fiber barrier even after the host
         // has closed admission, and keeps the primary error.
-        let cleanup = retire(&watch, &mut resident).await;
+        let cleanup = retire(&mut resident).await;
         let result = match (result, cleanup) {
             (Err(error), Err(cleanup)) => {
                 Err(error.context(format!("context strategy retirement also failed: {cleanup}")))
@@ -705,7 +712,7 @@ async fn watch_installed_policy(ctx: Context, watch: PolicyWatch) -> Result<()> 
     ready_rx.await.context("context strategy observer lost startup")?
 }
 
-async fn retire(watch: &PolicyWatch, resident: &mut Option<(Value, Resident)>) -> Result<()> {
+async fn retire(resident: &mut Option<(Value, Resident)>) -> Result<()> {
     let Some((_, resident)) = resident.take() else {
         return Ok(());
     };
@@ -713,16 +720,16 @@ async fn retire(watch: &PolicyWatch, resident: &mut Option<(Value, Resident)>) -
     // leave tools that can still write notes or request windows.
     let mut first: Option<anyhow::Error> = None;
     if let Some(tool) = resident.tool {
-        if let Err(error) = watch.plugins.uninstall(&tool).await {
-            first = Some(error);
+        if let Err(error) = tool.dispose().await {
+            first = Some(error.into());
         }
     }
-    if let Err(error) = watch.plugins.uninstall(&resident.policy).await {
+    if let Err(error) = resident.policy.dispose().await {
         first = Some(match first {
             Some(previous) => previous.context(format!(
                 "native definition retirement also failed: {error}"
             )),
-            None => error,
+            None => error.into(),
         });
     }
     match first {

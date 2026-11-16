@@ -17,6 +17,12 @@ pub enum NodeRole {
     Executor,
     Replica,
     Recovery,
+    /// A resident follower: it holds the installation's durable history and
+    /// catches up committed control facts. It starts no subject task, no
+    /// native recovery consumer and no replica worker, and it claims no
+    /// domain-primary authority. The role is what tells a resident follower
+    /// apart from a runtime that never started.
+    Follower,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,5 +327,41 @@ mod tests {
             json!(runtime)
         );
         assert_eq!(status["persisted_observation_is_liveness"], false);
+    }
+
+    /// A resident follower is a queryable runtime fact. It must be
+    /// distinguishable from a runtime that never started, and it must not
+    /// claim the executor, recovery or replica duties of a selected runtime.
+    #[test]
+    fn a_resident_follower_observation_claims_no_selected_runtime_duty() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("shenko-node-follower-{}", EntityId::new()));
+        let node_id = EntityId::new();
+        let mut node = Node::open(&dir)?;
+        node.handle(super::super::Request::Initialize {
+            node_id,
+            identity: None,
+        })?;
+        let status = node.role_status()?;
+        assert!(status["last_runtime_observation"].is_null());
+        let runtime = EntityId::new();
+        node.observe_runtime_roles(
+            runtime,
+            vec![NodeRole::Follower],
+            None,
+            "resident follower retains durable history and waits for authority".into(),
+            None,
+        )?;
+        let status = node.role_status()?;
+        assert_eq!(
+            status["last_runtime_observation"]["roles"],
+            json!(["follower"])
+        );
+        assert_eq!(
+            status["last_runtime_observation"]["runtime_instance_id"],
+            json!(runtime)
+        );
+        assert!(status["last_runtime_observation"]["subject_id"].is_null());
+        assert!(status["last_runtime_observation_fence"].is_null());
+        Ok(())
     }
 }

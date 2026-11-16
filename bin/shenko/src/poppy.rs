@@ -1,4 +1,13 @@
 //! Assembly-owned installation and ledger bridge for the protocol-only crate.
+mod account;
+mod command;
+mod commerce;
+mod connection;
+mod operational;
+mod transport;
+mod vault;
+pub(crate) use operational::BrowserAccessPlugin;
+pub(crate) use command::command;
 use std::{borrow::Cow, convert::Infallible, sync::Arc, time::Duration};
 
 use anyhow::{Result, ensure};
@@ -223,7 +232,7 @@ impl NativeTaskHandler for Handler {
     }
 }
 
-pub struct PoppyPlugin;
+pub struct PoppyPlugin { pub data_dir: std::path::PathBuf }
 
 impl Plugin for PoppyPlugin {
     type Config = AdapterHost;
@@ -242,7 +251,7 @@ impl Plugin for PoppyPlugin {
     }
 
     async fn apply(&self, ctx: Context, config: &Self::Input) -> Result<(), Self::ApplyError> {
-        watch_installed(ctx, config.clone(), UNIT_ID, PoppyGeneration, |_| async {
+        watch_installed(ctx, config.clone(), UNIT_ID, PoppyGeneration { data_dir: self.data_dir.clone() }, |_| async {
             Ok(())
         })
         .await
@@ -251,7 +260,7 @@ impl Plugin for PoppyPlugin {
 }
 
 #[derive(Clone)]
-struct PoppyGeneration;
+struct PoppyGeneration { data_dir: std::path::PathBuf }
 
 impl Plugin for PoppyGeneration {
     type Config = (Arc<Store>, Arc<Mutex<Node>>);
@@ -281,7 +290,8 @@ impl Plugin for PoppyGeneration {
         })
         .map_err(std::io::Error::other)?;
         let handler: Arc<dyn NativeTaskHandler> = Arc::new(Handler(runtime));
-        NativeTaskHandlerPlugin.apply(ctx, &handler).await
+        NativeTaskHandlerPlugin.apply(ctx.clone(), &handler).await?;
+        operational::install(ctx, config.0.clone(), config.1.clone(), self.data_dir.clone()).await
     }
 }
 
@@ -394,7 +404,7 @@ mod tests {
                     (store.clone(), RuntimeGeneration::default()),
                 )
                 .await?;
-            crate::compat::spawn_adapters(&supervisor, store, node).await?;
+            crate::compat::spawn_adapters(&supervisor, store, node, &root).await?;
             let native = supervisor.context().try_service::<NativeChildService>()?;
             ensure!(
                 !native.has_handler(NAME, 1),

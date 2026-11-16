@@ -445,21 +445,18 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
     NamedToolTarget {
         name: "ssh",
         matches: TargetMatch::Exact("ssh"),
-        upstream: "openssh/openssh (WASIX port) / ssh WASM client",
-        license: "BSD-3-Clause (OpenSSH)",
+        upstream: "russh 0.65.0 / Shenko WASI preview1 client port",
+        license: "Apache-2.0",
         compatibility: "W1",
         required_capabilities: &["cap.network.tcp/1", "cap.random/1", "cap.clock/1"],
         unresolved_reason: Some(
-            "no wasm32-wasip1 OpenSSH artifact exists yet. The WASIX ports \
-             need a WASIX-capable engine, and this runtime is wasmtime-45 \
-             preview1 (docs/specs/wasm-tools.md#spec-8-2 W1, R019); the host ssh client is not a WASM \
-             SSH. A real SSH client must run the protocol and authentication \
-             inside the module with the host supplying only admitted sockets, \
-             getrandom entropy and clock_time_get — all three exist now — so \
-             what remains is the port itself, not host capability. Acquisition \
-             and the open port work are described in \
-             crates/shenko-wasm/ports/openssh-wasi/. This target stays open \
-             until a real artifact exists",
+            "no SSH artifact is installed in this environment. Build and verify \
+             crates/shenko-wasm/ports/ssh-wasi/ and install its exact digest: \
+             the russh-based preview1 guest performs key generation, pinned \
+             public-key authentication, exec and SFTP inside WASM. The host \
+             supplies only explicitly admitted sockets, entropy and clocks. \
+             The real OpenSSH journey must pass for the candidate artifact; \
+             the host ssh binary is never substituted",
         ),
     },
 ];

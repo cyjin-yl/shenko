@@ -55,6 +55,40 @@ pub enum CompatPoppyCommand {
     /// Read public discovery metadata as a diagnostic, without installing a
     /// service, sending credentials or creating a commerce workflow.
     Discover { origin: String },
+    /// Initialize this node's private operator key and public identity URLs.
+    Init {
+        #[arg(long)] client_id: String,
+        #[arg(long)] jwks_uri: String,
+        #[arg(long)] profile_uri: String,
+        #[arg(long, default_value = "Shenko")] client_name: String,
+        #[arg(long)] redirect_uri: Vec<String>,
+        /// Public declarations for installed opaque payment-instrument providers.
+        #[arg(long)] payment_handlers_file: Option<PathBuf>,
+    },
+    /// Export public CIMD, JWKS and UCP documents; never private keys.
+    Identity { #[arg(long)] public_dir: Option<PathBuf> },
+    /// Update installed payment-provider declarations without replacing keys.
+    ConfigurePayments { #[arg(long)] file: PathBuf },
+    /// Discover a company and install its ordinary connection unit.
+    Connect { origin: String, #[arg(long)] unit_id: String, #[arg(long)] enable: bool },
+    /// List installed connections and their stable public identity bindings.
+    Connections,
+    /// Replace a connection's Session id while preserving company/user identity.
+    NewSession { unit_id: String },
+    /// Import a callback from an owner-private file; print only an opaque handle.
+    Callback { #[arg(long)] unit_id: String, #[arg(long)] file: PathBuf },
+    /// Import a payment instrument from an owner-private JSON file.
+    Credential {
+        #[arg(long)] reference: String,
+        #[arg(long)] file: PathBuf,
+        #[arg(long)] unit_id: String,
+        #[arg(long)] checkout_observation: shenko_types::ids::EntityId,
+        #[arg(long)] resource: Option<String>,
+        /// Bind to an observed guest checkout without using an account grant.
+        #[arg(long)] signed_out: bool,
+    },
+    /// Read the actual merchant MCP tool catalogue with signed-out Poppy identity.
+    Probe { unit_id: String },
 }
 
 #[cfg(feature = "compat-mcp")]
@@ -511,6 +545,13 @@ pub enum ToolCommand {
         /// KEY=VALUE guest environment entries (repeatable).
         #[arg(long = "env")]
         env: Vec<String>,
+        /// Explicit transport grant host:port[:connect|listen,accept] (repeatable).
+        /// IPv6 literals use [address]:port; an omitted grant opens no sockets.
+        #[arg(long = "network")]
+        network: Vec<String>,
+        /// Guest deadline in seconds (1..=300), including admitted socket waits.
+        #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=300))]
+        timeout_secs: u64,
         /// Host file whose bytes become guest stdin (default: empty).
         #[arg(long)]
         stdin_file: Option<PathBuf>,

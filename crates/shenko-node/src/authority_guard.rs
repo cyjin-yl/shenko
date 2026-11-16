@@ -16,6 +16,8 @@ pub struct NodeAuthoritySnapshot {
     pub configuration: Option<MemberConfiguration>,
     pub fence: Option<FencingToken>,
     pub branch: Option<BranchFact>,
+    pub component_revision: u64,
+    pub component: Option<crate::ComponentCertificate>,
 }
 
 impl NodeAuthoritySnapshot {
@@ -39,6 +41,14 @@ impl NodeAuthoritySnapshot {
                 .as_ref()
                 .is_some_and(|authority| {
                     authority.holder_node_id == self.node_id
+                        && authority.component_revision == self.component_revision
+                        && match (&authority.component, &self.component) {
+                            (Some(expected), Some(component)) => component.digest().as_ref().is_ok_and(|digest| digest == expected)
+                                && component.proposal.coordinator == self.node_id
+                                && component.proposal.branch_id == branch.branch_id,
+                            (None, None) => true,
+                            _ => false,
+                        }
                         && authority.opening_term == self.term
                         && authority.configuration_revision
                             == self.configuration.as_ref().map(|config| config.revision)
@@ -153,6 +163,7 @@ impl Node {
                 |row| row.get(0),
             )
             .optional()?;
+        let (component_revision, component) = Self::component_state_conn(conn)?;
         Ok(NodeAuthoritySnapshot {
             node_id,
             identity,
@@ -160,6 +171,8 @@ impl Node {
             configuration: Self::committed_config(conn)?,
             fence: Self::fencing_token_conn(conn)?,
             branch: branch.map(|raw| serde_json::from_str(&raw)).transpose()?,
+            component_revision,
+            component,
         })
     }
 }

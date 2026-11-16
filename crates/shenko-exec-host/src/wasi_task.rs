@@ -53,7 +53,8 @@ const CONTRACT: &[u8] =
       mount closure and explicit managed_home/read_only profile, admit the package's declared \
       capability requirements against that exact grant and refuse the run when they are unmet, \
       bind the receipt to the environment generation's locked closure, preserve cancellation and \
-      deadline outcomes, and retain unknown RW effects without replay or false settlement";
+      deadline outcomes, freeze explicit network grants before T1 and open their sockets only \
+      after arming, and retain unknown file or network effects without replay or false settlement";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,6 +70,10 @@ struct WasiExecInput {
     args: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// Exact transport reach for this invocation, independent of the package's
+    /// requirements. An empty grant provides no sockets.
+    #[serde(default)]
+    network: Vec<shenko_node::NetworkTarget>,
     /// Base64 stdin bytes; omitted means an empty stream.
     #[serde(default)]
     stdin_b64: Option<String>,
@@ -96,6 +101,7 @@ struct FrozenInput {
     mounts: Vec<MountSpec>,
     args: Vec<String>,
     env: BTreeMap<String, String>,
+    network: Vec<shenko_node::NetworkTarget>,
     stdin_len: usize,
     stdin_digest: Digest,
     timeout_secs: u64,
@@ -322,7 +328,14 @@ impl WasiExecHandler {
         // grant plus the explicit environment — never against its own claims.
         // An unrecorded declaration produces no problems: the run keeps exactly
         // the profile's grant.
-        let granted = shenko_wasm::GrantedCapabilities::of_invocation(&mounts, &input.env);
+        // Validation is pure. DNS and connection attempts occur only in the
+        // runtime, after arm_external_operation durably records T1.
+        shenko_wasm::NetworkAdmission::from_granted_targets(&input.network)
+            .map_err(|error| PrepareError::Refusal(error.to_string()))?;
+        let mut granted = shenko_wasm::GrantedCapabilities::of_invocation(&mounts, &input.env);
+        if !input.network.is_empty() {
+            granted = granted.with_network(input.network.clone());
+        }
         let unmet = shenko_wasm::capability_problems(&record.capabilities, &granted);
         if !unmet.is_empty() {
             return Err(PrepareError::Refusal(unmet.join("; ")));
@@ -378,6 +391,7 @@ impl WasiExecHandler {
             mounts,
             args: input.args,
             env: input.env,
+            network: input.network,
             stdin_len: stdin.len(),
             stdin_digest: Digest::blake3(&stdin),
             timeout_secs: input.timeout_secs.unwrap_or(60),
@@ -457,6 +471,7 @@ impl WasiExecHandler {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect();
+            command.network = shenko_wasm::NetworkAdmission::from_granted_targets(&frozen.network)?;
             command.control = WasiRunControl {
                 deadline: Some(Duration::from_secs(frozen.timeout_secs)),
                 cancel: Some(cancel),
@@ -579,7 +594,8 @@ impl WasiExecHandler {
         };
         let resolved_tool = frozen.resolved_tool.clone();
         let mount_profile = frozen.mount_profile;
-        let all_read_only = frozen.mounts.iter().all(|mount| mount.mode == MountMode::ReadOnly);
+        let no_writable_reach = frozen.network.is_empty()
+            && frozen.mounts.iter().all(|mount| mount.mode == MountMode::ReadOnly);
 
         let input_ref = self.seal(&frozen, "wasi-exec-frozen-input")?;
         let bindings = ResourceBindings {
@@ -597,6 +613,7 @@ impl WasiExecHandler {
                 "declared_capabilities": resolved_tool.capabilities,
                 "mount_profile": mount_profile,
                 "mounts": frozen.mounts,
+                "network": frozen.network,
             }),
         };
         let resource = self.seal(&bindings, "wasi-exec-binding")?;
@@ -761,7 +778,7 @@ impl WasiExecHandler {
             // terminal observation under an entirely read-only capability
             // closure proves there was no external writable surface.
             if observation.as_ref().is_some_and(|o| o.outcome.is_some())
-                && all_read_only
+                && no_writable_reach
             {
                 EffectStatus::None
             } else {
@@ -788,6 +805,7 @@ impl WasiExecHandler {
             mounts: vec![],
             args: vec![],
             env: BTreeMap::new(),
+            network: vec![],
             stdin_len: 0,
             stdin_digest: Digest::blake3(b""),
             timeout_secs: 0,
@@ -907,9 +925,12 @@ impl NativeTaskHandler for WasiExecHandler {
                 "wasi.exec/v2 运行已安装的 WASI preview1 工具（真实 WASM 模块在受管 \
                  挂载闭包内执行）：[delegate:wasi.exec:2] \
                  {\"tool\":\"名字\"或\"名字@版本\",\"args\":[...],\"env\":{\"K\":\"V\"},\
-                 \"stdin_b64\":\"...\",\"timeout_secs\":60,\"mount_profile\":\"read_only\"}。\
+                 \"stdin_b64\":\"...\",\"timeout_secs\":60,\"mount_profile\":\"read_only\",\
+                 \"network\":[{\"host\":\"127.0.0.1\",\"port\":22,\"resolve\":false,\
+                 \"operations\":[{\"operation\":\"connect\"}]}]}。\
                  read_only 会真实撤销所有挂载写权限，不按工具名猜测；省略此字段默认 \
-                 managed_home 保留声明权限，RW effects 仍未知且不能 T2/自动重放。\
+                 managed_home 保留声明权限。network 默认空，显式逐目标授权；\
+                 文件只读不撤销网络，网络或 RW effects 仍未知且不能 T2/自动重放。\
                  argv[0] 是已安装工具名；\
                  未安装的名字返回明确 TOOL_UNAVAILABLE，已声明但未移植的具名目标返回 \
                  TOOL_UNSUPPORTED，宿主工具不会被冒名顶替。包声明的权限需求（挂载路径、\
@@ -940,12 +961,19 @@ impl NativeTaskHandler for WasiExecHandler {
         )
         .resource("wasm_module", "installed_tool_unit", ResourceAccess::Execute)
         .resource("managed_home_mounts", "mount_profile", ResourceAccess::ReadWrite)
+        .resource("network_targets", "explicit_network_grant", ResourceAccess::ReadWrite)
         .action(EffectActionKind::Cancel)
         .action(EffectActionKind::Reset)
         .idempotency(IdempotencyGuarantee::None)
         .external_effect(ExternalEffect {
             kind: "guest_file_write".into(),
             description: "the guest may write into the declared managed-home mounts; a read_only profile withdraws that reach, a managed_home profile keeps it".into(),
+            reversible: false,
+            compensation_possible: false,
+        })
+        .external_effect(ExternalEffect {
+            kind: "guest_network".into(),
+            description: "only explicitly granted endpoints are opened after T1; peer effects remain unknown even with read-only mounts, and a lost connection is never automatically replayed".into(),
             reversible: false,
             compensation_possible: false,
         })

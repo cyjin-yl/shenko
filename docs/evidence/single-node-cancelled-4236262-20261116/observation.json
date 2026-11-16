@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-11-16T12:57:50.678915+00:00",
+  "source_head": "42362620a0bf01e9e4c9b524ad8715cce0b9528f",
+  "checkout_merge_sha": "09bad0f9b432f9b7e7b349c9b92305946db93b8b",
+  "run_id": 43867412535,
+  "url": "https://github.com/cyjin-yl/shenko/actions/runs/43867412535",
+  "job_id": 133302178701,
+  "conclusion": "cancelled",
+  "reason": "Overlapping continuation pushed an older experiment before the startup/input race and inherited low-memory runtime settings were corrected. Root stopped this redundant run through the normal GitHub cancellation control; the completed cancellation and retained artifact were observed.",
+  "artifact_id": 14226724612,
+  "artifact_zip_sha256": "a27b882184286f10a26a577177df989fa46fcfc52fc6ae53260a7b44a1158ebd",
+  "original_files": [
+    {
+      "path": "original/model-health.json",
+      "bytes": 15,
+      "sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288"
+    },
+    {
+      "path": "original/model-runtime-version.txt",
+      "bytes": 90,
+      "sha256": "84b24d587b02c1860940e1d4ff82193bc84df1334c75e96435e78e313f9e3f5f"
+    },
+    {
+      "path": "original/model-server.log",
+      "bytes": 6230,
+      "sha256": "5e68d4a313ada9fc9230c64106cb1a609ea877eb0bf6478f8fdd9d75cf0ec093"
+    },
+    {
+      "path": "original/model.sha256",
+      "bytes": 176,
+      "sha256": "a48bb0106a273131f985f8a4592b2225c96e6489759f87d2a2b2563ca72b539f"
+    },
+    {
+      "path": "original/real-single-node/first.input.json",
+      "bytes": 612,
+      "sha256": "09f7a50b1c2ee986fc42b1ac4a66578e2dd479da170e256a34b536046536db20"
+    },
+    {
+      "path": "original/real-single-node/first.runtime.log",
+      "bytes": 6900,
+      "sha256": "13593742a764473436914dae1476a3c1b93b89e72d11cb8943a0456fbaaf0d31"
+    },
+    {
+      "path": "original/real-single-node/first.self.json",
+      "bytes": 806,
+      "sha256": "4f41eb77b682c96409aa82231b435799f755e733dc3e39fc732d940936349a0d"
+    },
+    {
+      "path": "original/real-single-node/first.websocket.jsonl",
+      "bytes": 1386,
+      "sha256": "cbf86db5818d17012a4362901f54b2f6375f4223c0dba5e63863ce4e4009d077"
+    },
+    {
+      "path": "original/real-single-node/manifest.json",
+      "bytes": 669,
+      "sha256": "f892324fb56476d2614e939f6aa4c5829196c63bc79b128da53bed52be071843"
+    },
+    {
+      "path": "original/real-single-node/models.json",
+      "bytes": 1176,
+      "sha256": "c03e56ab0a95440b0490f118c88bf6ef054661bfb389daf33c680b5dd78d91a4"
+    }
+  ],
+  "limits": [
+    "No final ledger or request/attempt terminal evidence was retained in this cancellation artifact.",
+    "Cancellation is not a pass or proof that the original model attempt reached a terminal E1.",
+    "The two preceding failed real-model experiments remain failures.",
+    "The lower-tier diagnostic does not establish the reference quality baseline, S2 or long-duration operation."
+  ],
+  "screenshot": "../ship-work-duplicate-model-cancelled-20261116.png"
+}

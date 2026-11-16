@@ -21,7 +21,7 @@ required-features = ["compat-mcp"]
 [features]
 default = ["compat-mcp", "compat-skill"]
 compat-mcp = ["dep:shenko-compat-mcp"]
-compat-poppy = ["dep:shenko-compat-poppy"]
+compat-poppy = ["compat-mcp", "dep:shenko-compat-poppy", "dep:ring", "dep:url", "dep:reqwest", "dep:zeroize"]
 compat-skill = ["dep:shenko-compat-skill", "dep:cap-std", "dep:cap-fs-ext"]
 
 [dependencies]
@@ -44,6 +44,10 @@ shenko-compat = { path = "../../crates/shenko-compat" }
 shenko-compat-mcp = { path = "../../crates/shenko-compat-mcp", optional = true }
 shenko-compat-poppy = { path = "../../crates/shenko-compat-poppy", optional = true }
 shenko-compat-skill = { path = "../../crates/shenko-compat-skill", optional = true }
+ring = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"], optional = true }
+zeroize = { version = "=1.9.1", optional = true }
 cap-std = { version = "3.4.6", optional = true }
 cap-fs-ext = { version = "3.4.6", optional = true }
 shenko-context-policy = { path = "../../crates/shenko-context-policy", features = ["store"] }
@@ -67,6 +71,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_ignored = "=0.1.14"
 clap = { version = "4", features = ["derive", "env"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
@@ -79,6 +84,7 @@ rusqlite = { workspace = true }
 russh = { workspace = true }
 async-trait = { workspace = true }
 x11rb = { workspace = true }
+sha2 = { workspace = true }
 
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

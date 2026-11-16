@@ -1,11 +1,12 @@
 //! Recoverable consumption of S1, on the existing ledger mutation line.
 //! Dispatch is a projection of committed records, never of a broadcast.
-use crate::{Store, memory::MemoryEntry};
+use crate::{Store, memory::{MemoryEntry, read_memory_intent, same_locator, same_memory_object, MEMORY_OP_SAVE}};
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     commit::CommitRef,
+    error::ShenkoError,
     ids::*,
     object::{Digest, ObjectRef},
     subject::*,
@@ -22,6 +23,73 @@ CREATE TABLE IF NOT EXISTS subject_intents(
 CREATE INDEX IF NOT EXISTS subject_intents_ready ON subject_intents(state,kind,created_seq,intent_id);
 CREATE TABLE IF NOT EXISTS subject_dispatch_owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner TEXT NOT NULL);
 "#;
+
+/// The operation a subject memory intent names.
+fn memory_intent_operation(kind: MemoryIntentKind) -> &'static str {
+    match kind {
+        MemoryIntentKind::Save => "save",
+        MemoryIntentKind::Correct => "correct",
+        MemoryIntentKind::Forget => "forget",
+        MemoryIntentKind::Recall => "recall",
+    }
+}
+
+/// Validate the dedicated subject representation before changing either row.
+/// Missing or unusable request bindings are local refusals; database failures
+/// still abort the transaction rather than being reported as a settled item.
+fn subject_memory_entry(
+    tx: &Transaction<'_>,
+    id: EntityId,
+    agent: &str,
+    contract: &str,
+    payload: &str,
+) -> Result<MemoryEntry, ShenkoError> {
+    let intent: MemoryIntent = serde_json::from_str(payload)
+        .map_err(|error| ShenkoError::conflict(format!("invalid subject memory payload: {error}")))?;
+    if intent.kind != MemoryIntentKind::Save {
+        return Err(ShenkoError::conflict(format!(
+            "subject memory settlement owns the 'save' operation only; this intent names '{}'",
+            memory_intent_operation(intent.kind),
+        )));
+    }
+    if contract != "shenko.memory/sqlite-save/1" || intent.intent_id != id {
+        return Err(ShenkoError::conflict("subject memory contract or intent identity differs"));
+    }
+    let stored = read_memory_intent(tx, id)?
+        .ok_or_else(|| ShenkoError::not_found("subject memory request binding"))?;
+    let request = stored.record;
+    if request.kind != MEMORY_OP_SAVE || request.state != "accepted"
+        || request.agent_id.to_string() != agent || request.entry_id != Some(id)
+        || request.scope != intent.scope || request.supersedes_entry_id.is_some()
+        || request.base_revision.is_some()
+    {
+        return Err(ShenkoError::conflict("subject memory request binding differs"));
+    }
+    let object = intent.content_ref.as_ref()
+        .ok_or_else(|| ShenkoError::conflict("subject memory intent has no content binding"))?;
+    if !same_locator(Some(object), request.content_ref.as_deref())
+        || stored.content_ref.as_ref().is_some_and(|binding| !same_memory_object(binding.as_ref(), Some(object)))
+        || object.bytes != request.content.len() as u64
+        || object.digest != Digest::blake3(request.content.as_bytes())
+    {
+        return Err(ShenkoError::conflict("subject memory content differs from its sealed request"));
+    }
+    let occupied: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM memory_entries WHERE entry_id=?1)",
+        [id.to_string()], |row| row.get(0),
+    ).map_err(crate::store::storage_error)?;
+    if occupied {
+        return Err(ShenkoError::conflict("subject memory entry identity is already in use"));
+    }
+    Ok(MemoryEntry {
+        entry_id: id, agent_id: request.agent_id, kind: request.knowledge_kind,
+        content: request.content, scope: request.scope,
+        source: Some(format!("subject-intent:{id}")), source_ref: None,
+        applicability: request.applicability, confidence: request.confidence,
+        record_revision: 0, created_at_ms: request.created_at_ms, updated_commit_seq: None,
+        deleted: false, superseded_by: None, supersedes: None, git_commit: None, git_path: None,
+    })
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommittedIntent {
@@ -423,7 +491,7 @@ impl Store {
         let invalid = || ShenkoError::conflict("model child is not bound to its authored control and exact S0 transport/budget");
         let spec = decision.output.controls.iter().find_map(|control| {
             if control.action_id != intent.intent_id { return None; }
-            match &control.action { OutputAction::DelegateModel { spec } => Some(spec), _ => None }
+            match &control.action { OutputAction::DelegateModel { spec } => Some(spec.as_ref()), _ => None }
         }).ok_or_else(invalid)?;
         let plan: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
         let mut binding = plan.get("provider_binding").cloned().ok_or_else(invalid)?;
@@ -846,36 +914,99 @@ impl Store {
 
     /// Deterministic memory worker: same DB transaction as its progress/result.
     /// No model, network or filesystem worker runs under this mutation line.
+    ///
+    /// One unusable intent does not wedge the batch: an intent this settler
+    /// cannot honour is isolated with a visible outcome and the remaining
+    /// intents still settle. The count is what this pass really settled.
     pub fn settle_subject_memory(&self) -> Result<usize> {
         let authority = self.reserve_authority()?;
         self.ledger.with_mutation(|| {
-            let mut c=self.ledger.conn.lock();let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let mut c = self.ledger.conn.lock();
+            let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
             authority.check(&tx, self.capabilities.incarnation, None)?;
             self.check_dispatch_owner(&tx)?;
-            let rows={let mut q=tx.prepare("SELECT i.intent_id,i.payload,i.revision,m.agent_id,m.content,m.scope,m.created_at_ms FROM subject_intents i JOIN memory_intents m ON i.intent_id=m.intent_id WHERE i.kind='memory' AND i.state='ready' ORDER BY i.created_seq LIMIT 32")?;
-                q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?)))?.collect::<rusqlite::Result<Vec<_>>>()?};
-            if rows.is_empty(){return Ok(0)}
-            let seq=self.ledger.allocate_seq(&tx)?;let count=rows.len();
-            for (id,payload,rev,agent,content,scope,time) in rows {
-                let intent:MemoryIntent=serde_json::from_str(&payload)?;ensure!(matches!(intent.kind,MemoryIntentKind::Save),"unbound_memory_contract");
-                let entry=MemoryEntry{
-                    entry_id:id.parse()?,agent_id:agent.parse()?,kind:"note".into(),content,scope,
-                    source:Some(format!("subject-intent:{id}")),
-                    source_ref:None,applicability:None,confidence:None,
-                    record_revision:0,created_at_ms:time,updated_commit_seq:None,deleted:false,
-                    superseded_by:None,supersedes:None,git_commit:None,git_path:None,
+            // Select the subject queue itself: an inner join would silently
+            // abandon a ready request whose memory row is missing.
+            let rows = {
+                let mut q = tx.prepare(
+                    "SELECT intent_id,payload,revision,agent_id,contract FROM subject_intents
+                     WHERE kind='memory' AND state='ready' ORDER BY created_seq,intent_id LIMIT 32",
+                )?;
+                q.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                    row.get::<_, u64>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            if rows.is_empty() { return Ok(0); }
+            let seq = self.ledger.allocate_seq(&tx)?;
+            let mut settled = 0usize;
+            for (id, payload, revision, agent, contract) in rows {
+                let id: EntityId = id.parse()?;
+                let entry = match subject_memory_entry(&tx, id, &agent, &contract, &payload) {
+                    Ok(entry) => entry,
+                    Err(ShenkoError::Conflict(reason) | ShenkoError::NotFound(reason)) => {
+                        self.isolate_subject_memory_intent(&tx, id, revision, seq, &reason)?;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
                 };
-                let _superseded=Store::write_memory_entry(&tx,&entry,Some(intent.intent_id),seq)?;
-                ensure!(tx.execute("UPDATE subject_intents SET state='settled',owner=?2,revision=revision+1,updated_seq=?3,result_ref=?4 WHERE intent_id=?1 AND state='ready' AND revision=?5",
-                    params![id,self.capabilities.incarnation.to_string(),seq.0 as i64,format!("memory:{}",entry.entry_id),rev])?==1,"stale_intent");
-                self.append_intent_result_fact(&tx, intent.intent_id, entry.entry_id, &serde_json::json!({
+                // The dedicated subject binding was checked above, including
+                // the sealed bytes. It intentionally has no library sidecar.
+                Store::write_memory_entry(&tx, &entry, None, seq)?;
+                ensure!(tx.execute(
+                    "UPDATE memory_intents SET state='committed',reason=NULL,updated_at_ms=?2
+                     WHERE intent_id=?1 AND state='accepted'",
+                    params![id.to_string(), chrono::Utc::now().timestamp_millis()],
+                )? == 1, "stale_memory_intent");
+                ensure!(tx.execute(
+                    "UPDATE subject_intents SET state='settled',owner=?2,revision=revision+1,updated_seq=?3,result_ref=?4
+                     WHERE intent_id=?1 AND state='ready' AND revision=?5",
+                    params![id.to_string(), self.capabilities.incarnation.to_string(), seq.0 as i64,
+                        format!("memory:{}", entry.entry_id), revision],
+                )? == 1, "stale_intent");
+                self.append_intent_result_fact(&tx, id, entry.entry_id, &serde_json::json!({
                     "kind": "memory_receipt", "entry_id": entry.entry_id,
                     "commit_ref": CommitRef::new(self.ledger.ledger_id(), seq),
                     "outcome": "committed",
                 }))?;
+                settled += 1;
             }
-            self.intent_log(&tx,CommitRef::new(self.ledger.ledger_id(),seq))?;tx.commit()?;Ok(count)
-        },storage_failure)
+            self.intent_log(&tx, CommitRef::new(self.ledger.ledger_id(), seq))?;
+            tx.commit()?;
+            Ok(settled)
+        }, storage_failure)
+    }
+
+    /// Isolate one subject memory intent this settler cannot honour.
+    ///
+    /// The intent keeps a visible, honest outcome instead of being retried
+    /// forever: it is blocked with the reason (the subject may carry the
+    /// intent forward), and its library-side row is failed with the same
+    /// reason, so no request stays `accepted` with no entry, no failure and
+    /// no owner.
+    fn isolate_subject_memory_intent(
+        &self,
+        tx: &Transaction<'_>,
+        intent_id: EntityId,
+        revision: u64,
+        seq: shenko_types::ids::LedgerSeq,
+        reason: &str,
+    ) -> Result<()> {
+        ensure!(tx.execute(
+            "UPDATE subject_intents SET state='blocked',owner=NULL,revision=revision+1,updated_seq=?2,result_ref=?3
+             WHERE intent_id=?1 AND state='ready' AND revision=?4",
+            params![intent_id.to_string(), seq.0 as i64, reason, revision],
+        )? == 1, "stale_intent");
+        tx.execute(
+            "UPDATE memory_intents SET state='failed',reason=?2,updated_at_ms=?3
+             WHERE intent_id=?1 AND state='accepted'",
+            params![intent_id.to_string(), reason, chrono::Utc::now().timestamp_millis()],
+        )?;
+        self.append_intent_result_fact(tx, intent_id, EntityId::new(), &serde_json::json!({
+            "kind": "memory_receipt", "entry_id": null,
+            "commit_ref": CommitRef::new(self.ledger.ledger_id(), seq),
+            "outcome": "failed", "reason": reason,
+        }))?;
+        Ok(())
     }
 
     pub fn subject_publication(&self, id: EntityId) -> Result<PublicationIntent> {

@@ -26,6 +26,10 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+#[path = "component_runtime.rs"]
+mod component_runtime;
+pub use component_runtime::{RuntimeSelection, establish_runtime, confirm_component_authority};
+
 const MAGIC: &[u8] = b"shenko-node-sync/2\n";
 const MAX_HEADER: u64 = 64 * 1024 * 1024;
 
@@ -41,9 +45,8 @@ impl std::fmt::Display for PeerResponded {
 }
 impl std::error::Error for PeerResponded {}
 
-/// A connected node that did not win must stop local subject startup. This
-/// is intentionally distinct from AuthorityRecoveryRequired: retrying Start
-/// forever would repeatedly disrupt the actual selected primary.
+/// A connected node that did not win remains a resident follower. Its next
+/// observation catches up without recampaigning against a reachable leader.
 #[derive(Debug)]
 pub struct PrimaryNotSelected(String);
 
@@ -882,10 +885,8 @@ pub fn commit_admission(
 /// votes over each configured member's authenticated route, and commit the
 /// primary claim when the committed configuration's quorum is satisfied.
 ///
-/// Automatic availability fallback is limited to an isolated node: no other
-/// configured voter answered through an authenticated route during recovery.
-/// A connected loser or minority must not invent a component-wide election.
-/// Such a node returns PrimaryNotSelected until component coordination exists.
+/// Isolated fallback and unanimous component agreement are distinct from a
+/// global quorum. A connected loser remains a follower of the chosen runtime.
 pub fn establish_primary(
     data_dir: &Path,
     store: &Store,
@@ -893,6 +894,9 @@ pub fn establish_primary(
 ) -> Result<Option<FencingToken>> {
     let mut node = open_node(data_dir, store)?;
     node.ensure_member_configuration()?;
+    if let Some(selected) = component_runtime::resume_component(data_dir, store, &mut node, cancel)? {
+        return Ok(selected);
+    }
     // A stored token is a historical fact, not a fresh quorum. Every startup
     // establishes a new durable primary; each subsequent connected-branch
     // Store admission also needs its own actual control-slot quorum.
@@ -903,7 +907,8 @@ pub fn establish_primary(
     let previous_availability = if node.local_identity()?.is_some() {
         let reservation = Node::open(&data_dir.join("node"))?.reserve_authority()?;
         let previous = reservation.snapshot();
-        (previous.is_current_availability() && previous.fence.is_none()).then(|| previous.clone())
+        (previous.is_current_availability() && previous.fence.is_none() && previous.component.is_none())
+            .then(|| previous.clone())
     } else {
         None
     };
@@ -933,12 +938,18 @@ pub fn establish_primary(
                 outcome["outcome"] == "synchronized"
                     && outcome["member"] == json!(fence.leader_id)
             })
+            && component_runtime::primary_is_resident(&node, &fence, cancel)?
         {
             return Err(PrimaryNotSelected(format!(
                 "authenticated primary {} retains term {}",
                 fence.leader_id, fence.term
             ))
             .into());
+        }
+        let mut observed_members = contacted.clone();
+        observed_members.insert(own);
+        if node.fencing_token()?.is_none() && !contacted.is_empty() && !config.has_quorum(&observed_members) {
+            return component_runtime::establish_component(data_dir, store, &mut node, cancel);
         }
         let campaign = node.campaign()?;
         let request = campaign.request.clone();
@@ -1057,10 +1068,10 @@ pub fn establish_primary(
                 cancel,
                 &mut contacted,
             )?;
-            return Err(PrimaryNotSelected(format!(
-                "term {} did not win; {} authenticated other voters responded; connected minority coordination is not available",
-                campaign.term, contacted.len()
-            )).into());
+            if node.fencing_token()?.is_some() {
+                return Err(PrimaryNotSelected("a global primary was learned while awaiting component agreement".into()).into());
+            }
+            return component_runtime::establish_component(data_dir, store, &mut node, cancel);
         }
         if cancel.is_cancelled() {
             bail!("primary recovery cancelled")
@@ -1090,6 +1101,8 @@ pub fn establish_primary(
                     && previous.identity == expected.identity
                     && previous.term.checked_add(1) == Some(expected.term)
                     && previous.configuration == expected.configuration
+                    && previous.component_revision == expected.component_revision
+                    && expected.component.is_none()
                     && serde_json::to_value(&previous.branch)?
                         == serde_json::to_value(&expected.branch)?
             }
@@ -1126,6 +1139,26 @@ pub fn establish_primary(
         return Ok(None);
     }
     Err(PrimaryNotSelected("bounded primary recovery exhausted".into()).into())
+}
+
+/// Refresh the global control prefix from the configured members.
+///
+/// The global control prefix is also what a follower needs while it waits for
+/// authority: it holds the same durable history, and a stale prefix is not a
+/// reason to keep waiting on an old head.
+fn catch_up_global_control(
+    node: &mut Node,
+    cancel: &CancellationToken,
+) -> Result<Vec<Value>> {
+    let config = node.member_configuration()?
+        .context("missing member configuration")?;
+    let mut contacted = BTreeSet::new();
+    catch_up_members(
+        node,
+        &config.voters().into_iter().collect::<Vec<_>>(),
+        cancel,
+        &mut contacted,
+    )
 }
 
 /// Give voters the committed prefix they need before an election or a
@@ -1995,6 +2028,33 @@ pub fn observe(
     Ok(())
 }
 
+/// Record that this runtime is a resident follower.
+///
+/// A follower holds the installation's durable history and catches up
+/// committed control facts. It starts no subject task, no native recovery
+/// consumer and no replica worker, and it claims no domain-primary
+/// authority. The observation is the queryable fact that tells a resident
+/// follower apart from a runtime that never started: it never claims the
+/// executor, recovery or replica duties of a selected runtime.
+pub fn observe_follower(
+    data_dir: &Path,
+    store: &Store,
+    runtime: EntityId,
+    reason: &str,
+) -> Result<()> {
+    let mut node = open_node(data_dir, store)?;
+    node.observe_runtime_roles(
+        runtime,
+        vec![NodeRole::Follower],
+        None,
+        format!(
+            "resident follower retains durable history and waits for authority: {reason}"
+        ),
+        None,
+    )?;
+    Ok(())
+}
+
 pub fn node_command(data_dir: &Path) -> Result<()> {
     let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let mut bytes = Vec::new();
@@ -2025,6 +2085,14 @@ pub fn node_command(data_dir: &Path) -> Result<()> {
         shenko_node::Request::Adopt { .. } => open_node_for_adoption(data_dir, &store)?,
         _ => open_node(data_dir, &store)?,
     };
-    println!("{}", node.handle(request)?);
+    let value = match request {
+        shenko_node::Request::ComponentObserve => serde_json::to_value(component_runtime::observe_component(&mut node, &CancellationToken::new())?)?,
+        shenko_node::Request::PrepareComponent { proposal } => {
+            let observed = component_runtime::observe_component(&mut node, &CancellationToken::new())?;
+            serde_json::to_value(node.prepare_component(&proposal, &observed)?)?
+        }
+        request => node.handle(request)?,
+    };
+    println!("{value}");
     Ok(())
 }

@@ -27,6 +27,7 @@ use crate::terminal::ScreenGrid;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use shenko_store::SeatCapability;
 use shenko_types::ids::{EntityId, RecordRevision, SeatIncarnation, TaskRevision};
 use shenko_types::Digest;
 use std::hash::Hash;
@@ -362,26 +363,6 @@ pub struct ProcessIdentity {
     pub start_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executable: Option<String>,
-}
-
-/// What one adapter can actually do.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SeatCapability {
-    /// The remote agent sends structured question events.
-    pub structured_questions: bool,
-    /// Answers are delivered as a structured native response.
-    pub structured_answers: bool,
-    /// The screen can be observed with its attributes.
-    pub screen_observation: bool,
-    /// Free text can be steered into a running turn.
-    pub steer: bool,
-    /// The running turn can be interrupted.
-    pub interrupt: bool,
-    /// The remote session can be resumed.
-    pub resume: bool,
-    /// Anything the caller must know that the flags do not say.
-    #[serde(default)]
-    pub notes: Vec<String>,
 }
 
 /// One observation of a seat.

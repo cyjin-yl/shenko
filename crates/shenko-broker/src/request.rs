@@ -8,6 +8,7 @@ use crate::anthropic_rules::ProviderCitation;
 use crate::profile::ProviderProfile;
 
 pub(crate) const DEFAULT_MAX_TOKENS: u64 = 8192;
+pub(crate) const DEFAULT_LOCAL_REQUEST_TIMEOUT_MS: u64 = 180_000;
 
 /// Non-secret effective transport/model contract, fixed by broker construction.
 /// It is sealed into S0; a recovered request must not route through a new binding.
@@ -22,6 +23,10 @@ pub enum ProviderBinding {
         allow_invalid_certs: bool,
         serializer_revision: u32,
         default_max_tokens: u64,
+        /// Total HTTP observation limit, frozen before dispatch. Absence is
+        /// the original 180-second limit and keeps historical seals intact.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_timeout_ms: Option<u64>,
     },
     Anthropic {
         base_url: String,
@@ -123,6 +128,17 @@ impl ProviderBinding {
         }
     }
 
+    /// The local transport's total observation limit. Reaching it never
+    /// proves that the remote generation stopped or permits a replay.
+    pub fn local_request_timeout_ms(&self) -> Option<u64> {
+        match self {
+            Self::Local { request_timeout_ms, .. } => {
+                Some(request_timeout_ms.unwrap_or(DEFAULT_LOCAL_REQUEST_TIMEOUT_MS))
+            }
+            _ => None,
+        }
+    }
+
     /// The open profile of this binding, when it has one.
     pub fn profile(&self) -> Option<&ProviderProfile> {
         match self {
@@ -154,6 +170,7 @@ impl ProviderBinding {
                 allow_invalid_certs,
                 serializer_revision,
                 default_max_tokens,
+                request_timeout_ms,
                 ..
             } => match other {
                 Self::Local {
@@ -161,12 +178,14 @@ impl ProviderBinding {
                     allow_invalid_certs: other_certs,
                     serializer_revision: other_revision,
                     default_max_tokens: other_tokens,
+                    request_timeout_ms: other_timeout,
                     ..
                 } => {
                     base_url == other_url
                         && allow_invalid_certs == other_certs
                         && serializer_revision == other_revision
                         && default_max_tokens == other_tokens
+                        && request_timeout_ms == other_timeout
                 }
                 _ => false,
             },

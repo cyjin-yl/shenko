@@ -37,7 +37,13 @@ seats in deterministic order, with `truncated` when more records exist. The
 query selects its bounded page before counting questions, and the runtime
 probes only the returned seats, not the truncation witness. Each entry
 contains its durable `seat_id`, owning `task_id`, adapter name/version, credential-free location
-summary, status and open-question count. Retired and superseded records remain
+summary, status and open-question count, plus the capability flags the
+attached adapter declared (`SeatAdapter::capability`). A durable-only seat
+carries no capability flags when it has no attached adapter: the durable
+record does not attest what an adapter can do, so the store never invents
+them. An attached adapter's declaration remains visible when its transport
+is dead or unknown; the flags describe its implementation, not current
+liveness, protocol readiness or write authority. Retired and superseded records remain
 visible; inventory does not silently drop history. Managed-process arguments
 and session anchors are excluded from the location summary.
 
@@ -80,6 +86,21 @@ rows (`seat_lease_legacy`) and non-current or non-fence leases with typed
 errors. Relocation retires the predecessor and ends its lease in the same
 commit; the successor is a new record, so stale bindings break instead of
 ageing.
+
+Admission binds the lease to the seat's own durable owner
+(`SeatRecord.task_id`): a holder that names another task is refused with
+`seat_task_mismatch`. A new acquisition's `lease_epoch` must exceed every
+previous acquisition on that seat, including ended leases after release,
+human takeover or restart. Otherwise `seat_lease_epoch_regression` leaves
+all lease facts unchanged. Only the owner with a strictly greater epoch
+takes over, and a displaced current lease ends as `Superseded`.
+
+The acquisition identity binds all request fields: replaying the same
+`lease_id`, seat, holder, epoch and fence capability returns the original
+lease, including its ended state. Changing any acquisition field under that
+identity is `seat_lease_identity_conflict`. Existing historical leases are
+retained; write admission also checks their holder against the durable
+seat owner, so an older foreign-holder row cannot acquire write authority.
 
 The writer authority travels *with* the effect: `SeatWriteFence { lease_id,
 lease_epoch, fence_capability, seat_id, seat_incarnation, task_id,

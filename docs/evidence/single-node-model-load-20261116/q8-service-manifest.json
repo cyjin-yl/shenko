@@ -1,0 +1,28 @@
+{
+  "created_at_utc": "2026-11-16T10:59:02Z",
+  "purpose": "Explicit lower-tier real model single-node journey; not Qwen3.8-27B quality qualification",
+  "model": {
+    "id": "Qwen/Qwen3-0.6B-GGUF",
+    "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+    "file": "Qwen3-0.6B-Q8_0.gguf",
+    "file_bytes": 639446688,
+    "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+    "hash_verified": true
+  },
+  "server": {
+    "release": "b12359",
+    "commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+    "hash_verified": true,
+    "ctx_size": 16384,
+    "parallel": 1,
+    "threads": 2,
+    "kv_cache_type": "q8_0",
+    "reasoning": "off",
+    "context_shift": false,
+    "cache_ram_mib": 64,
+    "weight_repack": false,
+    "base_url": "http://127.0.0.1:18832/v1",
+    "model_alias": "Qwen3-0.6B-Q8_0"
+  }
+}

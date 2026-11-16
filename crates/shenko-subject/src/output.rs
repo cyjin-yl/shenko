@@ -358,7 +358,7 @@ pub fn parse_output(
                         {
                             return Err(invalid(line_no, "invalid model child goal/prompt/model/budget"));
                         }
-                        OutputAction::DelegateModel { spec }
+                        OutputAction::DelegateModel { spec: Box::new(spec) }
                     }
                     _ if header.starts_with("[delegate:") => {
                         let spec = header.trim_start_matches("[delegate:");

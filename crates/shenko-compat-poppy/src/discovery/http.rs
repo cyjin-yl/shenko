@@ -80,38 +80,7 @@ impl MetadataFetcher for HttpFetcher {
 
 impl HttpFetcher {
     async fn read_once(&self, url: &Url) -> Result<(StatusCode, Option<String>, Vec<u8>)> {
-        validate_url(url, &self.options)?;
-        let host = url.host_str().context("metadata URL has no host")?;
-        let port = url
-            .port_or_known_default()
-            .context("metadata URL has no port")?;
-        let addresses: Vec<SocketAddr> = match url.host().context("metadata URL has no host")? {
-            Host::Ipv4(ip) => vec![SocketAddr::new(IpAddr::V4(ip), port)],
-            Host::Ipv6(ip) => vec![SocketAddr::new(IpAddr::V6(ip), port)],
-            Host::Domain(domain) => tokio::net::lookup_host((domain, port))
-                .await
-                .context("resolving metadata host")?
-                .collect(),
-        };
-        ensure!(
-            !addresses.is_empty(),
-            "metadata host resolved to no addresses"
-        );
-        ensure!(
-            self.options.allow_private_networks
-                || addresses.iter().all(|addr| is_public(addr.ip())),
-            "metadata host resolved to a non-public address"
-        );
-        let client = Client::builder()
-            .https_only(true)
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .connect_timeout(REQUEST_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .resolve_to_addrs(host, &addresses)
-            .build()
-            .context("building isolated metadata HTTP client")?;
+        let client = pinned_client(url, &self.options, REQUEST_TIMEOUT).await?;
         let mut response = client
             .get(url.clone())
             .header(ACCEPT, "application/json")
@@ -152,6 +121,47 @@ impl HttpFetcher {
     }
 }
 
+/// Build a client pinned to checked DNS results for one destination. It has
+/// no ambient proxy/cookie state, redirect following or automatic retry.
+/// Callers must execute only requests for this URL's origin with this client.
+pub(crate) async fn pinned_client(
+    url: &Url,
+    options: &DiscoveryOptions,
+    timeout: Duration,
+) -> Result<Client> {
+    validate_url(url, options)?;
+    let host = url.host_str().context("metadata URL has no host")?;
+    let port = url
+        .port_or_known_default()
+        .context("metadata URL has no port")?;
+    let addresses: Vec<SocketAddr> = match url.host().context("metadata URL has no host")? {
+        Host::Ipv4(ip) => vec![SocketAddr::new(IpAddr::V4(ip), port)],
+        Host::Ipv6(ip) => vec![SocketAddr::new(IpAddr::V6(ip), port)],
+        Host::Domain(domain) => tokio::net::lookup_host((domain, port))
+            .await
+            .context("resolving metadata host")?
+            .collect(),
+    };
+    ensure!(
+        !addresses.is_empty(),
+        "metadata host resolved to no addresses"
+    );
+    ensure!(
+        options.allow_private_networks || addresses.iter().all(|addr| is_public(addr.ip())),
+        "metadata host resolved to a non-public address"
+    );
+    Client::builder()
+        .https_only(true)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .connect_timeout(timeout)
+        .timeout(timeout)
+        .resolve_to_addrs(host, &addresses)
+        .build()
+        .context("building isolated HTTPS client")
+}
+
 pub(super) fn redirect_target(
     current: &Url,
     location: Option<&str>,
@@ -164,7 +174,7 @@ pub(super) fn redirect_target(
     Ok(next)
 }
 
-pub(super) fn validate_url(url: &Url, options: &DiscoveryOptions) -> Result<()> {
+pub(crate) fn validate_url(url: &Url, options: &DiscoveryOptions) -> Result<()> {
     ensure!(
         url.scheme() == "https" && url.has_host(),
         "metadata URL must use HTTPS with a host"

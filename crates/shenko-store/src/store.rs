@@ -71,6 +71,15 @@ impl Store {
     /// Inspect an existing database only. Failure (including a missing or old
     /// database) leaves its original bytes and installation state untouched.
     pub fn inspect_installation_binding(db_path: &Path) -> Result<InstallationBinding> {
+        Self::inspect_database(db_path, read_installation_binding)
+    }
+
+    /// Run a read against the same private, stable tuple used for identity
+    /// inspection. Domain readers never open or migrate the live database.
+    pub(crate) fn inspect_database<T>(
+        db_path: &Path,
+        read: impl Fn(&Connection) -> Result<T>,
+    ) -> Result<T> {
         let metadata = std::fs::symlink_metadata(db_path)?;
         ensure!(metadata.is_file(), "installation database must be a regular file");
         // A read-only open on the live tuple is not side-effect free: when a
@@ -90,7 +99,7 @@ impl Store {
         const ATTEMPTS: usize = 4;
         let mut last_error: Option<anyhow::Error> = None;
         for _ in 0..ATTEMPTS {
-            match inspect_installation_binding_once(db_path) {
+            match inspect_database_once(db_path, &read) {
                 Ok(binding) => return Ok(binding),
                 Err(error) => last_error = Some(error),
             }
@@ -803,18 +812,70 @@ impl Store {
         };
         let mut aliases = vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)];
         aliases.extend(expected_tasks.iter().map(crate::authority::task_revision_position));
-        let authority = self.reserve_admission(expected_head, crate::authority::AdmissionPosition {
+        let position = crate::authority::AdmissionPosition {
             key: format!("branch/{}/successor/{}:{}", expected_head.branch_id.0,
                 expected_head.committed_at.ledger_id, expected_head.committed_at.seq.0),
             aliases, expected_tasks, expected_steps: vec![previous],
             bind_parent: true, ..Default::default()
-        },
+        };
+        if self.has_commit_authority() {
+            let tasks = position.expected_tasks.clone();
+            let steps = position.expected_steps.clone();
+            match self.prepare_step_transition(step, expected_head, next_step_id, position.clone()) {
+                Ok(prepared) => {
+                    let authority = self.reserve_sealed_admission(prepared.admission.clone(), tasks, steps)?;
+                    return self.apply_step_transition(&prepared.transition_ref,
+                        step, expected_head, next_step_id, &authority, false);
+                }
+                Err(error) if crate::control_transition::capture_budget_refusal(&error) => {
+                    // The frozen pre-capture exceeded its memory ceiling for
+                    // this installation, so this transition cannot be frozen.
+                    // The decision is neither dropped nor silently refused:
+                    // the degradation becomes a durable fact of the owning
+                    // subject, and the ordinary original-plan path commits
+                    // the same decision locally.
+                    self.journal_capture_budget_refusal(expected_head, step, &error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let authority = self.reserve_admission(expected_head, position,
             &serde_json::json!({"kind": "subject.step_commit", "step": step,
                 "expected_head": expected_head, "next_step_id": next_step_id}))?;
         self.ledger.with_mutation(
             || self.try_commit_step_and_advance_head(step, expected_head, next_step_id, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
+    }
+
+    /// Record that the canonical S1 path could not freeze this transition.
+    ///
+    /// The frozen pre-capture exceeded its memory ceiling, so this step used
+    /// the original-plan path. The note is a durable runtime-error fact of
+    /// the owning subject: the
+    /// degradation is visible to the subject instead of being a silent
+    /// refusal. The journal write is fail-soft and never replaces the
+    /// decision this step still commits.
+    fn journal_capture_budget_refusal(
+        &self,
+        head: &SubjectBranchHead,
+        step: &SubjectStep,
+        error: &ShenkoError,
+    ) {
+        self.journal_runtime_error(head.agent_id, crate::raw_session::RuntimeErrorContext {
+            kind: "store_capture_budget".into(),
+            source_module: module_path!().into(),
+            message: format!(
+                "the canonical S1 transition was not frozen and this step used the original-plan path: {error}"
+            ),
+            step_no: Some(step.step_no),
+            task_id: None,
+            extra: serde_json::json!({
+                "branch_id": head.branch_id.clone(),
+                "capture_budget_bytes": crate::control_transition::MAX_CAPTURE_BYTES,
+                "image_budget_bytes": crate::control_transition::MAX_IMAGE_BYTES,
+            }),
+        });
     }
 
     fn validate_step_commit(
@@ -872,17 +933,34 @@ impl Store {
         authority: &crate::authority::AuthorityReservation,
     ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
         authority.check(&tx, self.capabilities.incarnation, Some(expected_head.agent_id))?;
-        let (mut head, previous, decision) = self.validate_step_commit(&tx, step, expected_head, next_step_id)?;
-        let seq = self.ledger.allocate_seq(&tx)?;
-        let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+        let commit_ref = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
+        let receipt = self.apply_step_commit_tx(&tx, step, expected_head, next_step_id, commit_ref)?;
+        authority.record_admission(&tx, commit_ref)?;
+        self.record_subject_commit(&tx, commit_ref, 4)?;
+        tx.commit().map_err(storage_error)?;
+        authority.materialized();
+        Ok(receipt)
+    }
+
+    /// The ordinary S1 transaction body. Canonical admission evaluates it once
+    /// in a rollback savepoint and seals its exact result before consensus.
+    /// Applying a learned result never calls this body again.
+    pub(crate) fn apply_step_commit_tx(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        next_step_id: EntityId,
+        commit_ref: CommitRef,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        let (mut head, previous, decision) = self.validate_step_commit(tx, step, expected_head, next_step_id)?;
+        let seq = commit_ref.seq;
         // Identity is settled under the SAME IMMEDIATE transaction as S1. The
         // intent carries the S0 revision; never rebase model edits onto latest.
         use shenko_types::identity::{IdentityOutcome, IdentityReceipt, IdentitySource};
-        let current_identity = crate::identity::read_latest(&tx, head.agent_id)?;
+        let current_identity = crate::identity::read_latest(tx, head.agent_id)?;
         let actual_revision = current_identity.as_ref().map(|p| p.revision);
         let outcome = if let Some(intent) = &decision.identity_intent {
             let frozen: serde_json::Value =
@@ -916,7 +994,7 @@ impl Store {
                     actual_revision,
                 }
             } else {
-                crate::identity::insert(&tx, &intent.proposed)?;
+                crate::identity::insert(tx, &intent.proposed)?;
                 IdentityOutcome::Applied {
                     expected_revision: intent.expected_revision,
                     revision: intent.proposed.revision,
@@ -947,14 +1025,14 @@ impl Store {
         // read inside this transaction, and a stale or late change is settled
         // as a typed receipt instead of failing the whole S1.
         let wait_receipt = self.apply_semantic_wait(
-            &tx,
+            tx,
             &head,
             step,
             &decision,
             commit_ref,
             seq.0,
         )?;
-        let obligation_receipts = self.apply_obligation_changes(&tx, &head, step, &decision, commit_ref)?;
+        let obligation_receipts = self.apply_obligation_changes(tx, &head, step, &decision, commit_ref)?;
         let mut step = step.clone();
         step.commit_ref = Some(commit_ref);
         let successor = SubjectStep {
@@ -977,7 +1055,7 @@ impl Store {
             record_revision: RecordRevision(0),
             created_by_step_id: Some(step.step_id),
         };
-        update_step(&tx, &step, previous.record_revision, seq.0)?;
+        update_step(tx, &step, previous.record_revision, seq.0)?;
         // 与 S1 同事务保存处置索引；I 只据此确认，不把送入内存 channel 当消费。
         // deferred 可由后续步继续处理，已接受的处置不能产生第二份决定/外部意图。
         // The full EventDisposition JSON is stored, so a later committed step
@@ -1002,11 +1080,11 @@ impl Store {
                 ));
             }
         }
-        self.enqueue_subject_intents(&tx, &head, &step, &decision, commit_ref, false)?;
+        self.enqueue_subject_intents(tx, &head, &step, &decision, commit_ref, false)?;
         // The raw tool call facts of the committed intents are written in the
         // SAME transaction as the intent rows themselves, so a rolled back S1
         // leaves neither behind.
-        self.append_committed_intent_facts(&tx, &head, &step, &decision)?;
+        self.append_committed_intent_facts(tx, &head, &step, &decision)?;
         // The model result is a whole unit of the durable stream journal,
         // bound to its request/attempt identity and committed with the step:
         // a reconnecting UI or recovering consumer reads it back instead of
@@ -1017,7 +1095,7 @@ impl Store {
                 serde_json::to_string(model_result_ref).unwrap_or_else(|_| "{}".into())
             });
             self.journal_step_model_result(
-                &tx,
+                tx,
                 head.agent_id,
                 &head.branch_id.0.to_string(),
                 step.step_no as i64,
@@ -1034,10 +1112,10 @@ impl Store {
         }
         // The handled wait policy intent carries the exact receipt of this
         // step. It is settled, never left ready and never left blocked.
-        self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
-        self.settle_obligation_intents(&tx, &obligation_receipts, seq.0)?;
+        self.settle_semantic_wait_intent(tx, &wait_receipt, seq.0)?;
+        self.settle_obligation_intents(tx, &obligation_receipts, seq.0)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
-        insert_step(&tx, &successor, seq.0)?;
+        insert_step(tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;
         head.committed_step_id = Some(step.step_id);
         head.committed_at = commit_ref;
@@ -1053,10 +1131,6 @@ impl Store {
         if changed != 1 {
             return Err(ShenkoError::conflict("stale branch head"));
         }
-        authority.record_admission(&tx, commit_ref)?;
-        self.record_subject_commit(&tx, commit_ref, 4)?;
-        tx.commit().map_err(storage_error)?;
-        authority.materialized();
         Ok(self.subject_receipt(
             commit_ref,
             vec![
@@ -1664,6 +1738,33 @@ pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(error.to_string())
 }
 
+/// Classify one commit failure.
+///
+/// Foreign-key checks are deferred to COMMIT so a transition can order its
+/// own writes. A deferred violation is therefore not storage damage: the
+/// applied rows reference a predecessor this ledger does not hold, which is
+/// typed reconciliation debt. The receiving ledger has to catch up before the
+/// transition can be applied, so the writer must stay open.
+/// Every other commit failure remains storage damage and keeps its own
+/// consequence.
+pub(crate) fn commit_error(error: rusqlite::Error) -> ShenkoError {
+    if foreign_key_violation(&error) {
+        ShenkoError::conflict("materialization lacks a required predecessor row")
+    } else {
+        storage_error(error)
+    }
+}
+
+/// Whether a SQLite failure is a deferred foreign-key violation.
+pub(crate) fn foreign_key_violation(error: &rusqlite::Error) -> bool {
+    match error {
+        rusqlite::Error::SqliteFailure(failure, _) => {
+            failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY
+        }
+        _ => false,
+    }
+}
+
 fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     let ledger_id: String = conn.query_row(
         "SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |r| r.get(0),
@@ -1693,11 +1794,14 @@ fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     Ok(InstallationBinding { ledger_id, subject })
 }
 
-/// One staging attempt for `inspect_installation_binding`: copy the tuple,
-/// validate the staged copy, read the binding, then confirm the live tuple
+/// One staging attempt: copy the tuple,
+/// validate the staged copy, read the requested facts, then confirm the live tuple
 /// did not move during the read.
 #[cfg(target_os = "linux")]
-fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBinding> {
+fn inspect_database_once<T>(
+    db_path: &Path,
+    read: &impl Fn(&Connection) -> Result<T>,
+) -> Result<T> {
     let staging = tempfile::Builder::new()
         .prefix("shenko-inspect-")
         .tempdir()?;
@@ -1713,7 +1817,7 @@ fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBindi
     }
     let binding = {
         let tx = conn.transaction()?;
-        let binding = read_installation_binding(&tx)?;
+        let binding = read(&tx)?;
         tx.commit()?;
         binding
     };
@@ -1730,7 +1834,10 @@ fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBindi
 /// there is no equivalent that keeps the POSIX-lock and identity guarantees,
 /// so inspection is refused outright instead of degrading to an unsafe copy.
 #[cfg(not(target_os = "linux"))]
-fn inspect_installation_binding_once(_db_path: &Path) -> Result<InstallationBinding> {
+fn inspect_database_once<T>(
+    _db_path: &Path,
+    _read: &impl Fn(&Connection) -> Result<T>,
+) -> Result<T> {
     anyhow::bail!(
         "staged installation inspection is not supported on this platform (requires Linux)"
     )
@@ -1741,7 +1848,10 @@ fn inspect_installation_binding_once(_db_path: &Path) -> Result<InstallationBind
 /// A replicated genesis keeps the ledger that created it, so a subject counts
 /// as local when its genesis was committed here or its head has committed
 /// local work (a takeover writes this installation's commits onto the adopted
-/// branch head). Imported replicas satisfy neither and stay parked history.
+/// branch head). A canonical S1 keeps the source head coordinate, so its
+/// validated nonreplicated physical materialization receipt also establishes
+/// this installation's subject. Imported source receipts satisfy none of
+/// these conditions. Identity here grants no primary or dispatch authority.
 /// More than one qualifying subject is an integrity error, never a coin flip.
 pub(crate) fn read_local_subject_id(
     conn: &Connection,
@@ -1759,6 +1869,12 @@ pub(crate) fn read_local_subject_id(
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(storage_error)?;
     let mut local: Vec<EntityId> = Vec::new();
+    // Read-only installation inspection also admits pre-authority schemas;
+    // absence of the local receipt table cannot manufacture a new binding.
+    let has_materializations: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='control_materializations')",
+        [], |row| row.get(0),
+    ).map_err(storage_error)?;
     for (id, json) in rows {
         let agent_id: EntityId = id
             .parse()
@@ -1782,7 +1898,10 @@ pub(crate) fn read_local_subject_id(
             }
             None => false,
         };
-        if genesis.created_commit.ledger_id == ledger_id || committed_here {
+        let applied_here = if has_materializations {
+            locally_materialized_subject(conn, agent_id, ledger_id)?
+        } else { false };
+        if genesis.created_commit.ledger_id == ledger_id || committed_here || applied_here {
             local.push(agent_id);
         }
     }
@@ -1793,6 +1912,29 @@ pub(crate) fn read_local_subject_id(
             "installation has more than one local subject",
         )),
     }
+}
+
+fn locally_materialized_subject(conn: &Connection, subject: EntityId, ledger: EntityId) -> Result<bool, ShenkoError> {
+    let raw: Option<String> = conn.query_row(
+        "SELECT data FROM control_materializations WHERE json_extract(data,'$.admission.subject_id')=?1
+         ORDER BY updated_commit_seq DESC LIMIT 1", [subject.to_string()], |row| row.get(0),
+    ).optional().map_err(storage_error)?;
+    let Some(raw) = raw else { return Ok(false); };
+    let receipt: serde_json::Value = serde_json::from_str(&raw)?;
+    let admission: shenko_types::authority::CommitAdmission = serde_json::from_value(receipt["admission"].clone())?;
+    let physical: CommitRef = serde_json::from_value(receipt["committed_at"].clone())?;
+    let committed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM commit_log WHERE ledger_id=?1 AND seq=?2)",
+        params![physical.ledger_id.to_string(), i64::try_from(physical.seq.0).map_err(storage_error)?],
+        |row| row.get(0),
+    ).map_err(storage_error)?;
+    if admission.subject_id != subject || physical.ledger_id != ledger || !committed
+        || !crate::authority::admission_materialized(conn, &admission)?
+        || !crate::authority::admission_applied(conn, &admission)?
+    {
+        return Err(ShenkoError::conflict("installation subject lacks its exact local control application receipt"));
+    }
+    Ok(true)
 }
 
 #[cfg(target_os = "linux")]

@@ -58,16 +58,35 @@ jobs:
       - name: Install native build prerequisites
         run: |
           apt-get update
-          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev
+          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev openssh-server curl ca-certificates
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> .ci/target/rust
           shared-key: rust-1.98.1-workspace
       - name: Check every workspace target with the lockfile
-        run: cargo check --workspace --all-targets --features shenko/compat-poppy --locked -j2
-      - name: Test the workspace, including integration tests and doctests
-        # Retain every failing target in one run; any failure still fails CI.
-        run: cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2
+        run: |
+          mkdir -p .ci/evidence
+          cargo check --workspace --all-targets --features shenko/compat-poppy --locked -j2 2>&1 | tee .ci/evidence/workspace-check.log
+      - name: Build the pinned SSH WASI guest
+        run: |
+          rustup target add wasm32-wasip1 --toolchain 1.98.1
+          mkdir -p .ci/toolchains
+          curl --fail --location --retry 2 \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz \
+            --output .ci/toolchains/wasi-sdk.tar.gz
+          echo 'b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4  .ci/toolchains/wasi-sdk.tar.gz' | sha256sum --check --strict
+          tar -xzf .ci/toolchains/wasi-sdk.tar.gz -C .ci/toolchains
+          python3 crates/shenko-wasm/ports/ssh-wasi/build.py \
+            --sdk .ci/toolchains/wasi-sdk-34.0-x86_64-linux \
+            --target-dir .ci/target/ssh-wasi \
+            --output-dir .ci/evidence/ssh-wasi/build
+      - name: Test the workspace, including real SSH, integration tests and doctests
+        # Retain every failing target in one run; pipefail keeps any failure.
+        run: |
+          mkdir -p /run/sshd
+          export SHENKO_SSH_WASI_ARTIFACT="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/build/shenko-ssh-wasi.wasm"
+          export SHENKO_SSH_WASI_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/openssh-journey.json"
+          cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4

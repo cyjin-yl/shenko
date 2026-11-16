@@ -621,6 +621,8 @@ struct CompletedRequest {
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
     guard: AdmissionGuard,
+    /// Whether the execution already recorded a typed cause for this request.
+    typed_cause: bool,
 }
 
 pub struct Broker {
@@ -856,7 +858,7 @@ impl Broker {
         kv: &KvAllocator,
         error_sink: &ErrorSinkCell,
     ) -> Result<()> {
-        let CompletedRequest { request, receipt_sink, result, guard } = completed;
+        let CompletedRequest { request, receipt_sink, result, guard, typed_cause } = completed;
         let request_id = request.request_id;
         let settlement = (|| -> Result<()> {
             if let Some(sink) = receipt_sink {
@@ -911,7 +913,7 @@ impl Broker {
             ));
             return Err(error.context(format!("inference completion settlement failed for {request_id}")));
         }
-        if result.termination.kind == TerminationKind::Unknown {
+        if result.termination.kind == TerminationKind::Unknown && !typed_cause {
             crate::error_sink::journal_runtime_error(
                 error_sink,
                 &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
@@ -958,7 +960,7 @@ impl Broker {
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
                     let Submission { request, receipt_sink, purpose, stream } = submission;
-                    let result = execute_request(
+                    let executed = execute_request(
                         &request,
                         receipt_sink.as_ref(),
                         purpose,
@@ -972,7 +974,8 @@ impl Broker {
                     let completed = CompletedRequest {
                         request,
                         receipt_sink,
-                        result,
+                        result: executed.result,
+                        typed_cause: executed.typed_cause,
                         guard,
                     };
                     if let Err(failed) = completed_tx.send(completed) {
@@ -1175,6 +1178,7 @@ mod tests {
                         allow_invalid_certs: false,
                         serializer_revision: crate::local_provider::SERIALIZER_REVISION,
                         default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+                        request_timeout_ms: None,
                     },
                     starts,
                     gate: Arc::new(Semaphore::new(0)),

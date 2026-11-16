@@ -140,13 +140,13 @@ pub(crate) fn insert_native_dispatch_marker(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompletionMemo {
-    operation_id: EntityId,
-    receipt_id: EntityId,
-    invocation_id: EntityId,
-    outcome: TaskOutcome,
-    result: Option<serde_json::Value>,
-    evidence_ref: ObjectRef,
+pub(crate) struct CompletionMemo {
+    pub operation_id: EntityId,
+    pub receipt_id: EntityId,
+    pub invocation_id: EntityId,
+    pub outcome: TaskOutcome,
+    pub result: Option<serde_json::Value>,
+    pub evidence_ref: ObjectRef,
 }
 
 /// The complete startup scan, including rows that remain on another branch.
@@ -1028,6 +1028,9 @@ impl Store {
                 || attempt.final_receipt_id.is_some() { return Ok(NativeDispatchTransition::Fenced); }
             (operation, attempt)
         };
+        if self.has_commit_authority() {
+            return self.canonical_native_dispatch(ctx, operation, attempt).map_err(Into::into);
+        }
         let authority = self.reserve_task_admission(ctx.task_id,
             format!("attempt/{attempt_id}/dispatch"), operation_id, attempt_id,
             &serde_json::json!({"kind": "native.dispatch", "invocation": ctx,
@@ -1112,6 +1115,11 @@ impl Store {
             if !self.native_invocation_current_tx(&tx, &task, &claim.invocation)? { return Ok(None); }
         }
         let completion = self.validate_completion(claim.operation_id, operation)?;
+        if self.has_commit_authority() {
+            return self.canonical_native_completion(claim.task.task_id,
+                crate::native_transition::NativeT2Phase::Complete { invocation: claim.invocation.clone() },
+                completion).map_err(Into::into);
+        }
         let authority = self.reserve_task_control(claim.task.task_id, "complete", &serde_json::json!({
             "kind":"native.complete", "task_id":claim.task.task_id,
             "invocation":claim.invocation, "completion":completion,
@@ -1176,6 +1184,13 @@ impl Store {
             let head = read_head(&conn, task.agent_id)?;
             if !matches!(task.state, TaskState::Completing { .. }) || unfinished_children(&conn, task_id)?
                 || !task_owner_active(&conn, &task, &head)? { return Ok(None); }
+        }
+        if self.has_commit_authority() {
+            let task = self.external_task(task_id)?;
+            let completion: CompletionMemo = serde_json::from_value(task.memos.get(NATIVE_COMPLETION)
+                .cloned().context("missing native completion memo")?)?;
+            return self.canonical_native_completion(task_id, crate::native_transition::NativeT2Phase::Finish,
+                completion).map_err(Into::into);
         }
         let authority = self.reserve_task_control(task_id, "finish", &serde_json::json!({
             "kind":"native.finish", "task_id":task_id,
@@ -1740,7 +1755,7 @@ fn operation_exists(conn: &rusqlite::Connection, id: EntityId) -> Result<bool> {
         .is_some())
 }
 
-fn unfinished_children(conn: &rusqlite::Connection, task_id: EntityId) -> Result<bool> {
+pub(crate) fn unfinished_children(conn: &rusqlite::Connection, task_id: EntityId) -> Result<bool> {
     Ok(conn
         .query_row(
             "SELECT 1 FROM tasks
@@ -1772,7 +1787,7 @@ fn storage_failure(error: &anyhow::Error) -> bool {
     error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
 }
 
-fn has_native_dispatch(
+pub(crate) fn has_native_dispatch(
     task: &TaskRecord, ctx: &TaskInvocation, operation_id: EntityId, attempt_id: EntityId,
 ) -> Result<bool> {
     let attempt_key = attempt_id.to_string();

@@ -90,6 +90,12 @@ composition root: `bin/shenko/src/lib.rs`.
   `local_seq = updated_commit_seq`.
 - Optimistic base: `expected_base_revision` mismatch → `BASE_CONFIG_STALE`,
   never a silent overwrite.
+- The composed `shenko.quota/policy` handler reads a complete `QuotaPolicy`
+  and rejects every field the typed deserializer would ignore, including
+  nested fields such as a misspelled admission interval. Default fields may
+  still be omitted or stated explicitly; no separate field-name schema is
+  maintained. Rejected input remains a failed desired change and does not
+  append a selected quota policy.
 
 ## Playground — [§43.2](configuration-playground.md#spec-43-2)、[§41.9](inference.md#spec-41-9)、[§41.10](inference.md#spec-41-10)
 

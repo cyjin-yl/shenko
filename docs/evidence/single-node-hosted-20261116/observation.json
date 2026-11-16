@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "workflow_run_url": "https://github.com/cyjin-yl/shenko/actions/runs/43860565053",
+  "job_id": 133275958670,
+  "artifact_id": 14224120502,
+  "artifact_sha256": "3bbaae29621216566354bd38abb2f043ed703b2c2d007818766fc109f51c8f13",
+  "tested_source_revision": "adf05188be9c4768a5f46ab94f1332079a5c274a",
+  "pull_request_head": "b2886c2b9b10d68ffb27d5b0702a896419f1ced6",
+  "outcome": "failed_during_first_model_prefill",
+  "model_ready": true,
+  "user_input_accepted_commit": "28f98a82-8eda-419f-9181-973bcf88f1b1/7",
+  "main_request_id": "873778c7-00da-4d4c-8814-0d922ac45264",
+  "last_reported_prefill_tokens": 5888,
+  "last_reported_prefill_progress": 0.46,
+  "last_reported_prefill_seconds": 169.23,
+  "observed_last_batch_tokens_per_second": 17.877094972067038,
+  "main_result_cas": "blake3:1acb3864c8138293233ba9a8c285545071a42af18934b488ea33bcbbb80fdede",
+  "main_result_status": "failed",
+  "main_result_termination": "unknown",
+  "main_result_terminal_commit": "not_collected_by_this_harness_revision",
+  "subject_step_state": "awaiting_model",
+  "finite_child_results": 0,
+  "child_evidence_receipts": 0,
+  "committed_decisions": 0,
+  "restart_observed": false,
+  "acceptance_passed": false,
+  "scope": "0.6B mechanical diagnostic only; no 27B baseline, S2, physical-failure or long-run acceptance",
+  "retained_raw_files": [
+    {
+      "path": "model-health.json",
+      "sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+      "bytes": 15
+    },
+    {
+      "path": "model-runtime-version.txt",
+      "sha256": "84b24d587b02c1860940e1d4ff82193bc84df1334c75e96435e78e313f9e3f5f",
+      "bytes": 90
+    },
+    {
+      "path": "model-server.log",
+      "sha256": "97c5867c0e444e86494abfbbc1d4390b0f666f371e728ccd2591527cc2663679",
+      "bytes": 4330
+    },
+    {
+      "path": "model.sha256",
+      "sha256": "a48bb0106a273131f985f8a4592b2225c96e6489759f87d2a2b2563ca72b539f",
+      "bytes": 176
+    },
+    {
+      "path": "real-single-node/failure.txt",
+      "sha256": "3e8ec099778aaaed6c770295f970e1b574a2aeff121c7145051f254aea10778d",
+      "bytes": 947
+    },
+    {
+      "path": "real-single-node/final.ledger.json",
+      "sha256": "abb17c3bb7c2aee77d96d2e910a1fa906ca0d47e2f2d55fd4ab7023fc4132ab2",
+      "bytes": 31841
+    },
+    {
+      "path": "real-single-node/first.input.json",
+      "sha256": "75e43e5ee3413e62deabde232100263746ed89a6f403c1a0d2a6b1f9ff07a4b4",
+      "bytes": 612
+    },
+    {
+      "path": "real-single-node/first.self.json",
+      "sha256": "f04d229a96a9e1e4e72958b923d806afab7c39fe813ef2a2afac2f703012214d",
+      "bytes": 806
+    },
+    {
+      "path": "real-single-node/first.runtime.log",
+      "sha256": "2e7c2a972f70cfab9a00b69bc613be4640b516eabe9d5e9dda8fdb03ffbbb5b9",
+      "bytes": 7902
+    },
+    {
+      "path": "real-single-node/first.websocket.jsonl",
+      "sha256": "2fe4bb0446515dfdda2dfa5638d69836574b0cf47e034d435e916b272218f5a5",
+      "bytes": 1385
+    },
+    {
+      "path": "real-single-node/manifest.json",
+      "sha256": "3628d09138b05d529af0b93bad278eefada58a2f30a582bd90fa0fbba731dcb9",
+      "bytes": 617
+    },
+    {
+      "path": "real-single-node/models.json",
+      "sha256": "04928ab7ab4c8ee1ece670f830812c7b461b0e348ba933ebefe1b27b83d07e78",
+      "bytes": 1176
+    },
+    {
+      "path": "real-single-node/summary.json",
+      "sha256": "93dfb716c86c2f11c351988c7fd9c5c0fb22fcbaa5aded2cf9ddec2bc4247a56",
+      "bytes": 136
+    },
+    {
+      "path": "real-single-node/cas/1a/cb/1acb3864c8138293233ba9a8c285545071a42af18934b488ea33bcbbb80fdede",
+      "sha256": "cb87ff4227bd43e1db1f570698a6419375d97532b62030f20e102775add69b30",
+      "bytes": 597
+    },
+    {
+      "path": "real-single-node/cas/72/81/7281444a18c3d0b935e555284c053533c1285a2e79f208e77a82bb875402b489",
+      "sha256": "279df972b9556b65f65c877b5781528f703f786306995c8262c456b759c15c00",
+      "bytes": 56866
+    }
+  ]
+}

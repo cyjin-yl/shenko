@@ -36,6 +36,24 @@ provider 是可安装的运行时实现，不是封闭枚举。
   - 历史 `local` / `anthropic` / `stub` 绑定原样可读，旧封存历史不需要迁移。
 - 模型名不构成许可名单。`ProviderProfile::validate` 只检查结构（端点 scheme、凭据头名、采样能力自相矛盾等），不检查模型是否"已知"。
 
+### 本地 HTTP 观察期限
+
+`LocalModelProvider` 在创建时读取 `SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS`。
+未配置时保持原有 180,000 ms 总 HTTP 观察期限；显式值必须是
+1..=86,400,000 的整数毫秒，非法或不可解码的配置直接报错，不退回默认值。
+这个期限包括连接、完整 prompt 的 prefill 和响应读取，不是模型的输出 token 预算。
+
+显式期限随 `ProviderBinding::Local.request_timeout_ms` 封入请求，transport
+匹配和发送前校验都包含该值。显式配置使用 binding/profile revision 4，防止
+旧程序忽略新增字段后仍按 180 秒执行；未配置的历史 revision 3 绑定保持原始
+JSON 形状与 180 秒语义。换期限只影响新绑定，不能改写已经发送请求的 seal。
+
+到期只说明本地停止观察。未收到供应商终局证据时仍记录 `Unknown`、保留资源
+欠账与原 request 身份，不能认作取消成功或自动重发。完整与流式路径都将 typed
+HTTP timeout 记入所属主体的运行时错误日志，包含封存期限但不抄录凭据或 URL
+参数；原始终局回执仍独立保存。慢 CPU prefill 需要按实测配置明确期限，不能用
+删减产品上下文、放宽输出判定或假成功规避它。
+
 ### 四个原生后端
 
 NInfer、Strata、vLLM、1Cat-vLLM 各自有 profile 构造器（`profile::native_backends::*`）与原生命名空间（`native.ninfer`、`native.strata`、`native.vllm`、`native.1cat`）。命名空间本身不是能力保证：`BackendCapabilitySnapshot` 里的每个 operation 只有在**探测响应里被后端自己声明**时才是 `Available`，否则是带原因的 `Unknown`。1Cat 的 `/v1/sm70/acceleration` 诊断响应与 `/v1/models` 元数据都作为原始证据保留。

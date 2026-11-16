@@ -6,7 +6,14 @@ use shenko_identity::IdentityService;
 
 use crate::{Command, cli_dispatch, runtime_authority};
 
-pub(crate) async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
+#[derive(Default)]
+pub(crate) struct RuntimeState {
+    pub(crate) authority: Option<Arc<runtime_authority::RuntimeAuthority>>,
+    pub(crate) heartbeat: Option<tokio::task::JoinHandle<Result<()>>>,
+    pub(crate) startup_pause_applied: bool,
+}
+
+pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bool) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
         shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
@@ -36,10 +43,30 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let _quota_strategy_plugin = supervisor
         .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
         .await?;
-    let mut active_authority = None;
+    let mut state = RuntimeState::default();
     let result = cli_dispatch::dispatch(
-        command, data_dir, &supervisor, &identity_context, &identity_service, &mut active_authority,
+        command, data_dir, &supervisor, &identity_context, &identity_service, &mut state,
     ).await;
+    *startup_pause_applied = state.startup_pause_applied;
+    // Startup cancels observations on every exit. Join the last owned write
+    // before releasing the runtime owner or rebuilding its scoped services.
+    let result = match state.heartbeat {
+        Some(heartbeat) => match heartbeat.await
+            .map_err(anyhow::Error::from)
+            .and_then(std::convert::identity)
+        {
+            Ok(()) => result,
+            Err(observation) => {
+                let observation = runtime_authority::observation_failure(observation);
+                Err(match result {
+                    Ok(()) => observation,
+                    Err(error) => observation.context(format!("runtime also failed: {error:#}")),
+                })
+            },
+        },
+        None => result,
+    };
+    let active_authority = state.authority;
     let rebuilding = active_authority.as_ref()
         .is_some_and(|authority| authority.recovery_required().is_some())
         || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);

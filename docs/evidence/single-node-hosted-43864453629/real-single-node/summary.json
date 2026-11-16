@@ -1,0 +1,8 @@
+{
+  "passed": false,
+  "checks": {},
+  "errors": [
+    "ConnectionClosedError: no close frame received or sent"
+  ],
+  "last_exit": 1
+}

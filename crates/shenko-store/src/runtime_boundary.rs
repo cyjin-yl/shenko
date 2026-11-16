@@ -103,6 +103,90 @@ impl Store {
         read_request(&conn, request_id)
     }
 
+    /// Startup has no consumers yet. Publish its stable request and the clean
+    /// paused boundary in one SQLite transaction, so a crash cannot leave an unbound
+    /// `requested` record between requesting and accepting the pause.
+    ///
+    /// This uses the ordinary subject-only quiesce record. It neither stops
+    /// previously admitted operations nor skips an unresolved subject step.
+    pub fn pause_subject_at_start(
+        &self,
+        agent_id: EntityId,
+        request_id: EntityId,
+    ) -> Result<SubjectQuiesce, ShenkoError> {
+        let authority = self.reserve_authority()?;
+        self.ledger.with_mutation(|| {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            authority.check(&tx, self.capabilities.incarnation, Some(agent_id))?;
+            let mut head = read_head(&tx, agent_id)?;
+            head = checked_head_mode(&tx, &head, false)?;
+            let step = read_step(&tx, &head.branch_id, head.next_step_id)?
+                .ok_or_else(|| ShenkoError::conflict("startup pause successor missing"))?;
+            crate::store::validate_step_binding(&head, &step)?;
+            if step.state != SubjectStepState::Planned || step.active_request_id.is_some() || step.active_attempt_id.is_some() {
+                return Err(ShenkoError::conflict("startup pause cannot skip an unresolved step; reconcile its original request"));
+            }
+            let old = read_request(&tx, request_id)?;
+            if let Some(record) = &old {
+                if record.agent_id != agent_id || record.epoch != head.controller_epoch
+                    || record.generation != head.software_generation
+                {
+                    return Err(ShenkoError::conflict("startup pause does not bind the current subject controller"));
+                }
+                match record.state {
+                    SubjectQuiesceState::Paused if head.mode == SubjectMode::Paused
+                        && record.boundary_at.is_some() && record.closed_at.is_none() => {
+                            validate_paused_head(&tx, &head)?;
+                            return Ok(record.clone());
+                        }
+                    SubjectQuiesceState::Requested if head.mode == SubjectMode::Active
+                        && record.boundary_at.is_none() && record.closed_at.is_none() => {}
+                    SubjectQuiesceState::Resumed | SubjectQuiesceState::Cancelled => {
+                        return Err(ShenkoError::conflict("startup pause is already closed; use a new request UUID"));
+                    }
+                    _ => return Err(ShenkoError::conflict("startup pause state/head mismatch")),
+                }
+            } else if head.mode != SubjectMode::Active || open_request(&tx, agent_id)?.is_some() {
+                return Err(ShenkoError::conflict("subject already has a pause or is not active"));
+            }
+            // Retain the existing two ordered ledger facts. Both become
+            // durable together; no reader can observe the intermediate
+            // Requested state created by this startup action.
+            let mut record = match old {
+                Some(record) => record,
+                None => {
+                    let seq = self.ledger.allocate_seq(&tx)?;
+                    let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                    let record = SubjectQuiesce {
+                        request_id, agent_id, generation: head.software_generation.clone(),
+                        epoch: head.controller_epoch, state: SubjectQuiesceState::Requested,
+                        requested_at: commit, boundary_at: None, closed_at: None,
+                    };
+                    tx.execute(
+                        "INSERT INTO subject_quiesce_requests(request_id,agent_id,state,data,updated_commit_seq) VALUES(?1,?2,?3,?4,?5)",
+                        params![request_id.to_string(), agent_id.to_string(), record.state.name(), serde_json::to_string(&record)?, seq.0 as i64],
+                    ).map_err(storage_error)?;
+                    log_commit(&tx, self, commit, 1)?;
+                    record
+                }
+            };
+            let seq = self.ledger.allocate_seq(&tx)?;
+            let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+            let old_revision = head.record_revision;
+            head.record_revision = next_revision(old_revision)?;
+            head.mode = SubjectMode::Paused;
+            write_head(&tx, &head, old_revision, seq.0)?;
+            record.state = SubjectQuiesceState::Paused;
+            record.boundary_at = Some(commit);
+            write_request(&tx, &record, "requested", seq.0)?;
+            log_commit(&tx, self, commit, 2)?;
+            validate_paused_head(&tx, &head)?;
+            tx.commit().map_err(storage_error)?;
+            Ok(record)
+        }, |e| matches!(e, ShenkoError::Storage(_)))
+    }
+
     /// The single open request of a subject, if any.
     ///
     /// The partial unique index keeps at most one `requested`/`paused` row per
