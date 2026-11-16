@@ -1,0 +1,6 @@
+tree 21997105f08541049068b9f08b4952bc43e569ea
+parent 5309c6a0aba1da49ab201d322edd8915c68deb5d
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865458 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865458 +0000
+
+Tie PTY input to owned FIFO flush receipts and cancellation

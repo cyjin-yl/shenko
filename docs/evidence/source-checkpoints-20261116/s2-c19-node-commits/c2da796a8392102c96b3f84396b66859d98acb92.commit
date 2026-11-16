@@ -1,0 +1,8 @@
+tree 9af4be15e85fca054c9f2a9f0f3359bfa8a8d6a3
+parent 5cdd6534c89fe69b82ab97f9ce152a1485585f77
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794863882 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864236 +0000
+
+test(s5): bound the existing observation subprocess checks
+
+Keep both original concurrency scenarios and all their assertions. A failed directory lock must end the self-check rather than leave its subprocesses waiting for the outer CI timeout. No new scenario or product acceptance change.

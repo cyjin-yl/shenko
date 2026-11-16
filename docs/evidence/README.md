@@ -3,6 +3,8 @@
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
 - [CI 10d4：编译通过，E1 后继查询与 Clippy 失败](ci-10d4a325-20261116/README.md)：实际 checkout、四份完整原 ZIP／1,900 成员、五份完整 job 日志与所有 native E1 原件保留；1,088 通过、1 失败、11 忽略。后继查询读取不存在的列，单谓词修复仍待新 CI；Clippy 的原归档误分类和 fixture 警告分别保留，未删改原件或放宽门禁。
+- [S2 本次实际构建产物与持久回执候选](s2-build-receipt-20261116/README.md)：使用 Cargo 原 metadata/JSON 产物及每次独占输出，保存完整有界原流与 typed CAS/raw history 根；五个新窗口和三个原拒绝窗口待实际 Rust 执行，不冒称测试后自修改或完整 S2。
+- [PTY 真实本地 write/flush 回执与源码复核](pty-write-review-20261116/README.md)：同 FIFO 的本地传输观察、原流取消和 Unknown/NotSent 保真；五个协议窗口未运行，两个 fixture 顺序/清理 finding 已修，完整原静态结果及作者来源保留。
 - [Node-WASIX 固定 header 相对链接候选](node-wasix-relative-header-20261116/README.md)：仅修固定上游一个指向作者机器的绝对 symlink，真实同树 header 原字节不变；三个有限 Git patch/来源拒绝检查实际通过，全部命令和输入绑定保留。工具链、预算、原 guest 及完成判据不变，没有第三次源码构建或正式能力通过。
 - [第二次 Node-WASIX 源构建：绝对 header 链接失败](node-wasix-source-hosted-43945415290/README.md)：完整原 ZIP 的 121 个成员、实际 checkout、工具/源码/资源和全部原输入保留并独立核验。构建越过 OpenSSL 归档命令后，因固定上游中的绝对 symlink 无法打开 V8 header 而失败；原 8 个符号链接已只读核对。没有 module、cell、reopen 或正式能力通过，前轮失败仍保留，未重跑或调高限额。
 - [C19 directory-lock integration and actual local checks](c19-directory-lock-integration-20261116/README.md): adopts PR #314 on this integration branch, preserves both source revisions/authors and the alternative PR #313 review. The integrated 15 existing + 2 concurrency scenarios passed locally; the existing subprocesses are now bounded. Read-only report support and local serialization do not prove a 7/30-day run or physical durability.

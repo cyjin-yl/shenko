@@ -124,3 +124,50 @@ new sources require their own actual candidate run.
 integration. The evidence index was merged with current entries, so its
 original bytes are separately retained as `cia1-archive-source-index.blob`.
 The merged index is not claimed byte-identical to the original source index.
+
+## C19, Node source repair, successor query and S2 build receipts
+
+`s2-c19-node-checkpoints.json` preserves 21 exact original commit objects and
+their complete tree deltas, including the intermediate integration commits and
+the original archive indexes. Each raw `.commit` is SHA-1 checked against its
+original Git identity. Every tree delta was independently recomposed in a
+temporary Git index and matched the original tree. Six additional original blob
+payloads retain bytes not present in the named published trees. No original
+author, committer time, parent, failure or public evidence path was replaced.
+
+Obtain public `10d4a325` and `d2dc8ee4`, original `5b1c8a31` from the earlier
+GC bundle, and original `86892957` from the seat/CI repair bundle before
+reconstructing these objects. The JSON identifies each original parent/base
+tree, changed path/mode/blob and separate original payload. Raw commits retain
+the complete original metadata. This is incremental provenance, not a standalone
+repository backup. The initially generated bundle duplicated the already
+retained original CI ZIPs; the final representation uses these raw commit/tree
+records instead. Its initial argument-order failure and subsequent bundle
+creation/verification observations are preserved in
+`s2-c19-node-bundle-attempts.json` and the original command streams.
+
+The eight named checkpoints cover the zero-scenario seat fixture correction,
+C19's source and actual local 17-scenario check, the complete second Node source
+failure, the one-predicate E1 query correction, the relative Node header-link
+source, the complete failed 10d4 CI archive, the S2 owned-build/receipt source,
+and their local integration. C19's source PRs remain intact. Node's three finite
+source checks do not establish a Node build; S2's five new plus three existing
+refusal windows still require actual Rust execution. The original failed runs
+retain their original candidate bindings.
+
+## PTY transport receipts and reviewed fixture corrections
+
+`pty-checkpoints.json` separately preserves six original commits through
+`4229b45b`, including the `5309c6a0` source base and the full five-commit PTY
+chain. Its prerequisite `95451283` is in the earlier seat/CI repair bundle;
+its other blob sources are public `10d4a325` and `68de5ffc`. Four retained
+additional blob payloads preserve intermediate source versions. Raw commit
+hashes and every reconstructed tree were independently checked.
+
+Production source remains `e53c1ae6`. The subsequent four commits introduce
+five real-protocol fixture windows and repair the observed output/cleanup
+ordering issues in their source; no Rust execution is claimed. The exact local
+static observations, their incomplete parser environment and original patch
+whitespace are retained in the [PTY review archive](../pty-write-review-20261116/README.md).
+None of these records grant a send/replay permission, convert Unknown to NotSent,
+or establish installation-wide fencing, real coding or complete S2 acceptance.
