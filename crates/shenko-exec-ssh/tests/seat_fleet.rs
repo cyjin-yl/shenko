@@ -132,6 +132,8 @@ async fn fleet_native_claim_is_bounded_read_only_and_replays_original_evidence()
     assert!(seats.iter().any(|seat| seat["task_id"] == other_task.to_string()));
     assert!(seats.iter().any(|seat| seat["task_id"] == owned.to_string()));
     assert!(seats.iter().all(|seat| seat["durable_only"] == true && seat["transport_live"] == false));
+    assert!(seats.iter().all(|seat| seat.get("capability").is_none()),
+        "the original CAS receipt does not invent capabilities for unattached seats");
     assert!(!String::from_utf8_lossy(&bytes).contains("never-disclose"));
     assert_eq!(store.seat(first.seat_id)?.unwrap().record_revision, first.record_revision);
     assert_eq!(store.seat_current_lease(first.seat_id)?.unwrap().lease_id, lease.lease_id);
