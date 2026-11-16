@@ -265,12 +265,38 @@ pub(crate) async fn start(
         return runtime_result;
     }
 
-    let runtime_inference::InferenceServices { context_registry, broker_handle, capabilities } =
-        runtime_inference::install(runtime_inference::InferenceInstall {
-            supervisor, store: &store, data_dir: &data_dir, agent_id,
-            subject_inbox: &subject_inbox, cognition: &cognition,
-            installed: &installed, cancel: &cancel, consumer_cancel,
-        }).await?;
+    let inference = runtime_inference::install(runtime_inference::InferenceInstall {
+        supervisor,
+        store: &store,
+        data_dir: &data_dir,
+        agent_id,
+        subject_inbox: &subject_inbox,
+        cognition: &cognition,
+        installed: &installed,
+        cancel: &cancel,
+        consumer_cancel,
+    })
+    .await;
+    let runtime_inference::InferenceServices {
+        context_registry,
+        broker_handle,
+        capabilities,
+    } =
+        match inference {
+            Ok(Some(services)) => services,
+            stopped => {
+                cancel.cancel();
+                let result = stopped.map(|_| ());
+                return match consumers.stop(&authority_runtime).await {
+                    Ok(()) => result,
+                    Err(cleanup) => match result {
+                        Ok(()) => Err(cleanup),
+                        Err(error) => Err(error
+                            .context(format!("startup consumers also failed to stop: {cleanup}"))),
+                    },
+                };
+            }
+        };
     // The hook graph is the runtime's own service: the subject and
     // every plugin resolve the same live registry, so a handler a
     // plugin registered is visible to the subject's next step.

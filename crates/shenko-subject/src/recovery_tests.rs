@@ -1703,9 +1703,15 @@ fn correction_capacity_waits_cancels_reopens_and_never_seals_an_oversized_tail()
         {
             let pending = execute_step(1, &[], &mut subject, &cancel);
             tokio::pin!(pending);
-            tokio::select! {
-                outcome = &mut pending => anyhow::bail!("correction did not wait for owned preparation: {outcome:?}"),
-                entered = tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified()) => { entered?; }
+            let entered = tokio::time::timeout(
+                std::time::Duration::from_secs(5), gate.entered.notified(),
+            );
+            tokio::pin!(entered);
+            match futures::future::select(pending.as_mut(), entered).await {
+                futures::future::Either::Left((outcome, _)) => {
+                    anyhow::bail!("correction did not wait for owned preparation: {outcome:?}");
+                }
+                futures::future::Either::Right((entered, _)) => { entered?; }
             }
             cancel.cancel();
             anyhow::ensure!(pending.await?.is_none());

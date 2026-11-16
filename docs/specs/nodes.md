@@ -212,6 +212,31 @@ The owned observation worker cancels its runtime on renewal or task failure,
 and its original error is joined before teardown. Durable authority does not
 expire with presence, so this explicit local stop is required; it does not
 prove that an already admitted external effect stopped.
+
+A startup pause gates subject inference; it does not forbid read-only provider
+capability discovery. The local provider reads `/v1/models` and `/metrics`
+without generating a model request. Each GET retains the configured HTTP
+deadline (180 seconds by default); these two sequential reads are not a single
+180-second startup deadline. While discovery is pending, Start now observes
+both user SIGINT and runtime failure cancellation. SIGINT stops this startup
+normally; failure cancellation stays an error. Both paths drop the read-only
+HTTP future, stop the already-owned consumers and let the existing heartbeat
+and supervisor teardown finish before releasing the runtime. This does not
+prove that any previously admitted inference or external effect stopped.
+
+The real-process journey at `bf49f3` in
+[CI 43905866500](https://github.com/cyjin-yl/shenko/actions/runs/43905866500)
+passed all seven member/reopen comparisons and created the real A/C forks.
+B committed its startup pause and A/C reported following it, but B then waited
+on the fixture's never-accepted metadata socket until readiness failed. The
+subsequent certificate, final-authority and heartbeat assertions were not
+reached. The corrected fixture retains complete HTTP request bytes, refuses
+both metadata GETs with 503, and fails on every POST or other request. The
+existing startup-boundary journey also gains one held-GET cancellation window
+on the same installation and pause ID, before continuing its original
+reopen/resume/request checks. These amended runtime windows still need their
+own execution result; metadata compilation alone does not pass them.
+
 Retaining a remote global primary additionally requires a fresh authenticated
 resident-process observation: an SSH Node command alone can outlive the subject
 process. Expiry allows an ordinary quorum campaign, whose actual accepted

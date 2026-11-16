@@ -1,0 +1,146 @@
+[
+  {
+    "path": "clippy/base-all-targets.stderr.log",
+    "bytes": 4146,
+    "compressed_bytes": 590,
+    "crc32": "143c65d3",
+    "sha256": "dcc8979c9b05177a8a20cb7f23e7bc3319454004124aa8035674a539cfe6f951",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/base-all-targets.jsonl",
+    "bytes": 19643529,
+    "compressed_bytes": 1121478,
+    "crc32": "f5511370",
+    "sha256": "fbc34014cd7ebf40d513ef306905e21da9e7e1764dd506287921dd302eb7f6c7",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/base-production.jsonl",
+    "bytes": 2715308,
+    "compressed_bytes": 228966,
+    "crc32": "29b3acab",
+    "sha256": "3aaaafc555614b65d512ba8443197848018f8be24f5a61c9b919285da379593c",
+    "is_directory": false
+  },
+  {
+    "path": "base.json",
+    "bytes": 120,
+    "compressed_bytes": 99,
+    "crc32": "21f138ab",
+    "sha256": "f8a1929200b48ec18e686d9240dd870c511970d3658c7690d97488f7b56f3571",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/base-production.stderr.log",
+    "bytes": 4146,
+    "compressed_bytes": 592,
+    "crc32": "c3fd82f7",
+    "sha256": "d9665aee982c91f60505a9c30b69e4a8fdb76ab1ba57f0df81c17ebeddc0e9f1",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/candidate-all-targets.jsonl",
+    "bytes": 18824151,
+    "compressed_bytes": 1110455,
+    "crc32": "f4e14404",
+    "sha256": "dbb404c2b86b28084577b320ddf66ae98006027a6c4cd4574498d442242cd799",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/candidate-all-targets.stderr.log",
+    "bytes": 3131,
+    "compressed_bytes": 564,
+    "crc32": "0e40dee7",
+    "sha256": "ff1eede7783e0edf3c7e6bcc10d554a016987625e957b991fb25ae6051cfdec6",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/candidate-production.jsonl",
+    "bytes": 2644217,
+    "compressed_bytes": 227603,
+    "crc32": "f30b6f13",
+    "sha256": "8c27a45e64283594017a64a2d3f1942a2d35644949575d77df10bf342ce9429d",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/candidate-production.stderr.log",
+    "bytes": 3131,
+    "compressed_bytes": 568,
+    "crc32": "ad248767",
+    "sha256": "1f1bede9f2b0241a0a2d7c8aa7b988a4d6820d68af25bec594003050f712bb9a",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/lint-policy.json",
+    "bytes": 32927,
+    "compressed_bytes": 3691,
+    "crc32": "f280a997",
+    "sha256": "a61a9bdb148605698fa5f454ae7e0870742dfca04e53b77e29a03abae0e0a584",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/ratchet.json",
+    "bytes": 172245,
+    "compressed_bytes": 8973,
+    "crc32": "d94a87c6",
+    "sha256": "c913ad60fe34ab91d4257a0fbb5d723c45ac73319464babf73788c98fe682df6",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-lints.log",
+    "bytes": 35094,
+    "compressed_bytes": 8410,
+    "crc32": "cde54fca",
+    "sha256": "fb9eabfa5c0fb4ff879bc20c1529ce68d410b9dbd3e5b5517de5171a162f55fb",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-warning-probe-accepted.json",
+    "bytes": 7282,
+    "compressed_bytes": 1660,
+    "crc32": "d699f1c8",
+    "sha256": "2a2c9cdbd3cdad7133959813b008e4f51edb296d3aabd6849dddbde4a3d9a482",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-warning-probe-accepted.jsonl",
+    "bytes": 0,
+    "compressed_bytes": 2,
+    "crc32": "00000000",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-warning-probe-accepted.stdout.log",
+    "bytes": 0,
+    "compressed_bytes": 2,
+    "crc32": "00000000",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-warning-probe-discovered.json",
+    "bytes": 7336,
+    "compressed_bytes": 1667,
+    "crc32": "679ba3ac",
+    "sha256": "b603566e06262f127c194a7f1def0d62bc97647fccd440ccb275b5926fcda27b",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-warning-probe-discovered.jsonl",
+    "bytes": 1316,
+    "compressed_bytes": 466,
+    "crc32": "e46c8f21",
+    "sha256": "b8e53f358811b0003cd6f344de102df114260d53a7f5d84921b5f8f76abd7f78",
+    "is_directory": false
+  },
+  {
+    "path": "clippy/rustc-warning-probe-discovered.stdout.log",
+    "bytes": 0,
+    "compressed_bytes": 2,
+    "crc32": "00000000",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "is_directory": false
+  }
+]

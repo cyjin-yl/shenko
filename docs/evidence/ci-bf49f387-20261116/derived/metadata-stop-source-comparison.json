@@ -1,0 +1,37 @@
+{
+  "source_commit": "8253eab6ec59357399e5d50da0fec013595bb613",
+  "integrated_commit": "8ebf3ecf391796b6093f092591f05d79059ca294",
+  "files": [
+    {
+      "path": "bin/shenko/src/runtime_inference.rs",
+      "source_sha256": "dbcdb7bc0900774cee3dd6b04c2ac1949b7664d6a82e9e087e9a0c50f838a964",
+      "integrated_sha256": "dbcdb7bc0900774cee3dd6b04c2ac1949b7664d6a82e9e087e9a0c50f838a964",
+      "byte_identical": true
+    },
+    {
+      "path": "bin/shenko/src/runtime_start.rs",
+      "source_sha256": "2bfe6ae77981955cbee9ea3d088ecae1e2af92b1b663c1079921e5884553068c",
+      "integrated_sha256": "2bfe6ae77981955cbee9ea3d088ecae1e2af92b1b663c1079921e5884553068c",
+      "byte_identical": true
+    },
+    {
+      "path": "bin/shenko/tests/component_process.rs",
+      "source_sha256": "45d9874be6f1f0b067c8b36fae44897c580a9bfedb6bbfeba34a973f3e9ec383",
+      "integrated_sha256": "45d9874be6f1f0b067c8b36fae44897c580a9bfedb6bbfeba34a973f3e9ec383",
+      "byte_identical": true
+    },
+    {
+      "path": "bin/shenko/tests/start_boundary.rs",
+      "source_sha256": "f0ac590781546adf204aaefb3e5721377f761a54b18c382abc775943acc15b26",
+      "integrated_sha256": "f0ac590781546adf204aaefb3e5721377f761a54b18c382abc775943acc15b26",
+      "byte_identical": true
+    },
+    {
+      "path": "docs/specs/nodes.md",
+      "source_sha256": "f93cf2dae92e8018ea52c0da0920964efb721826d14c37ccac431d0a9c929029",
+      "integrated_sha256": "f93cf2dae92e8018ea52c0da0920964efb721826d14c37ccac431d0a9c929029",
+      "byte_identical": true
+    }
+  ],
+  "scope": "Only these five source files; not a whole-tree runtime or ratchet result"
+}

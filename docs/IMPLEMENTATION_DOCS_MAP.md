@@ -158,6 +158,7 @@
 - **具名 WASM 工具（`shenko tool list/install/exec`）** — 已接线
   - [§8.2](specs/wasm-tools.md#spec-8-2)
   - docs/specs/wasm-tools.md
+  - `ToolArtifactRoots` 从安装清单枚举 ContentStore 工具的 chunk manifest 与分块；重组模块的摘要不是 CAS 对象根。原生消费者验证安装工具在回收后仍可读取、同命名空间无主对象被回收；此证据不代表生产 GC 调度器已接线。
 
 - **REPL（shenko-repl：kernel、journal、state）** — 已接线（`ReplSessionHandler` 与 `ReplCellHandler` 共用会话 owner；会话参加升级交接。具体语言、WASM 兼容性与 R0/R1/R2 恢复证据分别核对）
   - [§19](specs/repl.md#spec-19)、[§19.1](specs/repl.md#spec-19-1)

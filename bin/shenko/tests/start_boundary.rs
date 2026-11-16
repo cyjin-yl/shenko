@@ -94,19 +94,28 @@ impl Drop for OwnedRuntime {
 struct Observer {
     address: SocketAddr,
     requests: mpsc::Receiver<Vec<u8>>,
+    hold_next_metadata: Arc<AtomicBool>,
+    held_metadata: mpsc::Receiver<()>,
+    closed_metadata: mpsc::Receiver<&'static str>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<Result<()>>>,
 }
 
 impl Observer {
-    fn new() -> Result<Self> {
+    fn new(logs: &Path) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let address = listener.local_addr()?;
         listener.set_nonblocking(true)?;
         let (sent, requests) = mpsc::channel();
+        let (held, held_metadata) = mpsc::channel();
+        let (closed, closed_metadata) = mpsc::channel();
+        let hold_next_metadata = Arc::new(AtomicBool::new(false));
+        let holding = Arc::clone(&hold_next_metadata);
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
+        let logs = logs.to_path_buf();
         let worker = thread::spawn(move || -> Result<()> {
+            let mut number = 0;
             while !stopping.load(Ordering::Acquire) {
                 let mut stream = match listener.accept() {
                     Ok((stream, _)) => stream,
@@ -139,6 +148,50 @@ impl Observer {
                     if wire.len() < end + 4 + length {
                         continue;
                     }
+                    fs::write(logs.join(format!("model-{number:03}.request")), &wire)?;
+                    number += 1;
+                    if headers.starts_with("GET /v1/models ")
+                        && holding.swap(false, Ordering::AcqRel)
+                    {
+                        // The owner observes the complete real GET before
+                        // SIGINT. Keep this connection open without replying:
+                        // success must come from runtime cancellation, not
+                        // from a fixture response or a dropped listener.
+                        held.send(())?;
+                        stream.set_read_timeout(Some(Duration::from_millis(100)))?;
+                        let deadline = Instant::now() + Duration::from_secs(40);
+                        let ending = loop {
+                            ensure!(
+                                !stopping.load(Ordering::Acquire),
+                                "metadata observer stopped before the client"
+                            );
+                            ensure!(
+                                Instant::now() < deadline,
+                                "client did not cancel pending metadata HTTP"
+                            );
+                            match stream.read(&mut buffer) {
+                                Ok(0) => break "client_eof",
+                                Ok(_) => {
+                                    anyhow::bail!("unexpected bytes after the held metadata GET")
+                                }
+                                Err(error)
+                                    if matches!(
+                                        error.kind(),
+                                        std::io::ErrorKind::WouldBlock
+                                            | std::io::ErrorKind::TimedOut
+                                    ) => {}
+                                Err(error)
+                                    if error.kind() == std::io::ErrorKind::ConnectionReset =>
+                                {
+                                    break "client_reset";
+                                }
+                                Err(error) => return Err(error.into()),
+                            }
+                        };
+                        fs::write(logs.join("metadata-cancelled.txt"), ending)?;
+                        closed.send(ending)?;
+                        break;
+                    }
                     if headers.starts_with("POST /v1/chat/completions ") {
                         sent.send(wire[end + 4..end + 4 + length].to_vec())?;
                         // No generated or terminal model answer is supplied.
@@ -153,17 +206,29 @@ impl Observer {
         Ok(Self {
             address,
             requests,
+            hold_next_metadata,
+            held_metadata,
+            closed_metadata,
             stop,
             worker: Some(worker),
         })
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            worker
+                .join()
+                .map_err(|_| anyhow::anyhow!("HTTP observer panicked"))??;
+        }
+        Ok(())
     }
 }
 
 impl Drop for Observer {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        if let Err(error) = self.finish() {
+            eprintln!("HTTP observer cleanup failed: {error:#}");
         }
     }
 }
@@ -277,14 +342,63 @@ fn public_start_pause_survives_process_reopen_and_resume_alone_admits_inference(
     let root: PathBuf =
         std::env::temp_dir().join(format!("shenko-start-boundary-{}", EntityId::new()));
     fs::create_dir(&root)?;
+    // Run the journey's existing process/observer cleanup before export. A
+    // failure does not certify cleanup; only actual socket endings are named.
+    // Copy only top-level diagnostic files, never the installation.
+    let outcome = journey(&root);
+    let retained = retain_observation(&root, &outcome);
+    match (outcome, retained) {
+        (Ok(()), Ok(())) => {
+            fs::remove_dir_all(root)?;
+            Ok(())
+        }
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(retention)) => Err(retention),
+        (Err(error), Err(retention)) => {
+            Err(error.context(format!("diagnostic retention also failed: {retention:#}")))
+        }
+    }
+}
+
+fn retain_observation(root: &Path, outcome: &Result<()>) -> Result<()> {
+    let closed = root.join("metadata-cancelled.txt");
+    let metadata_connection_end = if closed.exists() {
+        Some(fs::read_to_string(&closed)?)
+    } else {
+        None
+    };
+    fs::write(
+        root.join("result.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "journey_passed":outcome.is_ok(),
+            "error":outcome.as_ref().err().map(|error| format!("{error:#}")),
+            "source_revision":std::env::var("SHENKO_SOURCE_REVISION").ok(),
+            "metadata_connection_end":metadata_connection_end,
+            "model_completion_tested":false,
+        }))?,
+    )?;
+    if let Some(destination) = std::env::var_os("SHENKO_START_BOUNDARY_EVIDENCE") {
+        let destination = PathBuf::from(destination);
+        fs::create_dir_all(&destination)?;
+        for entry in fs::read_dir(root)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                fs::copy(entry.path(), destination.join(entry.file_name()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn journey(root: &Path) -> Result<()> {
     let data_dir = root.join("installation");
-    let observer = Observer::new()?;
+    let mut observer = Observer::new(root)?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     drop(listener);
     let boundary = EntityId::new();
-    let mut runtime = start(&root, &data_dir, port, boundary, observer.address, "first")?;
-    let first = ready(&mut runtime, port).with_context(|| runtime_log(&root, "first"))?;
+    let mut runtime = start(root, &data_dir, port, boundary, observer.address, "first")?;
+    let first = ready(&mut runtime, port).with_context(|| runtime_log(root, "first"))?;
     let paused = control(&data_dir, "status", boundary)?;
     ensure!(paused["state"] == "paused" && paused["boundary_at"].is_object());
     let requested_seq = paused["requested_at"]["seq"]
@@ -302,13 +416,56 @@ fn public_start_pause_survives_process_reopen_and_resume_alone_admits_inference(
         observer.requests.try_recv().is_err(),
         "startup admitted an idle model request before resume"
     );
-    runtime
-        .stop()
-        .with_context(|| runtime_log(&root, "first"))?;
+    runtime.stop().with_context(|| runtime_log(root, "first"))?;
     drop(runtime);
 
+    // The same installed subject and durable pause must also stop cleanly
+    // while the real provider's read-only metadata connection is still held.
+    observer.hold_next_metadata.store(true, Ordering::Release);
+    let mut discovering = start(
+        root,
+        &data_dir,
+        port,
+        boundary,
+        observer.address,
+        "metadata-stopped",
+    )?;
+    observer
+        .held_metadata
+        .recv_timeout(Duration::from_secs(30))
+        .with_context(|| runtime_log(root, "metadata-stopped"))?;
+    ensure!(
+        discovering.0.try_wait()?.is_none(),
+        "runtime exited before metadata cancellation"
+    );
+    ensure!(
+        TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200))
+            .is_err(),
+        "UI started before the held metadata observation completed"
+    );
+    ensure!(
+        observer.closed_metadata.try_recv().is_err(),
+        "metadata peer closed before SIGINT"
+    );
+    discovering
+        .stop()
+        .with_context(|| runtime_log(root, "metadata-stopped"))?;
+    observer
+        .closed_metadata
+        .recv_timeout(Duration::from_secs(5))
+        .with_context(|| runtime_log(root, "metadata-stopped"))?;
+    ensure!(
+        observer.requests.try_recv().is_err(),
+        "metadata cancellation admitted inference"
+    );
+    let still_paused = control(&data_dir, "status", boundary)?;
+    ensure!(
+        still_paused["request_id"] == paused["request_id"] && still_paused["state"] == "paused"
+    );
+    drop(discovering);
+
     let mut reopened = start(
-        &root,
+        root,
         &data_dir,
         port,
         boundary,
@@ -316,7 +473,7 @@ fn public_start_pause_survives_process_reopen_and_resume_alone_admits_inference(
         "restarted",
     )?;
     ensure!(
-        ready(&mut reopened, port).with_context(|| runtime_log(&root, "restarted"))?["subject_id"]
+        ready(&mut reopened, port).with_context(|| runtime_log(root, "restarted"))?["subject_id"]
             == first["subject_id"]
     );
     let rebound = control(&data_dir, "status", boundary)?;
@@ -330,7 +487,7 @@ fn public_start_pause_survives_process_reopen_and_resume_alone_admits_inference(
     let body = observer
         .requests
         .recv_timeout(Duration::from_secs(30))
-        .with_context(|| runtime_log(&root, "restarted"))?;
+        .with_context(|| runtime_log(root, "restarted"))?;
     let request: Value = serde_json::from_slice(&body)?;
     ensure!(
         request["model"] == "dispatch-observer" && request["stream"] == true,
@@ -338,9 +495,9 @@ fn public_start_pause_survives_process_reopen_and_resume_alone_admits_inference(
     );
     reopened
         .kill_and_join()
-        .with_context(|| runtime_log(&root, "restarted"))?;
+        .with_context(|| runtime_log(root, "restarted"))?;
     drop(reopened);
+    observer.finish()?;
     drop(observer);
-    fs::remove_dir_all(root)?;
     Ok(())
 }

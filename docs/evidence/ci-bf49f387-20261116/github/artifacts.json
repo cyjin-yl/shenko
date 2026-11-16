@@ -1,0 +1,80 @@
+{
+  "artifacts": [
+    {
+      "id": 14246311586,
+      "name": "web-rebuild-evidence",
+      "size_in_bytes": 2287310,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14246311586",
+      "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14246311586/zip",
+      "expired": false,
+      "created_at": "2026-11-16T16:19:24Z",
+      "expires_at": "2027-02-14T16:17:34Z",
+      "updated_at": "2026-11-16T16:19:24Z",
+      "digest": "sha256:ecc843a2ffda1750143414f7d6124660f1b09052ae79629b55c0077f2b1ae114",
+      "workflow_run": {
+        "id": 43905866500,
+        "repository_id": 1430340138,
+        "head_repository_id": 1430340138,
+        "head_branch": "feat/ship-work-candidate-20261116",
+        "head_sha": "bf49f38733bc69975f8825c3f5056b227e83adc0"
+      }
+    },
+    {
+      "id": 14245909487,
+      "name": "rust-evidence",
+      "size_in_bytes": 8143986,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14245909487",
+      "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14245909487/zip",
+      "expired": false,
+      "created_at": "2026-11-16T16:36:08Z",
+      "expires_at": "2027-02-14T16:17:34Z",
+      "updated_at": "2026-11-16T16:36:08Z",
+      "digest": "sha256:f4cbadb9bb082dd01f43f8d5bbf009f12b717237aafc1335d3970e86c5e3fb3b",
+      "workflow_run": {
+        "id": 43905866500,
+        "repository_id": 1430340138,
+        "head_repository_id": 1430340138,
+        "head_branch": "feat/ship-work-candidate-20261116",
+        "head_sha": "bf49f38733bc69975f8825c3f5056b227e83adc0"
+      }
+    },
+    {
+      "id": 14244851919,
+      "name": "kernel-boundary-evidence",
+      "size_in_bytes": 231,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14244851919",
+      "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14244851919/zip",
+      "expired": false,
+      "created_at": "2026-11-16T16:18:13Z",
+      "expires_at": "2027-02-14T16:17:34Z",
+      "updated_at": "2026-11-16T16:18:13Z",
+      "digest": "sha256:7869429d8097a9df28541490af906a8003a5cbc3d3f805883c653a7a3313477d",
+      "workflow_run": {
+        "id": 43905866500,
+        "repository_id": 1430340138,
+        "head_repository_id": 1430340138,
+        "head_branch": "feat/ship-work-candidate-20261116",
+        "head_sha": "bf49f38733bc69975f8825c3f5056b227e83adc0"
+      }
+    },
+    {
+      "id": 14243989851,
+      "name": "clippy-ratchet-evidence",
+      "size_in_bytes": 2718668,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14243989851",
+      "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14243989851/zip",
+      "expired": false,
+      "created_at": "2026-11-16T16:23:06Z",
+      "expires_at": "2027-02-14T16:17:34Z",
+      "updated_at": "2026-11-16T16:23:06Z",
+      "digest": "sha256:6569942e0c1ad1039bc7b0f3cbc03cc331f34ba61d266d684f28c451a2cc6abb",
+      "workflow_run": {
+        "id": 43905866500,
+        "repository_id": 1430340138,
+        "head_repository_id": 1430340138,
+        "head_branch": "feat/ship-work-candidate-20261116",
+        "head_sha": "bf49f38733bc69975f8825c3f5056b227e83adc0"
+      }
+    }
+  ]
+}

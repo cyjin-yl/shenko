@@ -1,7 +1,8 @@
 //! One real CLI/SSH star-component journey. No observation or ACK is forged.
 //! Seven durable voters are configured over pinned OpenSSH, then only three
 //! Start processes remain reachable. A and C have no configured model; B's
-//! unprobed binding is paused before consumers. No inference is requested.
+//! unavailable binding is paused before consumers. Only metadata GETs are
+//! answered with a real HTTP refusal; no inference request is allowed.
 #![cfg(unix)]
 
 #[path = "support/process_runtime.rs"]
@@ -21,10 +22,16 @@ use std::{
     cell::Cell,
     collections::BTreeSet,
     fs,
+    io::{Read, Write},
     net::{TcpListener, TcpStream},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -49,6 +56,169 @@ fn executable(name: &str) -> Result<PathBuf> {
 
 fn port() -> Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
+}
+
+/// A real loopback HTTP peer that advertises no model capability. Every byte
+/// read is retained before parsing, including an incomplete/forbidden request.
+/// The worker's accept/read/write waits are bounded and explicitly joined.
+struct MetadataObserver {
+    port: u16,
+    stop: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<Result<Vec<String>>>>,
+}
+
+impl MetadataObserver {
+    fn new(logs: &Path) -> Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        listener.set_nonblocking(true)?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = Arc::clone(&stop);
+        let logs = logs.to_path_buf();
+        let worker = thread::spawn(move || -> Result<Vec<String>> {
+            let mut requests = Vec::new();
+            let result = (|| -> Result<()> {
+                loop {
+                    let mut stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if stopping.load(Ordering::Acquire) {
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                    let number = requests.len();
+                    let request_path = logs.join(format!("model-{number:03}.request"));
+                    let wire = read_metadata_request(&mut stream, &request_path, &stopping)?;
+                    let request = std::str::from_utf8(&wire)?;
+                    let line = request
+                        .lines()
+                        .next()
+                        .context("HTTP request line missing")?;
+                    requests.push(line.to_owned());
+                    ensure!(
+                        matches!(line, "GET /v1/models HTTP/1.1" | "GET /metrics HTTP/1.1"),
+                        "paused coordinator sent a non-metadata request: {line}"
+                    );
+                    let response = b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+                    fs::write(logs.join(format!("model-{number:03}.response")), response)?;
+                    stream.set_write_timeout(Some(Duration::from_secs(1)))?;
+                    stream.write_all(response)?;
+                }
+                Ok(())
+            })();
+            fs::write(
+                logs.join("model-observation.json"),
+                serde_json::to_vec_pretty(&json!({
+                    "requests":requests,"error":result.as_ref().err().map(|error| format!("{error:#}")),
+                    "response":"HTTP 503; no model card or generation", "request_limit_bytes":65536,
+                    "read_deadline_seconds":5,"write_deadline_seconds":1,
+                }))?,
+            )?;
+            result?;
+            Ok(requests)
+        });
+        Ok(Self {
+            port,
+            stop,
+            worker: Some(worker),
+        })
+    }
+
+    fn finish(&mut self) -> Result<Vec<String>> {
+        self.stop.store(true, Ordering::Release);
+        match self.worker.take() {
+            Some(worker) => worker
+                .join()
+                .map_err(|_| anyhow::anyhow!("metadata observer panicked"))?,
+            None => Ok(Vec::new()),
+        }
+    }
+}
+
+impl Drop for MetadataObserver {
+    fn drop(&mut self) {
+        if let Err(error) = self.finish() {
+            eprintln!("metadata observer cleanup failed: {error:#}");
+        }
+    }
+}
+
+fn read_metadata_request(
+    stream: &mut TcpStream,
+    path: &Path,
+    stop: &AtomicBool,
+) -> Result<Vec<u8>> {
+    let mut original = fs::File::create(path)?;
+    stream.set_read_timeout(Some(Duration::from_millis(100)))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut wire = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        ensure!(
+            !stop.load(Ordering::Acquire),
+            "metadata observation stopped during a request"
+        );
+        ensure!(
+            Instant::now() < deadline,
+            "metadata request read deadline exceeded"
+        );
+        let count = match stream.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        ensure!(
+            count > 0,
+            "metadata connection closed before the complete request"
+        );
+        original.write_all(&buffer[..count])?;
+        wire.extend_from_slice(&buffer[..count]);
+        ensure!(
+            wire.len() <= 65536,
+            "metadata request exceeded its byte bound"
+        );
+        let Some(end) = wire.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = std::str::from_utf8(&wire[..end])?;
+        let mut length = None;
+        for header in headers.lines().skip(1) {
+            let (name, value) = header.split_once(':').context("malformed HTTP header")?;
+            ensure!(
+                !name.eq_ignore_ascii_case("transfer-encoding"),
+                "chunked metadata request refused"
+            );
+            if name.eq_ignore_ascii_case("content-length") {
+                ensure!(length.is_none(), "duplicate content-length refused");
+                length = Some(value.trim().parse::<usize>()?);
+            }
+        }
+        let length = length.unwrap_or(0);
+        ensure!(
+            length <= 65536 - end - 4,
+            "metadata body exceeded its byte bound"
+        );
+        if wire.len() < end + 4 + length {
+            continue;
+        }
+        original.sync_all()?;
+        ensure!(
+            length == 0 && wire.len() == end + 4,
+            "metadata request contained a body or extra bytes"
+        );
+        return Ok(wire);
+    }
 }
 
 struct Fixture {
@@ -378,7 +548,7 @@ impl Fixture {
         if let Some(model_port) = model_port {
             command
                 .env("SHENKO_USE_LOCAL_MODEL", "1")
-                .env("SHENKO_LOCAL_MODEL", "component-unprobed-binding")
+                .env("SHENKO_LOCAL_MODEL", "component-unavailable-binding")
                 .env(
                     "SHENKO_LOCAL_MODEL_URL",
                     format!("http://127.0.0.1:{model_port}"),
@@ -682,7 +852,7 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
         "three nodes are not a minority"
     );
     let mut member_observations = Vec::new();
-    for index in 0..NODES.len() {
+    for (index, node) in NODES.iter().enumerate() {
         let shown = fixture.json(index, &["sync", "members", "show"], None)?;
         let retained: MemberConfiguration =
             serde_json::from_value(shown["member_configuration"].clone())?;
@@ -710,7 +880,7 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
             "member's complete configuration metadata changed after CLI reopen"
         );
         member_observations.push(json!({
-            "node":NODES[index],"configuration":retained,
+            "node":node,"configuration":retained,
             "frontier":retained_frontier,"reopened":reopened["member_configuration"],
         }));
     }
@@ -767,21 +937,15 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
     }
     fixture.set_edges(&[("a", "b"), ("b", "a"), ("b", "c"), ("c", "b")])?;
 
-    // Keep an unused bound socket so this URL cannot accidentally name an
-    // ambient model. It supplies no response. B is configured, never probed
-    // or called; the real startup pause must prevent every inference attempt.
-    let unprobed = TcpListener::bind("127.0.0.1:0")?;
-    unprobed.set_nonblocking(true)?;
+    // Startup may read capability metadata while the durable pause forbids
+    // inference. This owned peer refuses those GETs honestly and retains the
+    // actual wire; a POST or any other request still fails the journey.
+    let mut metadata = MetadataObserver::new(&fixture.logs())?;
     let ui_ports = [port()?, port()?, port()?];
     let boundary = EntityId::new();
     fixture.start(0, ui_ports[0], None, None)?;
     fixture.start(2, ui_ports[2], None, None)?;
-    fixture.start(
-        1,
-        ui_ports[1],
-        Some(boundary),
-        Some(unprobed.local_addr()?.port()),
-    )?;
+    fixture.start(1, ui_ports[1], Some(boundary), Some(metadata.port))?;
     let coordinator_health = fixture.ready(1, ui_ports[1])?;
     ensure!(
         coordinator_health["subject_id"] == json!(subject_id),
@@ -919,17 +1083,21 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
             "renewal replaced the actual runtime"
         );
     }
-    ensure!(
-        matches!(unprobed.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
-        "the paused unprobed binding was contacted"
-    );
     fs::write(
         fixture.logs().join("resident-renewal.json"),
-        serde_json::to_vec_pretty(&json!({"before":first,"after":later,"model_contacted":false}))?,
+        serde_json::to_vec_pretty(&json!({"before":first,"after":later}))?,
     )?;
     for index in 0..3 {
         fixture.stop_resident(index)?;
     }
+    let requests = metadata.finish()?;
+    ensure!(
+        requests
+            .iter()
+            .any(|line| line == "GET /v1/models HTTP/1.1")
+            && requests.iter().any(|line| line == "GET /metrics HTTP/1.1"),
+        "startup did not observe the actual metadata refusals"
+    );
     for index in 0..3 {
         fixture.stop_server(index)?;
     }

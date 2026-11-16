@@ -87,6 +87,7 @@ jobs:
           export SHENKO_SSH_WASI_ARTIFACT="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/build/shenko-ssh-wasi.wasm"
           export SHENKO_SSH_WASI_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/openssh-journey.json"
           export SHENKO_COMPONENT_PROCESS_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/component-process"
+          export SHENKO_START_BOUNDARY_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/start-boundary"
           export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
           cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
       - name: Retain native fixture receipts

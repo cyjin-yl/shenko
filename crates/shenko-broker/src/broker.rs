@@ -11,7 +11,7 @@
 //! budget belongs to the physical domain, the residency pool is described in
 //! [`crate::kv`]. A request whose remote outcome is unknown keeps its
 //! capacity and is quarantined as debt until it is reconciled.
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Result, anyhow, ensure};
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};

@@ -214,6 +214,15 @@ routes). `python-native-host`, `node-native-host`, `bun-native-host` are
 additional Bindable native routes — real sessions, but they never satisfy a
 WASM target.
 
+The separately pinned Node-WASIX feasibility route uses a third-party
+Node/V8 port with a WASIX ABI, not this Preview 1 backend. Its explicit
+hosted workflow preserves the original finite-cell/checkpoint journey and
+records actual resources and all failures. The two retained local attempts
+did not produce a successful cell; the hosted route is not yet executed.
+See the [artifact identities, failures and reproducer](../evidence/named-node-wasix-20261116/README.md).
+No installed named-target availability or recovery claim changes, and Bun
+remains an independent obligation.
+
 ### Source-bound build routes
 
 `crates/shenko-repl/ports/build-cpython-wasi.sh` accepts a dedicated checkout
