@@ -1,4 +1,4 @@
-//! Cognition recovery replication — docs/specs/nodes.md#spec-5-4, docs/specs/durable-state.md#spec-36-5, docs/specs/durable-state.md#spec-41-2, R113/R145/R147.
+//! Cognition recovery replication, R113/R145/R147.
 //!
 //! A store can hand another node the facts a recovering self needs: identity
 //! and soul, raw history, subject decisions, goals, intents, tasks,

@@ -314,5 +314,32 @@
     "python3 scripts/doc_refs_test.py",
     "python3 scripts/check_docs.py",
     "python3 scripts/check_docs.py --verify-migration"
-  ]
+  ],
+  "expanded_guidance": [
+    {
+      "entry": "AGENTS.md",
+      "reference": "DEVELOPMENT.md",
+      "bytes": 18766,
+      "sha256": "bfb78aee6cdd5a078b9bb3be28a272c355b0dd38711d7cd75182dbe576febeb3"
+    },
+    {
+      "entry": ".agents/skills/shenko-dev/SKILL.md",
+      "reference": ".agents/skills/shenko-dev/REFERENCE.md",
+      "bytes": 19749,
+      "sha256": "1cc7cf934b61f5fa16ec5f473896bcad362e69b187c8d28e0ff0297dc70f3144"
+    }
+  ],
+  "integrated_trace_ownership": {
+    "kind": "structural_source_contract_binding_only",
+    "original_migration_sites": 1227,
+    "original_migration_content_sha256": "cd9d9044a712a3a98db58729b48c6a075c962f5a670b0e911cd3185147a045b2",
+    "digest_encoding": "UTF-8 JSON; ensure_ascii=false; sort_keys=true; compact separators",
+    "current_symbol_owners": 1707,
+    "current_binding_records": 1228,
+    "additional_integrated_comments": 1,
+    "current_citation_comments": 1227,
+    "binding_source_files": 373,
+    "runtime_source_edited": false,
+    "checks_run": []
+  }
 }

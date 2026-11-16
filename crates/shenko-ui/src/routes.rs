@@ -1,5 +1,6 @@
 use axum::{
     body::Body,
+    extract::Path,
     http::{Response, StatusCode, header},
     response::Json,
 };
@@ -35,6 +36,17 @@ pub async fn theme_bootstrap_handler() -> Response<Body> {
 
 pub async fn app_js_handler() -> Response<Body> {
     response("text/javascript; charset=utf-8", APP_JS)
+}
+
+pub async fn browser_module_handler(Path(filename): Path<String>) -> Response<Body> {
+    match BROWSER_MODULES.iter().find(|(name, _)| *name == filename) {
+        Some((_, source)) => response("text/javascript; charset=utf-8", source),
+        None => {
+            let mut missing = response("text/plain; charset=utf-8", "Module not found");
+            *missing.status_mut() = StatusCode::NOT_FOUND;
+            missing
+        }
+    }
 }
 
 pub async fn app_css_handler() -> Response<Body> {
@@ -91,3 +103,5 @@ const PROTO_LICENSE: &str = include_str!("static/licenses/PROTO-UI-LICENSE");
 const SHADCN_NOTICES: &str = include_str!("static/licenses/SHADCN-NOTICES.md");
 const REACT_LICENSE: &str = include_str!("static/licenses/REACT-LICENSE");
 const REACT_DOM_LICENSE: &str = include_str!("static/licenses/REACT-DOM-LICENSE");
+
+include!(concat!(env!("OUT_DIR"), "/browser_modules.rs"));

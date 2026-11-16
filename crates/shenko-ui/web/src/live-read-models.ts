@@ -1,4 +1,4 @@
-import { message as m, text as t } from './messages';
+import { message as m, resolveMessage, type LocalizedText } from './messages';
 import { compareSubmissionOrder, type BuildManifest, type ConfigEntryView, type IdentityView, type OwnerState, type Submission, type SubmissionCursor, type SubmissionPayload, type UiState } from './projection';
 import { isObject, validRevision } from './live-validation';
 import { UiApi } from './ui-api';
@@ -7,6 +7,14 @@ interface ReadModelEffects {
   applySubmissionView(submission: Submission, data: Record<string, unknown>, persist: boolean): void;
   refreshSubmissions(): void;
   scheduleReceiptRefresh(): void;
+}
+
+/** Exception text is readable while its projection retains the catalog identity. */
+class HistoryReadError extends Error {
+  constructor(readonly diagnostic: LocalizedText) {
+    super(resolveMessage(diagnostic));
+    this.name = 'HistoryReadError';
+  }
 }
 
 /** Loads service read models; sequence, cursor and revision guards survive late responses. */
@@ -77,7 +85,7 @@ export class LiveReadModels {
       if (this.disposed || subject !== this.state.subject_id) return;
       if (!isObject(page) || page.available !== true || page.subject_id !== subject
         || !Array.isArray(page.items) || !validRevision(page.total) || typeof page.has_older !== 'boolean') {
-        throw new Error(isObject(page) && typeof page.note === 'string' ? page.note : m('history.unavailable'));
+        throw new HistoryReadError(isObject(page) && typeof page.note === 'string' ? page.note : m('history.unavailable'));
       }
       const items: Array<{ payload: SubmissionPayload; created_at: string; seq: number; view: Record<string, unknown> }> = [];
       const ids = new Set<string>();
@@ -97,7 +105,7 @@ export class LiveReadModels {
           || !['accepted', 'selected', 'committed'].includes(String(row.view.stage))
           || row.view.stage === 'selected' && typeof row.view.selected_step_id !== 'string'
           || row.view.stage === 'committed' && typeof row.view.committed_at !== 'string'
-          || ids.has(row.payload.submission_id)) throw new Error(t('history.invalidOrder'));
+          || ids.has(row.payload.submission_id)) throw new HistoryReadError(m('history.invalidOrder'));
         upper = { seq: row.accepted_seq, submission_id: row.payload.submission_id };
         ids.add(row.payload.submission_id);
         items.push({ payload: row.payload as unknown as SubmissionPayload, created_at: row.created_at,
@@ -108,7 +116,7 @@ export class LiveReadModels {
         || page.next_before.submission_id !== items[items.length - 1].payload.submission_id)
         || !page.has_older && page.next_before !== null && page.next_before !== undefined
         || previous?.total !== undefined && page.total < previous.total) {
-        throw new Error(t('history.invalidCursor'));
+        throw new HistoryReadError(m('history.invalidCursor'));
       }
       const known = new Map(this.state.submissions.map((row) => [row.payload.submission_id, row]));
       const newest = previous?.newest_cursor;
@@ -149,7 +157,8 @@ export class LiveReadModels {
       if (this.disposed || subject !== this.state.subject_id) return;
       this.state.submission_history = { has_older: false, ...previous, loading: false,
         stale: this.committedPartsSeen > this.historySnapshotAt,
-        error: error instanceof Error ? error.message : m('history.unavailable') };
+        error: error instanceof HistoryReadError ? error.diagnostic
+          : error instanceof Error ? error.message : m('history.unavailable') };
     } finally {
       this.submissionHistoryLoading = false;
     }

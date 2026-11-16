@@ -4,7 +4,7 @@ import type { UiNode } from './projection';
 import { Button, ProtoInput } from './ui-kit';
 
 /**
- * The configuration panel — docs/specs/configuration-playground.md#spec-43-1.
+ * The configuration panel.
  *
  * Every row is a fact the service actually reported: the saved desired
  * revision, the value each consumer adopted, and the value a consumer runs

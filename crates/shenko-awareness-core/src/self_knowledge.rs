@@ -1,4 +1,4 @@
-//! SelfKnowledgeProvider — docs/specs/cognition-units.md#spec-38
+//! SelfKnowledgeProvider
 //! Built-in, replaceable self-explanation plugin.
 //! Provides self:// resources: runtime, docs, source, design.
 //! Binds running artifact → source revision → docs → design philosophy.
@@ -146,7 +146,7 @@ impl SelfKnowledgeProvider {
         provider
     }
 
-    /// Seed default self-knowledge resources. docs/specs/cognition-units.md#spec-38-3
+    /// Seed default self-knowledge resources.
     fn seed_default_resources(&self) {
         let now = Utc::now();
         let revision = self.build_manifest.read().source_revision.clone();
@@ -210,7 +210,7 @@ impl SelfKnowledgeProvider {
         info!("self-knowledge provider seeded with {} resources", count);
     }
 
-    /// Query self-knowledge by URI or keyword. docs/specs/cognition-units.md#spec-38-1
+    /// Query self-knowledge by URI or keyword.
     pub fn query(&self, query: &str) -> Vec<SelfResource> {
         let resources = self.resources.read();
         let q = query.to_lowercase();
@@ -231,7 +231,7 @@ impl SelfKnowledgeProvider {
         self.resources.read().iter().filter(|r| r.kind == kind).cloned().collect()
     }
 
-    /// Install or update a resource. docs/specs/cognition-units.md#spec-38-6
+    /// Install or update a resource.
     pub fn install_resource(&self, resource: SelfResource) {
         let mut resources = self.resources.write();
         // Replace if same URI exists
@@ -242,7 +242,7 @@ impl SelfKnowledgeProvider {
         }
     }
 
-    /// Record what this instance actually installed — docs/specs/cognition-units.md#spec-38-3, R124.
+    /// Record what this instance actually installed, R124.
     ///
     /// `self://runtime/capabilities` is built from the real registries at
     /// startup, not from a template: `native_definitions` are the registered
@@ -263,7 +263,7 @@ impl SelfKnowledgeProvider {
         self.render_runtime_capabilities();
     }
 
-    /// Record the live agent-visible capability catalog — docs/specs/cognition-units.md#spec-38-3.
+    /// Record the live agent-visible capability catalog.
     ///
     /// This is the runtime registry's own snapshot of what this agent can
     /// actually use right now: the capability ids it advertises, their
@@ -286,7 +286,7 @@ impl SelfKnowledgeProvider {
         self.render_runtime_capabilities();
     }
 
-    /// Record what every installed channel can really do — docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4.
+    /// Record what every installed channel can really do.
     ///
     /// This is the same kind of registry snapshot as the sections above: the
     /// table each installed plugin declared, with the account it serves. A
@@ -408,7 +408,7 @@ impl SelfKnowledgeProvider {
         });
     }
 
-    /// Invalidate cached resources when generation changes. docs/specs/cognition-units.md#spec-38-6
+    /// Invalidate cached resources when generation changes.
     pub fn invalidate_on_generation_change(&self, new_generation: &str) {
         let mut resources = self.resources.write();
         for r in resources.iter_mut() {

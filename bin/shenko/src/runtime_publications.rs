@@ -19,7 +19,7 @@ pub(crate) fn spawn(
     // provider's answer is E1 evidence. A target no installed
     // plugin serves is refused as never dispatched — durable,
     // effect none, and it never cancels the runtime.
-    // docs/specs/channels.md#spec-35-6, docs/specs/durable-state.md#spec-41-4 X03, docs/specs/channels.md#spec-41-6.
+    // X03.
     let reply_registry = channel_registry.clone();
     let reply_store = Arc::clone(store);
     let reply_agent = agent_id;

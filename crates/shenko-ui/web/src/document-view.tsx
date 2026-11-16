@@ -2,8 +2,8 @@ import { text as t } from './messages';
 /**
  * The rich layer of a semantic document: real components, not a debug view.
  *
- * docs/specs/configuration-playground.md#spec-57-6, docs/specs/web-interface.md#spec-21-6: a `rich` document is rendered by real components and
- * degraded by the surface's own capabilities (docs/specs/web-interface.md#spec-21-7). The renderer therefore
+ * a `rich` document is rendered by real components and
+ * degraded by the surface's own capabilities. The renderer therefore
  * knows the document's node vocabulary (the kinds the server validates) and
  * renders each kind as an element with its own semantics.
  *
@@ -14,7 +14,7 @@ import { text as t } from './messages';
  *   never to a crash that takes the committed text beside it down.
  * * An action is the server's action: the node's `action_id` is looked up in
  *   the document's own option list, and the click submits that option. The
- *   client never invents an action identity (docs/specs/web-interface.md#spec-21-8).
+ *   client never invents an action identity.
  */
 import React from 'react';
 

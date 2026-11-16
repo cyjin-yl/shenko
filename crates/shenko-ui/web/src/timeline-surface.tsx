@@ -24,7 +24,7 @@ interface TimelineSurfaceProps {
 }
 
 export class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string }> {
-  /** The bounded announcement for a screen reader (docs/specs/web-interface.md#spec-57-7).
+  /** The bounded announcement for a screen reader.
    *
    * It says that committed content arrived and which round it was — it does
    * NOT read the answer again: a reader who is listening should not have the
@@ -227,7 +227,7 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
       if (!startEntry || startEntry !== endEntry) return;
       // Selecting committed text is interaction, not "follow the tail": new
       // content must not scroll the reader away from the span they are
-      // holding (docs/specs/web-interface.md#spec-21-11).
+      // holding.
       this.props.emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
       const entryKey = startEntry.dataset.entryKey;
       if (!entryKey) return;

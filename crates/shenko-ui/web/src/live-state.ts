@@ -56,7 +56,7 @@ export function initialState(): UiState {
     tasks_error: false,
     memory_error: false,
     playground_error: false,
-  /** The ownership facts (docs/specs/plugins.md#spec-44-4). */
+  /** The ownership facts. */
   owner_state: undefined as OwnerState | undefined,
   /** The name the reader is trying to give the instance. */
   name_draft: '',

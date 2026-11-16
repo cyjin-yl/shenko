@@ -201,7 +201,7 @@ pub(super) fn apply_memory_pairs(
                 (None, None) => {
                     // The dedicated subject representation keeps no binding
                     // sidecar; compare the content-addressed locator tail,
-                    // never the node-local path (docs/specs/memory.md#spec-12-2: a locator may
+                    // never the node-local path (a locator may
                     // change while the content identity stays).
                     compatible &= match (local_locator, parent.value("content_ref")) {
                         (None, None) => true,

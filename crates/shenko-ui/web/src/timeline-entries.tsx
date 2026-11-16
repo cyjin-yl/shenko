@@ -81,7 +81,7 @@ function SubjectPart({ node, emit, name, continued }: { node: UiNode; emit: Emit
   const live = state.streaming && !part.terminal;
   // Only committed text carries a step number. A durable streamed prefix is
   // real ledger content, but labelling it "第 N 轮" would claim an S1 step the
-  // part does not have yet (docs/specs/web-interface.md#spec-21-11).
+  // part does not have yet.
   const stepLabel = state.committed ? t('timeline.round', { step: part.step }) : part.terminal ? t('timeline.streamEnded') : t('timeline.streaming');
   const announcement = state.committed
     ? t('timeline.committedAnnouncement', { step: part.step })
@@ -152,7 +152,7 @@ class PartErrorBoundary extends React.Component<{ text: string; children: React.
   }
 }
 
-// Durable admission stages are distinct facts (docs/specs/web-interface.md#spec-41-18):
+// Durable admission stages are distinct facts
 // each label names one stage; none is drawn as a progress bar.
 const RECEIPT: Record<string, { short: string; long: string; tone: string }> = {
   sending: { short: t('receipt.sending'), long: t('receipt.writing'), tone: 'pending' },
@@ -224,7 +224,7 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
   );
 }
 
-/// One work of the subject, in the timeline (docs/specs/configuration-playground.md#spec-57-6).
+/// One work of the subject, in the timeline.
 ///
 /// It names the work's own revision: what the reader does next is bound to
 /// the revision they saw. Opening the work is the reader's own action.
@@ -286,7 +286,7 @@ function DocumentErrorEntry({ node }: { node: UiNode }) {
 }
 
 // A degraded semantic document: the mode decides how much structure renders,
-// but the numbered options are always the same action identities (docs/specs/web-interface.md#spec-21-8).
+// but the numbered options are always the same action identities.
 // Execution authority comes from the subject's disposition of the admitted
 // input; this view only submits that input.
 const ACTION_STAGE_LABELS: Record<ActionReceiptView['stage'], string> = {

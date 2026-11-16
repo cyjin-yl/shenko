@@ -7,7 +7,7 @@ import type { Thread, ThreadMessage, Participant } from './threads';
 import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } from './ui-kit';
 
 /**
- * The IM surface (docs/specs/web-interface.md#5-2): the owner's primary way
+ * The IM surface: the owner's primary way
  * of talking with the subject, in an iMessage-like idiom. Conversations are
  * a list on the left — the direct chat first, then delegation groups and
  * channel groups by recency — and the open thread on the right.

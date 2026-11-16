@@ -29,7 +29,7 @@ pub(super) async fn install(
     let NapCatOptions { napcat, napcat_account, napcat_access_token, napcat_admin_qq, napcat_file_root, napcat_file_host, napcat_cli_url } = options;
     // The connector-scoped definition stays owned by the composed channel services.
     let mut _native_contacts_plugin = None;
-    // 5. Start NapCat if configured — docs/specs/channel-adapters.md#spec-16, docs/specs/channels.md#spec-35-6
+    // 5. Start NapCat if configured
     if napcat.is_some() || napcat_cli_url.is_some() {
         let napcat_config = shenko_channel_napcat::config::NapCatConfig {
             ws_url: napcat.clone().unwrap_or_default(),

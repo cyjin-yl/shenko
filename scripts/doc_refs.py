@@ -52,6 +52,38 @@ def contract_citation_counts(comments):
                    if CONTRACT_CITATION.search(comment))
 
 
+def citation_site_id(site):
+    identity = [site['source_path'], site['comment_sha256'], site['symbol_refs']]
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=False,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def citation_migration_digest(sites):
+    return hashlib.sha256(json.dumps(sites, ensure_ascii=False, sort_keys=True,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def relocated_citation_locations(site, binding):
+    """Retain the original copy budget when a comment moves or is removed."""
+    count = site.get('occurrences')
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise ReferenceError('citation has invalid original multiplicity')
+    locations = binding.get('citation_locations')
+    if not isinstance(locations, dict):
+        raise ReferenceError('citation needs explicit current locations')
+    if any(not isinstance(path, str) or not isinstance(value, int)
+           or isinstance(value, bool) or value <= 0 for path, value in locations.items()):
+        raise ReferenceError('citation has invalid current multiplicity')
+    if sum(locations.values()) > count:
+        raise ReferenceError('citation relocation adds unrecorded copies')
+    return locations
+
+
+def markdown_link_targets(text):
+    return [target for _, line in outside_fences(text)
+            for target in re.findall(r'\]\(([^\s)]+)(?:\s+"[^"]*")?\)', line)]
+
+
 def outside_fences(text):
     fence = None
     for number, line in enumerate(text.splitlines(), 1):

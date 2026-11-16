@@ -5,7 +5,7 @@ import { pinnedWorks, setWorkPinned } from './slots';
 
 /**
  * A work's published page, live beside the stream. Works are trusted
- * extensions by default (docs/specs/web-interface.md#5-1): the subject wrote,
+ * extensions by default: the subject wrote,
  * tested and can roll them back, so the page shares the shell's origin. The
  * safety rope is the named revision and the shell's safe mode (`?safe=1`),
  * which opens no work page. Its revision keys the frame, so a new revision is
@@ -73,5 +73,5 @@ export function WorkFrame({ artifactId, title, revision, activeManifestDigest }:
 }
 
 /// Safe mode opens no work page and pins no work lens: the rescue path when a
-/// trusted extension misbehaves (docs/specs/web-interface.md#spec-21-3).
+/// trusted extension misbehaves.
 const SAFE_MODE = new URLSearchParams(location.search).get('safe') === '1';

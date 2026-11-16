@@ -1,5 +1,5 @@
 //! Honest read-only JSON endpoints behind the WebUI 任务 / 记忆 / 配置 / 自身状态 pages.
-//! docs/specs/web-interface.md#spec-21 (single subject timeline / UI), docs/specs/configuration-playground.md#spec-43 (playground & configuration).
+//! (single subject timeline / UI), (playground & configuration).
 //!
 //! These handlers only report state that actually exists on this node. When the
 //! store handle has not been wired (main.rs still calls `UiServer::new`), the
@@ -169,7 +169,7 @@ pub fn router(state: ApiState) -> Router {
 }
 
 // ---------------------------------------------------------------------------
-// Configuration and ownership — docs/specs/configuration-playground.md#spec-43-1, docs/specs/plugins.md#spec-44-4.
+// Configuration and ownership.
 //
 // Discover/read are open to every session. Preview is open: looking at a
 // change is never privileged. Apply requires an authenticated actor; whether
@@ -329,10 +329,10 @@ async fn config_adoptions_handler(
 /// `GET /api/owner/state` → whether the installation has an owner and
 /// whether a claim capability is still pending. No credential material is
 /// ever included.
-/// `POST /api/identity/name` — the owner names the instance (docs/specs/web-interface.md#spec-21-1).
+/// `POST /api/identity/name` — the owner names the instance.
 ///
 /// The name is the instance's, not the brand's, and the subject may also
-/// name itself (docs/specs/web-interface.md#spec-21-1: "可由用户取名，或让 Agent 自主取名"). The change goes
+/// name itself ("可由用户取名，或让 Agent 自主取名"). The change goes
 /// through the SAME identity policy the subject's own naming uses, so the
 /// rules about what a name may be are one policy, not two.
 #[derive(Deserialize)]
@@ -445,7 +445,7 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
     };
     let artifacts = versions.into_iter().map(|version| -> anyhow::Result<Value> {
         let durable = playground.durable_record(version.artifact_id)?;
-        // docs/specs/cognition-units.md#spec-51-1: the default projection of a revision chain is a fact
+        // the default projection of a revision chain is a fact
         // pair — how many committed versions exist and when the newest was
         // written. How many *older* versions the default view shows is the
         // installed taste macro's decision, so this surface does not derive
@@ -485,7 +485,7 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
     // The playground surface also lists the registered configuration
     // namespaces: an artifact's settings are managed through the same
     // configuration service as every other setting, not through a private
-    // per-artifact panel. docs/specs/configuration-playground.md#spec-43-2.
+    // per-artifact panel.
     let namespaces = state
         .config
         .as_ref()
@@ -583,7 +583,7 @@ async fn tasks_handler(
 
 /// `GET /api/tasks/{id}/trajectory` — one task's trajectory from ledger facts
 /// only: its row, the tasks it owns, and each operation with the normalized
-/// record its final evidence sealed (docs/specs/web-interface.md#5-2).
+/// record its final evidence sealed.
 async fn task_trajectory_handler(
     State(state): State<ApiState>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -603,7 +603,7 @@ async fn task_trajectory_handler(
 }
 
 /// `GET /api/conversations` — channel conversations (groups and direct chats)
-/// in both directions from the subject's own records (docs/specs/web-interface.md#5-2).
+/// in both directions from the subject's own records.
 async fn conversations_handler(State(state): State<ApiState>) -> Json<Value> {
     let Some(store) = state.store.as_ref() else {
         return Json(json!({ "available": false, "messages": [], "note": "store 尚未接入 UI server" }));
@@ -705,7 +705,7 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         None => (Some(Vec::new()), None),
     };
 
-    // Instance identity (docs/specs/subject-runtime.md#spec-6): the name is the instance's, not the brand.
+    // Instance identity: the name is the instance's, not the brand.
     let subject_id = state
         .store
         .as_ref()
@@ -806,7 +806,7 @@ fn context_window_json(meta: &shenko_context_policy::CommittedWindowMeta) -> Val
             }))
             .collect::<Vec<_>>(),
         // Reported cost, including the conservative reusable-prefix bound;
-        // never a backend KV cache-hit claim (docs/specs/context-policies.md#spec-12-3-2).
+        // never a backend KV cache-hit claim.
         "cost": window.cost,
     })
 }
@@ -1038,7 +1038,7 @@ mod context_tests {
 
 #[cfg(test)]
 mod naming_tests {
-    //! The owner's naming (docs/specs/web-interface.md#spec-21-1) is a durable identity revision, not a
+    //! The owner's naming is a durable identity revision, not a
     //! label in the browser: the name goes through the same policy the
     //! subject's own naming uses, and only an authenticated owner may set it.
 

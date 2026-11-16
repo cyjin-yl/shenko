@@ -14,10 +14,10 @@ pub(crate) struct InstalledDefinitions {
     pub(crate) artifact_services: Arc<shenko_ui::playground_backend::ArtifactServiceController>,
     /// The one configuration service: the panel routes and the subject's
     /// `config.manage` tool share it, so a change made one way is the state
-    /// the other observes. docs/specs/configuration-playground.md#spec-43-1.
+    /// the other observes.
     pub(crate) config_service: Arc<shenko_ui::config_service::ConfigService>,
     /// The one Playground instance: the subject's `playground.manage` child
-    /// and the Web UI's artifact routes write the same lifecycle (docs/specs/configuration-playground.md#spec-57-6).
+    /// and the Web UI's artifact routes write the same lifecycle.
     pub(crate) playground_state: Arc<shenko_ui::playground::PlaygroundState>,
 }
 
@@ -30,7 +30,7 @@ pub(crate) struct MediaServices {
 }
 
 /// Construct and publish the real media services on the shared Cordis root —
-/// docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
+///
 ///
 /// This is the single construction path, and it runs before the native
 /// definitions that bind to it. The running agent passes its live subject
@@ -140,7 +140,7 @@ pub(crate) async fn install_native_definitions(
     for handler in shenko_exec_host::research_handlers(Arc::clone(store)) {
         supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
     }
-    // Runtime-error awareness — docs/specs/cognition-units.md#spec-45-14: errors.read exposes the
+    // Runtime-error awareness: errors.read exposes the
     // subject's own committed runtime_error facts; issue.submit writes
     // subject-authored drafts into the local issues outbox only.
     let errors_read_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
@@ -181,7 +181,7 @@ pub(crate) async fn install_native_definitions(
     let _media_identify_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, media_identify_handler)
         .await?;
-    // Built-in, replaceable self-explanation — docs/specs/cognition-units.md#spec-38, R124. The
+    // Built-in, replaceable self-explanation, R124. The
     // provider is seeded from compiled-in material now; the real
     // `self://runtime/capabilities` snapshot is installed below once
     // the native and awareness registries are populated.
@@ -216,7 +216,7 @@ pub(crate) async fn install_native_definitions(
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
         .await?;
-    // The subject's own hands on its works — docs/specs/configuration-playground.md#spec-57-6. One Playground
+    // The subject's own hands on its works. One Playground
     // instance serves the subject and the Web UI, so a version the subject
     // writes is the version a human sees.
     let playground_state = Arc::new(
@@ -234,7 +234,7 @@ pub(crate) async fn install_native_definitions(
             playground_manage_handler,
         )
         .await?;
-    // Configuration through conversation — docs/specs/configuration-playground.md#spec-43-1, R133. The handler runs
+    // Configuration through conversation, R133. The handler runs
     // the same ConfigService the panel routes expose: one durable change
     // ledger, one set of consumer adoptions, no approval gate and no second
     // configuration store. Its built-in namespaces are registered by the

@@ -212,7 +212,7 @@ fn unknown_fact_does_not_produce_a_verified_partial_import() -> Result<()> {
     Ok(())
 }
 
-/// Cognitive atoms are REQUIRED archive facts (docs/specs/cognition-units.md#spec-51-1). They travel
+/// Cognitive atoms are REQUIRED archive facts. They travel
 /// with the content they name, a receiver restores the exact attitude
 /// identity/commit/confidence, an archive that names an attitude without
 /// its content version is refused whole, and a reader that declares a

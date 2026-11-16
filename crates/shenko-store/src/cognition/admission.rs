@@ -83,7 +83,7 @@ const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
     // A cognitive attitude exists only about a registered version of content,
     // and a legacy mapping only about the bytes it points at. Shipping either
     // without its content registration would hand over an attitude that names
-    // a revision the receiver can never read (docs/specs/cognition-units.md#spec-51-1).
+    // a revision the receiver can never read.
     ("cognition_attitudes", "cognition_contents", "digest", "digest"),
     ("cognition_legacy_content", "cognition_contents", "content_digest", "digest"),
 ];
@@ -254,7 +254,7 @@ pub(super) fn archive_membership_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap
     }
     // A revision names the version it supersedes. Dropping that version would
     // silently turn a revision into an unrelated first version, so the parent
-    // content has to travel too (docs/specs/cognition-units.md#spec-51-4: the chain only grows).
+    // content has to travel too (the chain only grows).
     let archived_contents: HashSet<&str> = rows
         .iter()
         .filter(|row| row.table == "cognition_contents")

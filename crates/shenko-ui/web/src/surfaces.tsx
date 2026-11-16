@@ -40,7 +40,7 @@ import {
 } from './ui-kit';
 
 /**
- * The on-demand surfaces (docs/specs/web-interface.md#spec-21-1): one page
+ * The on-demand surfaces: one page
  * shape for all of them — a title that says what the page is, then plain
  * rows. Every value is the interface's own; empty, unavailable and error are
  * three different sentences, never a placeholder row.
@@ -126,7 +126,7 @@ export function MemorySurface({ node }: { node?: UiNode }) {
 /**
  * Renders the server's taste disclosure verbatim: retained-version count and
  * latest modification by default, full text only when the request asked for a
- * specific revision. A missing projection stays missing (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-4).
+ * specific revision. A missing projection stays missing.
  */
 function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure | null }) {
   if (!disclosure) return null;
@@ -336,7 +336,7 @@ export function ContextPanel({ node, projection, emit }: { node: UiNode; project
   );
 }
 
-/// The instance's own name and who owns it (docs/specs/web-interface.md#spec-21-1, docs/specs/plugins.md#spec-44-4).
+/// The instance's own name and who owns it.
 ///
 /// The name is the instance's, not the brand's, and the reader may give it one
 /// — or let the subject name itself. Ownership is reported as the fact it is:
@@ -389,7 +389,7 @@ function IdentityPanel({ node, emit }: { node: UiNode; emit: Emit }) {
 }
 
 /// The work the reader opened, with the actions bound to its revision
-/// (docs/specs/configuration-playground.md#spec-57-6). Every action names the revision the reader saw: a work
+/// Every action names the revision the reader saw: a work
 /// that moved on refuses the stale action instead of quietly applying to
 /// whatever is there now.
 function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {

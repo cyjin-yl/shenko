@@ -35,7 +35,7 @@ pub(super) enum RowKind {
     Monotonic,
     /// A fact carrying its own explicit revision. The peer wins only with a
     /// strictly greater revision — the record's own order decides, never
-    /// which peer happened to answer first (docs/specs/durable-state.md#spec-41-2: no last-writer-wins
+    /// which peer happened to answer first (no last-writer-wins
     /// on a durable record).
     Revisioned,
     /// A fact with a monotone state ladder. The peer may move the row
@@ -518,7 +518,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     // The authored working-note journal of a branch scope
-    // (docs/specs/context-policies.md#spec-12-3-1). One scope's journal is one
+    // One scope's journal is one
     // conflict unit, merged by `apply_context_notebook`.
     TableSpec {
         name: "context_notes",
@@ -612,7 +612,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: None,
         kind: RowKind::Verbatim,
     },
-    // Durable browser submissions (docs/specs/web-interface.md#spec-41-18): the submission binding,
+    // Durable browser submissions: the submission binding,
     // its durable event identity and the admitted payload are one immutable
     // fact. The admission sequence is the receiving store's own, never the
     // peer's — the binding, not the sequence, is the replicated fact.
@@ -651,7 +651,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // Durable seats (docs/specs/remote-seats.md#spec-17-1): a seat record, its leases, its durable
+    // Durable seats: a seat record, its leases, its durable
     // questions and the answer decisions on them form ONE conflict unit
     // (`seat/…`). A diverged peer can never graft a foreign lease or
     // decision onto a local seat.
@@ -686,7 +686,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // Provider quota facts (docs/specs/quota-resources.md#spec-42-5): the admission facts are replicated,
+    // Provider quota facts: the admission facts are replicated,
     // the local admission SEQUENCE is not — the receiving store records its
     // own, so "the newest snapshot/decision" stays meaningful locally.
     // Requests and their sends group as `quota_request/…` units.
@@ -926,7 +926,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // The durable stream journal (docs/specs/durable-state.md#content-stream-journal): stream registration plus all
+    // The durable stream journal: stream registration plus all
     // of its journaled units form ONE conflict unit (`stream/…`). Whole
     // units and chunks stay distinct shapes; the closing facts are part of
     // the unit, never rewritten.
@@ -988,7 +988,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_seq"),
         kind: RowKind::Revisioned,
     },
-    // Cognitive atoms (docs/specs/cognition-units.md#spec-51-1): the canonical content registry, the
+    // Cognitive atoms: the canonical content registry, the
     // append-only attitude ledger, and the insert-only mapping that points at
     // a legacy row's original bytes. Contents come first, because the rows
     // after them reference a digest. `created_commit_seq` on an attitude is

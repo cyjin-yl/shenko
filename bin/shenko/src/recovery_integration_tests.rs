@@ -2439,7 +2439,7 @@ async fn computer_use_armed_reconcile_and_dead_display_fencing() {
     assert_eq!(late.effect_status, EffectStatus::None);
 }
 
-/// docs/specs/nodes.md#spec-5-4: adoption retires the node's independent self while its
+/// adoption retires the node's independent self while its
 /// retained experience survives as a recorded branch — but the node
 /// identity and the store's derived subject binding are one installation
 /// fact. An adoption that cannot move them together must refuse before

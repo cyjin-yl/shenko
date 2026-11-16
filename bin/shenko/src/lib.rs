@@ -1,4 +1,4 @@
-//! Shared Shenko runtime and owned host entrypoints — docs/specs/mobile-runtime.md#spec-24-5, docs/specs/plugins.md#spec-44.
+//! Shared Shenko runtime and owned host entrypoints.
 //! CLI and embedded hosts execute this same composed implementation.
 use std::path::PathBuf;
 
@@ -101,7 +101,7 @@ pub enum Command {
         #[arg(long)]
         ssh_targets: Option<PathBuf>,
     },
-    /// Show or edit the instance's name, soul and personality — docs/specs/subject-runtime.md#spec-6.
+    /// Show or edit the instance's name, soul and personality.
     /// Every edit is a new revision of the same agent; history is kept.
     Identity {
         #[arg(long)]
@@ -129,14 +129,14 @@ pub enum Command {
         #[command(subcommand)]
         command: cli::RuntimeCommand,
     },
-    /// Manage named WASM tools in the seed's managed tool store — docs/specs/wasm-tools.md#spec-8-2.
+    /// Manage named WASM tools in the seed's managed tool store.
     /// Artifacts are real upstream WASI binaries; declared targets with no
     /// verified artifact are reported unresolved, never faked.
     Tool {
         #[command(subcommand)]
         command: cli::ToolCommand,
     },
-    /// Show what this installation actually offers right now — docs/specs/plugins.md#spec-18.
+    /// Show what this installation actually offers right now.
     ///
     /// The runtime installs its real native definitions and answers from the
     /// live registry, so the printed providers, capabilities, effect contracts
@@ -154,19 +154,19 @@ pub enum Command {
         #[command(subcommand)]
         command: obelisk::HistoryCommand,
     },
-    /// Inspect and manage the installed context strategies — docs/specs/context-policies.md#spec-12-3-1.
+    /// Inspect and manage the installed context strategies.
     Context {
         #[command(subcommand)]
         command: cli::ContextCommand,
     },
-    /// Owner-set admin facts — docs/specs/channel-adapters.md#spec-16. Admin is a human decision only:
+    /// Owner-set admin facts. Admin is a human decision only:
     /// it never follows familiarity, group status, platform roles or
     /// voiceprints, and ordinary users can talk without one.
     Admin {
         #[command(subcommand)]
         command: cli::AdminCommand,
     },
-    /// Contact/person directory — docs/specs/contacts.md#spec-15-2, docs/specs/contacts.md#spec-15-2-1. Local owner path to
+    /// Contact/person directory. Local owner path to
     /// inspect people and import the owner's own Life identity material;
     /// the running subject reaches the same store through the
     /// person.directory native child.
@@ -187,7 +187,7 @@ pub enum Command {
         #[arg(long)]
         file: Option<PathBuf>,
     },
-    /// Software-generation activation — docs/specs/self-update.md#spec-9, docs/specs/durable-state.md#spec-10, docs/specs/plugins.md#spec-44. Build a candidate
+    /// Software-generation activation. Build a candidate
     /// on a separate copy, smoke-launch it, swap through the durable
     /// selector, roll back while retaining new facts. Every step is
     /// deterministic and recoverable without a model.
@@ -195,7 +195,7 @@ pub enum Command {
         #[command(subcommand)]
         command: cli::UpdateCli,
     },
-    /// Cognitive root version chain — docs/specs/cognition-units.md#spec-51-4. Capture, reinstate,
+    /// Cognitive root version chain. Capture, reinstate,
     /// inspect the owned versioned root.
     Root {
         #[command(subcommand)]

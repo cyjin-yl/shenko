@@ -7,7 +7,7 @@ use shenko_types::identity::IdentityProfile;
 use tracing::info;
 
 /// Make sure the agent has an identity revision, and apply a user-given
-/// `--name` only for initialization. Existing edits require an explicit CAS. docs/specs/subject-runtime.md#spec-6, R117.
+/// `--name` only for initialization. Existing edits require an explicit CAS., R117.
 pub(crate) fn adopt_identity(
     store: &shenko_store::store::Store,
     agent_id: shenko_types::ids::EntityId,
@@ -90,7 +90,7 @@ mod data_directory_tests {
     }
 }
 
-/// Ensure genesis exists for this installation. Returns agent_id. docs/specs/plugins.md#spec-44-6.
+/// Ensure genesis exists for this installation. Returns agent_id.
 /// New geneses bind the real prepared home. Existing geneses are immutable and
 /// are never replaced merely to upgrade their manifest representation.
 pub(crate) fn bootstrap_genesis(
@@ -288,7 +288,7 @@ pub(crate) fn bootstrap_genesis(
         created_by_step_id: None,
     };
 
-    // The initial control authority — docs/specs/self-update.md#spec-41-12 X05. The first selector
+    // The initial control authority — X05. The first selector
     // is created with the genesis inside the same transaction; a launch
     // never invents one, and a generation swap is the only other writer.
     use shenko_types::activation::{ActivationOrigin, ActivationSelector, RouteAuthority};

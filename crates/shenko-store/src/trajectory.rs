@@ -1,6 +1,6 @@
 //! Read-only task trajectories for inspection surfaces
-//! (docs/specs/web-interface.md#spec-21-1 "理解或调整一项工作"; the subagent
-//! trajectory view in docs/specs/web-interface.md#5-2).
+//! ("理解或调整一项工作"; the subagent
+//! trajectory view).
 //!
 //! A trajectory is assembled from facts the ledger already holds and nothing
 //! else: the task row, the tasks it owns, its operations in ledger order, and

@@ -129,7 +129,7 @@ pub(crate) async fn install(
     let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
     inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(store));
     handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
-    // Optional quota policy install (docs/specs/quota-resources.md#spec-42): the file holds one
+    // Optional quota policy install: the file holds one
     // serialized QuotaPolicy; a recorded policy makes every inference
     // request pass durable admission before dispatch. Unreadable or
     // invalid content fails startup loudly rather than silently
@@ -143,7 +143,7 @@ pub(crate) async fn install(
         info!(policy_id=%policy.policy_id, revision=policy.revision,
             commit=%receipt.commit_ref, "quota policy recorded");
     }
-    // Provider quota observers (docs/specs/quota-resources.md#spec-42-2, docs/specs/quota-resources.md#spec-42-6): the local
+    // Provider quota observers: the local
     // account configuration names the providers this node observes,
     // the real scope of each account and where its sources are read.
     // Each named provider installs its own observers; the runtime

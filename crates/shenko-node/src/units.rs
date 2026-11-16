@@ -1,7 +1,7 @@
 //! Installation units: cross-node package transfer, per-node installation
 //! facts, and real component trials.
 //!
-//! docs/specs/cognition-units.md#spec-45-10 shapes the unit itself (identity, kind, revision, artifact,
+//! The unit descriptor shapes the unit itself (identity, kind, revision, artifact,
 //! dependencies, config, applicability). The rules this module keeps:
 //!
 //! * Copying a package never makes a unit ready *here*. Only a locally

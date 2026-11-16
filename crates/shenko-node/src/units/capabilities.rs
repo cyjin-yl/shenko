@@ -8,7 +8,7 @@ use super::codec::{UnitDescriptor, UnitKind};
 
 // ------------------------------------------------- package declarations ---
 
-/// One guest-visible filesystem requirement of a package — docs/specs/self-update.md#spec-9
+/// One guest-visible filesystem requirement of a package
 /// "权限需求": a guest path the executor must preopen, and whether the
 /// package writes under it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -95,7 +95,7 @@ pub struct PackageCapabilities {
     ///
     /// They are what coexistence is judged on: providers may be installed and
     /// enabled together unless both need the same atom exclusively (SPEC
-    /// docs/specs/cognition-units.md#spec-51-8). There is deliberately no package-level `conflicts` field.
+    ///). There is deliberately no package-level `conflicts` field.
     #[serde(default)]
     pub atoms: Vec<AtomicCapability>,
 }
@@ -316,13 +316,13 @@ fn validate_guest_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------ capability contracts (docs/specs/cognition-units.md#spec-51-8) ---
+// ------------------------------------ capability contracts ---
 
 /// Reserved prefix of a capability contract identifier.
 ///
 /// A capability contract and a unit id are two identifier spaces: a unit id may
 /// never begin with this prefix, and a dependency written on a contract is
-/// satisfied by whichever installed unit declares providing it (docs/specs/cognition-units.md#spec-51-8).
+/// satisfied by whichever installed unit declares providing it.
 pub const CAPABILITY_CONTRACT_PREFIX: &str = "cap.";
 /// Bound on the atomic capabilities one code version declares.
 pub const MAX_ATOMIC_CAPABILITIES: usize = 32;
@@ -353,7 +353,7 @@ fn validate_dotted_name(name: &str, what: &str) -> Result<()> {
 ///
 /// The contract identity is the pair (name, major): a provider's own package
 /// version may change freely, and only a different contract major version makes
-/// a dependency unsatisfied (docs/specs/cognition-units.md#spec-51-8). The value serializes as its text form,
+/// a dependency unsatisfied. The value serializes as its text form,
 /// so an author writes one string and no field can drift from it.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CapabilityContract {
@@ -461,7 +461,7 @@ pub enum CapabilityExclusivity {
 /// One atomic capability a code version actually exercises at run time: a hook
 /// point, an event subscription, a singleton service.
 ///
-/// Coexistence is judged here, on what is actually used (docs/specs/cognition-units.md#spec-51-8). Packages
+/// Coexistence is judged here, on what is actually used. Packages
 /// carry no `conflicts` field and there is no package-level exclusivity.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
@@ -507,7 +507,7 @@ pub fn atomic_conflict(left: &[AtomicCapability], right: &[AtomicCapability]) ->
 /// package description that travels with it.
 ///
 /// A code package carries its description under `config.tool`; the
-/// `capabilities` object there is the declaration docs/specs/self-update.md#spec-9 requires every
+/// `capabilities` object there is the declaration for every
 /// package description to record. A version without that object records no
 /// declaration: that is [`PackageDeclaration::unrecorded`], which the runtime
 /// reports as such — never a fabricated empty declaration (which would claim

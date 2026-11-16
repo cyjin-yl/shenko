@@ -43,7 +43,7 @@ pub(crate) async fn install(
     ).await?;
     // Every installed channel declares what its platform can really
     // do, and the runtime records that declaration as a durable fact
-    // the subject can read (docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-57-4, RT19). The table comes
+    // the subject can read (RT19). The table comes
     // from the plugin contract, so the QQ plugin is described the
     // same way as the adapters: a capability nobody can reach is not
     // advertised, and an advertised one is reachable.
@@ -59,8 +59,8 @@ pub(crate) async fn install(
     }
     // The same declaration reaches the subject's own self-knowledge
     // surface, so it can read what each installed channel really
-    // offers before it promises a reply or an action (docs/specs/channel-adapters.md#spec-15-3,
-    // docs/specs/cognition-units.md#spec-38-3, docs/specs/channels.md#spec-57-4).
+    // offers before it promises a reply or an action
+    //
     self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
 
     Ok(ChannelServices { registry: channel_registry, _contacts_plugin: contacts_plugin })
@@ -126,7 +126,7 @@ pub(super) async fn prepare_channel_envelope(
 
 
 /// Journal one channel-runtime error as a durable fact of the subject's
-/// history (docs/specs/cognition-units.md#spec-45-14). The journal entry is NOT a delivery receipt: it
+/// history. The journal entry is NOT a delivery receipt: it
 /// never retries the operation and never opens an issue by itself.
 /// Independent operation unknown/conflict receipts stay on the operation
 /// ledger; this only makes the unable-to-continue boundary readable.

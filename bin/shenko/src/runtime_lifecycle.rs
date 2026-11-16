@@ -22,10 +22,10 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         .await?;
     let identity_context = supervisor.context().clone();
     let identity_service = identity_context.try_service::<IdentityService>()?;
-    // Replaceable quota strategies (docs/specs/quota-resources.md#spec-42-1): the runtime publishes the
+    // Replaceable quota strategies: the runtime publishes the
     // installed forecaster/router/cadence set so the subject, its finite
     // model children and the intervention worker all decide with one set.
-    // The configured default is the replayable docs/specs/quota-resources.md#spec-42-5 baseline; installing
+    // The configured default is the replayable baseline; installing
     // another strategy is a library/assembly decision and is reported here
     // rather than silently assumed.
     let quota_strategies = shenko_quota::QuotaStrategies::baseline();
@@ -104,7 +104,7 @@ pub(super) fn spawn_runtime_hook_pump(
     })
 }
 
-/// docs/specs/cognition-units.md#spec-45-14 store-backed kernel error sink: plugin-runtime failures observed
+/// store-backed kernel error sink: plugin-runtime failures observed
 /// at kernel boundaries (Cordis lifecycle incidents, hook-graph admission
 /// refusals, publish revision conflicts) journal into the SAME subject store
 /// as every other runtime-error fact — no second DB, no autonomous action.
