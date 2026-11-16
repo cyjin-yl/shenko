@@ -101,8 +101,10 @@ is available. There are no new dependencies.
 
 ## Deliberate limits
 
-S0 request arming, child claims, T1/T2 and other control boundaries still need
-canonical transition integration. This increment is not a complete replicated
+S0 request arming, child claims, T1/dispatch, publication T2 and other control
+boundaries still need canonical transition integration. The follow-up
+[native T2 increment](canonical-native-t2-materialization.md) implements only
+the paired native completion/finish transactions. Neither increment is a complete replicated
 state machine. A receiving Store must already have the exact required
 predecessor; ordinary imported task parking, diverged raw rows or already
 observed effects are not undone to force a match. Missing or divergent required

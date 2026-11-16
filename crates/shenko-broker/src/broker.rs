@@ -1100,6 +1100,7 @@ mod tests {
                         allow_invalid_certs: false,
                         serializer_revision: crate::local_provider::SERIALIZER_REVISION,
                         default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+                        request_timeout_ms: None,
                     },
                     starts,
                     gate: Arc::new(Semaphore::new(0)),

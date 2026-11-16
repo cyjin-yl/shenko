@@ -41,5 +41,70 @@
     "real service and accessible browser journeys",
     "Node/Bun WASM and remaining named devices/runtimes",
     "actual candidate-specific 7/30-day and physical fault observation"
+  ],
+  "second_ci": {
+    "head_sha": "b2886c2b9b10d68ffb27d5b0702a896419f1ced6",
+    "checkout_merge_sha": "adf05188be9c4768a5f46ab94f1332079a5c274a",
+    "run_id": 43860564971,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43860564971",
+    "jobs": {
+      "docs": "success",
+      "docs-migration": "success",
+      "kernel-boundary": "success",
+      "web": "success",
+      "rust": "failure",
+      "clippy-ratchet": "failure"
+    },
+    "rust_workspace_all_targets_check": "success",
+    "rust_workspace_tests": "success",
+    "ssh_guest_build": "success",
+    "ssh_journey": "failure before guest execution: the relative artifact path was resolved in Cargo test working directory; no SSH exchange",
+    "rust_job_log_sha256": "4d00361d978a10c4072d857dbc5657e07d9a02f5656a0a88d6a064ec501a5cab",
+    "rust_artifact_id": 14224496101,
+    "rust_artifact_zip_sha256": "1a57410df69e6aeff52a587f70bf5e9f7eee363d820d4d974995d1d5df1a71cd",
+    "clippy_errors": [
+      "new ignored SSH journey",
+      "WASM select binder unused in production",
+      "WASM select binder unused in all-targets",
+      "subject quota Tokio test macro-generated expect",
+      "Store test unwrap_err"
+    ],
+    "clippy_fixes": "follow-up source removes new ignore, provisions SSH in normal suites, renames select binder, explicitly constructs the test runtime, and preserves the Store error assertion without unwrap_err; revalidation pending"
+  },
+  "second_nightly": {
+    "head_sha": "b2886c2b9b10d68ffb27d5b0702a896419f1ced6",
+    "run_id": 43860596861,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43860596861",
+    "jobs": {
+      "nightly-rust-long": "success",
+      "nightly-compiler-full": "success"
+    },
+    "component_evidence": "component-coordination-20261116.md",
+    "scope": "all-features workspace and full pinned compiler; existing process partition/recovery and native helper journeys actually executed; not physical partition, model readiness or full product acceptance"
+  },
+  "remote_ssh_guest_build": {
+    "receipt": "ssh-wasi-ci-20261116/build-receipt.json",
+    "receipt_source_dirty": true,
+    "hashed_source_inputs": 97,
+    "source_input_mismatches_against_b2886c2": [],
+    "artifact_sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+    "artifact_bytes": 2552689,
+    "real_guest_ssh_session_executed": false,
+    "scope": "release guest build; all 97 retained input hashes independently match candidate Git blobs, while original global dirty flag remains true; not a clean-worktree or real SSH execution claim"
+  },
+  "native_t2_followup": {
+    "source_implementation_commit": "a2af3bccd214fb6b33ef4af71b23a549950b4f28",
+    "integrated_fixture_fix_commit": "f2272b4",
+    "check": "cargo check --offline --locked -p shenko-store --tests -j1",
+    "check_exit_code": 0,
+    "check_seconds": 1.86,
+    "runtime_test_execution": "pending new candidate CI",
+    "scope": "paired native.complete/native.finish canonical frozen results; foreign parked predecessor remains debt, not execution takeover"
+  },
+  "inventory_observed_utc": "2026-11-16T12:03:08Z",
+  "open_issues": 21,
+  "open_pull_requests": [
+    302,
+    303
   ]
 }

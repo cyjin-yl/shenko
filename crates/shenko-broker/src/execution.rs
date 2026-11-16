@@ -120,8 +120,8 @@ async fn execute_admitted(
                 };
             }
             match stream {
-                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv).await,
-                None => execute_complete(request, purpose, runtime, domain, kv).await,
+                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink).await,
+                None => execute_complete(request, purpose, runtime, domain, kv, error_sink).await,
             }
         }
         otherwise => {
@@ -172,6 +172,7 @@ async fn execute_complete(
     runtime: Arc<dyn ProviderRuntime>,
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
+    error_sink: &crate::error_sink::ErrorSinkCell,
 ) -> InferenceResult {
     match runtime.complete(request).await {
         Ok(response) => {
@@ -191,7 +192,10 @@ async fn execute_complete(
                 quota_headers,
             }
         }
-        Err(error) => failure_result(request, purpose, &error, None),
+        Err(error) => {
+            journal_provider_error(request, purpose, &error, error_sink);
+            failure_result(request, purpose, &error, None)
+        }
     }
 }
 
@@ -208,6 +212,7 @@ async fn execute_stream(
     stream: StreamSubmission,
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
+    error_sink: &crate::error_sink::ErrorSinkCell,
 ) -> InferenceResult {
     let publisher = BoundedStreamPublisher::new(
         request.request_id,
@@ -225,32 +230,34 @@ async fn execute_stream(
         );
     }
     let outcome = runtime.stream(request, &publisher).await;
-    let (response, termination, status, events, batches) = match outcome {
+    let (response, termination, status, events, batches, quota_headers) = match outcome {
         Ok(outcome) => {
             let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
             let termination = termination_evidence(&outcome.response, terminal,
                 request.payload.max_tokens.unwrap_or_else(|| request.provider_binding.default_max_tokens()));
             let status = if terminal { InferenceStatus::Success } else { InferenceStatus::Failed };
+            let quota_headers = outcome.response.ratelimit_headers.clone();
             (
                 Some(outcome.response),
                 termination,
                 status,
                 outcome.events,
                 outcome.batches,
+                quota_headers,
             )
         }
         Err(error) => {
-            warn!(request_id=%request.request_id, %error, "provider stream did not complete");
-            (None, TerminationEvidence::unknown(), InferenceStatus::Failed, 0, 0)
+            journal_provider_error(request, purpose, &error, error_sink);
+            // Streaming and complete calls classify the same transport facts.
+            // In particular a deadline is still unknown, while an explicit
+            // provider rejection is not lost behind a generic stream error.
+            let failed = failure_result(request, purpose, &error, None);
+            (None, failed.termination, failed.status, 0, 0, failed.quota_headers)
         }
     };
     // The terminal receipt is written here, independently of the caller.
     let _ = publisher.finish(&termination, now_ms());
     let public_chunks = publisher.published_chunks();
-    let quota_headers = response
-        .as_ref()
-        .map(|response| response.ratelimit_headers.clone())
-        .unwrap_or_default();
     if let Some(response) = &response {
         observe_kv(domain, kv, request, purpose, response.usage.as_ref());
     }
@@ -264,6 +271,36 @@ async fn execute_stream(
         stream: Some(StreamEvidence { events, batches, public_chunks, journaled }),
         quota_headers,
     }
+}
+
+/// Report the transport fact without copying credentials, URL query values or
+/// provider response text into the error journal. A timeout explains why the
+/// local reader ended; it is never a provider cancellation acknowledgement.
+fn journal_provider_error(
+    request: &InferenceRequest,
+    purpose: RequestPurpose,
+    error: &anyhow::Error,
+    error_sink: &crate::error_sink::ErrorSinkCell,
+) {
+    let (code, message) = if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
+        let limit = request.provider_binding.local_request_timeout_ms()
+            .map(|milliseconds| format!(" after the sealed {milliseconds} ms observation limit"))
+            .unwrap_or_default();
+        ("INFERENCE_TRANSPORT_TIMEOUT", format!(
+            "provider HTTP request timed out{limit}; remote termination is unconfirmed and the original request must be reconciled"
+        ))
+    } else if let Some(rejection) = error.downcast_ref::<ProviderRejection>() {
+        ("INFERENCE_PROVIDER_REJECTED", format!("provider rejected the request with HTTP {}", rejection.http_status))
+    } else if let Some(wire) = error.downcast_ref::<ProviderWireError>() {
+        (wire.code().as_str(), "sealed provider request failed local wire validation".to_string())
+    } else {
+        ("INFERENCE_PROVIDER_FAILED", "provider request failed without conclusive terminal evidence; reconcile the original request".to_string())
+    };
+    warn!(request_id=%request.request_id, code, detail=%message, "provider request did not complete");
+    crate::error_sink::journal_runtime_error(
+        error_sink,
+        &crate::error_sink::report_for(request, purpose, code, &message),
+    );
 }
 
 /// Whether the provider's stop reason is a real terminal outcome.
@@ -519,6 +556,7 @@ mod tests {
             allow_invalid_certs: false,
             serializer_revision: crate::local_provider::SERIALIZER_REVISION,
             default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+            request_timeout_ms: None,
         }
     }
 
@@ -1023,5 +1061,116 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+    }
+
+    /// A real HTTP reader deadline closes only our observation. The recorded
+    /// unknown outcome keeps its charge, and a new timeout configuration may
+    /// not reinterpret the request that already crossed the send boundary.
+    #[test]
+    fn local_http_deadline_keeps_the_frozen_request_and_unknown_debt() -> Result<()> {
+        use anyhow::Context as _;
+        use crate::error_sink::{RuntimeErrorReport, RuntimeErrorSink};
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        #[derive(Default)]
+        struct Observations {
+            terminals: parking_lot::Mutex<Vec<TerminationEvidence>>,
+            errors: parking_lot::Mutex<Vec<RuntimeErrorReport>>,
+        }
+        impl RuntimeErrorSink for Observations {
+            fn journal_runtime_error(&self, report: &RuntimeErrorReport) -> Result<()> {
+                self.errors.lock().push(report.clone());
+                Ok(())
+            }
+        }
+        impl StreamJournalSink for Observations {
+            fn open_stream(&self, _: EntityId, _: &ProviderBinding) -> Result<(), StreamSinkError> { Ok(()) }
+            fn append_batch(&self, _: EntityId, _: &StreamBatch) -> Result<(), StreamSinkError> { Ok(()) }
+            fn append_terminal(&self, _: EntityId, terminal: &TerminationEvidence) -> Result<(), StreamSinkError> {
+                self.terminals.lock().push(terminal.clone());
+                Ok(())
+            }
+            fn close_stream(&self, _: EntityId) -> Result<(), StreamSinkError> { Ok(()) }
+        }
+
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await?;
+                let mut wire = Vec::new();
+                let body = loop {
+                    anyhow::ensure!(socket.read_buf(&mut wire).await? > 0,
+                        "HTTP reader closed before sending its request");
+                    let Some(end) = wire.windows(4).position(|part| part == b"\r\n\r\n") else { continue };
+                    let headers = std::str::from_utf8(&wire[..end])?;
+                    anyhow::ensure!(headers.starts_with("POST /v1/chat/completions HTTP/1.1"));
+                    let length: usize = headers.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length").then_some(value.trim())
+                    }).context("HTTP request has no content length")?.parse()?;
+                    if wire.len() < end + 4 + length { continue }
+                    break serde_json::from_slice::<serde_json::Value>(&wire[end + 4..end + 4 + length])?;
+                };
+                // The endpoint has accepted the exact real HTTP request but
+                // provides no terminal answer before the configured deadline.
+                socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n").await?;
+                let mut tail = Vec::new();
+                socket.read_to_end(&mut tail).await?;
+                anyhow::ensure!(tail.is_empty());
+                Ok::<_, anyhow::Error>((listener, body))
+            });
+
+            let original = crate::local_provider::LocalModelProvider::new(format!("http://{address}"), "timeout-fixture".into());
+            let historical = original.binding();
+            let historical_json = serde_json::to_value(&historical)?;
+            anyhow::ensure!(historical_json.get("request_timeout_ms").is_none());
+            anyhow::ensure!(serde_json::from_value::<ProviderBinding>(historical_json)? == historical);
+            anyhow::ensure!(historical.local_request_timeout_ms() == Some(180_000));
+            anyhow::ensure!(historical.profile_revision() == 3);
+            let provider = original.with_request_timeout_ms(500)?;
+            let binding = provider.binding();
+            anyhow::ensure!(binding.profile_revision() == 4 && provider.profile().revision == 4);
+            anyhow::ensure!(serde_json::to_value(&binding)?["request_timeout_ms"] == 500);
+            let changed = provider.clone().with_request_timeout_ms(900)?.binding();
+            anyhow::ensure!(!binding.same_transport(&changed));
+            let (broker, handle) = Broker::with_local_provider(provider, 1)?;
+            let observations = Arc::new(Observations::default());
+            handle.set_runtime_error_sink(observations.clone());
+            let request_id = EntityId::new();
+            let (request, result_rx) = new_request(request_id, &binding);
+            let agent_id = request.agent_id;
+            let receipt = TestReceipt::new(&request);
+            handle.submit_stream_recorded(request, StreamIdentity::default(),
+                Some(observations.clone()), None, receipt.clone())?;
+            let run = tokio::spawn(broker.run());
+            let result = tokio::time::timeout(Duration::from_secs(5), result_rx).await??;
+            let (listener, body) = tokio::time::timeout(Duration::from_secs(5), server).await???;
+            anyhow::ensure!(body["stream"] == true && body["model"] == "timeout-fixture");
+            anyhow::ensure!(result.request_id == request_id && result.effective.provider_binding == binding);
+            anyhow::ensure!(result.status == InferenceStatus::Failed && result.termination.kind == TerminationKind::Unknown);
+            anyhow::ensure!(receipt.recorded().len() == 1 && receipt.recorded()[0].termination.kind == TerminationKind::Unknown);
+            anyhow::ensure!(observations.terminals.lock().as_slice() == [result.termination.clone()]);
+            {
+                let errors = observations.errors.lock();
+                anyhow::ensure!(errors.len() == 1 && errors[0].code == "INFERENCE_TRANSPORT_TIMEOUT"
+                    && errors[0].request_id == request_id && errors[0].agent_id == agent_id
+                    && errors[0].message.contains("500 ms"));
+            }
+            anyhow::ensure!(handle.active_count() == 1);
+            handle.reconcile_recorded(request_id)?;
+            anyhow::ensure!(handle.active_count() == 1, "no terminal evidence can release this debt");
+            let (rebound, _) = new_request(request_id, &changed);
+            anyhow::ensure!(handle.submit_recorded(rebound, receipt).is_err());
+            let (queued, mut queued_rx) = new_request(EntityId::new(), &binding);
+            handle.submit(queued)?;
+            anyhow::ensure!(tokio::time::timeout(Duration::from_millis(150), &mut queued_rx).await.is_err());
+            anyhow::ensure!(tokio::time::timeout(Duration::from_millis(150), listener.accept()).await.is_err(),
+                "a timeout may not redispatch the original or spend a second slot");
+            anyhow::ensure!(handle.active_count() == 1);
+            run.abort();
+            let _ = run.await;
+            Ok(())
+        })
     }
 }

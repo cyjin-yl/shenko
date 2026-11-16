@@ -19,12 +19,16 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-real-model')
     runs-on: ubuntu-24.04
     container: rust:1.98.1-bookworm
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_TARGET_DIR: .ci/target/real-single-node
       SHENKO_SOURCE_REVISION: ${{ github.sha }}
+      # The first hosted run reached only 46% of the complete prompt at the
+      # old 180s transport limit. This explicit diagnostic limit is sealed in
+      # each request; it changes neither the model nor its sampling/answer checks.
+      SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS: "1200000"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,7 +86,7 @@ jobs:
             --binary .ci/target/real-single-node/debug/shenko \
             --source-revision "$GITHUB_SHA" \
             --model-url http://127.0.0.1:18832 --model Qwen3-0.6B-Q4_K_M \
-            --timeout 300 --evidence-dir .ci/evidence/real-single-node
+            --timeout 1800 --evidence-dir .ci/evidence/real-single-node
       - name: Retain actual outcomes, including failures
         if: always()
         uses: actions/upload-artifact@v4

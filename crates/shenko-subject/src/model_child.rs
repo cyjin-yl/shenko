@@ -2907,6 +2907,7 @@ mod grant_account_tests {
             allow_invalid_certs: false,
             serializer_revision: 1,
             default_max_tokens: 4096,
+            request_timeout_ms: None,
         }
     }
 

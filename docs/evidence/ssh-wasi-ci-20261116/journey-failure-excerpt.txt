@@ -1,0 +1,16 @@
+2026-11-16T11:59:54.8332281Z     Finished `test` profile [unoptimized] target(s) in 3m 01s
+2026-11-16T11:59:54.8518087Z      Running tests/ssh_wasi_client.rs (.ci/target/rust/debug/deps/ssh_wasi_client-fb4ca60b59675cf1)
+2026-11-16T11:59:54.8551901Z 
+2026-11-16T11:59:54.8552404Z running 1 test
+2026-11-16T11:59:54.8553665Z Error: No such file or directory (os error 2)
+2026-11-16T11:59:54.8561255Z test ssh_wasi_auth_exec_sftp_and_refusal_journey ... FAILED
+2026-11-16T11:59:54.8562668Z error: test failed, to rerun pass `-p shenko-wasm --test ssh_wasi_client`
+2026-11-16T11:59:54.8563226Z 
+2026-11-16T11:59:54.8563457Z failures:
+2026-11-16T11:59:54.8563711Z 
+2026-11-16T11:59:54.8564151Z failures:
+2026-11-16T11:59:54.8564509Z     ssh_wasi_auth_exec_sftp_and_refusal_journey
+2026-11-16T11:59:54.8564859Z 
+2026-11-16T11:59:54.8565382Z test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-11-16T11:59:54.8566082Z 
+2026-11-16T11:59:54.8752916Z ##[error]Process completed with exit code 101.

@@ -64,10 +64,9 @@ jobs:
           workspaces: . -> .ci/target/rust
           shared-key: rust-1.98.1-workspace
       - name: Check every workspace target with the lockfile
-        run: cargo check --workspace --all-targets --features shenko/compat-poppy --locked -j2
-      - name: Test the workspace, including integration tests and doctests
-        # Retain every failing target in one run; any failure still fails CI.
-        run: cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2
+        run: |
+          mkdir -p .ci/evidence
+          cargo check --workspace --all-targets --features shenko/compat-poppy --locked -j2 2>&1 | tee .ci/evidence/workspace-check.log
       - name: Build the pinned SSH WASI guest
         run: |
           rustup target add wasm32-wasip1 --toolchain 1.98.1
@@ -81,13 +80,13 @@ jobs:
             --sdk .ci/toolchains/wasi-sdk-34.0-x86_64-linux \
             --target-dir .ci/target/ssh-wasi \
             --output-dir .ci/evidence/ssh-wasi/build
-      - name: Run real SSH authentication, exec and SFTP inside WASM
-        env:
-          SHENKO_SSH_WASI_ARTIFACT: .ci/evidence/ssh-wasi/build/shenko-ssh-wasi.wasm
-          SHENKO_SSH_WASI_EVIDENCE: .ci/evidence/ssh-wasi/openssh-journey.json
+      - name: Test the workspace, including real SSH, integration tests and doctests
+        # Retain every failing target in one run; pipefail keeps any failure.
         run: |
           mkdir -p /run/sshd
-          cargo test -p shenko-wasm --test ssh_wasi_client --locked -j1 -- --ignored --nocapture
+          export SHENKO_SSH_WASI_ARTIFACT="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/build/shenko-ssh-wasi.wasm"
+          export SHENKO_SSH_WASI_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/openssh-journey.json"
+          cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4

@@ -11,6 +11,9 @@ the task, operation, attempt, E1, result, and committed decision ledgers without
 writing them. A matching piece of model text alone cannot pass: both real child
 results and their evidence must exist, and the reported output must commit
 after those results.
+Main-model request attempts, their sealed terminal results, and content stream
+units are also collected. The child `evidence_receipts` table alone cannot show
+whether the subject's own generation recorded terminal evidence.
 
 It then stops the owned process, starts the same installation, resubmits the
 same input identity, and asks the model to continue the preceding task from its
@@ -53,6 +56,14 @@ The fixed 0.6B model is a low-resource mechanical experiment. Its outcomes do
 not satisfy the Qwen3.8-27B quality baseline, the NapCat/coding-seat S2 journey,
 physical fault requirements, or 7/30-day observation periods.
 
+The hosted diagnostic explicitly sets `SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS`
+to 1,200,000 ms, observes each phase for at most 1,800 seconds, and gives the
+whole job at most 75 minutes. These limits follow the failed hosted observation
+below; they are not evidence that the journey passes. The model, full product
+prompt, sampling parameters and all success predicates are unchanged. Outside
+this workflow an unset local request limit still means 180 seconds; a configured
+limit is sealed in every new request and cannot reinterpret an earlier one.
+
 ## 2026-11-16 local attempt
 
 The available pre-existing CLI was identified by SHA-256
@@ -73,3 +84,39 @@ The local Rust verification command also stopped before tests ran: `rustc`
 compiling `shenko-store` was killed with SIGKILL. The new policy tests therefore
 require execution against the current candidate in an environment with enough
 resources. These failures remain open evidence, not successful acceptance.
+
+## 2026-11-16 hosted attempt
+
+[Run 43860565053](https://github.com/cyjin-yl/shenko/actions/runs/43860565053)
+built and ran exact merge source `adf05188be9c4768a5f46ab94f1332079a5c274a`
+(PR head `b2886c2b9b10d68ffb27d5b0702a896419f1ced6`). The pinned model and
+llama.cpp hashes passed, the real endpoint loaded, and the WebSocket input was
+durably accepted at commit 7. The model received the full sealed product input,
+including this user submission.
+
+The attempt **failed before the first model token**. At 169.23 seconds the
+server had processed 5,888 prompt tokens, reporting 46% progress (about 12.8k
+tokens in total; the total is estimated from rounded progress). The last
+256-token batch took 14.32 seconds, about 17.88 tokens/second. Keeping only that
+last rate would imply roughly 556 seconds for prefill; a quadratic fit to the
+observed sequence estimates about 779 seconds. Both are extrapolations, not
+measured completion times.
+
+At 180 seconds the provider's then-fixed total HTTP timeout ended the stream.
+The retained CAS result is `failed` with `termination.kind=unknown`, zero stream
+events and a journal installed. The subject kept its original `awaiting_model`
+step and the CLI supervisor ended the process; the WebSocket consequently
+closed. These preserve uncertainty instead of sending the original request
+again. There are no finite child results or committed decisions, and the
+restart phase did not begin.
+
+This version of the harness omitted `subject_request_attempts` and content
+stream tables. Its retained CAS result proves the bytes existed, but the artifact
+cannot independently prove the main request's terminal commit identity. The
+updated snapshot collects those tables and the referenced CAS result together;
+zero child E1 rows must not be reported as zero main-request E1 evidence.
+
+The [retained observation](../evidence/single-node-hosted-20261116/observation.json)
+identifies the original artifact and hashes the copied raw runtime, model, input,
+WebSocket, ledger and CAS evidence. The new configurable bound and diagnostics
+are a product correction motivated by this failure, not a successful rerun.

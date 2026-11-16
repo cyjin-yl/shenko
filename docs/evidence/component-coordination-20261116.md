@@ -89,7 +89,8 @@ system with `SIGKILL` during rustc code generation. **Zero tests ran.** The
 journey was then moved to its own integration-test target to avoid compiling
 the large Node unit-test module. Further code generation was deferred while
 the shared host ran the real-model acceptance worker; this document claims
-neither a final compilation pass nor a passing journey from that failed build.
+neither a final compilation pass nor a passing journey from that failed local
+build. The later remote execution below is separate evidence.
 
 The intended focused command for the combined candidate is:
 
@@ -112,6 +113,51 @@ The subsequent run using
 `errors: []` and `product_tested: false`. These results do not substitute for
 compiling or executing the protocol.
 
+### Observed remote candidate execution
+
+The combined candidate `b2886c2b9b10d68ffb27d5b0702a896419f1ced6`
+ran in [CI 43860564971](https://github.com/cyjin-yl/shenko/actions/runs/43860564971)
+and [Nightly 43860596861](https://github.com/cyjin-yl/shenko/actions/runs/43860596861).
+The CI checkout used the PR merge commit
+`adf05188be9c4768a5f46ab94f1332079a5c274a`; GitHub's comparison from the
+candidate to that merge returned no changed files. This is evidence for that
+source tree, not an earlier successful main branch.
+
+The CI workspace check and workspace test steps completed successfully. The
+Rust job subsequently failed in its explicitly invoked SSH WASI journey after
+the pinned guest build succeeded. That journey returned `No such file or
+directory (os error 2)` before any SSH exchange, with zero passing tests and
+one failed test; its relative artifact path was resolved from Cargo's test
+working directory. This does not supply SSH execution evidence. The
+Nightly `nightly-rust-long` job (`133276074128`) completed successfully;
+its downloaded original log explicitly reports these tests as `ok`:
+
+- `minority_agreement_survives_reopen_and_supersession_fences_original_branch`
+  — one executed test, none ignored, 0.23 seconds.
+- `canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch`
+  and `canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt`.
+- `reserved_store_commit_and_ancestor_cancellation_fence_live_owners` and
+  `chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown`.
+
+The same Nightly job explicitly ran the existing `partition_orchestrator`,
+native helper lost-reply recovery, and helper identity-refusal fixtures after
+the workspace suite. All three report `ok`. The retained partition receipt
+reports `passed`, all 17 checks true, and no failed checks. Its own stated scope
+is independent OS processes sharing one quiesced origin, real parser/Store/CAS
+code and archive exchange; it sends no model, provider or network request and
+does not prove physical partition or power-loss behavior. Both helper result
+receipts report `passed`, and their preparation identifies the exact candidate
+above.
+
+The `nightly-native-evidence` artifact is `14224410491`, with verified ZIP SHA-256
+`100763bc0f67eea0b52b1f3c23ddb68e0e03841432757ef5770401772bbd3a8b`.
+The CI Clippy job still failed on that candidate: its retained comparison names
+one new ignored SSH fixture, a WASM select-macro unused binding, a subject test's
+macro-generated `expect`, and one Store test's `unwrap_err` (five errors across
+the production/all-target scopes). It reports no new component or heartbeat
+warning. Those diagnostics are separate from the passing tests; subsequent
+fixes require their own candidate result. No all-CI-green claim is made here.
+
 ## Remaining acceptance and implementation boundaries
 
 - The protocol currently requires reciprocal configured authenticated routes.
@@ -123,8 +169,9 @@ compiling or executing the protocol.
 - A resident follower catches up control and eligible canonical Store results;
   continuous complete cognition/receipt reconciliation and handoff need their
   own real service journeys and retained provenance checks.
-- The new Node journey and production Start/SSH cancellation/takeover behavior
-  still require successful execution on the final combined candidate.
+- The new Node journey passed on the named combined candidate above. Production
+  Start/SSH cancellation and takeover behavior still need their corresponding
+  real-service journey; the protocol test does not supply that evidence.
 - Physical partitions, delayed external results, multi-device service failures
   and long-run observation remain unverified. No physical exactly-once effect
   or global single activity is claimed under network partition.

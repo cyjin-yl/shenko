@@ -1,7 +1,7 @@
 //! Real SSH authentication, exec and SFTP. This requires the separately built
 //! WASI artifact and an installed OpenSSH server; the client is never a host
-//! executable. CI builds the artifact and invokes this ignored journey
-//! explicitly, so a missing artifact cannot become a passing smoke result.
+//! executable. CI provisions both prerequisites before the normal workspace
+//! suite, so a missing artifact cannot become a passing smoke result.
 #![cfg(unix)]
 
 use anyhow::{Context, Result, ensure};
@@ -103,11 +103,12 @@ fn guest(module: &[u8], home: &Path, port: Option<u16>, request: Value) -> Resul
 }
 
 #[test]
-#[ignore = "build ssh-wasi and set SHENKO_SSH_WASI_ARTIFACT; requires sshd and ssh-keygen"]
 fn ssh_wasi_auth_exec_sftp_and_refusal_journey() -> Result<()> {
     let artifact = std::env::var_os("SHENKO_SSH_WASI_ARTIFACT")
         .context("SHENKO_SSH_WASI_ARTIFACT is required")?;
-    let module = fs::read(&artifact)?;
+    let module = fs::read(&artifact).with_context(|| {
+        format!("cannot read SSH WASI artifact {}", Path::new(&artifact).display())
+    })?;
     let root = std::env::temp_dir().join(format!(
         "shenko-ssh-client-{}",
         shenko_types::ids::EntityId::new()

@@ -570,11 +570,11 @@ async fn wait_bounded<T>(
                 }
                 return Err(anyhow::anyhow!(timeout_message).into());
             }
-            completed = &mut future => {
+            _completed = &mut future => {
                 if let Some(outcome) = stop.observe() {
                     return Err(StartStop::Stopped(outcome));
                 }
-                return completed.map_err(StartStop::Failed);
+                return _completed.map_err(StartStop::Failed);
             }
         }
     }

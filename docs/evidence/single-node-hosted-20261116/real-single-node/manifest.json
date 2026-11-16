@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-11-16T11:49:42Z",
+  "binary": "/__w/shenko/shenko/.ci/target/real-single-node/debug/shenko",
+  "binary_sha256": "7bc19428cdf15e531c3ec56cda94896fe1c7e317e3a7419c6d0b218a90a54bad",
+  "source_revision": "adf05188be9c4768a5f46ab94f1332079a5c274a",
+  "model": "Qwen3-0.6B-Q4_K_M",
+  "model_url": "http://127.0.0.1:18832",
+  "websockets_version": "16.0",
+  "marker": "S1-ec83a082a123",
+  "resume_marker": "CONTINUE-762c5046bcb7",
+  "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim"
+}

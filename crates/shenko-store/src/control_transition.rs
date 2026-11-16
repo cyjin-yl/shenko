@@ -1,4 +1,4 @@
-//! A chosen S1 is a frozen state transition, not a recipe to run again.
+//! A chosen S1/native T2 is a frozen state transition, not a recipe to run again.
 //!
 //! Evaluate the ordinary transaction once in a rollback savepoint. SQLite's
 //! authorizer records every table read or written by that evaluation; their
@@ -34,14 +34,14 @@ use crate::{
 };
 
 const CODEC: &str = "store-s1-transition";
-const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 // Account while copying rows, before the eventual sealed JSON size is known.
 // This bounds the retained pre-capture even when most tables prove untouched.
 const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-enum Cell {
+pub(crate) enum Cell {
     Null,
     Integer(i64),
     /// Preserve the exact SQLite floating-point representation.
@@ -83,62 +83,111 @@ impl Cell {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Table {
-    name: String,
-    schema_digest: Digest,
-    columns: Vec<String>,
-    key: Vec<usize>,
-    local_sequence: Option<usize>,
+pub(crate) struct Table {
+    pub name: String,
+    pub schema_digest: Digest,
+    pub columns: Vec<String>,
+    pub key: Vec<usize>,
+    pub local_sequence: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Image {
-    table: Table,
-    rows: BTreeMap<String, Vec<Cell>>,
+pub(crate) struct Image {
+    pub table: Table,
+    pub rows: BTreeMap<String, Vec<Cell>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Change {
-    key: String,
-    before: Option<Vec<Cell>>,
-    after: Option<Vec<Cell>>,
+pub(crate) struct Change {
+    pub key: String,
+    pub before: Option<Vec<Cell>>,
+    pub after: Option<Vec<Cell>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct TableTransition {
+pub(crate) struct TableTransition {
     /// Table reads bind a complete range, including absence. Insert-only writes
     /// bind just their target keys, so unrelated parked replica tasks survive.
-    complete_read: bool,
-    before: Image,
-    changes: Vec<Change>,
+    pub complete_read: bool,
+    pub before: Image,
+    pub changes: Vec<Change>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct StepTransition {
-    schema_version: u32,
-    action_id: EntityId,
-    input_digest: Digest,
-    source_ledger_id: EntityId,
-    original_head: SubjectBranchHead,
-    result_commit: CommitRef,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated: Vec<UpdatedEntity>,
+pub(crate) struct RowTransition {
+    pub(crate) schema_version: u32,
+    pub(crate) action_id: EntityId,
+    pub(crate) input_digest: Digest,
+    pub(crate) source_ledger_id: EntityId,
+    pub(crate) original_head: SubjectBranchHead,
+    pub(crate) result_commit: CommitRef,
+    pub(crate) created_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) updated: Vec<UpdatedEntity>,
     /// Typed references extracted from SQL text/JSON cells. Keeping these
     /// explicit makes the accepted value's ordinary CAS walk complete.
     object_roots: Vec<ObjectRef>,
-    tables: Vec<TableTransition>,
+    pub(crate) tables: Vec<TableTransition>,
 }
 
-pub(crate) struct PreparedStep {
+pub(crate) struct RowTransitionInput<'a> {
+    pub action_id: EntityId,
+    pub input_digest: Digest,
+    pub head: &'a SubjectBranchHead,
+}
+
+pub(crate) struct PreparedTransition {
     pub admission: CommitAdmission,
     pub transition_ref: ObjectRef,
 }
 
-impl StepTransition {
+impl RowTransition {
+    /// Check the complete frozen predecessor and apply its exact writes atomically.
+    pub(crate) fn apply_rows(
+        &self,
+        tx: &Transaction<'_>,
+        sequence: LedgerSeq,
+    ) -> Result<(), ShenkoError> {
+        let actual_layouts = layouts(tx)?;
+        let mut seen = BTreeSet::new();
+        for table in &self.tables {
+            let expected = &table.before;
+            if !seen.insert(expected.table.name.clone()) {
+                return Err(invalid("duplicate transition table"));
+            }
+            if actual_layouts.get(&expected.table.name) != Some(&expected.table)
+                || current_image(tx, table)? != *expected
+            {
+                return Err(conflict(format!(
+                    "predecessor/schema differs for {}",
+                    expected.table.name
+                )));
+            }
+        }
+        tx.execute_batch("PRAGMA defer_foreign_keys=ON")
+            .map_err(storage_error)?;
+        for table in &self.tables {
+            apply_table(tx, table, sequence)?;
+        }
+        for table in &self.tables {
+            let mut expected = table.before.clone();
+            for change in &table.changes {
+                if let Some(after) = &change.after {
+                    expected.rows.insert(change.key.clone(), after.clone());
+                } else {
+                    expected.rows.remove(&change.key);
+                }
+            }
+            if current_image(tx, table)? != expected {
+                return Err(invalid("applied writes differ from frozen result"));
+            }
+        }
+        Ok(())
+    }
+
     /// Bind the frozen rows to the public S1 identities, independently of the
     /// producer that captured them. The remaining SQL rows are exact deltas;
     /// head, committed result and successor may never be omitted or renamed.
@@ -277,18 +326,18 @@ impl StepTransition {
 }
 
 fn invalid(reason: impl std::fmt::Display) -> ShenkoError {
-    ShenkoError::other(format!("invalid canonical S1 transition: {reason}"))
+    ShenkoError::other(format!("invalid canonical Store transition: {reason}"))
 }
 
 fn conflict(reason: impl std::fmt::Display) -> ShenkoError {
-    ShenkoError::conflict(format!("canonical S1 transition: {reason}"))
+    ShenkoError::conflict(format!("canonical Store transition: {reason}"))
 }
 
 fn quoted(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
-fn local_table(name: &str) -> bool {
+pub(crate) fn local_table(name: &str) -> bool {
     matches!(
         name,
         "schema_version"
@@ -296,6 +345,7 @@ fn local_table(name: &str) -> bool {
             | "ledger_identity"
             | "commit_authority_policy"
             | "subject_authority_bindings"
+            | "subject_dispatch_owner"
             | "control_prepared_transitions"
             | "control_materializations"
     )
@@ -497,13 +547,130 @@ fn input_digest(
 }
 
 impl Store {
+    /// Capture one already-authorized factual transaction without retaining its writes.
+    /// Local execution guards run before this observation; the evaluated body may
+    /// touch only shared facts. No provider calls belong in this callback.
+    pub(crate) fn capture_row_transition<T>(
+        &self,
+        tx: &Transaction<'_>,
+        input: RowTransitionInput<'_>,
+        evaluate: impl FnOnce(
+            CommitRef,
+            chrono::DateTime<chrono::Utc>,
+        ) -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
+    ) -> Result<(RowTransition, T), ShenkoError> {
+        let tables = layouts(tx)?;
+        let mut before = BTreeMap::new();
+        let mut capture_remaining = MAX_CAPTURE_BYTES;
+        for (name, table) in &tables {
+            // A table without PK can only be a read projection outside
+            // this transition. If the action touches one, the authorizer below
+            // refuses preparation rather than inventing rowid identity.
+            if !table.key.is_empty() {
+                before.insert(
+                    name.clone(),
+                    image_with_budget(tx, table, &mut capture_remaining)?,
+                );
+            }
+        }
+        let result_commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(tx)?);
+        let created_at = chrono::Utc::now();
+        tx.execute_batch("SAVEPOINT canonical_row_evaluation")
+            .map_err(storage_error)?;
+        let accesses = Arc::new(Mutex::new(Accesses::default()));
+        let observation = observe(tx, Arc::clone(&accesses));
+        let evaluated = evaluate(result_commit, created_at);
+        drop(observation);
+        let (updated, result) = evaluated?;
+        let accesses = accesses.lock();
+        let touched = accesses
+            .reads
+            .union(&accesses.writes)
+            .collect::<BTreeSet<_>>();
+        let mut transitions = Vec::new();
+        for name in touched {
+            if local_table(name) {
+                return Err(conflict(format!(
+                    "transition depended on node-local table {name}"
+                )));
+            }
+            let Some(table) = tables.get(name) else {
+                // Virtual/shadow tables are derivations rebuilt by their
+                // original triggers. They cannot carry canonical facts.
+                continue;
+            };
+            let mut original = before
+                .remove(name)
+                .ok_or_else(|| conflict(format!("transition touched unkeyed table {name}")))?;
+            let after = image(tx, table)?;
+            let keys = original
+                .rows
+                .keys()
+                .chain(after.rows.keys())
+                .collect::<BTreeSet<_>>();
+            let changes: Vec<Change> = keys
+                .into_iter()
+                .filter_map(|key| {
+                    let old = original.rows.get(key);
+                    let new = after.rows.get(key);
+                    (old != new).then(|| Change {
+                        key: key.clone(),
+                        before: old.cloned(),
+                        after: new.cloned(),
+                    })
+                })
+                .collect();
+            let complete_read = accesses.reads.contains(name);
+            if !complete_read {
+                original
+                    .rows
+                    .retain(|key, _| changes.iter().any(|change| &change.key == key));
+            }
+            transitions.push(TableTransition {
+                complete_read,
+                before: original,
+                changes,
+            });
+        }
+        // Detect writes that escaped the observed transaction body (for
+        // example a future helper using cached SQL). Never silently omit
+        // a changed base table from the frozen result.
+        for (name, original) in before {
+            if image(tx, &original.table)? != original {
+                return Err(conflict(format!("unobserved transition write to {name}")));
+            }
+        }
+        tx.execute_batch("ROLLBACK TO canonical_row_evaluation; RELEASE canonical_row_evaluation")
+            .map_err(storage_error)?;
+        let object_roots = self.transition_object_roots(&transitions);
+        let (_, missing) = self.collect_closure(&object_roots).map_err(storage_error)?;
+        if !missing.is_empty() {
+            return Err(ShenkoError::ObjectClosureIncomplete {
+                missing_count: missing.len(),
+            });
+        }
+        let transition = RowTransition {
+            schema_version: 1,
+            action_id: input.action_id,
+            input_digest: input.input_digest,
+            source_ledger_id: self.ledger.ledger_id(),
+            original_head: input.head.clone(),
+            result_commit,
+            created_at,
+            updated,
+            object_roots,
+            tables: transitions,
+        };
+        Ok((transition, result))
+    }
+
     pub(crate) fn prepare_step_transition(
         &self,
         step: &SubjectStep,
         head: &SubjectBranchHead,
         next: EntityId,
         mut position: AdmissionPosition,
-    ) -> Result<PreparedStep, ShenkoError> {
+    ) -> Result<PreparedTransition, ShenkoError> {
         position.aliases.sort();
         position.aliases.dedup();
         position.reads.sort();
@@ -512,7 +679,7 @@ impl Store {
         let input_digest = input_digest(step, head, next)?;
         // Retry reads the already frozen plan; no new time, UUID, sequence or
         // snapshot identity is substituted after a chosen-but-unapplied crash.
-        if let Some(prepared) = self.prepared_step(action_id, &input_digest)? {
+        if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok(prepared);
         }
         let predecessor_ref = self.prepare_control_predecessor_for_admission(
@@ -528,61 +695,14 @@ impl Store {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
-            if let Some(prepared) = prepared_step(&tx, action_id, &input_digest)? { return Ok(prepared); }
-            let tables = layouts(&tx)?;
-            let mut before = BTreeMap::new();
-            let mut capture_remaining = MAX_CAPTURE_BYTES;
-            for (name, table) in &tables {
-                // A table without PK can only be a read projection outside
-                // this transition. If S1 touches one, the authorizer below
-                // refuses preparation rather than inventing rowid identity.
-                if !table.key.is_empty() { before.insert(name.clone(), image_with_budget(&tx, table, &mut capture_remaining)?); }
-            }
-            let result_commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
-            tx.execute_batch("SAVEPOINT canonical_s1_evaluation").map_err(storage_error)?;
-            let accesses = Arc::new(Mutex::new(Accesses::default()));
-            let observation = observe(&tx, Arc::clone(&accesses));
-            let receipt = self.apply_step_commit_tx(&tx, step, head, next, result_commit);
-            drop(observation);
-            let receipt = receipt?;
-            let accesses = accesses.lock();
-            let touched = accesses.reads.union(&accesses.writes).collect::<BTreeSet<_>>();
-            let mut transitions = Vec::new();
-            for name in touched {
-                if local_table(name) { return Err(conflict(format!("S1 depended on node-local table {name}"))); }
-                let Some(table) = tables.get(name) else {
-                    // Virtual/shadow tables are derivations rebuilt by their
-                    // original triggers. They cannot carry canonical facts.
-                    continue;
-                };
-                let mut original = before.remove(name).ok_or_else(|| conflict(format!("S1 touched unkeyed table {name}")))?;
-                let after = image(&tx, table)?;
-                let keys = original.rows.keys().chain(after.rows.keys()).collect::<BTreeSet<_>>();
-                let changes: Vec<Change> = keys.into_iter().filter_map(|key| {
-                    let old = original.rows.get(key); let new = after.rows.get(key);
-                    (old != new).then(|| Change { key: key.clone(), before: old.cloned(), after: new.cloned() })
-                }).collect();
-                let complete_read = accesses.reads.contains(name);
-                if !complete_read {
-                    original.rows.retain(|key, _| changes.iter().any(|change| &change.key == key));
-                }
-                transitions.push(TableTransition { complete_read, before: original, changes });
-            }
-            // Detect writes that escaped the observed transaction body (for
-            // example a future helper using cached SQL). Never silently omit
-            // a changed base table from the frozen result.
-            for (name, original) in before {
-                if image(&tx, &original.table)? != original {
-                    return Err(conflict(format!("unobserved S1 write to {name}")));
-                }
-            }
-            tx.execute_batch("ROLLBACK TO canonical_s1_evaluation; RELEASE canonical_s1_evaluation").map_err(storage_error)?;
-            let object_roots = self.transition_object_roots(&transitions);
-            let (_, missing) = self.collect_closure(&object_roots).map_err(storage_error)?;
-            if !missing.is_empty() { return Err(ShenkoError::ObjectClosureIncomplete { missing_count: missing.len() }); }
-            let transition = StepTransition { schema_version: 1, action_id, input_digest: input_digest.clone(),
-                source_ledger_id: self.ledger.ledger_id(), original_head: head.clone(), result_commit,
-                created_at: chrono::Utc::now(), updated: receipt.updated, object_roots, tables: transitions };
+            if let Some(prepared) = prepared_transition_at(&tx, action_id, &input_digest)? { return Ok(prepared); }
+            let (transition, ()) = self.capture_row_transition(&tx, RowTransitionInput {
+                action_id, input_digest: input_digest.clone(), head,
+            }, |commit, _| {
+                let receipt = self.apply_step_commit_tx(&tx, step, head, next, commit)?;
+                Ok((receipt.updated, ()))
+            })?;
+            let result_commit = transition.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("read/write image exceeds 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 1)?.object;
@@ -607,19 +727,19 @@ impl Store {
             // local receipt; foreign ledgers never mint a replacement result.
             self.record_subject_commit(&tx, result_commit, 1)?;
             tx.commit().map_err(storage_error)?;
-            Ok(PreparedStep { admission, transition_ref })
+            Ok(PreparedTransition { admission, transition_ref })
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
 
-    fn prepared_step(
+    pub(crate) fn prepared_transition(
         &self,
         action: EntityId,
         input: &Digest,
-    ) -> Result<Option<PreparedStep>, ShenkoError> {
-        prepared_step(&self.ledger.conn.lock(), action, input)
+    ) -> Result<Option<PreparedTransition>, ShenkoError> {
+        prepared_transition_at(&self.ledger.conn.lock(), action, input)
     }
 
-    /// Resume the crash window after a source sealed S1 but before it learned
+    /// Resume the crash window after a source sealed S1/native T2 but before it learned
     /// whether consensus chose it. Call before activating the new runtime
     /// epoch. Only exact source predecessors qualify; stale plans stay facts.
     /// Preparing the original descriptor either learns its old grant or orders
@@ -660,9 +780,6 @@ impl Store {
             {
                 continue;
             }
-            let step: SubjectStep = serde_json::from_value(envelope["action"]["step"].clone())?;
-            let next: EntityId =
-                serde_json::from_value(envelope["action"]["next_step_id"].clone())?;
             let reference: ObjectRef =
                 serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
             self.admission_objects(&admission.payload_ref)?;
@@ -670,14 +787,24 @@ impl Store {
                 .reserve_sealed_admission(admission.clone(), Vec::new(), Vec::new())?
                 .prepared_recovery();
             let grant = reservation.grant().cloned();
-            let result = self.apply_step_transition(
-                &reference,
-                &step,
-                &head,
-                next,
-                &reservation,
-                false,
-            );
+            let result = match envelope["action"]["kind"].as_str() {
+                Some("subject.step_commit") => {
+                    let step: SubjectStep =
+                        serde_json::from_value(envelope["action"]["step"].clone())?;
+                    let next: EntityId =
+                        serde_json::from_value(envelope["action"]["next_step_id"].clone())?;
+                    self.apply_step_transition(&reference, &step, &head, next, &reservation, false)
+                        .map(|_| ())
+                }
+                Some("native.complete" | "native.finish") => self
+                    .apply_native_transition(
+                        &reference,
+                        &reservation,
+                        crate::native_transition::NativeApplyMode::Prepared,
+                    )
+                    .map(|_| ()),
+                _ => Err(invalid("unsupported prepared control action")),
+            };
             drop(reservation);
             match result {
                 Ok(_) => recovery.applied += 1,
@@ -700,6 +827,20 @@ impl Store {
             }
         }
         Ok(recovery)
+    }
+
+    pub(crate) fn verify_transition_objects(
+        &self,
+        transition: &RowTransition,
+    ) -> Result<(), ShenkoError> {
+        let roots = self.transition_object_roots(&transition.tables);
+        let (_, missing) = self.collect_closure(&roots).map_err(storage_error)?;
+        if !missing.is_empty() {
+            return Err(ShenkoError::ObjectClosureIncomplete {
+                missing_count: missing.len(),
+            });
+        }
+        Ok(())
     }
 
     fn transition_object_roots(&self, tables: &[TableTransition]) -> Vec<ObjectRef> {
@@ -733,7 +874,7 @@ impl Store {
     pub(crate) fn read_step_transition(
         &self,
         reference: &ObjectRef,
-    ) -> Result<StepTransition, ShenkoError> {
+    ) -> Result<RowTransition, ShenkoError> {
         if reference.codec.name != CODEC
             || reference.codec.major != 1
             || reference.media_type != "application/json"
@@ -745,14 +886,8 @@ impl Store {
         if bytes.len() as u64 != reference.bytes || Digest::blake3(&bytes) != reference.digest {
             return Err(invalid("transition bytes differ"));
         }
-        let transition: StepTransition = serde_json::from_slice(&bytes)?;
-        let roots = self.transition_object_roots(&transition.tables);
-        let (_, missing) = self.collect_closure(&roots).map_err(storage_error)?;
-        if !missing.is_empty() {
-            return Err(ShenkoError::ObjectClosureIncomplete {
-                missing_count: missing.len(),
-            });
-        }
+        let transition: RowTransition = serde_json::from_slice(&bytes)?;
+        self.verify_transition_objects(&transition)?;
         Ok(transition)
     }
 
@@ -800,42 +935,9 @@ impl Store {
                 if admission_materialized(&tx, admission)? {
                     return Err(conflict("transition already materialized"));
                 }
-                let actual_layouts = layouts(&tx)?;
-                let mut seen = BTreeSet::new();
-                for table in &transition.tables {
-                    let expected = &table.before;
-                    if !seen.insert(expected.table.name.clone()) {
-                        return Err(invalid("duplicate transition table"));
-                    }
-                    if actual_layouts.get(&expected.table.name) != Some(&expected.table)
-                        || current_image(&tx, table)? != *expected
-                    {
-                        return Err(conflict(format!(
-                            "predecessor/schema differs for {}",
-                            expected.table.name
-                        )));
-                    }
-                }
                 let sequence = self.ledger.allocate_seq(&tx)?;
                 let local_commit = CommitRef::new(self.ledger.ledger_id(), sequence);
-                tx.execute_batch("PRAGMA defer_foreign_keys=ON")
-                    .map_err(storage_error)?;
-                for table in &transition.tables {
-                    apply_table(&tx, table, sequence)?;
-                }
-                for table in &transition.tables {
-                    let mut expected = table.before.clone();
-                    for change in &table.changes {
-                        if let Some(after) = &change.after {
-                            expected.rows.insert(change.key.clone(), after.clone());
-                        } else {
-                            expected.rows.remove(&change.key);
-                        }
-                    }
-                    if current_image(&tx, table)? != expected {
-                        return Err(invalid("applied writes differ from frozen result"));
-                    }
-                }
+                transition.apply_rows(&tx, sequence)?;
                 authority.record_canonical_admission(
                     &tx,
                     local_commit,
@@ -866,25 +968,25 @@ impl Store {
     }
 }
 
-fn prepared_step(
+pub(crate) fn prepared_transition_at(
     conn: &Connection,
     action: EntityId,
     input: &Digest,
-) -> Result<Option<PreparedStep>, ShenkoError> {
+) -> Result<Option<PreparedTransition>, ShenkoError> {
     let row: Option<(String,String,String)> = conn.query_row(
         "SELECT input_digest,admission,transition_ref FROM control_prepared_transitions WHERE action_id=?1",
         [action.to_string()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(storage_error)?;
     row.map(|(original, admission, reference)| {
         if original != input.0 {
             return Err(conflict(
-                "another S1 already reserved this successor position",
+                "another transition already reserved this action position",
             ));
         }
         let admission: CommitAdmission = serde_json::from_str(&admission)?;
         if admission.action_id != action {
             return Err(conflict("stored prepared action identity differs"));
         }
-        Ok(PreparedStep {
+        Ok(PreparedTransition {
             admission,
             transition_ref: serde_json::from_str(&reference)?,
         })

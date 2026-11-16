@@ -102,13 +102,15 @@ command that closes without an exit status reports an unknown outcome.
 
 ## Verification
 
-CI builds this artifact and explicitly runs the ignored real OpenSSH journey:
+CI and Nightly build this artifact and provision OpenSSH before running this
+required journey as part of the normal workspace suite. To run it locally,
+install `sshd` and `ssh-keygen`, build the artifact, and use absolute paths:
 
 ```sh
 SHENKO_SSH_WASI_ARTIFACT=/path/to/new-ssh-build/shenko-ssh-wasi.wasm \
 SHENKO_SSH_WASI_EVIDENCE=/path/to/new-evidence.json \
 cargo test -p shenko-wasm --test ssh_wasi_client --locked \
-  -- --ignored --nocapture
+  -- --nocapture
 ```
 
 The journey generates the user's key inside the module, authenticates to a
@@ -117,5 +119,5 @@ round-trips 100,003 binary bytes with SFTP, and refuses a wrong host key and
 an absent network grant. The server host key is fixture setup; it does not
 perform client authentication. Temporary private keys are removed when the
 fixture ends, while public execution evidence can be retained separately.
-Missing inputs fail the explicit journey. This does not claim a sustained
+Missing inputs fail the journey. This does not claim a sustained
 remote-device, mobile, Node/Bun, or long-running acceptance result.

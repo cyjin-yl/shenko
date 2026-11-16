@@ -1,6 +1,6 @@
 //! Preserve a chosen control action without inventing a foreign Store commit.
-//! A source-local S1 may finish against its exact original predecessor. Every
-//! other unapplied action remains evidence for reconciliation; no replay here
+//! Frozen S1 and native T2 may finish against their exact original predecessor.
+//! Other unapplied actions remain evidence for reconciliation; no replay here
 //! grants permission to execute an external attempt.
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
@@ -149,6 +149,18 @@ impl Store {
         // The real Node provider correctly refuses such a reservation; keep
         // the original debt instead of turning that refusal into startup loss.
         if current.branch_id != grant.admission.branch_id {
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
+        if matches!(envelope.action["kind"].as_str(), Some("native.complete" | "native.finish"))
+            && let Some(reference) = envelope.action.get("transition_ref")
+        {
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            match self.recover_native_transition(grant, &reference) {
+                Ok(_) => return Ok(ControlRecoveryOutcome::RecoveredCanonical),
+                Err(ShenkoError::Conflict(_) | ShenkoError::NotFound(_) | ShenkoError::ResnapshotRequired { .. }) => {}
+                Err(error) => return Err(error.into()),
+            }
             self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
             return Ok(ControlRecoveryOutcome::ReconciliationRequired);
         }

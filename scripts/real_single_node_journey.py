@@ -60,6 +60,7 @@ TABLES = (
     "subject_branch_heads", "subject_steps", "subject_genesis", "tasks",
     "task_results", "operations", "attempts", "evidence_receipts",
     "web_input_submissions", "subject_intents", "session_events", "inbox_events",
+    "subject_request_attempts", "content_streams", "content_stream_units",
 )
 
 
@@ -92,6 +93,11 @@ def snapshot(data_dir):
         result["decisions"] = [
             {"step": row["data"], "decision": read_cas(data_dir, row["data"]["decision_ref"])}
             for row in result.get("subject_steps", []) if row["data"].get("decision_ref")
+        ]
+        result["subject_request_results"] = [
+            {"attempt": row["data"], "result": read_cas(data_dir, row["data"]["terminal"]["result_ref"])}
+            for row in result.get("subject_request_attempts", [])
+            if row["data"].get("terminal") and row["data"]["terminal"].get("result_ref")
         ]
         return result
     finally:
@@ -204,6 +210,7 @@ async def run(args):
         "binary": str(args.binary), "binary_sha256": sha256(args.binary),
         "source_revision": args.source_revision, "model": args.model, "model_url": args.model_url,
         "websockets_version": websockets.__version__, "marker": marker, "resume_marker": resume_marker,
+        "configured_local_request_timeout_ms": os.environ.get("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS"),
         "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim",
     }
     save(args.evidence_dir / "manifest.json", manifest)

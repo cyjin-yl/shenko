@@ -450,8 +450,11 @@ mod policy_change_tests {
 
     /// A saved resource-policy change must affect a send still waiting for
     /// admission, without resealing its provider or minting a second send.
-    #[tokio::test]
-    async fn waiting_admission_observes_replacement_policy() -> anyhow::Result<()> {
+    #[test]
+    fn waiting_admission_observes_replacement_policy() -> anyhow::Result<()> {
+        // Build explicitly so runtime setup errors follow the test's Result
+        // instead of the async test macro introducing an implicit expect.
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let root = std::env::temp_dir().join(format!("shenko-quota-wait-{}", EntityId::new()));
         std::fs::create_dir_all(&root)?;
         let store = Arc::new(shenko_store::Store::open(
@@ -542,5 +545,6 @@ mod policy_change_tests {
         drop(store);
         std::fs::remove_dir_all(root)?;
         Ok(())
+        })
     }
 }

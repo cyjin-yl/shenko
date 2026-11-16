@@ -290,6 +290,17 @@ S0 context, decision and model result. A restart reuses this frozen value.
 preparation and learning the consensus result, before a new runtime epoch is
 activated.
 
+The paired native T2 boundaries, `native.complete` and `native.finish`, also
+carry frozen transitions. They retain the original operation, attempt, E1 and
+result invocation, including when a current settlement invocation differs
+from the original executor. With unfinished ordinary children only the named
+task may enter `Completing`; after convergence its terminal task, original
+result and inbox entry are one atomic application. Their validator permits
+only those exact task/result/inbox writes. It cannot rewrite E1 or grant a new
+physical send. Prepared startup recovery uses the same existing entry point.
+Implementation and unexecuted journey limits are recorded in
+[canonical native T2 materialization](../development/canonical-native-t2-materialization.md).
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,
@@ -313,10 +324,11 @@ The live Store provider and runtime reconstruction path retain local markers
 only after Store COMMIT. A live authority failure cancels and drains the owned
 runtime before rebuilding its branch-scoped consumers. Storage failure retains
 its actual error instead of being disguised as an election retry. A follower
-may materialize a verified chosen S1 without becoming a primary, but this
+may materialize a verified chosen S1 or native T2 without becoming a primary, but this
 factual projection supplies no new physical send permit.
 
-The other admission boundaries, including S0 request arming and T1/T2, still
+The other admission boundaries, including S0 request arming, native claims,
+T1/dispatch and publication T2, still
 carry original plans rather than this canonical transition. Calling their
 ordinary code on another ledger is not deterministic replication. When a
 chosen plan cannot be materialized, the selected local primary retains its
