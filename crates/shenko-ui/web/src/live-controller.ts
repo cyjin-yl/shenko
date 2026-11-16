@@ -375,7 +375,7 @@ class LiveController implements ProjectionController {
   }
 
   // An action click admits a durable input; execution authority comes from
-  // the subject's disposition of that input, never from the click (docs/specs/web-interface.md#spec-21-8).
+  // the subject's disposition of that input, never from the click.
   private sendAction(documentId: string, option: {
     action_id: string;
     nonce: string;
@@ -468,7 +468,7 @@ class LiveController implements ProjectionController {
 
   private onOpen(): void {
       // Attest this connection's display facts so the server degrades
-      // documents to what THIS surface can actually render (docs/specs/web-interface.md#spec-21-5).
+      // documents to what THIS surface can actually render.
       try {
         this.transport.send(
           JSON.stringify({
@@ -787,7 +787,7 @@ class LiveController implements ProjectionController {
     }
   }
 
-  /// Name the instance (docs/specs/web-interface.md#spec-21-1: 可由用户取名，或让 Agent 自主取名).
+  /// Name the instance (可由用户取名，或让 Agent 自主取名).
   ///
   /// The name goes through the same identity policy the subject's own naming
   /// uses; the server answers with the new revision or says why not.
@@ -817,7 +817,7 @@ class LiveController implements ProjectionController {
     }
   }
 
-  /// Claim this installation (docs/specs/plugins.md#spec-44-4).
+  /// Claim this installation.
   ///
   /// The capability is what the installation issued; the server answers with
   /// the outcome it really reached.

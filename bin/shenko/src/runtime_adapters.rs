@@ -21,7 +21,7 @@ pub(super) async fn install(
     // registered, not advertised in the reply grammar and never
     // contacted. Capability discovery and health are recorded as
     // subject-readable facts, and administration stays an owner-set
-    // fact per platform. docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
+    // fact per platform.
     if let Some(config_path) = channels_config.clone() {
         let file = shenko_channel_adapters::AdapterConfigFile::load(&config_path)
             .map_err(|error| anyhow::anyhow!(error))?;

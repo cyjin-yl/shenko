@@ -90,7 +90,7 @@ pub(crate) async fn start(
         tracing::warn!(%recovery, "completed home recovery");
     }
 
-    // 2. Bootstrap genesis if first run — docs/specs/plugins.md#spec-44-6. The genesis
+    // 2. Bootstrap genesis if first run. The genesis
     // closure references the actual home manifest and guest artifact.
     let agent_id = bootstrap_genesis(
         &store,
@@ -98,7 +98,7 @@ pub(crate) async fn start(
         &prepared_home.manifest,
         &model_profile,
     )?;
-    // docs/specs/cognition-units.md#spec-45-14: kernel cordis-lifecycle and hook-graph failures journal
+    // kernel cordis-lifecycle and hook-graph failures journal
     // into the SAME subject store journal. Genesis is the earliest
     // truthful attach point — before it no branch exists, and the
     // kernel keeps its stderr+counter record instead of manufacturing
@@ -165,7 +165,7 @@ pub(crate) async fn start(
     // behind the reserved slots (realtime sessions against configured
     // engine bindings in data_dir/media/providers.json, recording
     // capture with CAS closure, barge-in, speech playback and speaker
-    // identification). docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20. They are published before the
+    // identification). They are published before the
     // native definitions that bind to them, and the /api/media routes
     // share the same instances. No engine configured stays honest: the
     // ingress path still admits external provider facts, and an engine
@@ -212,7 +212,7 @@ pub(crate) async fn start(
         cancel.clone(),
     )
     .await?;
-    // Resident memory worker — docs/specs/memory.md#spec-12-2: accepted ≠ remembered.
+    // Resident memory worker: accepted ≠ remembered.
     // It drains the durable memory intent queue and keeps the Git
     // text knowledge repository (data_dir/memory) in sync. The
     // repository is initialized here when the seed bootstrap has
@@ -268,7 +268,7 @@ pub(crate) async fn start(
     // every plugin resolve the same live registry, so a handler a
     // plugin registered is visible to the subject's next step.
     let hook_registry = Arc::clone(&supervisor.hooks);
-    // Outbound path: subject model output → UI timeline. docs/specs/subject-runtime.md#spec-5-1, docs/specs/web-interface.md#spec-21-12
+    // Outbound path: subject model output → UI timeline.
     let (outbox_tx, _outbox_rx) =
         tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
     let channel_services = runtime_channels::install(
@@ -284,7 +284,7 @@ pub(crate) async fn start(
     // The provider stream: a durable journal for the stream itself
     // and the reader surface the WebUI watches. The subject keeps the
     // ordinary path when no journal is wired, and the UI then
-    // honestly reports that streaming is unavailable (docs/specs/web-interface.md#spec-57-5).
+    // honestly reports that streaming is unavailable.
     let stream_sink = shenko_ui::stream::StreamSink::new(
         Arc::clone(&store),
         agent_id,

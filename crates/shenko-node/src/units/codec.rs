@@ -83,7 +83,7 @@ pub fn b64_decode(text: &str) -> Result<Vec<u8>> {
 
 // ------------------------------------------------------------ unit shape ---
 
-/// The four independently installable unit kinds of docs/specs/cognition-units.md#spec-45-10.
+/// The four independently installable unit kinds.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum UnitKind {
@@ -110,7 +110,7 @@ impl UnitKind {
     /// Whether this kind is cognitive *content*.
     ///
     /// Content joins a metapackage only with a separate adoption attitude
-    /// (docs/specs/cognition-units.md#spec-51-1/.3); a code plugin is installed, not adopted, and a
+    /// a code plugin is installed, not adopted, and a
     /// sub-metapackage is judged by the attitudes of its own content members.
     pub fn is_content(&self) -> bool {
         matches!(
@@ -155,7 +155,7 @@ impl UnitDescriptor {
     ///
     /// `provides` keeps its historical string shape so every retained package
     /// still reads. An entry that begins with [`crate::units::CAPABILITY_CONTRACT_PREFIX`] is
-    /// a versioned capability contract (`cap.<name>/<major>`, docs/specs/cognition-units.md#spec-51-8) and
+    /// a versioned capability contract (`cap.<name>/<major>`) and
     /// is parsed here; every other entry is an opaque topic or capability name
     /// that can satisfy a content dependency only. A malformed contract refuses
     /// the version instead of quietly becoming a topic.

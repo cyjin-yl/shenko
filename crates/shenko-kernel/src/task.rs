@@ -1,9 +1,9 @@
 //! The native task handler contract: what a plugin puts on the capability
-//! shelf (docs/specs/kernel.md#kernel-7).
+//! shelf.
 //!
 //! A handler describes one native definition, declares its effect contracts
 //! and capabilities, executes an invocation and reconciles an unknown outcome
-//! from the original handle (docs/specs/kernel.md#kernel-5). The types here
+//! from the original handle. The types here
 //! name only protocol data from `shenko-types`, so a plugin that provides a
 //! handler depends on the kernel interface and not on the subject or the
 //! ledger. Registration, dispatch and the durable receipts stay with the
@@ -120,7 +120,7 @@ pub trait ChildToolRuntime: Send + Sync + 'static {
 pub trait NativeTaskHandler: Send + Sync + 'static {
     fn descriptor(&self) -> NativeTaskDescriptor;
 
-    /// The docs/specs/durable-state.md#spec-36 effect contract of this definition's operations.
+    /// The effect contract of this definition's operations.
     ///
     /// A declaration is bound to the implementation that produced it, so the
     /// recovery planner reads the real boundary of the operation it is about

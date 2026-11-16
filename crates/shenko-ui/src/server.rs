@@ -24,7 +24,7 @@ pub struct UiServer {
     pub playground_root: PathBuf,
     /// The shared Playground instance. The subject's own `playground.manage`
     /// handler and this server must write the SAME lifecycle, so one instance
-    /// is built by the composition root and handed to both (docs/specs/configuration-playground.md#spec-57-6).
+    /// is built by the composition root and handed to both.
     playground_state: Option<Arc<crate::playground::PlaygroundState>>,
     /// Data directory reported by `/api/config`. None = unknown.
     data_dir: Option<PathBuf>,
@@ -87,7 +87,7 @@ impl UiServer {
         self
     }
 
-    /// Point the persistent Playground at `<data_dir>/playground`. docs/specs/configuration-playground.md#spec-43-2.
+    /// Point the persistent Playground at `<data_dir>/playground`.
     pub fn with_data_dir(mut self, data_dir: impl Into<PathBuf>) -> Self {
         let data_dir = data_dir.into();
         self.playground_root = data_dir.join("playground");
@@ -98,7 +98,7 @@ impl UiServer {
     /// Attach the shared Playground instance. The subject's own
     /// `playground.manage` handler and this server must write the same
     /// lifecycle, so the composition root builds one instance and hands it to
-    /// both (docs/specs/configuration-playground.md#spec-57-6).
+    /// both.
     pub fn with_playground_state(
         mut self,
         playground: Arc<crate::playground::PlaygroundState>,
@@ -144,7 +144,7 @@ impl UiServer {
         self
     }
 
-    /// Wire the subject inbox so UI messages reach the loop. docs/specs/subject-runtime.md#spec-5-1.
+    /// Wire the subject inbox so UI messages reach the loop.
     pub fn with_inbox(
         mut self,
         inbox_tx: tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>,
@@ -167,7 +167,7 @@ impl UiServer {
         self
     }
 
-    /// Attach the live media ingress service behind `/api/media/*`. docs/specs/media.md#spec-20.
+    /// Attach the live media ingress service behind `/api/media/*`.
     pub fn with_media_ingress(
         mut self,
         ingress: std::sync::Arc<shenko_media::MediaIngress>,
@@ -177,7 +177,7 @@ impl UiServer {
     }
 
     /// Attach the media runtime (realtime sessions, recording, barge-in,
-    /// speech playback) behind `/api/media/*`. docs/specs/media.md#spec-20.
+    /// speech playback) behind `/api/media/*`.
     pub fn with_media_runtime(
         mut self,
         runtime: std::sync::Arc<shenko_media::runtime::MediaRuntime>,
@@ -186,7 +186,7 @@ impl UiServer {
         self
     }
 
-    /// Wire the subject outbox so model output reaches the timeline. docs/specs/web-interface.md#spec-21-12.
+    /// Wire the subject outbox so model output reaches the timeline.
     pub fn with_outbox(
         mut self,
         outbox_tx: tokio::sync::broadcast::Sender<shenko_subject::outbox::OutboxMessage>,
@@ -246,7 +246,7 @@ impl UiServer {
         let playground_state = self.configured_playground()?;
         let mut state = self.state;
         // Build the durable input service when the real store, genesis
-        // subject, and live inbox are all present (docs/specs/web-interface.md#spec-41-18). Without all
+        // subject, and live inbox are all present. Without all
         // three the UI honestly reports input:false instead of faking
         // acceptance. Presentation defaults to server facts when the caller
         // did not inject one.
@@ -277,7 +277,7 @@ impl UiServer {
         // Observe the subject outbox independently of any browser client, so
         // `/api/self` knows the last committed thought step and whether the
         // loop is active. A broadcast subscriber never consumes messages meant
-        // for WS clients. docs/specs/web-interface.md#spec-21-12.
+        // for WS clients.
         if let Some(outbox_tx) = state.outbox_tx.as_ref() {
             state.live.set_wired(true);
             let live = Arc::clone(&state.live);
@@ -335,6 +335,7 @@ impl UiServer {
             .route("/", get(index_handler))
             .route("/assets/theme-bootstrap.js", get(theme_bootstrap_handler))
             .route("/assets/app.js", get(app_js_handler))
+            .route("/assets/chunks/{filename}", get(browser_module_handler))
             .route("/assets/app.css", get(app_css_handler))
             .route("/assets/proto-ui-style.css", get(proto_style_handler))
             .route("/assets/proto-ui-tokens.generated.css", get(proto_tokens_handler))

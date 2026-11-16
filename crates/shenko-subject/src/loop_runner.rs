@@ -767,6 +767,7 @@ pub async fn run_subject_loop(
     // durable journal fact. A retry streak is a degradation the subject can
     // read; each individual pacing interval is not a new fact.
     let mut retry_journaled = false;
+    let mut retry_state_error = None;
     let result = loop {
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");
@@ -937,9 +938,12 @@ pub async fn run_subject_loop(
             Ok(retry) => retry,
             Err(unreadable) => {
                 break Err(match outcome {
-                    Err(primary) => ShenkoError::conflict(format!(
-                        "{primary}; durable retry state unreadable: {unreadable}"
-                    )),
+                    Err(primary) => {
+                        // A failed recovery read supplements the original
+                        // error; it cannot replace its type or its details.
+                        retry_state_error = Some(unreadable);
+                        primary
+                    }
                     Ok(_) => unreadable,
                 });
             }
@@ -983,7 +987,6 @@ pub async fn run_subject_loop(
         retry_journaled = false;
         if let Err(error) = outcome {
             // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
-            warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
             break Err(error);
         }
 
@@ -995,22 +998,62 @@ pub async fn run_subject_loop(
     // can later read through errors.read — docs/specs/cognition-units.md#spec-45-14. The journal write is
     // fail-soft: it never masks or replaces the original error.
     if let Err(error) = &result {
-        state.store.journal_runtime_error(
-            state.agent_id,
-            shenko_store::RuntimeErrorContext {
-                kind: "subject_loop".into(),
-                source_module: module_path!().into(),
-                message: format!("subject loop stopped on error: {error}"),
-                step_no: Some(state.step.step_no),
-                task_id: None,
-                extra: serde_json::json!({}),
-            },
-        );
+        journal_subject_loop_error(&state, error, retry_state_error.as_ref());
     }
     // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
     state.inbox.close().await;
     info!("subject loop terminated");
     result
+}
+
+/// Project the original error without changing its type or recovery policy.
+/// ProtocolError's public Display is deliberately terse; its structured
+/// details belong in the existing bounded, redacted runtime-error journal.
+/// A secondary retry-state failure is reported separately from that error.
+fn journal_subject_loop_error(
+    state: &SubjectLoopState,
+    error: &ShenkoError,
+    retry_state_error: Option<&ShenkoError>,
+) {
+    let (mut message, mut extra) = match error {
+        ShenkoError::Protocol(protocol) => {
+            let cause = if protocol.code == "BROKER_ADMISSION_REJECTED" {
+                protocol.details.get("admission_error").and_then(serde_json::Value::as_str)
+            } else {
+                None
+            };
+            let message = match cause {
+                Some(cause) => format!("subject loop stopped on error: {error}: {cause}"),
+                None => format!("subject loop stopped on error: {error}"),
+            };
+            (message, serde_json::json!({"error": protocol}))
+        }
+        _ => (format!("subject loop stopped on error: {error}"), serde_json::json!({})),
+    };
+    if let Some(secondary) = retry_state_error {
+        let secondary_message = secondary.to_string();
+        message.push_str("; durable retry state unreadable: ");
+        message.push_str(&secondary_message);
+        extra["retry_state_error"] = match secondary {
+            ShenkoError::Protocol(protocol) => serde_json::json!({
+                "message": secondary_message,
+                "error": protocol,
+            }),
+            _ => serde_json::json!({"message": secondary_message}),
+        };
+    }
+    warn!(seq = state.step.step_no, err = %message, "主体恢复阻塞，停止新决定，等待重开和对账");
+    state.store.journal_runtime_error(
+        state.agent_id,
+        shenko_store::RuntimeErrorContext {
+            kind: "subject_loop".into(),
+            source_module: module_path!().into(),
+            message,
+            step_no: Some(state.step.step_no),
+            task_id: None,
+            extra,
+        },
+    );
 }
 
 /// The engineering default of docs/specs/channels.md#spec-41-6: one subject step selects at most this

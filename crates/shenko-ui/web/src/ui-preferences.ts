@@ -155,7 +155,7 @@ export function applyDisplayIntent(state: UiState, kind: string, payload: Record
           }
         } else if (anchor && !sameAnchor(anchor, previousAnchor)) {
           // A place is only restorable when the reader is actually in history;
-          // a transient selection is not a place (docs/specs/web-interface.md#spec-21-11).
+          // a transient selection is not a place.
           state.display.anchor = anchor;
           saveReadingAnchor(displayStorage(), anchor);
           changed = true;

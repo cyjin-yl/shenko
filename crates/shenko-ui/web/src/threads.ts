@@ -2,7 +2,7 @@ import { text as t } from './messages';
 import type { Submission, TaskSummary, TimelinePart, UiNode, UiProjection } from './projection';
 
 /**
- * Conversations as one model (docs/specs/web-interface.md#5-2).
+ * Conversations as one model.
  *
  * Every conversation the subject takes part in is a thread with participants:
  * the owner's direct chat with the subject, a delegation where the subject
@@ -116,7 +116,7 @@ export function subjectParticipant(projection: UiProjection): Participant {
 }
 
 // Durable admission stages, in IM words; each is a distinct fact
-// (docs/specs/web-interface.md#spec-41-18), never a progress bar.
+// never a progress bar.
 const RECEIPT_WORDS: Record<string, string> = {
   sending: t('im.sending'),
   sent: t('im.sent'),

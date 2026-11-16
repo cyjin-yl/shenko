@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Icon } from './icons';
 
 /**
- * The committed-text renderer (docs/specs/web-interface.md#spec-21-11).
+ * The committed-text renderer.
  *
  * Blocks are keyed by kind and ordinal, never by text length, so new chunks at
  * the tail only touch the tail block: stable paragraphs, lists and code

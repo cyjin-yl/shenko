@@ -167,6 +167,152 @@ async fn unknown_dispatch_recovery_keeps_capacity_and_original_evidence() {
     }
 }
 
+#[tokio::test]
+async fn broker_admission_rejection_stops_with_durable_primary_cause() {
+    use shenko_types::error::{ErrorScope, RetryStrategy, ShenkoError};
+
+    let (dir, store, agent) = fixture();
+    let (broker, handle) = broker();
+    let subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let step_id = subject.step.step_id;
+    let session_id = EntityId(subject.head.branch_id.0);
+    // Closing the actual broker queue makes admission fail without a provider
+    // call. The subject must still keep the armed request and its unknown debt.
+    drop(broker);
+    let error = tokio::time::timeout(
+        Duration::from_secs(5),
+        super::super::run_subject_loop(subject, CancellationToken::new()),
+    ).await.expect("a rejected admission stops instead of replaying").unwrap_err();
+    let ShenkoError::Protocol(protocol) = &error else {
+        panic!("admission must retain its typed request error: {error}");
+    };
+    assert_eq!(protocol.code, "BROKER_ADMISSION_REJECTED");
+    assert_eq!(protocol.scope, ErrorScope::Request);
+    assert_eq!(protocol.retry, RetryStrategy::AfterReconcile);
+    let primary = protocol.details["admission_error"].as_str().unwrap();
+    assert!(primary.contains("BROKER_ADMISSION_CLOSED"), "wrong admission cause: {primary}");
+    let request_id: EntityId = serde_json::from_value(protocol.details["request_id"].clone()).unwrap();
+    assert_eq!(protocol.details["outcome"], "unknown");
+    assert_eq!(protocol.details["unknown_charge_restored"], true);
+    assert!(protocol.details["recovery_error"].is_null());
+    assert!(protocol.details["retry_record_error"].is_null());
+    assert_eq!(handle.active_count(), 1);
+    assert_eq!(store.error_journal_dropped(), 0);
+    drop(handle);
+    drop(store);
+
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let (head, step) = reopened.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 0);
+    assert_eq!(head.next_step_id, step_id);
+    assert_eq!(step.state, SubjectStepState::RetryPending);
+    assert_eq!(step.active_request_id, Some(request_id));
+    let attempts = reopened.subject_request_attempts_for_step(agent, step_id).unwrap();
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].request_id, request_id);
+    assert_eq!(attempts[0].state, SubjectRequestState::Armed);
+    let events = reopened.list_session_events(session_id, &shenko_store::SessionEventFilter {
+        from_seq: 0,
+        to_seq: i64::MAX,
+        limit: 20,
+        event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()],
+        roles: vec![],
+    }).unwrap();
+    assert_eq!(events.len(), 1, "a rejected admission journals one loop stop");
+    let data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+    assert_eq!(data["kind"], "subject_loop");
+    assert!(data["message"].as_str().unwrap().contains(primary));
+    assert_eq!(data["extra"]["error"]["code"], protocol.code);
+    assert_eq!(data["extra"]["error"]["scope"], "request");
+    assert_eq!(data["extra"]["error"]["retry"], "after_reconcile");
+    assert_eq!(data["extra"]["error"]["details"], protocol.details);
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn broker_admission_retry_state_read_failure_preserves_primary_and_journal() {
+    use shenko_types::error::{ErrorScope, RetryStrategy, ShenkoError};
+
+    let (dir, store, agent) = fixture();
+    let (broker, handle) = broker();
+    let subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let step_id = subject.step.step_id;
+    let session_id = EntityId(subject.head.branch_id.0);
+    // Corrupt only the armed step's JSON projection in its real arming
+    // update. Both retry recording and the following load must then
+    // fail to decode it, while the head and error journal remain writable.
+    let connection = rusqlite::Connection::open(dir.join("store.db")).unwrap();
+    connection.execute_batch(
+        "CREATE TRIGGER corrupt_armed_step_projection AFTER UPDATE ON subject_steps
+         WHEN OLD.state='preparing' AND NEW.state='awaiting_model'
+         BEGIN
+             UPDATE subject_steps
+             SET data=json_set(NEW.data, '$.record_revision', 'unreadable retry-state fixture')
+             WHERE step_id=NEW.step_id;
+         END;",
+    ).unwrap();
+    drop(connection);
+    drop(broker);
+
+    // Exercise execute_step, the compound retry_continuation error branch,
+    // and the production journal projection through the actual subject loop.
+    let error = tokio::time::timeout(
+        Duration::from_secs(5),
+        super::super::run_subject_loop(subject, CancellationToken::new()),
+    ).await.expect("an unreadable retry state must stop instead of replaying").unwrap_err();
+    let ShenkoError::Protocol(protocol) = &error else {
+        panic!("the failed retry-state load replaced the primary error: {error}");
+    };
+    assert_eq!(protocol.code, "BROKER_ADMISSION_REJECTED");
+    assert_eq!(protocol.scope, ErrorScope::Request);
+    assert_eq!(protocol.retry, RetryStrategy::AfterReconcile);
+    let primary = protocol.details["admission_error"].as_str().unwrap();
+    assert!(primary.contains("BROKER_ADMISSION_CLOSED"), "wrong admission cause: {primary}");
+    let request_id: EntityId = serde_json::from_value(protocol.details["request_id"].clone()).unwrap();
+    assert_eq!(protocol.details["outcome"], "unknown");
+    assert_eq!(protocol.details["unknown_charge_restored"], true);
+    assert!(protocol.details["recovery_error"].is_null());
+    assert!(protocol.details["retry_record_error"].as_str().unwrap()
+        .contains("unreadable retry-state fixture"));
+    assert_eq!(handle.active_count(), 1);
+    assert!(store.ledger.writer_is_open(), "a projection decode failure leaves journaling available");
+    assert_eq!(store.error_journal_dropped(), 0);
+    drop(handle);
+    drop(store);
+
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    assert!(matches!(reopened.load_subject(agent), Err(ShenkoError::Serde(_))),
+        "the malformed durable projection was not silently repaired");
+    let attempts = reopened.subject_request_attempts_for_step(agent, step_id).unwrap();
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].request_id, request_id);
+    assert_eq!(attempts[0].state, SubjectRequestState::Armed);
+    let events = reopened.list_session_events(session_id, &shenko_store::SessionEventFilter {
+        from_seq: 0,
+        to_seq: i64::MAX,
+        limit: 20,
+        event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()],
+        roles: vec![],
+    }).unwrap();
+    assert_eq!(events.len(), 1, "the compound failure journals one loop stop");
+    let data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+    assert_eq!(data["kind"], "subject_loop");
+    assert_eq!(data["journal_dropped_total"], 0);
+    assert_eq!(data["extra"]["error"]["code"], "BROKER_ADMISSION_REJECTED");
+    assert_eq!(data["extra"]["error"]["scope"], "request");
+    assert_eq!(data["extra"]["error"]["retry"], "after_reconcile");
+    assert_eq!(data["extra"]["error"]["details"], protocol.details);
+    let secondary = data["extra"]["retry_state_error"]["message"].as_str().unwrap();
+    assert!(secondary.starts_with("serde error:"), "wrong retry-state failure: {secondary}");
+    assert!(secondary.contains("unreadable retry-state fixture"));
+    assert_eq!(data["message"], format!(
+        "subject loop stopped on error: {error}: {primary}; durable retry state unreadable: {secondary}"
+    ));
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Read one JSON request body from a loopback provider connection.
 async fn read_wire(socket: &mut TcpStream) -> serde_json::Value {
     let mut bytes = Vec::new();

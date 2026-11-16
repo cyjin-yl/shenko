@@ -15,8 +15,10 @@ from urllib.parse import unquote, urlparse
 import html
 
 from doc_refs import (ContractDocument, ReferenceError, ReferenceResolver,
-                      citation_fingerprint, contract_citation_counts,
-                      contract_citation_ranges, contract_citation_references, outside_fences)
+                      citation_fingerprint, citation_migration_digest, citation_site_id,
+                      contract_citation_counts, contract_citation_ranges,
+                      contract_citation_references, markdown_link_targets,
+                      outside_fences, relocated_citation_locations)
 
 ROOT = Path(__file__).resolve().parents[1]
 errors = []
@@ -238,7 +240,7 @@ for index in (coverage, cases):
 # This ledger moves the structural spec/code relationship before source owners
 # remove inline citations. It carries no product evidence or satisfied state.
 trace = coverage.get('source_contract_trace', {})
-check(trace.get('schema_version') == 1, 'Missing/unsupported source-contract trace')
+check(trace.get('schema_version') == 2, 'Missing/unsupported source-contract trace')
 check(trace.get('source_roots') == ['bin', 'crates', 'mobile', 'scripts'],
       'Source-contract trace must cover all first-party code roots')
 trace_symbols = trace.get('symbols', {})
@@ -290,9 +292,19 @@ for literal, references in range_targets.items():
 
 retained_citations = defaultdict(Counter)
 retained_sources = trace.get('source_files', {})
-for site in trace.get('citation_migration', []):
+original_sites = trace.get('citation_migration', [])
+check(citation_migration_digest(original_sites) == trace.get('citation_migration_content_sha256'),
+      'Immutable original citation migration changed')
+current_bindings = trace.get('current_bindings', {})
+all_sites = original_sites + trace.get('citation_additions', [])
+site_ids = [citation_site_id(site) for site in all_sites]
+check(len(site_ids) == len(set(site_ids)), 'Duplicate source citation identity')
+check(set(current_bindings) == set(site_ids), 'Current trace ownership drops or invents a citation site')
+binding_sources = trace.get('binding_sources', {})
+for site in all_sites:
     source = site['source_path']
-    check(source in retained_sources, f'Trace citation has no source binding: {source}')
+    check(source in retained_sources or source in binding_sources,
+          f'Trace citation has no source binding: {source}')
     comment = site['comment']
     check(hashlib.sha256(comment.encode('utf-8')).hexdigest() == site['comment_sha256'],
           f'Trace original comment changed: {source}')
@@ -300,11 +312,14 @@ for site in trace.get('citation_migration', []):
           f'Trace original citation membership changed: {source}')
     check(site.get('range_refs', []) == contract_citation_ranges(comment),
           f'Trace original range membership changed: {source}')
-    count = site.get('occurrences')
-    check(isinstance(count, int) and not isinstance(count, bool) and count > 0,
-          f'Trace citation has invalid multiplicity: {source}')
-    if isinstance(count, int) and count > 0:
-        retained_citations[source][citation_fingerprint(comment)] += count
+    binding = current_bindings.get(citation_site_id(site), {})
+    try:
+        locations = relocated_citation_locations(site, binding)
+        for path, count in locations.items():
+            check(path in binding_sources, f'Current citation has no source binding: {path}')
+            retained_citations[path][citation_fingerprint(comment)] += count
+    except ReferenceError as error:
+        check(False, f'Trace citation relocation {source}: {error}')
     expected = set()
     for literal in site['literal_refs']:
         check(literal in reference_targets, f'Trace citation target missing: {source}: {literal}')
@@ -312,8 +327,12 @@ for site in trace.get('citation_migration', []):
     for literal in site.get('range_refs', []):
         check(literal in range_targets, f'Trace range target missing: {source}: {literal}')
         expected.update(range_targets.get(literal, []))
-    check(bool(site['symbol_refs']) and bool(expected), f'Unowned trace citation: {source}')
-    for symbol in site['symbol_refs']:
+    # Original symbols and source paths are provenance, including the earlier
+    # lexical scope. Only these separate current owners are resolved as code.
+    owners = binding.get('symbol_refs', [])
+    check(bool(owners) and len(owners) == len(set(owners)) and bool(expected),
+          f'Unowned/duplicate current trace citation: {source}')
+    for symbol in owners:
         check(symbol in trace_symbols and expected <= set(trace_symbols.get(symbol, [])),
               f'Trace citation not fully moved to its symbol owner: {source}: {symbol}')
 
@@ -471,8 +490,28 @@ for name, directory in skill_dirs.items():
     alias = ROOT / '.claude/skills' / name
     check(alias.is_symlink() and alias.resolve() == directory.resolve(),
           f'Claude Skill must link to its canonical directory: {name}')
-check('.agents/skills/shenko-dev/SKILL.md' in (ROOT / 'AGENTS.md').read_text(),
-      'AGENTS.md does not identify the mandatory philosophy Skill')
+def entry_links_to(entry, target):
+    path = ROOT / entry
+    for literal in markdown_link_targets(path.read_text()):
+        parsed = urlparse(literal)
+        if not parsed.scheme and (path.parent / unquote(parsed.path)).resolve() == (ROOT / target).resolve():
+            return True
+    return False
+
+check(entry_links_to('AGENTS.md', '.agents/skills/shenko-dev/SKILL.md'),
+      'AGENTS.md does not link to the canonical philosophy Skill')
+layout = read_json('docs/evidence/documentation-layout-20261116.json')
+guidance = layout.get('expanded_guidance', [])
+check({(item['entry'], item['reference']) for item in guidance} == {
+    ('AGENTS.md', 'DEVELOPMENT.md'),
+    ('.agents/skills/shenko-dev/SKILL.md', '.agents/skills/shenko-dev/REFERENCE.md'),
+}, 'Concise development entries must retain both complete reference documents')
+for item in guidance:
+    check(entry_links_to(item['entry'], item['reference']),
+          f"Concise development entry does not link to its full guidance: {item['entry']}")
+    data = (ROOT / item['reference']).read_bytes()
+    check(len(data) == item['bytes'] and hashlib.sha256(data).hexdigest() == item['sha256'],
+          f"Original expanded development guidance changed: {item['reference']}")
 
 # --- current local links and retired-root references ----------------------------
 def anchors(text):

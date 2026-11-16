@@ -1,4 +1,4 @@
-//! The WeChat iLink bot API client — docs/specs/channel-adapters.md#spec-16, docs/specs/channel-adapters.md#spec-15-3.
+//! The WeChat iLink bot API client.
 //!
 //! Every call here is a named endpoint of the provider's JSON protocol:
 //!

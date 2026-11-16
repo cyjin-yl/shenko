@@ -6,7 +6,7 @@ use anyhow::Result;
 use crate::cli::RootCli;
 use crate::runtime_bootstrap::open_installation_store;
 
-/// Cognitive root CLI commands — docs/specs/cognition-units.md#spec-51-4.
+/// Cognitive root CLI commands.
 pub(crate) fn root_command(data_dir: &Path, command: RootCli) -> Result<()> {
     let store = open_installation_store(data_dir)?;
     let agent_id = store

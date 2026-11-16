@@ -134,7 +134,7 @@ fn interrupted_versions_and_exact_rollback_keep_new_business_data() -> anyhow::R
 }
 
 /// A reader's action on a work is bound to the revision they saw and to the
-/// request that named it (docs/specs/configuration-playground.md#spec-57-6, acceptance PG07).
+/// request that named it (acceptance PG07).
 ///
 /// A work that moved on refuses the stale action instead of applying it to
 /// whatever is there now; the request id rides the durable transition, so a
@@ -435,7 +435,7 @@ fn unavailable_runtime_is_rejected_before_durable_task_or_guest_effect() {
 
 /// A work's page is a trusted extension: served same-origin without a
 /// sandbox, its declared type pinned and its revision named, so the safety
-/// rope is rollback to a named revision (docs/specs/web-interface.md#5-1).
+/// rope is rollback to a named revision.
 #[test]
 fn a_work_page_is_served_as_a_trusted_revision() -> anyhow::Result<()> {
     tokio::runtime::Builder::new_current_thread()
@@ -458,7 +458,7 @@ fn a_work_page_is_served_as_a_trusted_revision() -> anyhow::Result<()> {
 }
 
 /// A published work lens shows the adopted page, not a later draft head; with
-/// nothing adopted there is no adopted page (docs/specs/web-interface.md#5-1).
+/// nothing adopted there is no adopted page.
 #[tokio::test]
 async fn the_adopted_page_is_served_until_a_new_publication() -> anyhow::Result<()> {
     let (root, store, _) = fixture("adopted");

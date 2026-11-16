@@ -29,7 +29,7 @@
 
 ## 装配根
 
-- **运行时装配（`bin/shenko/src/lib.rs`）** — CLI 的 `main.rs` 调用共享库 `run_cli`；共享库装配主体、原生处理器、记忆 worker、REPL、SSH seat、升级交接与按配置安装的渠道。工作区成员以根 `Cargo.toml` 为准；声明依赖与实际装配分别核对。
+- **运行时装配（`bin/shenko/src/lib.rs` 与直接拥有者）** — CLI 的 `main.rs` 调用共享库 `run_cli`；`lib.rs` 保留 `Command`、`run_cli`、`run_owned`。`cli.rs` 拥有命令模式，`cli_dispatch.rs` 派发命令；`runtime_bootstrap.rs` 打开安装与分支，`runtime_lifecycle.rs` 拥有运行及主错误保留的清理，`runtime_start.rs` 明确组装主体与界面。插件、共享会话、推理、消费者和各渠道分别由 `runtime_plugins`、`runtime_sessions`、`runtime_inference`、`runtime_consumers`、`runtime_channels` 及连接器模块直接拥有。工作区成员以根 `Cargo.toml` 为准；声明依赖与实际装配分别核对。
   - [§44](specs/plugins.md#spec-44)（首次启动与种子发行）
   - docs/specs/architecture.md（装配与事实归属）
 
@@ -57,11 +57,11 @@
   - [§41.5](specs/subject-runtime.md#spec-41-5)、[§44.6](specs/plugins.md#spec-44-6)
   - docs/requirements/requirements.json（R051）
 
-- **Node 安装单元（units.rs）** — 已接线（`shenko sync` 导出/导入单位包）
+- **Node 安装单元（`units.rs` 与 `units/`）** — 已接线（`shenko sync` 导出/导入单位包；根模块保留请求与派发，codec、能力、模式迁移、依赖解析、安装、传输、物化、进程试用、证据、采纳、卸载、环境代际及成员关系各有直接拥有者，仍使用同一 `Node::conn`）
   - [§45](specs/cognition-units.md#spec-45)
   - docs/specs/cognition-units.md
 
-- **认知归档与复制（store/cognition.rs、cognition_archive.rs）** — 已接线（`shenko sync export/receive/ack`）
+- **认知归档与复制（`store/cognition.rs`、`cognition/` 与 `cognition_archive.rs`）** — 已接线（`shenko sync export/receive/ack`；根模块保留公共恢复类型和模式，snapshot、closure、admission、import、files、peers、rows、reconcile、memory、tasks 分别拥有导出、闭包、准入、整笔导入、文件/Git、回执、行模式及语义合并。required-fact 拒绝仍在文件发布之前，导入顺序与提交同事务推进）
   - [§10.6](specs/durable-state.md#spec-10-6)、[§41](specs/architecture.md#spec-41)
   - docs/specs/durable-state.md
 
@@ -212,6 +212,10 @@
 - **Web UI（shenko-ui：时间线、ws、api、playground）** — 已接线
   - [§21](specs/web-interface.md#spec-21)、[§43](specs/configuration-playground.md#spec-43)
   - docs/specs/web-interface.md
+  - `crates/shenko-ui/web/src/projection.ts#UI_PROJECTION_SCHEMA` 为 `shenko.ui-projection/v2`，应用语义投影允许 `LocalizedText`；`UI_INTENT_SCHEMA` 仍为 v1，服务器 WS 帧与服务 DTO 保持各自协议。结构任务角色、canonical public text、历史缺失来源和本地化显示分别保留类型，界面不增加模型控制行解析。
+  - `crates/shenko-ui/web/src/messages.ts` 的 `MessageId`、`MessageArguments`、`UiMessage`、`message` 与 `resolveMessage` 拥有带参数的中文/英文消息目录。语言变体先经 `resolveLocale`，未知语言及缺译项确定地回到 `zh-CN`；服务器和模型原文继续按原文显示，`live-read-models.ts#HistoryReadError` 保留本地诊断的消息 ID 与参数。
+  - `LiveController` 只协调连接和状态；`SocketTransport` 拥有 WS 与重连，`LiveReadModels` 拥有读取和历史页，input/timeline reducer、preferences、pending-input store 各守其状态边界。渲染由 timeline surface/entries、composer、delegation branches、submission history、work frame 直接组成；IM 的内容 `ResizeObserver` 阅读锚点与 Inspect 的选择恢复随其组件保留。
+  - `main.tsx` 仅在 `?demo=1` 动态载入 `demo-controller`，后者才引入 `demo-fixtures`。`build.mjs` 通过 esbuild 的实际 outputs 记录分块模块及摘要；Rust 的 `build.rs` 按 manifest 嵌入具名 chunks，HTTP 只服务该生成集合。这里记录源码接线；实际浏览器请求、语言、重连及阅读稳定性仍由各自运行回执说明。
 
 - **Playground 后端与 WASI 业务状态** — 已接线（`PlaygroundBackendHandler` 走既有 native Task/Operation/T1/E1/T2 路径）
   - [§43](specs/configuration-playground.md#spec-43)

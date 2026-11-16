@@ -15,7 +15,7 @@ pub(crate) async fn install(
 ) -> Result<Arc<shenko_awareness_core::CognitionCatalog>> {
     // Cognition units are installed capability, not kernel business
     // logic: perception, awareness, Skill and code share one
-    // installation authority — the Node's unit store (docs/specs/cognition-units.md#spec-45). The
+    // installation authority — the Node's unit store. The
     // catalog is a read model over it; the shipped seeds plus any
     // authored packages under data_dir/cognition install through it.
     // Nothing here dispatches on keywords; every installed unit's
@@ -174,7 +174,7 @@ pub(crate) async fn install(
     // a product list. Providers that register later (e.g. the broker)
     // refresh the view with a second, idempotent call below.
     self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
-    // docs/specs/cognition-units.md#spec-38-6: the build manifest and the source index are runtime
+    // the build manifest and the source index are runtime
     // facts of this artifact, not of the repository's main branch.
     self_knowledge.install_manifest_resource();
     if let Ok(source_root) = std::env::var("SHENKO_SOURCE_ROOT") {

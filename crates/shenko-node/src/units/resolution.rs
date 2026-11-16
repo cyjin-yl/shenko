@@ -37,7 +37,7 @@ pub enum DependencySelector {
         revision_requirement: Option<String>,
         artifact_digest: Option<Digest>,
         /// The versioned contract the selected provider must declare, for an
-        /// edge that also pins a service ABI or a code contract (docs/specs/cognition-units.md#spec-45-10).
+        /// edge that also pins a service ABI or a code contract.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         contract_requirement: Option<CapabilityContract>,
     },
@@ -87,7 +87,7 @@ pub struct ResolvedDependency {
     pub selected_contract: Option<CapabilityContract>,
     /// Other installed providers of the same abstract capability that coexist
     /// with the selection, when their actually used atomic capabilities do not
-    /// conflict (docs/specs/cognition-units.md#spec-51-8). They are enabled facts on this node, never a
+    /// conflict. They are enabled facts on this node, never a
     /// promise that they run here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coexisting_providers: Vec<ProviderSelection>,

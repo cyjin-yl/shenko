@@ -136,7 +136,7 @@ pub enum UpdateCli {
     /// publication, takes back an interrupted hand-over boundary when this
     /// process owns the installation, and reports what it found.
     Recover,
-    /// docs/specs/cognition-units.md#spec-51-4 append-node rollback: restore the subject's state root to a
+    /// append-node rollback: restore the subject's state root to a
     /// historical node. This appends a new node, never rewinding or
     /// truncating the chain. Distinct from `rollback` which switches the
     /// software generation.

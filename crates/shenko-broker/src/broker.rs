@@ -1,5 +1,5 @@
 //! Inference broker — fair asynchronous dispatch over one physical resource
-//! domain. docs/specs/inference.md#spec-13, docs/specs/nodes.md#spec-22-1, docs/specs/context-policies.md#spec-41-8–docs/specs/inference.md#spec-41-10, docs/specs/inference.md#spec-47.
+//! domain.
 //!
 //! Every controlled call — the subject, a child, memory work, compaction,
 //! diagnostics — enters this broker. The provider is resolved from the open
@@ -313,7 +313,7 @@ impl BrokerHandle {
             self.domain.reconcile_debt(request_id);
             // The original terminal evidence ends the context read hold the
             // unknown outcome kept charged; the context may now be reclaimed
-            // at the next safe boundary (docs/specs/inference.md#spec-41-10).
+            // at the next safe boundary.
             self.kv
                 .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
             self.accounting_changed.notify_one();
@@ -2049,7 +2049,7 @@ mod tests {
     }
 
     /// A streamed call reaches the reader surface AND the receipt owner —
-    /// docs/specs/web-interface.md#spec-57-5. The stream is an additional ordered surface, never a
+    /// The stream is an additional ordered surface, never a
     /// replacement for the recorded result, and a control line never crosses
     /// into the reader's text.
     #[tokio::test(flavor = "current_thread")]

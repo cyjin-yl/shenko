@@ -144,7 +144,7 @@ pub fn declared_metapackage(descriptor: &UnitDescriptor) -> Result<Option<Metapa
 /// What the installation's distribution declares about one named target's
 /// expected access.
 ///
-/// It is installable content (docs/specs/cognition-units.md#spec-51-3), not a kernel constant: the kernel
+/// It is installable content, not a kernel constant: the kernel
 /// never decides which access a deployment expects for a target. `expected`
 /// uses the same typed requirement shape a package declares for itself, so an
 /// expectation is compared with a real grant instead of matched as a keyword.
@@ -166,7 +166,7 @@ pub struct TargetAccessExpectation {
 #[serde(deny_unknown_fields)]
 pub struct PreinstalledMacro {
     pub unit_id: String,
-    /// Parallel macros are peers; none contains another (docs/specs/cognition-units.md#spec-51-3).
+    /// Parallel macros are peers; none contains another.
     #[serde(default)]
     pub parallel: bool,
     /// The distribution is designed to depend on this macro. It records a
@@ -418,7 +418,7 @@ impl Node {
     ///
     /// A member that is content (perception, awareness, skill) **must** carry
     /// an authenticated adoption attitude whose evidence verifies locally
-    /// (docs/specs/cognition-units.md#spec-51-1, docs/specs/cognition-units.md#spec-51-3, docs/specs/cognition-units.md#spec-51-8). Code members need installation only.
+    ///   Code members need installation only.
     /// A member installed on a peer never joins locally: declarations crossing
     /// nodes never imply local readiness.
     pub(super) fn query_metapackage(&self, unit_id: &str) -> Result<Value> {
@@ -657,7 +657,7 @@ impl Node {
     /// Build a named contract slot from the collected providers.
     ///
     /// Multiple admitted providers coexist when their actually used atomic
-    /// capabilities do not conflict (docs/specs/cognition-units.md#spec-51-8). Selection: the first
+    /// capabilities do not conflict. Selection: the first
     /// admitted and enabled provider is the selected one; a slot where no
     /// provider is admitted stays unselected, and a consumer reports that
     /// omission rather than claiming a rule was applied.
@@ -743,7 +743,7 @@ impl Node {
     /// Walk a distribution's declarations and return the complete projection.
     ///
     /// Target-access expectations replace the kernel's `NAMED_TARGETS` const
-    /// table (docs/specs/cognition-units.md#spec-51-3). Preinstalled macros name the metapackages the
+    /// table. Preinstalled macros name the metapackages the
     /// distribution ships by design. Capability-provider defaults name the
     /// replaceable provider selections. All are declarations — facts about the
     /// distribution version, never grants of local readiness.

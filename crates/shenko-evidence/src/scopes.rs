@@ -21,25 +21,25 @@
 //!
 //! | family | SPEC table | default scopes |
 //! | --- | --- | --- |
-//! | `A` | docs/specs/verification.md#spec-23 acceptance and release blockers | native |
-//! | `V1` | docs/specs/self-update.md#spec-35-10 first-release acceptance | native, model, failure, recovery |
-//! | `E` | docs/specs/durable-state.md#spec-36-8 effect/reset/recovery boundary | native, failure, recovery |
-//! | `H` | docs/specs/context-policies.md#spec-37-11 hook order and API compatibility | native, failure, recovery |
-//! | `K` | docs/specs/cognition-units.md#spec-38 self-explanation | native, model |
-//! | `N` | docs/governance/development-contract.md#spec-40-8 development-agent norms | native |
-//! | `DX` | docs/specs/verification.md#spec-41-16-1 commit and generation faults | native, failure, recovery |
-//! | `RT` | docs/specs/verification.md#spec-41-16-2 subject, queue, backend, seat | native, failure, recovery, model |
-//! | `P41` | docs/specs/verification.md#spec-41-16-3 plugin and version interleaving | native, failure, recovery |
-//! | `QA` | docs/specs/quota-resources.md#spec-42-7 provider quota and model selection | native, model |
-//! | `UI` | docs/specs/configuration-playground.md#spec-43-3 configuration and playground | native, model, failure, recovery |
-//! | `CFG` | docs/specs/configuration-playground.md#spec-43-3 configuration and playground | native, failure, recovery |
-//! | `PG` | docs/specs/configuration-playground.md#spec-43-3 configuration and playground | native, failure, recovery |
-//! | `BOOT` | docs/specs/plugins.md#spec-44-9 first start and seed | native, failure, recovery, model |
-//! | `AW` | docs/specs/cognition-units.md#spec-45-9 awareness units | native, model, failure, recovery |
-//! | `DEP` | docs/specs/cognition-units.md#spec-45-10-6 dependency assembly | native, failure, recovery |
-//! | `G` | docs/governance/COMPLETION.md#spec-46-6 repository handover | native |
-//! | `PV` | docs/specs/inference.md#spec-47-7 provider protocol compatibility | native, model, failure, recovery |
-//! | `UI-S` | docs/specs/web-interface.md#spec-21-11 streaming reading stability | native |
+//! | `A` | acceptance and release blockers | native |
+//! | `V1` | first-release acceptance | native, model, failure, recovery |
+//! | `E` | effect/reset/recovery boundary | native, failure, recovery |
+//! | `H` | hook order and API compatibility | native, failure, recovery |
+//! | `K` | self-explanation | native, model |
+//! | `N` | development-agent norms | native |
+//! | `DX` | commit and generation faults | native, failure, recovery |
+//! | `RT` | subject, queue, backend, seat | native, failure, recovery, model |
+//! | `P41` | plugin and version interleaving | native, failure, recovery |
+//! | `QA` | provider quota and model selection | native, model |
+//! | `UI` | configuration and playground | native, model, failure, recovery |
+//! | `CFG` | configuration and playground | native, failure, recovery |
+//! | `PG` | configuration and playground | native, failure, recovery |
+//! | `BOOT` | first start and seed | native, failure, recovery, model |
+//! | `AW` | awareness units | native, model, failure, recovery |
+//! | `DEP` | dependency assembly | native, failure, recovery |
+//! | `G` | repository handover | native |
+//! | `PV` | provider protocol compatibility | native, model, failure, recovery |
+//! | `UI-S` | streaming reading stability | native |
 //!
 //! Cases whose row adds a scope beyond its family default are listed
 //! explicitly below with the reason taken from the row.
@@ -134,7 +134,7 @@ fn family_default(family: &str) -> (Vec<Scope>, &'static str) {
 ///
 /// Each entry is `(case_id, extra scopes, reason from the SPEC row)`.
 const EXTRAS: &[(&str, &[Scope], &str)] = &[
-    // docs/specs/verification.md#spec-23 acceptance table.
+    // acceptance table.
     ("A05", &[Scope::Failure], "取消失联：未确认终止请求仍计占用"),
     (
         "A06",
@@ -246,11 +246,11 @@ const EXTRAS: &[(&str, &[Scope], &str)] = &[
         &[Scope::Failure, Scope::Recovery],
         "所有 LLM 失效后的离线镜像恢复",
     ),
-    // docs/specs/verification.md#spec-41-16 fault matrix rows that additionally need a model judgement.
+    // fault matrix rows that additionally need a model judgement.
     ("RT16", &[Scope::Model], "主体自主语义等待与条件判断"),
-    // docs/specs/cognition-units.md#spec-45-10-6 dependency assembly.
+    // dependency assembly.
     ("DEP03", &[Scope::Model], "感知与直觉指向实际承载服务"),
-    // docs/specs/inference.md#spec-47-7 provider protocol.
+    // provider protocol.
     ("PV07", &[Scope::Model], "主体感知依赖并自主定位问题"),
 ];
 

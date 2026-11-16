@@ -4,7 +4,7 @@ import type { ViewName } from './projection';
 
 /**
  * Lens contributions — the shell's first extension point
- * (docs/specs/web-interface.md#spec-21-3).
+ *
  *
  * The subject's stream is the one fixed surface. Everything else is a lens
  * that opens beside it, and the shell's own pages are registered through the

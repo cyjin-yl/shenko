@@ -5,8 +5,10 @@ import tempfile
 import unittest
 
 from doc_refs import (ContractDocument, ReferenceError, ReferenceResolver,
-                      citation_fingerprint, contract_citation_counts,
-                      contract_citation_ranges, contract_citation_references)
+                      citation_fingerprint, citation_migration_digest, citation_site_id,
+                      contract_citation_counts, contract_citation_ranges,
+                      contract_citation_references, markdown_link_targets,
+                      relocated_citation_locations)
 
 
 class StableReferenceTests(unittest.TestCase):
@@ -158,6 +160,33 @@ def dispatch():
         comment = f'// {first}, {second}. {start}–{end}; {first}.'
         self.assertEqual(contract_citation_references(comment), [first, second, start, end, first])
         self.assertEqual(contract_citation_ranges(comment), [start + '–' + end])
+
+    def test_citation_relocation_preserves_provenance_and_does_not_multiply_copies(self):
+        original = {'source_path': 'old.rs', 'comment_sha256': 'original-token',
+                    'symbol_refs': ['old.rs#Owner::dispatch'], 'occurrences': 1}
+        original_id = citation_site_id(original)
+        original_digest = citation_migration_digest([original])
+        binding = {'symbol_refs': ['new.rs#Owner::dispatch'],
+                   'citation_locations': {'new.rs': 1}}
+        self.assertEqual(relocated_citation_locations(original, binding), {'new.rs': 1})
+        binding['citation_locations'] = {}
+        self.assertEqual(relocated_citation_locations(original, binding), {})
+        self.assertEqual(citation_site_id(original), original_id)
+        self.assertEqual(citation_migration_digest([original]), original_digest)
+        binding['citation_locations'] = {'old.rs': 1, 'new.rs': 1}
+        with self.assertRaisesRegex(ReferenceError, 'unrecorded copies'):
+            relocated_citation_locations(original, binding)
+        binding['citation_locations'] = {'new.rs': True}
+        with self.assertRaisesRegex(ReferenceError, 'current multiplicity'):
+            relocated_citation_locations(original, binding)
+        with self.assertRaisesRegex(ReferenceError, 'explicit current locations'):
+            relocated_citation_locations(original, {})
+
+    def test_entry_links_follow_targets_without_pinning_required_reading_prose(self):
+        target = '.agents/skills/shenko-dev/SKILL.md'
+        self.assertEqual(markdown_link_targets(f'Read [development philosophy]({target}).'), [target])
+        self.assertEqual(markdown_link_targets(f'按需阅读[开发入口]({target})。'), [target])
+        self.assertFalse(markdown_link_targets(f'```md\n[old example]({target})\n```'))
 
     def test_structured_references_resolve_unique_targets(self):
         self.put('data.json', '{"contract":{"a/b":{"~key":true}}}')
