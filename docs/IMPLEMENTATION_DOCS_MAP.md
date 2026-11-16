@@ -280,6 +280,8 @@
 
 ## 验证规则
 
+认知根写入的请求身份与外部效应准入由 `shenko-store::Store::{capture_cognitive_root, reinstate_cognitive_root}` 统一持有。同一请求身份只接受原动作、内容和目标；矛盾的效应处置使整个根事务回滚，重复的相同处置仍幂等。`crates/shenko-store/tests/cognitive_root_chain.rs` 的真实 Store/SQLite 重开消费者覆盖这些边界。此证据不代表根的全部 CAS 闭包、家园内容捕获或运行状态恢复已验收。
+
 - 任何 Agent 任务的 prompt 必须显式列出"必读文档"清单
 - Agent 必须完整读取每份文档，不能跳过或假设"已知"
 - 实现后在 docs/state/coverage.json 更新对应 R/B/case 的 implementation_refs 和 evidence
