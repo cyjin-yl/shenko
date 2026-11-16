@@ -163,7 +163,7 @@ impl Store {
     pub fn inspect_control_predecessor(
         &self, reference: &ObjectRef, admission: &CommitAdmission,
     ) -> Result<ControlPredecessorEvidence, ShenkoError> {
-        self.inspect_control_predecessor_inner(reference, admission, &[], &[]).map_err(failure)
+        self.inspect_control_predecessor_inner(reference, admission, &[], &[], None).map_err(failure)
     }
 
     /// A typed action which narrows a shared read range must still prove that
@@ -173,13 +173,21 @@ impl Store {
         &self, reference: &ObjectRef, admission: &CommitAdmission,
         expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep],
     ) -> Result<ControlPredecessorEvidence, ShenkoError> {
-        self.inspect_control_predecessor_inner(reference, admission, expected_tasks, expected_steps)
+        self.inspect_control_predecessor_inner(reference, admission, expected_tasks, expected_steps, None)
             .map_err(|error| ShenkoError::other(format!("invalid typed action predecessor: {error:#}")))
+    }
+
+    pub(crate) fn inspect_direct_native_predecessor(
+        &self, reference: &ObjectRef, admission: &CommitAdmission,
+        expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep], childless: Option<EntityId>,
+    ) -> Result<ControlPredecessorEvidence, ShenkoError> {
+        self.inspect_control_predecessor_inner(reference, admission, expected_tasks, expected_steps, childless)
+            .map_err(|error| ShenkoError::other(format!("invalid direct native predecessor: {error:#}")))
     }
 
     fn inspect_control_predecessor_inner(
         &self, reference: &ObjectRef, admission: &CommitAdmission,
-        expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep],
+        expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep], childless: Option<EntityId>,
     ) -> Result<ControlPredecessorEvidence> {
         let root: Predecessor = self.read_control_value(reference, ROOT_CODEC)?;
         ensure!(root.schema_version == 1 && admission.schema_version == 1
@@ -228,6 +236,14 @@ impl Store {
                 .and_then(|row| row.value("data")).context("typed creator is absent from the frozen snapshot")?;
             ensure!(serde_json::from_str::<serde_json::Value>(actual)? == serde_json::to_value(step)?,
                 "typed creator differs from the frozen snapshot");
+        }
+        if let Some(task_id) = childless {
+            for row in manifest.rows.iter().filter(|row| row.table == "tasks") {
+                let task: TaskRecord = serde_json::from_str(row.value("data").context("task body absent")?)?;
+                ensure!(task.record_schema_version == 1, "unsupported task schema in child absence range");
+                ensure!(task.owner != (shenko_types::task::TaskOwner::Task { id: task_id }) || task.background,
+                    "direct completion predecessor has ordinary owned work");
+            }
         }
         let source_ledger_id = manifest.source_ledger_id;
         let fingerprint = manifest.fingerprint.clone();

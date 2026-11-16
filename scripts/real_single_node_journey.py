@@ -63,7 +63,8 @@ TABLES = (
     "task_results", "operations", "attempts", "evidence_receipts",
     "web_input_submissions", "subject_intents", "session_events", "inbox_events",
     "subject_request_attempts", "content_streams", "content_stream_units",
-    "subject_quiesce_requests",
+    "subject_quiesce_requests", "context_windows", "context_window_scopes",
+    "commit_log",
 )
 
 
@@ -81,7 +82,12 @@ def snapshot(data_dir):
             if table not in tables:
                 continue
             rows = []
-            for row in connection.execute(f"SELECT * FROM {table}"):
+            # Window bodies and their call-state baselines are SQLite facts,
+            # not CAS objects. Keep them in this same snapshot. Commit-log
+            # evidence needs only public ledger/sequence/time coordinates.
+            query = ("SELECT ledger_id, seq, created_at FROM commit_log ORDER BY ledger_id, seq"
+                     if table == "commit_log" else f"SELECT * FROM {table}")
+            for row in connection.execute(query):
                 value = dict(row)
                 for key, item in list(value.items()):
                     if isinstance(item, bytes):
@@ -409,6 +415,9 @@ async def run(args):
             await browser.prepare_restart("未发送草稿 · " + marker)
         summary["first_exit"] = await stop(process, log)
         process = log = None
+        summary["checks"]["first_shutdown_clean"] = summary["first_exit"] == 0
+        if not summary["checks"]["first_shutdown_clean"]:
+            raise RuntimeError(f"paused runtime shutdown exited {summary['first_exit']}; see first.runtime.log")
         if browser:
             await browser.observe_stopped()
         process, log, resumed_subject = await start(args, "restart", data_dir, restart_boundary)
@@ -472,6 +481,10 @@ async def run(args):
                 summary["errors"].append(f"browser evidence/cleanup: {type(error).__name__}: {error}")
         if process is not None:
             summary["last_exit"] = await stop(process, log)
+            summary["checks"]["final_shutdown_clean"] = summary["last_exit"] == 0
+            summary["passed"] = summary["passed"] and summary["checks"]["final_shutdown_clean"]
+            if not summary["checks"]["final_shutdown_clean"]:
+                summary["errors"].append(f"owned runtime shutdown exited {summary['last_exit']}; see runtime logs and final ledger")
         if (data_dir / "shenko.db").exists():
             try:
                 save(args.evidence_dir / "final.ledger.json", snapshot(data_dir))

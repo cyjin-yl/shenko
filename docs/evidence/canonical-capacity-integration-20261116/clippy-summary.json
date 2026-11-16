@@ -1,0 +1,82 @@
+{
+  "native-continuation-clippy-final.jsonl": {
+    "build_finished": [
+      {
+        "reason": "build-finished",
+        "success": true
+      }
+    ],
+    "diagnostic_levels_total": {
+      "error": 0,
+      "warning": 515,
+      "failure-note": 0
+    },
+    "log_sha256": "7341465dbf42df28b2a242b74f5a7ad3383f0ab452b12df330c605f8a7dc4db8"
+  },
+  "context-capacity-clippy-final.jsonl": {
+    "build_finished": [
+      {
+        "reason": "build-finished",
+        "success": true
+      }
+    ],
+    "diagnostic_levels_total": {
+      "error": 0,
+      "warning": 3775,
+      "failure-note": 0
+    },
+    "log_sha256": "0618db6a04e185a83e7058b1e44a538e3a2ba4f1f8f3268d51d2d9582c165391"
+  },
+  "combined-candidate-clippy.jsonl": {
+    "build_finished": [
+      {
+        "reason": "build-finished",
+        "success": false
+      }
+    ],
+    "diagnostic_levels_total": {
+      "error": 1,
+      "warning": 2,
+      "failure-note": 0
+    },
+    "errors": [
+      {
+        "code": "clippy::inherent_to_string_shadow_display",
+        "message": "type `ids::EntityId` implements inherent method `to_string(&self) -> String` which shadows the implementation of `Display`",
+        "primary_spans": [
+          {
+            "file": "crates/shenko-types/src/ids.rs",
+            "line": 63
+          }
+        ]
+      }
+    ],
+    "log_sha256": "4e21949b1e2f8997a1bb6afd595c9ab2853763a150e7d78759abd68b57a74f47"
+  },
+  "combined-candidate-scoped-clippy.jsonl": {
+    "build_finished": [
+      {
+        "reason": "build-finished",
+        "success": false
+      }
+    ],
+    "diagnostic_levels_total": {
+      "error": 1,
+      "warning": 94,
+      "failure-note": 0
+    },
+    "errors": [
+      {
+        "code": "clippy::never_loop",
+        "message": "this loop never actually loops",
+        "primary_spans": [
+          {
+            "file": "crates/shenko-store/src/quota.rs",
+            "line": 907
+          }
+        ]
+      }
+    ],
+    "log_sha256": "fd3f980c04685da34d72dbae77c2521824265f20fcdaf00423708675de265f8d"
+  }
+}

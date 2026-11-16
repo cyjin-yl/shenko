@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_at_utc": "2026-11-16",
+  "observed_at_utc": "2026-11-16T16:07:03Z",
   "kind": "ship_work_continuation_verification",
   "pull_request": "https://github.com/cyjin-yl/shenko/pull/303",
   "first_ci": {
@@ -101,14 +101,9 @@
     "runtime_test_execution": "both authored journeys passed in CI 43864453626, candidate 6782627ea89e17774bc65ba54d459ad85804fef1",
     "scope": "paired native.complete/native.finish canonical frozen results; foreign parked predecessor remains debt, not execution takeover"
   },
-  "inventory_observed_utc": "2026-11-16T15:03:10Z",
+  "inventory_observed_utc": "2026-11-16T16:07:03Z",
   "open_issues": 21,
-  "open_pull_requests": [
-    302,
-    303,
-    305,
-    306
-  ],
+  "open_pull_requests": 5,
   "third_ci": {
     "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
     "checkout_merge_sha": "afa186615fdfefedaa1569a09353957dbc47c293",
@@ -376,11 +371,22 @@
   },
   "continuation_pull_request": "https://github.com/cyjin-yl/shenko/pull/305",
   "parallel_main_observation": {
-    "head_sha": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
-    "merged_pr": 304,
-    "status": "Integrated in this candidate through the retained two-parent source merges; metadata and structural checks passed. Runtime CI on this integrated source is still required.",
-    "integration_checkpoint_before_evidence": "7baa9da5cac132e48022c2373f85d1bfd2d2a654",
-    "observation": "main-304-integration-20261116/observation.json"
+    "head_sha": "9bbce7d28fac45094aab11de206390e542718820",
+    "integrated_shared_base_sha": "f5c6bfa573bf2c96cb84dd2164759329732b9d8e",
+    "additional_merged_prs": [
+      306,
+      310
+    ],
+    "status": "The actual shared Git base was integrated through normal merges, preserving channel capability honesty, owned shutdown barriers and all distinct receipt conflict facts. Combined selected-package all-target metadata passed; execution on this new source is pending.",
+    "integration_checkpoints": [
+      "d372ef3e82f327e6de2ba5e07e009e4481e56fde",
+      "bfc5f7e125a30bd86f48904617e97994c85d49a2"
+    ],
+    "observations": [
+      "current-base-integration-20261116/observation.json",
+      "canonical-capacity-integration-20261116/observation.json"
+    ],
+    "api_limit": "The PR metadata response still reported a574705c as its base; actual Git refs supplied the newer source. The stale mergeability flag is not a failed test."
   },
   "latest_completed_ci": {
     "head_sha": "9b5a6cb8987806879b8cfb713321744bd087bc0e",
@@ -449,5 +455,42 @@
     "only_test_failure": "Store route-inspection fixture included a live activation_selector SELECT inside its zero-touch measurement. Original main/WAL were byte-identical; only SHM offset 104 changed 9 to 20. The original failed result is retained.",
     "followup_source_commit": "bc404ba821a90628837bbf54f35613476d209aa1",
     "followup_scope": "Move fixture live reads before its baseline; preserve all exact tuple equality and route/Handoff assertions. New candidate execution is still required."
-  }
+  },
+  "parallel_main304_observation": {
+    "head_sha": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+    "merged_pr": 304,
+    "status": "Integrated in this candidate through the retained two-parent source merges; metadata and structural checks passed. Runtime CI on this integrated source is still required.",
+    "integration_checkpoint_before_evidence": "7baa9da5cac132e48022c2373f85d1bfd2d2a654",
+    "observation": "main-304-integration-20261116/observation.json"
+  },
+  "canonical_capacity_candidate": {
+    "status": "implemented_and_source_reviewed_runtime_pending",
+    "native_source_commit": "dff743d509b88b4d28d4e62482532def75fa55bd",
+    "native_integrated_commit": "58d1f82b09fd25e3522ec273f423933743d34d7f",
+    "capacity_source_commit": "c3cd591a65f18abbf505bead9b4c93b28ec4fcdb",
+    "capacity_integrated_commit": "0b099961dd1683c4365a5f0c8cc02e84bacaa711",
+    "combined_checked_source": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+    "combined_checked_tree": "76cabefd52abc3b29a57b0392d179c023cecdb56",
+    "metadata": {
+      "command": "cargo check --offline --locked -p shenko -p shenko-subject -p shenko-store -p shenko-broker --all-targets -j1",
+      "exit_code": 0,
+      "elapsed": "1m48s",
+      "product_tested": false
+    },
+    "local_clippy_attempts": "Both unratcheted local commands stopped at pre-existing default-deny diagnostics (EntityId inherent_to_string_shadow_display; Store quota never_loop). Their full logs remain retained. No source suppression or baseline change; the required CI comparison remains pending.",
+    "native_scope": "Locally materialized canonical S1 and first direct-root claim through paired native arm/dispatch, first definite original E1 and terminal native.complete with no ordinary child rows. Original E1 survives missing optional proof as visible local debt; this does not create a completion or send permit.",
+    "native_remaining": [
+      "standalone original E1 delivery before chosen T2",
+      "first Unknown and ordered subsequent observations",
+      "later operations and ordinary children",
+      "publication and general model/quota transitions",
+      "complete multi-node acceptance"
+    ],
+    "capacity_scope": "Read actual served n_ctx with strict advertised-list structure and exact bound-model consistency; reject invalid metadata at Start. Schema 14 freezes payload partitions and original output reserve. Correction waits/recounts without retiring ResultRecorded; new execution observation and bounded worker call-state baseline are distinct from the original seal and rechecked in the R0 transaction.",
+    "capacity_limit": "Named heuristic plus immediate-parent provider usage calibration, not a provider tokenizer or model-quality acceptance. The new Rust journeys and real-model candidate must still execute.",
+    "next_model_configuration_source": "82d0563082293577338360b43f3646269b1b7901",
+    "next_model_configuration": "Explicit 32768-token single slot, original model/prompt/sampling/4096 output reserve and deadlines retained; context windows/scopes and public commit coordinates exported; both normal SIGINT exits must be zero. Static checks only; no fifth run is reported here.",
+    "observation": "canonical-capacity-integration-20261116/observation.json"
+  },
+  "inventory_observation": "ship-work-inventory-20261116-1607.json"
 }

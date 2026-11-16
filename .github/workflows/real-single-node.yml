@@ -67,15 +67,17 @@ jobs:
         run: |
           set -euo pipefail
           # b12359's CPU tiled/split-KV attention paths require F16/F32 K/V.
-          # This model's F16 cache body is 1.75 GiB at 16K, before other buffers.
-          # Keep weights, prompt, sampling and request limits unchanged; the
-          # next real observation must establish any throughput improvement.
+          # Run 4 observed a 1.75 GiB F16 cache at 16K. At 32K its cache body
+          # is expected to require 3.5 GiB, before other buffers; readiness and
+          # actual slot capacity/resource limits still require observation.
+          # Keep weights, complete prompt, output reservation, sampling and
+          # deadlines unchanged. This is a lower-tier capacity diagnostic.
           model_threads="$(nproc)"
           model_command=(.ci/model/llama-b12359/llama-server
             --model .ci/model/model.gguf --alias Qwen3-0.6B-Q4_K_M
             --host 127.0.0.1 --port 18832 --offline --no-webui
             --threads "$model_threads" --threads-batch "$model_threads" --threads-http 2
-            --ctx-size 16384 --parallel 1 --batch-size 2048 --ubatch-size 512
+            --ctx-size 32768 --parallel 1 --batch-size 2048 --ubatch-size 512
             --n-gpu-layers 0 --flash-attn on --cache-type-k f16 --cache-type-v f16
             --cache-ram 64 --load-mode none --repack --jinja --reasoning off
             --n-predict 1024 --no-context-shift

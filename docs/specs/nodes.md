@@ -356,6 +356,18 @@ targets, recovery claims and atomic child-tool
 creation plus claim remain outside this narrow scope. See
 [canonical first native claim](../development/canonical-native-first-claim.md).
 
+A subsequent bounded continuation now joins that first claim to paired
+native T1, its first definite external E1 and a childless terminal T2. Its
+version-2 readers independently prove the direct-root task range and local
+claim/T1 application; they retain the source root read fence and every
+original receipt/commit/time. Receiver E1 materialization and T2 commit in
+one transaction, with a separate local physical receipt and no execution
+permit. Ordinary archive parking, Unknown/multiple receipts and other native
+phases retain their existing boundaries. A missing derived source E1 proof
+keeps the original E1 plus explicit seal debt; it cannot justify generic
+success. The new nine-window journey is not yet executed on this candidate:
+see [direct native continuation](../development/canonical-native-continuation.md).
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,

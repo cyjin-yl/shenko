@@ -397,7 +397,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap().expect("fixture projection must fit");
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 12, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 14, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
@@ -417,7 +417,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 12).unwrap());
+        "subject_step_input", 14).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -1284,32 +1284,67 @@ async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
     assert!(subject.context_preparer.is_none());
 }
 
-#[tokio::test]
-async fn compaction_wait_late_arrivals_retry_without_stale_refusal() {
-    let (mut subject, gate, release) = gated_context_subject(16384, false);
-    assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
-    gate.entered.notified().await;
-    // A candidate may carry a newer raw tail when the complete payload fits;
-    // the late event must appear in that projection without another worker.
-    subject.store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
-        &serde_json::json!({"v":1,"text":"arrived during preparation"})).unwrap();
-    release.release();
-    crate::context_projection::wait_for_context_preparer(&mut subject,
-        &tokio_util::sync::CancellationToken::new()).await;
-    let projected = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
-    assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
-    assert!(projected.payload.messages.iter().flat_map(|message| &message.parts).any(|part|
-        matches!(part, shenko_broker::request::InferencePart::Text { text }
-            if text.contains("arrived during preparation"))));
-    assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-    let (_, pending) = subject.store.load_subject(subject.agent_id).unwrap();
-    assert_eq!(pending.state, SubjectStepState::Planned);
-    assert!(pending.input_plan_ref.is_none());
+#[test]
+fn compaction_wait_late_arrivals_retry_without_stale_refusal() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let (mut subject, gate, release) = gated_context_subject(16384, false);
+            assert!(crate::context_projection::prepare_context(&mut subject, &[])?.is_none());
+            tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified())
+                .await?;
+            // A commit while the worker reads mutable execution projections invalidates
+            // that observation. Re-prepare against a stable source; keep the late event.
+            subject.store.append_subject_raw_fact(
+                &subject.head,
+                EntityId::new(),
+                "user",
+                &serde_json::json!({"v":1,"text":"arrived during preparation"}),
+            )?;
+            release.release();
+            crate::context_projection::wait_for_context_preparer(
+                &mut subject,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await;
+            let moved = crate::context_projection::prepare_context(&mut subject, &[]);
+            assert!(matches!(moved, Err(ShenkoError::ResnapshotRequired { .. })));
+            assert!(crate::context_projection::prepare_context(&mut subject, &[])?.is_none());
+            crate::context_projection::wait_for_context_preparer(
+                &mut subject,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await;
+            let projected = crate::context_projection::prepare_context(&mut subject, &[])?
+                .context("stable worker must produce the fitting projection")?;
+            assert!(matches!(
+                projected.context.selection,
+                crate::context_projection::ContextSelection::Compacted { .. }
+            ));
+            assert!(
+                projected
+                    .payload
+                    .messages
+                    .iter()
+                    .flat_map(|message| &message.parts)
+                    .any(
+                        |part| matches!(part, shenko_broker::request::InferencePart::Text { text }
+                if text.contains("arrived during preparation"))
+                    )
+            );
+            assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+            let (_, pending) = subject.store.load_subject(subject.agent_id)?;
+            assert_eq!(pending.state, SubjectStepState::Planned);
+            assert!(pending.input_plan_ref.is_none());
+            Ok(())
+        })
 }
 
 #[derive(Default)]
 struct PreparationGate {
     entered: tokio::sync::Notify,
+    finished: tokio::sync::Notify,
     calls: std::sync::atomic::AtomicUsize,
     released: std::sync::Mutex<bool>,
     wake: std::sync::Condvar,
@@ -1384,11 +1419,13 @@ impl shenko_context_policy::ContextPolicy for GatedContextPolicy {
         if !*released {
             return Err(shenko_context_policy::PolicyError::Other("fixture gate timed out".into()));
         }
-        if self.fail {
+        let result = if self.fail {
             Err(shenko_context_policy::PolicyError::NoReduction)
         } else {
             self.budget.prepare(input)
-        }
+        };
+        self.gate.finished.notify_one();
+        result
     }
 }
 
@@ -1624,6 +1661,124 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
 
 /// One interrupted input's recovery journey: close before dispatch, rejected
 /// admission, then persisted result recovery and stale ingress replay.
+#[test]
+fn correction_capacity_waits_cancels_reopens_and_never_seals_an_oversized_tail()
+-> anyhow::Result<()> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let (dir, store, agent) = fixture();
+        let (offline, handle) = shenko_broker::broker::Broker::offline();
+        let mut subject = state(Arc::clone(&store), agent)?.with_broker(handle.clone());
+        subject.max_tokens = 64;
+        for index in 0..4 {
+            store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
+                &serde_json::json!({"v":1,"text":format!("older-{index}-{}", "x".repeat(4096))}))?;
+        }
+        let event = message("preserve this selected input through correction and reopen");
+        let initial = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&event))?
+            .context("initial unbounded observation")?;
+        let limit = initial.context.budget_input_tokens.context("initial estimate")?
+            .checked_add(64 + 8).context("fixture context capacity")?;
+        subject = subject.with_model_capabilities(Some(shenko_broker::request::ProviderCapabilities {
+            binding: handle.binding().clone(), max_context_tokens: Some(limit), vision: None,
+        }));
+        let close = tokio_util::sync::CancellationToken::new();
+        close.cancel();
+        anyhow::ensure!(execute_step(1, std::slice::from_ref(&event), &mut subject, &close).await?.is_none());
+        anyhow::ensure!(subject.step.state == SubjectStepState::Preparing);
+        let parent = super::frozen_input(&store, &subject.step)?;
+        let parent_ref = subject.step.input_plan_ref.clone().context("parent seal")?;
+        let parent_bytes = super::read_sealed(&store, &parent_ref)?;
+        record_result(&store, &mut subject, "[delegate]");
+        let original = subject.step.clone();
+        let gate = Arc::new(PreparationGate::default());
+        let release = PreparationRelease(Arc::clone(&gate));
+        subject.context_registry.install(Arc::new(GatedContextPolicy {
+            gate: Arc::clone(&gate), fail: false,
+            budget: shenko_compact_budget::BudgetCompact::new(
+                shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
+        }))?;
+        let registry = Arc::clone(&subject.context_registry);
+        let window_before = registry.ledger().current()?.id;
+        let cancel = tokio_util::sync::CancellationToken::new();
+        {
+            let pending = execute_step(1, &[], &mut subject, &cancel);
+            tokio::pin!(pending);
+            tokio::select! {
+                outcome = &mut pending => anyhow::bail!("correction did not wait for owned preparation: {outcome:?}"),
+                entered = tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified()) => { entered?; }
+            }
+            cancel.cancel();
+            anyhow::ensure!(pending.await?.is_none());
+        }
+        anyhow::ensure!(subject.context_preparer.is_none());
+        anyhow::ensure!(serde_json::to_vec(&subject.step)? == serde_json::to_vec(&original)?);
+        anyhow::ensure!(store.load_subject(agent)?.1.state == SubjectStepState::ResultRecorded);
+        release.release();
+        tokio::time::timeout(std::time::Duration::from_secs(5), gate.finished.notified()).await?;
+        anyhow::ensure!(registry.candidate().is_none() && registry.ledger().current()?.id == window_before);
+        anyhow::ensure!(super::read_sealed(&store, &parent_ref)? == parent_bytes);
+        drop((subject, registry, offline, store));
+
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+        let mut subject = state(Arc::clone(&store), agent)?;
+        anyhow::ensure!(serde_json::to_vec(&subject.step)? == serde_json::to_vec(&original)?);
+        subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+            shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 })))?;
+        let cancel = tokio_util::sync::CancellationToken::new();
+        anyhow::ensure!(execute_step(1, &[], &mut subject, &cancel).await?.is_none());
+        anyhow::ensure!(subject.step.state == SubjectStepState::ResultRecorded
+            && subject.step.model_outcome_ref == original.model_outcome_ref);
+        anyhow::ensure!(execute_step(1, &[], &mut subject, &cancel).await?.is_none());
+        anyhow::ensure!(subject.step.state == SubjectStepState::Preparing && subject.step.step_id != original.step_id);
+        let corrected = super::frozen_input(&store, &subject.step)?;
+        let observation = corrected.context.correction_observation.as_ref().context("correction provenance")?;
+        let current = observation.new_execution_projection.as_ref().context("new policy observation")?;
+        anyhow::ensure!(observation.parent_input_ref == parent_ref && observation.parent_source == parent.context.source);
+        anyhow::ensure!(current.scope_id == parent.context.source.scope_id
+            && current.leaf_seq == parent.context.source.leaf_seq
+            && current.input_raw_event_ids == parent.context.source.input_raw_event_ids
+            && current.source_commit_seq > parent.context.source.source_commit_seq
+            && current.window_id != parent.context.source.window_id);
+        anyhow::ensure!(corrected.payload.system_prompt == parent.payload.system_prompt
+            && corrected.payload.max_tokens == parent.payload.max_tokens
+            && corrected.events == parent.events && corrected.provider_binding == parent.provider_binding);
+        anyhow::ensure!(corrected.context.budget_input_tokens.context("corrected budget")?
+            + corrected.context.reserved_output_tokens <= limit);
+        let layout = corrected.context.payload_layout.as_ref().context("corrected payload layout")?;
+        let (_, _, tail) = layout.partitions(&corrected.payload)?;
+        anyhow::ensure!(corrected.payload.messages.len() - tail == 2);
+        anyhow::ensure!(corrected.payload.messages[tail].parts
+            == vec![shenko_broker::request::InferencePart::text("[delegate]")]);
+        let retired = store.get_step(&subject.head.branch_id, original.step_id)?.context("original result retained")?;
+        anyhow::ensure!(retired.state == SubjectStepState::Retired
+            && retired.model_result_ref == original.model_result_ref
+            && retired.model_outcome_ref == original.model_outcome_ref
+            && retired.input_plan_ref == original.input_plan_ref);
+        anyhow::ensure!(store.event_disposition_commit(agent, event.event_id)?.is_none());
+        let corrected_bytes = serde_json::to_vec(&corrected)?;
+        drop((subject, store));
+
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+        let mut subject = state(Arc::clone(&store), agent)?;
+        anyhow::ensure!(serde_json::to_vec(&super::frozen_input(&store, &subject.step)?)? == corrected_bytes);
+        // This next recorded malformed output cannot fit even after every old
+        // history entry is compacted. Its complete immutable tail must remain.
+        let oversized = format!("[delegate]{}", "x".repeat(usize::try_from(limit)?.checked_mul(4).context("tail length")?));
+        record_result(&store, &mut subject, &oversized);
+        let blocked = subject.step.clone();
+        let failure = execute_step(1, &[], &mut subject, &cancel).await.err()
+            .context("immutable correction tail must refuse admission")?;
+        anyhow::ensure!(failure.to_string().contains("correction immutable input budget"), "{failure}");
+        anyhow::ensure!(serde_json::to_vec(&store.load_subject(agent)?.1)? == serde_json::to_vec(&blocked)?);
+        anyhow::ensure!(store.event_disposition_commit(agent, event.event_id)?.is_none());
+        anyhow::ensure!(super::read_sealed(&store, &parent_ref)? == parent_bytes);
+        drop((subject, store));
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+        anyhow::ensure!(serde_json::to_vec(&state(Arc::clone(&store), agent)?.step)? == serde_json::to_vec(&blocked)?);
+        Ok(())
+    })
+}
+
 #[tokio::test]
 async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
@@ -1715,6 +1870,9 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
 
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
     let mut subject = state(store.clone(), agent).unwrap(); // no broker: resending would fail
+    let parent_input = super::frozen_input(&store, &subject.step)?;
+    let parent_seal = subject.step.input_plan_ref.clone().context("recorded result's input seal")?;
+    let parent_bytes = super::read_sealed(&store, &parent_seal)?;
     let (tx, mut rx) = tokio::sync::broadcast::channel(8);
     subject = subject.with_outbox(tx);
     assert_eq!(subject.step.active_request_id, request_id);
@@ -1777,11 +1935,29 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         "[delegate]"
     );
     assert!(correction_text(&correction.payload.messages[2]).contains("CONTROL_PROTOCOL_INVALID"));
+    anyhow::ensure!(correction.schema_version == 14);
+    let counted = crate::context_projection::estimate_payload_tokens(&correction.payload, 0)
+        .context("complete plaintext correction must be countable")?;
+    anyhow::ensure!(correction.context.estimated_input_tokens == Some(counted));
+    anyhow::ensure!(correction.context.budget_input_tokens == Some(counted));
+    anyhow::ensure!(counted > parent_input.context.estimated_input_tokens.context("parent estimate")?);
+    anyhow::ensure!(correction.payload.system_prompt == parent_input.payload.system_prompt
+        && correction.payload.max_tokens == parent_input.payload.max_tokens
+        && correction.provider_binding == parent_input.provider_binding);
+    let observation = correction.context.correction_observation.as_ref().context("new correction observation")?;
+    anyhow::ensure!(observation.parent_input_ref == parent_seal
+        && observation.parent_source == parent_input.context.source
+        && observation.new_execution_projection.is_none()
+        && observation.tail_message_count == 2);
+    anyhow::ensure!(correction.request_id != parent_input.request_id);
+    anyhow::ensure!(super::read_sealed(&store, &parent_seal)? == parent_bytes);
+    let corrected_input_bytes = serde_json::to_vec(&correction)?;
     drop(subject);
     drop(store);
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
     let subject = state(store.clone(), agent).unwrap();
     assert_eq!(subject.step.step_id, rejection.replacement_step_id);
+    anyhow::ensure!(serde_json::to_vec(&super::frozen_input(&store, &subject.step)?)? == corrected_input_bytes);
     // Close/reopen before dispatch retains the correction. A terminal result
     // of the NEW request can now settle the original input exactly once.
     let mut corrected = subject.step.clone();

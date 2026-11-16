@@ -34,6 +34,12 @@ pub struct ExternalEvidenceFold {
     pub terminal_content_conflict: bool,
 }
 
+fn evidence_storage_failure(error: &anyhow::Error) -> bool {
+    error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+        || error.downcast_ref::<shenko_types::error::ShenkoError>()
+            .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_)))
+}
+
 pub(crate) fn validate_original_event(
     event_id: EntityId, kind: &str, source: &str, data: &serde_json::Value,
 ) -> Result<()> {
@@ -630,7 +636,7 @@ impl Store {
         self.ledger.with_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, None)
                 .and_then(|operation| operation.ok_or_else(|| anyhow::anyhow!("unconditional evidence write unexpectedly stale"))),
-            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            evidence_storage_failure,
         )
     }
 
@@ -651,7 +657,7 @@ impl Store {
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, Some(fold)),
-            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            evidence_storage_failure,
         )
     }
 
@@ -723,6 +729,7 @@ impl Store {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        let original = (op.clone(), att.clone());
         if fold.is_some_and(|fold| fold.expected_revision != op.record_revision) {
             return Ok(None);
         }
@@ -832,6 +839,7 @@ impl Store {
                 3
             ],
         )?;
+        self.seal_first_native_evidence(&tx, &original, &ev, &op, &att)?;
         tx.commit()?;
         Ok(Some(op))
     }

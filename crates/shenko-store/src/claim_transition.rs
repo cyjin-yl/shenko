@@ -37,10 +37,16 @@ use crate::{
         Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
         TableTransition,
     },
+    native_facts::CanonicalFact,
     store::storage_error,
 };
 
 const CODEC: &str = "store-native-claim-transition";
+
+pub(crate) struct NativeClaimFacts {
+    pub claim: NativeTaskClaim,
+    pub creator: SubjectStep,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -399,6 +405,63 @@ impl ClaimTransition {
 }
 
 impl Store {
+    /// Reuse a locally applied first claim only while its exact original
+    /// Running projection remains the requested T1 predecessor. A recovery
+    /// claim, checkpoint or later task revision does not enter this scope.
+    pub(crate) fn direct_native_claim(
+        &self,
+        conn: &Connection,
+        task: &TaskRecord,
+    ) -> Result<Option<(CanonicalFact, NativeClaimFacts)>, ShenkoError> {
+        let Some(assignment) = task.memos.get(NATIVE_ASSIGNMENT) else {
+            return Ok(None);
+        };
+        let assignment: ExecutionAssignment =
+            serde_json::from_value(assignment.clone()).map_err(invalid)?;
+        let Some(fact) =
+            self.local_native_fact(conn, assignment.assigned_commit, "native.claim")?
+        else {
+            return Ok(None);
+        };
+        let original = self.verify_native_claim_fact(conn, &fact)?;
+        if !same(task, &original.claim.task)? {
+            return Ok(None);
+        }
+        Ok(Some((fact, original)))
+    }
+
+    pub(crate) fn verify_native_claim_fact(
+        &self,
+        conn: &Connection,
+        fact: &CanonicalFact,
+    ) -> Result<NativeClaimFacts, ShenkoError> {
+        let transition = self.read_claim_transition(&fact.transition_ref)?;
+        transition.validate(&fact.admission)?;
+        let envelope: serde_json::Value =
+            self.read_native_json(&fact.admission.payload_ref, "commit-admission", 1)?;
+        if envelope["action"]
+            != serde_json::json!({"kind":"native.claim", "task_id":transition.plan.task.task_id,
+            "transition_ref":fact.transition_ref})
+        {
+            return Err(invalid("retained claim action differs"));
+        }
+        self.verify_direct_native_reads(
+            fact,
+            &transition.rows,
+            &transition.plan.task,
+            &transition.plan.creator,
+            false,
+        )?;
+        self.validate_local_claim_birth(conn, &transition.plan.task, &transition.plan.birth)?;
+        self.verify_local_native_fact(conn, fact, transition.rows.result_commit)?;
+        Ok(NativeClaimFacts {
+            claim: transition
+                .plan
+                .projection(transition.rows.result_commit, transition.rows.created_at)?,
+            creator: transition.plan.creator,
+        })
+    }
+
     fn claim_birth(
         &self,
         conn: &Connection,

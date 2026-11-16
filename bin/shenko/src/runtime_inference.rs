@@ -179,6 +179,9 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<InferenceServ
     }
     let capabilities = match broker.discover_capabilities().await {
         Ok(capabilities) => Some(capabilities),
+        Err(error) if error.is::<shenko_broker::InvalidModelMetadata>() => {
+            return Err(error.context("provider model metadata was invalid; inference was not admitted"));
+        }
         Err(error) => {
             tracing::warn!(error=%error, "model metadata unavailable; automatic context compaction disabled");
             None

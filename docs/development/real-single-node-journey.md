@@ -444,3 +444,108 @@ ObjectRefs are preserved without claiming an independent BLAKE3 recomputation.
 This remains a failed 0.6B mechanical experiment. Complete S1, the 27B quality
 baseline, NapCat/coding-seat S2, physical failures and 7/30-day acceptance are
 still unfulfilled.
+
+
+## Capacity correction following hosted run 43885905651
+
+The candidate following the preserved run changes capability discovery and
+correction preparation. It does not change that failed run or claim another
+model execution.
+
+Discovery now selects the exact bound model card and reads llama.cpp's actual
+served `meta.n_ctx`. `n_ctx_train` remains training metadata, never a serving
+fallback. Positive serving limits must agree; zero, malformed values, conflicting
+fields or contradictory cards for the same bound model produce a typed
+`InvalidModelMetadata`. Start propagates that error before inference admission.
+A genuinely unavailable observation may still remain unknown; contradictory
+observations cannot be converted into an unbounded model by the optional-probe
+fallback. The retained run4 `/v1/models` response is used directly by the HTTP
+metadata fixture.
+
+New input seals use schema/codec 14 with explicit payload partitions. Correction
+preparation recounts the complete actual text/image payload, retains the original
+output reservation and immutable correction tail, and invokes the installed
+context policy against the original raw scope/leaf when necessary. Original S0
+and any new execution projection have separate identities. Owned preparation
+and its cancellation keep the recorded result/terminal intact; only a fitting
+new seal can enter atomic R0. A later correction whose immutable material alone
+exhausts the capacity is refused without replacing the result or sending it.
+The [R0 contract](../specs/subject-runtime.md#r0-rejection-and-correction) and
+[policy preparation](../specs/context-policies.md#慢路径请求之外) describe the
+reader, call-state observation and final Store CAS boundaries.
+
+The estimator is still `heuristic:cjk-1-other-4@1`, with immediate-parent provider
+usage calibration where available. This fixes stale payload accounting; it does
+not create a model tokenizer or prove a request fits merely because its estimate
+fits. Unsupported document/citation/search/native-option accounting remains an
+explicit correction refusal. Complete provider response, usage and refusal
+records remain part of the real journey.
+
+The metadata target check for broker and subject, including their tests, passed
+locally with `cargo check --offline --locked -p shenko-broker -p shenko-subject
+--tests -j1`. The updated existing recovery journey checks full recount and
+immutable parent/tail bytes across reopen. One capacity journey covers owned
+waiting/cancellation, preserved `ResultRecorded`, reopen, actual policy compaction
+and R0, then a complete oversized-tail refusal. The existing late-arrival journey
+now requires the worker's moved observation to be rejected before stable
+re-preparation. These are deterministic mechanics fixtures; metadata checking is
+not execution of those tests and is not live-model acceptance.
+
+Recognizing run4's actual 16,384-token slot also means its first observed
+12,723-token input plus the original 4,096-token reservation exceeds that slot.
+A subsequent diagnostic must explicitly configure and record a sufficient served
+capacity while retaining the complete prompt, model, sampling and reservation.
+No later diagnostic is claimed here. The 27B baseline, child/output/restart
+success, S2 and duration/device acceptance remain separate open requirements.
+
+### Configuration and evidence for the next capacity diagnostic
+
+The next opt-in hosted configuration requests `--ctx-size 32768 --parallel 1`
+from the same pinned llama runtime and Qwen3-0.6B weights. It preserves FA on,
+f16 K/V, the complete product prompt and fixed user task, the original 4,096-token
+output reservation, sampling, 1,200,000 ms request deadline, 1,800-second phase
+observation limit, and all finite-child/E1/output/replay/restart criteria.
+This configuration is not a new run or a successful capacity observation.
+
+Run4's observed 12,723 input tokens plus the original 4,096 output reservation
+already exceed its old 16,384-token slot. Its frozen heuristic estimate plus
+that reservation was 18,707. The explicit 32K request creates room for those
+complete inputs; the new candidate's actual slot and complete frozen budget
+still have to be observed. `models.json`, the schema-14 input plans, the actual
+server argv and server log must agree. A different reported limit, capacity
+refusal or inability to start stays a recorded failure; there is no silent
+fallback to a smaller prompt, output reservation or model.
+
+The retained 16K run allocated 1.75 GiB for f16 KV. Doubling the context implies
+an estimated 3.5 GiB cache body for this fixed model, before weights and other
+buffers. This is a sizing estimate, not a new memory measurement or a guarantee
+about the next hosted runner. The existing invocation, readiness and server
+artifacts retain actual CPU affinity/cgroup visibility, memory observations,
+loaded backend and attention/cache configuration. Readiness and any resource
+failure remain evidence.
+
+The existing atomic diagnostic snapshot now also retains `context_windows` and
+`context_window_scopes`: complete window bodies, call-state baselines, generations
+and profile identities stay available after the private installation directory
+is excluded from the artifact. `commit_log` contributes only `ledger_id`, `seq`
+and `created_at`, in the same read transaction. This makes the worker observation,
+committed window and final request projection traceable independently of the
+copies of CAS and provider responses. No derivative bytes or control/owner secret
+tables are added to the export.
+
+Both shutdowns use the existing owned-process `SIGINT` path and its forced-kill
+fallback; neither is an intentional crash experiment. The first follows the
+confirmed durable pause. The final shutdown occurs after continued-output
+observation and may encounter the still-continuous main loop. The success checks
+now require both observed exits to be zero. A nonzero first exit stops the journey
+before automatic restart; a nonzero final exit keeps `passed=false` while final
+ledger/CAS evidence is retained. Unknown inference outcomes remain Unknown and
+are not converted to successful cleanup.
+
+A single explicit label event is still required for one exact-candidate run;
+pushes and unrelated labels do not repeat it. A protocol correction loop is a
+model-behavior failure even if the new capacity accounting works. Diagnose each
+original request/terminal, complete correction tail, charged budget, window and
+raw rejection reason before deciding on any later change. The unchanged 0.6B
+experiment does not discharge the 27B quality baseline, complete S2 or long-term
+acceptance requirements.

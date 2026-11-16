@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "kind": "source_integration_and_metadata_only",
+  "product_tested": false,
+  "date_utc": "2026-11-16",
+  "first_parent": "e34efd1fed758bb2feeb5abb2ee6e50a656585b7",
+  "second_parent": "bd30bee40dcd9533eb123a7a5dfc48a9cdc788f5",
+  "incoming_main": "be7d09df2166679bc876a243004f057c602d0aae",
+  "common_ancestor": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+  "checked_source_tree_before_evidence": "f2ac3275816adebb19efaec0b7c61a8818670b95",
+  "merge_command": "git merge --no-commit --no-ff bd30bee40dcd9533eb123a7a5dfc48a9cdc788f5",
+  "merge_strategy": "ordinary two-parent merge; no whole-file ours/theirs replacement",
+  "conflict_decisions": {
+    "bin/shenko/src/cli.rs": "Keep run deadline including compilation/setup; no default change.",
+    "bin/shenko/src/cli_dispatch.rs": "Keep state variable and RuntimeState owner naming consistently.",
+    "bin/shenko/src/policy_config.rs": "Take the more specific incoming module comment only.",
+    "bin/shenko/src/runtime_lifecycle.rs": "Keep active_authority and authority_heartbeat.take/join before supervisor cleanup; preserve fatal observation classification.",
+    "bin/shenko/src/runtime_start.rs": "Match retained RuntimeState names; preserve cancellation and startup pause boundary.",
+    "crates/shenko-broker/src/broker.rs": "Keep cause_report_attempted and fail-soft reporting semantics.",
+    "crates/shenko-broker/src/execution.rs": "Keep report-attempt versus durable persistence distinction.",
+    "crates/shenko-store/src/cognition.rs": "Keep exact catalog local sequence projection explanation.",
+    "crates/shenko-store/src/store.rs": "Keep capture refusal facts and unclassified FK diagnostic as fatal Other, not inferred catch-up debt.",
+    "docs/IMPLEMENTATION_DOCS_MAP.md": "Keep one browser link and incoming named traces; align reporting/FK wording with retained product behavior."
+  },
+  "retained_incoming_changes": [
+    "78f32e456ca34fc17814c1cf5beb8c6aabda2268: owned Fiber disposal and exact graceful-stop authority refusal",
+    "be7d09df2166679bc876a243004f057c602d0aae: iLink required reply context and explicit live channel evidence limits",
+    "2d2391517078ed1a8d8e2f154a4197a37f7f81bd: named consumer source traces, with precise report/FK semantics retained"
+  ],
+  "verification": [
+    {
+      "command": "cargo check --offline --locked -p shenko --all-targets -j1",
+      "exit_code": 0,
+      "cargo_reported_duration": "1m 46s",
+      "runtime_tested": false,
+      "lock": "/tmp/shenko-cargo.lock",
+      "environment": {
+        "PATH_prefix": "/home/agent/.cargo/bin",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "log": "runtime-metadata.log.gz"
+    },
+    {
+      "command": "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python scripts/check_docs.py --verify-migration",
+      "exit_code": 0,
+      "errors": [],
+      "migrated_contract_chunks": 365,
+      "log": "docs-verify-migration.log"
+    },
+    {
+      "command": "git diff --cached --check",
+      "exit_code": 0
+    },
+    {
+      "kind": "exact source comparison",
+      "result": "only seven paths differ before this evidence; all named retained paths equal first parent",
+      "source": "source-comparison.json"
+    }
+  ],
+  "workflow_observation": {
+    "initial_exact_head_query_at_utc": "2026-11-16T15:45:33Z",
+    "exact_head": "e34efd1fed758bb2feeb5abb2ee6e50a656585b7",
+    "workflow_runs": [],
+    "rest_pr_observed_at_utc": "2026-11-16T15:46:18Z",
+    "rest_reported_base": "a574705ca742c11aa7b0a05203c3473a6c4103fe",
+    "rest_mergeable": false,
+    "rest_mergeable_state": "dirty",
+    "actual_git_refs_confirmed_by_utc": "2026-11-16T15:55:29Z",
+    "direct_git_refs": "remote-refs.log",
+    "interpretation": "REST base was stale relative to Git refs; no test result inferred; no dispatch/retarget/remote write performed by this worker"
+  },
+  "limits": [
+    "No runtime test executed for this integration.",
+    "The 9b membership failure and previous passes retain their original source bindings.",
+    "The complete three-resident process journey remains unverified on the next integrated candidate.",
+    "Context-capacity and native-continuation increments are separate and absent from this source tree.",
+    "No real model or live channel platform acceptance claimed."
+  ],
+  "files": {
+    "merge-original.log": {
+      "source_path": "/workspace/scratch/faaa3ccca531/current-base-integration-evidence/merge-original.log",
+      "source_kind": "original decoded text / command output",
+      "bytes": 1360,
+      "sha256": "8a956efcac9a0910e5b254a734d26898a0aafa7b9f94ce04c8af8e1b32397b26",
+      "transformation": "none"
+    },
+    "remote-refs.log": {
+      "source_path": "/workspace/scratch/faaa3ccca531/current-base-integration-evidence/remote-refs.log",
+      "source_kind": "original decoded text / command output",
+      "bytes": 232,
+      "sha256": "c2117111e61693877514f2ca4ef405c8f91f89ae64fe6bc97a12b4649d2a8039",
+      "transformation": "none"
+    },
+    "docs-verify-migration.log": {
+      "source_path": "/workspace/scratch/faaa3ccca531/current-base-integration-evidence/docs-verify-migration.log",
+      "source_kind": "original decoded text / command output",
+      "bytes": 497,
+      "sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "transformation": "none"
+    },
+    "runtime-metadata.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/current-base-integration-evidence/runtime-metadata.log",
+      "source_kind": "original decoded text / command output",
+      "bytes": 8173,
+      "sha256": "89deddc292b788396fb61c060d9678a2804ef1ba1177b412b0d981858e3cdf9f",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 41156,
+      "uncompressed_sha256": "8cae2cfe078aed94c56bf9c5a2d1b6ba92512c9a2378007f38b61096dbd3a5ab"
+    },
+    "source-comparison.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/current-base-integration-evidence/source-comparison.json",
+      "source_kind": "derived Git object and working-tree comparisons",
+      "bytes": 2694,
+      "sha256": "79b689727468702d90f56c2d3dcc54f54117450c4584bf90b9f517812bf3548c",
+      "transformation": "none"
+    },
+    "api/pr-mergeability-rest.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-e34/pr-mergeability-rest.json",
+      "source_kind": "complete original GitHub fetch decoded response body",
+      "bytes": 22108,
+      "sha256": "f2ab9b12e0ade89810bb39041d1299c51debbf758b3ecfe8e899abc5b87ac45e",
+      "transformation": "none"
+    },
+    "api/head-git-commit.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-e34/head-git-commit.json",
+      "source_kind": "complete original GitHub fetch decoded response body",
+      "bytes": 2483,
+      "sha256": "79dfe0f17bfc9867fdc3f1a731c34c248488444a53dad317746905820e2577c2",
+      "transformation": "none"
+    },
+    "api/previous-git-commit.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-e34/previous-git-commit.json",
+      "source_kind": "complete original GitHub fetch decoded response body",
+      "bytes": 1850,
+      "sha256": "b45ec1f2af34bf4bc98c413182da3ca5399f7c145708c3f897fb46279b5bbbcd",
+      "transformation": "none"
+    },
+    "api/workflow-runs-initial.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-e34/workflow-runs-initial.json",
+      "source_kind": "serialized complete structured workflow-runs response",
+      "bytes": 26,
+      "sha256": "70ec735ad150567865276fca143f06a38cf203f39febb4d4e6454478c381fc1a",
+      "transformation": "none"
+    }
+  },
+  "lifecycle_review": {
+    "local_retirement": "FiberHandle.dispose errors propagate through watcher result and finished_rx ownership effect; the old per-uninstall global check_outcomes is no longer called here.",
+    "global_shutdown": "Supervisor.stop awaits current hook quiescence then PluginRegistry.stop; its owned Context.close_plugins completion runs check_outcomes on the retained diagnostics.",
+    "normal_runtime": "runtime_lifecycle.run preserves supervisor cleanup failure before authority.finish_result.",
+    "reconstruction_limit": "Existing 15-second teardown observation can time out or log cleanup failure while retaining the original reconstruction result; no successful global-cleanup claim."
+  }
+}

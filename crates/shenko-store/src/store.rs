@@ -127,6 +127,7 @@ impl Store {
         // Run migrations
         crate::migrations::run_migrations(&conn)?;
         conn.execute_batch(crate::authority::SCHEMA)?;
+        conn.execute_batch(crate::native_evidence::SCHEMA)?;
         conn.execute_batch(crate::local_installation::SCHEMA)?;
 
         let sqlite_version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
@@ -742,6 +743,7 @@ impl Store {
                 "rejection is not bound to recorded result",
             ));
         }
+        self.validate_correction_projection(&tx, &head, &previous, replacement, &rejection)?;
         // The canonical runtime feedback joins the branch raw history in the
         // SAME transaction as the retirement and the correction step, so
         // rejected or incomplete output is never read as accepted work.
@@ -1728,7 +1730,7 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 /// acknowledgement; old bytes keep their old meaning instead of
 /// being reinterpreted or rewritten.
 pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
-    matches!(version, Some(12) | Some(13))
+    matches!(version, Some(12..=14))
 }
 
 pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {

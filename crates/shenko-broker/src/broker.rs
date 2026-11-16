@@ -45,6 +45,15 @@ struct ModelMetadata {
     context_length: Option<u32>,
     max_image_context: Option<u32>,
     patch_px: Option<u32>,
+    meta: Option<ServedModelMetadata>,
+}
+
+#[derive(Deserialize)]
+struct ServedModelMetadata {
+    /// llama.cpp reports the actual per-sequence serving limit here.
+    /// `n_ctx_train` is deliberately not a fallback: training capacity does
+    /// not establish how much context this running endpoint serves.
+    n_ctx: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -53,13 +62,22 @@ struct ModelMetadataList {
     has_more: Option<bool>,
 }
 
+/// An advertised metadata response is structurally invalid, or the bound
+/// model's limits are invalid or contradictory. Callers may continue without
+/// an observation, but must not hide a rejected response as an optional probe
+/// failure and admit the model as unknown/unbounded.
+#[derive(Debug, thiserror::Error)]
+#[error("invalid model metadata: {0}")]
+pub struct InvalidModelMetadata(String);
+
 impl ProviderCapabilities {
     fn from_metadata(binding: ProviderBinding, metadata: ModelMetadata) -> Result<Self> {
         ensure!(metadata.id == binding.model(), "metadata model id differs from bound model");
         // `max_tokens` is deliberately absent: Anthropic defines that as the
         // output-parameter ceiling, not the input context window.
         let limits = [metadata.max_model_len, metadata.max_context_tokens,
-            metadata.max_input_tokens, metadata.context_length]
+            metadata.max_input_tokens, metadata.context_length,
+            metadata.meta.and_then(|meta| meta.n_ctx)]
             .into_iter().flatten().collect::<Vec<_>>();
         ensure!(limits.iter().all(|limit| *limit > 0), "model metadata has an invalid context limit");
         ensure!(limits.iter().all(|limit| Some(*limit) == limits.first().copied()),
@@ -819,6 +837,7 @@ impl Broker {
         self.adopt_capabilities(&snapshot);
         let binding = runtime.binding();
         let mut has_more = false;
+        let mut capabilities = None;
         for document in &snapshot.raw_evidence {
             // Metrics and diagnostics are separate evidence, not failed model
             // lists. A document presenting a data member must parse as one.
@@ -826,11 +845,22 @@ impl Broker {
                 continue;
             }
             let list = ModelMetadataList::deserialize(document)
-                .context("provider returned invalid model metadata")?;
+                .map_err(|error| InvalidModelMetadata(error.to_string()))?;
             has_more |= list.has_more == Some(true);
-            if let Some(metadata) = list.data.into_iter().find(|model| model.id == binding.model()) {
-                return ProviderCapabilities::from_metadata(binding, metadata);
+            for metadata in list.data {
+                if metadata.id != binding.model() {
+                    continue;
+                }
+                let observed = ProviderCapabilities::from_metadata(binding.clone(), metadata)
+                    .map_err(|error| InvalidModelMetadata(error.to_string()))?;
+                if capabilities.as_ref().is_some_and(|prior| prior != &observed) {
+                    return Err(InvalidModelMetadata("conflicting observations for the bound model".into()).into());
+                }
+                capabilities = Some(observed);
             }
+        }
+        if let Some(capabilities) = capabilities {
+            return Ok(capabilities);
         }
         Err(ProtocolError::new(
             if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },

@@ -2,6 +2,8 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [Canonical E1 续接与容量纠错整合](canonical-capacity-integration-20261116/README.md)：保留 dff/c3 的原始定向 Clippy、最终 fixture 元数据与文档日志；两次组合 Clippy 的默认 deny 失败也完整留存。bfc5 四包全目标元数据通过，98bc 脚本切片只有静态证据；新原生/纠错/真实模型旅程均未因此取得运行通过。
+- [实际 PR303 基线与 main 整合](current-base-integration-20261116/README.md)：普通合并 e34efd1 与 bd30bee4，保留后者已合入的 main be7d09df、停机屏障和渠道诚实性改动；逐冲突保留现有 heartbeat、安装身份、Store/Broker 错误语义与全部原证据。CLI 元数据和文档守恒检查通过，新的进程旅程仍待对应候选运行。
 - [CI 9b5a6cb：Store 与 SSH 通过、三进程前置失败](ci-9b5a6cb-20261116/README.md)：完整 job/workspace 原日志与全 ZIP 清单保留；canonical first claim、39 项 Store、精确零写/Handoff、SSH 和暂停重开实际通过。三进程旅程因跨节点比较本地学习时间而在成员核对处失败；后续 fixture 修复只取得 metadata 检查，不算运行通过。
 - [第四次真实模型实验](single-node-hosted-43885905651/observation.json)：完整原 ZIP 保留 2,645 份原件；真实生成与 38 个主请求终态已取得，但控制协议纠错未产生 child，最终服务端明确拒绝超容量请求。容量字段读取与纠错重新计量的缺口尚待修复；不算单机闭环或 27B 行为通过。
 - [CI 15cfee0 实际 SSH 与唯一 Store 失败](ci-15cfee0-20261116/README.md)：保留同候选完整 workspace 日志、SSH 安装/命名执行原件、120/180 秒时序和逐字节 SHM 差异；星形协议、native arm 与暂停重开旅程已实际通过，整轮 CI 仍因一个零写 fixture 断言失败。

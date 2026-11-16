@@ -1,0 +1,580 @@
+{
+  "schema_version": 1,
+  "kind": "source_integration_metadata_and_static_evidence",
+  "recorded_on": "2026-11-16",
+  "product_tested": false,
+  "runtime_journeys_executed": [],
+  "integrated_rust_source": {
+    "commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+    "tree": "76cabefd52abc3b29a57b0392d179c023cecdb56"
+  },
+  "later_harness_source": {
+    "commit": "98bcf67a5ede6a9b4fb03819b6428bf5f3f9168b",
+    "tree": "6835623f3033b51a271b1fe3991b4df7296a5674",
+    "origin_commit": "82d0563082293577338360b43f3646269b1b7901",
+    "three_source_files_equal": true,
+    "tracked_rust_cargo_inputs_unchanged": true
+  },
+  "source_increments": {
+    "native": {
+      "commit": "dff743d509b88b4d28d4e62482532def75fa55bd",
+      "tree": "3c6a94fe66d5ee50f8dc946018689c1453308647",
+      "port_commit": "58d1f82b09fd25e3522ec273f423933743d34d7f"
+    },
+    "capacity": {
+      "commit": "c3cd591a65f18abbf505bead9b4c93b28ec4fcdb",
+      "tree": "f208542c5377e05b6a887215e44e3bd7b59495e4",
+      "port_commit": "0b099961dd1683c4365a5f0c8cc02e84bacaa711"
+    },
+    "base_integration": "d372ef3e82f327e6de2ba5e07e009e4481e56fde",
+    "intermediate_combination": "0966d6990397a80881ccbb00c14635edd089c236",
+    "latest_merged_base": "f5c6bfa573bf2c96cb84dd2164759329732b9d8e"
+  },
+  "source_review": {
+    "method": "Read immutable Git source and compare each introduced +/- patch line without diff headers/context/hunk positions; whole-file object identity is reported separately. This source inspection does not execute product paths.",
+    "native_introduced_patches_equal": 14,
+    "capacity_introduced_patches_equal": 11,
+    "capacity_intentional_ports": [
+      "bin/shenko/src/lib.rs typed invalid-metadata Start guard moved to bin/shenko/src/runtime_inference.rs",
+      "crates/shenko-broker/src/broker.rs three-way merge retains strict complete Vec<ModelMetadata>, has_more classifications and all matching cards while adding meta.n_ctx served capacity validation"
+    ],
+    "retained_main_semantics": [
+      "subject retry debt and typed admission failure handling",
+      "journal regression and primary-error retention",
+      "shutdown/owned heartbeat and installation-binding integration from d372",
+      "latest-base distinct receipt-conflict migration and regression"
+    ],
+    "findings": [
+      "Every supplied served capacity must be positive and all recognized served-limit fields must agree; training capacity is not used as served capacity.",
+      "All bound cards across observations are checked; advertised malformed data is typed InvalidModelMetadata. Missing versus incomplete model metadata remains distinct using has_more.",
+      "The actual Start consumer rejects typed invalid model metadata before installing model child handling or spawning broker.run."
+    ],
+    "artifacts": [
+      "source-audit-0966.json",
+      "source-audit-bfc5.json",
+      "script-source-audit.json",
+      "rust-cargo-inputs-bfc5.json"
+    ]
+  },
+  "checks": [
+    {
+      "id": "native-final-clippy",
+      "source": "dff743d509b88b4d28d4e62482532def75fa55bd",
+      "source_tree": "3c6a94fe66d5ee50f8dc946018689c1453308647",
+      "binding": "Worker reports final Rust bytes preceded completion; Rust files were unchanged afterwards. Documentation was finalized after this metadata command. Immutable integrated patch/blob comparison is separately retained.",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--message-format=json",
+        "--",
+        "--force-warn",
+        "clippy::all",
+        "--force-warn",
+        "clippy::unwrap_used",
+        "--force-warn",
+        "clippy::expect_used"
+      ],
+      "wrapper": [
+        "flock",
+        "-n",
+        "/tmp/shenko-cargo.lock",
+        "env"
+      ],
+      "env": {
+        "PATH": "/home/agent/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "exit_code": 0,
+      "finished_elapsed": "14.69s",
+      "outputs": [
+        "native/clippy.jsonl.gz",
+        "native/clippy.stderr.gz"
+      ],
+      "test_execution": false,
+      "ci_ratchet": false
+    },
+    {
+      "id": "native-final-docs",
+      "source": "dff743d509b88b4d28d4e62482532def75fa55bd",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 0,
+      "errors": [],
+      "migrated_contract_chunks": 365,
+      "outputs": [
+        "native/docs.json"
+      ],
+      "product_tested": false
+    },
+    {
+      "id": "capacity-wip-clippy",
+      "base": "e73bfb998194f60078cb36e1ae1bae46656c800f",
+      "exact_tree_captured": false,
+      "final_source": "c3cd591a65f18abbf505bead9b4c93b28ec4fcdb",
+      "binding": "Worker reports production source equal to final c3, but two obligation codec arguments and three layout-prefix fixture lines changed after this command. This is not an exact final-fixture gate.",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko-broker",
+        "-p",
+        "shenko-subject",
+        "-p",
+        "shenko-store",
+        "--tests",
+        "-j1",
+        "--message-format=json",
+        "--",
+        "-W",
+        "clippy::all",
+        "-W",
+        "clippy::unwrap_used",
+        "-W",
+        "clippy::expect_used"
+      ],
+      "lock": "/tmp/shenko-cargo.lock",
+      "env": {
+        "PATH": "/home/agent/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "exit_code": 0,
+      "finished_elapsed": "48.76s",
+      "outputs": [
+        "capacity/clippy.jsonl.gz",
+        "capacity/clippy.stderr.gz"
+      ],
+      "test_execution": false,
+      "ci_ratchet": false
+    },
+    {
+      "id": "capacity-final-fixtures-metadata",
+      "source": "c3cd591a65f18abbf505bead9b4c93b28ec4fcdb",
+      "source_tree": "f208542c5377e05b6a887215e44e3bd7b59495e4",
+      "binding": "Worker reports final checked source bytes were subsequently only staged and committed.",
+      "argv": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko-subject",
+        "--tests",
+        "-j1"
+      ],
+      "lock": "/tmp/shenko-cargo.lock",
+      "env": {
+        "PATH": "/home/agent/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "exit_code": 0,
+      "finished_elapsed": "25.99s",
+      "outputs": [
+        "capacity/fixtures-check.log.gz"
+      ],
+      "test_execution": false
+    },
+    {
+      "id": "capacity-wip-docs",
+      "base": "e73bfb998194f60078cb36e1ae1bae46656c800f",
+      "exact_tree_captured": false,
+      "binding": "Same WIP interval as capacity Clippy, before later fixture-only edits; uses older base checker without --verify-migration.",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "errors": [],
+      "outputs": [
+        "capacity/docs.json"
+      ],
+      "product_tested": false
+    },
+    {
+      "id": "combined-default-clippy",
+      "source": "0966d6990397a80881ccbb00c14635edd089c236",
+      "source_tree": "79940b93f32728c3eee8b81b34a01e31fad3cdfb",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko",
+        "-p",
+        "shenko-subject",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko-broker",
+        "--all-targets",
+        "-j1",
+        "--message-format=json"
+      ],
+      "wrapper": [
+        "flock",
+        "/tmp/shenko-cargo.lock"
+      ],
+      "env": {
+        "PATH": "/home/agent/.cargo/bin:$PATH",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "exit_code": 101,
+      "failure": {
+        "code": "clippy::inherent_to_string_shadow_display",
+        "path": "crates/shenko-types/src/ids.rs",
+        "line": 63
+      },
+      "outputs": [
+        "combined/clippy-0966.jsonl.gz",
+        "combined/clippy-0966.stderr.gz"
+      ],
+      "test_execution": false,
+      "ci_ratchet": false,
+      "lint_flags_note": "No -- trailing lint arguments; default-deny failure retained, not a CI ratchet result."
+    },
+    {
+      "id": "combined-scoped-default-clippy",
+      "source": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+      "source_tree": "76cabefd52abc3b29a57b0392d179c023cecdb56",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--no-deps",
+        "-p",
+        "shenko",
+        "-p",
+        "shenko-subject",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko-broker",
+        "--all-targets",
+        "-j1",
+        "--message-format=json"
+      ],
+      "wrapper": [
+        "flock",
+        "/tmp/shenko-cargo.lock"
+      ],
+      "env": {
+        "PATH": "/home/agent/.cargo/bin:$PATH",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "exit_code": 101,
+      "failure": {
+        "code": "clippy::never_loop",
+        "path": "crates/shenko-store/src/quota.rs",
+        "line": 907
+      },
+      "outputs": [
+        "combined/clippy-scoped-bfc5.jsonl.gz",
+        "combined/clippy-scoped-bfc5.stderr.gz"
+      ],
+      "test_execution": false,
+      "ci_ratchet": false,
+      "lint_flags_note": "No -- trailing lint arguments; --no-deps does not turn this into the CI ratchet. No allow/baseline change made."
+    },
+    {
+      "id": "combined-all-targets-metadata",
+      "source": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+      "source_tree": "76cabefd52abc3b29a57b0392d179c023cecdb56",
+      "binding": "Root reports Rust source did not change during the command and git status was clean.",
+      "argv": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko",
+        "-p",
+        "shenko-subject",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko-broker",
+        "--all-targets",
+        "-j1"
+      ],
+      "wrapper": [
+        "flock",
+        "/tmp/shenko-cargo.lock"
+      ],
+      "env": {
+        "PATH": "/home/agent/.cargo/bin:$PATH",
+        "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "exit_code": 0,
+      "finished_elapsed": "1m48s",
+      "outputs": [
+        "combined/metadata-bfc5.log.gz"
+      ],
+      "test_execution": false
+    },
+    {
+      "id": "combined-current-docs",
+      "source": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+      "source_tree": "76cabefd52abc3b29a57b0392d179c023cecdb56",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 0,
+      "errors": [],
+      "migrated_contract_chunks": 365,
+      "outputs": [
+        "combined/docs-bfc5.json"
+      ],
+      "product_tested": false
+    },
+    {
+      "id": "harness-static-source",
+      "source": "82d0563082293577338360b43f3646269b1b7901",
+      "integrated_source": "98bcf67a5ede6a9b4fb03819b6428bf5f3f9168b",
+      "binding": "Three source blobs match exactly; report script/workflow SHA-256 also match. Evidence assembly did not rerun the checks.",
+      "method": "Retained original static report: Python script and two Python heredocs parsed; five Bash blocks syntax checked; nine named function ASTs retained; model argv delta constrained to --ctx-size.",
+      "outputs": [
+        "harness/static.json"
+      ],
+      "product_tested": false,
+      "test_execution": false
+    },
+    {
+      "id": "harness-docs",
+      "source": "82d0563082293577338360b43f3646269b1b7901",
+      "integrated_source": "98bcf67a5ede6a9b4fb03819b6428bf5f3f9168b",
+      "method": "Retained original documentation-integrity report; no rerun in evidence assembly.",
+      "errors": [],
+      "migrated_contract_chunks": 365,
+      "outputs": [
+        "harness/docs.json"
+      ],
+      "product_tested": false
+    }
+  ],
+  "evidence_semantics": {
+    "metadata_is_runtime_acceptance": false,
+    "combined_clippy_passed": false,
+    "ci_ratchet_executed_here": false,
+    "new_model_run_executed": false,
+    "warnings_summary": "Counts in clippy-summary.json are complete compiler-message counts including dependencies and possible duplicates, not new-warning or ratchet delta counts.",
+    "original_bytes_policy": "Complete compiler streams retained losslessly with gzip mtime=0; JSON reports retain original bytes. No truncation, normalization, or replacement by excerpts.",
+    "command_exit_codes": "Recorded by originating worker/root tool result; Cargo build-finished and Finished/error lines are also retained where emitted."
+  },
+  "remaining_limits": [
+    "The dff native continuation remains original first claim, paired T1, one definite E1, childless T2; no general foreign execution recovery, standalone E1 delivery, Unknown reconciliation or multi-operation acceptance.",
+    "The new native and schema-14 correction journeys have not run in this record. Prior candidate-specific successful journeys are not promoted to this source.",
+    "The 32768-token diagnostic server configuration, fuller snapshots and first/final SIGINT exit-0 assertions have static evidence only. Actual served capacity, model behavior, browser input and restart outcomes need a new run.",
+    "Capacity WIP Clippy lacks an exact captured tree and predates final fixture edits; its production-source equivalence is worker-reported.",
+    "The 714-object Rust/Cargo/toolchain manifest is a limited tracked-source comparison, not a complete hermetic build-input or executable identity proof.",
+    "Both local combined Clippy attempts failed on unchanged default-deny source diagnostics and did not use CI ratchet flags. Actual candidate CI remains required."
+  ],
+  "retained_artifact_count": 20,
+  "retained_artifact_bytes": 747836,
+  "artifacts": {
+    "native/clippy.jsonl.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-continuation-clippy-final.jsonl",
+      "bytes": 88474,
+      "sha256": "2bd48a0272e0b54847aa15aa60338dd174a9629e3b1b9d1ec3d5f27c225fc446",
+      "original_bytes": 1415085,
+      "original_sha256": "7341465dbf42df28b2a242b74f5a7ad3383f0ab452b12df330c605f8a7dc4db8",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "native/clippy.stderr.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-continuation-clippy-final.stderr",
+      "bytes": 177,
+      "sha256": "96960bf70b35cccbf7b5f8da9dfdd2639f5ffa8c9a096c4e8b929047b7afb72c",
+      "original_bytes": 307,
+      "original_sha256": "b7d0bea795854b29aff044dc202b1cba04640e3a6e7f7b3056e8b525fd1c6b3f",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "capacity/clippy.jsonl.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/context-capacity-clippy-final.jsonl",
+      "bytes": 442376,
+      "sha256": "e30eda2af61c391c9025d1b12cd5ffd73f73647e18b92015bf7a22b927c10953",
+      "original_bytes": 8353889,
+      "original_sha256": "0618db6a04e185a83e7058b1e44a538e3a2ba4f1f8f3268d51d2d9582c165391",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "capacity/clippy.stderr.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/context-capacity-clippy-final.log",
+      "bytes": 218,
+      "sha256": "4a88c7f2cb55e27e71b79187438373eb85e00a3af3295555f5595b20170d10af",
+      "original_bytes": 771,
+      "original_sha256": "08d034e7d1eed997d45fa384744a372a5d37622e2aa6e82a0d6e810faafe3341",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "capacity/fixtures-check.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/context-capacity-check-fixtures.log",
+      "bytes": 4252,
+      "sha256": "684651a8ecd5e82488bb0a0e7d0844731804bba4262c0ff1f42c78b1c6b503f5",
+      "original_bytes": 17602,
+      "original_sha256": "83e14918cb66a224cfaed19b9a24fad4ea5864dd881b535de941701150240c72",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "native/docs.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-continuation-docs-final.json",
+      "bytes": 497,
+      "sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "transformation": "none"
+    },
+    "capacity/docs.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/context-capacity-docs-final.json",
+      "bytes": 398,
+      "sha256": "de4062b2b412e723bffe3bdd1eeeba2ea5714360684a91e70fbb663ee6d13848",
+      "original_bytes": 398,
+      "original_sha256": "de4062b2b412e723bffe3bdd1eeeba2ea5714360684a91e70fbb663ee6d13848",
+      "transformation": "none"
+    },
+    "source-audit-0966.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/canonical-capacity-evidence-work/source-audit-0966.json",
+      "bytes": 15171,
+      "sha256": "b3cbd63be1334a133654a02a550d692923441a1cf2c30def521fbc839e6b33ef",
+      "original_bytes": 15171,
+      "original_sha256": "b3cbd63be1334a133654a02a550d692923441a1cf2c30def521fbc839e6b33ef",
+      "transformation": "none"
+    },
+    "combined/clippy-0966.jsonl.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/combined-candidate-clippy.jsonl",
+      "source_kind": "original complete tool output",
+      "bytes": 10026,
+      "sha256": "e9644da572803c5bb1c29c84c637b2adefa8d189c76e2b0fa2411bb8356868c7",
+      "original_bytes": 112073,
+      "original_sha256": "4e21949b1e2f8997a1bb6afd595c9ab2853763a150e7d78759abd68b57a74f47",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "combined/clippy-0966.stderr.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/combined-candidate-clippy.log",
+      "source_kind": "original complete tool output",
+      "bytes": 154,
+      "sha256": "f671d4e7648000fa3a2bffaf92b401804e81897b47c8a63704a594eac0cfadce",
+      "original_bytes": 184,
+      "original_sha256": "14d85fd81b6bb40f1f650559ce08e929dd6f2274a84fed54ed0597f7df532933",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "combined/clippy-scoped-bfc5.jsonl.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/combined-candidate-scoped-clippy.jsonl",
+      "source_kind": "original complete tool output",
+      "bytes": 42027,
+      "sha256": "271c8aba1e606dcf3f9d495f9caee418fbd46d399b48b4430e1be3bff19c9673",
+      "original_bytes": 517371,
+      "original_sha256": "fd3f980c04685da34d72dbae77c2521824265f20fcdaf00423708675de265f8d",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "combined/clippy-scoped-bfc5.stderr.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/combined-candidate-scoped-clippy.log",
+      "source_kind": "original complete tool output",
+      "bytes": 177,
+      "sha256": "355fd8db3b7f450153108db5f1bd44653cfb5f0fbc78672df344228d21117648",
+      "original_bytes": 373,
+      "original_sha256": "c5bf4eb23a3f4d2e30dbdd73f068f8df4cecf467969c8c1b11cca4a9279c048b",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "combined/metadata-bfc5.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/combined-candidate-metadata.log",
+      "source_kind": "original complete tool output",
+      "bytes": 8883,
+      "sha256": "22026c86d4b291b8aa17b20bc6fdf88f914e383bf9f9218f9fc3ab52124628d9",
+      "original_bytes": 44292,
+      "original_sha256": "dd5e27c6d726ea0f7914ea8ca20004191af399939f06e66d3da032c16990c5de",
+      "transformation": "gzip, lossless, mtime=0"
+    },
+    "combined/docs-bfc5.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/combined-candidate-current-docs.json",
+      "source_kind": "original complete tool output",
+      "bytes": 497,
+      "sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "transformation": "none"
+    },
+    "source-audit-bfc5.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/canonical-capacity-evidence-work/source-audit-bfc5.json",
+      "source_kind": "derived immutable Git object / changed patch-line comparisons",
+      "bytes": 15171,
+      "sha256": "d0d7be5a1bc3aaec8710d2772844ef71d63be8520b63aa3925ab8b43c843c80b",
+      "original_bytes": 15171,
+      "original_sha256": "d0d7be5a1bc3aaec8710d2772844ef71d63be8520b63aa3925ab8b43c843c80b",
+      "transformation": "none"
+    },
+    "clippy-summary.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/canonical-capacity-evidence-work/all-clippy-summary.json",
+      "source_kind": "derived compiler-message summary; original JSONL remains complete",
+      "bytes": 2035,
+      "sha256": "fb0a4591c8519a96257dac17556b2a7ba268746548c8cbceb38e5e464317e47b",
+      "original_bytes": 2035,
+      "original_sha256": "fb0a4591c8519a96257dac17556b2a7ba268746548c8cbceb38e5e464317e47b",
+      "transformation": "none"
+    },
+    "rust-cargo-inputs-bfc5.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/canonical-capacity-evidence-work/rust-cargo-inputs-bfc5.json",
+      "source_kind": "derived Git object manifest; scope explicitly limited",
+      "bytes": 112698,
+      "sha256": "0ab9bacd57d4d3226ce394d203747371726a62a5d4087127c3c5fed52aaab8ee",
+      "original_bytes": 112698,
+      "original_sha256": "0ab9bacd57d4d3226ce394d203747371726a62a5d4087127c3c5fed52aaab8ee",
+      "transformation": "none"
+    },
+    "harness/static.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/model-capacity-harness-static.json",
+      "source_kind": "original complete report; not rerun by evidence assembly",
+      "bytes": 742,
+      "sha256": "165236b73f764f92c1493f3936759bc5f1df42bc86362da0c2c47b5275c0d2ce",
+      "original_bytes": 742,
+      "original_sha256": "165236b73f764f92c1493f3936759bc5f1df42bc86362da0c2c47b5275c0d2ce",
+      "transformation": "none"
+    },
+    "harness/docs.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/model-capacity-harness-docs.json",
+      "source_kind": "original complete report; not rerun by evidence assembly",
+      "bytes": 497,
+      "sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "transformation": "none"
+    },
+    "script-source-audit.json": {
+      "source_path": "/workspace/scratch/faaa3ccca531/canonical-capacity-evidence-work/script-source-audit.json",
+      "source_kind": "derived immutable Git object comparison",
+      "bytes": 3366,
+      "sha256": "b917cc1c96b747c94381b51c9dea9f756fb2623c734f25c05c0fae619542c8b0",
+      "original_bytes": 3366,
+      "original_sha256": "b917cc1c96b747c94381b51c9dea9f756fb2623c734f25c05c0fae619542c8b0",
+      "transformation": "none"
+    }
+  }
+}

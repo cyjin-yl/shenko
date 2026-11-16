@@ -354,6 +354,8 @@ pub(crate) fn local_table(name: &str) -> bool {
             | "subject_dispatch_owner"
             | "control_prepared_transitions"
             | "control_materializations"
+            | "native_evidence_materializations"
+            | "native_evidence_seal_debts"
             | "local_installation_provisioning"
     )
 }

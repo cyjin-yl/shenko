@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
@@ -16,7 +16,7 @@ use shenko_types::{
     ids::{EntityId, RecordRevision},
     object::{Digest, ObjectRef},
     operation::{AttemptDispatchStage, AttemptRecord, OperationRecord, OperationState},
-    subject::{SubjectBranchHead, SubjectMode},
+    subject::{SubjectBranchHead, SubjectMode, SubjectStep},
     task::{
         DispatchEligibility, ExecutionAssignment, RunMode, TaskInvocation, TaskRecord, TaskState,
     },
@@ -26,12 +26,14 @@ use crate::{
     Store,
     authority::{AuthorityReservation, admission_materialized},
     child::{
-        COGNITION_IMPORTED, NATIVE_ASSIGNMENT, NATIVE_CHILD, NATIVE_SETTLEMENT_ONLY, memo_flag,
+        COGNITION_IMPORTED, NATIVE_ASSIGNMENT, NATIVE_CHILD, NATIVE_OPERATION_ID,
+        NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
         Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
         TableTransition,
     },
+    native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
     store::storage_error,
 };
 
@@ -52,6 +54,15 @@ struct ArmPlan {
 struct ArmTransition {
     rows: RowTransition,
     plan: ArmPlan,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    canonical_claim: Option<CanonicalFact>,
+}
+
+pub(crate) struct NativeArmFacts {
+    pub task: TaskRecord,
+    pub operation: OperationRecord,
+    pub attempt: AttemptRecord,
+    pub creator: SubjectStep,
 }
 
 pub(crate) enum ArmApplyMode {
@@ -244,7 +255,9 @@ impl ArmTransition {
         let [table] = tables.as_slice() else {
             return Err(invalid(format!("missing unique {name} read condition")));
         };
-        if !table.complete_read {
+        if name == "tasks" && self.canonical_claim.is_some() {
+            validate_task_read(table, &self.plan.task)?;
+        } else if !table.complete_read {
             return Err(invalid(format!("incomplete {name} read condition")));
         }
         Ok(table)
@@ -321,6 +334,14 @@ impl ArmTransition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
+        if self.canonical_claim.is_some()
+            && (!plan.native_dispatch
+                || memo_uuid(&plan.task, NATIVE_OPERATION_ID) != Some(plan.operation.operation_id))
+        {
+            return Err(invalid(
+                "direct claim continuation must arm its original operation and dispatch together",
+            ));
+        }
         let position = plan.position();
         if rows.schema_version != 1
             || rows.action_id != admission.action_id
@@ -516,9 +537,23 @@ impl Store {
         position.key = plan.position();
         position.operation_id = Some(plan.operation.operation_id);
         position.attempt_id = Some(plan.attempt.attempt_id);
+        let canonical_claim = if native_dispatch
+            && memo_uuid(&plan.task, NATIVE_OPERATION_ID) == Some(plan.operation.operation_id)
+        {
+            let conn = self.ledger.conn.lock();
+            self.direct_native_claim(&conn, &plan.task)?
+                .map(|(fact, original)| {
+                    position.expected_steps.push(original.creator);
+                    fact
+                })
+        } else {
+            None
+        };
         let expected = position.expected_tasks.clone();
-        let (prepared, fresh) = self.prepare_arm_transition(&head, plan, position)?;
-        let authority = self.reserve_sealed_admission(prepared.admission, expected, Vec::new())?;
+        let steps = position.expected_steps.clone();
+        let (prepared, fresh) =
+            self.prepare_arm_transition(&head, plan, position, canonical_claim)?;
+        let authority = self.reserve_sealed_admission(prepared.admission, expected, steps)?;
         let applied = self.apply_arm_transition(
             &prepared.transition_ref,
             &authority,
@@ -538,6 +573,7 @@ impl Store {
         head: &SubjectBranchHead,
         plan: ArmPlan,
         mut position: crate::authority::AdmissionPosition,
+        canonical_claim: Option<CanonicalFact>,
     ) -> Result<(PreparedTransition, bool), ShenkoError> {
         position.aliases.sort();
         position.aliases.dedup();
@@ -548,11 +584,15 @@ impl Store {
         if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok((prepared, false));
         }
-        let predecessor_ref =
-            self.prepare_control_predecessor_for_admission(head, &position.expected_tasks, &[])?;
-        let authority = self
-            .reserve_authority()?
-            .with_read_conditions(position.expected_tasks.clone(), Vec::new());
+        let predecessor_ref = self.prepare_control_predecessor_for_admission(
+            head,
+            &position.expected_tasks,
+            &position.expected_steps,
+        )?;
+        let authority = self.reserve_authority()?.with_read_conditions(
+            position.expected_tasks.clone(),
+            position.expected_steps.clone(),
+        );
         self.ledger.with_mutation(|| {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
@@ -563,17 +603,19 @@ impl Store {
             if let Some(prepared) = crate::control_transition::prepared_transition_at(&tx, action_id, &input_digest)? { return Ok((prepared, false)); }
             // Local dispatcher/authority checks above do not become canonical
             // facts. The captured transaction contains shared state only.
-            let (rows, ()) = self.capture_row_transition(&tx, RowTransitionInput { action_id, input_digest: input_digest.clone(), head },
+            let (mut rows, ()) = self.capture_row_transition(&tx, RowTransitionInput { action_id, input_digest: input_digest.clone(), head },
                 |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at))?;
-            let transition = ArmTransition { rows, plan: plan.clone() };
+            if canonical_claim.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
+            let transition = ArmTransition { rows, plan: plan.clone(), canonical_claim: canonical_claim.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("T1 exceeds the 64 MiB admission budget")); }
-            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 1)?.object;
+            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
+                if canonical_claim.is_some() { 2 } else { 1 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
-                "expected_tasks":position.expected_tasks,"snapshot_tasks":position.snapshot_tasks,"expected_steps":[],
+                "expected_tasks":position.expected_tasks,"snapshot_tasks":position.snapshot_tasks,"expected_steps":position.expected_steps,
                 "action":{"kind":"native.arm","task_id":plan.task.task_id,"transition_ref":transition_ref},
             }))?, "application/json", "commit-authority", "commit-admission", 1)?.object;
             let admission = CommitAdmission {
@@ -583,6 +625,7 @@ impl Store {
                 software_generation:head.software_generation.clone(),operation_id:position.operation_id,attempt_id:position.attempt_id,payload_ref,
             };
             transition.validate(&admission)?;
+            self.verify_arm_claim(&tx, &CanonicalFact { admission: admission.clone(), transition_ref: transition_ref.clone() }, &transition)?;
             tx.execute("INSERT INTO control_prepared_transitions(action_id,input_digest,admission,result_commit,transition_ref) VALUES(?1,?2,?3,?4,?5)",
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?]).map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
@@ -656,20 +699,77 @@ impl Store {
     }
 
     fn read_arm_transition(&self, reference: &ObjectRef) -> Result<ArmTransition, ShenkoError> {
-        if reference.codec.name != CODEC
-            || reference.codec.major != 1
-            || reference.media_type != "application/json"
-            || reference.bytes > MAX_IMAGE_BYTES as u64
-        {
+        if !matches!(reference.codec.major, 1 | 2) {
             return Err(invalid("unsupported transition type or size"));
         }
+        crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
         let bytes = self.cas.read_object(&reference.digest)?;
         if bytes.len() as u64 != reference.bytes || Digest::blake3(&bytes) != reference.digest {
             return Err(invalid("transition bytes differ"));
         }
         let transition: ArmTransition = serde_json::from_slice(&bytes).map_err(invalid)?;
+        if (reference.codec.major == 2) != transition.canonical_claim.is_some() {
+            return Err(invalid(
+                "T1 reader version differs from its task dependency proof",
+            ));
+        }
         self.verify_transition_objects(&transition.rows)?;
         Ok(transition)
+    }
+
+    fn verify_arm_claim(
+        &self,
+        conn: &Connection,
+        fact: &CanonicalFact,
+        transition: &ArmTransition,
+    ) -> Result<Option<SubjectStep>, ShenkoError> {
+        let Some(claim) = &transition.canonical_claim else {
+            return Ok(None);
+        };
+        let original = self.verify_native_claim_fact(conn, claim)?;
+        if !same(&original.claim.task, &transition.plan.task)?
+            || !same(&original.claim.invocation, &transition.plan.invocation)?
+            || original.claim.operation_id != transition.plan.operation.operation_id
+        {
+            return Err(invalid("T1 changed the original first claim"));
+        }
+        self.verify_direct_native_reads(
+            fact,
+            &transition.rows,
+            &transition.plan.task,
+            &original.creator,
+            false,
+        )?;
+        Ok(Some(original.creator))
+    }
+
+    pub(crate) fn verify_native_arm_fact(
+        &self,
+        conn: &Connection,
+        fact: &CanonicalFact,
+    ) -> Result<NativeArmFacts, ShenkoError> {
+        let transition = self.read_arm_transition(&fact.transition_ref)?;
+        transition.validate(&fact.admission)?;
+        let envelope: serde_json::Value =
+            self.read_native_json(&fact.admission.payload_ref, "commit-admission", 1)?;
+        if envelope["action"]
+            != serde_json::json!({"kind":"native.arm", "task_id":transition.plan.task.task_id,
+            "transition_ref":fact.transition_ref})
+        {
+            return Err(invalid("retained T1 action differs"));
+        }
+        let creator = self
+            .verify_arm_claim(conn, fact, &transition)?
+            .ok_or_else(|| conflict("T1 has no original direct claim proof"))?;
+        self.verify_local_native_fact(conn, fact, transition.rows.result_commit)?;
+        let (task, operation, attempt) =
+            transition.plan.projection(transition.rows.result_commit)?;
+        Ok(NativeArmFacts {
+            task,
+            operation,
+            attempt,
+            creator,
+        })
     }
 
     pub(crate) fn apply_arm_transition(
@@ -767,6 +867,14 @@ impl Store {
                         }
                     }
                 }
+                self.verify_arm_claim(
+                    &tx,
+                    &CanonicalFact {
+                        admission: admission.clone(),
+                        transition_ref: reference.clone(),
+                    },
+                    &transition,
+                )?;
                 let local_commit =
                     CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
                 transition.rows.apply_rows(&tx, local_commit.seq)?;

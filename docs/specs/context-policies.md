@@ -93,6 +93,19 @@ shenko context windows [--limit N]         # 已提交窗口链的元数据（�
 
 `PolicyRegistry::prepare_candidate(history, caps, used_tokens)` 读取整段原始历史并渲染新表示。主体持有一个准备任务，使用 `spawn_blocking` 执行这一步；后台任务只返回候选，当前主体负责发布与采纳。`prepare_and_publish(...)` 仍供明确拥有准备与发布生命周期的调用者使用，不能在请求事务中调用。
 
+主体拥有的准备任务同时固定原始 `scope/leaf`，在整个 `prepare_candidate` 调用前后
+核对实际 `commit_seq`。`StoreHistory` 会读取可变的 operation/intent 状态，因此只固定
+原始事件叶子不足以证明压缩观察一致。读取期间发生任何账本提交时，本次候选不发布，
+返回重新观察；持续写入可能延后准备，不能声称这种情况下已完成压缩。
+
+准备器不额外复制全部历史文本；它只记录真正读到的调用事件 `ItemRef → CallStatus`，
+索引最多 65,536 条，超过上限明确拒绝准备。原有策略读取所需原始历史的路径不变。
+采用这个 owned candidate 时，窗口的 `call_states` 使用工作器观察到的基线，不在采用时
+用后来状态覆盖这份基线。最终实时投影仍按下述 `rehydrate` 规则展开后来变化的调用。
+实际采用日志记录 `worker_source_commit_seq`、原始叶子与新窗口 ID；它与最终请求投影
+自己的 `source_commit_seq` 是两个观察，不互相代证。没有新增持久状态表；丢弃主体后，
+已运行的阻塞策略只能结束计算，不能自行发布。
+
 准备结果不是裸窗口，而是一个**绑定到当时修订**的候选：
 
 ```

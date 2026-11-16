@@ -1,4 +1,4 @@
-//! Live policy configuration.
+//! Live configuration over the quota ledger and context policy registry.
 //!
 //! These adapters expose the existing consumers through `config.manage` and
 //! the configuration panel. The quota ledger and PolicyRegistry remain the
