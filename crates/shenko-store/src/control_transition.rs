@@ -7,6 +7,7 @@
 //! Applying those bytes performs only SQLite writes, never a provider call.
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::{self, Write},
     sync::Arc,
 };
 
@@ -18,6 +19,7 @@ use rusqlite::{
     types::{Value, ValueRef},
 };
 use serde::{Deserialize, Serialize};
+use serde::ser::SerializeSeq;
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
     commit::{CommitReceipt, CommitRef, UpdatedEntity},
@@ -35,15 +37,12 @@ use crate::{
 
 const CODEC: &str = "store-s1-transition";
 pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
-// Account while copying rows, before the eventual sealed JSON size is known.
-// This bounds the retained pre-capture even when most tables prove untouched.
+// Account all retained before/after rows and duplicated change cells together,
+// before the eventual sealed JSON size is known. Unrelated tables are scanned
+// through borrowed SQLite values; their history is never copied into this budget.
 pub(crate) const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
-// The stable marker of a capture-budget refusal. The frozen pre-capture
-// refuses to grow without bound; the marker lets the caller recognize that
-// this capacity refusal — and not damage, and not a disagreement about the
-// decision — happened, so the decision is kept instead of being lost with the
-// transition.
-const CAPTURE_BUDGET_MARKER: &str = "capture budget exceeded";
+const ROW_CAPTURE_REFUSAL: &str = "canonical Store transition: capture budget exceeded: row capture exceeds 128 MiB memory budget";
+const IMAGE_CAPTURE_REFUSAL: &str = "canonical Store transition: read/write image exceeds 64 MiB admission budget";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -422,29 +421,106 @@ fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
     Ok(tables)
 }
 
-fn key(table: &Table, values: &[Cell]) -> Result<String, ShenkoError> {
+struct KeyCells<'a> {
+    table: &'a Table,
+    values: &'a [Cell],
+}
+
+impl Serialize for KeyCells<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut sequence = serializer.serialize_seq(Some(self.table.key.len()))?;
+        for &index in &self.table.key {
+            let cell = self.values.get(index)
+                .ok_or_else(|| <S::Error as serde::ser::Error>::custom("key index outside row"))?;
+            sequence.serialize_element(cell)?;
+        }
+        sequence.end()
+    }
+}
+
+/// Serde may expand a text/blob key many times beyond its SQL byte length.
+/// Count through a bounded sink before allocating the exact output buffer.
+/// The same writer bounds the second, purely representational serialization;
+/// neither pass calls the transaction's semantic evaluation callback.
+struct JsonWriter<W> {
+    inner: W,
+    limit: usize,
+    written: usize,
+    exceeded: bool,
+}
+
+impl<W: Write> Write for JsonWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() > self.limit.saturating_sub(self.written) {
+            self.exceeded = true;
+            return Err(io::Error::other("canonical JSON budget exhausted"));
+        }
+        let written = self.inner.write(bytes)?;
+        self.written += written;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn json_size<T: Serialize + ?Sized>(
+    value: &T,
+    limit: usize,
+    refusal: &'static str,
+) -> Result<usize, ShenkoError> {
+    let mut writer = JsonWriter { inner: io::sink(), limit, written: 0, exceeded: false };
+    let result = serde_json::to_writer(&mut writer, value);
+    if writer.exceeded {
+        return Err(ShenkoError::conflict(refusal));
+    }
+    result?;
+    Ok(writer.written)
+}
+
+fn json_bytes<T: Serialize + ?Sized>(value: &T, size: usize) -> Result<Vec<u8>, ShenkoError> {
+    let mut writer = JsonWriter {
+        inner: Vec::with_capacity(size), limit: size, written: 0, exceeded: false,
+    };
+    let result = serde_json::to_writer(&mut writer, value);
+    if writer.exceeded {
+        return Err(invalid("immutable JSON changed after measurement"));
+    }
+    result?;
+    if writer.written != size {
+        return Err(invalid("immutable JSON changed after measurement"));
+    }
+    Ok(writer.inner)
+}
+
+fn key_with_budget(
+    table: &Table,
+    values: &[Cell],
+    remaining: &mut usize,
+) -> Result<String, ShenkoError> {
     if values.len() != table.columns.len() || table.key.is_empty() {
         return Err(invalid(format!(
             "{} has no complete stable primary key",
             table.name
         )));
     }
-    let cells = table
-        .key
-        .iter()
-        .map(|&index| {
-            values
-                .get(index)
-                .ok_or_else(|| invalid("key index outside row"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if cells
-        .iter()
-        .any(|cell| matches!(cell, Cell::Null | Cell::LocalSequence))
-    {
-        return Err(invalid("null or local primary key"));
+    for &index in &table.key {
+        let cell = values.get(index).ok_or_else(|| invalid("key index outside row"))?;
+        if matches!(cell, Cell::Null | Cell::LocalSequence) {
+            return Err(invalid("null or local primary key"));
+        }
     }
-    Ok(serde_json::to_string(&cells)?)
+    let cells = KeyCells { table, values };
+    let size = json_size(&cells, *remaining, ROW_CAPTURE_REFUSAL)?;
+    charge_image(remaining, size)?;
+    String::from_utf8(json_bytes(&cells, size)?)
+        .map_err(|error| invalid(format!("JSON key is not UTF-8: {error}")))
+}
+
+fn key(table: &Table, values: &[Cell]) -> Result<String, ShenkoError> {
+    let mut remaining = MAX_CAPTURE_BYTES;
+    key_with_budget(table, values, &mut remaining)
 }
 
 fn image(conn: &Connection, table: &Table) -> Result<Image, ShenkoError> {
@@ -455,21 +531,25 @@ fn image(conn: &Connection, table: &Table) -> Result<Image, ShenkoError> {
 fn charge_image(remaining: &mut usize, bytes: usize) -> Result<(), ShenkoError> {
     *remaining = remaining
         .checked_sub(bytes)
-        .ok_or_else(|| conflict(format!(
-            "{CAPTURE_BUDGET_MARKER}: row capture exceeds {} MiB memory budget",
-            MAX_CAPTURE_BYTES / (1024 * 1024)
-        )))?;
+        .ok_or_else(|| ShenkoError::conflict(ROW_CAPTURE_REFUSAL))?;
     Ok(())
 }
 
-/// Whether an error is the refusal of the frozen pre-capture budget.
+fn sealed_image_bytes<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, ShenkoError> {
+    let size = json_size(value, MAX_IMAGE_BYTES, IMAGE_CAPTURE_REFUSAL)?;
+    json_bytes(value, size)
+}
+
+/// Only these two pre-preparation capacity refusals permit the existing S1
+/// original-plan path. A similarly worded conflict, bad seal or storage error
+/// must retain its own failure instead of being reclassified as capacity.
 ///
 /// This is a capacity fact about this installation, not damage and not a
 /// disagreement about the decision. The caller keeps the decision and uses
-/// the original-plan path, so an installation whose replicated rows exceed
-/// the ceiling keeps committing its steps instead of failing every S1.
+/// the original-plan path; that admission and its COMMIT can still fail.
 pub(crate) fn capture_budget_refusal(error: &ShenkoError) -> bool {
-    matches!(error, ShenkoError::Conflict(message) if message.contains(CAPTURE_BUDGET_MARKER))
+    matches!(error, ShenkoError::Conflict(message)
+        if message == ROW_CAPTURE_REFUSAL || message == IMAGE_CAPTURE_REFUSAL)
 }
 
 fn image_with_budget(
@@ -477,7 +557,8 @@ fn image_with_budget(
     table: &Table,
     remaining: &mut usize,
 ) -> Result<Image, ShenkoError> {
-    charge_image(remaining, serde_json::to_vec(table)?.len())?;
+    let table_bytes = json_size(table, *remaining, ROW_CAPTURE_REFUSAL)?;
+    charge_image(remaining, table_bytes)?;
     let mut stmt = conn
         .prepare(&format!(
             "SELECT {} FROM {}",
@@ -496,25 +577,25 @@ fn image_with_budget(
         // Row containers and the BTree node have overhead even for empty
         // values. Check variable-size SQLite values before making owned copies.
         charge_image(remaining, 128)?;
-        let values = (0..table.columns.len())
-            .map(|index| {
-                charge_image(remaining, std::mem::size_of::<Cell>())?;
-                if Some(index) == table.local_sequence {
-                    Ok(Cell::LocalSequence)
-                } else {
-                    let value = row.get_ref(index).map_err(storage_error)?;
-                    let bytes = match value {
-                        ValueRef::Text(text) => text.len(),
-                        ValueRef::Blob(bytes) => bytes.len(),
-                        _ => 0,
-                    };
-                    charge_image(remaining, bytes)?;
-                    Cell::read(value)
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let key = key(table, &values)?;
-        charge_image(remaining, key.len())?;
+        let cell_bytes = table.columns.len().checked_mul(std::mem::size_of::<Cell>())
+            .ok_or_else(|| ShenkoError::conflict(ROW_CAPTURE_REFUSAL))?;
+        charge_image(remaining, cell_bytes)?;
+        let mut values = Vec::with_capacity(table.columns.len());
+        for index in 0..table.columns.len() {
+            if Some(index) == table.local_sequence {
+                values.push(Cell::LocalSequence);
+            } else {
+                let value = row.get_ref(index).map_err(storage_error)?;
+                let bytes = match value {
+                    ValueRef::Text(text) => text.len(),
+                    ValueRef::Blob(bytes) => bytes.len(),
+                    _ => 0,
+                };
+                charge_image(remaining, bytes)?;
+                values.push(Cell::read(value)?);
+            }
+        }
+        let key = key_with_budget(table, &values, remaining)?;
         if rows.insert(key, values).is_some() {
             return Err(invalid("duplicate primary key"));
         }
@@ -529,6 +610,7 @@ fn image_with_budget(
 struct Accesses {
     reads: BTreeSet<String>,
     writes: BTreeSet<String>,
+    refusal: Option<&'static str>,
 }
 
 struct Authorizer<'a>(&'a Connection);
@@ -545,18 +627,176 @@ fn observe(conn: &Connection, accesses: Arc<Mutex<Accesses>>) -> Authorizer<'_> 
         let mut accesses = accesses.lock();
         match context.action {
             AuthAction::Read { table_name, .. } => {
+                if context.database_name != Some("main") {
+                    accesses.refusal = Some("transition accessed a non-main database");
+                    return Authorization::Deny;
+                }
                 accesses.reads.insert(table_name.to_owned());
             }
             AuthAction::Insert { table_name }
             | AuthAction::Delete { table_name }
             | AuthAction::Update { table_name, .. } => {
+                if context.database_name != Some("main") {
+                    accesses.refusal = Some("transition accessed a non-main database");
+                    return Authorization::Deny;
+                }
                 accesses.writes.insert(table_name.to_owned());
             }
-            _ => {}
+            AuthAction::Select | AuthAction::Function { .. } | AuthAction::Recursive => {}
+            // FTS checks this read-only main-database counter while updating
+            // its derived index. No argument does not make other PRAGMAs
+            // read-only (for example optimize or incremental_vacuum).
+            AuthAction::Pragma { pragma_name, pragma_value: None }
+                if pragma_name.eq_ignore_ascii_case("data_version")
+                    && context.database_name == Some("main") => {}
+            // Row transitions cannot describe DDL, attachments, connection
+            // changes or an escape from their enclosing transaction/savepoint.
+            // Do not let a newly created table disappear into the projection
+            // exception below. Schema comparison also catches an unobserved DDL.
+            _ => {
+                accesses.refusal = Some("transition attempted non-row SQL");
+                return Authorization::Deny;
+            }
         }
         Authorization::Allow
     }));
     Authorizer(conn)
+}
+
+/// Unambiguous physical-cell framing, without allocating an owned SQL value.
+/// In particular, local receipt sequence columns are not normalized here: an
+/// otherwise hidden sequence-only write is still a real unobserved write.
+fn hash_cell(hasher: &mut blake3::Hasher, value: ValueRef<'_>) {
+    match value {
+        ValueRef::Null => { hasher.update(&[0]); }
+        ValueRef::Integer(value) => {
+            hasher.update(&[1]);
+            hasher.update(&value.to_le_bytes());
+        }
+        ValueRef::Real(value) => {
+            hasher.update(&[2]);
+            hasher.update(&value.to_bits().to_le_bytes());
+        }
+        ValueRef::Text(bytes) | ValueRef::Blob(bytes) => {
+            hasher.update(&[if matches!(value, ValueRef::Text(_)) { 3 } else { 4 }]);
+            hasher.update(&(bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        }
+    }
+}
+
+fn hash_query(
+    conn: &Connection,
+    sql: &str,
+    hasher: &mut blake3::Hasher,
+) -> Result<(), ShenkoError> {
+    let mut stmt = conn.prepare(sql).map_err(storage_error)?;
+    let columns = stmt.column_count();
+    hasher.update(&(columns as u64).to_le_bytes());
+    let mut rows = stmt.query([]).map_err(storage_error)?;
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        hasher.update(&[1]);
+        for index in 0..columns {
+            hash_cell(hasher, row.get_ref(index).map_err(storage_error)?);
+        }
+    }
+    hasher.update(&[0]);
+    Ok(())
+}
+
+fn table_fingerprint(conn: &Connection, table: &Table) -> Result<blake3::Hash, ShenkoError> {
+    let columns = table.columns.iter().map(|column| quoted(column)).collect::<Vec<_>>();
+    // The PK orders ordinary tables. Remaining columns break any ties in an
+    // unkeyed/nullable-key table, whose writes must not escape this guard either.
+    // Explicit BINARY collation avoids a custom collation hiding distinct keys.
+    let order = table.key.iter().copied()
+        .chain((0..columns.len()).filter(|index| !table.key.contains(index)))
+        .map(|index| format!("{} COLLATE BINARY", columns[index]))
+        .collect::<Vec<_>>().join(",");
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"shenko-canonical-physical-table-v1\0");
+    hash_query(conn, &format!("SELECT {} FROM main.{} ORDER BY {order}",
+        columns.join(","), quoted(&table.name)), &mut hasher)?;
+    Ok(hasher.finalize())
+}
+
+/// Source-local structural guard, not a replicated physical-layout identity.
+/// Include every existing schema, its version and objects (including unkeyed,
+/// virtual/shadow and local tables) so new/disappearing tables or DDL are never
+/// silently treated as a derived projection. The callback itself denies
+/// ATTACH/DETACH and non-main factual accesses before they can escape rollback.
+fn schema_fingerprint(conn: &Connection) -> Result<blake3::Hash, ShenkoError> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"shenko-canonical-schema-guard-v1\0");
+    hash_query(conn, "SELECT seq,name,file FROM pragma_database_list ORDER BY name COLLATE BINARY", &mut hasher)?;
+    let mut stmt = conn.prepare("SELECT name FROM pragma_database_list ORDER BY name COLLATE BINARY")
+        .map_err(storage_error)?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(storage_error)?;
+    drop(stmt);
+    for name in names {
+        hash_cell(&mut hasher, ValueRef::Text(name.as_bytes()));
+        hash_query(conn, &format!("PRAGMA {}.schema_version", quoted(&name)), &mut hasher)?;
+        hash_query(conn, &format!("SELECT type,name,tbl_name,rootpage,sql FROM {}.sqlite_schema ORDER BY type COLLATE BINARY,name COLLATE BINARY", quoted(&name)), &mut hasher)?;
+    }
+    Ok(hasher.finalize())
+}
+
+fn projection_tables(conn: &Connection) -> Result<BTreeSet<String>, ShenkoError> {
+    let mut stmt = conn.prepare("SELECT name FROM pragma_table_list WHERE schema='main' AND (type!='table' OR name LIKE 'sqlite_%')")
+        .map_err(storage_error)?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
+        .collect::<rusqlite::Result<BTreeSet<_>>>().map_err(storage_error)?;
+    Ok(names)
+}
+
+fn charge_row_copy(remaining: &mut usize, values: &[Cell]) -> Result<(), ShenkoError> {
+    for value in values {
+        charge_image(remaining, std::mem::size_of::<Cell>())?;
+        charge_image(remaining, match value {
+            Cell::Text(text) => text.len(),
+            Cell::Blob(bytes) => bytes.len(),
+            _ => 0,
+        })?;
+    }
+    Ok(())
+}
+
+fn row_changes(
+    before: &Image,
+    mut after: Image,
+    remaining: &mut usize,
+) -> Result<Vec<Change>, ShenkoError> {
+    let mut changes = Vec::new();
+    for (key, old) in &before.rows {
+        let new = after.rows.remove(key);
+        if new.as_ref() == Some(old) { continue; }
+        reserve_change(&mut changes, remaining)?;
+        charge_image(remaining, key.len())?;
+        charge_row_copy(remaining, old)?;
+        changes.push(Change { key: key.clone(), before: Some(old.clone()), after: new });
+    }
+    // Move already charged postimages into inserts rather than copying them.
+    for (key, new) in after.rows {
+        reserve_change(&mut changes, remaining)?;
+        changes.push(Change { key, before: None, after: Some(new) });
+    }
+    Ok(changes)
+}
+
+fn reserve_change(changes: &mut Vec<Change>, remaining: &mut usize) -> Result<(), ShenkoError> {
+    if changes.len() == changes.capacity() {
+        let capacity = changes.capacity().max(1).checked_mul(2)
+            .ok_or_else(|| ShenkoError::conflict(ROW_CAPTURE_REFUSAL))?;
+        let bytes = capacity.checked_mul(std::mem::size_of::<Change>())
+            .ok_or_else(|| ShenkoError::conflict(ROW_CAPTURE_REFUSAL))?;
+        // Charge the entire new allocation before reserving. The old buffer's
+        // earlier charge stays consumed, also accounting for a copying grow.
+        charge_image(remaining, bytes)?;
+        changes.try_reserve_exact(capacity - changes.len())
+            .map_err(|error| invalid(format!("cannot allocate row changes: {error}")))?;
+    }
+    Ok(())
 }
 
 fn input_digest(
@@ -582,20 +822,18 @@ impl Store {
             chrono::DateTime<chrono::Utc>,
         ) -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        let tables = layouts(tx)?;
-        let mut before = BTreeMap::new();
-        let mut capture_remaining = MAX_CAPTURE_BYTES;
-        for (name, table) in &tables {
-            // A table without PK can only be a read projection outside
-            // this transition. If the action touches one, the authorizer below
-            // refuses preparation rather than inventing rowid identity.
-            if !table.key.is_empty() {
-                before.insert(
-                    name.clone(),
-                    image_with_budget(tx, table, &mut capture_remaining)?,
-                );
-            }
+        // Installing the authorizer expires not-yet-stepped SQLite statements;
+        // it cannot retroactively observe an already active cursor. Reject that
+        // boundary explicitly, and keep the independent physical-write guard.
+        if tx.is_busy() {
+            return Err(conflict("capture began with an active SQLite statement"));
         }
+        let tables = layouts(tx)?;
+        let projections = projection_tables(tx)?;
+        let schema = schema_fingerprint(tx)?;
+        let before_fingerprints = tables.iter().map(|(name, table)| {
+            Ok((name.clone(), table_fingerprint(tx, table)?))
+        }).collect::<Result<BTreeMap<_, _>, ShenkoError>>()?;
         let result_commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(tx)?);
         let created_at = chrono::Utc::now();
         tx.execute_batch("SAVEPOINT canonical_row_evaluation")
@@ -604,46 +842,64 @@ impl Store {
         let observation = observe(tx, Arc::clone(&accesses));
         let evaluated = evaluate(result_commit, created_at);
         drop(observation);
-        let (updated, result) = evaluated?;
-        let accesses = accesses.lock();
-        let touched = accesses
-            .reads
-            .union(&accesses.writes)
-            .collect::<BTreeSet<_>>();
-        let mut transitions = Vec::new();
-        for name in touched {
-            if local_table(name) {
-                return Err(conflict(format!(
-                    "transition depended on node-local table {name}"
-                )));
+        let accesses = std::mem::take(&mut *accesses.lock());
+        let captured = (|| -> Result<_, ShenkoError> {
+            if let Some(refusal) = accesses.refusal {
+                return Err(conflict(refusal));
             }
-            let Some(table) = tables.get(name) else {
-                // Virtual/shadow tables are derivations rebuilt by their
-                // original triggers. They cannot carry canonical facts.
-                continue;
-            };
-            let mut original = before
-                .remove(name)
-                .ok_or_else(|| conflict(format!("transition touched unkeyed table {name}")))?;
-            let after = image(tx, table)?;
-            let keys = original
-                .rows
-                .keys()
-                .chain(after.rows.keys())
-                .collect::<BTreeSet<_>>();
-            let changes: Vec<Change> = keys
-                .into_iter()
-                .filter_map(|key| {
-                    let old = original.rows.get(key);
-                    let new = after.rows.get(key);
-                    (old != new).then(|| Change {
-                        key: key.clone(),
-                        before: old.cloned(),
-                        after: new.cloned(),
-                    })
-                })
-                .collect();
-            let complete_read = accesses.reads.contains(name);
+            let (updated, result) = evaluated?;
+            if tx.is_busy() {
+                return Err(conflict("capture ended with an active SQLite statement"));
+            }
+            if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
+                return Err(conflict("transition changed a schema or table layout"));
+            }
+            let mut remaining = MAX_CAPTURE_BYTES;
+            let mut after = BTreeMap::new();
+            for name in accesses.reads.union(&accesses.writes) {
+                if local_table(name) {
+                    return Err(conflict(format!("transition depended on node-local table {name}")));
+                }
+                let Some(table) = tables.get(name) else {
+                    // Only objects already identified as SQLite metadata or
+                    // derived projections may be omitted. A new/unknown table
+                    // is never inferred to be a shadow table from its absence.
+                    if projections.contains(name) { continue; }
+                    return Err(conflict(format!("transition touched unknown table {name}")));
+                };
+                if table.key.is_empty() {
+                    return Err(conflict(format!("transition touched unkeyed table {name}")));
+                }
+                after.insert(name.clone(), image_with_budget(tx, table, &mut remaining)?);
+            }
+            // Authorizer hooks are prepare-time observations. Keep a separate
+            // scan for any actual write omitted by a cached/future helper. Raw
+            // cell types and local sequence bytes participate in this check.
+            for (name, original) in &before_fingerprints {
+                if !after.contains_key(name)
+                    && table_fingerprint(tx, &tables[name])? != *original
+                {
+                    return Err(conflict(format!("unobserved transition write to {name}")));
+                }
+            }
+            Ok((updated, result, after, accesses, remaining))
+        })();
+        // Even a refused/failed evaluation is rolled back before returning.
+        // Retain a rollback failure as storage failure, never as capacity.
+        tx.execute_batch("ROLLBACK TO canonical_row_evaluation; RELEASE canonical_row_evaluation")
+            .map_err(storage_error)?;
+        let (updated, result, after, accesses, mut capture_remaining) = captured?;
+        if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
+            return Err(invalid("rollback did not restore the captured schema"));
+        }
+        let mut transitions = Vec::new();
+        for (name, after) in after {
+            // This is the real preimage under the same IMMEDIATE transaction,
+            // after the one evaluation was undone. No callback, ID allocation
+            // or semantic clock observation is repeated to reconstruct it.
+            let mut original = image_with_budget(tx, &tables[&name], &mut capture_remaining)?;
+            let changes = row_changes(&original, after, &mut capture_remaining)?;
+            let complete_read = accesses.reads.contains(&name);
             if !complete_read {
                 original
                     .rows
@@ -655,16 +911,6 @@ impl Store {
                 changes,
             });
         }
-        // Detect writes that escaped the observed transaction body (for
-        // example a future helper using cached SQL). Never silently omit
-        // a changed base table from the frozen result.
-        for (name, original) in before {
-            if image(tx, &original.table)? != original {
-                return Err(conflict(format!("unobserved transition write to {name}")));
-            }
-        }
-        tx.execute_batch("ROLLBACK TO canonical_row_evaluation; RELEASE canonical_row_evaluation")
-            .map_err(storage_error)?;
         let object_roots = self.transition_object_roots(&transitions);
         let (_, missing) = self.collect_closure(&object_roots).map_err(storage_error)?;
         if !missing.is_empty() {
@@ -726,8 +972,7 @@ impl Store {
                 Ok((receipt.updated, ()))
             })?;
             let result_commit = transition.result_commit;
-            let bytes = serde_json::to_vec(&transition)?;
-            if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("read/write image exceeds 64 MiB admission budget")); }
+            let bytes = sealed_image_bytes(&transition)?;
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 1)?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
@@ -888,31 +1133,20 @@ impl Store {
     }
 
     fn transition_object_roots(&self, tables: &[TableTransition]) -> Vec<ObjectRef> {
-        let mut rows = Vec::new();
-        for transition in tables {
+        self.cognition_text_object_roots(tables.iter().flat_map(|transition| {
             let table = &transition.before.table;
-            for cells in transition.before.rows.values().chain(
+            transition.before.rows.values().chain(
                 transition
                     .changes
                     .iter()
                     .filter_map(|change| change.after.as_ref()),
-            ) {
-                rows.push(crate::cognition_archive::CognitionRow {
-                    table: table.name.clone(),
-                    key: String::new(),
-                    values: table
-                        .columns
-                        .iter()
-                        .zip(cells)
-                        .filter_map(|(name, cell)| match cell {
-                            Cell::Text(text) => Some((name.clone(), Some(text.clone()))),
-                            _ => None,
-                        })
-                        .collect(),
-                });
-            }
-        }
-        self.cognition_object_roots(&rows).0
+            ).flat_map(move |cells| {
+                table.columns.iter().zip(cells).filter_map(move |(name, cell)| match cell {
+                    Cell::Text(text) => Some((table.name.as_str(), name.as_str(), text.as_str())),
+                    _ => None,
+                })
+            })
+        })).0
     }
 
     pub(crate) fn read_step_transition(
@@ -1153,6 +1387,7 @@ fn apply_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Context;
 
     /// The capture-budget refusal is a capacity fact, not damage and not a
     /// disagreement about the decision. The caller recognizes it and keeps the
@@ -1167,7 +1402,144 @@ mod tests {
         assert!(matches!(error, ShenkoError::Conflict(_)));
         assert!(!capture_budget_refusal(&ShenkoError::conflict("another conflict")));
         assert!(!capture_budget_refusal(&ShenkoError::storage("disk damage")));
+        assert!(capture_budget_refusal(&ShenkoError::conflict(IMAGE_CAPTURE_REFUSAL)));
+        assert!(!capture_budget_refusal(&ShenkoError::conflict(format!("{ROW_CAPTURE_REFUSAL}: another cause"))));
+        assert!(!capture_budget_refusal(&ShenkoError::storage(IMAGE_CAPTURE_REFUSAL)));
         let mut remaining = MAX_CAPTURE_BYTES;
         assert!(charge_image(&mut remaining, 1).is_ok());
+    }
+
+    /// One row-engine journey: held cached SQL and FTS, an absent range, an
+    /// already stepped cursor, writes hidden from the observer, hidden DDL,
+    /// and a real expanding BLOB primary key. Public S1 below separately
+    /// exercises the real subject/authority path; this head is only the row
+    /// engine's carried metadata, not a claim of controller authority.
+    #[test]
+    fn capture_observes_cached_sql_and_refuses_unrepresented_state() -> anyhow::Result<()> {
+        use shenko_types::{ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration},
+            subject::{GenesisRef, SubjectMode}};
+        let dir = tempfile::tempdir()?;
+        let store = Store::open(dir.path().join("capture.db"), dir.path().join("cas"))?;
+        let head = SubjectBranchHead {
+            branch_origin: None, agent_id: EntityId::new(), branch_id: BranchId::new(),
+            subject_root_task_id: EntityId::new(), controller_epoch: ControllerEpoch(1),
+            software_generation: RuntimeGeneration::default(),
+            genesis_ref: GenesisRef { ledger_id: store.ledger.ledger_id(), genesis_id: EntityId::new() },
+            committed_step_no: 0, committed_step_id: None,
+            committed_at: CommitRef::new(store.ledger.ledger_id(), LedgerSeq(0)),
+            next_step_id: EntityId::new(), mode: SubjectMode::Active,
+            mode_reason_ref: None, record_revision: RecordRevision(0),
+        };
+        let input = || RowTransitionInput {
+            action_id: head.next_step_id, input_digest: Digest::blake3(b"row engine journey"), head: &head,
+        };
+        let mut conn = store.ledger.conn.lock();
+        conn.execute_batch("CREATE TABLE capture_rows(id INTEGER PRIMARY KEY,body TEXT,payload BLOB);
+            CREATE TABLE capture_absent(id INTEGER PRIMARY KEY);
+            CREATE VIRTUAL TABLE capture_search USING fts5(body,content='capture_rows',content_rowid='id');
+            CREATE TRIGGER capture_insert AFTER INSERT ON capture_rows BEGIN
+                INSERT INTO capture_search(rowid,body) VALUES(new.id,new.body); END;
+            CREATE TRIGGER capture_update AFTER UPDATE ON capture_rows BEGIN
+                INSERT INTO capture_search(capture_search,rowid,body) VALUES('delete',old.id,old.body);
+                INSERT INTO capture_search(rowid,body) VALUES(new.id,new.body); END;
+            INSERT INTO capture_rows VALUES(1,'before',X'00ff');
+            INSERT INTO subject_head_history VALUES('guard','row-agent','row-branch','{}',7);")?;
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            // Hold both cached statements across authorizer installation. A
+            // cache flush alone cannot observe these already checked-out SQLs.
+            let mut update = tx.prepare_cached("UPDATE capture_rows SET body=?1,payload=?2 WHERE id=1")?;
+            let mut absence = tx.prepare_cached("SELECT count(*) FROM capture_absent")?;
+            let mut evaluations = 0;
+            let (transition, (generated, original_commit, original_time)) = store.capture_row_transition(
+                &tx, input(), |commit, at| {
+                    evaluations += 1;
+                    let id = EntityId::new();
+                    let absent: i64 = absence.query_row([], |row| row.get(0)).map_err(storage_error)?;
+                    assert_eq!(absent, 0);
+                    update.execute(params![format!("captured {id} {at}"), [1u8, 2, 255].as_slice()])
+                        .map_err(storage_error)?;
+                    Ok((Vec::new(), (id, commit, at)))
+                })?;
+            drop(absence);
+            drop(update);
+            assert_eq!(evaluations, 1);
+            assert_eq!(transition.result_commit, original_commit);
+            assert_eq!(transition.created_at, original_time);
+            let untouched: (String, Vec<u8>) = tx.query_row(
+                "SELECT body,payload FROM capture_rows WHERE id=1", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            assert_eq!(untouched, ("before".into(), vec![0, 255]), "evaluation is rolled back before admission");
+            let absence = transition.tables.iter().find(|table| table.before.table.name == "capture_absent")
+                .context("a cached absent read must remain a complete range")?;
+            assert!(absence.complete_read && absence.before.rows.is_empty());
+            assert!(transition.tables.iter().any(|table| table.before.table.name == "capture_rows" && table.complete_read));
+            tx.execute("INSERT INTO capture_absent VALUES(8)", [])?;
+            assert!(matches!(transition.apply_rows(&tx, original_commit.seq), Err(ShenkoError::Conflict(_))),
+                "a newly present row fences the same frozen result");
+            assert_eq!(tx.query_row("SELECT body FROM capture_rows WHERE id=1", [], |row| row.get::<_, String>(0))?, "before");
+            tx.execute("DELETE FROM capture_absent WHERE id=8", [])?;
+            transition.apply_rows(&tx, original_commit.seq)?;
+            let applied: (String, Vec<u8>) = tx.query_row(
+                "SELECT body,payload FROM capture_rows WHERE id=1", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            assert_eq!(applied, (format!("captured {generated} {original_time}"), vec![1, 2, 255]));
+            assert_eq!(evaluations, 1, "application never evaluates the callback again");
+            assert_eq!(tx.query_row("SELECT count(*) FROM capture_search WHERE capture_search MATCH 'captured'", [], |row| row.get::<_, i64>(0))?, 1);
+            assert_eq!(tx.query_row("SELECT count(*) FROM capture_search WHERE capture_search MATCH 'before'", [], |row| row.get::<_, i64>(0))?, 0);
+        }
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let mut statement = tx.prepare("SELECT body FROM capture_rows")?;
+            let mut cursor = statement.query([])?;
+            assert!(cursor.next()?.is_some());
+            let mut evaluations = 0;
+            let result = store.capture_row_transition(&tx, input(), |_, _| {
+                evaluations += 1;
+                Ok((Vec::new(), ()))
+            });
+            assert!(matches!(result, Err(ShenkoError::Conflict(message)) if message.contains("began with an active SQLite statement")));
+            assert_eq!(evaluations, 0, "an active pre-observer cursor is not an observed read");
+        }
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = store.capture_row_transition(&tx, input(), |_, _| {
+                tx.execute("UPDATE capture_rows SET body='must roll back' WHERE id=1", []).map_err(storage_error)?;
+                // Deliberately remove the observer to test the independent
+                // physical guard, including a column that image() normalizes.
+                tx.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+                tx.execute("UPDATE subject_head_history SET received_commit_seq=8 WHERE snapshot_id='guard'", []).map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            });
+            assert!(matches!(result, Err(ShenkoError::Conflict(message)) if message.contains("unobserved transition write to subject_head_history")));
+            assert_eq!(tx.query_row("SELECT received_commit_seq FROM subject_head_history WHERE snapshot_id='guard'", [], |row| row.get::<_, i64>(0))?, 7);
+            assert_eq!(tx.query_row("SELECT body FROM capture_rows WHERE id=1", [], |row| row.get::<_, String>(0))?, "before");
+            assert_eq!(tx.query_row("SELECT count(*) FROM capture_search WHERE capture_search MATCH 'before'", [], |row| row.get::<_, i64>(0))?, 1);
+        }
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = store.capture_row_transition(&tx, input(), |_, _| {
+                tx.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+                tx.execute_batch("CREATE TABLE capture_surprise(id INTEGER PRIMARY KEY); INSERT INTO capture_surprise VALUES(1);")
+                    .map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            });
+            assert!(matches!(result, Err(ShenkoError::Conflict(message)) if message.contains("changed a schema or table layout")));
+            assert_eq!(tx.query_row("SELECT count(*) FROM sqlite_schema WHERE name='capture_surprise'", [], |row| row.get::<_, i64>(0))?, 0);
+        }
+        conn.execute_batch("CREATE TABLE capture_keys(id BLOB PRIMARY KEY,value INTEGER);
+            INSERT INTO capture_keys VALUES(zeroblob(48*1024*1024),1);")?;
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = store.capture_row_transition(&tx, input(), |_, _| {
+                tx.execute("UPDATE capture_keys SET value=2", []).map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            });
+            let error = result.err().context("expanded JSON key must exceed the remaining capture budget")?;
+            assert!(matches!(&error, ShenkoError::Conflict(message) if message == ROW_CAPTURE_REFUSAL));
+            assert!(capture_budget_refusal(&error));
+            assert_eq!(tx.query_row("SELECT value FROM capture_keys", [], |row| row.get::<_, i64>(0))?, 1);
+            assert_eq!(tx.query_row("SELECT count(*) FROM commit_log", [], |row| row.get::<_, i64>(0))?, 0);
+            assert_eq!(tx.query_row("SELECT count(*) FROM control_prepared_transitions", [], |row| row.get::<_, i64>(0))?, 0);
+        }
+        Ok(())
     }
 }

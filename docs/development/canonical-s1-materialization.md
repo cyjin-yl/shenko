@@ -21,6 +21,13 @@ insert-only tables, and exact typed cell changes. The current head and task/step
 read conditions are checked inside that same transaction. The savepoint is
 rolled back before the frozen value is admitted.
 
+The [capture capacity repair](canonical-capture-budget.md) retains touched
+postimages before that rollback and reads the real touched preimages afterward,
+under the same IMMEDIATE transaction. It evaluates the SQL body once. Independent
+streaming physical fingerprints still check every other base table for writes
+that the observer did not report; this removes full-database row copies, not
+full-database scanning.
+
 The source reserves its logical result `CommitRef` in a durable preparation
 row. That commit is preparation, not an S1 success. The sealed transition keeps
 the original action, S0/decision/result objects, resulting head and successor,
@@ -126,12 +133,14 @@ state remains durable reconciliation debt. Prepared values on superseded
 heads remain preserved facts, not executable work.
 
 Read-table images currently cover the full table range. Row capture charges
-owned cells/keys against 128 MiB before copying more SQLite values, and the
-sealed JSON image is bounded at 64 MiB. The source pre-capture shares one budget
-across all keyed tables; it does not first retain an unbounded database before
-checking the final payload. When that ceiling is reached the canonical path
-cannot freeze the transition, and this S1 attempts the ordinary original-plan
-admission instead. A separate fail-soft `store_capture_budget` report records
+owned before/after cells, expanded keys and duplicated change rows against one
+128 MiB budget. JSON size is measured through a bounded sink before allocating
+expanded keys or the at-most-64 MiB sealed image. Unrelated history contributes
+scan work but no retained row image. These are row-capture and serialized-image
+limits, not a bound on total SQLite, parser, CAS or process memory. If either
+specific ceiling is reached before preparation, the canonical path cannot
+freeze the transition and this S1 attempts the ordinary original-plan admission
+instead. A separate fail-soft `store_capture_budget` report records
 the observed refusal and intended fallback; only the later actual receipt can
 prove a commit. The report is not an admission or a persistence acknowledgement.
 Existing prepared values, bad seals and ordinary conflicts never take this

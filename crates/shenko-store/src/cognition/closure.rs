@@ -15,22 +15,32 @@ use crate::store::Store;
 
 impl Store {
     pub(crate) fn cognition_object_roots(&self, rows: &[CognitionRow]) -> (Vec<ObjectRef>, Vec<Digest>) {
+        self.cognition_text_object_roots(rows.iter().flat_map(|row| {
+            row.values.iter().filter_map(move |(name, value)| {
+                value.as_deref().map(|value| (row.table.as_str(), name.as_str(), value))
+            })
+        }))
+    }
+
+    /// The same reference semantics over borrowed SQL text. A canonical row
+    /// capture already owns its bounded cells; constructing a second complete
+    /// CognitionRow copy solely to discover their roots would duplicate them.
+    pub(crate) fn cognition_text_object_roots<'a>(
+        &self,
+        values: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+    ) -> (Vec<ObjectRef>, Vec<Digest>) {
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
-        for row in rows {
-            for (name, value) in &row.values {
-                if let Some(value) = value.as_deref() {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
-                        collect_references(&json, &mut roots, &mut external);
-                    } else if row.table == "context_notes" && name == "body" {
-                        // An authored note is free text. A body that is a
-                        // bare digest is read as a possible external
-                        // reference — a non-blocking reading, never a reason
-                        // to drop or rewrite the note's bytes.
-                        if let Some(digest) = parse_digest(value) {
-                            external.push(digest);
-                        }
-                    }
+        for (table, name, value) in values {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
+                collect_references(&json, &mut roots, &mut external);
+            } else if table == "context_notes" && name == "body" {
+                // An authored note is free text. A body that is a
+                // bare digest is read as a possible external
+                // reference — a non-blocking reading, never a reason
+                // to drop or rewrite the note's bytes.
+                if let Some(digest) = parse_digest(value) {
+                    external.push(digest);
                 }
             }
         }

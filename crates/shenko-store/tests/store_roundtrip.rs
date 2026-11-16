@@ -2700,6 +2700,113 @@ fn canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receip
     Ok(())
 }
 
+/// One real S1 sequence with the installed authority fixture: unrelated large
+/// history still permits a canonical result; the two actual capture ceilings
+/// retain the original decision through the existing ordinary admission path.
+/// The row-engine journey separately verifies rollback and observer failures.
+#[test]
+fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() -> Result<()> {
+    use shenko_types::{ids::EntityId, object::ObjectRef, subject::SubjectStepState};
+    let dir = tempfile::tempdir()?;
+    let source = Arc::new(Store::open(dir.path().join("head.db"), dir.path().join("cas"))?);
+    let agent = initialize_subject_in_with_route(&source, b"capacity journey", None)?;
+    let chosen = canonical_source(&source, agent, false)?;
+    let conn = rusqlite::Connection::open(dir.path().join("head.db"))?;
+    // This real table participates in the independent physical scan, but is
+    // never read or written by S1. Its bytes must not consume the row-copy cap.
+    conn.execute_batch("CREATE TABLE capacity_history(id INTEGER PRIMARY KEY,payload BLOB);
+        INSERT INTO capacity_history VALUES(1,zeroblob(129*1024*1024));")?;
+    let (head, first) = source.load_subject(agent)?;
+    let result = recorded_result(&source, &head, first)?;
+    let next = EntityId::new();
+    let step = committed_candidate(&source, result, next);
+    let receipt = source.commit_step_and_advance_head(&step, &head, next)?;
+    let grant = chosen.lock().clone().context("actual canonical admission")?;
+    let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
+    assert!(transition["tables"].as_array().context("canonical tables")?
+        .iter().all(|table| table["before"]["table"]["name"] != "capacity_history"));
+    let materialized: serde_json::Value = serde_json::from_str(&conn.query_row(
+        "SELECT data FROM control_materializations WHERE action_id=?1", [grant.admission.action_id.to_string()],
+        |row| row.get::<_, String>(0))?)?;
+    assert_eq!(materialized["committed_at"], serde_json::to_value(receipt.commit_ref)?);
+    assert_eq!(materialized["transition_ref"], serde_json::to_value(&reference)?);
+    let (advanced, successor) = source.load_subject(agent)?;
+    assert_eq!(advanced.next_step_id, next);
+    assert_eq!(advanced.committed_step_id, Some(step.step_id));
+    assert_eq!(materialized["logical_result"], serde_json::to_value(advanced.committed_at)?);
+    assert_eq!(successor.created_by_step_id, Some(step.step_id));
+    assert!(source.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(conn.query_row("SELECT length(payload) FROM capacity_history", [], |row| row.get::<_, i64>(0))?, 129*1024*1024);
+
+    // A real trigger gives S1 a read dependency on this extension without
+    // changing its decision or adding an effect. NUL text has a sixfold JSON
+    // representation; the retained-row limit and sealed-image limit are thus
+    // reached independently using the production constants, not reduced caps.
+    conn.execute_batch("CREATE TABLE capacity_extension(id INTEGER PRIMARY KEY,payload TEXT);
+        CREATE TRIGGER capacity_read AFTER UPDATE ON subject_branch_heads BEGIN
+            SELECT length(payload) FROM capacity_extension WHERE id=1; END;")?;
+    for (index, bytes, refusal) in [
+        (1usize, 65*1024*1024i64, "row capture exceeds 128 MiB memory budget"),
+        (2usize, 12*1024*1024i64, "read/write image exceeds 64 MiB admission budget"),
+    ] {
+        conn.execute("INSERT OR REPLACE INTO capacity_extension VALUES(1,CAST(zeroblob(?1) AS TEXT))", [bytes])?;
+        let (head, planned) = source.load_subject(agent)?;
+        let result = recorded_result(&source, &head, planned)?;
+        let next = EntityId::new();
+        let step = committed_candidate(&source, result, next);
+        let decision = step.decision_ref.as_ref().context("original decision")?;
+        let original_decision = source.cas.read_object(&decision.digest)?;
+        let receipt = source.commit_step_and_advance_head(&step, &head, next)?;
+        let grant = chosen.lock().clone().context("actual ordinary admission after capacity refusal")?;
+        let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+        assert!(envelope["action"].get("transition_ref").is_none(), "refusal does not fabricate a sealed canonical result");
+        assert_eq!(envelope["action"]["step"], serde_json::to_value(&step)?);
+        assert_eq!(envelope["action"]["expected_head"], serde_json::to_value(&head)?);
+        assert_eq!(envelope["action"]["next_step_id"], serde_json::to_value(next)?);
+        assert_eq!(source.cas.read_object(&decision.digest)?, original_decision);
+        let stored = source.get_step(&head.branch_id, step.step_id)?.context("committed original step")?;
+        let mut expected = step.clone();
+        expected.commit_ref = Some(receipt.commit_ref);
+        assert_eq!(serde_json::to_value(&stored)?, serde_json::to_value(&expected)?);
+        let (advanced, successor) = source.load_subject(agent)?;
+        assert_eq!(advanced.committed_at, receipt.commit_ref);
+        assert_eq!(advanced.committed_step_id, Some(step.step_id));
+        assert_eq!(advanced.next_step_id, next);
+        assert_eq!(successor.step_id, next);
+        assert_eq!(successor.created_by_step_id, Some(step.step_id));
+        assert_eq!(successor.state, SubjectStepState::Planned);
+        assert_eq!(conn.query_row("SELECT count(*) FROM subject_steps WHERE json_extract(data,'$.created_by_step_id')=?1",
+            [step.step_id.to_string()], |row| row.get::<_, i64>(0))?, 1, "rolled-back evaluation leaves no extra successor");
+        assert_eq!(conn.query_row("SELECT count(*) FROM subject_identity_receipts WHERE step_id=?1",
+            [step.step_id.to_string()], |row| row.get::<_, i64>(0))?, 1, "only the ordinary COMMIT publishes the result");
+        assert_eq!(conn.query_row("SELECT count(*) FROM control_prepared_transitions WHERE action_id=?1",
+            [grant.admission.action_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+        let applied: serde_json::Value = serde_json::from_str(&conn.query_row(
+            "SELECT data FROM control_materializations WHERE action_id=?1", [grant.admission.action_id.to_string()],
+            |row| row.get::<_, String>(0))?)?;
+        assert_eq!(applied["committed_at"], serde_json::to_value(receipt.commit_ref)?);
+        assert!(applied.get("transition_ref").is_none());
+        assert!(source.control_admission_applied_here(&grant.admission)?);
+        let reports = source.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?
+            .into_iter().filter(|event| event.event_type == "runtime_error")
+            .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
+            .collect::<serde_json::Result<Vec<_>>>()?.into_iter()
+            .filter(|event| event["kind"] == "store_capture_budget").collect::<Vec<_>>();
+        assert_eq!(reports.len(), index);
+        let report = reports.last().context("capacity refusal journal")?;
+        assert_eq!(report["step_no"], step.step_no);
+        let message = report["message"].as_str().context("original refusal message")?;
+        assert!(message.contains(refusal), "{message}");
+        assert!(message.contains("no commit yet confirmed"), "the report does not claim the later receipt");
+        assert_eq!(report["journal_dropped_total"], 0);
+        assert_eq!(conn.query_row("SELECT count(*) FROM operations", [], |row| row.get::<_, i64>(0))?, 0);
+        assert_eq!(conn.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 0);
+    }
+    Ok(())
+}
+
 
 struct NativeT2Fixture {
     dir: PathBuf,
