@@ -119,7 +119,7 @@ fn initialize_subject_in(store: &Store, bootstrap_event: &[u8]) -> shenko_types:
         created_commit: genesis_commit,
     };
 
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id,
         branch_id: branch_id.clone(),
         subject_root_task_id: EntityId::new(),
@@ -1290,6 +1290,10 @@ fn native_dispatch_is_once_per_attempt_across_steps_cancellation_and_reopen() {
     let results: Vec<_> = racers.into_iter().map(|racer| racer.join().unwrap()).collect();
     assert_eq!(results.iter().filter(|result| **result == Won).count(), 1);
     assert_eq!(results.iter().filter(|result| **result == AlreadyCommitted).count(), 1);
+    // A matching historical marker must not hide a different attempt epoch.
+    foreign.invocation_id = ctx.invocation_id;
+    foreign.epoch = ControllerEpoch(ctx.epoch.0 + 1);
+    assert!(store.commit_native_dispatch(&foreign, first.0, first.1).is_err());
     assert_eq!(store.commit_native_dispatch(&ctx, second.0, second.1).unwrap(), Won);
     // A send-boundary commit is not a fabricated provider acknowledgement.
     assert_eq!(store.external_attempt(first.1).unwrap().dispatch_stage, AttemptDispatchStage::Armed);
@@ -1334,7 +1338,7 @@ fn legacy_unattributed_dispatch_never_authorizes_another_attempt() {
 }
 
 #[test]
-fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() {
+fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() -> Result<()> {
     use shenko_types::{ids::*, task::*};
     let (dir, store, agent) = initialized_subject();
     let mut batch = WriteBatch::new();
@@ -1363,6 +1367,33 @@ fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() {
     assert_eq!(reopened.recover_native_tasks().unwrap(), 0);
     assert_eq!(reopened.external_task("00000000-0000-0000-0000-000000000001".parse().unwrap())
         .unwrap().record_revision, RecordRevision(5));
+
+    // The same cancellation also fences a still-running descendant. Recovery
+    // preserves its original checkpoint as parked cleanup instead of leaving
+    // it forever running or granting a fresh invocation under an inactive owner.
+    let mut child = recovery_task(&reopened, agent, 258, true);
+    child.owner = TaskOwner::Task { id: running.task_id };
+    child.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
+    let child_checkpoint = match &child.state {
+        TaskState::Running { checkpoint_ref, .. } => checkpoint_ref.clone(),
+        _ => unreachable!(),
+    };
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(child.clone());
+    reopened.commit(batch)?;
+    assert_eq!(reopened.recover_native_tasks()?, 1);
+    let cleaned = reopened.external_task(child.task_id)?;
+    assert_eq!(cleaned.state, TaskState::Pending { checkpoint_ref: child_checkpoint });
+    assert_eq!(cleaned.abort_request, child.abort_request);
+    assert_eq!(cleaned.task_revision, child.task_revision);
+    assert_eq!(cleaned.record_revision, child.record_revision.next());
+    assert!(matches!(cleaned.dispatch_eligibility, DispatchEligibility::Parked { .. }));
+    assert_eq!(reopened.external_task(running.task_id)?.abort_request, running.abort_request);
+    let before = reopened.current_commit_seq()?;
+    assert!(reopened.claim_native_task(child.task_id, child.implementation_ref, false)?.is_none());
+    assert_eq!(reopened.current_commit_seq()?, before);
+    assert_eq!(reopened.recover_native_tasks()?, 0);
+    Ok(())
 }
 
 #[test]
@@ -1873,22 +1904,30 @@ fn superseded_authority_is_settled_never_dispatched_instead_of_failing() -> Resu
     let intent_id = intent.intent_id;
     commit_publication_step(&store, agent, &intent)?;
 
-    // A real controller handoff advances the branch epoch; a reply authored by
-    // the previous epoch can never be sent by the new controller.
-    let (mut head, _) = store.load_subject(agent).unwrap();
+    // Model a completed controller handoff: head and registered successor
+    // advance together, while the already committed authoring step keeps its
+    // original epoch and can no longer authorize this reply.
+    let (mut head, mut successor) = store.load_subject(agent)?;
     head.controller_epoch = ControllerEpoch(head.controller_epoch.0 + 1);
     head.record_revision = head.record_revision.next();
-    rusqlite::Connection::open(dir.join("head.db"))
-        .unwrap()
-        .execute(
+    successor.controller_epoch = head.controller_epoch;
+    successor.record_revision = successor.record_revision.next();
+    let mut connection = rusqlite::Connection::open(dir.join("head.db"))?;
+    let transaction = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    transaction.execute(
             "UPDATE subject_branch_heads SET record_revision=?2,data=?3 WHERE agent_id=?1",
             rusqlite::params![
                 agent.to_string(),
                 head.record_revision.0 as i64,
-                serde_json::to_string(&head).unwrap()
+                serde_json::to_string(&head)?
             ],
-        )
-        .unwrap();
+        )?;
+    transaction.execute(
+        "UPDATE subject_steps SET record_revision=?2,data=?3 WHERE step_id=?1",
+        rusqlite::params![successor.step_id.to_string(), successor.record_revision.0 as i64,
+            serde_json::to_string(&successor)?],
+    )?;
+    transaction.commit()?;
 
     let armed = store
         .arm_publication(intent_id, &publication_dispatch())

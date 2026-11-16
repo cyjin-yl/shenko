@@ -131,7 +131,7 @@ fn installation() -> Installation {
         created_commit: CommitRef::new(ledger_id, LedgerSeq(0)),
     };
     let first_step_id = EntityId::new();
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id,
         branch_id: BranchId::new(),
         subject_root_task_id: EntityId::new(),

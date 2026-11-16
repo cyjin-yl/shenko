@@ -3,6 +3,11 @@
 //! Configures: journal_mode=WAL, synchronous=FULL, foreign_keys=ON
 pub mod migrations;
 pub mod store;
+pub mod authority;
+mod control_recovery;
+pub use control_recovery::{ControlRecoveryOutcome, CONTROL_RECONCILIATION_SOURCE};
+mod control_predecessor;
+pub use control_predecessor::ControlPredecessorEvidence;
 pub mod activation;
 pub mod cas;
 pub mod ledger;
@@ -24,6 +29,8 @@ pub mod runtime_boundary;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
+pub mod subject_branches;
+pub use subject_branches::SubjectBranchFork;
 pub mod cognitive_root;
 /// Durable reconciliation cases for unknown external effects — docs/specs/durable-state.md#spec-41-4 X11.
 pub mod reconcile;

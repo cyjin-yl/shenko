@@ -78,7 +78,7 @@ pub(crate) fn node_of(data_dir: &Path) -> Result<Node> {
 /// Only the adapter an import actually needs is recorded: importing a Skill
 /// never installs the MCP record, and importing a connection never installs
 /// the Skill record. Enabling stays a separate, explicit action.
-fn ensure_plugin(node: &mut Node, root: &Path, unit_id: &str) -> Result<()> {
+pub(crate) fn ensure_plugin(node: &mut Node, root: &Path, unit_id: &str) -> Result<()> {
     let current = plugin_package(unit_id)?.unit;
     if node
         .installed_unit_fact(unit_id)?

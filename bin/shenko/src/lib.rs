@@ -10,11 +10,15 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod node_sync;
+mod runtime_branches;
+mod runtime_authority;
+pub mod obelisk;
 mod compat;
 #[cfg(feature = "compat-poppy")]
 mod poppy;
 mod runtime_owner;
 mod context_policy;
+mod document_runtime;
 mod inference_runtime;
 mod tool_install;
 mod update_runtime;
@@ -144,6 +148,11 @@ pub enum Command {
     Compat {
         #[command(subcommand)]
         command: CompatCommand,
+    },
+    /// Optional external harness history archives and Obelisk research queries.
+    History {
+        #[command(subcommand)]
+        command: obelisk::HistoryCommand,
     },
     /// Inspect and manage the installed context strategies — docs/specs/context-policies.md#spec-12-3-1.
     Context {
@@ -933,6 +942,11 @@ async fn install_native_definitions(
     let _native_history_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
         .await?;
+    if let Some(handler) = document_runtime::configured_handler(Arc::clone(store))? {
+        supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await?;
+    }
     // Reachability is observed, not assumed: one bounded probe of a declared
     // endpoint with per-stage measured timings and no persistent state.
     let net_probe_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
@@ -1247,6 +1261,7 @@ async fn install_native_definitions(
     let native_child = supervisor
         .context()
         .try_service::<shenko_subject::NativeChildService>()?;
+    playground_state.with_native(Arc::clone(&native_child));
     handoff_participants.register_admission_barrier(Arc::new(update_runtime::NativeWorkers(
         Arc::clone(&native_child),
     )));
@@ -1367,9 +1382,28 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     } else {
         (None, data_dir)
     };
-    let runtime = tokio::runtime::Runtime::new()?;
-    let result = runtime.block_on(run(command, data_dir));
-    drop(runtime);
+    let mut command = command;
+    let result = loop {
+        let restart = runtime_authority::restart_command(&command);
+        let runtime = tokio::runtime::Runtime::new()?;
+        let result = runtime.block_on(run(command, data_dir.clone()));
+        let recovery = result.as_ref().err()
+            .is_some_and(runtime_authority::requires_reconstruction);
+        if recovery {
+            // Original blocking calls may still finish and append E1. Their
+            // canceled provider cannot admit another send, and the next
+            // source binding fences every control write across incarnations.
+            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+            if let Some(next) = restart {
+                tracing::warn!("reconstructing runtime from durable authority and branch facts");
+                command = next;
+                continue;
+            }
+        } else {
+            drop(runtime);
+        }
+        break result;
+    };
     drop(owner);
     result
 }
@@ -1410,6 +1444,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let _quota_strategy_plugin = supervisor
         .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
         .await?;
+    let mut active_authority = None;
     let result: Result<()> = async {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -1476,10 +1511,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _compat_plugins = compat::spawn_adapters(
                 &supervisor,
                 Arc::clone(&store),
-                discovery_node,
+                Arc::clone(&discovery_node),
                 &data_dir,
             )
             .await?;
+            let _obelisk_plugin = obelisk::spawn(&supervisor, Arc::clone(&store), discovery_node, &data_dir).await?;
             let view = supervisor.runtime.view();
             let contracts = supervisor.hooks.contracts();
             let binding = supervisor.hooks.binding();
@@ -1530,6 +1566,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         }
         Command::Context { command } => context_policy::command(&data_dir, command)?,
         Command::Compat { command } => compat::command(&data_dir, command).await?,
+        Command::History { command } => obelisk::command(&data_dir, command).await?,
         Command::Admin { command } => {
             create_data_directory_async(&data_dir).await?;
             let store =
@@ -1905,6 +1942,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             );
             // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
+            // Establish the actual branch before constructing any scoped
+            // registry or dispatch consumer, including model-free services.
+            let mut primary_fence = tokio::task::spawn_blocking({
+                let data_dir = data_dir.clone();
+                let store = Arc::clone(&store);
+                let cancel = cancel.clone();
+                move || node_sync::establish_primary(&data_dir, &store, &cancel)
+            }).await??;
+            let authority_runtime = runtime_authority::RuntimeAuthority::attach(
+                &data_dir, &store, cancel.clone())?;
+            active_authority = Some(authority_runtime.clone());
+            if authority_runtime.recover_before_consumers()? { primary_fence = None; }
+            authority_runtime.activate()?;
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
             // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
             store.start_subject_dispatcher()?;
@@ -1939,6 +1989,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &media,
             )
             .await?;
+            installed.playground_state.with_inbox(subject_inbox.sender());
             if let Some(path) = ssh_targets {
                 let ssh_node = node_sync::open_node(&data_dir, &store)?;
                 install_native_ssh(&supervisor, Arc::clone(&store), ssh_node, &path).await?;
@@ -2059,6 +2110,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &data_dir,
             )
             .await?;
+            let _obelisk_plugin = obelisk::spawn(&supervisor, Arc::clone(&store), Arc::clone(&cognition_node), &data_dir).await?;
             // Exact-version unit reads and authored unit writes are native
             // children on the same Cordis root: the subject can inspect what
             // it has and write down what it actually learned, with the
@@ -2178,7 +2230,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&store), data_dir.clone(), consumer_cancel.clone(),
             );
             if !model_profile.configured {
-                node_sync::observe(&data_dir, &store, runtime_instance, None)?;
+                node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
                 if napcat.is_some() {
                     tracing::warn!("NapCat not started without a subject model; durable bootstrap remains available");
                 }
@@ -2195,10 +2247,17 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state).await;
                 consumer_cancel.cancel();
                 match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
-                    Ok(result) => result??,
+                    Ok(Ok(Ok(()))) => {},
+                    Ok(Ok(Err(error))) => return Err(error),
+                    Ok(Err(error)) => return Err(error.into()),
                     Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
                 }
-                replication_task.await?;
+                if authority_runtime.recovery_required().is_some() {
+                    match tokio::time::timeout(std::time::Duration::from_secs(2), replication_task).await {
+                        Ok(joined) => joined?,
+                        Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
+                    }
+                } else { replication_task.await?; }
                 return runtime_result;
             }
 
@@ -3046,17 +3105,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let connector_stop = consumer_cancel.clone();
             tokio::spawn(async move { connector_stop.cancelled().await; connector_failure.cancel(); });
             let cancel_subject = cancel.clone();
-            // Verified consensus before the subject loop claims any domain
-            // authority: only a committed election claim fences the Primary
-            // observation. Without a reachable quorum the node opens an
-            // availability branch and starts without a primary claim.
-            let primary_fence = tokio::task::spawn_blocking({
-                let data_dir = data_dir.clone();
-                let store = Arc::clone(&store);
-                let cancel = cancel.clone();
-                move || node_sync::establish_primary(&data_dir, &store, &cancel)
-            })
-            .await??;
             let subject_driver = update_runtime::SubjectDriver::new(Arc::clone(&handoff_participants));
             let mut subject_task = tokio::spawn(async move {
                 let _subject_driver = subject_driver;
@@ -3127,17 +3175,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task)
                     .await
                 {
-                    Ok(Ok(result)) => result?,
+                    Ok(Ok(Ok(()))) => {},
+                    Ok(Ok(Err(error))) => {
+                        consumer_cancel.cancel();
+                        return Err(error.into());
+                    },
                     Ok(Err(error)) => return Err(error.into()),
                     Err(_) => {
                         consumer_cancel.cancel();
                         let (_, step) = store.load_subject(agent_id)?;
-                        anyhow::bail!(
+                        return Err(anyhow::anyhow!(
                             "shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
                             step.step_id,
                             step.state,
                             step.active_request_id
-                        );
+                        ));
                     }
                 }
             }
@@ -3145,10 +3197,17 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // consumers first. Their unfinished work remains queryable on reopen.
             consumer_cancel.cancel();
             match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
-                Ok(result) => result??,
+                Ok(Ok(Ok(()))) => {},
+                Ok(Ok(Err(error))) => return Err(error),
+                Ok(Err(error)) => return Err(error.into()),
                 Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
             }
-            replication_task.await?;
+            if authority_runtime.recovery_required().is_some() {
+                match tokio::time::timeout(std::time::Duration::from_secs(2), replication_task).await {
+                    Ok(joined) => joined?,
+                    Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
+                }
+            } else { replication_task.await?; }
             runtime_result?;
             info!("Shenko stopped");
         }
@@ -3156,8 +3215,31 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
     Ok(())
     }.await;
-    supervisor.stop().await?;
-    result
+    let rebuilding = active_authority.as_ref()
+        .is_some_and(|authority| authority.recovery_required().is_some())
+        || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);
+    let result = if rebuilding {
+        match tokio::time::timeout(std::time::Duration::from_secs(15), supervisor.stop()).await {
+            Ok(Ok(())) => {},
+            Ok(Err(error)) => tracing::warn!(error=%error, "authority teardown incomplete; original facts retained"),
+            Err(_) => tracing::warn!("authority teardown observation timed out; original admitted effects remain unresolved"),
+        }
+        result
+    } else {
+        match supervisor.stop().await {
+            Ok(()) => result,
+            Err(cleanup) => match result {
+                Ok(()) => Err(cleanup),
+                Err(error) => Err(error.context(format!("supervisor cleanup also failed: {cleanup}"))),
+            },
+        }
+    };
+    // Classify once, after cleanup can no longer replace a genuine storage
+    // failure with an earlier authority-recovery wrapper.
+    match active_authority {
+        Some(authority) => authority.finish_result(result),
+        None => result,
+    }
 }
 
 /// `shenko browser` — drive the native browser provider directly.
@@ -4765,7 +4847,7 @@ fn bootstrap_genesis(
     };
 
     let first_step_id = EntityId::new();
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id,
         branch_id: BranchId::new(),
         subject_root_task_id: EntityId::new(),
@@ -5309,7 +5391,7 @@ mod recovery_integration_tests {
         shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap()
     }
 
-    fn prepare_fixture_s0(
+    pub(super) fn prepare_fixture_s0(
         store: &Arc<shenko_store::store::Store>,
         head: &shenko_types::subject::SubjectBranchHead,
         step: &shenko_types::subject::SubjectStep,
@@ -5329,7 +5411,7 @@ mod recovery_integration_tests {
         let profile = shenko_types::object::Digest::blake3(b"native-recovery-fixture");
         ledger.rebind_model(1, &profile.0).unwrap();
         let window = ledger.current().unwrap();
-        let leaf_seq = store.session_leaf_seq(scope).unwrap()
+        let leaf_seq = store.branch_history_leaf_seq(scope).unwrap()
             .map(|seq| u64::try_from(seq).unwrap());
         let input = serde_json::json!({
             "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",

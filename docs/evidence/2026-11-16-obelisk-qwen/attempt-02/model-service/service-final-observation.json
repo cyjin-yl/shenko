@@ -1,0 +1,15 @@
+{
+  "observed_at_utc": "2026-11-15T17:52:09.660486+00:00",
+  "recorded_model_pid": 48637,
+  "process_exists": false,
+  "port_18831_listen": false,
+  "exit_code": "unavailable; original detached launcher did not retain wait status",
+  "cause": "unknown",
+  "dmesg_observation": "read kernel buffer failed: Operation not permitted",
+  "cgroup_memory_events_exposed": false,
+  "cgroup_memory_max_exposed": false,
+  "model_log_end": "last observed lines report successful slot release; no termination diagnostic",
+  "memory": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       3.5Gi       152Mi       968Ki       4.4Gi       4.3Gi\nSwap:             0B          0B          0B\n",
+  "no_operator_stop_sent_during_round2": true,
+  "runner_already_completed_naturally_before_operator_stop_instruction": true
+}

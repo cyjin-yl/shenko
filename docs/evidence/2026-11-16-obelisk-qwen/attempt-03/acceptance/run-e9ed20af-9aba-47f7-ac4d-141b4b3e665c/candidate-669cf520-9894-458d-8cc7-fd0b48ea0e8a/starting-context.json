@@ -1,0 +1,51 @@
+{
+  "capabilities": {
+    "binding": {
+      "allow_invalid_certs": false,
+      "base_url": "http://127.0.0.1:18835",
+      "default_max_tokens": 8192,
+      "kind": "local",
+      "model": "Qwen3-4B-Q4_K_M",
+      "serializer_revision": 3
+    },
+    "max_context_tokens": 16384,
+    "vision": null
+  },
+  "context_limit_basis": "explicit verified deployment input, not inferred from model name",
+  "profile_digest": "blake3:f20f3e14bdffd248b63de79aaa8f90322a85d3e5e92a4ab9a0186992b199c956",
+  "window": {
+    "base": {
+      "leaf_seq": 0,
+      "model_generation": 0,
+      "policy_epoch": 0,
+      "source_window": "9461b337-44e9-4e7a-8fcc-d09d60a8c986"
+    },
+    "body_version": 4,
+    "call_states": {},
+    "cost": {
+      "frame_pixels": 0,
+      "frames": 0,
+      "image_bytes": 0,
+      "kv_accounting": "",
+      "model_calls": 0,
+      "open_calls": 0,
+      "raw_events_covered": 0,
+      "recompute_tokens": 0,
+      "render_micros": 0,
+      "reusable_prefix_tokens": 0,
+      "source_tokens": 0,
+      "truncated_chars": 0,
+      "unrenderable_chars": 0,
+      "vision_tokens_estimate": 0,
+      "window_tokens": 0
+    },
+    "covers_through": null,
+    "derivatives": [],
+    "entries": [],
+    "generation": 1,
+    "id": "915fbae6-9dfb-4192-9ea7-13b33401674a",
+    "model_generation": 1,
+    "policy_id": null,
+    "policy_version": null
+  }
+}

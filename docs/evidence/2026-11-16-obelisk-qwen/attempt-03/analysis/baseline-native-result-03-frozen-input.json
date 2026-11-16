@@ -1,0 +1,1 @@
+{"schema_version":1,"session_id":"f61d48a5-90fd-4265-8caa-de1ba1456832","query":{"op":"list","filter":{"from_seq":0,"to_seq":9223372036854775807,"limit":20,"event_types":["issue","patch"],"roles":[]}}}

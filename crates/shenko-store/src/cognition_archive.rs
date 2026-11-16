@@ -45,8 +45,11 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// be a silent loss of the subject's attitudes, so the schema is bumped
 /// instead of smuggling them in as optional rows. A schema-5 receiver rejects
 /// this archive at the version gate, and a current reader still admits
-/// schemas 2..=6 after the full closure/membership admission below.
-pub const ARCHIVE_SCHEMA: u32 = 6;
+/// schemas 2..=7 after the full closure/membership admission below.
+/// Schema 7 binds real subject forks to immutable parent heads, the exact raw
+/// history prefix and the retained notebook revision. Older readers must reject
+/// this lineage rather than recover a child without the history it inherited.
+pub const ARCHIVE_SCHEMA: u32 = 7;
 
 /// One replicated table row.
 ///

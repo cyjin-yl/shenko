@@ -13,6 +13,11 @@ path = "src/main.rs"
 name = "shenko"
 path = "src/lib.rs"
 
+[[example]]
+name = "obelisk_native_receipt"
+path = "examples/obelisk_native_receipt.rs"
+required-features = ["compat-mcp"]
+
 [features]
 default = ["compat-mcp", "compat-skill"]
 compat-mcp = ["dep:shenko-compat-mcp"]
@@ -57,6 +62,7 @@ shenko-wasm = { path = "../../crates/shenko-wasm" }
 shenko-channel-napcat = { path = "../../crates/shenko-channel-napcat" }
 shenko-channel-adapters = { path = "../../crates/shenko-channel-adapters" }
 shenko-media = { path = "../../crates/shenko-media" }
+shenko-document = { path = "../../crates/shenko-document" }
 base64 = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
@@ -73,6 +79,7 @@ dirs-next = "2"
 libc = "0.2"
 
 [dev-dependencies]
+rusqlite = { workspace = true }
 russh = { workspace = true }
 async-trait = { workspace = true }
 x11rb = { workspace = true }

@@ -15,6 +15,7 @@ pub struct Ledger {
     incarnation: EntityId,
     ledger_id: EntityId,
     mutation_open: Mutex<bool>,
+    pub(crate) authority: crate::authority::AuthorityRuntime,
 }
 
 impl Ledger {
@@ -49,6 +50,7 @@ impl Ledger {
             incarnation,
             ledger_id,
             mutation_open: Mutex::new(true),
+            authority: crate::authority::AuthorityRuntime::default(),
         })
     }
 
@@ -107,7 +109,8 @@ impl Ledger {
             // A contradiction inside the caller's own facts is not storage
             // damage: the single writer stays usable so the caller can record
             // the correct fact instead of reopening the ledger.
-            |error| !crate::receipt_admission::is_key_conflict(error),
+            |error| !crate::receipt_admission::is_key_conflict(error)
+                && !shenko_types::authority::is_authority_fenced(error),
         )
     }
 
@@ -154,6 +157,35 @@ impl Ledger {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let bound: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM commit_authority_policy)", [], |row| row.get(0))
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if bound {
+            // Generic ingestion preserves immutable replay and independent
+            // terminal facts. It cannot bypass the dedicated quorum-bound
+            // claim/T1/T2 transitions, even when a local source is attached.
+            let identical = |table: &str, column: &str, id: EntityId, value: serde_json::Value| -> Result<Option<bool>, ShenkoError> {
+                let raw: Option<String> = tx.query_row(&format!("SELECT data FROM {table} WHERE {column}=?1"),
+                    [id.to_string()], |row| row.get(0)).optional().map_err(crate::store::storage_error)?;
+                raw.map(|raw| Ok(serde_json::from_str::<serde_json::Value>(&raw)? == value)).transpose()
+            };
+            for task in &batch.task_upserts {
+                let existing = identical("tasks", "task_id", task.task_id, serde_json::to_value(task)?)?;
+                if existing != Some(true) && !(existing.is_none() && task.is_terminal()) {
+                    return Err(shenko_types::authority::authority_fenced(
+                        "task control requires its dedicated ordered Store boundary"));
+                }
+            }
+            for operation in &batch.operation_upserts {
+                if matches!(operation.state, shenko_types::operation::OperationState::Prepared | shenko_types::operation::OperationState::InFlight)
+                    && identical("operations", "operation_id", operation.operation_id, serde_json::to_value(operation)?)? != Some(true)
+                { return Err(shenko_types::authority::authority_fenced("new effects require the original operation admission boundary")); }
+            }
+            for attempt in &batch.attempt_upserts {
+                if attempt.dispatch_stage == shenko_types::operation::AttemptDispatchStage::Armed
+                    && identical("attempts", "attempt_id", attempt.attempt_id, serde_json::to_value(attempt)?)? != Some(true)
+                { return Err(shenko_types::authority::authority_fenced("armed attempts require the original operation admission boundary")); }
+            }
+        }
         let seq = self.allocate_seq(&tx)?;
         let commit_ref = CommitRef::new(self.ledger_id, seq);
         let mut updated = vec![];
@@ -530,6 +562,8 @@ impl Ledger {
     pub(crate) fn close_writer(&self) {
         *self.mutation_open.lock() = false;
     }
+
+    pub fn writer_is_open(&self) -> bool { *self.mutation_open.lock() }
 
     pub fn ledger_id(&self) -> EntityId {
         self.ledger_id

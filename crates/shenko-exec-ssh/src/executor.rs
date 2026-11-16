@@ -458,7 +458,6 @@ impl Drop for ProcessGroupGuard {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     struct Scratch(PathBuf);
     impl Scratch {
@@ -480,11 +479,12 @@ mod tests {
         let scratch = Scratch::new();
         let script = scratch.0.join("ssh-fixture");
         let args_file = scratch.0.join("args");
-        std::fs::write(&script, format!(
-            "#!/bin/sh\nprintf '%s\\0' \"$@\" > '{}'\nprintf 'partial output'\nprintf 'connection lost\\n' >&2\nexit 255\n",
-            args_file.display()
-        )).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // A checked-in executable has no transient writer to inherit when
+        // another test forks; a newly written executable can fail with ETXTBSY.
+        // The symlink retains per-test argv output without copying its inode.
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/ssh-argv-fixture.sh");
+        std::os::unix::fs::symlink(fixture, &script).unwrap();
         let mut target = SshTarget {
             host: "fixture.invalid".into(),
             port: 2222,

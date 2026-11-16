@@ -485,7 +485,7 @@ impl Node {
             // decision; the committed primary is published beside it.
             "is_election": false,
             "election_provider": "durable_member_configuration_quorum_v1",
-            "global_quorum": claim.is_some(),
+            "global_quorum": self.fencing_token()?.is_some(),
             "primary_claim": claim,
             "member_configuration": self.member_configuration()?,
             "quorum_basis": "committed_member_configuration",

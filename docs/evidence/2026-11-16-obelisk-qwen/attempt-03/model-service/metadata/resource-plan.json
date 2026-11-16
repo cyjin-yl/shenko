@@ -1,0 +1,20 @@
+{
+  "observed_at_utc": "2026-11-15T17:53:49.891940+00:00",
+  "initial_memory": {
+    "MemTotal_kib": 8113128,
+    "MemAvailable_kib": 4292224,
+    "SwapTotal_kib": 0,
+    "SwapFree_kib": 0
+  },
+  "weights_bytes": 2497280256,
+  "q8_0_kv_estimate_bytes": 1283457024,
+  "other_and_cache_reserve_bytes": 469762048,
+  "estimated_total_bytes": 4250499328,
+  "available_bytes": 4395237376,
+  "max_observed_rss_before_owned_termination_kib": 4194304,
+  "min_available_before_owned_termination_kib": 131072,
+  "prior_1_7b_pid_absent": true,
+  "automatic_restart": false,
+  "cache_ram_mib": 64,
+  "repack": false
+}

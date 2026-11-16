@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "status": "provisional_live_observation",
+  "observed_at_utc": "2026-11-15T18:10:11.682106+00:00",
+  "scope": "read-only known task files, known owned process IDs, and health GET; no completion or process mutation",
+  "task_root": "/workspace/shenko-obelisk-qwen4b-20261116",
+  "metadata": {
+    "server-exit.json": {
+      "exists": false
+    },
+    "resource-stop.json": {
+      "exists": false
+    },
+    "owned-process.json": {
+      "exists": true,
+      "sha256": "3d3e59bd19c102d226e3f1d9850cae86d0a697fce851e85717b46648a460a398",
+      "bytes": 227,
+      "content": {
+        "supervisor_pid": 49308,
+        "server_pid": 49309,
+        "started_at_utc": "2026-11-15T17:53:49.892872+00:00",
+        "start_script_sha256": "981b99c1b54e1dc1dcff5a8fbb7cebdd66904c0f851e588a7c0bea890146778c",
+        "auto_restart": false
+      }
+    }
+  },
+  "logs": {
+    "resources.jsonl": {
+      "exists": true,
+      "tail_lines_requested": 3,
+      "tail": "{\"utc\": \"2026-11-15T18:10:06.362371+00:00\", \"pid\": 49309, \"rss_kib\": 3471092, \"MemTotal_kib\": 8113128, \"MemAvailable_kib\": 2343468, \"SwapTotal_kib\": 0, \"SwapFree_kib\": 0}\n{\"utc\": \"2026-11-15T18:10:08.363168+00:00\", \"pid\": 49309, \"rss_kib\": 3471092, \"MemTotal_kib\": 8113128, \"MemAvailable_kib\": 2341564, \"SwapTotal_kib\": 0, \"SwapFree_kib\": 0}\n{\"utc\": \"2026-11-15T18:10:10.363835+00:00\", \"pid\": 49309, \"rss_kib\": 3471092, \"MemTotal_kib\": 8113128, \"MemAvailable_kib\": 2331112, \"SwapTotal_kib\": 0, \"SwapFree_kib\": 0}\n",
+      "bytes": 83957
+    },
+    "server.log": {
+      "exists": true,
+      "tail_lines_requested": 60,
+      "tail": "\tdry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64\n\ttop_k = 20, top_p = 0.800, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.700\n\tmirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900\n10.59.734.923 I slot launch_slot_: id  0 | task 99 | processing task, is_child = 0\n10.59.734.953 I slot   operator(): id  0 | task 99 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 2377\n10.59.734.975 I slot   operator(): id  0 | task 99 | cached n_tokens = 1458, memory_seq_rm [1458, end)\n11.26.940.935 I slot print_timing: id  0 | task 99 | prompt processing, n_tokens =    512, progress = 0.83, t =  27.21 s / 18.82 tokens per second\n11.26.940.941 I slot   operator(): id  0 | task 99 | cached n_tokens = 1970, memory_seq_rm [1970, end)\n11.26.941.380 I slot init_sampler: id  0 | task 99 | init sampler, took 0.41 ms, tokens: text = 2377, total = 2377\n12.07.314.678 I slot print_timing: id  0 | task 99 | prompt eval time =   53561.46 ms /   919 tokens (   58.28 ms per token,    17.16 tokens per second)\n12.07.314.808 I slot print_timing: id  0 | task 99 |        eval time =   14018.24 ms /    38 tokens (  378.87 ms per token,     2.64 tokens per second)\n12.07.314.809 I slot print_timing: id  0 | task 99 |       total time =   67579.70 ms /   957 tokens\n12.07.315.011 I slot print_timing: id  0 | task 99 |    graphs reused =        135\n12.07.315.012 I slot print_timing: id  0 | task 99 |   graph reallocs =          0    /     0        (same size) / (changed size)\n12.07.315.264 I slot      release: id  0 | task 99 | stop processing: n_tokens = 2414, truncated = 0\n12.07.315.472 I srv  update_slots: all slots are idle\n12.13.844.369 I srv  server_strea: conv_id= (empty=1)\n12.13.849.235 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.917 (2373/2588) > 0.100\n12.13.849.242 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.917 (> 0.100 thold), f_keep = 0.983\n12.13.849.368 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> temp-ext -> dist \n12.13.849.376 I slot launch_slot_: id  0 | task -1 | sampler params: \n\trepeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 1.500\n\tdry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64\n\ttop_k = 20, top_p = 0.800, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.700\n\tmirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900\n12.13.849.377 I slot launch_slot_: id  0 | task 139 | processing task, is_child = 0\n12.13.849.384 I slot   operator(): id  0 | task 139 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 2588\n12.13.849.390 I slot   operator(): id  0 | task 139 | cached n_tokens = 2373, memory_seq_rm [2373, end)\n12.13.849.877 I slot init_sampler: id  0 | task 139 | init sampler, took 0.46 ms, tokens: text = 2588, total = 2588\n12.33.878.924 I slot print_timing: id  0 | task 139 | prompt eval time =   15028.90 ms /   215 tokens (   69.90 ms per token,    14.31 tokens per second)\n12.33.878.934 I slot print_timing: id  0 | task 139 |        eval time =    5000.62 ms /    38 tokens (  135.15 ms per token,     7.40 tokens per second)\n12.33.878.935 I slot print_timing: id  0 | task 139 |       total time =   20029.52 ms /   253 tokens\n12.33.878.936 I slot print_timing: id  0 | task 139 |    graphs reused =        171\n12.33.878.937 I slot print_timing: id  0 | task 139 |   graph reallocs =          0    /     0        (same size) / (changed size)\n12.33.880.856 I slot      release: id  0 | task 139 | stop processing: n_tokens = 2625, truncated = 0\n12.33.880.898 I srv  update_slots: all slots are idle\n12.41.396.070 I srv  server_strea: conv_id= (empty=1)\n12.41.401.406 I slot get_availabl: id  0 | task -1 |  - checking sim = 0.506 (2528/4995) > 0.100\n12.41.401.420 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.506 (> 0.100 thold), f_keep = 0.963\n12.41.401.535 I slot launch_slot_: id  0 | task -1 | sampler chain: logits -> penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> ?min-p -> ?xtc -> temp-ext -> dist \n12.41.401.544 I slot launch_slot_: id  0 | task -1 | sampler params: \n\trepeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 1.500\n\tdry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64\n\ttop_k = 20, top_p = 0.800, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.700\n\tmirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900\n12.41.401.572 I slot launch_slot_: id  0 | task 178 | processing task, is_child = 0\n12.41.401.584 I slot   operator(): id  0 | task 178 | new prompt, n_ctx_slot = 16384, n_keep = 0, task.n_tokens = 4995\n12.41.401.593 I slot   operator(): id  0 | task 178 | cached n_tokens = 2528, memory_seq_rm [2528, end)\n13.11.462.537 I slot print_timing: id  0 | task 178 | prompt processing, n_tokens =    512, progress = 0.61, t =  30.06 s / 17.03 tokens per second\n13.11.462.542 I slot   operator(): id  0 | task 178 | cached n_tokens = 3040, memory_seq_rm [3040, end)\n13.46.698.899 I slot print_timing: id  0 | task 178 | prompt processing, n_tokens =   1024, progress = 0.71, t =  65.30 s / 15.68 tokens per second\n13.46.698.958 I slot   operator(): id  0 | task 178 | cached n_tokens = 3552, memory_seq_rm [3552, end)\n14.25.959.708 I slot print_timing: id  0 | task 178 | prompt processing, n_tokens =   1536, progress = 0.81, t = 104.56 s / 14.69 tokens per second\n14.25.959.771 I slot   operator(): id  0 | task 178 | cached n_tokens = 4064, memory_seq_rm [4064, end)\n15.09.368.642 I slot print_timing: id  0 | task 178 | prompt processing, n_tokens =   2048, progress = 0.92, t = 147.97 s / 13.84 tokens per second\n15.09.368.650 I slot   operator(): id  0 | task 178 | cached n_tokens = 4576, memory_seq_rm [4576, end)\n15.09.369.483 I slot init_sampler: id  0 | task 178 | init sampler, took 0.80 ms, tokens: text = 4995, total = 4995\n15.36.427.178 W srv          stop: cancel task, id_task = 178\n15.49.297.736 I slot      release: id  0 | task 178 | stop processing: n_tokens = 4995, truncated = 0\n15.49.297.824 I srv  update_slots: all slots are idle\n",
+      "bytes": 36456
+    }
+  },
+  "processes": {
+    "49308": {
+      "exists": true,
+      "matches_task_path": false,
+      "note": "command line not emitted because it does not identify this task"
+    },
+    "49309": {
+      "exists": true,
+      "matches_task_path": true,
+      "cmdline": [
+        "/workspace/shenko-obelisk-qwen4b-20261116/server/llama-b12359/llama-server",
+        "--model",
+        "/workspace/shenko-obelisk-qwen4b-20261116/downloads/Qwen3-4B-Q4_K_M.gguf",
+        "--alias",
+        "Qwen3-4B-Q4_K_M",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "18834",
+        "--offline",
+        "--no-webui",
+        "--threads",
+        "4",
+        "--threads-batch",
+        "4",
+        "--threads-http",
+        "2",
+        "--ctx-size",
+        "16384",
+        "--parallel",
+        "1",
+        "--batch-size",
+        "512",
+        "--ubatch-size",
+        "128",
+        "--n-gpu-layers",
+        "0",
+        "--flash-attn",
+        "on",
+        "--cache-type-k",
+        "q8_0",
+        "--cache-type-v",
+        "q8_0",
+        "--cache-ram",
+        "64",
+        "--no-repack",
+        "--jinja",
+        "--chat-template-kwargs",
+        "{\"enable_thinking\":false}",
+        "--reasoning",
+        "off",
+        "--n-predict",
+        "1024",
+        "--no-context-shift",
+        "--temp",
+        "0.7",
+        "--top-p",
+        "0.8",
+        "--top-k",
+        "20",
+        "--min-p",
+        "0",
+        "--presence-penalty",
+        "1.5",
+        "--timeout",
+        "600",
+        "--log-timestamps",
+        "--log-colors",
+        "off",
+        "--verbosity",
+        "4"
+      ],
+      "status_lines": [
+        "Name:\tllama-server",
+        "State:\tS (sleeping)",
+        "PPid:\t49308",
+        "VmRSS:\t 3435492 kB",
+        "VmSwap:\t       0 kB",
+        "Threads:\t10"
+      ]
+    }
+  },
+  "health": {
+    "url": "http://127.0.0.1:18834/health",
+    "http_status": 200,
+    "body": "{\"status\":\"ok\"}"
+  },
+  "observer": "/root/merge_obelisk_301",
+  "interpretation": {
+    "confirmed": "Known owned server was alive, healthy and idle after cancellation at observation time; exit and resource-stop records were absent.",
+    "log_observation": "Task 178 had a 4995-token prompt with 2528 tokens cached; 2048 additional prompt tokens took 147.97 seconds before a cancellation and idle-slot release.",
+    "limit": "This read-only snapshot does not identify the exact actor that cancelled the request, and does not prove any unobserved service history. The 175-second wire timeout is recorded separately.",
+    "supervisor_identity": "PID 49308 existed and the validated owned server reported PPid 49308. Its command line was not emitted because it lacked the task path."
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "domains": [],
+  "local_admission_closed": true,
+  "local_provider_readers_drained": true,
+  "remote_termination_claimed": false,
+  "requests": [],
+  "schema_version": 1
+}

@@ -1,0 +1,9 @@
+{
+  "prompt_tokens": 4995,
+  "requested_max_tokens": 4096,
+  "configured_context": 16384,
+  "prompt_plus_max_tokens": 9091,
+  "fits": true,
+  "source": "real server /apply-template followed by /tokenize; no inference performed",
+  "request_sha256": "c577928b0ea2efbd7b6256da8eb47c506de26b67a4c49eb73e691e0cdbee37e3"
+}

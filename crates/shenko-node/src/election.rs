@@ -51,7 +51,7 @@ CREATE TABLE node_control_log_conflicts(seq INTEGER PRIMARY KEY AUTOINCREMENT,co
 
 /// Wire schema of the election control plane. Independent of the closure
 /// replication framing: a vote is a control fact, not a memory transfer.
-pub const ELECTION_WIRE_SCHEMA: u32 = 1;
+pub const ELECTION_WIRE_SCHEMA: u32 = 3;
 
 /// One voting identity. Replicating the same identity does not add a vote.
 pub type VoterId = EntityId;
@@ -153,6 +153,7 @@ pub enum ElectionRole {
 pub enum ControlKind {
     Primary,
     MemberConfiguration,
+    Admission,
 }
 
 /// The committed primary of a domain. Read by the upgrade/selector path and
@@ -212,10 +213,20 @@ pub struct ConfigurationEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ControlEntry {
+    #[serde(default = "legacy_control_schema")]
+    pub schema: u32,
     pub index: u64,
     pub term: u64,
     pub kind: ControlKind,
     pub payload: Value,
+    /// Absent only for retained legacy history and an uncommitted offer.
+    /// Election vote certificates do not populate this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub durability: Option<crate::DurableControlCommit>,
+}
+
+fn legacy_control_schema() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -262,6 +273,7 @@ pub struct VoteRequest {
     pub config_digest: Digest,
     pub last_log_index: u64,
     pub last_log_term: u64,
+    pub prefix_digest: Digest,
     pub proposal: Option<MemberProposal>,
 }
 
@@ -276,6 +288,8 @@ pub struct VoteResponse {
     pub config_digest: Digest,
     pub proposal_digest: Option<Digest>,
     pub reason: String,
+    pub committed: crate::ControlFrontier,
+    pub accepted_control: Option<crate::AcceptedControl>,
 }
 
 /// Leader → follower log replication, including the committed quorum
@@ -403,6 +417,19 @@ pub struct ExperienceCounts {
     pub receipts: u64,
 }
 
+/// The exact local control facts under which this holder opened a partition
+/// branch. This is neither a quorum claim nor a lease; observing another term,
+/// configuration or usable fence ends this authority without erasing history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AvailabilityAuthority {
+    pub holder_node_id: VoterId,
+    pub opening_term: u64,
+    pub configuration_revision: Option<u64>,
+    pub configuration_digest: Option<Digest>,
+    pub fence: Option<FencingToken>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BranchFact {
@@ -412,6 +439,10 @@ pub struct BranchFact {
     pub reason: String,
     /// An availability branch is never a global quorum claim.
     pub global_quorum: bool,
+    /// Older facts remain readable, but absent origin facts confer no current
+    /// availability authority. A fresh opening records these under one lock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability_authority: Option<AvailabilityAuthority>,
     pub retained_experience: ExperienceCounts,
     pub opened_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -584,13 +615,11 @@ fn proposal_digest(proposal: &MemberProposal) -> Result<Digest> {
     Ok(Digest::blake3(&serde_json::to_vec(&payload)?))
 }
 
-fn state_number(conn: &Connection, key: &str) -> Result<u64> {
+pub(crate) fn state_number(conn: &Connection, key: &str) -> Result<u64> {
     let raw: Option<String> = conn
-        .query_row(
-            "SELECT v FROM node_election_state WHERE k=?1",
-            [key],
-            |r| r.get(0),
-        )
+        .query_row("SELECT v FROM node_election_state WHERE k=?1", [key], |r| {
+            r.get(0)
+        })
         .optional()?;
     match raw {
         // The state table stores JSON, so a numeric state is a JSON string of
@@ -601,7 +630,7 @@ fn state_number(conn: &Connection, key: &str) -> Result<u64> {
     }
 }
 
-fn set_state<T: Serialize>(tx: &Transaction<'_>, key: &str, value: &T) -> Result<()> {
+pub(crate) fn set_state<T: Serialize>(tx: &Transaction<'_>, key: &str, value: &T) -> Result<()> {
     tx.execute(
         "INSERT INTO node_election_state(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
         params![key, text(value)?],
@@ -609,25 +638,61 @@ fn set_state<T: Serialize>(tx: &Transaction<'_>, key: &str, value: &T) -> Result
     Ok(())
 }
 
-pub(crate) fn get_state<T: for<'a> Deserialize<'a>>(conn: &Connection, key: &str) -> Result<Option<T>> {
+pub(crate) fn get_state<T: for<'a> Deserialize<'a>>(
+    conn: &Connection,
+    key: &str,
+) -> Result<Option<T>> {
     let raw: Option<String> = conn
-        .query_row(
-            "SELECT v FROM node_election_state WHERE k=?1",
-            [key],
-            |r| r.get(0),
-        )
+        .query_row("SELECT v FROM node_election_state WHERE k=?1", [key], |r| {
+            r.get(0)
+        })
         .optional()?;
     raw.map(|value| serde_json::from_str(&value).map_err(anyhow::Error::from))
         .transpose()
 }
 
 fn sorted_unique(values: &[VoterId]) -> Vec<VoterId> {
-    let mut set: BTreeSet<VoterId> = values.iter().copied().collect();
+    let set: BTreeSet<VoterId> = values.iter().copied().collect();
     set.into_iter().collect()
 }
 
+fn verify_member_set(members: &[VoterId]) -> Result<()> {
+    ensure!(!members.is_empty(), "a member set cannot be empty");
+    ensure!(
+        sorted_unique(members) == members,
+        "a member set must contain sorted, distinct voting identities"
+    );
+    Ok(())
+}
+
+fn verify_proposal(config: &MemberConfiguration, proposal: &MemberProposal) -> Result<()> {
+    ensure!(
+        proposal.base_revision == config.revision
+            && proposal.base_digest == config.digest
+            && proposal_digest(proposal)? == proposal.digest,
+        "membership proposal does not name the current committed configuration"
+    );
+    verify_member_set(&proposal.old_members)?;
+    verify_member_set(&proposal.new_members)?;
+    ensure!(
+        proposal.old_members == config.members,
+        "membership proposal changes its old voting set"
+    );
+    match proposal.kind {
+        ProposalKind::Joint => ensure!(
+            config.joint_new.is_none(),
+            "the current joint membership change must finish before another begins"
+        ),
+        ProposalKind::Final => ensure!(
+            config.joint_new.as_ref() == Some(&proposal.new_members),
+            "final membership proposal differs from the committed joint configuration"
+        ),
+    }
+    Ok(())
+}
+
 impl Node {
-    fn committed_config(conn: &Connection) -> Result<Option<MemberConfiguration>> {
+    pub(crate) fn committed_config(conn: &Connection) -> Result<Option<MemberConfiguration>> {
         let raw: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_member_configs ORDER BY revision DESC LIMIT 1",
@@ -639,6 +704,10 @@ impl Node {
             return Ok(None);
         };
         let config: MemberConfiguration = serde_json::from_str(&raw)?;
+        verify_member_set(&config.members)?;
+        if let Some(new) = &config.joint_new {
+            verify_member_set(new)?;
+        }
         let expected = config_digest(&config.members, config.joint_new.as_deref())?;
         ensure!(
             expected == config.digest,
@@ -647,7 +716,10 @@ impl Node {
         Ok(Some(config))
     }
 
-    fn config_at(conn: &Connection, revision: u64) -> Result<Option<MemberConfiguration>> {
+    pub(crate) fn config_at(
+        conn: &Connection,
+        revision: u64,
+    ) -> Result<Option<MemberConfiguration>> {
         let raw: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_member_configs WHERE revision=?1",
@@ -659,7 +731,66 @@ impl Node {
             .transpose()
     }
 
-    fn last_log_position(conn: &Connection) -> Result<(u64, u64)> {
+    fn current_primary_matches(
+        conn: &Connection,
+        config: &MemberConfiguration,
+        candidate: VoterId,
+        term: u64,
+    ) -> Result<bool> {
+        Ok(term == state_number(conn, "term")?
+            && config.is_member(candidate)
+            && get_state::<PrimaryClaim>(conn, "primary")?.is_some_and(|claim| {
+                claim.term == term && claim.leader_node_id == candidate.to_string()
+            }))
+    }
+
+    fn member_change_term(
+        conn: &Connection,
+        config: &MemberConfiguration,
+        candidate: VoterId,
+    ) -> Result<u64> {
+        let term = state_number(conn, "term")?;
+        ensure!(
+            Self::current_primary_matches(conn, config, candidate, term)?,
+            "membership change requires the current committed primary"
+        );
+        Ok(term)
+    }
+
+    /// One compatible proposal per base and term. The existing local ballots
+    /// are the durable reservation, including ballots written before this
+    /// guard existed. The caller holds the same IMMEDIATE transaction while
+    /// checking and inserting, so two concurrent requests cannot both win.
+    fn compatible_member_ballot(
+        conn: &Connection,
+        voter: VoterId,
+        request: &VoteRequest,
+    ) -> Result<bool> {
+        let proposal = request
+            .proposal
+            .as_ref()
+            .context("membership ballot lacks a proposal")?;
+        let mut statement = conn.prepare(
+            "SELECT data FROM node_votes WHERE term=?1 AND voter=?2 AND scope LIKE 'proposal:%'",
+        )?;
+        let rows = statement.query_map(
+            params![i64::try_from(request.term)?, voter.to_string()],
+            |row| row.get::<_, String>(0),
+        )?;
+        for raw in rows {
+            let prior: VoteRequest = serde_json::from_str(&raw?)?;
+            if let Some(previous) = prior.proposal
+                && previous.base_revision == proposal.base_revision
+                && (prior.candidate_id != request.candidate_id
+                    || previous.digest != proposal.digest)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn last_log_position(conn: &Connection) -> Result<(u64, u64)> {
         let row: Option<(i64, i64)> = conn
             .query_row(
                 "SELECT idx,term FROM node_control_log ORDER BY idx DESC LIMIT 1",
@@ -676,7 +807,7 @@ impl Node {
         })
     }
 
-    fn control_entry(conn: &Connection, index: u64) -> Result<Option<ControlEntry>> {
+    pub(crate) fn control_entry(conn: &Connection, index: u64) -> Result<Option<ControlEntry>> {
         let raw: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_control_log WHERE idx=?1",
@@ -705,10 +836,14 @@ impl Node {
         Ok(max)
     }
 
-    fn votes_for(conn: &Connection, term: u64, scope: &str, candidate: VoterId) -> Result<BTreeSet<VoterId>> {
-        let mut statement = conn.prepare(
-            "SELECT voter FROM node_votes WHERE term=?1 AND scope=?2 AND candidate=?3",
-        )?;
+    fn votes_for(
+        conn: &Connection,
+        term: u64,
+        scope: &str,
+        candidate: VoterId,
+    ) -> Result<BTreeSet<VoterId>> {
+        let mut statement = conn
+            .prepare("SELECT voter FROM node_votes WHERE term=?1 AND scope=?2 AND candidate=?3")?;
         let rows = statement.query_map(
             params![
                 i64::try_from(term).context("election term out of range")?,
@@ -750,36 +885,56 @@ impl Node {
         })
     }
 
-    /// The fencing token of the currently committed primary.
+    /// The currently usable primary fence, read from one SQLite snapshot.
+    /// Historical claims remain available through `committed_primary_claim`,
+    /// but a newer observed term or a removed leader yields no current token.
     pub fn fencing_token(&self) -> Result<Option<FencingToken>> {
-        self.committed_primary_claim()?.map(|claim| {
-            Ok(FencingToken {
-                term: claim.term,
-                epoch: claim.epoch,
-                leader_id: claim
-                    .leader_node_id
-                    .parse::<EntityId>()
-                    .context("committed primary leader is not a node identity")?,
-                config_revision: claim.config_revision,
-                committed_seq: claim.committed_seq,
+        let tx = self.conn.unchecked_transaction()?;
+        let token = Self::fencing_token_conn(&tx)?;
+        tx.commit()?;
+        Ok(token)
+    }
+
+    /// Read the exact current fence while a caller already holds a Node
+    /// transaction. The Store authority adapter uses this under an owned
+    /// IMMEDIATE reservation, without opening a nested read transaction.
+    pub(crate) fn fencing_token_conn(conn: &Connection) -> Result<Option<FencingToken>> {
+        let Some(claim) = get_state::<PrimaryClaim>(conn, "primary")? else {
+            return Ok(None);
+        };
+        let leader_id = claim
+            .leader_node_id
+            .parse::<EntityId>()
+            .context("committed primary leader is not a node identity")?;
+        if claim.term != state_number(conn, "term")?
+            || !Self::committed_config(conn)?.is_some_and(|config| {
+                config.is_member(leader_id) && config.revision == claim.config_revision
             })
-        }).transpose()
+            || !Self::control_entry(conn, claim.committed_seq)?
+                .is_some_and(|entry| entry.durability.is_some())
+        {
+            return Ok(None);
+        }
+        Ok(Some(FencingToken {
+            term: claim.term,
+            epoch: claim.epoch,
+            leader_id,
+            config_revision: claim.config_revision,
+            committed_seq: claim.committed_seq,
+        }))
     }
 
     /// Resource-side fence: a token is accepted only when it is exactly the
     /// committed claim. An older epoch is refused, never silently upgraded.
     pub fn check_fencing(&self, token: &FencingToken) -> Result<()> {
-        let claim = self
-            .committed_primary_claim()?
-            .context("no committed primary claim; this node holds no primary authority")?;
+        let current = self
+            .fencing_token()?
+            .context("no current primary fence; a historical claim does not confer authority")?;
         ensure!(
-            token.term == claim.term
-                && token.epoch == claim.epoch
-                && token.committed_seq == claim.committed_seq
-                && token.leader_id.to_string() == claim.leader_node_id,
+            *token == current,
             "stale fencing token: committed epoch {} at term {}, presented epoch {} at term {}",
-            claim.epoch,
-            claim.term,
+            current.epoch,
+            current.term,
             token.epoch,
             token.term
         );
@@ -788,11 +943,10 @@ impl Node {
 
     /// True when this node currently holds the committed primary authority.
     pub fn is_primary(&self) -> Result<bool> {
-        let Some(claim) = self.committed_primary_claim()? else {
-            return Ok(false);
-        };
         let node_id = self.local_node_id()?;
-        Ok(node_id.is_some_and(|id| id.to_string() == claim.leader_node_id))
+        Ok(self
+            .fencing_token()?
+            .is_some_and(|token| node_id == Some(token.leader_id)))
     }
 
     /// Establish the membership of a domain that has no configuration yet.
@@ -834,10 +988,12 @@ impl Node {
             proposal_new: members.clone(),
         };
         let control = ControlEntry {
+            schema: ELECTION_WIRE_SCHEMA,
             index: 1,
             term,
             kind: ControlKind::MemberConfiguration,
             payload: serde_json::to_value(&entry)?,
+            durability: None,
         };
         tx.execute(
             "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
@@ -856,6 +1012,7 @@ impl Node {
                 text(&config)?
             ],
         )?;
+        Self::remember_control_entry(&tx, &control)?;
         set_state(&tx, "term", &term.to_string())?;
         set_state(&tx, "commit_index", &1u64.to_string())?;
         set_state(&tx, "role", &ElectionRole::Follower)?;
@@ -881,17 +1038,27 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let first = entries.first().context("pushed control log must contain the full committed prefix")?;
+        let first = entries
+            .first()
+            .context("pushed control log must contain the full committed prefix")?;
         ensure!(first.index == 1, "pushed control log must start at index 1");
-        ensure!(entries.windows(2).all(|pair| pair[0].index.checked_add(1) == Some(pair[1].index)),
-            "pushed control log is not continuous");
+        ensure!(
+            entries
+                .windows(2)
+                .all(|pair| pair[0].index.checked_add(1) == Some(pair[1].index)),
+            "pushed control log is not continuous"
+        );
         let end = entries.last().unwrap().index;
         let commit_index = state_number(&tx, "commit_index")?;
         let (last_index, _) = Self::last_log_position(&tx)?;
-        ensure!(end >= commit_index && end >= last_index,
-            "pushed control log does not cover the retained prefix; histories must be reconciled");
+        ensure!(
+            end >= commit_index && end >= last_index,
+            "pushed control log does not cover the retained prefix; histories must be reconciled"
+        );
         let prior_config = Self::committed_config(&tx)?;
-        let learns_configuration = prior_config.as_ref().is_none_or(|existing| existing.revision < config.revision);
+        let learns_configuration = prior_config
+            .as_ref()
+            .is_none_or(|existing| existing.revision < config.revision);
         if let Some(existing) = prior_config {
             ensure!(
                 existing.revision <= config.revision,
@@ -904,15 +1071,22 @@ impl Node {
                 );
             }
         }
-        let mut configuration_in_log = false;
+        let verified_configuration = Self::verify_control_history(entries)?;
+        ensure!(
+            verified_configuration
+                .as_ref()
+                .is_some_and(|landed| landed.revision == config.revision
+                    && landed.term == config.term
+                    && landed.digest == config.digest),
+            "the pushed control log does not commit the advertised configuration"
+        );
         let mut pushed_term = 0;
         for entry in entries {
-            ensure!(entry.term >= pushed_term, "pushed control log terms are not monotonic");
+            ensure!(
+                entry.term >= pushed_term,
+                "pushed control log terms are not monotonic"
+            );
             pushed_term = entry.term;
-            if let Some(payload) = Self::verify_control_entry(entry)? {
-                configuration_in_log |= payload.revision == config.revision
-                    && payload.digest == config.digest && entry.term == config.term;
-            }
             // An index this node already committed carries one decision. A
             // different entry at the same index is a diverged branch, not a
             // newer fact: it is refused instead of silently replacing what
@@ -926,12 +1100,12 @@ impl Node {
                     entry.index
                 );
             } else {
-                ensure!(entry.index > commit_index,
-                    "the retained committed prefix has a missing entry; histories must be reconciled");
+                ensure!(
+                    entry.index > commit_index,
+                    "the retained committed prefix has a missing entry; histories must be reconciled"
+                );
             }
         }
-        ensure!(configuration_in_log,
-            "the pushed control log does not commit the advertised configuration");
         {
             let mut insert = tx.prepare(
                 "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4) ON CONFLICT(idx) DO NOTHING",
@@ -940,58 +1114,161 @@ impl Node {
                 if entry.index <= commit_index {
                     continue;
                 }
-                if insert.execute(params![i64::try_from(entry.index)?, i64::try_from(entry.term)?,
-                    control_kind_name(entry.kind), text(entry)?])? == 1
-                {
-                    Self::apply_control_entry(&tx, entry)?;
-                }
+                insert.execute(params![
+                    i64::try_from(entry.index)?,
+                    i64::try_from(entry.term)?,
+                    control_kind_name(entry.kind),
+                    text(entry)?
+                ])?;
+                // A verified full-prefix push may certify an identical row
+                // retained above the old frontier. Its projection must land
+                // as well, even when the immutable log row already exists.
+                Self::apply_control_entry(&tx, entry)?;
             }
         }
         // Only verified log entries can create configuration facts. Inserting
         // the advertised config first would make this check vacuous.
-        let mut landed = Self::committed_config(&tx)?.context("pushed log has no committed configuration")?;
+        let mut landed =
+            Self::committed_config(&tx)?.context("pushed log has no committed configuration")?;
         ensure!(
-            landed.revision == config.revision && landed.term == config.term && landed.digest == config.digest,
+            landed.revision == config.revision
+                && landed.term == config.term
+                && landed.digest == config.digest,
             "the pushed control log commits a different configuration than the one pushed"
         );
         if learns_configuration {
             // Preserve the originating commit time only after the log has
             // authenticated the new revision. This row is new in this
             // transaction; previously retained metadata is never rewritten.
-            tx.execute("UPDATE node_member_configs SET data=?2 WHERE revision=?1",
-                params![i64::try_from(config.revision)?, text(config)?])?;
+            tx.execute(
+                "UPDATE node_member_configs SET data=?2 WHERE revision=?1",
+                params![i64::try_from(config.revision)?, text(config)?],
+            )?;
             landed.committed_at = config.committed_at;
         }
         set_state(&tx, "commit_index", &end.to_string())?;
-        if pushed_term > state_number(&tx, "term")? {
-            set_state(&tx, "term", &pushed_term.to_string())?;
+        let observed_term = entries.iter().fold(pushed_term, |term, entry| {
+            term.max(
+                entry
+                    .durability
+                    .as_ref()
+                    .map_or(0, |proof| proof.ballot.term),
+            )
+        });
+        if observed_term > state_number(&tx, "term")? {
+            set_state(&tx, "term", &observed_term.to_string())?;
+            set_state(&tx, "voted_for", &Option::<VoterId>::None)?;
+            set_state(&tx, "role", &ElectionRole::Follower)?;
         }
         tx.commit()?;
         Ok(landed)
     }
 
     /// Return already-verified configuration data when this entry commits one.
-    fn verify_control_entry(entry: &ControlEntry) -> Result<Option<ConfigurationEntry>> {
+    pub(crate) fn verify_control_entry(
+        entry: &ControlEntry,
+        config: Option<&MemberConfiguration>,
+    ) -> Result<Option<ConfigurationEntry>> {
+        ensure!(
+            entry.term > 0,
+            "a committed control entry requires a positive term"
+        );
         match entry.kind {
             ControlKind::Primary => {
                 let payload = PrimaryEntry::deserialize(&entry.payload)?;
-                let members: BTreeSet<VoterId> = payload.members.iter().copied().collect();
-                let voters: BTreeSet<VoterId> = payload.certificate.voters.iter().copied().collect();
-                for voter in &payload.certificate.voters {
-                    ensure!(
-                        members.contains(voter),
-                        "primary certificate names a voter outside the configuration"
-                    );
-                }
+                let config =
+                    config.context("primary entry has no preceding committed configuration")?;
                 ensure!(
-                    counted(&payload.members, &voters) >= majority(&payload.members),
+                    payload.config_revision == config.revision
+                        && payload.config_digest == config.digest
+                        && payload.members == config.members
+                        && config.is_member(payload.leader_id),
+                    "primary entry does not bind the preceding committed configuration"
+                );
+                let voters: BTreeSet<VoterId> =
+                    payload.certificate.voters.iter().copied().collect();
+                ensure!(
+                    payload.certificate.term == entry.term
+                        && voters.len() == payload.certificate.voters.len()
+                        && voters.is_subset(&config.voters()),
+                    "primary certificate term or voting identities do not match the configuration"
+                );
+                ensure!(
+                    config.has_quorum(&voters),
                     "primary entry does not carry a quorum certificate"
+                );
+                Ok(None)
+            }
+            ControlKind::Admission => {
+                ensure!(
+                    entry.schema >= 2,
+                    "legacy control history has no admission command format"
+                );
+                let payload: crate::ControlAdmissionPayload =
+                    serde_json::from_value(entry.payload.clone())?;
+                payload.verify()?;
+                ensure!(
+                    config.is_some(),
+                    "control admission has no governing configuration"
                 );
                 Ok(None)
             }
             ControlKind::MemberConfiguration => {
                 let payload = ConfigurationEntry::deserialize(&entry.payload)?;
-                let voters: BTreeSet<VoterId> = payload.certificate.voters.iter().copied().collect();
+                verify_member_set(&payload.members)?;
+                verify_member_set(&payload.proposal_old)?;
+                verify_member_set(&payload.proposal_new)?;
+                if let Some(new) = &payload.joint_new {
+                    verify_member_set(new)?;
+                }
+                match config {
+                    None => ensure!(
+                        entry.index == 1
+                            && payload.revision == 1
+                            && payload.members.len() == 1
+                            && payload.joint_new.is_none()
+                            && payload.proposal_old == payload.members
+                            && payload.proposal_new == payload.members,
+                        "the first control entry must establish a singleton genesis configuration"
+                    ),
+                    Some(config) => {
+                        ensure!(
+                            Some(payload.revision) == config.revision.checked_add(1),
+                            "member configuration revision does not continue the committed configuration"
+                        );
+                        ensure!(
+                            payload.proposal_old == config.members,
+                            "member configuration certificate changes its old voting set"
+                        );
+                        match &config.joint_new {
+                            None => ensure!(
+                                payload.members == config.members
+                                    && payload.joint_new.as_ref() == Some(&payload.proposal_new),
+                                "member configuration skips the joint transition"
+                            ),
+                            Some(new) => ensure!(
+                                payload.members == *new
+                                    && payload.proposal_new == *new
+                                    && payload.joint_new.is_none(),
+                                "final member configuration differs from the committed joint transition"
+                            ),
+                        }
+                    }
+                }
+                let voters: BTreeSet<VoterId> =
+                    payload.certificate.voters.iter().copied().collect();
+                let allowed: BTreeSet<VoterId> = payload
+                    .proposal_old
+                    .iter()
+                    .chain(payload.proposal_new.iter())
+                    .copied()
+                    .collect();
+                ensure!(
+                    payload.certificate.term == entry.term
+                        && voters.len() == payload.certificate.voters.len()
+                        && voters.is_subset(&allowed),
+                    "member configuration certificate term or voting identities are invalid"
+                );
                 ensure!(
                     counted(&payload.proposal_old, &voters) >= majority(&payload.proposal_old)
                         && counted(&payload.proposal_new, &voters)
@@ -1006,6 +1283,193 @@ impl Node {
                 Ok(Some(payload))
             }
         }
+    }
+
+    /// Verify certificates against the configuration established by their
+    /// prefix, not a voting set supplied by the certificate itself. This also
+    /// covers an election during joint consensus without changing the wire.
+    pub(crate) fn verify_control_history(
+        entries: &[ControlEntry],
+    ) -> Result<Option<MemberConfiguration>> {
+        let mut config: Option<MemberConfiguration> = None;
+        let mut index = 0u64;
+        let mut term = 0;
+        let mut primary: Option<(u64, u64, VoterId)> = None;
+        let mut prefix_digest = Digest::blake3(b"shenko-control-prefix-v2");
+        let mut admissions = BTreeSet::new();
+        let mut admission_actions = BTreeSet::new();
+        for entry in entries {
+            ensure!(
+                Some(entry.index) == index.checked_add(1),
+                "control log is not continuous"
+            );
+            ensure!(entry.term >= term, "control log terms are not monotonic");
+            ensure!(
+                (1..=ELECTION_WIRE_SCHEMA).contains(&entry.schema),
+                "unsupported control entry schema"
+            );
+            if entry.index > 1 && (entry.schema >= 2 || entry.durability.is_some()) {
+                Self::verify_durable_control(
+                    entry,
+                    config
+                        .as_ref()
+                        .context("control proof has no predecessor configuration")?,
+                    &prefix_digest,
+                )?;
+            }
+            if entry.kind == ControlKind::Admission {
+                let payload: crate::ControlAdmissionPayload =
+                    serde_json::from_value(entry.payload.clone())?;
+                ensure!(
+                    payload
+                        .admission
+                        .required_unconsumed
+                        .iter()
+                        .all(|key| !admissions.contains(key)),
+                    "a control admission reads a consumed predecessor"
+                );
+                for key in std::iter::once(&payload.admission.conflict_key)
+                    .chain(&payload.admission.conflict_aliases)
+                {
+                    ensure!(
+                        admissions.insert(key.clone()),
+                        "a control history repeats an admission position or predecessor"
+                    );
+                }
+                ensure!(
+                    admission_actions.insert(payload.admission.action_id),
+                    "a control history repeats an action identity"
+                );
+            }
+            if let Some(payload) = Self::verify_control_entry(entry, config.as_ref())? {
+                config = Some(MemberConfiguration {
+                    revision: payload.revision,
+                    term: entry.term,
+                    members: payload.members,
+                    joint_new: payload.joint_new,
+                    digest: payload.digest,
+                    committed_at: chrono::Utc::now(),
+                });
+            } else if entry.kind == ControlKind::Primary {
+                let payload = PrimaryEntry::deserialize(&entry.payload)?;
+                ensure!(
+                    payload.epoch > primary.map_or(0, |(_, epoch, _)| epoch),
+                    "primary epoch does not advance the committed prefix"
+                );
+                ensure!(
+                    primary.is_none_or(
+                        |(term, _, leader)| term != entry.term || leader == payload.leader_id
+                    ),
+                    "two different primaries cannot be committed in one term"
+                );
+                primary = Some((entry.term, payload.epoch, payload.leader_id));
+            }
+            index = entry.index;
+            term = entry.term;
+            prefix_digest = digest(&(prefix_digest, crate::control::control_value_digest(entry)?))?;
+        }
+        Ok(config)
+    }
+
+    /// Verify only the missing suffix against a retained, already verified
+    /// predecessor. Prefix digests and kind indexes keep continuous admissions
+    /// independent of the length of the subject's prior life.
+    fn verify_control_suffix(
+        conn: &Connection,
+        previous: u64,
+        entries: &[ControlEntry],
+    ) -> Result<()> {
+        let mut frontier = Self::control_frontier_at(conn, previous)?;
+        let mut config = Self::configuration_at_frontier(conn, previous)?;
+        let mut primary = Self::last_control_kind(conn, previous, ControlKind::Primary)?
+            .map(|entry| -> Result<_> {
+                let payload: PrimaryEntry = serde_json::from_value(entry.payload)?;
+                Ok((entry.term, payload.epoch, payload.leader_id))
+            })
+            .transpose()?;
+        let mut keys = BTreeSet::new();
+        let mut actions = BTreeSet::new();
+        for entry in entries {
+            ensure!(
+                Some(entry.index) == frontier.index.checked_add(1) && entry.term >= frontier.term,
+                "control suffix is not continuous with monotonic terms"
+            );
+            ensure!(
+                (1..=ELECTION_WIRE_SCHEMA).contains(&entry.schema),
+                "unsupported control entry schema"
+            );
+            if entry.index > 1 && (entry.schema >= 2 || entry.durability.is_some()) {
+                Self::verify_durable_control(
+                    entry,
+                    config
+                        .as_ref()
+                        .context("control proof has no predecessor configuration")?,
+                    &frontier.digest,
+                )?;
+            }
+            if entry.kind == ControlKind::Admission {
+                let payload: crate::ControlAdmissionPayload =
+                    serde_json::from_value(entry.payload.clone())?;
+                let admission = payload.admission;
+                Self::validate_admission_reads(conn, &admission, Some(entry.index))?;
+                ensure!(
+                    admission
+                        .required_unconsumed
+                        .iter()
+                        .all(|key| !keys.contains(key)),
+                    "control suffix admission reads a consumed predecessor"
+                );
+                for key in
+                    std::iter::once(&admission.conflict_key).chain(&admission.conflict_aliases)
+                {
+                    ensure!(
+                        keys.insert(key.clone()),
+                        "control suffix repeats an admission position or predecessor"
+                    );
+                }
+                ensure!(
+                    actions.insert(admission.action_id),
+                    "control suffix repeats an admission action"
+                );
+                let committed = Self::admission_conflict_index(conn, &admission)?;
+                ensure!(
+                    committed.is_none_or(|index| index == entry.index),
+                    "control admission conflicts with an earlier committed position"
+                );
+            }
+            if let Some(payload) = Self::verify_control_entry(entry, config.as_ref())? {
+                config = Some(MemberConfiguration {
+                    revision: payload.revision,
+                    term: entry.term,
+                    members: payload.members,
+                    joint_new: payload.joint_new,
+                    digest: payload.digest,
+                    committed_at: chrono::Utc::now(),
+                });
+            } else if entry.kind == ControlKind::Primary {
+                let payload: PrimaryEntry = serde_json::from_value(entry.payload.clone())?;
+                ensure!(
+                    payload.epoch > primary.map_or(0, |(_, epoch, _)| epoch),
+                    "primary epoch does not advance the committed prefix"
+                );
+                ensure!(
+                    primary.is_none_or(
+                        |(term, _, leader)| term != entry.term || leader == payload.leader_id
+                    ),
+                    "two different primaries cannot be committed in one term"
+                );
+                primary = Some((entry.term, payload.epoch, payload.leader_id));
+            }
+            frontier = crate::ControlFrontier {
+                index: entry.index,
+                term: entry.term,
+                digest: digest(&(
+                    frontier.digest,
+                    crate::control::control_value_digest(entry)?,
+                ))?,
+            };
+        }
+        Ok(())
     }
 
     /// Start an election round for this node.
@@ -1036,6 +1500,7 @@ impl Node {
             config_digest: config.digest.clone(),
             last_log_index: index,
             last_log_term: last_term,
+            prefix_digest: Self::control_frontier_conn(&tx)?.digest,
             proposal: None,
         };
         tx.execute(
@@ -1048,6 +1513,19 @@ impl Node {
                 chrono::Utc::now().to_rfc3339()
             ],
         )?;
+        let self_response = VoteResponse {
+            schema: ELECTION_WIRE_SCHEMA,
+            request_id: request.request_id,
+            responder_id: node_id,
+            term,
+            vote_granted: true,
+            config_digest: config.digest.clone(),
+            proposal_digest: None,
+            reason: "durable_prepare_promise".into(),
+            committed: Self::control_frontier_conn(&tx)?,
+            accepted_control: Self::accepted_control_conn(&tx)?,
+        };
+        Self::record_control_promise(&tx, &request, &self_response)?;
         tx.commit()?;
         let members: Vec<VoterId> = config
             .voters()
@@ -1077,7 +1555,18 @@ impl Node {
         let mut granted = false;
         let mut reason = String::new();
         let config = Self::committed_config(&tx)?;
-        if request.term > current_term {
+        // Only a current-configuration election request may advance term.
+        // Membership is proposed by an already committed leader; a stale
+        // proposal or an outsider's higher number cannot create authority.
+        if request.proposal.is_none()
+            && request.term > current_term
+            && config.as_ref().is_some_and(|config| {
+                config.is_member(request.candidate_id)
+                    && config.is_member(node_id)
+                    && request.config_revision == config.revision
+                    && request.config_digest == config.digest
+            })
+        {
             term = request.term;
             set_state(&tx, "term", &term.to_string())?;
             set_state(&tx, "voted_for", &Option::<VoterId>::None)?;
@@ -1097,6 +1586,8 @@ impl Node {
                     config_digest: Digest::blake3(b"no-configuration"),
                     proposal_digest: request.proposal.as_ref().map(|p| p.digest.clone()),
                     reason,
+                    committed: Self::control_frontier_conn(&tx)?,
+                    accepted_control: Self::accepted_control_conn(&tx)?,
                 };
                 tx.commit()?;
                 return Ok(response);
@@ -1108,11 +1599,15 @@ impl Node {
             {
                 reason = "config_mismatch".into();
             } else if let Some(proposal) = &request.proposal {
-                if proposal.base_revision != config.revision
-                    || proposal.base_digest != config.digest
-                    || proposal_digest(proposal)? != proposal.digest
-                {
+                if verify_proposal(&config, proposal).is_err() {
                     reason = "proposal_base_mismatch".into();
+                } else if !Self::current_primary_matches(
+                    &tx,
+                    &config,
+                    request.candidate_id,
+                    request.term,
+                )? {
+                    reason = "membership_proposer_not_current_primary".into();
                 } else if !proposal
                     .old_members
                     .iter()
@@ -1124,7 +1619,10 @@ impl Node {
                     granted = true;
                 }
             } else {
-                granted = true;
+                granted = config.is_member(node_id);
+                if !granted {
+                    reason = "not_a_voter_of_this_configuration".into();
+                }
             }
             if granted {
                 // A proposal vote is counted in the proposal's own scope so a
@@ -1151,10 +1649,20 @@ impl Node {
             }
             if granted {
                 let (index, last_term) = Self::last_log_position(&tx)?;
-                if (request.last_log_term, request.last_log_index) < (last_term, index) {
+                if request.last_log_index != index
+                    || request.last_log_term != last_term
+                    || request.prefix_digest != Self::control_frontier_conn(&tx)?.digest
+                {
                     granted = false;
-                    reason = "candidate_log_not_up_to_date".into();
+                    reason = "candidate_committed_prefix_mismatch".into();
                 }
+            }
+            if granted
+                && request.proposal.is_some()
+                && !Self::compatible_member_ballot(&tx, node_id, request)?
+            {
+                granted = false;
+                reason = "conflicting_membership_ballot_for_base_and_term".into();
             }
             if granted {
                 let vote_scope = request
@@ -1163,7 +1671,7 @@ impl Node {
                     .map(|proposal| proposal.scope())
                     .unwrap_or_else(|| "election".to_string());
                 tx.execute(
-                    "INSERT OR REPLACE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+                    "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
                     params![
                         i64::try_from(term)?,
                         vote_scope,
@@ -1189,7 +1697,15 @@ impl Node {
             config_digest,
             proposal_digest: request.proposal.as_ref().map(|p| p.digest.clone()),
             reason,
+            committed: Self::control_frontier_conn(&tx)?,
+            accepted_control: Self::accepted_control_conn(&tx)?,
         };
+        let response = if response.vote_granted && request.proposal.is_none() {
+            Self::retained_control_promise(&tx, request, node_id)?.unwrap_or(response)
+        } else {
+            response
+        };
+        Self::record_control_promise(&tx, request, &response)?;
         tx.commit()?;
         Ok(response)
     }
@@ -1201,7 +1717,7 @@ impl Node {
         response: &VoteResponse,
     ) -> Result<VoteOutcome> {
         ensure!(
-            response.schema == ELECTION_WIRE_SCHEMA,
+            request.schema == ELECTION_WIRE_SCHEMA && response.schema == ELECTION_WIRE_SCHEMA,
             "unsupported election wire schema"
         );
         ensure!(
@@ -1211,8 +1727,52 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if response.term > request.term {
-            // A newer term exists: this node steps down and forgets its vote.
+        let current_term = state_number(&tx, "term")?;
+        let config = Self::committed_config(&tx)?
+            .context("no committed member configuration; votes cannot be counted")?;
+        // The request's retained configuration authenticates its receipt even
+        // after a newer configuration commits. New members vote only on their
+        // concrete proposal; historical voting scope never grants authority
+        // in today's configuration.
+        let request_config = Self::config_at(&tx, request.config_revision)?;
+        let allowed_receipt = request_config.as_ref().is_some_and(|past| {
+            past.digest == request.config_digest
+                && match &request.proposal {
+                    Some(proposal) => {
+                        verify_proposal(past, proposal).is_ok()
+                            && (proposal.old_members.contains(&response.responder_id)
+                                || proposal.new_members.contains(&response.responder_id))
+                    }
+                    None => past.is_member(response.responder_id),
+                }
+        });
+        if !allowed_receipt {
+            tx.commit()?;
+            return Ok(VoteOutcome {
+                voter: response.responder_id,
+                outcome: "rejected".into(),
+                reason: "voter is not a member of the request's retained configuration or proposal"
+                    .into(),
+            });
+        }
+        // Keep the authenticated observation under a non-ballot scope. Late
+        // replies remain inspectable after reopen without becoming votes of a
+        // newer campaign. The content identity makes exact replay a no-op.
+        tx.execute(
+            "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![i64::try_from(response.term)?,
+                format!("receipt:{}:{}", request.request_id, digest(&(request, response))?.0),
+                response.responder_id.to_string(), request.candidate_id.to_string(),
+                text(response)?, chrono::Utc::now().to_rfc3339()],
+        )?;
+        let current_voter = config.is_member(response.responder_id)
+            || request.proposal.as_ref().is_some_and(|proposal| {
+                verify_proposal(&config, proposal).is_ok()
+                    && proposal.new_members.contains(&response.responder_id)
+            });
+        if current_voter && response.term > current_term {
+            // Compare with durable local state, not the old request. A delayed
+            // reply must never rewind a later campaign or revive its owner.
             set_state(&tx, "term", &response.term.to_string())?;
             set_state(&tx, "voted_for", &Option::<VoterId>::None)?;
             set_state(&tx, "role", &ElectionRole::Follower)?;
@@ -1223,32 +1783,25 @@ impl Node {
                 reason: "peer reported a higher term".into(),
             });
         }
-        ensure!(
-            response.term == request.term,
-            "vote response term does not match the campaign"
-        );
-        let config = Self::committed_config(&tx)?
-            .context("no committed member configuration; votes cannot be counted")?;
+        if !current_voter
+            || request.term != current_term
+            || response.term != request.term
+            || request.candidate_id != Self::stored_node_id(&tx)?.context("node not initialized")?
+            || request.config_revision != config.revision
+            || request.config_digest != config.digest
+        {
+            tx.commit()?;
+            return Ok(VoteOutcome {
+                voter: response.responder_id,
+                outcome: "rejected".into(),
+                reason: "vote belongs to an obsolete campaign or configuration".into(),
+            });
+        }
         // A membership proposal is decided by the voters of its own sets, so a
         // node being added may vote on it before it is a member of the
         // committed configuration. Its vote is recorded in the proposal's
         // scope and only `tally_member_change` applies the joint arithmetic;
         // it never counts as an election vote.
-        let allowed_voter = match &request.proposal {
-            Some(proposal) => {
-                proposal.old_members.contains(&response.responder_id)
-                    || proposal.new_members.contains(&response.responder_id)
-            }
-            None => config.is_member(response.responder_id),
-        };
-        if !allowed_voter {
-            tx.commit()?;
-            return Ok(VoteOutcome {
-                voter: response.responder_id,
-                outcome: "rejected".into(),
-                reason: "voter is not a member of the committed configuration or of this proposal".into(),
-            });
-        }
         if response.config_digest != config.digest {
             tx.commit()?;
             return Ok(VoteOutcome {
@@ -1279,6 +1832,7 @@ impl Node {
                 reason: response.reason.clone(),
             });
         }
+        Self::record_control_promise(&tx, request, response)?;
         let existing: Option<String> = tx
             .query_row(
                 "SELECT candidate FROM node_votes WHERE term=?1 AND scope=?2 AND voter=?3",
@@ -1334,6 +1888,46 @@ impl Node {
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; votes cannot be counted")?;
+        if term != state_number(&tx, "term")? || !config.is_member(node_id) {
+            return Ok(ElectionOutcome {
+                term,
+                candidate_id: node_id,
+                quorum: config.quorum(),
+                votes: vec![],
+                elected: false,
+                claim: None,
+                reason: "campaign is not in the current term and membership".into(),
+            });
+        }
+        // The local ballot seals the campaign's configuration. Re-counting
+        // votes after membership changes cannot rebind them to the new set.
+        let own_request: Option<String> = tx
+            .query_row(
+                "SELECT data FROM node_votes WHERE term=?1 AND scope='election' AND voter=?2",
+                params![i64::try_from(term)?, node_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(raw) = &own_request {
+            let request: VoteRequest = serde_json::from_str(raw)?;
+            let prepare_still_covers_prefix = Self::prepare_covers_frontier(&tx, &request)?;
+            if request.candidate_id != node_id
+                || request.config_revision != config.revision
+                || request.config_digest != config.digest
+                || request.proposal.is_some()
+                || !prepare_still_covers_prefix
+            {
+                return Ok(ElectionOutcome {
+                    term,
+                    candidate_id: node_id,
+                    quorum: config.quorum(),
+                    votes: vec![],
+                    elected: false,
+                    claim: None,
+                    reason: "local ballot belongs to another campaign or configuration".into(),
+                });
+            }
+        }
         let voted: Option<String> = tx
             .query_row(
                 "SELECT candidate FROM node_votes WHERE term=?1 AND scope='election' AND voter=?2",
@@ -1372,16 +1966,32 @@ impl Node {
                 reason: "no quorum of the committed configuration".into(),
             });
         }
-        let claim = Self::commit_primary(&tx, term, candidate, &config, &votes)?;
+        let existing = get_state::<PrimaryClaim>(&tx, "primary")?;
+        let claim = match existing {
+            Some(claim) if claim.term == term => {
+                ensure!(
+                    claim.leader_node_id == candidate.to_string()
+                        && claim.config_revision == config.revision,
+                    "a different primary or configuration is already committed in this term"
+                );
+                Some(claim)
+            }
+            _ => Self::commit_primary(&tx, term, candidate, &config, &votes)?,
+        };
         tx.commit()?;
         Ok(ElectionOutcome {
             term,
             candidate_id: candidate,
             quorum,
             votes: votes.into_iter().collect(),
-            elected: true,
-            claim: Some(claim),
-            reason: "quorum of the committed configuration".into(),
+            elected: claim.is_some(),
+            reason: if claim.is_some() {
+                "durable quorum of the committed configuration"
+            } else {
+                "prepare quorum exists; control value still requires durable acceptance or recovery"
+            }
+            .into(),
+            claim,
         })
     }
 
@@ -1391,7 +2001,7 @@ impl Node {
         leader: VoterId,
         config: &MemberConfiguration,
         votes: &BTreeSet<VoterId>,
-    ) -> Result<PrimaryClaim> {
+    ) -> Result<Option<PrimaryClaim>> {
         let previous = get_state::<PrimaryClaim>(tx, "primary")?;
         let epoch = previous
             .as_ref()
@@ -1421,33 +2031,25 @@ impl Node {
             certificate,
         };
         let entry = ControlEntry {
+            schema: ELECTION_WIRE_SCHEMA,
             index,
             term,
             kind: ControlKind::Primary,
             payload: serde_json::to_value(&payload)?,
+            durability: None,
         };
-        let _ = Self::verify_control_entry(&entry)?;
-        tx.execute(
-            "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
-            params![
-                i64::try_from(index)?,
-                i64::try_from(term)?,
-                "primary",
-                text(&entry)?
-            ],
-        )?;
-        let claim = PrimaryClaim {
-            term,
-            epoch,
-            leader_node_id: leader.to_string(),
-            config_revision: config.revision,
-            committed_seq: index,
-            committed_at: chrono::Utc::now(),
-        };
-        set_state(tx, "commit_index", &index.to_string())?;
-        set_state(tx, "primary", &claim)?;
-        set_state(tx, "role", &ElectionRole::Leader)?;
-        Ok(claim)
+        let _ = Self::verify_control_entry(&entry, Some(config))?;
+        let prepared = Self::stage_control_value(tx, entry)?;
+        let committed = Self::commit_control_tx(tx, &prepared)?;
+        if !committed.committed {
+            return Ok(None);
+        }
+        // Recovering somebody else's accepted value is not electing ourselves.
+        Ok(get_state::<PrimaryClaim>(tx, "primary")?.filter(|claim| {
+            claim.term == term
+                && claim.leader_node_id == leader.to_string()
+                && claim.config_revision == config.revision
+        }))
     }
 
     /// Replicate committed control entries to this node (follower side).
@@ -1522,24 +2124,30 @@ impl Node {
                 }
             }
         }
-        // Nothing is applied until the whole suffix has been checked. A stale
-        // term or an unverified certificate refuses the request as a whole.
+        // Validate each certificate against the configuration at its own log
+        // position. A self-declared smaller member set is not a quorum.
+        if let Err(error) = Self::verify_control_suffix(&tx, request.prev_index, &request.entries) {
+            refuse!(format!("unverified_entry: {error:#}"));
+        }
+        // Historical committed entries can be caught up after a later local
+        // campaign. Importing their facts never rewinds the observed term or
+        // makes the historical primary authoritative in that newer term.
         let mut batch_term = node_term;
         for entry in &request.entries {
-            if entry.term < batch_term {
-                refuse!("stale_term: entry predates the current term");
-            }
-            if let Err(error) = Self::verify_control_entry(entry) {
-                refuse!(format!("unverified_entry: {error:#}"));
-            }
-            batch_term = batch_term.max(entry.term);
+            batch_term = batch_term.max(entry.term).max(
+                entry
+                    .durability
+                    .as_ref()
+                    .map_or(0, |proof| proof.ballot.term),
+            );
             // An index this node already committed carries one decision. The
             // offered entry must be exactly that decision; a divergence is a
             // conflict and both records are retained as evidence.
             let Some(existing) = Self::control_entry(&tx, entry.index)? else {
                 continue;
             };
-            let differs = existing != *entry;
+            let differs = crate::control::control_value_digest(&existing)?
+                != crate::control::control_value_digest(entry)?;
             if entry.index > commit_index && differs {
                 refuse!("log_mismatch: a divergent stored record is beyond the committed prefix");
             }
@@ -1601,7 +2209,11 @@ impl Node {
         }
         if accepted > 0 {
             set_state(&tx, "commit_index", &end.to_string())?;
+        }
+        if batch_term > node_term {
             set_state(&tx, "term", &batch_term.to_string())?;
+            set_state(&tx, "voted_for", &Option::<VoterId>::None)?;
+            set_state(&tx, "role", &ElectionRole::Follower)?;
         }
         tx.commit()?;
         Ok(AppendOutcome {
@@ -1646,8 +2258,10 @@ impl Node {
         Ok(conflict_id)
     }
 
-    fn apply_control_entry(tx: &Transaction<'_>, entry: &ControlEntry) -> Result<()> {
+    pub(crate) fn apply_control_entry(tx: &Transaction<'_>, entry: &ControlEntry) -> Result<()> {
+        Self::remember_control_entry(tx, entry)?;
         match entry.kind {
+            ControlKind::Admission => Self::apply_control_admission(tx, entry),
             ControlKind::Primary => {
                 let payload: PrimaryEntry = serde_json::from_value(entry.payload.clone())?;
                 let current = get_state::<PrimaryClaim>(tx, "primary")?;
@@ -1718,6 +2332,7 @@ impl Node {
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
+        let term = Self::member_change_term(&tx, &config, node_id)?;
         ensure!(
             config.revision == request.expected_revision,
             "member configuration revision conflict"
@@ -1726,7 +2341,10 @@ impl Node {
         new_members.extend(request.add.iter().copied());
         new_members.retain(|id| !request.remove.contains(id));
         let new_members = sorted_unique(&new_members);
-        ensure!(!new_members.is_empty(), "membership change would empty the domain");
+        ensure!(
+            !new_members.is_empty(),
+            "membership change would empty the domain"
+        );
         ensure!(
             new_members.contains(&node_id),
             "removing this node requires an explicit handoff, not a membership change"
@@ -1743,8 +2361,8 @@ impl Node {
             digest: proposal_digest(&proposal)?,
             ..proposal
         };
+        verify_proposal(&config, &proposal)?;
         let (index, last_term) = Self::last_log_position(&tx)?;
-        let term = state_number(&tx, "term")?.max(1);
         let vote_request = VoteRequest {
             schema: ELECTION_WIRE_SCHEMA,
             request_id: EntityId::new(),
@@ -1754,10 +2372,15 @@ impl Node {
             config_digest: config.digest.clone(),
             last_log_index: index,
             last_log_term: last_term,
+            prefix_digest: Self::control_frontier_conn(&tx)?.digest,
             proposal: Some(proposal.clone()),
         };
+        ensure!(
+            Self::compatible_member_ballot(&tx, node_id, &vote_request)?,
+            "conflicting membership ballot for this base and term"
+        );
         tx.execute(
-            "INSERT OR REPLACE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
             params![
                 i64::try_from(term)?,
                 proposal.scope(),
@@ -1784,6 +2407,42 @@ impl Node {
         })
     }
 
+    /// Recover the exact proposal behind a retained joint configuration.
+    /// This is a read-only fact lookup, not a new proposal or a grant to lead
+    /// its final phase. A restarted/new primary can use the original base
+    /// digest without relying on a caller's lost in-memory round.
+    pub fn pending_joint_proposal(&self) -> Result<Option<MemberProposal>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let Some(config) = Self::committed_config(&tx)? else {
+            return Ok(None);
+        };
+        let Some(new_members) = config.joint_new else {
+            return Ok(None);
+        };
+        let base_revision = config
+            .revision
+            .checked_sub(1)
+            .context("joint configuration has no preceding revision")?;
+        let base = Self::config_at(&tx, base_revision)?
+            .context("joint configuration's original base is not retained")?;
+        ensure!(
+            base.digest == config_digest(&base.members, base.joint_new.as_deref())?,
+            "joint configuration's original base digest is invalid"
+        );
+        let mut proposal = MemberProposal {
+            kind: ProposalKind::Joint,
+            base_revision,
+            base_digest: base.digest.clone(),
+            old_members: config.members,
+            new_members,
+            digest: Digest::blake3(b""),
+        };
+        proposal.digest = proposal_digest(&proposal)?;
+        verify_proposal(&base, &proposal)?;
+        tx.commit()?;
+        Ok(Some(proposal))
+    }
+
     /// The second phase of a membership change: the final configuration is
     /// approved against the joint configuration that phase one committed.
     pub fn propose_final_member_change(
@@ -1796,9 +2455,18 @@ impl Node {
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
+        let term = Self::member_change_term(&tx, &config, node_id)?;
         ensure!(
             config.joint_new.is_some(),
             "the joint configuration was not committed; the final phase cannot start"
+        );
+        ensure!(
+            joint.kind == ProposalKind::Joint
+                && proposal_digest(joint)? == joint.digest
+                && joint.old_members == config.members
+                && config.joint_new.as_ref() == Some(&joint.new_members)
+                && joint.base_revision.checked_add(1) == Some(config.revision),
+            "finalization does not name the committed joint proposal"
         );
         let proposal = MemberProposal {
             kind: ProposalKind::Final,
@@ -1812,8 +2480,8 @@ impl Node {
             digest: proposal_digest(&proposal)?,
             ..proposal
         };
+        verify_proposal(&config, &proposal)?;
         let (index, last_term) = Self::last_log_position(&tx)?;
-        let term = state_number(&tx, "term")?.max(1);
         let vote_request = VoteRequest {
             schema: ELECTION_WIRE_SCHEMA,
             request_id: EntityId::new(),
@@ -1823,10 +2491,15 @@ impl Node {
             config_digest: config.digest.clone(),
             last_log_index: index,
             last_log_term: last_term,
+            prefix_digest: Self::control_frontier_conn(&tx)?.digest,
             proposal: Some(proposal.clone()),
         };
+        ensure!(
+            Self::compatible_member_ballot(&tx, node_id, &vote_request)?,
+            "conflicting membership ballot for this base and term"
+        );
         tx.execute(
-            "INSERT OR REPLACE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            "INSERT OR IGNORE INTO node_votes(term,scope,voter,candidate,data,received_at) VALUES(?1,?2,?3,?4,?5,?6)",
             params![
                 i64::try_from(term)?,
                 proposal.scope(),
@@ -1869,6 +2542,35 @@ impl Node {
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
+        let base = Self::config_at(&tx, proposal.base_revision)?
+            .context("membership proposal base is not a retained committed configuration")?;
+        verify_proposal(&base, proposal)?;
+        let revision = proposal
+            .base_revision
+            .checked_add(1)
+            .context("member configuration revision exhausted")?;
+        if let Some(committed) = Self::config_at(&tx, revision)? {
+            let (members, joint_new) = match proposal.kind {
+                ProposalKind::Joint => (&proposal.old_members, Some(&proposal.new_members)),
+                ProposalKind::Final => (&proposal.new_members, None),
+            };
+            ensure!(
+                committed.members == *members && committed.joint_new.as_ref() == joint_new,
+                "membership proposal conflicts with the transition already committed at this revision"
+            );
+            // Retrying a lost tally response returns the original transition;
+            // it does not reapply the proposal to today's configuration.
+            tx.commit()?;
+            return Ok(MemberChangeOutcome {
+                phase: proposal.kind,
+                quorum_met: true,
+                votes: vec![],
+                committed: Some(committed),
+                reason: "membership proposal already committed; no new transition".into(),
+            });
+        }
+        verify_proposal(&config, proposal)?;
+        let term = Self::member_change_term(&tx, &config, node_id)?;
         // Proposal votes are recorded under the term in which the proposal
         // was made; a later proposal for the same content advances that term.
         let vote_term: i64 = tx.query_row(
@@ -1877,8 +2579,25 @@ impl Node {
             |r| r.get(0),
         )?;
         ensure!(
-            vote_term > 0,
-            "no votes recorded for this membership proposal"
+            vote_term > 0 && u64::try_from(vote_term)? == term,
+            "no votes from the current term for this membership proposal"
+        );
+        let own_ballot: String = tx
+            .query_row(
+                "SELECT data FROM node_votes WHERE term=?1 AND scope=?2 AND voter=?3",
+                params![vote_term, proposal.scope(), node_id.to_string()],
+                |row| row.get(0),
+            )
+            .context("membership tally requires the primary's own ballot")?;
+        let own_request: VoteRequest = serde_json::from_str(&own_ballot)?;
+        ensure!(
+            own_request.candidate_id == node_id
+                && own_request
+                    .proposal
+                    .as_ref()
+                    .is_some_and(|own| own.digest == proposal.digest)
+                && Self::compatible_member_ballot(&tx, node_id, &own_request)?,
+            "membership tally has conflicting local ballots for its base and term"
         );
         let votes = Self::votes_for(&tx, u64::try_from(vote_term)?, &proposal.scope(), node_id)?;
         let quorum = proposal.has_quorum(&votes);
@@ -1901,8 +2620,6 @@ impl Node {
             ProposalKind::Final => None,
         };
         let digest = config_digest(&members, joint_new.as_deref())?;
-        let revision = config.revision + 1;
-        let term = state_number(&tx, "term")?.max(1);
         let certificate = QuorumCertificate {
             term,
             voters: votes.iter().copied().collect(),
@@ -1920,45 +2637,28 @@ impl Node {
             .checked_add(1)
             .context("control log exhausted")?;
         let entry = ControlEntry {
+            schema: ELECTION_WIRE_SCHEMA,
             index,
             term,
             kind: ControlKind::MemberConfiguration,
             payload: serde_json::to_value(&payload)?,
+            durability: None,
         };
-        let _ = Self::verify_control_entry(&entry)?;
-        tx.execute(
-            "INSERT INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
-            params![
-                i64::try_from(index)?,
-                i64::try_from(term)?,
-                "member_configuration",
-                text(&entry)?
-            ],
-        )?;
-        let committed = MemberConfiguration {
-            revision,
-            term,
-            members,
-            joint_new,
-            digest,
-            committed_at: chrono::Utc::now(),
+        let _ = Self::verify_control_entry(&entry, Some(&config))?;
+        let prepared = Self::stage_control_value(&tx, entry)?;
+        let outcome = Self::commit_control_tx(&tx, &prepared)?;
+        let committed = if outcome.committed {
+            Self::config_at(&tx, revision)?
+        } else {
+            None
         };
-        tx.execute(
-            "INSERT INTO node_member_configs(revision,term,data) VALUES(?1,?2,?3)",
-            params![
-                i64::try_from(revision)?,
-                i64::try_from(term)?,
-                text(&committed)?
-            ],
-        )?;
-        set_state(&tx, "commit_index", &index.to_string())?;
         tx.commit()?;
         Ok(MemberChangeOutcome {
             phase: proposal.kind,
-            quorum_met: true,
+            quorum_met: committed.is_some(),
             votes: votes.into_iter().collect(),
-            committed: Some(committed),
-            reason: "joint quorum of the proposed configuration".into(),
+            committed,
+            reason: outcome.reason,
         })
     }
 
@@ -2001,6 +2701,29 @@ impl Node {
         subject_id: Option<EntityId>,
         reason: &str,
     ) -> Result<BranchFact> {
+        self.open_availability_branch_inner(branch_id, subject_id, reason, None)
+    }
+
+    /// Bind an automatic fallback to the exact authority observation that
+    /// justified it. A newly learned primary between that observation and this
+    /// write cannot be relabelled as the origin of a fresh partition branch.
+    pub fn open_availability_branch_if_current(
+        &mut self,
+        branch_id: EntityId,
+        subject_id: Option<EntityId>,
+        reason: &str,
+        expected: &crate::NodeAuthoritySnapshot,
+    ) -> Result<BranchFact> {
+        self.open_availability_branch_inner(branch_id, subject_id, reason, Some(expected))
+    }
+
+    fn open_availability_branch_inner(
+        &mut self,
+        branch_id: EntityId,
+        subject_id: Option<EntityId>,
+        reason: &str,
+        expected: Option<&crate::NodeAuthoritySnapshot>,
+    ) -> Result<BranchFact> {
         ensure!(
             !reason.trim().is_empty(),
             "an availability branch requires a reason"
@@ -2009,6 +2732,22 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(expected) = expected {
+            let current = Self::authority_snapshot_conn(&tx)?;
+            ensure!(
+                current.node_id == expected.node_id
+                    && current.identity == expected.identity
+                    && current.term == expected.term
+                    && current.configuration == expected.configuration
+                    && current.fence == expected.fence
+                    // Rejoin can close the current branch without advancing
+                    // the control term. Never turn that newer fact back into
+                    // an open branch from an older fallback observation.
+                    && serde_json::to_value(&current.branch)?
+                        == serde_json::to_value(&expected.branch)?,
+                "Node authority changed before availability branch opening"
+            );
+        }
         let existing: Option<String> = tx
             .query_row(
                 "SELECT data FROM node_branches WHERE branch_id=?1",
@@ -2018,12 +2757,21 @@ impl Node {
             .optional()?;
         let now = chrono::Utc::now();
         let floor = Self::last_reconciliation_seq(&tx)?;
+        let configuration = Self::committed_config(&tx)?;
+        let authority = AvailabilityAuthority {
+            holder_node_id: Self::stored_node_id(&tx)?.context("node is not initialized")?,
+            opening_term: state_number(&tx, "term")?,
+            configuration_revision: configuration.as_ref().map(|config| config.revision),
+            configuration_digest: configuration.as_ref().map(|config| config.digest.clone()),
+            fence: Self::fencing_token_conn(&tx)?,
+        };
         let fact = match existing {
             Some(raw) => {
                 let mut fact: BranchFact = serde_json::from_str(&raw)?;
                 fact.kind = BranchKind::Availability;
                 fact.reason = reason.to_string();
                 fact.global_quorum = false;
+                fact.availability_authority = Some(authority);
                 fact.retained_experience = retained;
                 fact.updated_at = now;
                 // A new partition of the same branch supersedes an earlier
@@ -2039,6 +2787,7 @@ impl Node {
                 subject_id,
                 reason: reason.to_string(),
                 global_quorum: false,
+                availability_authority: Some(authority),
                 retained_experience: retained,
                 opened_at: now,
                 updated_at: now,
@@ -2120,12 +2869,11 @@ impl Node {
             seq > i64::try_from(fact.reconciliation_floor).context("branch floor out of range")?,
             "reconciliation {reconciliation_id} predates the partition branch; it does not cover its experience"
         );
-        let record: ReconciliationRecord =
-            serde_json::from_str(&tx.query_row(
-                "SELECT data FROM node_reconciliations WHERE seq=?1",
-                [seq],
-                |r| r.get::<_, String>(0),
-            )?)?;
+        let record: ReconciliationRecord = serde_json::from_str(&tx.query_row(
+            "SELECT data FROM node_reconciliations WHERE seq=?1",
+            [seq],
+            |r| r.get::<_, String>(0),
+        )?)?;
         let claim = get_state::<PrimaryClaim>(&tx, "primary")?;
         let now = chrono::Utc::now();
         fact.reason = note.to_string();
@@ -2161,7 +2909,8 @@ impl Node {
 
     fn reconciliation_seq(tx: &Transaction<'_>, id: EntityId) -> Result<Option<i64>> {
         let mut statement = tx.prepare("SELECT seq,data FROM node_reconciliations")?;
-        let rows = statement.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let rows =
+            statement.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
         for row in rows {
             let (seq, data) = row?;
             let record: ReconciliationRecord = serde_json::from_str(&data)?;
@@ -2245,12 +2994,10 @@ impl Node {
         let branch = BranchFact {
             branch_id,
             kind: BranchKind::AdoptedExperience,
-            subject_id: record
-                .retired
-                .as_ref()
-                .map(|identity| identity.agent_id),
+            subject_id: record.retired.as_ref().map(|identity| identity.agent_id),
             reason: format!("adopted an existing self: {}", record.reason),
             global_quorum: false,
+            availability_authority: None,
             retained_experience: retained,
             opened_at: now,
             updated_at: now,
@@ -2340,8 +3087,13 @@ impl Node {
             tx.execute(
                 "INSERT OR IGNORE INTO receipts(source,event_id,digest,task,data,status,reason) \
                  VALUES(?1,?2,?3,?4,?5,'evidence_only','peer_reconciliation')",
-                params![peer.peer_node_id.to_string(), receipt.event.raw.event_id.to_string(),
-                    receipt_digest.0, task_id.to_string(), data],
+                params![
+                    peer.peer_node_id.to_string(),
+                    receipt.event.raw.event_id.to_string(),
+                    receipt_digest.0,
+                    task_id.to_string(),
+                    data
+                ],
             )?;
             let local: Option<String> = tx
                 .query_row(
@@ -2364,7 +3116,8 @@ impl Node {
                         detail: if same {
                             "the same result is already settled here".into()
                         } else {
-                            "a different result exists for this task; both facts are retained".into()
+                            "a different result exists for this task; both facts are retained"
+                                .into()
                         },
                     });
                 }
@@ -2433,15 +3186,7 @@ impl Node {
     /// The committed control log entries, used to replicate decisions to
     /// peers so they learn the current configuration and fencing epoch.
     pub fn control_log(&self) -> Result<Vec<ControlEntry>> {
-        let mut statement = self
-            .conn
-           .prepare("SELECT data FROM node_control_log ORDER BY idx")?;
-        let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
-        let mut entries = Vec::new();
-        for row in rows {
-            entries.push(serde_json::from_str(&row?)?);
-        }
-        Ok(entries)
+        Self::control_log_conn(&self.conn)
     }
 
     /// The control-log divergences this node refused and retained as
@@ -2468,7 +3213,7 @@ impl Node {
         let term = self.current_term()?;
         let branches = self.branches()?;
         let mut votes = Vec::new();
-        if let Some(config) = &config {
+        if config.is_some() {
             let mut statement = self.conn.prepare(
                 "SELECT term,voter,candidate FROM node_votes WHERE scope='election' ORDER BY term,voter",
             )?;
@@ -2489,14 +3234,27 @@ impl Node {
             }
         }
         let quorum = config.as_ref().map(|config| config.quorum());
+        let control = self.control_log()?;
+        let durable_frontier = control
+            .iter()
+            .rev()
+            .find(|entry| entry.durability.is_some())
+            .map(|entry| entry.index);
+        let legacy_entries = control.iter().filter(|entry| entry.schema == 1).count();
+        let accepted = Self::accepted_control_conn(&self.conn)?;
+        let pending_value = accepted.as_ref().map(|accepted| -> Result<Value> { Ok(json!({
+            "index": accepted.entry.index, "ballot": accepted.ballot,
+            "kind": accepted.entry.kind, "value_digest": crate::control::control_value_digest(&accepted.entry)?,
+            "committed": false,
+        })) }).transpose()?;
         let parallel_facts: i64 =
             self.conn
                 .query_row("SELECT count(*) FROM conflicts", [], |r| r.get(0))?;
-        let retained_conflicts: i64 = self.conn.query_row(
-            "SELECT count(*) FROM node_control_log_conflicts",
-            [],
-            |r| r.get(0),
-        )?;
+        let retained_conflicts: i64 =
+            self.conn
+                .query_row("SELECT count(*) FROM node_control_log_conflicts", [], |r| {
+                    r.get(0)
+                })?;
         Ok(json!({
             "node_id": self.local_node_id()?,
             "term": term.to_string(),
@@ -2514,6 +3272,11 @@ impl Node {
             "parallel_facts_are_evidence": true,
             "is_election": true,
             "quorum_basis": "committed_member_configuration",
+            "control_protocol": "sequential_prepare_accept_commit_v2",
+            "durable_control_frontier": durable_frontier,
+            "legacy_control_entries": legacy_entries,
+            "pending_accepted_control": pending_value,
+            "vote_receipts_are_replication": false,
             "visible_nodes_are_not_the_quorum": true,
             "current_peer_liveness": "not_measured",
             "model_required_for_membership": false,
@@ -2522,10 +3285,11 @@ impl Node {
     }
 }
 
-fn control_kind_name(kind: ControlKind) -> &'static str {
+pub(crate) fn control_kind_name(kind: ControlKind) -> &'static str {
     match kind {
         ControlKind::Primary => "primary",
         ControlKind::MemberConfiguration => "member_configuration",
+        ControlKind::Admission => "admission",
     }
 }
 
@@ -2557,13 +3321,14 @@ mod tests {
         node.local_node_id().unwrap().unwrap()
     }
 
-    /// A real, independently verifiable primary entry: the certificate's
-    /// voters are drawn from the members it names, so a one-voter fixture
-    /// carries a real quorum certificate.
+    /// Retained schema-1 control history for the existing migration/prefix
+    /// tests. Such a vote certificate is historical data and no longer grants
+    /// a usable primary fence; new protocol journeys obtain real accept ACKs.
     fn primary_entry(node: &Node, index: u64, term: u64, epoch: u64) -> ControlEntry {
         let id = node_id(node);
         let config = node.member_configuration().unwrap().unwrap();
         ControlEntry {
+            schema: 1,
             index,
             term,
             kind: ControlKind::Primary,
@@ -2579,10 +3344,32 @@ mod tests {
                 },
             })
             .unwrap(),
+            durability: None,
         }
     }
 
-    fn append(node: &mut Node, prev_index: u64, prev_term: u64, entries: Vec<ControlEntry>) -> AppendOutcome {
+    fn persist_control(proposer: &mut Node, acceptor: &mut Node) -> Result<()> {
+        let request = proposer
+            .pending_control_replication()?
+            .context("expected a pending control value")?;
+        let ack = proposer.replicate_control_to(node_id(acceptor), &request, &mut |request| {
+            acceptor.handle(request)
+        })?;
+        ensure!(ack.accepted, "acceptor refused: {}", ack.reason);
+        proposer.record_control_acknowledgement(&request, &ack)?;
+        ensure!(
+            proposer.commit_prepared_control(&request)?.committed,
+            "durable quorum did not commit"
+        );
+        Ok(())
+    }
+
+    fn append(
+        node: &mut Node,
+        prev_index: u64,
+        prev_term: u64,
+        entries: Vec<ControlEntry>,
+    ) -> AppendOutcome {
         node.append_control_entries(&AppendRequest {
             schema: ELECTION_WIRE_SCHEMA,
             leader_id: node_id(node),
@@ -2603,7 +3390,11 @@ mod tests {
         let skipped = primary_entry(&node, 3, 1, 1);
         let outcome = append(&mut node, 1, 1, vec![skipped]);
         assert_eq!(outcome.accepted, 0);
-        assert!(outcome.reason.starts_with("log_mismatch"), "{}", outcome.reason);
+        assert!(
+            outcome.reason.starts_with("log_mismatch"),
+            "{}",
+            outcome.reason
+        );
         assert_eq!(outcome.commit_index, 1);
 
         // Nothing was applied: no hole was crossed, no fact was advanced.
@@ -2632,11 +3423,18 @@ mod tests {
         let divergent = primary_entry(&node, 2, 1, 9);
         let outcome = append(&mut node, 1, 1, vec![divergent.clone()]);
         assert_eq!(outcome.accepted, 0);
-        assert!(outcome.reason.starts_with("log_conflict"), "{}", outcome.reason);
+        assert!(
+            outcome.reason.starts_with("log_conflict"),
+            "{}",
+            outcome.reason
+        );
         assert_eq!(outcome.commit_index, 2);
 
         // The committed decision was not deleted or overwritten.
-        assert_eq!(Node::control_entry(&node.conn, 2).unwrap().unwrap(), committed);
+        assert_eq!(
+            Node::control_entry(&node.conn, 2).unwrap().unwrap(),
+            committed
+        );
         assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 1);
         assert_eq!(node.control_log().unwrap().len(), 2);
 
@@ -2682,7 +3480,7 @@ mod tests {
     }
 
     #[test]
-    fn a_replay_does_not_promote_rows_above_the_recorded_commit_frontier() {
+    fn a_replay_does_not_promote_rows_above_the_recorded_commit_frontier() -> Result<()> {
         let dir = tempfile::tempdir().unwrap();
         let mut node = node(&dir.path().join("node"));
         node.ensure_member_configuration().unwrap();
@@ -2706,9 +3504,18 @@ mod tests {
         let covered = append(&mut node, 1, 1, vec![entry, tail]);
         assert!(covered.reason.starts_with("log_mismatch"));
         assert_eq!(covered.commit_index, 1);
-        assert_eq!(node.control_log().unwrap().len(), 2);
+        assert_eq!(
+            node.control_log().unwrap().len(),
+            1,
+            "export stops at the actual committed frontier"
+        );
+        assert!(
+            Node::control_entry(&node.conn, 2)?.is_some(),
+            "the retained row is not erased"
+        );
         assert!(Node::control_entry(&node.conn, 3).unwrap().is_none());
         assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 1);
+        Ok(())
     }
 
     #[test]
@@ -2718,7 +3525,11 @@ mod tests {
         let config = source.ensure_member_configuration().unwrap();
         let mut target = node(&dir.path().join("target"));
         let skipped = primary_entry(&source, 2, 2, 1);
-        assert!(target.adopt_member_configuration(&config, &[skipped]).is_err());
+        assert!(
+            target
+                .adopt_member_configuration(&config, &[skipped])
+                .is_err()
+        );
         assert!(target.control_log().unwrap().is_empty());
         assert!(target.member_configuration().unwrap().is_none());
         assert!(target.committed_primary_claim().unwrap().is_none());
@@ -2735,7 +3546,11 @@ mod tests {
         let mut entries = source.control_log().unwrap();
         entries.push(primary_entry(&source, 2, 2, 1));
         let mut target = node(&dir.path().join("target"));
-        assert!(target.adopt_member_configuration(&advertised, &entries).is_err());
+        assert!(
+            target
+                .adopt_member_configuration(&advertised, &entries)
+                .is_err()
+        );
         assert!(target.control_log().unwrap().is_empty());
         assert!(target.member_configuration().unwrap().is_none());
         assert!(target.committed_primary_claim().unwrap().is_none());
@@ -2750,7 +3565,10 @@ mod tests {
         let prefix = source.control_log().unwrap();
         let mut target = node(&dir.path().join("target"));
         target.adopt_member_configuration(&config, &prefix).unwrap();
-        assert_eq!(target.member_configuration().unwrap().unwrap().committed_at, config.committed_at);
+        assert_eq!(
+            target.member_configuration().unwrap().unwrap().committed_at,
+            config.committed_at
+        );
         let mut full = prefix.clone();
         full.push(primary_entry(&source, 2, 3, 7));
         // Equal configuration revision does not mean an equal committed log.
@@ -2760,7 +3578,14 @@ mod tests {
         assert_eq!(target.current_term().unwrap(), 3);
         assert_eq!(state_number(&target.conn, "commit_index").unwrap(), 2);
         target.adopt_member_configuration(&config, &full).unwrap();
-        assert_eq!(target.committed_primary_claim().unwrap().unwrap().committed_at, claim.committed_at);
+        assert_eq!(
+            target
+                .committed_primary_claim()
+                .unwrap()
+                .unwrap()
+                .committed_at,
+            claim.committed_at
+        );
         assert!(target.adopt_member_configuration(&config, &prefix).is_err());
         assert_eq!(target.control_log().unwrap(), full);
         assert_eq!(state_number(&target.conn, "commit_index").unwrap(), 2);
@@ -2781,5 +3606,362 @@ mod tests {
         assert_eq!(outcome.commit_index, 3);
         assert_eq!(node.control_log().unwrap().len(), 3);
         assert_eq!(node.committed_primary_claim().unwrap().unwrap().epoch, 2);
+    }
+
+    #[test]
+    fn delayed_votes_cannot_rewind_or_reauthorize_an_obsolete_campaign() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("node");
+        let mut n = node(&path);
+        n.ensure_member_configuration()?;
+        let old = n.campaign()?;
+        let original = n
+            .tally(old.term)?
+            .claim
+            .context("the election must commit a primary claim")?;
+        let old_fence = n
+            .fencing_token()?
+            .context("a current primary must have a fence")?;
+        assert_eq!(
+            n.tally(old.term)?
+                .claim
+                .context("the election must commit a primary claim")?,
+            original
+        );
+        let log = n.control_log()?;
+
+        n.campaign()?;
+        let current = n.campaign()?;
+        let late = VoteResponse {
+            schema: ELECTION_WIRE_SCHEMA,
+            request_id: old.request.request_id,
+            responder_id: node_id(&n),
+            term: old.term + 1,
+            vote_granted: false,
+            config_digest: old.request.config_digest.clone(),
+            proposal_digest: None,
+            reason: "a delayed response from the previous election".into(),
+            committed: n.control_frontier()?,
+            accepted_control: None,
+        };
+        assert_eq!(
+            n.record_vote_response(&old.request, &late)?.outcome,
+            "rejected"
+        );
+        assert_eq!(n.current_term()?, current.term);
+        assert_eq!(n.election_role()?, ElectionRole::Candidate);
+        assert!(!n.tally(old.term)?.elected);
+        assert_eq!(n.control_log()?, log);
+        assert!(!n.is_primary()?);
+        assert!(n.fencing_token()?.is_none());
+        assert_eq!(
+            n.committed_primary_claim()?
+                .context("the committed claim must remain available")?,
+            original
+        );
+        assert!(n.check_fencing(&old_fence).is_err());
+
+        drop(n);
+        let mut n = Node::open(&path)?;
+        n.record_vote_response(&old.request, &late)?;
+        let receipts: i64 = n.conn.query_row(
+            "SELECT COUNT(*) FROM node_votes WHERE scope LIKE 'receipt:%'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(
+            receipts, 1,
+            "the late fact survives reopen and exact replay"
+        );
+        let older = VoteResponse {
+            request_id: current.request.request_id,
+            term: old.term,
+            ..late.clone()
+        };
+        assert_eq!(
+            n.record_vote_response(&current.request, &older)?.outcome,
+            "rejected"
+        );
+        assert_eq!(n.current_term()?, current.term);
+        let receipts: i64 = n.conn.query_row(
+            "SELECT COUNT(*) FROM node_votes WHERE scope LIKE 'receipt:%'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(
+            receipts, 2,
+            "an older response remains a fact without becoming a ballot"
+        );
+        let claim = n
+            .tally(current.term)?
+            .claim
+            .context("the election must commit a primary claim")?;
+        assert_eq!(claim.epoch, original.epoch + 1);
+        let valid = n
+            .fencing_token()?
+            .context("a current primary must have a fence")?;
+        n.check_fencing(&valid)?;
+        let mut wrong_configuration = valid.clone();
+        wrong_configuration.config_revision += 1;
+        assert!(n.check_fencing(&wrong_configuration).is_err());
+        let newer = VoteResponse {
+            request_id: current.request.request_id,
+            term: current.term + 1,
+            ..late
+        };
+        assert_eq!(
+            n.record_vote_response(&current.request, &newer)?.outcome,
+            "lost_election"
+        );
+        assert!(n.check_fencing(&valid).is_err());
+        assert!(!n.is_primary()?);
+        assert!(n.fencing_token()?.is_none());
+        assert_eq!(n.coordination_candidates()?["global_quorum"], false);
+        assert!(!n.tally(current.term)?.elected);
+        Ok(())
+    }
+
+    #[test]
+    fn membership_retries_and_joint_certificates_follow_the_committed_prefix() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut a = node(&dir.path().join("a"));
+        let mut b = node(&dir.path().join("b"));
+        let config = a.ensure_member_configuration()?;
+        let initial = a.campaign()?;
+        assert!(a.tally(initial.term)?.elected);
+        b.adopt_member_configuration(&config, &a.control_log()?)?;
+        let request = MemberChangeRequest {
+            operation_id: EntityId::new(),
+            expected_revision: config.revision,
+            add: vec![node_id(&b)],
+            remove: vec![],
+            reason: "join the same domain".into(),
+        };
+        let obsolete = a.propose_member_change(request.clone())?;
+        let vote = b.handle_vote_request(&obsolete.request)?;
+        a.record_vote_response(&obsolete.request, &vote)?;
+        let next = a.campaign()?;
+        assert!(
+            a.tally_member_change(&obsolete.proposal).is_err(),
+            "old votes cannot acquire a new term"
+        );
+        assert_eq!(
+            a.member_configuration()?
+                .context("the committed configuration must remain available")?,
+            config
+        );
+        assert!(
+            a.propose_member_change(request.clone()).is_err(),
+            "a candidate is not a committed primary"
+        );
+        assert!(a.tally(next.term)?.elected);
+        b.adopt_member_configuration(&config, &a.control_log()?)?;
+
+        let joint = a.propose_member_change(request.clone())?;
+        let vote = b.handle_vote_request(&joint.request)?;
+        a.record_vote_response(&joint.request, &vote)?;
+        assert!(
+            b.handle_vote_request(&joint.request)?.vote_granted,
+            "compatible replay remains a vote"
+        );
+        let third = EntityId::new();
+        let mut competing_change = request;
+        competing_change.add.push(third);
+        assert!(a.propose_member_change(competing_change).is_err());
+        let mut competing = joint.request.clone();
+        let proposal = competing
+            .proposal
+            .as_mut()
+            .context("the membership request must include its proposal")?;
+        proposal.new_members.push(third);
+        proposal.new_members = sorted_unique(&proposal.new_members);
+        proposal.digest = proposal_digest(proposal)?;
+        let refused = b.handle_vote_request(&competing)?;
+        assert!(!refused.vote_granted);
+        assert_eq!(
+            refused.reason,
+            "conflicting_membership_ballot_for_base_and_term"
+        );
+        assert!(
+            !a.tally_member_change(&joint.proposal)?.quorum_met,
+            "approval votes alone do not persist a control entry on the joint quorum"
+        );
+        persist_control(&mut a, &mut b)?;
+        let committed = a
+            .tally_member_change(&joint.proposal)?
+            .committed
+            .context("the membership tally must return its committed configuration")?;
+        let log = a.control_log()?;
+        assert_eq!(
+            a.tally_member_change(&joint.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            committed
+        );
+        assert_eq!(
+            a.control_log()?,
+            log,
+            "a lost response does not create another transition"
+        );
+        let mut conflicting = joint.proposal.clone();
+        conflicting.new_members = vec![node_id(&a)];
+        conflicting.digest = proposal_digest(&conflicting)?;
+        assert!(a.tally_member_change(&conflicting).is_err());
+        b.adopt_member_configuration(&committed, &log)?;
+
+        // During the joint phase, the old singleton alone is not a quorum.
+        // The genuine election needs B's vote; its certificate must also be
+        // accepted by the follower without treating B as an outside voter.
+        let election = a.campaign()?;
+        assert!(!a.tally(election.term)?.elected);
+        let vote = b.handle_vote_request(&election.request)?;
+        a.record_vote_response(&election.request, &vote)?;
+        assert!(
+            !a.tally(election.term)?.elected,
+            "prepare votes are not a stored primary entry"
+        );
+        persist_control(&mut a, &mut b)?;
+        assert!(a.tally(election.term)?.elected);
+        let real = a.control_log()?;
+        let mut forged = real.clone();
+        let last = forged
+            .last_mut()
+            .context("the committed log must contain the new primary entry")?;
+        let mut payload: PrimaryEntry = serde_json::from_value(last.payload.clone())?;
+        payload.certificate.voters = vec![node_id(&a)];
+        last.payload = serde_json::to_value(payload)?;
+        assert!(b.adopt_member_configuration(&committed, &forged).is_err());
+        assert_eq!(
+            b.control_log()?,
+            log,
+            "an incomplete joint certificate has no partial effects"
+        );
+        let predecessor = log
+            .last()
+            .context("the committed log must contain an entry")?;
+        let refused = append(
+            &mut b,
+            predecessor.index,
+            predecessor.term,
+            vec![
+                forged
+                    .last()
+                    .context("the committed log must contain an entry")?
+                    .clone(),
+            ],
+        );
+        assert_eq!(refused.accepted, 0);
+        assert!(refused.reason.starts_with("unverified_entry"));
+        b.adopt_member_configuration(&committed, &real)?;
+
+        // A resumed command may recover the original joint proposal from a
+        // follower's retained prefix instead of the original caller's memory.
+        let retained_joint = b
+            .pending_joint_proposal()?
+            .context("the committed joint proposal must remain recoverable")?;
+        assert_eq!(retained_joint.digest, joint.proposal.digest);
+        let final_round = a.propose_final_member_change(&retained_joint)?;
+        let vote = b.handle_vote_request(&final_round.request)?;
+        a.record_vote_response(&final_round.request, &vote)?;
+        assert!(!a.tally_member_change(&final_round.proposal)?.quorum_met);
+        persist_control(&mut a, &mut b)?;
+        let final_config = a
+            .tally_member_change(&final_round.proposal)?
+            .committed
+            .context("the membership tally must return its committed configuration")?;
+        let final_log = a.control_log()?;
+        assert!(a.pending_joint_proposal()?.is_none());
+        assert_eq!(
+            a.tally_member_change(&joint.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            committed
+        );
+        assert_eq!(
+            a.tally_member_change(&final_round.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            final_config
+        );
+        assert_eq!(a.control_log()?, final_log);
+        b.adopt_member_configuration(&final_config, &final_log)?;
+        assert_eq!(
+            b.member_configuration()?
+                .context("the committed configuration must remain available")?,
+            final_config
+        );
+        let late = b.handle_vote_request(&joint.request)?;
+        assert_eq!(
+            a.record_vote_response(&joint.request, &late)?.outcome,
+            "rejected"
+        );
+        let receipt_scope = format!(
+            "receipt:{}:{}",
+            joint.request.request_id,
+            digest(&(&joint.request, &late))?.0
+        );
+        let retained: i64 = a.conn.query_row(
+            "SELECT COUNT(*) FROM node_votes WHERE scope=?1",
+            [receipt_scope],
+            |r| r.get(0),
+        )?;
+        assert_eq!(
+            retained, 1,
+            "membership advancement does not erase a late authenticated observation"
+        );
+
+        // A real leader change supersedes A's proposal authority, while A's
+        // old committed membership retry still returns its original fact.
+        let takeover = b.campaign()?;
+        let vote = a.handle_vote_request(&takeover.request)?;
+        b.record_vote_response(&takeover.request, &vote)?;
+        assert!(!b.tally(takeover.term)?.elected);
+        persist_control(&mut b, &mut a)?;
+        assert!(b.tally(takeover.term)?.elected);
+        a.adopt_member_configuration(&final_config, &b.control_log()?)?;
+        assert_eq!(
+            a.tally_member_change(&joint.proposal)?
+                .committed
+                .context("the membership tally must return its committed configuration")?,
+            committed
+        );
+        let change = MemberChangeRequest {
+            operation_id: EntityId::new(),
+            expected_revision: final_config.revision,
+            add: vec![third],
+            remove: vec![],
+            reason: "the new primary extends membership".into(),
+        };
+        assert!(a.propose_member_change(change.clone()).is_err());
+        let fresh = b.propose_member_change(change)?;
+        let mut former_leader = fresh.request.clone();
+        former_leader.candidate_id = node_id(&a);
+        former_leader.term += 10;
+        assert!(!a.handle_vote_request(&former_leader)?.vote_granted);
+        assert_eq!(a.current_term()?, takeover.term);
+        let mut stale = joint.request.clone();
+        stale.term = takeover.term + 10;
+        assert!(!a.handle_vote_request(&stale)?.vote_granted);
+        assert_eq!(
+            a.current_term()?,
+            takeover.term,
+            "a stale base cannot advance term"
+        );
+        let mut outsider = takeover.request.clone();
+        outsider.candidate_id = third;
+        outsider.term += 10;
+        assert!(!a.handle_vote_request(&outsider)?.vote_granted);
+        assert_eq!(
+            a.current_term()?,
+            takeover.term,
+            "an outsider cannot advance term"
+        );
+        let vote = a.handle_vote_request(&fresh.request)?;
+        assert!(vote.vote_granted);
+        b.record_vote_response(&fresh.request, &vote)?;
+        assert!(!b.tally_member_change(&fresh.proposal)?.quorum_met);
+        persist_control(&mut b, &mut a)?;
+        assert!(b.tally_member_change(&fresh.proposal)?.quorum_met);
+        Ok(())
     }
 }

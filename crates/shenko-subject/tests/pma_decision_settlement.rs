@@ -67,7 +67,7 @@ fn initialize(store: &Store) -> Result<EntityId> {
         bootstrap_event_ref: object.clone(),
         created_commit: precommit,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent,
         branch_id: BranchId::new(),
         subject_root_task_id: EntityId::new(),

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "purpose": "One real Qwen3-1.7B Q8_0 paired Shenko acceptance attempt; strict failure retained",
+  "result": "inconclusive_or_failed",
+  "source_head": "1ff6725357cfe734a1da20507eb7f09406daeac9",
+  "entrypoint": "analysis/result-summary.json",
+  "raw_report": "runner/report.json",
+  "raw_wire_directory": "wire",
+  "CAS_portable_mapping": "cas-portable-map.json",
+  "SQLite_read_only_export": "analysis/db-audit.json",
+  "model_identity_and_parameters": "model-service/service-manifest.json",
+  "full_SQLite_databases": "Retained in separate full-evidence archive; compact export contains the relevant request, step, task, result and commit rows",
+  "reproduction_warning": "No automatic rerun. Harness paths and source/ELF hashes are pinned to this completed attempt. A later run needs a new task directory and a newly verified ELF identity; never clear or reuse the old queue to hide samples.",
+  "local_relay_state": "Persistent exec session ended normally after runner completion; listener is closed. The Box model service stays running.",
+  "Box_model_service_pid": 48637,
+  "Box_model_service_base_url": "http://127.0.0.1:18831/v1",
+  "limitations": [
+    "No required-reader invocation in either arm.",
+    "Both small-model LLM judges returned false-positive EFFECTIVE labels.",
+    "Candidate reply invented file names and implementation details.",
+    "Buffered connector transport adds latency, and prefix caching was not reset.",
+    "One unseeded pair does not support efficacy, token-saving, or baseline-equivalence claims."
+  ]
+}

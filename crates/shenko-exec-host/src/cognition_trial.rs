@@ -489,7 +489,7 @@ fn sandbox(label: &str, root: &Path) -> Result<(PathBuf, Arc<Store>, EntityId)> 
         bootstrap_event_ref: object,
         created_commit: precommit,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent,
         branch_id: BranchId::new(),
         subject_root_task_id: EntityId::new(),
@@ -616,6 +616,18 @@ pub trait SandboxRuntime: Sync {
         sandbox: &PreparedSandbox,
         catalog: &Arc<CognitionCatalog>,
     ) -> impl std::future::Future<Output = Result<()>> + Send;
+
+    /// Prepare the real subject's context after its capabilities are installed,
+    /// but before the scenario input or any inference is started. Raw history
+    /// stays in the Store; callers may commit a normal, bound context window.
+    fn prepare_subject(
+        &self,
+        _supervisor: &Supervisor,
+        _sandbox: &PreparedSandbox,
+        state: SubjectLoopState,
+    ) -> impl std::future::Future<Output = Result<SubjectLoopState>> + Send {
+        async { Ok(state) }
+    }
 
     fn accept_result(
         &self,
@@ -926,6 +938,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
             .with_broker(broker.clone()).with_hooks(Arc::clone(&supervisor.hooks))
             .with_awareness(Arc::clone(&catalog))
             .with_native_capabilities(native.installed_prompt_sections());
+        let state = runtime.prepare_subject(&supervisor, &prepared, state).await?;
         inbox.sender().send(observer.message.clone()).await
             .map_err(|_| anyhow!("the sandbox inbox closed"))?;
         subject_task = Some(tokio::spawn(run_subject_loop(state, subject_stopping.clone())));

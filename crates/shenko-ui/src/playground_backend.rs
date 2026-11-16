@@ -442,7 +442,7 @@ impl PlaygroundState {
         if !native.has_handler(PLAYGROUND_BACKEND_KIND, 1) {
             return Err(ActionError::Unavailable("WASI artifact handler is not installed".into()));
         }
-        let record = self.get(&id).ok_or(ActionError::NotFound)?;
+        let record = self.get(&id)?.ok_or(ActionError::NotFound)?;
         let binding = record.backend.as_ref().ok_or(ActionError::NoBackend)?;
         if request.backend_digest != binding.module_digest { return Err(ActionError::Stale); }
         // An action must be declared by the backend's published schema. A

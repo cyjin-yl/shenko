@@ -502,13 +502,15 @@ mod tests {
         let zero = CommitRef::new(f.store.ledger.ledger_id(), LedgerSeq::ZERO);
         let genesis_id = EntityId::new();
         let branch_id = BranchId(f.subject.branch_id.0);
-        let head = SubjectBranchHead {
+        let head = SubjectBranchHead { branch_origin: None,
             agent_id: f.subject.agent_id, branch_id: branch_id.clone(),
             subject_root_task_id: EntityId::new(), controller_epoch: f.ctx.epoch,
             software_generation: f.ctx.software_generation.clone(),
             genesis_ref: GenesisRef { ledger_id: f.store.ledger.ledger_id(), genesis_id },
             committed_step_no: 0, committed_step_id: None, committed_at: zero,
-            next_step_id: EntityId::new(), mode: SubjectMode::Active,
+            // The task's recorded source must be a registered step in this
+            // branch, including when the permission fixture adds a parent.
+            next_step_id: f.authority.decision_ref, mode: SubjectMode::Active,
             mode_reason_ref: None, record_revision: RecordRevision(0),
         };
         let genesis = SubjectGenesis {

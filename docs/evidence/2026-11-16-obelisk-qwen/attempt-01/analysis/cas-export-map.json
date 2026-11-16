@@ -1,0 +1,72 @@
+[
+  {
+    "condition": "baseline",
+    "kind": "subject_result",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/61/1e/611ec589444688d030b099d772337c9c16b093c9312967815680df8c19f72409",
+    "cas_sha256": "140c361ea0e609807bd179492eb0cb93a40872a7b5950427142c897e8d56e8be",
+    "export": "analysis/baseline-subject_result.json"
+  },
+  {
+    "condition": "baseline",
+    "kind": "judge_result",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/f2/4a/f24a3969f8e2e953717da73a49b4832188dbce6feae877d9cf6cc9815445e0b2",
+    "cas_sha256": "d21eb6a3d2a092a553e757efa61714627027e6e825a14da004ece13e826acab3",
+    "export": "analysis/baseline-judge_result.json"
+  },
+  {
+    "condition": "baseline",
+    "kind": "judge_request",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/cc/b1/ccb1e7b2f4e1b31a74040777770ef71017c51b2e27f03a02b9bca0f855a181d1",
+    "cas_sha256": "84f779ab13ebf395df291dde965797eb0a1ac9995517f788c92384ee5d40cff2",
+    "export": "analysis/baseline-judge_request.json"
+  },
+  {
+    "condition": "baseline",
+    "kind": "observed_facts",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/a2/58/a258aed97d8fcd90a708dc843f033aa83643246dd356604e145b1ad27da6607a",
+    "cas_sha256": "e996157236994f472651f45cdfb1ed2e0841c9f38beeb97c9326df87e2c3c52d",
+    "export": "analysis/baseline-observed_facts.json"
+  },
+  {
+    "condition": "baseline",
+    "kind": "installation",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/12/e0/12e070e19ca7dc7a13115479f5f381f31147e5cdf6a37ee4b3bc54de73feca30",
+    "cas_sha256": "2e73bed1567af2c8e73d9a3fa07d7fa81c9d79fea17205bb7955fbfbd16de77a",
+    "export": "analysis/baseline-installation.json"
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject_result",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/41/7f/417f4dcd78447156a17e505b6ec14f8f186936687f9624a8919139cf37fce8a8",
+    "cas_sha256": "f92bc5d6e205d6bcff97201f55f07c5f56c12615939aae311705e5c06832448d",
+    "export": "analysis/candidate-subject_result.json"
+  },
+  {
+    "condition": "candidate",
+    "kind": "judge_result",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/e2/84/e284f822ea36e444b138708f3572c50d843e9182d2e718359958b9722a5a299f",
+    "cas_sha256": "324a23942ce375dfdca8d09ef26404523ae2a218b33490408761d145f212e729",
+    "export": "analysis/candidate-judge_result.json"
+  },
+  {
+    "condition": "candidate",
+    "kind": "judge_request",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/af/02/af02ba1f4e23ffe37ddbde2b891c18a7a5bcf251666ebaf5d3a1a8a83a4616d1",
+    "cas_sha256": "73962083012c1542b9004f7f9328e333fae609b8ba39cd44238c9f011dfced69",
+    "export": "analysis/candidate-judge_request.json"
+  },
+  {
+    "condition": "candidate",
+    "kind": "observed_facts",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/80/ab/80ab5a6ea53f4c40186b6653f741651a41aec051eccb25ab7f18c167860be475",
+    "cas_sha256": "927f4858d1287fccd0da366b45206b518ed0ba47dbbf75887619f3f3158b263c",
+    "export": "analysis/candidate-observed_facts.json"
+  },
+  {
+    "condition": "candidate",
+    "kind": "installation",
+    "cas_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/03/9c/039ce0ae2d6a9b4881306debf53bc61508d255483897b86d82237d69dcccf7fe",
+    "cas_sha256": "37501a4cb78727825a492cdf1ff2260839faeb39d1392ba675984b1662de8b79",
+    "export": "analysis/candidate-installation.json"
+  }
+]

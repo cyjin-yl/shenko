@@ -2,6 +2,7 @@
 //! 所有跨模块协议类型定义于此，无业务逻辑。
 
 pub mod agent;
+pub mod authority;
 pub mod activation;
 pub mod capabilities;
 pub mod channel;
