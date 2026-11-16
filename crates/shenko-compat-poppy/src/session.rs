@@ -57,7 +57,8 @@ impl PublicEcJwk {
 
 /// A node-local operator key whose public key is published in `jwks_uri`.
 ///
-/// This key signs delegations only. Loading a key neither publishes its public
+/// This key signs delegations, OAuth client assertions and optional operator
+/// HTTP signatures. Loading a key neither publishes its public
 /// metadata nor establishes that a company accepts the client.
 pub struct OperatorSigner {
     client_id: String,
@@ -85,6 +86,56 @@ impl OperatorSigner {
             key,
             public_key,
         })
+    }
+
+    /// Choose the RFC 7638 thumbprint as `kid` so one key can be published in
+    /// both CIMD JWKS and a UCP profile for Web Bot Auth interoperability.
+    pub fn from_pkcs8_thumbprint(client_id: &str, pkcs8: &[u8]) -> Result<Self> {
+        let mut signer = Self::from_pkcs8(client_id, "pending-thumbprint", pkcs8)?;
+        signer.key_id = signer.public_key.thumbprint()?;
+        Ok(signer)
+    }
+
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
+    /// Authenticate this client at the verified issuer's OAuth endpoints.
+    /// Poppy 1.0 §4.1 requires the literal issuer as the sole audience, never
+    /// an endpoint URL; the caller obtains it from verified discovery.
+    pub fn client_assertion(&self, issuer: &str) -> Result<String> {
+        let issuer_url = https_url(issuer)?;
+        ensure!(
+            issuer_url.query().is_none(),
+            "issuer must not contain a query"
+        );
+        let now = unix_seconds()?;
+        let expires = now
+            .checked_add(300)
+            .context("client assertion expiry overflow")?;
+        compact_jwt(
+            &self.key,
+            &json!({"typ":"JWT", "alg":"ES256", "kid":self.key_id}),
+            &json!({
+                "iss":self.client_id, "sub":self.client_id, "aud":issuer,
+                "iat":now, "exp":expires, "jti":random_id()?,
+            }),
+        )
+    }
+
+    pub(crate) fn http_key_thumbprint(&self) -> Result<String> {
+        self.public_key.thumbprint()
+    }
+
+    pub(crate) fn sign_http_base(&self, base: &[u8]) -> Result<Vec<u8>> {
+        self.key
+            .sign(&SystemRandom::new(), base)
+            .map(|signature| signature.as_ref().to_vec())
+            .map_err(|_| anyhow!("operator HTTP signature failed"))
     }
 
     /// Public metadata sufficient for signed-out identity. Direct Sign-In also
@@ -243,6 +294,10 @@ pub struct SessionSigner {
 }
 
 impl SessionSigner {
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
     pub fn identity(&self) -> &SessionIdentity {
         &self.identity
     }

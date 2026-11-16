@@ -25,7 +25,7 @@
 
 use crate::seat::{
     AnswerConfirmation, AnswerTransport, Confidence, PreflightRefusalKind, ProcessIdentity,
-    QuestionKind, QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer, SeatCapability,
+    QuestionKind, QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer,
     SeatEffectPlan, SeatHandle, SeatObservation, SeatOption, SeatPreflight, SeatQuestionCandidate,
     SeatResponse, SeatWriteFence,
 };
@@ -34,6 +34,7 @@ use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use shenko_store::SeatCapability;
 use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,

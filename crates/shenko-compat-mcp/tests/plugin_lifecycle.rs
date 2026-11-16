@@ -166,9 +166,56 @@ for line in sys.stdin:
 
 #[tokio::test]
 async fn streamable_http_transport_bounds_json_and_sse() -> Result<()> {
-    use shenko_compat_mcp::protocol::{Response, Session};
+    use shenko_compat_mcp::protocol::{
+        CaptureFailure, CaptureFailureKind, HttpRequestAuthorizer, Response, Session,
+    };
+    use std::io::Write as _;
     use tokio::io::AsyncBufReadExt as _;
     use tokio_util::sync::CancellationToken;
+    struct RequestJournal {
+        root: PathBuf,
+        release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+        started: tokio::sync::Notify,
+        finished: std::sync::atomic::AtomicBool,
+    }
+    impl HttpRequestAuthorizer for RequestJournal {
+        fn authorize<'a>(
+            &'a self, _request: &'a mut reqwest::Request,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn capture_request(&self, request: &reqwest::Request, cancellation: &CancellationToken) -> Result<()> {
+            if request.method() != reqwest::Method::POST {
+                return Ok(());
+            }
+            let body = request.body().and_then(reqwest::Body::as_bytes).context("SDK body missing")?;
+            let rpc: Value = serde_json::from_slice(body)?;
+            if rpc["method"] != "tools/call" {
+                return Ok(());
+            }
+            match rpc["params"]["name"].as_str() {
+                Some("capture_refused") => anyhow::bail!("fixture refused final request retention"),
+                Some("capture_timeout") => {
+                    let release = self.release.lock().take().context("capture gate already used")?;
+                    self.started.notify_one();
+                    let released = release.recv_timeout(Duration::from_secs(5));
+                    self.finished.store(true, std::sync::atomic::Ordering::SeqCst);
+                    released.context("capture gate was not released")?;
+                }
+                _ => {}
+            }
+            ensure!(!cancellation.is_cancelled(), "fixture capture cancelled before persistence");
+            let id = rpc["id"].as_str().map(str::to_owned).unwrap_or_else(|| rpc["id"].to_string());
+            ensure!(!id.is_empty() && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
+                "unexpected SDK request ID");
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
+                .open(self.root.join(format!("final-{id}.json")))?;
+            file.write_all(body)?;
+            file.sync_all()?;
+            std::fs::File::open(&self.root)?.sync_all()?;
+            Ok(())
+        }
+    }
     const HTTP_SERVER: &str = r#"import json, os, pathlib, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 root = pathlib.Path(sys.argv[1])
@@ -198,8 +245,11 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self): self.empty(200)
     def do_POST(self):
         if not self.authed(): return self.unauth()
-        message=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0')) or b'0') or b'{}')
-        posts.append({'method':message.get('method'),'id':message.get('id')})
+        wire=self.rfile.read(int(self.headers.get('Content-Length','0')) or b'0')
+        message=json.loads(wire or b'{}')
+        if message.get('method')=='tools/call':
+            assert (root/('final-'+str(message['id'])+'.json')).read_bytes()==wire, 'request reached server before exact SDK bytes/ID were synced'
+        posts.append({'method':message.get('method'),'id':message.get('id'),'name':message.get('params',{}).get('name')})
         method,ident=message.get('method'),message.get('id')
         if method=='initialize':
             self.sse({'jsonrpc':'2.0','id':ident,'result':{'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'http-fixture','version':'1'}}})
@@ -265,20 +315,70 @@ finally:
         unsafe { std::env::set_var("SHENKO_HTTP_FIXTURE_TOKEN", "secret-token-value"); }
         let spec = ConnectionSpec::StreamableHttp { url: format!("http://127.0.0.1:{port}/mcp"),
             header_env_refs: BTreeMap::from([("X-Fixture-Auth".into(), "SHENKO_HTTP_FIXTURE_TOKEN".into())]) };
-        let mut session = Session::connect(&spec, Duration::from_secs(5)).await
+        let journal = Arc::new(RequestJournal {
+            root: root.clone(), release: Mutex::new(None), started: tokio::sync::Notify::new(),
+            finished: std::sync::atomic::AtomicBool::new(false),
+        });
+        let mut session = Session::connect_authorized(&spec, Duration::from_secs(5), journal).await
             .with_context(|| format!("HTTP fixture did not negotiate at port {port}"))?;
-        let info = session.server_info()?;
-        ensure!(info["serverInfo"]["name"] == "http-fixture", "legacy HTTP negotiation failed: {info}");
         let request = |name: &str| serde_json::from_value(json!({"method":"tools/call","params":{"name":name,"arguments":{}}})).unwrap();
-        let echo = session.request(request("echo"), Duration::from_secs(5), &CancellationToken::new()).await?;
-        ensure!(matches!(&echo, Response::Received { result } if result["content"][0]["text"] == "echo:echo"),
-            "HTTP tools/call did not observe its result: {echo:?}");
-        let large_json = session.request(request("large_json"), Duration::from_secs(5), &CancellationToken::new()).await?;
-        ensure!(matches!(&large_json, Response::Unknown { .. }), "oversized JSON body was accepted: {large_json:?}");
-        let large_sse = session.request(request("large_sse"), Duration::from_secs(10), &CancellationToken::new()).await?;
-        ensure!(matches!(&large_sse, Response::Unknown { .. }), "oversized SSE event was accepted: {large_sse:?}");
-        tokio::time::timeout(Duration::from_secs(8), session.close()).await
-            .context("HTTP session close exceeded its guard")??;
+        let exchanges: Result<()> = async {
+            let info = session.server_info()?;
+            ensure!(info["serverInfo"]["name"] == "http-fixture", "legacy HTTP negotiation failed: {info}");
+            let echo = session.request(request("echo"), Duration::from_secs(5), &CancellationToken::new()).await?;
+            ensure!(matches!(&echo, Response::Received { result } if result["content"][0]["text"] == "echo:echo"),
+                "HTTP tools/call did not observe its result: {echo:?}");
+            let cancellation = CancellationToken::new();
+            let (echo, refused) = tokio::join!(
+                session.request(request("echo_during_refusal"), Duration::from_secs(5), &cancellation),
+                session.request(request("capture_refused"), Duration::from_secs(5), &cancellation),
+            );
+            ensure!(matches!(&echo, Ok(Response::Received { result }) if result["content"][0]["text"] == "echo:echo_during_refusal"),
+                "another RPC borrowed the capture failure: {echo:?}");
+            ensure!(refused.as_ref().err().and_then(|error| error.downcast_ref::<CaptureFailure>())
+                .is_some_and(|failure| failure.kind == CaptureFailureKind::Refused),
+                "capture refusal lost its typed local cause: {refused:?}");
+            let large_json = session.request(request("large_json"), Duration::from_secs(5), &cancellation).await?;
+            ensure!(matches!(&large_json, Response::Unknown { .. }), "oversized JSON body was accepted: {large_json:?}");
+            let large_sse = session.request(request("large_sse"), Duration::from_secs(10), &cancellation).await?;
+            ensure!(matches!(&large_sse, Response::Unknown { .. }), "oversized SSE event was accepted: {large_sse:?}");
+            Ok(())
+        }.await;
+        let cleanup = tokio::time::timeout(Duration::from_secs(8), session.close()).await
+            .context("HTTP session close exceeded its guard").and_then(|result| result);
+        exchanges?;
+        cleanup?;
+
+        // This runs on Tokio's current-thread runtime. The blocking callback
+        // holds a gate beyond its capture budget while the timer and teardown
+        // continue to run; no callback can dispatch the refused tools/call.
+        let (release, held) = std::sync::mpsc::channel();
+        let journal = Arc::new(RequestJournal {
+            root: root.clone(), release: Mutex::new(Some(held)), started: tokio::sync::Notify::new(),
+            finished: std::sync::atomic::AtomicBool::new(false),
+        });
+        let mut session = Session::connect_authorized(&spec, Duration::from_secs(5), journal.clone()).await?;
+        let captured = session.request(request("capture_timeout"), Duration::from_secs(2), &CancellationToken::new()).await;
+        let started = tokio::time::timeout(Duration::from_secs(1), journal.started.notified()).await.is_ok();
+        let worker_pending = !journal.finished.load(std::sync::atomic::Ordering::SeqCst);
+        let mut closing = Box::pin(session.close());
+        let early = tokio::time::timeout(Duration::from_millis(50), &mut closing).await;
+        let joined_before_release = early.is_ok();
+        let released = release.send(());
+        let closed = match early {
+            Ok(result) => result,
+            Err(_) => tokio::time::timeout(Duration::from_secs(8), closing).await
+                .context("capture worker retirement exceeded its guard")?,
+        };
+        ensure!(started && worker_pending && !joined_before_release,
+            "capture blocked the async runtime or teardown lost its worker: started={started}, pending={worker_pending}, early={joined_before_release}");
+        released.context("capture worker was lost before release")?;
+        ensure!(journal.finished.load(std::sync::atomic::Ordering::SeqCst), "capture worker survived session close");
+        ensure!(captured.as_ref().err().and_then(|error| error.downcast_ref::<CaptureFailure>())
+            .is_some_and(|failure| failure.kind == CaptureFailureKind::Timeout),
+            "capture timeout lost its typed local cause: {captured:?}");
+        ensure!(closed.as_ref().err().is_some_and(|error| format!("{error:#}").contains("fixture capture cancelled before persistence")),
+            "late capture failure was not retained by teardown: {closed:?}");
         Ok(port)
     }.await;
     // EOF requests shutdown on a separate Python thread. Always join before
@@ -302,19 +402,21 @@ finally:
     let mut counts = BTreeMap::<String, usize>::new();
     for line in std::fs::read_to_string(root.join("posts.jsonl"))?.lines() {
         let line: Value = serde_json::from_str(line)?;
+        ensure!(!matches!(line["name"].as_str(), Some("capture_refused" | "capture_timeout")),
+            "a failed capture reached the merchant: {line}");
         *counts.entry(line["method"].as_str().unwrap_or("null").to_owned()).or_default() += 1;
     }
     // server/discover once is the Auto lifecycle bootstrap (the fixture's
     // sessioned SSE error exercised the legacy-discover fallback); anything
     // duplicated is a replay.
     ensure!(counts == BTreeMap::from([
-        ("server/discover".to_owned(), 1), ("initialize".to_owned(), 1),
-        ("notifications/initialized".into(), 1),
-        ("tools/call".into(), 3)]), "HTTP request was replayed or dropped: {counts:?}");
+        ("server/discover".to_owned(), 2), ("initialize".to_owned(), 2),
+        ("notifications/initialized".into(), 2),
+        ("tools/call".into(), 4)]), "HTTP request was replayed or dropped: {counts:?}");
     ensure!(!Path::new(&format!("/proc/{pid}")).exists(), "HTTP fixture child was not joined");
     std::fs::write(root.join("receipt.json"), serde_json::to_vec_pretty(&json!({
         "port":port,"observed_counts":counts,"joined_pid":pid,
-        "scope":"real HTTP server over TCP; legacy session+SSE, bounded JSON body and SSE event; no model efficacy"}))?)?;
+        "scope":"real HTTP server over TCP; exact SDK bytes/ID synced before server admission, isolated concurrent capture refusal, capture timeout without dispatch, joined late capture failure, legacy session+SSE, bounded JSON body and SSE event; no model efficacy"}))?)?;
     println!("http transport receipt: {}", root.join("receipt.json").display());
     Ok(())
 }

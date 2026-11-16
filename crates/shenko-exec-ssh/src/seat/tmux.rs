@@ -22,7 +22,7 @@
 use crate::{
     seat::{
         AnswerConfirmation, AnswerTransport, Confidence, ProcessIdentity, QuestionKind,
-        QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer, SeatCapability, SeatEffectPlan,
+        QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer, SeatEffectPlan,
         PreflightRefusalKind, SeatHandle, SeatObservation, SeatOption, SeatPreflight,
         SeatQuestionCandidate, SeatResponse, SeatWriteFence, inferred_question_id,
     },
@@ -31,6 +31,7 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
+use shenko_store::SeatCapability;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Adapter version bound into durable seat records.

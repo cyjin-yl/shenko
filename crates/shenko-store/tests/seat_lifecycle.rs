@@ -1,13 +1,21 @@
-use shenko_store::{LeaseEndReason, SeatLeaseEnd, SeatLeaseRequest, SeatLocation, SeatStatus, Store};
+use shenko_store::{
+    LeaseEndReason, SeatCapability, SeatFleetEntry, SeatLeaseEnd, SeatLeaseRequest, SeatLocation,
+    SeatStatus, Store,
+};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 
-fn lease_request(seat_id: EntityId, holder_task_id: EntityId, lease_id: EntityId) -> SeatLeaseRequest {
+fn lease_request(
+    seat_id: EntityId,
+    holder_task_id: EntityId,
+    lease_id: EntityId,
+    lease_epoch: u64,
+) -> SeatLeaseRequest {
     SeatLeaseRequest {
         lease_id,
         seat_id,
         holder_task_id,
-        lease_epoch: 1,
+        lease_epoch,
         fence_capability: "tmux.send-keys:%1".into(),
     }
 }
@@ -36,17 +44,24 @@ fn displaced_writer_stays_displaced_after_reopen_and_human_takeover() {
     let task = EntityId::new();
     let seat = store.register_seat(EntityId::new(), task, "omp", "1", location("%1")).unwrap();
     let acquisition_id = EntityId::new();
-    let first = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id)).unwrap();
-    let second = store.acquire_seat_lease(lease_request(seat.seat_id, task, EntityId::new())).unwrap();
+    let first = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id, 1)).unwrap();
+    // A takeover by the seat's own owner needs a strictly greater epoch.
+    let second = store.acquire_seat_lease(lease_request(seat.seat_id, task, EntityId::new(), 2)).unwrap();
     drop(store);
     let store = Store::open(db, cas).unwrap();
     // Recover the original acquisition by the identity chosen before the
     // attempt. Replaying it after reopen cannot displace the newer writer.
-    let replay = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id)).unwrap();
+    let replay = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id, 1)).unwrap();
     assert_eq!(replay.lease_id, acquisition_id);
     assert_eq!(replay.created_commit, first.created_commit);
     assert!(!replay.is_current());
     assert_eq!(replay.superseded_by, Some(second.lease_id));
+    let altered_epoch = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id, 2)).unwrap_err();
+    assert_eq!(protocol_code(&altered_epoch).unwrap().0, "seat_lease_identity_conflict");
+    let mut altered_fence = lease_request(seat.seat_id, task, acquisition_id, 1);
+    altered_fence.fence_capability = "another-input-path".into();
+    assert_eq!(protocol_code(&store.acquire_seat_lease(altered_fence).unwrap_err()).unwrap().0,
+        "seat_lease_identity_conflict");
     assert!(store.check_seat_write(first.lease_id, task).is_err());
     assert!(store.check_seat_write(second.lease_id, task).is_ok());
     assert_eq!(store.seat_lease(first.lease_id).unwrap().unwrap().superseded_by, Some(second.lease_id));
@@ -68,7 +83,7 @@ fn relocation_preserves_history_and_invalidates_previous_location_lease() {
     let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
     let task = EntityId::new();
     let old = store.register_seat(EntityId::new(), task, "omp", "1", location("%1")).unwrap();
-    let lease = store.acquire_seat_lease(lease_request(old.seat_id, task, EntityId::new())).unwrap();
+    let lease = store.acquire_seat_lease(lease_request(old.seat_id, task, EntityId::new(), 1)).unwrap();
     let new = store.relocate_seat(old.seat_id, task, "omp", "1", location("%2")).unwrap();
     assert_eq!(new.supersedes, Some(old.seat_id));
     assert_eq!(store.seat(old.seat_id).unwrap().unwrap().status, SeatStatus::Retired);
@@ -135,7 +150,7 @@ fn pane_admits_only_one_active_seat_for_registration_and_relocation() {
     // Relocation into an occupied pane is refused the same way.
     let seat_c = contender.register_seat(EntityId::new(), task_c, "omp", "1", location("%3")).unwrap();
     let lease_c = contender
-        .acquire_seat_lease(lease_request(seat_c.seat_id, task_c, EntityId::new()))
+        .acquire_seat_lease(lease_request(seat_c.seat_id, task_c, EntityId::new(), 1))
         .unwrap();
     let err = contender
         .relocate_seat(seat_c.seat_id, task_c, "omp", "1", location("%2"))
@@ -154,7 +169,7 @@ fn relocation_requires_the_predecessors_own_task() {
     let task_a = EntityId::new();
     let task_b = EntityId::new();
     let old = store.register_seat(EntityId::new(), task_a, "omp", "1", location("%1")).unwrap();
-    let lease = store.acquire_seat_lease(lease_request(old.seat_id, task_a, EntityId::new())).unwrap();
+    let lease = store.acquire_seat_lease(lease_request(old.seat_id, task_a, EntityId::new(), 1)).unwrap();
     // Relocating under another task is refused and leaves task A's seat alive.
     let err = store
         .relocate_seat(old.seat_id, task_b, "omp", "1", location("%2"))
@@ -264,7 +279,7 @@ fn incarnation_bump_stales_existing_leases_without_ending_them() {
         .register_seat(EntityId::new(), task, "omp", "1", location("%7"))
         .unwrap();
     let lease = store
-        .acquire_seat_lease(lease_request(seat.seat_id, task, EntityId::new()))
+        .acquire_seat_lease(lease_request(seat.seat_id, task, EntityId::new(), 1))
         .unwrap();
     assert_eq!(seat.incarnation.0, 0);
     let bumped = store.bump_seat_incarnation(seat.seat_id).unwrap();
@@ -337,4 +352,192 @@ fn pre_v2_location_index_is_rebuilt_to_cover_session_anchors() {
         )
         .unwrap();
     assert!(sql.contains("remote_session_id"), "index was not rebuilt: {sql}");
+}
+
+/// A seat has at most one valid writer, and that writer is the seat's own
+/// durable owner. A foreign holder is refused and never displaces the live
+/// writer while the fleet still names the owner.
+#[test]
+fn a_foreign_holder_cannot_acquire_the_seats_writer_lease() {
+    let dir = std::env::temp_dir().join(format!("shenko-seat-owner-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let owner = EntityId::new();
+    let foreign = EntityId::new();
+    let seat = store.register_seat(EntityId::new(), owner, "omp", "1", location("%1")).unwrap();
+    let lease = store
+        .acquire_seat_lease(lease_request(seat.seat_id, owner, EntityId::new(), 1))
+        .unwrap();
+    // A caller that names another task cannot take the writer lease, not even
+    // with a much higher epoch.
+    let refused = EntityId::new();
+    let err = store
+        .acquire_seat_lease(lease_request(seat.seat_id, foreign, refused, 9))
+        .unwrap_err();
+    let (code, details) = protocol_code(&err).unwrap();
+    assert_eq!(code, "seat_task_mismatch");
+    assert_eq!(details["seat_id"], serde_json::json!(seat.seat_id.to_string()));
+    assert_eq!(details["seat_task_id"], serde_json::json!(owner.to_string()));
+    assert_eq!(details["claimed_task_id"], serde_json::json!(foreign.to_string()));
+    // The refused acquisition wrote nothing: the owner's lease still holds
+    // the seat, and the fleet still names the owner.
+    assert!(store.seat_lease(refused).unwrap().is_none());
+    let current = store.seat_current_lease(seat.seat_id).unwrap().unwrap();
+    assert_eq!(current.lease_id, lease.lease_id);
+    assert_eq!(current.holder_task_id, owner);
+    assert!(current.is_current());
+    assert!(store.check_seat_write(lease.lease_id, owner).is_ok());
+    assert!(store.check_seat_write(lease.lease_id, foreign).is_err());
+    assert_eq!(store.seat(seat.seat_id).unwrap().unwrap().task_id, owner);
+    let fleet = store.seat_fleet_summary(Some(owner)).unwrap();
+    assert_eq!(fleet.len(), 1);
+    assert_eq!(fleet[0].task_id, owner);
+    // A foreign holder is refused even before the seat has any writer.
+    let fresh = store.register_seat(EntityId::new(), owner, "omp", "1", location("%2")).unwrap();
+    let err = store
+        .acquire_seat_lease(lease_request(fresh.seat_id, foreign, EntityId::new(), 1))
+        .unwrap_err();
+    assert_eq!(protocol_code(&err).unwrap().0, "seat_task_mismatch");
+    assert!(store.seat_current_lease(fresh.seat_id).unwrap().is_none());
+
+    // An old database may already contain a foreign-holder lease. Retain it
+    // as history, but never let its holder pass write admission after reopen.
+    let mut older_foreign = lease.clone();
+    older_foreign.holder_task_id = foreign;
+    drop(store);
+    let connection = rusqlite::Connection::open(dir.join("store.db")).unwrap();
+    connection.execute(
+        "UPDATE seat_leases SET holder_task_id=?2,data=?3 WHERE lease_id=?1",
+        rusqlite::params![lease.lease_id.to_string(), foreign.to_string(), serde_json::to_string(&older_foreign).unwrap()],
+    ).unwrap();
+    drop(connection);
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let error = reopened.check_seat_write(lease.lease_id, foreign).unwrap_err();
+    assert_eq!(protocol_code(&error).unwrap().0, "seat_task_mismatch");
+    let error = reopened.acquire_seat_lease(lease_request(seat.seat_id, foreign, lease.lease_id, 1)).unwrap_err();
+    assert_eq!(protocol_code(&error).unwrap().0, "seat_task_mismatch");
+    assert_eq!(reopened.seat_lease(lease.lease_id).unwrap().unwrap().holder_task_id, foreign);
+}
+
+/// The writer epoch is monotonic per seat: only a strictly greater epoch is
+/// a newer writer. A lower or equal epoch is refused and the current lease
+/// stays current and unchanged.
+#[test]
+fn a_lease_epoch_must_exceed_the_current_writer_epoch() {
+    let dir = std::env::temp_dir().join(format!("shenko-seat-epoch-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let owner = EntityId::new();
+    let seat = store.register_seat(EntityId::new(), owner, "omp", "1", location("%1")).unwrap();
+    let lease = store
+        .acquire_seat_lease(lease_request(seat.seat_id, owner, EntityId::new(), 5))
+        .unwrap();
+    // A lower epoch is not a newer writer.
+    let lower = EntityId::new();
+    let err = store
+        .acquire_seat_lease(lease_request(seat.seat_id, owner, lower, 4))
+        .unwrap_err();
+    let (code, details) = protocol_code(&err).unwrap();
+    assert_eq!(code, "seat_lease_epoch_regression");
+    assert_eq!(details["seat_id"], serde_json::json!(seat.seat_id.to_string()));
+    assert_eq!(details["requested_lease_epoch"], serde_json::json!(4));
+    assert_eq!(details["current_lease_epoch"], serde_json::json!(5));
+    assert_eq!(details["current_lease_id"], serde_json::json!(lease.lease_id.to_string()));
+    assert_eq!(details["current_holder_task_id"], serde_json::json!(owner.to_string()));
+    // The refused acquisition wrote nothing, and the current lease is
+    // unchanged and still carries write authority.
+    assert!(store.seat_lease(lower).unwrap().is_none());
+    let current = store.seat_current_lease(seat.seat_id).unwrap().unwrap();
+    assert_eq!(current.lease_id, lease.lease_id);
+    assert_eq!(current.lease_epoch, 5);
+    assert_eq!(current.holder_task_id, owner);
+    assert!(current.is_current());
+    assert_eq!(current.record_revision, lease.record_revision);
+    assert_eq!(current.created_commit, lease.created_commit);
+    assert_eq!(current.updated_commit, lease.updated_commit);
+    assert!(store.check_seat_write(lease.lease_id, owner).is_ok());
+    // The same epoch is not a newer writer either.
+    let same = EntityId::new();
+    let err = store
+        .acquire_seat_lease(lease_request(seat.seat_id, owner, same, 5))
+        .unwrap_err();
+    assert_eq!(protocol_code(&err).unwrap().0, "seat_lease_epoch_regression");
+    assert!(store.seat_lease(same).unwrap().is_none());
+    assert_eq!(
+        store.seat_current_lease(seat.seat_id).unwrap().unwrap().lease_id,
+        lease.lease_id
+    );
+    // The seat's own owner with a greater epoch takes over: the old lease
+    // ends as superseded and its writes are refused afterwards.
+    let next = store
+        .acquire_seat_lease(lease_request(seat.seat_id, owner, EntityId::new(), 6))
+        .unwrap();
+    assert_eq!(next.lease_epoch, 6);
+    assert!(next.is_current());
+    let displaced = store.seat_lease(lease.lease_id).unwrap().unwrap();
+    assert!(!displaced.is_current());
+    assert_eq!(displaced.ended_reason, Some(LeaseEndReason::Superseded));
+    assert_eq!(displaced.superseded_by, Some(next.lease_id));
+    assert!(store.check_seat_write(lease.lease_id, owner).is_err());
+    assert!(store.check_seat_write(next.lease_id, owner).is_ok());
+
+    store.end_seat_lease(next.lease_id, SeatLeaseEnd::Released).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    assert!(reopened.seat_current_lease(seat.seat_id).unwrap().is_none());
+    let before_refusal = reopened.current_commit_seq().unwrap();
+    let error = reopened.acquire_seat_lease(lease_request(seat.seat_id, owner, EntityId::new(), 6)).unwrap_err();
+    let (code, details) = protocol_code(&error).unwrap();
+    assert_eq!(code, "seat_lease_epoch_regression");
+    assert_eq!(details["highest_lease_epoch"], 6);
+    assert!(details["current_lease_epoch"].is_null());
+    assert_eq!(reopened.current_commit_seq().unwrap(), before_refusal);
+    let replay = reopened.acquire_seat_lease(lease_request(seat.seat_id, owner, next.lease_id, 6)).unwrap();
+    assert_eq!(replay.ended_reason, Some(LeaseEndReason::Released));
+
+    // Epochs use their complete u64 range, including values larger than a
+    // SQLite integer. Releasing the maximum value cannot reset that history.
+    let last = reopened.acquire_seat_lease(lease_request(seat.seat_id, owner, EntityId::new(), u64::MAX)).unwrap();
+    reopened.end_seat_lease(last.lease_id, SeatLeaseEnd::HumanTakeover).unwrap();
+    let error = reopened.acquire_seat_lease(lease_request(seat.seat_id, owner, EntityId::new(), u64::MAX - 1)).unwrap_err();
+    assert_eq!(protocol_code(&error).unwrap().0, "seat_lease_epoch_regression");
+    assert!(reopened.seat_current_lease(seat.seat_id).unwrap().is_none());
+}
+
+/// The fleet entry carries the capability flags the adapter declared. The
+/// durable summary never invents them: only an attached adapter publishes them.
+#[test]
+fn the_fleet_entry_carries_the_adapter_declared_capability_flags() {
+    let dir = std::env::temp_dir().join(format!("shenko-seat-capability-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let task = EntityId::new();
+    let seat = store
+        .register_seat(EntityId::new(), task, "omp_rpc", "omp-rpc-v1", omp_location("omp sess"))
+        .unwrap();
+    store
+        .acquire_seat_lease(lease_request(seat.seat_id, task, EntityId::new(), 1))
+        .unwrap();
+    let inventory = store.seat_fleet_summary(Some(task)).unwrap();
+    let entry = inventory.iter().find(|row| row.seat_id == seat.seat_id).unwrap();
+    // The durable record does not attest what an adapter can do.
+    assert!(entry.capability.is_none());
+    // The published fleet entry carries the flags the adapter declared.
+    let capability = SeatCapability {
+        structured_questions: true,
+        structured_answers: true,
+        screen_observation: false,
+        steer: true,
+        interrupt: true,
+        resume: true,
+        notes: vec!["问题来自结构化事件".into()],
+    };
+    let published = SeatFleetEntry { capability: Some(capability.clone()), ..entry.clone() };
+    assert_eq!(published.capability.as_ref().unwrap(), &capability);
+    let json = serde_json::to_value(&published).unwrap();
+    assert_eq!(json["capability"]["structured_questions"], serde_json::json!(true));
+    assert_eq!(json["capability"]["screen_observation"], serde_json::json!(false));
+    assert_eq!(json["capability"]["resume"], serde_json::json!(true));
+    let round: SeatFleetEntry = serde_json::from_value(json).unwrap();
+    assert_eq!(round.capability, published.capability);
 }
