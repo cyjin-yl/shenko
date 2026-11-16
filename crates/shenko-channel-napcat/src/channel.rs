@@ -217,6 +217,14 @@ impl ChannelPlugin for NapCatChannel {
     /// This plugin calls exactly two OneBot actions — `send_group_msg` and
     /// `send_private_msg` — so it offers neither editing nor retracting: a
     /// capability the plugin cannot produce must not be advertised.
+    ///
+    /// The `proactive` flag is a promise this connector has not been able to
+    /// check against a live platform: no real NapCat/QQ account has run an
+    /// unsolicited send through this plugin, and the passive reply window and
+    /// the rate limit of this route have no measured value. The QQ-official
+    /// route records its window and its rate limit as variable platform
+    /// facts (docs/specs/channels.md#spec-57-15); this route is in the same
+    /// "unknown" state and must not be read as an unlimited proactive reach.
     fn capabilities(&self) -> ChannelCapabilities {
         ChannelCapabilities {
             direct: true,
@@ -239,6 +247,7 @@ impl ChannelPlugin for NapCatChannel {
                 "QQ renders no markup: the body is plain text and Markdown markers are downgraded before the send; a mention and a quote travel as their own segments".to_string(),
                 "the account scope is this bot's own QQ number: the platform addresses messages by number, and the plugin only ever acts as itself".to_string(),
                 "QQ groups and private chats are the two scopes; there are no threads and no guild channels here".to_string(),
+                "proactive reachability is declared but unverified against a live platform: no real NapCat/QQ account has run an unsolicited send through this plugin, and the passive reply window and the rate limit of this route are not measured; the QQ-official route records its window and its rate limit as variable platform facts, so this route is in the same unknown state".to_string(),
             ],
         }
     }
