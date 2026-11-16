@@ -195,7 +195,7 @@
   - [§16](specs/channel-adapters.md#spec-16)
   - docs/specs/channel-adapters.md
 
-- **官方 QQ / iLinkBot / 飞书适配器** — 已接线（`SHENKO_CHANNELS_CONFIG` 经 `shenko-channel-adapters` 安装所配置平台，记录健康事实、持久 ingress、主体 disposition 与出站对账；未配置的平台不被宣称为可用）
+- **官方 QQ / iLinkBot / 飞书适配器** — 已接线（`SHENKO_CHANNELS_CONFIG` 经 `shenko-channel-adapters` 安装所配置平台，记录健康事实、持久 ingress、主体 disposition 与出站对账；未配置的平台不被宣称为可用）；**真实平台验收仍缺失**：接线只证明装配路径存在，尚未在真实账号上观察过任何一条渠道的入站/出站往返（[证据等级](specs/channels.md#spec-channel-evidence-level)）
   - [§15.3](specs/channel-adapters.md#spec-15-3)、[§16](specs/channel-adapters.md#spec-16)
   - docs/specs/channel-adapters.md
 

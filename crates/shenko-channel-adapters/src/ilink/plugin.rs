@@ -251,12 +251,25 @@ impl ChannelPlugin for ILinkChannel {
             .conversation
             .clone()
             .unwrap_or_else(|| target.id.clone());
+        // The protocol requires the conversation's own context token, so a
+        // target whose inbound context was never seen — or has already left
+        // the reply window — cannot be described at all. The plugin refuses
+        // here instead of arming an operation and asking the provider for a
+        // request it must reject; the refusal is typed and durable.
+        // A capability states what
+        // the protocol can do, not that every conversation is reachable.
+        let Some(context_token) = self
+            .replies
+            .get(&conversation)
+            .and_then(|context| context.context_token)
+        else {
+            return Err(ChannelError::UnresolvedReply {
+                channel: target.channel.clone(),
+                id: target.id.clone(),
+            });
+        };
         let mut params = json!({ "to_user_id": target.id.clone() });
-        if let Some(context) = self.replies.get(&conversation) {
-            if let Some(token) = context.context_token {
-                params["context_token"] = Value::String(token);
-            }
-        }
+        params["context_token"] = Value::String(context_token);
         // A client id the provider can use to deduplicate one send.
         params["client_id"] = Value::String(new_client_id());
         Ok(ChannelDispatch {
