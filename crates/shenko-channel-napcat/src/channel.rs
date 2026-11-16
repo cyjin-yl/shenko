@@ -223,7 +223,7 @@ impl ChannelPlugin for NapCatChannel {
     /// unsolicited send through this plugin, and the passive reply window and
     /// the rate limit of this route have no measured value. The QQ-official
     /// route records its window and its rate limit as variable platform
-    /// facts (docs/specs/channels.md#spec-57-15); this route is in the same
+    /// facts; this route is in the same
     /// "unknown" state and must not be read as an unlimited proactive reach.
     fn capabilities(&self) -> ChannelCapabilities {
         ChannelCapabilities {

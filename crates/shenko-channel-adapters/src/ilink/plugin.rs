@@ -255,8 +255,8 @@ impl ChannelPlugin for ILinkChannel {
         // target whose inbound context was never seen — or has already left
         // the reply window — cannot be described at all. The plugin refuses
         // here instead of arming an operation and asking the provider for a
-        // request it must reject; the refusal is typed and durable
-        // (docs/specs/channels.md#spec-57-4, RT19). A capability states what
+        // request it must reject; the refusal is typed and durable.
+        // A capability states what
         // the protocol can do, not that every conversation is reachable.
         let Some(context_token) = self
             .replies
