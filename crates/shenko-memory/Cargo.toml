@@ -21,5 +21,9 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+rusqlite = { workspace = true }
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"
