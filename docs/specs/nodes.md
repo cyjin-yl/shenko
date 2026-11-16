@@ -407,6 +407,15 @@ debt. The new SSH journey is authored but not yet executed on this candidate;
 scope, bootstrap eligibility and limits are recorded in
 [independent native E1 delivery](../development/canonical-native-e1-delivery.md).
 
+The bounded successor candidate uses an explicit schema-2 transport scope and
+codec-3 fact for one original-attempt Unknown-to-definite observation. It
+requires this installation's actual first-E1 application, retains original
+source commits/times and local acknowledgements, and records local resolution
+and a separate physical receipt atomically. A different local observation or
+missing predecessor remains debt. It adds no execution permission or narrow
+T2 proof; [successor scope and authored windows](../development/canonical-native-e1-successor.md)
+still await execution on the integrated candidate.
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,

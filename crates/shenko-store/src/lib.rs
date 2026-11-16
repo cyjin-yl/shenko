@@ -12,6 +12,7 @@ mod claim_transition;
 mod native_transition;
 mod native_facts;
 mod native_evidence;
+mod native_evidence_successor;
 pub use native_evidence::NativeEvidenceSealDebt;
 mod native_evidence_delivery;
 pub use native_evidence_delivery::{NativeEvidenceDeliveryOutcome, NativeEvidenceDeliveryRecord, NativeEvidenceDeliveryState};

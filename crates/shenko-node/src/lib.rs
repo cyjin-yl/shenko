@@ -251,6 +251,7 @@ pub enum Request {
     NativeEvidencePage {
         subject_id: EntityId,
         origin_proof: Digest,
+        scope: String,
         cursor: Option<shenko_types::native_evidence::NativeEvidenceCursor>,
         page_items: Option<u16>,
     },

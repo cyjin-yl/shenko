@@ -49,6 +49,7 @@
 
 - **协议类型（ID、CommitRef、TaskRecord 等）** — 已接线
   - 原生首次 E1 的独立传递为部分已接线：`native_evidence.rs` 的 v2 reader 固定原 fold；`native_evidence_delivery.rs` 拥有 source manifest、本地 delivery debt 与原子物化，`bin/shenko/src/native_evidence_sync.rs` 使用实际注册 SSH/CAS 通道。限本安装已实际物化同一 canonical T1 的首次 definite/Unknown，不授予执行许可、不复制源 acknowledgement。新增真实 SSH 旅程待远端执行，见[范围与验证边界](development/canonical-native-e1-delivery.md)。
+  - 后继候选：`native_evidence_successor.rs` 只接受同一原 attempt 的首次 codec-2 Unknown → 一次 definite，严格核对原因果引用和本安装真实 first-E1 物化；原 ack 不覆盖，本地 resolution 另记。新 scope 明确拒绝旧 first-only 完整性声明，T2 reader 保留原 1/2 范围。[七个新增窗口及限制](development/canonical-native-e1-successor.md)已编写，尚无本候选 Rust/运行通过声明。
   - [§41.3](specs/durable-state.md#spec-41-3)
   - docs/requirements/requirements.json（R029）
 

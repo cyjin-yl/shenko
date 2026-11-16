@@ -101,7 +101,7 @@ fn validate_item(item: &NativeEvidenceItem) -> Result<(), ShenkoError> {
     }
     match &item.availability {
         NativeEvidenceAvailability::Sealed { evidence_ref } => {
-            if !matches!(evidence_ref.codec.major, 1 | 2) {
+            if !matches!(evidence_ref.codec.major, 1..=3) {
                 return Err(invalid("unsupported typed object for original E1"));
             }
             crate::native_facts::typed_json(
@@ -198,8 +198,8 @@ fn write_delivery(
 
 impl Store {
     /// Only an actual source observation is advertised. A receiver's local
-    /// materialization receipt is not a new source observation. Old first E1
-    /// records without a usable seal are enumerated as gaps, not omitted.
+    /// materialization receipt is not a new source observation. Original
+    /// paired-T1 observations without a supported seal are explicit gaps.
     pub fn native_evidence_page(
         &self,
         source: &NativeEvidenceSource,
@@ -230,11 +230,13 @@ impl Store {
             })
             .map_err(storage_error)?;
         let cursor = cursor.cloned().unwrap_or(NativeEvidenceCursor {
+            scope: NATIVE_EVIDENCE_SCOPE.into(),
             ledger_id: binding.ledger_id,
             after: None,
             through: head,
         });
-        if cursor.ledger_id != binding.ledger_id
+        if cursor.scope != NATIVE_EVIDENCE_SCOPE
+            || cursor.ledger_id != binding.ledger_id
             || cursor.through > head
             || cursor
                 .after
@@ -261,9 +263,6 @@ impl Store {
               AND EXISTS(SELECT 1 FROM control_materializations m
                   WHERE json_extract(m.data,'$.logical_result.ledger_id')=json_extract(o.data,'$.prepared_commit.ledger_id')
                     AND json_extract(m.data,'$.logical_result.seq')=json_extract(o.data,'$.prepared_commit.seq'))
-              AND NOT EXISTS(SELECT 1 FROM evidence_receipts earlier WHERE earlier.operation_id=e.operation_id
-                  AND (earlier.updated_commit_seq<e.updated_commit_seq OR
-                      (earlier.updated_commit_seq=e.updated_commit_seq AND earlier.receipt_id<e.receipt_id)))
             ORDER BY e.updated_commit_seq,e.receipt_id LIMIT ?4").map_err(storage_error)?;
         let rows = statement
             .query_map(
@@ -304,14 +303,14 @@ impl Store {
             }
             let availability = match read_materialization(&tx, receipt.receipt_id)? {
                 Some(marker) => {
-                    let (fact, _) = self.read_native_evidence_fact(&tx, &marker.evidence_ref)?;
+                    let (fact, _) = self.read_native_delivery_fact(&tx, &marker.evidence_ref)?;
                     verify_materialization(&tx, &marker, &fact)?;
                     if marker.committed_at != receipt.received_commit || marker.logical_result != marker.committed_at
                         || !same(&receipt, &fact.receipt)?
                     { return Err(invalid("receiver materialization cannot advertise a source observation")); }
                     NativeEvidenceAvailability::Sealed { evidence_ref: marker.evidence_ref }
                 }
-                None => NativeEvidenceAvailability::Gap { reason: "original first E1 retained, but no supported complete source seal; reconciliation required".into() },
+                None => NativeEvidenceAvailability::Gap { reason: "original paired-T1 E1 retained, but no supported first/Unknown-successor seal; reconciliation required".into() },
             };
             let item = NativeEvidenceItem {
                 position: NativeEvidencePosition {
@@ -337,7 +336,7 @@ impl Store {
             None
         };
         Ok(NativeEvidencePage {
-            schema_version: 1,
+            schema_version: NATIVE_EVIDENCE_SCHEMA_VERSION,
             scope: NATIVE_EVIDENCE_SCOPE.into(),
             source: source.clone(),
             cursor,
@@ -359,7 +358,7 @@ impl Store {
         let conn = self.ledger.conn.lock();
         let marker = read_materialization(&conn, item.position.receipt_id)?
             .ok_or_else(|| invalid("E1 has no local source receipt"))?;
-        let (fact, _) = self.read_native_evidence_fact(&conn, evidence_ref)?;
+        let (fact, _) = self.read_native_delivery_fact(&conn, evidence_ref)?;
         verify_materialization(&conn, &marker, &fact)?;
         if marker.evidence_ref != *evidence_ref
             || marker.committed_at != marker.logical_result
@@ -576,7 +575,7 @@ impl Store {
                     .map_err(storage_error)?;
                 let mut verified_receipt = None;
                 let applied = (|| {
-                    let (fact, _) = self.read_native_evidence_fact(&tx, evidence_ref)?;
+                    let (fact, _) = self.read_native_delivery_fact(&tx, evidence_ref)?;
                     verify_item(&record.delivery.item, &fact, &record.delivery.source)?;
                     verified_receipt = Some(fact.receipt.clone());
                     if let Some(marker) = read_materialization(&tx, fact.receipt.receipt_id)? {
@@ -590,14 +589,15 @@ impl Store {
                         // back merely because the original first E1 is replayed.
                         return Ok((false, marker.committed_at, 0));
                     }
-                    self.materialize_native_evidence(&tx, evidence_ref, commit)?;
-                    // E1, operation, attempt and the local application marker.
-                    // The exact Armed precondition excludes an existing case;
-                    // an uncertain fold inserts one additional local case.
-                    let entities = 4 + usize::from(
-                        fact.operation.state
-                            == shenko_types::operation::OperationState::Reconciling,
-                    );
+                    let entities = if evidence_ref.codec.major == 3 {
+                        self.materialize_native_successor(&tx, evidence_ref, commit)?
+                    } else {
+                        self.materialize_native_evidence(&tx, evidence_ref, commit)?;
+                        // E1, operation, attempt, local receipt and, for an
+                        // uncertain first fold, one newly opened local case.
+                        4 + usize::from(fact.operation.state
+                            == shenko_types::operation::OperationState::Reconciling)
+                    };
                     Ok((true, commit, entities))
                 })();
                 match applied {

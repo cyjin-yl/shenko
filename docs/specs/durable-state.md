@@ -861,6 +861,8 @@ tmux send-keys、按回车确认、任意 shell、无端到端幂等承诺的消
 
 原 paired T1 的首次 E1 另有独立事实入口，不必等待 T2 choice。接收端仍须验证自己实际物化的 canonical T1，逐字节保留原 receipt、fold 输入、CommitRef 与时间；本地应用收据另列。首次 Unknown 在本地建立对账案例，不复制源端接受 Unknown 的决定。下载前登记 pending，断线、旧 seal 缺口和前驱不匹配保留可查询债务；普通 archive 停泊与所有 fresh 许可边界保持不变。此新增 SSH 旅程尚待实际运行，见[独立原生 E1 传递](../development/canonical-native-e1-delivery.md)。
 
+后继候选仅追加同一原 attempt 的首次 Unknown → 一次 definite 因果观察。codec 3 必须引用原 codec-2 first E1，且两端本安装都已有真实物化收据；原时间、源 CommitRef、原 ack 决定不变，本地对账 resolution 与物化收据另记。旧 first-only scope 明确拒绝，乱序、冲突和缺原件保留债务；现有 T2 reader、ordinary-child 与执行许可门不放宽。[后继 E1 的七个新增窗口](../development/canonical-native-e1-successor.md)尚待本候选真实执行，不表示一般多 E1 或跨 ledger T2 已完成。
+
 <a id="spec-41-14"></a>
 <!-- migrated-contract: SPEC:41.14 -->
 ## 41.14 结构化错误与恢复动作

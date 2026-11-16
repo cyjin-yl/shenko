@@ -1,5 +1,9 @@
 # Independent original native E1 delivery
 
+This document describes the original first-observation increment. The next
+bounded candidate adds [one causal Unknown-to-definite successor](canonical-native-e1-successor.md),
+with an explicit new wire scope and no expansion of T2's existing proof.
+
 This increment adds an authenticated factual path for the first observation
 of the original paired native T1. A receiver can retain that E1 before any
 T2 is chosen. It does not choose a task transition or issue a new worker or
@@ -51,8 +55,10 @@ observation backed by its real source commit and canonical T1 application.
 Both the wire reader and Store intake require that original commit's ledger
 to equal the manifest's source ledger; this scope is not a transitive relay.
 A receiver materialization cannot advertise itself as a new source E1.
-An eligible first observation without a supported source seal appears as an
-explicit gap. Completion of a page scan is not proof that those gaps applied,
+An eligible first observation with no local source materialization row appears
+as an explicit gap. An existing row whose typed seal or required closure is
+missing, malformed or unsupported instead fails enumeration explicitly.
+Completion of a page scan is not proof that those gaps applied,
 nor a claim to enumerate observations outside this bounded scope.
 
 The client uses a registered SSH route, checks its actual Node ID and verified

@@ -839,7 +839,7 @@ impl Store {
                 3
             ],
         )?;
-        self.seal_first_native_evidence(&tx, &original, &ev, &op, &att,
+        self.seal_native_evidence(&tx, &original, &ev, &op, &att,
             crate::native_evidence::NativeEvidenceFold {
                 expected_revision: fold.map(|fold| fold.expected_revision),
                 outcome, effect,

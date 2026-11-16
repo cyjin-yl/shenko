@@ -1,4 +1,4 @@
-//! Factual first-native-observation delivery. These are not control grants.
+//! Bounded original-native-observation delivery. These are not control grants.
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -7,7 +7,8 @@ use crate::{
     object::{Digest, ObjectRef},
 };
 
-pub const NATIVE_EVIDENCE_SCOPE: &str = "canonical_native_first_observation.v1";
+pub const NATIVE_EVIDENCE_SCOPE: &str = "canonical_native_first_and_unknown_resolution.v2";
+pub const NATIVE_EVIDENCE_SCHEMA_VERSION: u32 = 2;
 pub const NATIVE_EVIDENCE_PAGE_ITEMS: usize = 16;
 pub const NATIVE_EVIDENCE_CLOSURE_OBJECTS: usize = 4096;
 pub const NATIVE_EVIDENCE_CLOSURE_BYTES: u64 = 64 * 1024 * 1024;
@@ -24,6 +25,8 @@ pub struct NativeEvidencePosition {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeEvidenceCursor {
+    /// A cursor from the old first-only scope cannot skip a successor prefix.
+    pub scope: String,
     pub ledger_id: EntityId,
     pub after: Option<NativeEvidencePosition>,
     /// Fixed inclusive physical upper bound, chosen on the first page.

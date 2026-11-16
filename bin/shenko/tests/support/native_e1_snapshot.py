@@ -247,6 +247,7 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--additional-store", choices=("causal", "diverged"), action="append", default=[])
     args = parser.parse_args()
     inventory = []
     manifest = {
@@ -266,7 +267,7 @@ def main():
             inventory.append({"member": name, "bytes": len(raw), "sha256": sha256(raw)})
 
         write("exporter.py", Path(__file__).read_bytes())
-        for name in ("source", "receiver", "parked"):
+        for name in ("source", "receiver", "parked", *dict.fromkeys(args.additional_store)):
             try:
                 rows, roots, absent = snapshot(args.root / name)
                 if absent is not None:

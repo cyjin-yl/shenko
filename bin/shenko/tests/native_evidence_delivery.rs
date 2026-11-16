@@ -80,6 +80,8 @@ impl Fixture {
             "private/source",
             "private/receiver",
             "private/parked",
+            "private/causal",
+            "private/diverged",
             "logs",
         ] {
             fs::create_dir(root.join(directory))?;
@@ -118,7 +120,8 @@ impl Fixture {
                 .arg("--output")
                 .arg(&archive)
                 .arg("--source-revision")
-                .arg(std::env::var("SHENKO_SOURCE_REVISION").unwrap_or_else(|_| "unrecorded".into())),
+                .arg(std::env::var("SHENKO_SOURCE_REVISION").unwrap_or_else(|_| "unrecorded".into()))
+                .args(["--additional-store", "causal", "--additional-store", "diverged"]),
             &self.logs(),
             &label,
         )?
@@ -191,10 +194,13 @@ impl Fixture {
         ))
     }
     fn cli_sync(&self, peer: EntityId) -> Result<(ExitStatus, Value)> {
+        self.cli_sync_from("receiver", peer)
+    }
+    fn cli_sync_from(&self, local: &str, peer: EntityId) -> Result<(ExitStatus, Value)> {
         let mut command = self.command(env!("CARGO_BIN_EXE_shenko"))?;
         command
             .arg("--data-dir")
-            .arg(self.data("receiver"))
+            .arg(self.data(local))
             .args(["sync", "evidence", "--peer"])
             .arg(peer.to_string());
         let (status, bytes) = self.run(&mut command, "sync-evidence", None)?;
@@ -206,17 +212,23 @@ impl Fixture {
         Ok((status, value))
     }
     fn remote_page(&self, request: &Request) -> Result<NativeEvidencePage> {
+        self.remote_page_from("source", request)
+    }
+    fn remote_response(&self, name: &str, request: &Request) -> Result<(ExitStatus, Vec<u8>)> {
         let mut command = self.command(self.private().join("bin/ssh"))?;
-        command.args(["-oBatchMode=yes", "source"]).arg(format!(
+        command.args(["-oBatchMode=yes", name]).arg(format!(
             "{} --data-dir {} node",
             quote(&self.private().join("remote")),
-            quote(&self.data("source"))
+            quote(&self.data(name))
         ));
-        let (status, bytes) = self.run(
+        self.run(
             &mut command,
-            "source-page",
+            &format!("{name}-page"),
             Some(&serde_json::to_vec(request)?),
-        )?;
+        )
+    }
+    fn remote_page_from(&self, name: &str, request: &Request) -> Result<NativeEvidencePage> {
+        let (status, bytes) = self.remote_response(name, request)?;
         ensure!(
             status.success(),
             "source page failed; logs {}",
@@ -263,7 +275,7 @@ impl Fixture {
         fs::write(
             self.private().join("ssh_config"),
             format!(
-                "Host source\n HostName 127.0.0.1\n Port {}\n User {user}\n IdentityFile {}\n IdentitiesOnly yes\n IdentityAgent none\n UserKnownHostsFile {}\n GlobalKnownHostsFile /dev/null\n BatchMode yes\n StrictHostKeyChecking yes\n ConnectionAttempts 1\n LogLevel ERROR\n",
+                "Host source receiver\n HostName 127.0.0.1\n Port {}\n User {user}\n IdentityFile {}\n IdentitiesOnly yes\n IdentityAgent none\n UserKnownHostsFile {}\n GlobalKnownHostsFile /dev/null\n BatchMode yes\n StrictHostKeyChecking yes\n ConnectionAttempts 1\n LogLevel ERROR\n",
                 self.port,
                 self.private().join("client").display(),
                 self.private().join("known_hosts").display()
@@ -281,7 +293,7 @@ impl Fixture {
             self.private().join("bin/ssh"),
             fs::Permissions::from_mode(0o700),
         )?;
-        // Only one deliberately lost authenticated chunk response is injected.
+        // Each installed fault interrupts one authenticated chunk exchange.
         // Every successful invocation execs the actual CLI with identical
         // stdin; no fact, manifest, chunk or response is synthesized here.
         let launcher = format!(
@@ -338,7 +350,7 @@ impl Fixture {
             serde_json::to_vec_pretty(&json!({
             "system_ssh_sha256":file_sha256(&ssh)?,"cli_sha256":file_sha256(&binary)?,
             "remote_launcher_sha256":file_sha256(&self.private().join("remote"))?,
-            "scope":"one real pinned OpenSSH route and actual CLI; Store control grants are retained-value fixtures",
+            "scope":"real pinned OpenSSH routes to source and receiver Stores through the actual CLI; Store control grants are retained-value fixtures",
             "source_revision":std::env::var("SHENKO_SOURCE_REVISION").ok(),"port":self.port}))?,
         )?;
         Ok(())
@@ -386,6 +398,17 @@ fn latest(state: &parking_lot::Mutex<NativeT2AuthorityState>) -> Result<CommitAu
         .get(&state.last)
         .cloned()
         .context("original retained grant")
+}
+
+fn peer(fixture: &Fixture, name: &str, node_id: EntityId) -> SyncPeer {
+    SyncPeer {
+        node_id,
+        ssh_target: name.into(),
+        remote_binary: fixture.private().join("remote").to_string_lossy().into_owned(),
+        remote_data_dir: fixture.data(name),
+        workspaces: vec![],
+        remote_workspace_root: None,
+    }
 }
 
 #[test]
@@ -454,22 +477,29 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
         fixture.data("receiver").join("shenko.db"),
         fixture.data("receiver").join("cas"),
     )?;
-    receiver.import_cognition_archive(&initial[..], &CognitionImportOptions::default())?;
-    receiver.attach_commit_authority(Arc::new(NativeT2Authority {
-        source: "e1-follower",
-        stamp: None,
-        state: Arc::clone(&state),
-    }))?;
+    let causal = Store::open(
+        fixture.data("causal").join("shenko.db"), fixture.data("causal").join("cas"),
+    )?;
+    let diverged = Store::open(
+        fixture.data("diverged").join("shenko.db"), fixture.data("diverged").join("cas"),
+    )?;
+    for (store, name) in [(&receiver, "e1-follower"), (&causal, "e1-causal"), (&diverged, "e1-diverged")] {
+        store.import_cognition_archive(&initial[..], &CognitionImportOptions::default())?;
+        store.attach_commit_authority(Arc::new(NativeT2Authority {
+            source: name, stamp: None, state: Arc::clone(&state),
+        }))?;
+    }
     source.commit_step_and_advance_head(&step, &head, next)?;
     let birth = latest(&state)?;
-    assert_eq!(
-        receiver.recover_control_admission(
+    for store in [&receiver, &causal, &diverged] {
+        assert_eq!(store.recover_control_admission(
             &birth,
             &source.admission_objects(&birth.admission.payload_ref)?,
             false
         )?,
         ControlRecoveryOutcome::RecoveredCanonical
-    );
+        );
+    }
     assert_ne!(source.ledger.ledger_id(), receiver.ledger.ledger_id());
     let parked_root = receiver.external_task(head.subject_root_task_id)?;
     assert!(matches!(
@@ -487,14 +517,15 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             .claim_native_task(*task, implementation.clone(), false)?
             .context("fresh original claim")?;
         let grant = latest(&state)?;
-        assert_eq!(
-            receiver.recover_control_admission(
+        for store in [&receiver, &causal, &diverged] {
+            assert_eq!(store.recover_control_admission(
                 &grant,
                 &source.admission_objects(&grant.admission.payload_ref)?,
                 false
             )?,
             ControlRecoveryOutcome::RecoveredCanonical
-        );
+            );
+        }
         claims.push(claim);
     }
     let mut originals = Vec::new();
@@ -506,7 +537,13 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
                 .arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?
                 .is_none()
         );
-        originals.push((ctx, operation, attempt, latest(&state)?));
+        let arm = latest(&state)?;
+        for store in [&causal, &diverged] {
+            assert_eq!(store.recover_control_admission(
+                &arm, &source.admission_objects(&arm.admission.payload_ref)?, false,
+            )?, ControlRecoveryOutcome::RecoveredCanonical);
+        }
+        originals.push((ctx, operation, attempt, arm));
     }
     let mut parked_archive = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut parked_archive)?;
@@ -634,26 +671,23 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             .state,
         ReconciliationState::AcknowledgedUnknown
     );
-    let source_node = shenko::node_sync::open_node(&fixture.data("source"), &source)?;
+    let mut source_node = shenko::node_sync::open_node(&fixture.data("source"), &source)?;
     let source_id = source_node.local_node_id()?.context("source Node")?;
     let identity = source_node.local_identity()?.context("source identity")?;
     let mut receiver_node = shenko::node_sync::open_node(&fixture.data("receiver"), &receiver)?;
-    receiver_node.register_sync_peer(&SyncPeer {
-        node_id: source_id,
-        ssh_target: "source".into(),
-        remote_binary: fixture
-            .private()
-            .join("remote")
-            .to_string_lossy()
-            .into_owned(),
-        remote_data_dir: fixture.data("source"),
-        workspaces: vec![],
-        remote_workspace_root: None,
-    })?;
+    let receiver_id = receiver_node.local_node_id()?.context("receiver Node")?;
+    receiver_node.register_sync_peer(&peer(&fixture, "source", source_id))?;
+    source_node.register_sync_peer(&peer(&fixture, "receiver", receiver_id))?;
+    for (name, store) in [("causal", &causal), ("diverged", &diverged)] {
+        let mut node = shenko::node_sync::open_node(&fixture.data(name), store)?;
+        node.register_sync_peer(&peer(&fixture, "source", source_id))?;
+        node.register_sync_peer(&peer(&fixture, "receiver", receiver_id))?;
+    }
     fixture.prepare_ssh()?;
     let page_request = |cursor| Request::NativeEvidencePage {
         subject_id: agent,
         origin_proof: identity.origin_proof.clone(),
+        scope: NATIVE_EVIDENCE_SCOPE.into(),
         cursor,
         page_items: Some(1),
     };
@@ -814,8 +848,8 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
         matches!(&refused, Err(error) if error.to_string().contains("unsupported typed object")),
         "{refused:#?}"
     );
-    // A later local observation is outside this first-E1 transfer scope.
-    // Replaying the first original must not rewind that newer projection.
+    // The later local observation now has its own successor seal. Replaying
+    // the first original must still not rewind that newer projection.
     let mut later = receipts[1].clone();
     later.receipt_id = EntityId::new();
     later.source_event_key = Some("later-local-check".into());
@@ -830,6 +864,7 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             1,
         )?
         .object;
+    let later_id = later.receipt_id;
     receiver.record_external_evidence(
         originals[1].1.operation_id,
         originals[1].2.attempt_id,
@@ -861,6 +896,182 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             .state,
         ReconciliationState::AcknowledgedUnknown
     );
+
+    // Successor window 1: only B's actual later source E1 is advertised. A's
+    // first receipt remains A's fact, even though B really materialized it.
+    let later = receiver.external_evidence(later_id)?;
+    let successor_page = fixture.remote_page_from("receiver", &page_request(None))?;
+    assert_eq!(successor_page.schema_version, NATIVE_EVIDENCE_SCHEMA_VERSION);
+    assert_eq!(successor_page.scope, NATIVE_EVIDENCE_SCOPE);
+    assert_eq!(successor_page.source.node_id, receiver_id);
+    assert_eq!(successor_page.source.ledger_id, receiver.ledger.ledger_id());
+    assert_eq!(successor_page.items.len(), 1);
+    assert!(successor_page.next.is_none());
+    let successor_item = &successor_page.items[0];
+    assert_eq!(successor_item.position.receipt_id, later_id);
+    assert_eq!(successor_item.source_commit, later.received_commit);
+    assert_ne!(later.received_commit.ledger_id, receipts[1].received_commit.ledger_id);
+    let NativeEvidenceAvailability::Sealed { evidence_ref: successor_ref } = &successor_item.availability else {
+        anyhow::bail!("later definite observation lacks its source seal")
+    };
+    assert_eq!(successor_ref.codec.major, 3);
+    let successor_fact: Value = serde_json::from_slice(&receiver.cas.read_object(&successor_ref.digest)?)?;
+    let NativeEvidenceAvailability::Sealed { evidence_ref: first_unknown_ref } = &next_page.items[0].availability else {
+        anyhow::bail!("original Unknown lacks its source seal")
+    };
+    assert_eq!(successor_fact["predecessor_ref"], serde_json::to_value(first_unknown_ref)?);
+    assert_eq!(successor_fact["receipt"], serde_json::to_value(&later)?);
+    assert_eq!(successor_fact["operation"], serde_json::to_value(&advanced)?);
+
+    // Successor window 2: the old scope must refuse explicitly, even on a
+    // valid authenticated route; it cannot report a first-only scan complete.
+    let old_request = Request::NativeEvidencePage {
+        subject_id: agent,
+        origin_proof: identity.origin_proof.clone(),
+        scope: "canonical_native_first_observation.v1".into(),
+        cursor: None,
+        page_items: None,
+    };
+    let old_scope_serial = fixture.counter.get();
+    let (old_scope, _) = fixture.remote_response("receiver", &old_request)?;
+    let old_scope_error = fs::read_to_string(fixture.logs().join(
+        format!("{old_scope_serial:03}-receiver-page.stderr"),
+    ))?;
+    assert!(!old_scope.success() && old_scope_error.contains("unsupported native E1 requested scope"),
+        "old first-only scope must be explicitly refused: {old_scope}: {old_scope_error}");
+
+    // Successor window 3: a genuine T1 is insufficient without this Store's
+    // actual first-E1 application. Closure bytes do not install that receipt.
+    let (out_of_order, out_of_order_report) = fixture.cli_sync_from("causal", receiver_id)?;
+    assert!(!out_of_order.success(), "{out_of_order_report}");
+    assert_eq!(out_of_order_report["reconciliation_required"], 1);
+    let (causal_debts, causal_debt_count) = causal.native_evidence_delivery_debts()?;
+    assert_eq!(causal_debt_count, 1);
+    assert!(causal_debts[0].reason.as_deref().is_some_and(|reason|
+        reason.contains("first Unknown's actual local receipt")), "{causal_debts:#?}");
+    assert!(causal.external_operation_evidence(originals[1].1.operation_id)?.is_empty());
+    assert_eq!(serde_json::to_value(causal.external_operation(originals[1].1.operation_id)?)?,
+        serde_json::to_value(&originals[1].1)?);
+    let (first_arrived, first_arrived_report) = fixture.cli_sync_from("causal", source_id)?;
+    assert!(first_arrived.success(), "{first_arrived_report}");
+    assert_eq!(first_arrived_report["applied"], 2);
+    let (ordered, ordered_report) = fixture.cli_sync_from("causal", receiver_id)?;
+    assert!(ordered.success(), "{ordered_report}");
+    assert_eq!(ordered_report["applied"], 1);
+    assert_eq!(ordered_report["retained_delivery_debts"], 0);
+    assert_eq!(causal.external_evidence(later_id)?, later);
+
+    // Successor window 4: another real local definite observation is not
+    // replaced by B's equally well-formed but causally competing successor.
+    let (diverged_first, diverged_first_report) = fixture.cli_sync_from("diverged", source_id)?;
+    assert!(diverged_first.success(), "{diverged_first_report}");
+    assert_eq!(diverged_first_report["applied"], 2);
+    let mut local_observation = receipts[1].clone();
+    local_observation.receipt_id = EntityId::new();
+    local_observation.source_instance_id = "other-postcondition-observer".into();
+    local_observation.source_event_key = Some("independent-postcondition".into());
+    local_observation.observed_at = Some(chrono::Utc::now());
+    local_observation.observation_level = Some(ObservationLevel::PostconditionVerified);
+    assert_eq!(fs::read(fixture.private().join("effects"))?, b"effect\neffect\n");
+    local_observation.raw_ref = diverged.cas.seal_object(
+        b"independent observer read two original effects", "text/plain", "native-e1-fixture", "raw", 1,
+    )?.object;
+    let local_observation_id = local_observation.receipt_id;
+    diverged.record_external_evidence(originals[1].1.operation_id, originals[1].2.attempt_id,
+        local_observation, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+    let divergent_head = diverged.external_operation(originals[1].1.operation_id)?;
+    let divergent_receipt = diverged.external_evidence(local_observation_id)?;
+    let (competing, competing_report) = fixture.cli_sync_from("diverged", receiver_id)?;
+    assert!(!competing.success(), "{competing_report}");
+    assert_eq!(competing_report["reconciliation_required"], 1);
+    let (divergent_debts, divergent_debt_count) = diverged.native_evidence_delivery_debts()?;
+    assert_eq!(divergent_debt_count, 1);
+    assert!(divergent_debts[0].reason.as_deref().is_some_and(|reason|
+        reason.contains("cannot overwrite a different or later local observation")), "{divergent_debts:#?}");
+    assert_eq!(serde_json::to_value(diverged.external_operation(originals[1].1.operation_id)?)?,
+        serde_json::to_value(&divergent_head)?);
+    assert_eq!(diverged.external_evidence(local_observation_id)?, divergent_receipt);
+    assert!(!diverged.external_operation_evidence(originals[1].1.operation_id)?.iter()
+        .any(|receipt| receipt.receipt_id == later_id));
+
+    // Successor window 5: the reverse authenticated download can stop before
+    // any chunk reply. The original acknowledgement and Unknown stay intact
+    // until a new CLI process finishes factual application atomically.
+    let source_connection = rusqlite::Connection::open(fixture.data("source").join("shenko.db"))?;
+    let source_ack: (String, i64) = source_connection.query_row(
+        "SELECT data,updated_commit_seq FROM reconciliation_cases WHERE case_id=?1",
+        [source_case.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    fs::write(fixture.private().join("lose-chunk"), b"interrupt reverse successor download")?;
+    let (reverse_lost, _) = fixture.cli_sync_from("source", receiver_id)?;
+    assert!(!reverse_lost.success(), "interrupted successor transfer cannot report application");
+    assert!(!fixture.private().join("lose-chunk").exists(), "authenticated chunk fault was not reached");
+    assert_eq!(source.external_operation(originals[1].1.operation_id)?.effect_status, EffectStatus::Unknown);
+    assert_eq!(source_connection.query_row(
+        "SELECT count(*) FROM native_evidence_deliveries WHERE receipt_id=?1 AND state='pending'",
+        [later_id.to_string()], |row| row.get::<_, i64>(0),
+    )?, 1);
+    let (reverse, reverse_report) = fixture.cli_sync_from("source", receiver_id)?;
+    assert!(reverse.success(), "{reverse_report}");
+    assert_eq!(reverse_report["applied"], 1);
+    assert_eq!(source.external_evidence(later_id)?, later);
+    assert_eq!(serde_json::to_value(source.external_operation(originals[1].1.operation_id)?)?,
+        serde_json::to_value(&advanced)?);
+    assert_eq!(serde_json::to_value(source.external_attempt(originals[1].2.attempt_id)?)?,
+        serde_json::to_value(receiver.external_attempt(originals[1].2.attempt_id)?)?);
+    let original_created: String = connection.query_row(
+        "SELECT created_at FROM evidence_receipts WHERE receipt_id=?1",
+        [later_id.to_string()], |row| row.get(0),
+    )?;
+    let received_created: String = source_connection.query_row(
+        "SELECT created_at FROM evidence_receipts WHERE receipt_id=?1",
+        [later_id.to_string()], |row| row.get(0),
+    )?;
+    assert_eq!(received_created, original_created);
+    let ack_after: (String, i64) = source_connection.query_row(
+        "SELECT data,updated_commit_seq FROM reconciliation_cases WHERE case_id=?1",
+        [source_case.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(ack_after, source_ack, "the source's original acknowledgement must stay byte-for-byte");
+    let cases = source.reconciliation_cases_for_operation(originals[1].1.operation_id)?;
+    assert_eq!(cases.len(), 2);
+    let resolution = cases.iter().find(|case| case.state == ReconciliationState::Resolved)
+        .context("new local resolution after the unchanged acknowledgement")?;
+    assert_ne!(resolution.case_id, source_case);
+    assert!(resolution.decision_ref.is_none());
+    assert_eq!(resolution.evidence_refs, vec![later_id]);
+    assert_eq!(resolution.created_commit.ledger_id, source.ledger.ledger_id());
+    let successor_marker: String = source_connection.query_row(
+        "SELECT data FROM native_evidence_materializations WHERE receipt_id=?1",
+        [later_id.to_string()], |row| row.get(0),
+    )?;
+    let successor_marker: Value = serde_json::from_str(&successor_marker)?;
+    assert_eq!(successor_marker["logical_result"], serde_json::to_value(later.received_commit)?);
+    assert_eq!(successor_marker["committed_at"], serde_json::to_value(resolution.created_commit)?);
+    assert_ne!(successor_marker["logical_result"], successor_marker["committed_at"]);
+
+    // Successor window 6: a supported codec still cannot name a different
+    // first observation. This is malformed typed input, not catch-up debt.
+    let NativeEvidenceAvailability::Sealed { evidence_ref: definite_ref } = &page.items[0].availability else {
+        anyhow::bail!("definite first observation lacks its source seal")
+    };
+    let mut forged_fact = successor_fact.clone();
+    forged_fact["predecessor_ref"] = serde_json::to_value(definite_ref)?;
+    let forged_ref = source.cas.seal_object(&serde_json::to_vec(&forged_fact)?,
+        "application/json", "commit-authority", "store-native-evidence-fact", 3)?.object;
+    let mut forged_item = successor_item.clone();
+    forged_item.availability = NativeEvidenceAvailability::Sealed { evidence_ref: forged_ref };
+    let forged = source.queue_native_evidence_delivery(&NativeEvidenceDelivery {
+        source: successor_page.source.clone(), item: forged_item,
+    })?;
+    let malformed_result = source.receive_native_evidence(forged.delivery_id, &[]);
+    assert!(matches!(&malformed_result, Err(shenko_types::error::ShenkoError::Other(reason))
+        if reason.contains("causal predecessor")), "{malformed_result:#?}");
+    assert_eq!(serde_json::to_value(source.external_operation(originals[1].1.operation_id)?)?,
+        serde_json::to_value(&advanced)?);
+    assert_eq!(source.external_evidence(later_id)?, later);
+    assert_eq!(serde_json::to_value(source.native_evidence_delivery(forged.delivery_id)?)?["state"], "pending");
+
     // A lost derived seal keeps the real late E1; the source page exposes a
     // gap and the receiver retains it instead of reporting full replication.
     let third = source
@@ -945,13 +1156,74 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             [],
             |row| row.get::<_, i64>(0)
         )?,
+        3
+    );
+    // The original two remote applications remain two. The additional local
+    // receipt seals this installation's real later observation; it is not a
+    // third application or a replayed effect from the original source.
+    assert_eq!(
+        connection.query_row(
+            "SELECT count(*) FROM native_evidence_materializations WHERE json_extract(data,'$.logical_result.ledger_id')=?1",
+            [source.ledger.ledger_id().to_string()],
+            |row| row.get::<_, i64>(0)
+        )?,
         2
     );
+
+    // Successor window 7: a still later local fact is outside codec 3's
+    // bounded fold. Replaying B's already applied successor must preserve it
+    // and the original acknowledgement, including the pending malformed debt.
+    let mut after_resolution = later.clone();
+    after_resolution.receipt_id = EntityId::new();
+    after_resolution.source_instance_id = "source-post-resolution-reader".into();
+    after_resolution.source_event_key = Some("after-original-resolution".into());
+    after_resolution.observed_at = Some(chrono::Utc::now());
+    after_resolution.raw_ref = source.cas.seal_object(
+        b"original two effects remain visible after resolution", "text/plain", "native-e1-fixture", "raw", 1,
+    )?.object;
+    let after_resolution_id = after_resolution.receipt_id;
+    source.record_external_evidence(originals[1].1.operation_id, originals[1].2.attempt_id,
+        after_resolution, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+    let newest_head = source.external_operation(originals[1].1.operation_id)?;
+    let newest_receipt = source.external_evidence(after_resolution_id)?;
+    let replay_watermark = source.current_commit_seq()?;
+    let (successor_replayed, successor_replay_report) = fixture.cli_sync_from("source", receiver_id)?;
+    assert!(!successor_replayed.success(), "malformed pending debt must remain visible");
+    assert_eq!(successor_replay_report["already_applied"], 1);
+    assert_eq!(successor_replay_report["applied"], 0);
+    assert_eq!(successor_replay_report["retained_delivery_debts"], 1);
+    assert_eq!(source.current_commit_seq()?, replay_watermark);
+    assert_eq!(serde_json::to_value(source.external_operation(originals[1].1.operation_id)?)?,
+        serde_json::to_value(&newest_head)?);
+    assert_eq!(source.external_evidence(after_resolution_id)?, newest_receipt);
+    let ack_replayed: (String, i64) = source_connection.query_row(
+        "SELECT data,updated_commit_seq FROM reconciliation_cases WHERE case_id=?1",
+        [source_case.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(ack_replayed, source_ack);
+    for original in &receipts {
+        assert_eq!(source.external_evidence(original.receipt_id)?, *original);
+        assert_eq!(receiver.external_evidence(original.receipt_id)?, *original);
+    }
+    for store in [source.as_ref(), &receiver, &causal, &diverged] {
+        for (ctx, operation, attempt, _) in &originals {
+            assert!(store.arm_native_operation_for_dispatch(ctx, &mut operation.clone(), &mut attempt.clone())?.is_some());
+            assert_eq!(store.commit_native_dispatch(ctx, operation.operation_id, attempt.attempt_id)?,
+                shenko_store::child::NativeDispatchTransition::AlreadyCommitted);
+            assert!(store.native_task_result(operation.task_id)?.is_none());
+        }
+    }
+    assert_eq!(fs::read(fixture.private().join("effects"))?, b"effect\neffect\n");
     append_json(
         &fixture.logs().join("observations.jsonl"),
         &json!({"applied":applied_report,"replayed":replay_report,"gap":gap_report,
         "source_ledger":source.ledger.ledger_id(),"receiver_ledger":receiver.ledger.ledger_id(),"receipts":receipts,
-        "local_case":receiver_case,"physical_effect_count":2,"chosen_t2_count":0}),
+        "local_case":receiver_case,"physical_effect_count":2,"chosen_t2_count":0,
+        "successor":{"page":successor_page,"source_receipt":later,"out_of_order":out_of_order_report,
+            "ordered":ordered_report,"competing":competing_report,"reverse":reverse_report,
+            "original_ack_data":source_ack.0,"local_resolution":resolution,"materialization":successor_marker,
+            "malformed_delivery":forged.delivery_id,"replay_after_local_fact":successor_replay_report,
+            "later_local_receipt":newest_receipt,"distinct_new_windows":7}}),
     )?;
     fixture.capture_originals()?;
     Ok(())

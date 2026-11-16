@@ -2128,8 +2128,8 @@ pub fn node_command(data_dir: &Path) -> Result<()> {
         _ => open_node(data_dir, &store)?,
     };
     let value = match request {
-        shenko_node::Request::NativeEvidencePage { subject_id, origin_proof, cursor, page_items } =>
-            serde_json::to_value(native_evidence_sync::serve(&store, &mut node, subject_id, &origin_proof, cursor.as_ref(), page_items)?)?,
+        shenko_node::Request::NativeEvidencePage { subject_id, origin_proof, scope, cursor, page_items } =>
+            serde_json::to_value(native_evidence_sync::serve(&store, &mut node, subject_id, &origin_proof, &scope, cursor.as_ref(), page_items)?)?,
         shenko_node::Request::ComponentObserve => serde_json::to_value(component_runtime::observe_component(&mut node, &CancellationToken::new())?)?,
         shenko_node::Request::PrepareComponent { proposal } => {
             let observed = component_runtime::observe_component(&mut node, &CancellationToken::new())?;

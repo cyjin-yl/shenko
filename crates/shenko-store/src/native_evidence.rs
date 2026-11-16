@@ -58,16 +58,20 @@ pub struct NativeEvidenceSealDebt {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct NativeEvidenceFact {
-    schema_version: u32,
+    pub schema_version: u32,
     pub arm: CanonicalFact,
     pub receipt: EvidenceReceipt,
     pub operation: OperationRecord,
     pub attempt: AttemptRecord,
-    created_at: String,
+    pub created_at: String,
     /// Version 1 supported only a definite first observation. Version 2
     /// freezes the actual decoder inputs, including an uncertain conclusion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    fold: Option<NativeEvidenceFold>,
+    pub fold: Option<NativeEvidenceFold>,
+    /// Version 3 is an independent factual continuation, never a T2 proof.
+    /// It names the exact first Unknown whose local application is required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predecessor_ref: Option<ObjectRef>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -100,7 +104,7 @@ fn first_armed(operation: &OperationRecord, attempt: &AttemptRecord) -> bool {
         && attempt.final_receipt_id.is_none()
 }
 
-fn read_records(
+pub(crate) fn read_records(
     conn: &Connection,
     operation: EntityId,
     attempt: EntityId,
@@ -142,6 +146,7 @@ impl NativeEvidenceFact {
         let receipt = &self.receipt;
         if !matches!(self.schema_version, 1 | 2)
             || (self.schema_version == 2) != self.fold.is_some()
+            || self.predecessor_ref.is_some()
             || receipt.record_schema_version != 1
             || !first_armed(&original.operation, &original.attempt)
             || receipt.operation_id != Some(original.operation.operation_id)
@@ -206,7 +211,7 @@ impl NativeEvidenceFact {
 impl Store {
     /// Called after the actual E1 writes, before their one COMMIT. It adds no
     /// control reservation and does not make a stale callback current again.
-    pub(crate) fn seal_first_native_evidence(
+    pub(crate) fn seal_native_evidence(
         &self,
         tx: &Transaction<'_>,
         before: &(OperationRecord, AttemptRecord),
@@ -215,7 +220,12 @@ impl Store {
         attempt: &AttemptRecord,
         fold: NativeEvidenceFold,
     ) -> Result<(), ShenkoError> {
-        match self.try_seal_first_native_evidence(tx, before, receipt, operation, attempt, fold) {
+        let result = if first_armed(&before.0, &before.1) {
+            self.try_seal_first_native_evidence(tx, before, receipt, operation, attempt, fold)
+        } else {
+            self.try_seal_native_successor(tx, before, receipt, operation, attempt, fold)
+        };
+        match result {
             Ok(()) => Ok(()),
             Err(error @ ShenkoError::Storage(_)) => Err(error),
             Err(error) => {
@@ -291,9 +301,20 @@ impl Store {
             attempt: attempt.clone(),
             created_at,
             fold: Some(fold),
+            predecessor_ref: None,
         };
         fact.validate(&original)?;
-        let bytes = serde_json::to_vec(&fact)?;
+        self.seal_native_evidence_fact(tx, &fact)
+    }
+
+    /// The caller independently validates the bounded first/successor fold.
+    /// This remains inside the original observation's E1 transaction.
+    pub(crate) fn seal_native_evidence_fact(
+        &self,
+        tx: &Transaction<'_>,
+        fact: &NativeEvidenceFact,
+    ) -> Result<(), ShenkoError> {
+        let bytes = serde_json::to_vec(fact)?;
         if bytes.len() > crate::control_transition::MAX_IMAGE_BYTES {
             return Err(invalid(
                 "original E1 proof exceeds the bounded admission size",
@@ -301,7 +322,7 @@ impl Store {
         }
         let reference = self
             .cas
-            .seal_object(&bytes, "application/json", "commit-authority", CODEC, 2)?
+            .seal_object(&bytes, "application/json", "commit-authority", CODEC, fact.schema_version)?
             .object;
         let (_, missing) = self
             .collect_closure_bounded(
@@ -313,7 +334,7 @@ impl Store {
         if !missing.is_empty() {
             return Err(invalid("original E1 closure is incomplete"));
         }
-        record_materialization(tx, &reference, &fact, receipt.received_commit)
+        record_materialization(tx, &reference, fact, fact.receipt.received_commit)
     }
 
     pub fn native_evidence_seal_debts(
@@ -341,6 +362,7 @@ impl Store {
         let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, reference.codec.major)?;
         if fact.schema_version != reference.codec.major
             || (reference.codec.major == 2) != fact.fold.is_some()
+            || fact.predecessor_ref.is_some()
         {
             return Err(invalid("E1 codec and frozen fold disagree"));
         }
@@ -481,20 +503,7 @@ impl Store {
                 "E1 receipt or source-event identity already has a local fact",
             ));
         }
-        let seq = i64::try_from(local.seq.0).map_err(invalid)?;
-        tx.execute("INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq,created_at) VALUES(?1,?2,?3,?4,?5)",
-            params![fact.receipt.receipt_id.to_string(), fact.operation.operation_id.to_string(), serde_json::to_string(&fact.receipt)?, seq, fact.created_at]).map_err(storage_error)?;
-        tx.execute("UPDATE operations SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE operation_id=?1",
-            params![fact.operation.operation_id.to_string(), i64::try_from(fact.operation.record_revision.0).map_err(invalid)?, serde_json::to_string(&fact.operation)?, seq]).map_err(storage_error)?;
-        tx.execute(
-            "UPDATE attempts SET data=?2,updated_commit_seq=?3 WHERE attempt_id=?1",
-            params![
-                fact.attempt.attempt_id.to_string(),
-                serde_json::to_string(&fact.attempt)?,
-                seq
-            ],
-        )
-        .map_err(storage_error)?;
+        write_projection(tx, &fact, local)?;
         if fact.operation.state == OperationState::Reconciling {
             let reason = if fact.operation.outcome_conflict {
                 crate::reconcile::REASON_CONTRADICTORY_EVIDENCE
@@ -508,7 +517,25 @@ impl Store {
     }
 }
 
-fn record_materialization(
+pub(crate) fn write_projection(
+    tx: &Transaction<'_>,
+    fact: &NativeEvidenceFact,
+    local: CommitRef,
+) -> Result<(), ShenkoError> {
+    let seq = i64::try_from(local.seq.0).map_err(invalid)?;
+    tx.execute("INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq,created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![fact.receipt.receipt_id.to_string(), fact.operation.operation_id.to_string(), serde_json::to_string(&fact.receipt)?, seq, fact.created_at]).map_err(storage_error)?;
+    tx.execute("UPDATE operations SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE operation_id=?1",
+        params![fact.operation.operation_id.to_string(), i64::try_from(fact.operation.record_revision.0).map_err(invalid)?, serde_json::to_string(&fact.operation)?, seq]).map_err(storage_error)?;
+    tx.execute(
+        "UPDATE attempts SET data=?2,updated_commit_seq=?3 WHERE attempt_id=?1",
+        params![fact.attempt.attempt_id.to_string(), serde_json::to_string(&fact.attempt)?, seq],
+    )
+    .map_err(storage_error)?;
+    Ok(())
+}
+
+pub(crate) fn record_materialization(
     tx: &Transaction<'_>,
     reference: &ObjectRef,
     fact: &NativeEvidenceFact,

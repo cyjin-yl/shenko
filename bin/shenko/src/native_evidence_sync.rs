@@ -1,4 +1,4 @@
-//! Authenticated first-E1 delivery, separate from chosen control and archives.
+//! Authenticated bounded E1 delivery, separate from chosen control and archives.
 use anyhow::{Context as _, Result, ensure};
 use serde::{Deserialize, Serialize};
 use shenko_node::{Identity, Node, Request, SyncPeer};
@@ -24,6 +24,7 @@ pub(super) enum EvidencePageResponse {
     },
     NotEligible {
         schema_version: u32,
+        scope: String,
         node_id: EntityId,
         identity: Option<Identity>,
         reason: Ineligible,
@@ -35,9 +36,11 @@ pub(super) fn serve(
     node: &mut Node,
     subject_id: EntityId,
     origin_proof: &Digest,
+    scope: &str,
     cursor: Option<&NativeEvidenceCursor>,
     page_items: Option<u16>,
 ) -> Result<EvidencePageResponse> {
+    ensure!(scope == NATIVE_EVIDENCE_SCOPE, "unsupported native E1 requested scope");
     let node_id = node
         .local_node_id()?
         .context("native E1 source has no initialized Node")?;
@@ -56,7 +59,8 @@ pub(super) fn serve(
     };
     if let Some(reason) = reason {
         return Ok(EvidencePageResponse::NotEligible {
-            schema_version: 1,
+            schema_version: NATIVE_EVIDENCE_SCHEMA_VERSION,
+            scope: NATIVE_EVIDENCE_SCOPE.into(),
             node_id,
             identity,
             reason,
@@ -128,7 +132,7 @@ fn validate_page(
         "native E1 manifest exceeds the receiving page byte budget"
     );
     ensure!(
-        page.schema_version == 1 && page.scope == NATIVE_EVIDENCE_SCOPE,
+        page.schema_version == NATIVE_EVIDENCE_SCHEMA_VERSION && page.scope == NATIVE_EVIDENCE_SCOPE,
         "unsupported native E1 manifest scope"
     );
     ensure!(
@@ -140,7 +144,8 @@ fn validate_page(
         "native E1 source is not the verified local self"
     );
     ensure!(
-        page.cursor.ledger_id == page.source.ledger_id
+        page.cursor.scope == NATIVE_EVIDENCE_SCOPE
+            && page.cursor.ledger_id == page.source.ledger_id
             && page.items.len() <= NATIVE_EVIDENCE_PAGE_ITEMS,
         "native E1 manifest identity or page budget differs"
     );
@@ -176,6 +181,7 @@ fn validate_page(
     if let Some(next) = &page.next {
         ensure!(
             !page.items.is_empty()
+                && next.scope == page.cursor.scope
                 && next.ledger_id == page.cursor.ledger_id
                 && next.through == page.cursor.through
                 && next.after == after,
@@ -226,6 +232,7 @@ pub(super) fn pull(
             &Request::NativeEvidencePage {
                 subject_id: local.agent_id,
                 origin_proof: local.origin_proof.clone(),
+                scope: NATIVE_EVIDENCE_SCOPE.into(),
                 cursor: cursor.clone(),
                 page_items: None,
             },
@@ -241,12 +248,14 @@ pub(super) fn pull(
             EvidencePageResponse::Manifest { page } => page,
             EvidencePageResponse::NotEligible {
                 schema_version,
+                scope,
                 node_id,
                 identity,
                 reason,
             } => {
                 ensure!(
-                    schema_version == 1 && node_id == peer.node_id && cursor.is_none(),
+                    schema_version == NATIVE_EVIDENCE_SCHEMA_VERSION
+                        && scope == NATIVE_EVIDENCE_SCOPE && node_id == peer.node_id && cursor.is_none(),
                     "native E1 eligibility response changed its authenticated Node or interrupted a snapshot"
                 );
                 let same = identity.as_ref().is_some_and(|identity| {
