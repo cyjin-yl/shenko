@@ -76,7 +76,14 @@ pub fn report_for(
 pub fn journal_runtime_error(cell: &ErrorSinkCell, report: &RuntimeErrorReport) {
     let sink = match cell.lock() {
         Ok(guard) => guard.clone(),
-        Err(_) => None,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                request_id=%report.request_id,
+                "runtime error journal unavailable because its sink lock is poisoned"
+            );
+            return;
+        }
     };
     let Some(sink) = sink else { return };
     if let Err(error) = sink.journal_runtime_error(report) {

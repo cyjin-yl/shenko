@@ -13,7 +13,7 @@ use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
 use shenko_types::commit::CommitRef;
-use shenko_types::error::ShenkoError;
+use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::identity::{
     IdentityIntent, IdentityOutcome, IdentityProfile, IdentityReceipt, IdentitySource,
 };
@@ -1687,16 +1687,26 @@ async fn execute_step(
             // left: the broker owns the send boundary. The request stays
             // recoverable debt and the step is reconciled, never replayed
             // under the same identity.
-            broker.recover_unknown(request_id);
-            record_retry(
+            let recovery = broker.recover_unknown(request_id);
+            let retry_record = record_retry(
                 state,
                 InferenceRetryFact::DispatchLost {
                     reason: format!("broker admission rejected: {error}"),
                 },
-            )?;
-            return Err(ShenkoError::other(format!(
-                "broker admission rejected: {error}; outcome unknown, reconciled"
-            )));
+            );
+            // The send-boundary failure remains primary even if retaining its
+            // charge or journalling the retry fact also failed. Neither
+            // cleanup failure supplies evidence that the request was unsent.
+            return Err(ProtocolError::new(
+                "BROKER_ADMISSION_REJECTED", ErrorScope::Request, RetryStrategy::AfterReconcile,
+            ).with_details(serde_json::json!({
+                "request_id": request_id,
+                "admission_error": format!("{error:#}"),
+                "outcome": "unknown",
+                "unknown_charge_restored": recovery.is_ok(),
+                "recovery_error": recovery.err().map(|error| format!("{error:#}")),
+                "retry_record_error": retry_record.err().map(|error| format!("{error:#}")),
+            })).into());
         }
         let result = rx
             .await

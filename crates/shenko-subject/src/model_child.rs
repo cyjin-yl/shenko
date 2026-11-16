@@ -1823,7 +1823,11 @@ impl ModelChildHandler {
         if let Err(error) = broker.submit_recorded(request, sink) {
             // A generic admission error is not authority to reinterpret an
             // already armed identity as safe to replay (it may be a duplicate).
-            broker.recover_unknown(request_id);
+            if let Err(recovery_error) = broker.recover_unknown(request_id) {
+                return Err(error.context(format!(
+                    "retaining the original unknown inference charge also failed: {recovery_error:#}"
+                )));
+            }
             return Err(error);
         }
         let result = result_rx
