@@ -171,3 +171,36 @@ static observations, their incomplete parser environment and original patch
 whitespace are retained in the [PTY review archive](../pty-write-review-20261116/README.md).
 None of these records grant a send/replay permission, convert Unknown to NotSent,
 or establish installation-wide fencing, real coding or complete S2 acceptance.
+
+## Retained objects, prepared identity and original observation exports
+
+`retention-preparation-export-checkpoints.json` preserves 31 further exact raw
+commit objects, 260 tree deltas and 21 additional original blobs. Raw Git SHA-1
+identities and every recomposed original tree were independently checked. The
+479,661 additional bytes preserve intermediate code and documentation versions
+without duplicating the complete CI ZIPs inside another bundle.
+
+Obtain public `3e62c0e5`, original `c50a0eb7` from the S2/C19/Node records above,
+and original `4229b45b` from the PTY records above. The new publication also
+retains the reviewed pre-provenance tree
+`fee7302ed99e2453dc67f620b42781bbe1169337`; the JSON records it as a blob source
+through original local integration `b4e192c`. Its normalized publication commit
+has the same tree. The full base-tree/path/mode/blob deltas and separate payloads
+allow each original tree to be reconstructed. This remains incremental source
+provenance, not a standalone repository backup.
+
+The named original checkpoints cover the PTY binding correction, sealed
+prepared-artifact identity, native command cleanup, Store read-only retention
+reader and its carrier/alias fixes, PTY/update original exports, installation
+permit design, unresolved Clippy input-scope audit and the integration/archive
+commits. Their raw objects retain the original authors, committer times, parents
+and messages. Original intermediate versions and failures are not overwritten.
+
+[The source and integration review archive](../retention-preparation-export-20261116/README.md)
+records exact file comparisons and each finite scope. The new source still
+needs its own Rust/Clippy execution. The earlier
+[3e62 CI result](../ci-3e62c0e5-20261116/README.md) is retained as observed:
+Rust passed, Clippy failed, and some successful-test raw originals were not
+exported. These provenance records cannot fill that gap or make the later
+sources passed. They grant no execution, replay, deletion or installation-wide
+writer authority.

@@ -1,0 +1,8 @@
+tree 1d68e1cb1c91e2c6c5e7bcddbbad45616984ac90
+parent d2dc8ee4a23f722771eae913864ff344f3f16b83
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865458 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000
+
+Tie PTY input to owned FIFO flush receipts and cancellation
+
+(cherry picked from commit e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69)

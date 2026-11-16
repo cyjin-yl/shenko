@@ -1,0 +1,8 @@
+tree 66bfa55e8d3e520cd74007816115f327ae83e958
+parent 902dd893f04e0e9ba320885b2e52e8b1ddd125bb
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870457 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870534 +0000
+
+docs: retain unresolved Clippy input-scope evidence
+
+(cherry picked from commit a3ce1e65ee30682b35bd8020cb411cb92bad6180)

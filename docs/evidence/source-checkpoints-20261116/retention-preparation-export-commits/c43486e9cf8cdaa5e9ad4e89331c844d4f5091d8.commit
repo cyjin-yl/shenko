@@ -1,0 +1,8 @@
+tree d870bdbee725d0e82868ea1da395bd246b420674
+parent c3f936644e7436a79404daca2c14af4ef211e23b
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869653 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870734 +0000
+
+test(ssh): preserve original PTY journey evidence
+
+(cherry picked from commit d80d8cbb7992e6ec40e5cb7075ebc0e83fec71c1)
