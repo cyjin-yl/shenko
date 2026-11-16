@@ -98,7 +98,7 @@
     "check": "cargo check --offline --locked -p shenko-store --tests -j1",
     "check_exit_code": 0,
     "check_seconds": 1.86,
-    "runtime_test_execution": "pending new candidate CI",
+    "runtime_test_execution": "both authored journeys passed in CI 43864453626, candidate 6782627ea89e17774bc65ba54d459ad85804fef1",
     "scope": "paired native.complete/native.finish canonical frozen results; foreign parked predecessor remains debt, not execution takeover"
   },
   "inventory_observed_utc": "2026-11-16T12:03:08Z",
@@ -106,5 +106,32 @@
   "open_pull_requests": [
     302,
     303
-  ]
+  ],
+  "third_ci": {
+    "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
+    "checkout_merge_sha": "afa186615fdfefedaa1569a09353957dbc47c293",
+    "run_id": 43864453626,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43864453626",
+    "jobs": {
+      "docs": "success",
+      "docs-migration": "success",
+      "kernel-boundary": "success",
+      "web": "success",
+      "rust": "failure",
+      "clippy-ratchet": "failure"
+    },
+    "workspace_all_targets_check": "success",
+    "native_t2_runtime_journeys": "success",
+    "ssh_wasi_runtime_journey": "success",
+    "evidence": "ssh-wasi-ci-6782627-20261116/observation.json",
+    "rust_failure": "new broker deadline journey incorrectly expected only one error, while Unknown settlement journals an additional original-identity outcome; correction requires revalidation",
+    "clippy_failure": "one new all-target cloned_ref_to_slice_refs diagnostic at execution.rs timeout terminal assertion; source fix preserves assertion; revalidation pending"
+  },
+  "third_nightly": {
+    "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
+    "run_id": 43865128676,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43865128676",
+    "observed_status": "queued",
+    "scope": "dispatch observed; no job success claimed"
+  }
 }

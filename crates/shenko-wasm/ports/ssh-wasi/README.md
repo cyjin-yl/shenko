@@ -121,3 +121,13 @@ perform client authentication. Temporary private keys are removed when the
 fixture ends, while public execution evidence can be retained separately.
 Missing inputs fail the journey. This does not claim a sustained
 remote-device, mobile, Node/Bun, or long-running acceptance result.
+
+Candidate `6782627ea89e17774bc65ba54d459ad85804fef1` passed this actual
+journey in [CI job 133289317901](https://github.com/cyjin-yl/shenko/actions/runs/43864453626/job/133289317901)
+in 176.32 seconds. The [retained observation](../../../../docs/evidence/ssh-wasi-ci-6782627-20261116/observation.json)
+binds its 2,552,689-byte module, public client/server receipts and all 97 source
+input hashes. The original build receipt's global dirty flag remains true;
+each recorded input independently matches the candidate's Git blob. The
+workspace job still failed on an unrelated broker test assertion, and this
+module journey does not prove the CLI installation path or a real remote
+deployment.

@@ -40,7 +40,8 @@ jobs:
           apt-get update
           apt-get install --yes --no-install-recommends python3 python3-venv cmake clang pkg-config libssl-dev libgomp1 curl ca-certificates
           python3 -m venv .ci/python
-          .ci/python/bin/pip install websockets==16.0
+          .ci/python/bin/pip install websockets==16.0 playwright==1.62.0
+          .ci/python/bin/python -m playwright install --with-deps --no-shell chromium
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> .ci/target/real-single-node
@@ -59,7 +60,7 @@ jobs:
           sha256sum .ci/model/model.gguf .ci/model/llama.tar.gz > .ci/evidence/model.sha256
           tar -xf .ci/model/llama.tar.gz -C .ci/model
           .ci/model/llama-b12359/llama-server --version > .ci/evidence/model-runtime-version.txt 2>&1
-      - name: Observe real input, children, results, output and restart
+      - name: Observe live browser input, children, results, output and restart
         shell: bash
         run: |
           set -euo pipefail
@@ -86,7 +87,7 @@ jobs:
             --binary .ci/target/real-single-node/debug/shenko \
             --source-revision "$GITHUB_SHA" \
             --model-url http://127.0.0.1:18832 --model Qwen3-0.6B-Q4_K_M \
-            --timeout 1800 --evidence-dir .ci/evidence/real-single-node
+            --browser --timeout 1800 --evidence-dir .ci/evidence/real-single-node
       - name: Retain actual outcomes, including failures
         if: always()
         uses: actions/upload-artifact@v4

@@ -5,6 +5,8 @@ Requires an actual OpenAI-compatible model service and Python websockets 16.
 Starts the real Shenko CLI, submits over its public WebSocket, inspects durable
 child/E1/decision facts read-only, restarts the same installation, replays the
 same input identity, and asks the model to continue from its prior context.
+With --browser, both new inputs come from the actual Web UI composer in the
+same installation; the observing socket still replays the original identity.
 No model response, task, receipt, or successful outcome is injected. Failure
 retains the same evidence and exits nonzero; this is not a default CI test.
 """
@@ -211,24 +213,36 @@ async def run(args):
         "source_revision": args.source_revision, "model": args.model, "model_url": args.model_url,
         "websockets_version": websockets.__version__, "marker": marker, "resume_marker": resume_marker,
         "configured_local_request_timeout_ms": os.environ.get("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS"),
+        "input_surface": "live_browser_composer" if args.browser else "public_websocket",
         "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim",
     }
     save(args.evidence_dir / "manifest.json", manifest)
     summary = {"passed": False, "checks": {}, "errors": []}
-    process = log = None
+    process = log = browser = None
     try:
         save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/v1/models"))
         process, log, subject = await start(args, "first", data_dir)
+        if args.browser:
+            from real_browser_witness import BrowserWitness
+            browser = BrowserWitness(args.evidence_dir, f"http://127.0.0.1:{args.port}")
+            await browser.open()
         submission = {
             "schema_version": 2, "type": "submit", "submission_id": str(uuid.uuid4()),
             "message_id": str(uuid.uuid4()), "subject_id": subject, "mode": "append",
             "content": f"请完成一次有真实回执的有限任务：委派一个使用 {args.model} 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 {marker}。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
         }
-        save(args.evidence_dir / "first.input.json", submission)
         async with websockets.connect(f"ws://127.0.0.1:{args.port}/ws", proxy=None, max_size=16*1024*1024) as ws:
-            await ws.send(json.dumps(submission, ensure_ascii=False))
+            if browser:
+                submission = await browser.submit("first", submission["content"], subject)
+            else:
+                await ws.send(json.dumps(submission, ensure_ascii=False))
+            save(args.evidence_dir / "first.input.json", submission)
             first, messages = await collect(ws, process, data_dir, args.evidence_dir / "first.websocket.jsonl", args.timeout,
                 lambda facts, _: all(evaluate_first(facts, marker).values()))
+        if browser:
+            # Receipts are sent to the submitting connection. Keep the
+            # original receipt assertion, using that page's actual frames.
+            messages.extend(browser.received())
         save(args.evidence_dir / "first.ledger.json", first)
         summary["checks"].update(evaluate_first(first, marker))
         receipts = [row for row in messages if row.get("type") == "receipt" and row.get("submission_id") == submission["submission_id"]]
@@ -236,16 +250,33 @@ async def run(args):
         summary["checks"]["input_durably_accepted"] = bool(accepted and accepted.get("accepted_commit"))
         head = first["subject_branch_heads"][0]["data"]
         before_ids = {row["task_id"] for row in first.get("task_results", [])}
+        if browser:
+            if summary["checks"]["committed_output_after_child_results"]:
+                output = next(row for row in reversed(first["decisions"])
+                    if evaluate_first(dict(first, decisions=[row]), marker)["committed_output_after_child_results"])
+                await browser.observe_output("first", output["step"]["step_id"], (marker, "437"))
+            else:
+                browser.observations["first_output"] = {"observed": False, "reason": "no qualifying committed model result"}
+            await browser.prepare_restart("未发送草稿 · " + marker)
         summary["first_exit"] = await stop(process, log)
         process = log = None
+        if browser:
+            await browser.observe_stopped()
         process, log, resumed_subject = await start(args, "restart", data_dir)
         summary["checks"]["same_subject_after_restart"] = resumed_subject == subject
+        if browser:
+            await browser.observe_restarted()
         resumed_input = dict(submission, submission_id=str(uuid.uuid4()), message_id=str(uuid.uuid4()),
             content=f"刚才运行进程已重启。请从已有上下文继续：报告上一条任务的原始标记和 child 计算结果，再附上本次继续工作的标记 {resume_marker}。不要重新执行上一条任务。")
-        save(args.evidence_dir / "restart.input.json", resumed_input)
         async with websockets.connect(f"ws://127.0.0.1:{args.port}/ws", proxy=None, max_size=16*1024*1024) as ws:
+            # This is the pre-existing idempotency check, never a new input:
+            # the page's exact original IDs and payload are replayed intact.
             await ws.send(json.dumps(submission, ensure_ascii=False))
-            await ws.send(json.dumps(resumed_input, ensure_ascii=False))
+            if browser:
+                resumed_input = await browser.submit("restart", resumed_input["content"], resumed_subject)
+            else:
+                await ws.send(json.dumps(resumed_input, ensure_ascii=False))
+            save(args.evidence_dir / "restart.input.json", resumed_input)
             def continued(facts, messages):
                 return any(row["step"]["step_no"] > head["committed_step_no"]
                     and all(text in row["decision"]["output"]["text"] for text in (marker, resume_marker))
@@ -259,11 +290,29 @@ async def run(args):
         summary["checks"]["replayed_input_same_event"] = bool(accepted and replay and replay.get("replayed") is True
             and replay.get("event_id") == accepted.get("event_id") and replay.get("accepted_commit") == accepted.get("accepted_commit"))
         summary["checks"]["same_branch_after_restart"] = after["subject_branch_heads"][0]["data"]["branch_id"] == head["branch_id"]
+        if browser:
+            if summary["checks"]["model_continued_prior_context"]:
+                output = next(row for row in reversed(after["decisions"])
+                    if continued(dict(after, decisions=[row]), messages))
+                await browser.observe_output("restart", output["step"]["step_id"], (marker, resume_marker, "437"))
+            else:
+                browser.observations["restart_output"] = {"observed": False, "reason": "no qualifying continued model result"}
+            await browser.finish_journey()
         summary["passed"] = all(summary["checks"].values())
     except Exception as error:
         summary["errors"].append(f"{type(error).__name__}: {error}")
         (args.evidence_dir / "failure.txt").write_text(traceback.format_exc())
     finally:
+        if browser is not None:
+            try:
+                report = await browser.close()
+                summary["browser"] = report
+                summary["checks"].update(report["checks"])
+                summary["errors"].extend(report["errors"])
+                summary["passed"] = summary["passed"] and not report["errors"] and all(report["checks"].values())
+            except Exception as error:
+                summary["passed"] = False
+                summary["errors"].append(f"browser evidence/cleanup: {type(error).__name__}: {error}")
         if process is not None:
             summary["last_exit"] = await stop(process, log)
         if (data_dir / "shenko.db").exists():
@@ -294,6 +343,8 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--evidence-dir", required=True, type=Path)
     parser.add_argument("--port", type=int, default=17860)
+    parser.add_argument("--browser", action="store_true",
+                        help="Use the actual UI composer and observe one Chromium page across the same CLI restart")
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
     args.binary = args.binary.resolve()

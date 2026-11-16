@@ -1,0 +1,6 @@
+{"action":"keygen","outcome":{"Ok":"Exited(0)"},"stderr":"","stdout":"{\"fingerprint\":\"SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34\",\"generated\":\"ed25519\"}\n"}
+{"action":"exec","outcome":{"Ok":"Exited(7)"},"stderr":"ssh-wasi-stderr\n","stdout":"ssh-wasi-exec\n"}
+{"action":"put","outcome":{"Ok":"Exited(0)"},"stderr":"","stdout":"{\"direction\":\"put\",\"transferred_bytes\":100003}\n"}
+{"action":"get","outcome":{"Ok":"Exited(0)"},"stderr":"","stdout":"{\"direction\":\"get\",\"transferred_bytes\":100003}\n"}
+{"action":"exec","outcome":{"Ok":"Exited(255)"},"stderr":"ssh-wasi: Unknown server key\n","stdout":""}
+{"action":"exec","outcome":{"Ok":"Exited(255)"},"stderr":"ssh-wasi: no host-admitted TCP stream matches 127.0.0.1:34777\n","stdout":""}

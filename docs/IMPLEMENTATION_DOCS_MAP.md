@@ -215,6 +215,7 @@
 - **Web UI（shenko-ui：时间线、ws、api、playground）** — 已接线
   - [§21](specs/web-interface.md#spec-21)、[§43](specs/configuration-playground.md#spec-43)
   - docs/specs/web-interface.md
+  - [同一真实单机旅程的浏览器观察](development/real-browser-journey.md) — harness 已接线；实际浏览器/模型结果待命名候选运行，不是完整 UI 验收收据。
 
 - **可执行策略配置（`bin/shenko/src/policy_config.rs`）** — 已接线（`shenko.quota/policy` 读回实际配额账本；`shenko.context-policy/compaction_preference` 修改实际策略选择器，重启恢复已保存顺序。未知策略 id 保留在请求顺序并在回执中披露；不把自然语言 `[policy]` 请求当成结构化配置执行，也不表示完整 S2 策略验收已完成）
   - [§43.1](specs/configuration-playground.md#spec-43-1)、[§12.3.1](specs/context-policies.md#spec-12-3-1)、[§42](specs/quota-resources.md#spec-42)
