@@ -1,0 +1,3 @@
+[2m2026-11-16T22:29:28.672289Z[0m [32m INFO[0m [2mshenko::runtime_lifecycle[0m[2m:[0m quota strategies installed [3mstrategies[0m[2m=[0m[StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Cadence }]
+[2m2026-11-16T22:29:28.680422Z[0m [32m INFO[0m [2mshenko_store::store[0m[2m:[0m store opened [3mfts5[0m[2m=[0mtrue [3mwal[0m[2m=[0mtrue [3msqlite[0m[2m=[0m3.46.0
+Error: original native E1 facts retained with unresolved delivery gaps or predecessors

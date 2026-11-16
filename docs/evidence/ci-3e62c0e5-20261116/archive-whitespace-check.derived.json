@@ -1,0 +1,13 @@
+{
+  "command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check"
+  ],
+  "exit_code": 2,
+  "diagnostic_lines": 5753,
+  "sha256": "9189daf3670da38f831efa8d4235f96e58c40c2725e678c441b04d1f550a1ef6",
+  "original_log_whitespace_retained": true,
+  "code_changes_in_archive_commit": false
+}

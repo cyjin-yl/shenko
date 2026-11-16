@@ -1,0 +1,43 @@
+{
+  "source": "clippy-ratchet-evidence/clippy/ratchet.json",
+  "baseline": "84ae19404f2a17d259362c99091db408b7262e14",
+  "candidate": "1c01c95a4915856312746b5c7ef404c1d7a84cec",
+  "toolchain": "1.98.1",
+  "errors": [
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs: # [ allow ( clippy : : mutex_atomic ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs: # [ allow ( clippy : : mutex_atomic , clippy : : arc_with_non_send_sync ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs: # [ allow ( unused_must_use ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( clippy : : should_implement_trait ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( non_snake_case ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( unused_assignments , unused_variables , unused_mut ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( unused_must_use ) ]",
+    "production: shenko-exec-ssh: unused_variables increased by 2",
+    "all-targets: shenko-exec-ssh: unused_variables increased by 5"
+  ],
+  "completed_streams": {
+    "base-production": {
+      "json_objects": 1457,
+      "build_finished": [
+        true
+      ]
+    },
+    "candidate-production": {
+      "json_objects": 1456,
+      "build_finished": [
+        true
+      ]
+    },
+    "base-all-targets": {
+      "json_objects": 9970,
+      "build_finished": [
+        true
+      ]
+    },
+    "candidate-all-targets": {
+      "json_objects": 10020,
+      "build_finished": [
+        true
+      ]
+    }
+  }
+}
