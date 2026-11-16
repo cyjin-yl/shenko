@@ -113,6 +113,7 @@
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md
   - 上下文策略观察器退出时直接等待已持有 Fiber 的 `dispose` 屏障；全局 shutdown 关闭新操作准入后，已有策略与工具仍须完成清理，清理失败保留原始错误。
+  - `shenko-broker` 的 `execute_request` / `journal_provider_error` 与 `Store::journal_capture_budget_refusal` 保留[运行时错误事实](specs/cognition-units.md#spec-45-14)；具体推理原因只记一次。`node_sync::observe_follower` 的[角色事实](specs/nodes.md#spec-5-4-3)与 `store::commit_error` 的[接收账本缺前驱分类](specs/nodes.md#connected-store-admission-and-materialization)由对应命名消费者保留。
 
 - **Hook API（HookRegistry）** — 已接线（`Supervisor` 持有 registry，共享运行库将同一实例注入 subject loop）
   - [§37](specs/context-policies.md#spec-37)

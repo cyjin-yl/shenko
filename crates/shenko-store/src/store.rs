@@ -852,7 +852,7 @@ impl Store {
     ///
     /// The frozen pre-capture exceeded its memory ceiling, so this step used
     /// the original-plan path. The note is a durable runtime-error fact of
-    /// the owning subject (docs/specs/cognition-units.md#spec-45-14): the
+    /// the owning subject: the
     /// degradation is visible to the subject instead of being a silent
     /// refusal. The journal write is fail-soft and never replaces the
     /// decision this step still commits.
@@ -1744,8 +1744,7 @@ pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
 /// own writes. A deferred violation is therefore not storage damage: the
 /// applied rows reference a predecessor this ledger does not hold, which is
 /// typed reconciliation debt. The receiving ledger has to catch up before the
-/// transition can be applied, so the writer must stay open
-/// (docs/specs/nodes.md#connected-store-admission-and-materialization).
+/// transition can be applied, so the writer must stay open.
 /// Every other commit failure remains storage damage and keeps its own
 /// consequence.
 pub(crate) fn commit_error(error: rusqlite::Error) -> ShenkoError {

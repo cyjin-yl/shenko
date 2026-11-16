@@ -1,5 +1,4 @@
-//! Live policy configuration — docs/specs/configuration-playground.md#spec-43-1,
-//! docs/specs/quota-resources.md#spec-42 and docs/specs/context-policies.md#spec-12-3-1.
+//! Live configuration over the quota ledger and context policy registry.
 //!
 //! These adapters expose the existing consumers through `config.manage` and
 //! the configuration panel. The quota ledger and PolicyRegistry remain the

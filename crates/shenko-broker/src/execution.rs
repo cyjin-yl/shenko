@@ -37,7 +37,7 @@ fn residency_context(request: &InferenceRequest) -> String {
 /// outcome without a typed cause stays a plain observation. The broker's
 /// completion path uses this to write one durable error per failure: a
 /// request that already produced a typed cause is not restated a second
-/// time as a generic "outcome unknown" record (docs/specs/cognition-units.md#spec-45-14).
+/// time as a generic "outcome unknown" record.
 pub(crate) async fn execute_request(
     request: &InferenceRequest,
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
@@ -330,7 +330,7 @@ async fn execute_stream(
 /// The report is the one durable error of this request: it names the typed
 /// cause and, for a deadline, the sealed observation limit. The broker's
 /// completion path therefore must not add a second, less specific record for
-/// the same failure (docs/specs/cognition-units.md#spec-45-14).
+/// the same failure.
 fn journal_provider_error(
     request: &InferenceRequest,
     purpose: RequestPurpose,

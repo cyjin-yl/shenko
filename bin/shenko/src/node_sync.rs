@@ -2035,8 +2035,7 @@ pub fn observe(
 /// consumer and no replica worker, and it claims no domain-primary
 /// authority. The observation is the queryable fact that tells a resident
 /// follower apart from a runtime that never started: it never claims the
-/// executor, recovery or replica duties of a selected runtime
-/// (docs/specs/nodes.md#spec-5-4-3).
+/// executor, recovery or replica duties of a selected runtime.
 pub fn observe_follower(
     data_dir: &Path,
     store: &Store,
