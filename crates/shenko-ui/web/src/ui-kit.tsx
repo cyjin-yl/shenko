@@ -1,3 +1,4 @@
+import { text as t, preferredLocale } from './messages';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { createReactAdapter } from '@proto.ui/adapter-react';
@@ -98,7 +99,7 @@ export function Button({
 // source by the pinned Proto-UI compiler. This caller keeps the transport facts
 // and decides only the label and tone; the Prototype renders markup and tokens.
 export function TransportBadge({ connection, demo }: { connection: ConnectionState; demo: boolean }) {
-  if (demo) return <CompiledTransportBadge label="本地模拟" tone="local" />;
+  if (demo) return <CompiledTransportBadge label={t('transport.demo')} tone="local" />;
   return <CompiledTransportBadge label={connectionLabel(connection)} tone={connection} />;
 }
 
@@ -123,15 +124,15 @@ export function Toggle({ active, onChange, label, children }: {
 
 export function connectionLabel(connection: ConnectionState): string {
   switch (connection) {
-    case 'online': return '已连接';
-    case 'connecting': return '连接中';
-    case 'reconnecting': return '正在重连';
-    default: return '离线';
+    case 'online': return t('transport.online');
+    case 'connecting': return t('transport.connecting');
+    case 'reconnecting': return t('transport.reconnecting');
+    default: return t('transport.offline');
   }
 }
 
 export function connectionAnnouncement(connection: ConnectionState): string {
-  return connection === 'online' ? '传输已连接' : connection === 'reconnecting' ? '连接中断，正在重连' : '传输未连接';
+  return connection === 'online' ? t('transport.connectedAnnouncement') : connection === 'reconnecting' ? t('transport.reconnectAnnouncement') : t('transport.offlineAnnouncement');
 }
 
 export function Note({ text, tone = 'neutral', icon }: { text: string; tone?: 'neutral' | 'error'; icon?: React.ReactNode }) {
@@ -149,26 +150,28 @@ export function formatTime(value: unknown): string {
 }
 
 export function dayLabel(value: string | null): string {
-  if (value === null) return '时间未知';
+  if (value === null) return t('time.unknown');
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '时间未知';
+  if (Number.isNaN(date.getTime())) return t('time.unknown');
   const now = new Date();
   const sameDay = (left: Date, right: Date) => left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  const weekdays = '日一二三四五六';
-  const base = `${date.getMonth() + 1}月${date.getDate()}日 周${weekdays[date.getDay()]}`;
-  if (sameDay(date, now)) return `今天 · ${base}`;
-  if (sameDay(date, yesterday)) return `昨天 · ${base}`;
-  return date.getFullYear() === now.getFullYear() ? base : `${date.getFullYear()}年${base}`;
+  const base = new Intl.DateTimeFormat(preferredLocale(), {
+    month: 'short', day: 'numeric', weekday: 'short',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' as const }),
+  }).format(date);
+  if (sameDay(date, now)) return t('time.today', { date: base });
+  if (sameDay(date, yesterday)) return t('time.yesterday', { date: base });
+  return base;
 }
 
 export function formatStamp(value: unknown): string {
   if (typeof value !== 'string' || !value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${formatTime(value)}`;
+  return `${new Intl.DateTimeFormat(preferredLocale(), { month: 'short', day: 'numeric' }).format(date)} ${formatTime(value)}`;
 }
 
 /** Disclosure timestamps are epoch milliseconds; only presentation changes here. */
@@ -177,5 +180,5 @@ export function formatStampMs(value: number): string {
 }
 
 export function firstLine(text: string): string {
-  return text.split('\n').find((line) => line.trim())?.trim() ?? '（空）';
+  return text.split('\n').find((line) => line.trim())?.trim() ?? t('common.empty');
 }

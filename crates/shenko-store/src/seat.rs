@@ -1,4 +1,4 @@
-//! Durable seat records and single-writer lease admission — docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5.
+//! Durable seat records and single-writer lease admission.
 //!
 //! A `TaskSeat` is a stable product identity for one remote-agent work
 //! position; a tmux pane id is only its current *location*, never its durable
@@ -14,7 +14,7 @@
 //! it neither arms an operation nor sends input. The current runtime does not
 //! yet have a seat-child handler consuming this interface. A successful read
 //! is not an atomic check-and-send fence, and native tmux/human input remains
-//! outside this database's control (docs/specs/remote-seats.md#spec-35-5).
+//! outside this database's control.
 
 use crate::Store;
 use anyhow::{ensure, Result};
@@ -96,14 +96,14 @@ CREATE INDEX IF NOT EXISTS idx_seat_decisions_question
     ON seat_answer_decisions(question_id, updated_commit_seq);
 "#;
 
-/// Current physical reach of a seat — docs/specs/remote-seats.md#spec-17-1 locator fields.
+/// Current physical reach of a seat — locator fields.
 /// Kept as one sealed shape so future adapters add fields without changing
 /// the records table. A pane id, a remote session anchor or a host string
 /// here is evidence, not identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SeatLocation {
-    /// Existing tmux foreground TUI (docs/specs/remote-seats.md#spec-35-5 first path).
+    /// Existing tmux foreground TUI (first path).
     Tmux {
         /// Host reach: "local" or an SSH target label the adapter resolved.
         host: String,
@@ -115,7 +115,7 @@ pub enum SeatLocation {
         cwd: String,
         current_command: String,
     },
-    /// Managed remote agent over the native SSH PTY transport (docs/specs/remote-seats.md#spec-17-5).
+    /// Managed remote agent over the native SSH PTY transport.
     /// Identity uniqueness comes from the single-writer lease, not a pane.
     SshPty {
         host: String,
@@ -124,7 +124,7 @@ pub enum SeatLocation {
         /// The exact PTY program this seat was opened with.
         program_b64: String,
     },
-    /// Managed OMP agent speaking its JSONL RPC protocol (docs/specs/remote-seats.md#spec-35-5).
+    /// Managed OMP agent speaking its JSONL RPC protocol.
     /// `remote_session_id` is the durable session anchor the seat was bound
     /// to — what the OMP adapter reports as its session identity (the exact
     /// spawn command line for an unmanaged anchor). One active seat may
@@ -134,7 +134,7 @@ pub enum SeatLocation {
         /// The durable session anchor (`SeatHandle.remote_session_id`).
         remote_session_id: String,
     },
-    /// Managed Claude Code agent speaking its control protocol (docs/specs/remote-seats.md#spec-35-5).
+    /// Managed Claude Code agent speaking its control protocol.
     /// `remote_session_id` is the durable session anchor: the resume anchor
     /// the caller bound, or the session id the remote side published, or
     /// the exact spawn command line when the session never reported one.
@@ -180,7 +180,7 @@ impl SeatStatus {
     }
 }
 
-/// Durable seat record — docs/specs/remote-seats.md#spec-17-1 TaskSeat.
+/// Durable seat record — TaskSeat.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeatRecord {
     pub schema_version: u32,
@@ -267,7 +267,7 @@ impl SeatLocation {
     }
 }
 
-/// Durable writer lease — docs/specs/remote-seats.md#spec-17-1 单写者.
+/// Durable writer lease — 单写者.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeatLease {
     /// 2 carries the writer epoch and verified fence capability; a stored
@@ -368,7 +368,7 @@ impl SeatLease {
     }
 }
 
-/// Admission input for a v2 writer lease — docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5.
+/// Admission input for a v2 writer lease.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SeatLeaseRequest {
@@ -383,7 +383,7 @@ pub struct SeatLeaseRequest {
     pub fence_capability: String,
 }
 
-/// Lifecycle of one durable seat question — docs/specs/remote-seats.md#spec-41-11.
+/// Lifecycle of one durable seat question.
 ///
 /// The states are the product's own durable facts about one question; they
 /// are never inferred from a screen. `DecisionCommitted` and `Responding`
@@ -475,7 +475,7 @@ pub struct SeatConfidenceFact {
     pub basis: String,
 }
 
-/// The durable question shape — docs/specs/remote-seats.md#spec-41-11.
+/// The durable question shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeatQuestionFact {
     pub source_kind: String,
@@ -506,7 +506,7 @@ pub struct SeatQuestionFact {
     pub fingerprint: String,
 }
 
-/// The durable answer shape — docs/specs/remote-seats.md#spec-41-11.
+/// The durable answer shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeatAnswerFact {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -518,7 +518,7 @@ pub struct SeatAnswerFact {
     pub reason: String,
 }
 
-/// Durable seat question record — docs/specs/remote-seats.md#spec-41-11.
+/// Durable seat question record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeatQuestionRecord {
     pub schema_version: u32,
@@ -541,7 +541,7 @@ pub struct SeatQuestionRecord {
     /// a newer writer displaces it.
     #[serde(default)]
     pub lease_epoch: u64,
-    /// Semantic revision of the question (docs/specs/remote-seats.md#spec-41-11). It moves only when
+    /// Semantic revision of the question. It moves only when
     /// the question's meaning, options, action, deadline or bindings
     /// change — never for a spinner or an unrelated log line.
     #[serde(default)]
@@ -553,7 +553,7 @@ pub struct SeatQuestionRecord {
     pub updated_commit: CommitRef,
 }
 
-/// Lifecycle of one durable answer decision — docs/specs/remote-seats.md#spec-41-11.
+/// Lifecycle of one durable answer decision.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SeatAnswerDecisionState {
@@ -595,7 +595,7 @@ impl SeatAnswerDecisionState {
     }
 }
 
-/// Durable answer decision — docs/specs/remote-seats.md#spec-41-11 `AnswerDecision`.
+/// Durable answer decision — `AnswerDecision`.
 ///
 /// The record is written *before* any input reaches the remote side
 /// (`Committed`), armed with the exact effect digest when the write is
@@ -667,7 +667,7 @@ pub struct SeatAnswerDecisionRecord {
     pub updated_commit: CommitRef,
 }
 
-/// The compare-and-swap expectation of one answer decision — docs/specs/remote-seats.md#spec-41-11.
+/// The compare-and-swap expectation of one answer decision.
 /// Every field names a version the decider actually read; a mismatch is a
 /// typed refusal and the answer is never applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -687,7 +687,7 @@ pub struct SeatDecisionExpectation {
     pub lease_epoch: u64,
 }
 
-/// The terminal outcome of one armed answer decision — docs/specs/remote-seats.md#spec-41-11.
+/// The terminal outcome of one armed answer decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SeatAnswerOutcome {
@@ -1076,7 +1076,7 @@ impl Store {
         )
     }
 
-    /// Arm the exact effect of a committed decision — docs/specs/remote-seats.md#spec-41-11 `T1 arm`.
+    /// Arm the exact effect of a committed decision — `T1 arm`.
     ///
     /// The arm records the digest of the bytes that are about to be written
     /// and the operation that carries them, and moves the question to
@@ -1163,7 +1163,7 @@ impl Store {
     }
 
     /// Close an armed decision with the evidence the remote side produced —
-    /// docs/specs/remote-seats.md#spec-41-11 `E1/T2 回执`.
+    /// `E1/T2 回执`.
     ///
     /// The question's end state follows the observation, never the intent:
     /// a confirmed answer ends `Answered`; an unconfirmed one ends
@@ -1363,7 +1363,7 @@ impl Store {
         )
     }
 
-    /// Acquire the single writer lease for a seat — docs/specs/remote-seats.md#spec-17-1.
+    /// Acquire the single writer lease for a seat.
     ///
     /// A seat has at most one valid writer, and that writer is the seat's own
     /// durable owner: only the task the seat record names may hold its writer
@@ -1520,7 +1520,7 @@ impl Store {
         )
     }
 
-    /// Write admission — docs/specs/remote-seats.md#spec-17-1, docs/specs/remote-seats.md#spec-35-5. Returns the *committed* lease when
+    /// Write admission. Returns the *committed* lease when
     /// `lease_id` still carries write authority on a live seat for `task_id`.
     /// Every refusal is typed: the caller must re-observe/reconcile rather
     /// than blind-send. Lease id binds the holder epoch; a lease superseded
@@ -1618,7 +1618,7 @@ impl Store {
     }
 
     /// All seats registered for a task, newest first — the location history
-    /// docs/specs/remote-seats.md#spec-17-1 requires keeping when a seat moves.
+    /// requires keeping when a seat moves.
     pub fn seat_task_seats(&self, task_id: EntityId) -> Result<Vec<SeatRecord>> {
         let conn = self.ledger.conn.lock();
         let mut q = conn.prepare(
@@ -1742,7 +1742,7 @@ impl Store {
             .collect()
     }
 
-    /// Bump the location incarnation of one active seat — docs/specs/remote-seats.md#spec-17-1.
+    /// Bump the location incarnation of one active seat.
     ///
     /// This is the *in-place* change transition, the complement of
     /// `relocate_seat`/`supersedes`: relocation records a planned move by
@@ -1791,7 +1791,7 @@ impl Store {
         )
     }
 
-    /// Persist one observed seat question — docs/specs/remote-seats.md#spec-41-11. Every question is
+    /// Persist one observed seat question. Every question is
     /// durable before it can be answered: the in-memory callback Promise is
     /// not a question record. Admission requires a current v2 writer lease
     /// bound to the same seat and task, verified inside the same transaction.
@@ -1889,7 +1889,7 @@ impl Store {
             .collect()
     }
 
-    /// Commit the durable answer decision for one open question — docs/specs/remote-seats.md#spec-41-11.
+    /// Commit the durable answer decision for one open question.
     ///
     /// This is the *pre-effect* claim: it runs before any input reaches the
     /// remote side, so a stale question can never be typed into, and a crash

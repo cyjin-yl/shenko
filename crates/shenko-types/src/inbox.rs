@@ -1,8 +1,8 @@
-//! Inbox event protocol data — docs/specs/subject-runtime.md#spec-5-1
+//! Inbox event protocol data
 //!
 //! What arrives in the subject's inbox is plain data. It is defined here so
 //! that a plugin that produces or inspects inbox events does not have to
-//! depend on the subject crate (docs/specs/kernel.md#kernel-7). The queue
+//! depend on the subject crate. The queue
 //! that carries these events stays with the subject.
 use crate::ids::EntityId;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// the two spellings can never drift apart.
 pub const SELF_WAKE_KIND: &str = "self_wake";
 
-/// The inbox source the subject's own wakes arrive from (docs/specs/subject-runtime.md#spec-13-8; the
+/// The inbox source the subject's own wakes arrive from (the
 /// subject produces this fact about itself, no external channel does).
 pub const SUBJECT_WAKE_SOURCE: &str = "subject";
 
@@ -35,21 +35,21 @@ pub enum InboxEventKind {
     MemoryResult,
     SemanticWaitCheck,
     SystemEvent,
-    /// A Playground artifact changed (PUT or backend action). docs/specs/configuration-playground.md#spec-43-2.
+    /// A Playground artifact changed (PUT or backend action).
     ArtifactChanged,
     /// A durable transcript revision of one continuous-media stream segment
-    /// (partial, final, superseded or final-correction). docs/specs/contacts.md#spec-15-2, docs/specs/media.md#spec-20.
+    /// (partial, final, superseded or final-correction).
     MediaRevision,
     /// A media stream opened or reached a terminal state (cancelled,
-    /// disconnected, ended). docs/specs/media.md#spec-20.
+    /// disconnected, ended).
     MediaStream,
     /// An admitted recording control (start/stop) with the recording's
-    /// projection state. docs/specs/media.md#spec-20.
+    /// projection state.
     MediaRecording,
     /// A media session priority input (barge-in, interjection, stop
-    /// playback, urgent message). docs/specs/media.md#spec-20.
+    /// playback, urgent message).
     MediaPriority,
-    /// A durable subject obligation reached its `due_at` time (docs/specs/subject-runtime.md#spec-13-8;
+    /// A durable subject obligation reached its `due_at` time (
     /// R071/R072 proactive steps). The subject itself produces this fact;
     /// the obligation row, not this wake, remains the authority.
     SelfWake,

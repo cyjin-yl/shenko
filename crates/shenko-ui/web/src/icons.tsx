@@ -1,6 +1,6 @@
 /**
  * Shenko's own line icons: one 20px grid, one stroke weight, drawn locally so
- * the shell needs no icon font or CDN (docs/specs/web-interface.md#spec-21-3).
+ * the shell needs no icon font or CDN.
  */
 export type IconName =
   | 'timeline' | 'tasks' | 'memory' | 'config' | 'playground'

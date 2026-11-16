@@ -19,11 +19,13 @@ use shenko_compat_poppy::UNIT_ID as POPPY_UNIT;
 use shenko_compat_skill::{InstalledSource, SkillSource, SourceInput, SourceQuery, MAX_READ_BYTES, UNIT_ID as SKILL_UNIT, metadata};
 use shenko_node::{Node, UnitRequest};
 
-use crate::CompatCommand;
+use crate::cli::CompatCommand;
 #[cfg(feature = "compat-mcp")]
-use crate::CompatMcpCommand;
+use crate::cli::CompatMcpCommand;
+#[cfg(feature = "compat-poppy")]
+use crate::cli::CompatPoppyCommand;
 #[cfg(feature = "compat-skill")]
-use crate::CompatSkillCommand;
+use crate::cli::CompatSkillCommand;
 
 /// Independently installed compatibility plugins the build can offer.
 fn plugins() -> impl Iterator<Item = (&'static str, &'static str)> {
@@ -118,7 +120,7 @@ pub async fn command(data_dir: &Path, command: CompatCommand) -> Result<()> {
         CompatCommand::Mcp { command } => mcp(data_dir, command).await,
         #[cfg(feature = "compat-poppy")]
         CompatCommand::Poppy { command } => match command {
-            crate::CompatPoppyCommand::Discover { origin } => {
+            CompatPoppyCommand::Discover { origin } => {
                 let report = shenko_compat_poppy::discovery::discover(&origin).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 Ok(())

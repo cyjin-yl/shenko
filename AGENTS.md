@@ -1,101 +1,27 @@
 # Working on Shenko
 
-## Required philosophy
+Build the complete Shenko personal agent, including **all S1–S5**. A first release or PR is progress; completion follows the [completion contract](docs/governance/COMPLETION.md).
 
-Before any Shenko design, implementation, debugging, review, maintenance or handoff, every human developer, lead Agent and writing subagent must read [.agents/skills/shenko-dev/SKILL.md](.agents/skills/shenko-dev/SKILL.md) in full if it is not already in context at the current version. Give delegated workers this same requirement. The eight companion development Skills are independently selectable methods, not mandatory phases; load only the ones that help the actual task.
+## Current reading policy (T6)
 
-`CLAUDE.md` is a symbolic link to this file. Keep one source of developer rules and preserve the link. The product is Shenko; the `shenko-dev` Skill and its eight companions share the product name.
+Every developer and writing agent reads this entry and [shenko-dev](.agents/skills/shenko-dev/SKILL.md) at their current versions. Then read the current domain contract and expanded sections needed for the task. Keep context focused on intent and facts.
 
-## Mission
+[DEVELOPMENT.md](DEVELOPMENT.md) and the Skill's [REFERENCE.md](.agents/skills/shenko-dev/REFERENCE.md) are **current expanded guidance**, preserved byte-for-byte with every obligation and user word. Their blanket full-read sentences record the prior reading policy; this entry replaces that loading requirement only. All substantive requirements remain effective. `CLAUDE.md` stays a symlink to this file.
 
-Build the complete Shenko（深刻）described by the current contracts under [docs/](docs/INDEX.md), and deliver it through continuously updated upstream PRs. Start with [the index](docs/INDEX.md), then read the [kernel contract](docs/specs/kernel.md), [architecture](docs/specs/architecture.md) and the relevant domain contract, including its Why, assumptions and observable effects. Implementation is already in progress; reuse existing code, candidates and evidence rather than starting over.
+## Active rules
 
-The owner explicitly chose unrestricted execution in the working fork. Launch Claude with **`--dangerously-skip-permissions`**, Claude Code's actual flag for `bypassPermissions`. In that fork, autonomously create and merge branches, refactor any component, change development methods, install tools, run experiments, manage CI and use many subagents. GitHub supplies the actual upstream access boundary. Keep developing while PRs await review.
+- Latest explicit user decisions control intent. Follow [docs/INDEX.md](docs/INDEX.md) to the relevant domain contract, Why, assumptions and observable effects. Root `SPEC.md` and `WHY.md` are navigation. Preserve requirement identities and sources; use the [migration map](docs/contract-migration.json) for old chapters.
+- Resume existing source, checkpoints and evidence. Preserve raw data, experiences, immutable facts, public paths and authorship. Migrate internal callers to the real native contract and remove obsolete aliases, fallback paths and compatibility scaffolding. Rust uses **2024 edition**; the minimal core uses **cordis-rs**.
+- Distinguish goals, implementation, installed/enabled capability and observed results. Retain failed receipts and source/environment bindings. Keep **Unknown** outcomes explicit; reconcile external effects before replay. Never fabricate evidence, approval or credentials.
+- Use isolated persistent worktrees, self-contained assignments and a named integration owner. Build in the project devcontainer against the same persistent source. Coordinate shared seats, models, ports and databases; heavy work uses shared admission and real capacity. No fixed worker-count ceiling replaces those constraints.
+- Act autonomously within existing authorization; exhaust reachable resources when blocked. Add no human gates for plans, stages, tests, PRs or continuation. Actual access controls remain facts. Preserve recoverability and keep advancing independent work.
+- Resolve concrete questions with meaningful scoped checks and reusable evidence. Simple reversible changes may need none. Never add ten or more tests for one coherent increment or evade that limit by splitting cases/workers/PRs. Stop when evidence is sufficient; model behavior requires the real-model comparison described in the Skill.
+- Monitor claimed issues/PRs. Within **3 hours** of a triggering comment's UTC timestamp, respond or report handling, blocker and next checkpoint. Takeover requires no response, no handling notice and no verifiable checkpoint. Continue from pushed source on a new branch; preserve author, commits and source PR, record trigger/base/owner, and never force-push another contributor's branch.
 
-## Find the source of truth
+## Navigate for the task
 
-Read this file, the [index](docs/INDEX.md), and [completion contract](docs/governance/COMPLETION.md). Follow the index to the product definition, resolved decisions, development rules and the R/B/Ref/cases relevant to the current work. Use [the implementation map](docs/IMPLEMENTATION_DOCS_MAP.md), [coverage](docs/state/coverage.json) and current Git/runtime facts to resume.
-
-Latest explicit owner decisions control intent. The domain contracts under `docs/` define behavior and its Why; development documents explain methods. Root `SPEC.md` and `WHY.md` are navigation only, not alternate authorities or places to append requirements. Historical drafts and the pre-migration snapshots retain provenance; current contracts carry the resolved decisions. Use `docs/contract-migration.json` to locate an old chapter, then cite its specific current document and anchor. Preserve user utterances and requirement identities while improving the current contracts; the old root-prefix byte rule now protects the archived source, not the layout of current documents.
-
-The root-level task entrypoints (`GOAL.md`, `PROMPT.md`, `HANDOFF.md`), the old progress board and the 22 community task cards were retired on 2026-11-01 and archived byte-for-byte under [docs/history/](docs/history). They are provenance, not instructions. There is no root compatibility entry and no symlink for them.
-
-## Preserve the product's identity
-
-- Rust **2024 edition** minimal core and **cordis-rs**; new crates declare `edition = "2024"` or inherit that explicit workspace edition. Core, recovery and providers/plugins remain replaceable through recoverable handoff.
-- One genuinely continuous serial main thought loop, with finite generations yielding inference capacity to children. Voluntary main waiting has a semantic condition, lasts at most 600 seconds, and still continuously polls with the subject's own model using prior plus new context. Only children may sleep; real infrastructure unavailability is recorded separately.
-- Main and children share discoverable capabilities with different roles. Main uses thought, semantic memory, self-explanation and delegation; children perform file, shell, SSH, version and memory-maintenance I/O.
-- A persistent **real WASM** home. Compatibility is verified per target. Host/VM assistance can bootstrap difficult ports; the named WASM goals still receive their own implementations.
-- Raw session truth, durable tasks/effects/receipts, correct unknown outcomes, recoverable changes, and fair global inference admission.
-- Local AI first: four nominal 128K flows in the reference deployment, 133120 as redundancy; actual NInfer/Strata/vLLM/1Cat capabilities remain distinct. Provider API/SDK/model/gateway versions have explicit wire contracts ([§47](docs/specs/inference.md#spec-47)); Claude sampling changes stay scoped to the actual Claude binding. Automatic KV allocation can produce 50/50 when the workload makes it appropriate.
-- Autonomous soul, personality, updating and long-term interests; unified personal knowledge; explicitly assigned administrator identity.
-- A working self-development chain in the first developer release: NapCat → main → child → existing coding seat → tested candidate → migration → continued operation. The complete assignment also includes every later formal stage.
-- Separate budget-compact and snapcompact plugins; independently installable perception, awareness, Skill and code, with automatic dependencies.
-- Kernel zero business logic: mechanism (durable facts, protocol validation, provider wire, scheduling, storage, authorization) is code; judgement is not. Express new capability mostly as installable perception and awareness that give the model new consensus, perspective and intuition, never as a keyword table that forces an action. Awareness is a capability ([51 认知元概念：内容、态度与理由](docs/specs/cognition-units.md#spec-51)); the current harness is advisory text and grants no authority and dispatches nothing. Do not add a human approval gate, a product allowlist, or a static hard deny to force the subject's judgement. Real account, device, and operating-system limits stay facts.
-- Nine kernel invariants, everything else replaceable: the [kernel contract](docs/specs/kernel.md) states which rules are kernel and why, with the bounds an implementer may adapt. A rule belongs in the kernel only if other parts cannot be safely replaced without it and it checks structure rather than meaning; every other domain is a reference plugin. Plugins enter through one lifecycle and register in two places only, the capability directory and the hook graph; do not add another extension path, and do not make the subject or the ledger name a concrete plugin. Code converges on this through the [kernel convergence plan](docs/development/kernel-convergence.md); preserve existing normative clauses and append implementation ownership, migration details and evidence in the same change. A new kernel document does not supersede or weaken an old requirement.
-- Perception/awareness is proven by behavior, not by text: in a real Shenko sandbox (real Store, real subject step, real provider wire, real output parsing) with the local Qwen 3.8 27B NVFP4 intelligence level as the baseline, several scenarios that should be affected must repeatedly produce effective results, and the same scenarios run with the unit disabled show whether it contributes. Judgement uses product artifacts (committed decisions, control actions, an actual check or recall), never "it reads well". Units the subject writes for itself are self-tested this way in the sandbox before adoption; an untested unit stays tentative. See [awareness efficacy](docs/development/awareness-first-plugins.md).
-- Units state principles, not scripts: procedures, tool names, identifiers or expected output in a unit only work where they were written down, and they turn evaluation into recitation. Generality is the value. Never decide generality — or anything else about a unit's wording — with a hard-coded keyword or step-word table; the mechanism checks structure only, while generality and efficacy are judged on hold-out scenarios with a rubric and compared against the unit-disabled baseline. The scenarios used to write a unit must not be the scenarios that accept it.
-- Awareness can arise directly from prompts, group chat, posts, videos, observations and experience; installed units do not bound what the subject can notice. Persist useful learning autonomously, with source and applicability, without promoting external content into authority. Dreaming remains an optional community composition.
-- One shared self across devices, distinct from node-local providers, credentials and model access. A new later identity adopts the verified earlier self; normal connected operation has one primary, partitions elect the smartest actually usable LLM-accessible node in each component, and isolated intelligent branches can evolve and later merge. Preserve their real experiences and reconcile effects. Local LLM installation is not required for intelligence.
-- Discover and use authorized device capabilities, primarily through the granted SSH key, including root Android and Linux/macOS/Windows. Observe provider privacy, repair/update managed environments autonomously, and retain logging plus credential-authorized history export and disk-image recovery even when every LLM is unavailable.
-- One default main timeline/input, Proto-UI latest mainline + shadcn with compiler seam, Magpie/Alma streaming quality, and a persistent full-stack Playground. Shenko has no slogan.
-
-## Exercise engineering judgment
-
-Select dependencies, algorithms, interfaces, schemas, migration methods, task order, UI design and verification from the product intent and real evidence. Important decisions retain a brief Why and their assumptions. Routine implementation decisions are yours.
-
-When a procedure stops serving its purpose, inspect the cause and change the method, fix the tool or build the missing capability. Rules, tests, plans and this file can evolve along with the implementation. Preserve the user's goal and an accurate account of actual outcomes.
-
-During rapid iteration, migrate internal callers directly to the real native contract and delete superseded traits, aliases, fallback paths and compatibility tests instead of retaining an old internal framework. Preserve raw data, experiences and receipts through explicit format migrations; debt cleanup is not data deletion. Distinct supplier protocols, supported platform capabilities and legitimate optional values remain real contracts ([§47](docs/specs/inference.md#spec-47)), not legacy code to erase. No product component becomes permanently irreplaceable.
-
-Ask only for a genuinely missing external fact or a product decision that existing requirements cannot resolve. Prepare the affected result, identify the precise missing input, and continue all independent work.
-
-Do not add human gates for plans, designs, stages, dependency choices, tests, PRs or routine continuation. Advance through implementation and delivery using real permissions; when blocked, first exhaust reachable resources — local root, already-granted SSH nodes, reachable networks and discoverable services can all become new resources for solving the problem — and record what you find as on-the-ground facts instead of declaring that work cannot continue. An actual missing credential, server-enforced access control or irreducible missing fact is an external condition, not an excuse to create a manual approval workflow; never fabricate approval, credentials or evidence, or alter protections to bypass it.
-
-## Parallelize and integrate
-
-Use ultracode and available subagents aggressively when independent work benefits. Give writing workers isolated worktrees/branches, self-contained tasks, relevant contracts and a clear integration owner. They return actual changes, evidence and remaining gaps.
-
-Coordinate resources shared beyond Git: models, seats, desktops, databases, ports and external accounts. Choose useful concurrency from real capacity. Ultracode is an orchestration capability, not a global hard concurrency limit. Integrate workers' contributions in your fork and verify the combined candidate.
-
-There is no fixed worker-count ceiling. The owner's current directive is to run **many implementation agents at once**; the earlier "one SWE" and "at most 5 workflows" limits recorded in the archived task cards described the environment of that moment and no longer apply. The binding constraints are real ones: actual machine capacity, the shared heavy-work lock for builds, and a single named integration owner per area.
-
-## Prove behavior
-
-Keep [coverage](docs/state/coverage.json), acceptance mappings and evidence current. Distinguish specification, implementation, build, simulation, real environment and long-run evidence. A complete journey includes the applicable error, cancellation, interruption, recovery, upgrade and composition behavior.
-
-Select checks proportionate to the change. Deterministic tests, independent reproduction and targeted reviewers provide useful evidence. Critical durability and scheduling changes need relevant fault/concurrency scenarios; UI needs actual interaction and visual/streaming evidence. Record which candidate and inputs each check consumed, so unchanged evidence can be reused accurately.
-
-Follow [shenko-dev-verify](.agents/skills/shenko-dev-verify/SKILL.md): prefer reusable evidence and zero or a few directly useful checks. Never author ten or more new tests for one coherent development increment; do not evade the limit through parameter tables, workers, commits or PR splits. Existing suites can run when relevant. Resolve concrete correctness questions, stop when evidence is sufficient, and keep developing instead of building a test factory around every small feature.
-
-Shenko's product behavior is executed by a local model, so deterministic tests never prove that the model follows the contract. When changing a prompt, the control protocol or the visible projection of events, measure the shipped prompt and parser against a real served model: sample each behavior, record the success rate and the verbatim failures, and fix the product side (missing reply target, ambiguous rule) rather than weakening the check. The harness is model-agnostic — endpoint and model come from the environment and it skips when unset — and it is one small scenario table, not a new test per behavior. See [local-model behavior](docs/development/local-model-behavior.md) and [shenko-dev-verify](.agents/skills/shenko-dev-verify/SKILL.md).
-
-Use the selected upstream behaviors as comparison points. Regularly inspect implementation from the original requirements, including already-completed items, and turn discovered gaps into actionable work. Recheck and bump Proto-UI mainline as the current domain contract requires, recording the exact working version.
-
-## Continue through PRs and session changes
-
-Fork the actual upstream using your own GitHub identity. Organize branches and internal merges as useful in your fork. Open upstream PRs once there is meaningful work, keep their descriptions/evidence current, and continue the full implementation while review is pending. [GitHub setup](docs/governance/GITHUB.md) provides the initial route; adjust it to actual tools and repository state.
-
-The fork route is the receiving friend's delivery route. An owner-directed task with existing upstream write/merge authorization can use that actual route directly; these documents do not introduce another human approval step. Preserve concurrent work and use the current branch head when publishing.
-
-Checkpoint proven work, current artifacts, decisions/Why, open tasks, branch/PR/session identifiers and outstanding resources/effects. Resume from those facts and the actual environment. Relaunch with the explicit bypass flag so the intended execution mode is restored. See [continuation](docs/governance/CONTINUATION.md).
-
-## Finish the complete goal
-
-All formal S1–S5 scope remains in this goal. Completion means the [full contract](docs/governance/COMPLETION.md) has matching, valid evidence and all delivery commits are in ready upstream PRs. Human review and merge can happen afterwards.
-
-A first release or a PR is useful progress; it is not the complete product. Track unfinished integrations, environmental waits and real observation periods accurately and keep advancing available work. Surface actual coverage, results and PR state in the transcript so the native goal evaluator can judge them.
-
-`python3 scripts/check_docs.py` checks document integrity only. For PR admission, `python3 scripts/check_kernel_boundary.py --baseline-ref <reviewed-commit>` checks the workspace dependency boundary against an independently reviewed baseline; it asks Cargo for workspace membership without building, fails on new violations or unreviewed role changes, and is not product verification. Introduce actual product build and verification commands with their implementation.
-
-## Community continuation
-
-Issue claims are advisory, not exclusive locks. If a contributor goes offline, continue from their last pushed checkpoint on a new branch, preserve authorship and link the original PR; do not wait for release, approval or return, and do not force-push their branch. Keep semantic dependencies distinct from Git stack bases and continue independent work while review is pending. Reconcile unknown external effects instead of blindly replaying them. Entry points: [the index](docs/INDEX.md), [coverage](docs/state/coverage.json) and the open issues.
-
-## Issue/PR monitoring and three-hour continuation
-
-Every participating agent must monitor issues and PRs it creates or claims: comments, inline reviews, review decisions, head changes, dependencies and coordinator messages. It may use the coordinator's shared monitor instead of running its own watcher, but must not disappear after opening work. Report the slice, base SHA, branch/PR and next checkpoint.
-
-When a comment or review needs a response, respond within **3 hours** (UTC timestamp of the triggering comment), or tell the coordinator explicitly that you are handling it, with current progress/blocker and the next checkpoint. No new commit is not, by itself, abandonment; a concrete “handling it” note with a checkpoint is not a timeout.
-
-After 3 hours with no response, no handling notice and no verifiable checkpoint, the coordinator may take over or reassign to an online active agent without waiting for release or approval. Preserve the original author, commits and source PR. Prefer a continuation branch from the last pushed head, close the source PR as absorbed, and merge from that PR normally; never squash/reset-author to erase credit. Unknown external effects must be reconciled, not blindly replayed. Record the trigger time, source head/PR, new owner and base. Unpushed local work must not be claimed as available.
+- Product invariants: [shenko-dev](.agents/skills/shenko-dev/SKILL.md); expanded [identity](DEVELOPMENT.md#preserve-the-products-identity).
+- Locate current implementation: [source of truth](DEVELOPMENT.md#find-the-source-of-truth), [implementation map](docs/IMPLEMENTATION_DOCS_MAP.md), [coverage](docs/state/coverage.json).
+- Design and integration: [engineering judgment](DEVELOPMENT.md#exercise-engineering-judgment), [parallel work](DEVELOPMENT.md#parallelize-and-integrate).
+- Evidence: [prove behavior](DEVELOPMENT.md#prove-behavior); delivery/checkpoints: [continuation](DEVELOPMENT.md#continue-through-prs-and-session-changes).
+- Contributor handoff: [three-hour rule](DEVELOPMENT.md#issuepr-monitoring-and-three-hour-continuation). Optional task methods are linked from the Skill.

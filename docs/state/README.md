@@ -4,13 +4,14 @@
 
 | 文件 | 内容 | 维护者 |
 | --- | --- | --- |
-| [coverage.json](coverage.json) | 165 项需求逐项的规格状态、实现状态、证据状态、验收 case 归属、阻塞与说明 | 验证与证据切片 |
+| [coverage.json](coverage.json) | 165 项需求逐项的规格状态、实现状态、证据状态、验收 case 归属、阻塞与说明；另有以真实符号为键的源码与合同结构关联 | 验证与证据切片 |
 
 阅读方式：
 
 - `specification_state` 说明需求在 SPEC 中的存在形式；`implementation_state` 说明源码里的实现程度；`evidence_state` 说明**真实运行证据**是否存在。三者是不同事实，不互相替代。
 - `satisfied` 只有在有真实证据引用时才为真。源码存在、类型齐备、模拟通过都不构成满足。
 - `acceptance_case_ids` 指向 [../requirements/acceptance-cases.json](../requirements/acceptance-cases.json) 中的具名验收场景；需求没有具名 case 时仍需补足验证，条件不适用要保留依据，不能删项提高比例。
+- `source_contract_trace.symbols` 是源码到当前合同的单一追踪入口；注释迁移来源、原始字节和历史任务卡另外标明，不能作为运行证据。字段、绑定范围与源码拥有者的引用清理规则见[索引说明](../requirements/README.md#源码注释到合同的单一追踪)。
 
 证据只归属于实际覆盖的合同。组件运行通过可保留为组件事实；playground helper、事件分类、脚本化流或 Node 测试不能直接完成主体自改、主体输入、真实流式调用或浏览器验收。case 的 `applicability` 说明既有记录的范围，`verification_status` 按该行完整合同判定。RT17、RT19、AW15 保留其组件或单元级通过范围；G58、G60、RT18、RT20、UI-S11–UI-S14、PG06、PG07 的完整合同仍未验证。历史通过记录和全部 236 条原验收定义继续保留。
 

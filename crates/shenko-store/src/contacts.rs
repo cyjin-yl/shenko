@@ -1,4 +1,4 @@
-//! Durable contact / person directory — docs/specs/contacts.md#spec-15-2, docs/specs/contacts.md#spec-15-2-1, docs/specs/channel-adapters.md#spec-16.
+//! Durable contact / person directory.
 //!
 //! Three append-only tables keep identity facts, merge/split history and
 //! owner-set admin facts. Nothing here rewrites an admitted row:
@@ -10,16 +10,16 @@
 //!   and rejected claims stay auditable.
 //! * `person_identity_events` — created/merged/split history. The current
 //!   owner of a claim is computed by replaying these events over the
-//!   original attribution, never by rewriting attribution (docs/specs/contacts.md#spec-15-2:
+//!   original attribution, never by rewriting attribution (
 //!   "错误合并可拆分，历史来源不被改写").
 //! * `admin_facts` — an explicit human-set fact that is never derived from
 //!   familiarity, group status, platform roles or voiceprint matches. Its
-//!   absence is not a chat admission condition (docs/specs/channel-adapters.md#spec-16: ordinary users can
+//!   absence is not a chat admission condition (ordinary users can
 //!   talk). Only the owner's local path writes it.
 //!
 //! The Life voiceprint registry lives in `life_voiceprint_ranks` keyed by
 //! `(agent, recording_scope, rank_id, model_revision)`: rank and cluster
-//! numbers are recording-local and every registry revision is kept (docs/specs/contacts.md#spec-15-2-1).
+//! numbers are recording-local and every registry revision is kept.
 //!
 //! Conflict unit for the cognitive archive: for one person, the person's
 //! profile claim, every claim attributed to them, every identity event that
@@ -1294,7 +1294,7 @@ impl Store {
     /// unresolved candidates, a confirmed link only when the record carries
     /// an explicit confirmation for that person). The recording scope and
     /// model revision stay distinct on every row; nothing is overwritten
-    /// when a new revision arrives (docs/specs/contacts.md#spec-15-2-1).
+    /// when a new revision arrives.
     pub fn admit_life_rank(
         &self,
         agent_id: EntityId,

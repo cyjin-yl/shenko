@@ -1,5 +1,5 @@
 //! Kernel profiles: what binds a real interpreter module to a backend and
-//! how the named docs/specs/repl.md#spec-19-1 runtimes report their actual availability.
+//! how the named runtimes report their actual availability.
 
 use crate::contract::{BackendKind, ReplRuntime, RecoveryLevel};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub enum ModuleSource {
     ModulePath(PathBuf),
 }
 
-/// Guest-side persistence convention (docs/specs/repl.md#spec-19-1 cell-model adapter).
+/// Guest-side persistence convention (cell-model adapter).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StatePersistence {
@@ -158,7 +158,7 @@ impl KernelProfile {
     }
 }
 
-/// Availability of a named runtime target (docs/specs/repl.md#spec-19-1 capability discovery).
+/// Availability of a named runtime target (capability discovery).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KernelAvailability {
@@ -180,7 +180,7 @@ pub struct KernelTarget {
     pub note: String,
 }
 
-/// The named docs/specs/repl.md#spec-19-1 targets with their real binding state in this build.
+/// The named targets with their real binding state in this build.
 /// WASM targets stay the obligation: python-wasi and quickjs-wasm are
 /// bindable to a real interpreter module, node-wasm/bun-wasm stay
 /// named-but-unavailable (no verified upstream Node/Bun-on-WASM target),

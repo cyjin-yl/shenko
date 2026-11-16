@@ -5,12 +5,12 @@
     "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
     "previous_reviewed_commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/workspace/scratch/4de31219f954/proto-ui-shenko-readiness-next",
+    "source_checkout": "/var/idw-target/receipts/taste-web-r1/proto-ui",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/workspace/scratch/4de31219f954/evidence/continuation/web-certified/upstream-build.json",
-      "receipt_sha256": "a4aac6048daf4369e5c0054676de344bb77d0db8bcdfbc698886d25a76712c36"
+      "receipt_path": "/var/idw-target/receipts/taste-web-r2/upstream-build.json",
+      "receipt_sha256": "0abba0dedfe3ca88f311ccbbee42e8e0de7c143e7e51cdfd8324622ca0c16172"
     }
   },
   "packages": [
@@ -136,20 +136,28 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/workspace/scratch/4de31219f954/shenko-ship/crates/shenko-ui/web",
-  "built_at": "2026-11-15T16:44:37.297Z",
+  "web_root": "/tank/shared/projects/shenko/shenko/worktrees/taste-integration-20261116/crates/shenko-ui/web",
+  "built_at": "2026-11-16T11:20:44.301Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1132502,
-      "sha256": "a2a71f5fdf1baca8239cb44dfd6aea9f8a7b2bf29f387088ea97c1e65ab74f10"
+      "bytes": 1102956,
+      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693"
+    },
+    "chunks/chunk-TJPYHGM5.js": {
+      "bytes": 58903,
+      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d"
+    },
+    "chunks/demo-controller-3CZCHCX4.js": {
+      "bytes": 11495,
+      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0"
     },
     "app.css": {
-      "bytes": 50644,
-      "sha256": "6fe487191233a1bc13d0824fda52d8ff1785dc701567001aaae09c1b75c498de"
+      "bytes": 48531,
+      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f"
     },
     "proto-ui-style.css": {
       "bytes": 294,

@@ -1,3 +1,4 @@
+import { text as t } from './messages';
 import * as React from 'react';
 import { CompiledMessageBubble } from '../generated/prototypes/message-bubble/Component';
 import { Icon } from './icons';
@@ -6,7 +7,7 @@ import type { Thread, ThreadMessage, Participant } from './threads';
 import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } from './ui-kit';
 
 /**
- * The IM surface (docs/specs/web-interface.md#5-2): the owner's primary way
+ * The IM surface: the owner's primary way
  * of talking with the subject, in an iMessage-like idiom. Conversations are
  * a list on the left — the direct chat first, then delegation groups and
  * channel groups by recency — and the open thread on the right.
@@ -31,10 +32,10 @@ export function ImView({
   const thread = threads.find((item) => item.id === selected) ?? threads[0];
   return (
     <div className="im" data-thread-kind={thread?.kind}>
-      <nav className="im-list" aria-label="会话">
+      <nav className="im-list" aria-label={t('conversation.label')}>
         <ToggleGroupRoot
           className="im-list-group"
-          a11yLabel="会话"
+          a11yLabel={t('conversation.label')}
           orientation="vertical"
           value={thread ? [thread.id] : []}
           onValueChange={(detail: { value: readonly string[] }) => {
@@ -67,7 +68,7 @@ export function ImView({
           historyControl={historyControl}
           demo={demo}
         />
-        : <div className="im-empty">还没有会话。</div>}
+        : <div className="im-empty">{t('conversation.empty')}</div>}
     </div>
   );
 }
@@ -135,9 +136,9 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
         <div className="im-messages">
           {thread.kind === 'direct' && historyControl?.(() => viewport.current?.beginBackfill())}
           {thread.note && <p className="im-note">{thread.note}</p>}
-          {error && <p className="im-system is-error">这段对话没能读出来：{error}</p>}
-          {thread.load && !loaded && !error && !demo && <p className="im-system">正在读取…</p>}
-          {messages.length === 0 && !thread.load && <p className="im-system">还没有消息。</p>}
+          {error && <p className="im-system is-error">{t('conversation.readError', { detail: error })}</p>}
+          {thread.load && !loaded && !error && !demo && <p className="im-system">{t('common.loading')}</p>}
+          {messages.length === 0 && !thread.load && <p className="im-system">{t('common.messagesEmpty')}</p>}
           <Messages
             messages={messages}
             viewer={thread.viewer}
@@ -298,9 +299,9 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
           {!self && group && <span className="im-avatar-slot">{tail && <span className={`monogram role-${message.from.role}`}>{initials(message.from.name)}</span>}</span>}
           {attachment ?? (
             <CompiledMessageBubble side={self ? 'self' : 'other'} tail={tail} tone={message.tone ?? 'plain'}>
-              {message.tag && <span className="bubble-tag">{message.tag === '引导' && <Icon name="steer" size={12} />}{message.tag}</span>}
+              {message.tag && <span className="bubble-tag">{message.tone === 'steer' && <Icon name="steer" size={12} />}{message.tag}</span>}
               {message.tone === 'pending' && !message.text
-                ? <span className="typing" aria-label="正在输出"><i /><i /><i /></span>
+                ? <span className="typing" aria-label={t('timeline.streaming')}><i /><i /><i /></span>
                 : message.from.role === 'owner' || message.from.role === 'person'
                   ? <span className="bubble-text">{message.text}</span>
                   : <Markdown text={message.text} />}
@@ -327,9 +328,9 @@ function messageActions(message: ThreadMessage): Array<{ id: string; label: stri
   const node = message.node;
   if (!node || node.kind !== 'user_submission') return [];
   const actions: Array<{ id: string; label: string }> = [];
-  if (typeof node.props.retry_action === 'string') actions.push({ id: node.props.retry_action, label: '重试' });
+  if (typeof node.props.retry_action === 'string') actions.push({ id: node.props.retry_action, label: t('common.retry') });
   if (typeof node.props.withdraw_action === 'string' && !node.props.submission?.withdrawal) {
-    actions.push({ id: node.props.withdraw_action, label: '撤回' });
+    actions.push({ id: node.props.withdraw_action, label: t('common.withdraw') });
   }
   return actions;
 }
