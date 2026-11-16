@@ -39,6 +39,8 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
+use crate::gc::{CasRootProducer, ProducerRoots};
+
 /// Fixed-size buffer used for every streaming artifact operation.
 pub const ARTIFACT_STREAM_BUFFER: usize = 64 * 1024;
 
@@ -48,6 +50,10 @@ pub const ARTIFACT_CHUNK_BYTES: usize = 64 * 1024;
 
 /// Namespace the chunk objects and the chunk manifest are stored under.
 pub const ARTIFACT_NAMESPACE: &str = "wasm-tool-artifact";
+
+/// The producer id of the tool-artifact CAS root producer. One subsystem,
+/// one producer entry.
+pub const TOOL_ARTIFACT_PRODUCER: &str = "tool-artifact";
 
 /// Media type of a stored tool artifact.
 pub const ARTIFACT_MEDIA_TYPE: &str = "application/wasm";
@@ -469,23 +475,7 @@ pub fn read_staged_artifact(
     expected: &Digest,
     expected_bytes: u64,
 ) -> Result<Vec<u8>> {
-    let mut reader = store.open_object(&manifest.digest)?;
-    let mut manifest_bytes = Vec::new();
-    reader
-        .read_to_end(&mut manifest_bytes)
-        .context("read artifact chunk manifest")?;
-    ensure!(
-        Digest::blake3(&manifest_bytes) == manifest.digest,
-        "TOOL_ARTIFACT_DIGEST_MISMATCH: chunk manifest {} does not match its content",
-        manifest.digest
-    );
-    let parsed: ArtifactChunkManifest =
-        serde_json::from_slice(&manifest_bytes).context("parse artifact chunk manifest")?;
-    ensure!(
-        parsed.schema == ARTIFACT_CHUNK_MANIFEST_SCHEMA,
-        "TOOL_ARTIFACT_MANIFEST_UNSUPPORTED: chunk manifest schema {}",
-        parsed.schema
-    );
+    let parsed = read_chunk_manifest(store, manifest)?;
     ensure!(
         parsed.artifact_digest == *expected,
         "TOOL_ARTIFACT_DIGEST_MISMATCH: manifest describes {}, expected {expected}",
@@ -516,6 +506,114 @@ pub fn read_staged_artifact(
         "TOOL_ARTIFACT_DIGEST_MISMATCH: reassembled artifact is {digest}, expected {expected}"
     );
     Ok(bytes)
+}
+
+/// Read one chunk manifest object and check it against its own content.
+///
+/// The manifest is the only thing that names the chunk objects of a staged
+/// artifact, so a reader that cannot read the manifest cannot enumerate the
+/// artifact's closure.
+pub fn read_chunk_manifest(
+    store: &dyn ToolContentStore,
+    manifest: &ObjectRef,
+) -> Result<ArtifactChunkManifest> {
+    let mut reader = store.open_object(&manifest.digest)?;
+    let mut manifest_bytes = Vec::new();
+    reader
+        .read_to_end(&mut manifest_bytes)
+        .context("read artifact chunk manifest")?;
+    ensure!(
+        Digest::blake3(&manifest_bytes) == manifest.digest,
+        "TOOL_ARTIFACT_DIGEST_MISMATCH: chunk manifest {} does not match its content",
+        manifest.digest
+    );
+    let parsed: ArtifactChunkManifest =
+        serde_json::from_slice(&manifest_bytes).context("parse artifact chunk manifest")?;
+    ensure!(
+        parsed.schema == ARTIFACT_CHUNK_MANIFEST_SCHEMA,
+        "TOOL_ARTIFACT_MANIFEST_UNSUPPORTED: chunk manifest schema {}",
+        parsed.schema
+    );
+    Ok(parsed)
+}
+
+/// The tool-artifact CAS root producer: the installed tools' artifact
+/// closures.
+///
+/// A staged tool artifact lives in the installation's content store as a
+/// chunk manifest plus the chunk objects that manifest lists, all under
+/// [`ARTIFACT_NAMESPACE`]. The artifact's *identity*
+/// ([`ToolArtifactRef::digest`]) is the blake3 of the reassembled module
+/// bytes: it names no object in the store, so it can never be a root — a
+/// root set that carried it would make every reclamation refuse with
+/// `CAS_ROOT_OBJECT_MISSING`. What the store really holds is the manifest
+/// and its chunks, and those are what this producer enumerates, for every
+/// tool version the installation's inventory retains.
+///
+/// The enumeration reads the live installation inventory
+/// ([`crate::tool::installed_tools`], over
+/// [`shenko_node::Node::tool_unit_facts`]), so a tool that is installed but
+/// whose closure cannot be read is a refusal, never an empty root set.
+pub struct ToolArtifactRoots<'a> {
+    node: &'a shenko_node::Node,
+    store: &'a dyn ToolContentStore,
+}
+
+impl<'a> ToolArtifactRoots<'a> {
+    /// The producer over one installation's tool inventory and content store.
+    pub fn new(node: &'a shenko_node::Node, store: &'a dyn ToolContentStore) -> Self {
+        Self { node, store }
+    }
+}
+
+impl CasRootProducer for ToolArtifactRoots<'_> {
+    fn producer_id(&self) -> &'static str {
+        TOOL_ARTIFACT_PRODUCER
+    }
+
+    fn namespace_claims(&self) -> &'static [&'static str] {
+        &[ARTIFACT_NAMESPACE]
+    }
+
+    fn enumerate(&self) -> Result<ProducerRoots> {
+        let mut roots = ProducerRoots::new(TOOL_ARTIFACT_PRODUCER, &[ARTIFACT_NAMESPACE]);
+        for tool in crate::tool::installed_tools(self.node)? {
+            let artifact = &tool.artifact;
+            if artifact.kind != ToolArtifactKind::ContentStore {
+                // A node-inline artifact's bytes live in the node's own unit
+                // object store, not in this content store: there is nothing
+                // here for the content store to protect.
+                continue;
+            }
+            ensure!(
+                artifact.store_namespace == ARTIFACT_NAMESPACE,
+                "TOOL_ARTIFACT_NAMESPACE_MISMATCH: tool {} stores its artifact under {:?}",
+                tool.name,
+                artifact.store_namespace
+            );
+            let Some(manifest) = artifact.chunk_manifest.clone() else {
+                bail!(
+                    "TOOL_ARTIFACT_MANIFEST_MISSING: tool {} declares a content-store artifact without a chunk manifest",
+                    tool.name
+                );
+            };
+            let parsed = read_chunk_manifest(self.store, &manifest)?;
+            ensure!(
+                parsed.artifact_digest == artifact.digest,
+                "TOOL_ARTIFACT_DIGEST_MISMATCH: tool {} names artifact {}, its chunk manifest describes {}",
+                tool.name,
+                artifact.digest,
+                parsed.artifact_digest
+            );
+            roots.roots.insert(manifest.digest.clone());
+            for object in &parsed.objects {
+                roots.roots.insert(object.digest.clone());
+            }
+            roots.closures += 1;
+        }
+        roots.observed_at_unix_ms = crate::gc::now_unix_ms();
+        Ok(roots)
+    }
 }
 
 /// Resolve an installed tool's executable bytes and verify them against the
