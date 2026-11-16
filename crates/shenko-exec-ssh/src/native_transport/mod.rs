@@ -33,6 +33,7 @@ pub enum NativeSshError {
     #[error("native SSH authentication failed")] Authentication,
     #[error("native SSH deadline elapsed")] Deadline,
     #[error("native SSH channel transport failed")] Transport,
+    #[error("native PTY write/flush failed: {0}")] PtyWrite(String),
 }
 
 /// Not serializable: a connected authenticated protocol session is not durable

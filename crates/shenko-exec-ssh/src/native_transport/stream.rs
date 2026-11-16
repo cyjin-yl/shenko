@@ -7,6 +7,10 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 #[derive(Default)]
 struct State { closed: bool, reader: Option<Waker>, writer: Option<Waker> }
 pub(super) struct CloseGuard(Arc<Mutex<State>>);
+/// A non-owning stop capability for the original stream. Dropping a clone
+/// does not close it; the physical owner still owns `CloseGuard`.
+#[derive(Clone)]
+pub(super) struct CloseHandle(Arc<Mutex<State>>);
 pub(super) struct OwnedStream<R> { inner: Option<R>, state: Arc<Mutex<State>> }
 
 pub(super) fn owned<R>(inner: R) -> (OwnedStream<R>, CloseGuard) {
@@ -14,6 +18,12 @@ pub(super) fn owned<R>(inner: R) -> (OwnedStream<R>, CloseGuard) {
     (OwnedStream { inner: Some(inner), state: state.clone() }, CloseGuard(state))
 }
 impl CloseGuard {
+    pub(super) fn handle(&self) -> CloseHandle { CloseHandle(self.0.clone()) }
+    pub(super) fn close(&self) {
+        self.handle().close();
+    }
+}
+impl CloseHandle {
     pub(super) fn close(&self) {
         let (read, write) = {
             let mut s = self.0.lock().unwrap_or_else(|p| p.into_inner());

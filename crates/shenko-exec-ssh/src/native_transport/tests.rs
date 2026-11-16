@@ -1,5 +1,6 @@
 //! Self-owned deterministic keys and real SSH packets over bounded in-memory
 //! streams only. No socket, command process, key file, agent, model or account.
+mod pty_write;
 use super::*;
 use crate::{SshBinding, SshTarget};
 use russh::{keys::{PrivateKey, ssh_key::private::Ed25519Keypair}, server};

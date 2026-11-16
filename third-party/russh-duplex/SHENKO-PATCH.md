@@ -10,10 +10,36 @@ read/write-progress change. It is **not an upstream release or upstream fix**.
   all original source files. `Cargo.toml` is the complete upstream normalized
   manifest; `Cargo.toml.orig` is preserved unchanged. No example-only development
   dependency has been removed from this installed copy.
-- The reviewable code/test delta against the published archive is
-  `SHENKO-UPSTREAM-DELTA.patch`. The three production-file changes retain the
-  reviewed production patch SHA-256
+- The original installation's code/test delta against the published archive is
+  `SHENKO-UPSTREAM-DELTA.patch`. Its three production-file changes have the
+  historical reviewed production patch SHA-256
   `415c29b50ca302557a644bda46ccc516a7e77e56dd933d18e8333041afac277b`.
+  Those hashes identify that installation; subsequent tracked source changes
+  and the incremental patch below are not covered by its earlier run results.
+
+## PTY FIFO flush receipt increment (not yet executed)
+
+`SHENKO-PTY-FLUSH.patch` is the exact additional `src/client/mod.rs` delta from
+Shenko commit `5309c6a0aba1da49ab201d322edd8915c68deb5d`. It adds a receipt on
+the ordinary outbound FIFO, completed only after the actual packet writer's
+write/flush boundary and prior channel/rekey queues drain. Channel-scoped calls
+also reject a channel that disappeared before the boundary. Outstanding receipts
+receive the original observed session error before shutdown can report another
+error. This changes no cipher, framing, authentication or rekey primitive.
+
+- Before file: 117,795 bytes; SHA-256
+  `bc48faac2c55f13ca3c723af804624d44d499868cab405631878eb69e75a1561`.
+- After file: 121,118 bytes; SHA-256
+  `1c2313c9518c914664e62db0676cb442a1ec1f8cacd13dd3f12d53fff5e1eb74`.
+- Incremental patch: 5,953 bytes; SHA-256
+  `b8840c3276e85f8ba6462e16a23da8eabe15b93da85f0cfad393ae45b1a2e720`.
+
+The new Shenko PTY journey uses real SSH packets on bounded streams and five
+finite write/flush/cancellation/channel-loss windows. It has been authored but
+has not run in this local environment, which has no Rust toolchain. The
+[owned PTY receipt scope](../../docs/development/pty-write-flush-receipts.md)
+describes input retention, cancellation, and the remaining installation-wide
+writer exclusion gap. A local flush is not a remote application receipt.
 
 ## Why this local change exists
 
