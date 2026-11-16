@@ -49,11 +49,38 @@ The general raw-session/event and activation carriers retain completed build
 observations and their recovery closures. Ordinary task, operation, attempt,
 original evidence and receipt-conflict records are read in the same snapshot.
 
-Typed `ObjectRef` members are mandatory CAS objects. The normalized cognition
-content-digest columns also require local bytes. Other canonical bare digests
-may name external executable files, Git content, schema identities or optional
-aliases; an absent bare digest is listed separately instead of being invented
-as a local object. The reader never follows a locator or retrieves a credential.
+Typed `ObjectRef` members are mandatory CAS objects. Known independent object
+columns, including research and decision references, must decode as complete
+objects: JSON `null`, arrays or missing reference fields cannot silently mean
+an empty closure. Local E1/delivery/home and canonical preparation/application
+records also decode their current root-bearing shapes. A malformed carrier
+still contributes every readable edge while making the inventory incomplete.
+The normalized cognition content-digest columns also require local bytes.
+
+`ArtifactRef` has only a digest and locator. A canonical CAS file locator's
+digest/shard suffix identifies required local bytes even when its historical
+installation prefix differs; that prefix is never read. Builtin, native,
+channel and declared external locations remain separately classified. An
+unclassified location or conflicting CAS suffix is a gap. `SourceRef` may
+also carry a digest with a null locator; it remains an optional digest, while
+typed Task/Operation decoding checks their non-null `ArtifactRef` contract.
+The historical `memory_intents.content_ref` string also requires its canonical
+CAS-suffix member; an unrecognized legacy locator is an explicit gap rather
+than an empty root set. Newer memory bindings additionally carry the complete
+ObjectRef and its JSON reading where applicable.
+
+The installed `ToolArtifactRef` storage descriptor is a different shape, with
+no ObjectRef codec. Its `content_store` form retains the real JSON chunk
+manifest and its ObjectRefs; the reassembled module digest is an identity,
+not a promise of a whole-module CAS file. Its `node_inline` form identifies
+Node's independent object database. Unsupported kinds, malformed descriptors
+or unsupported chunk manifests make the inventory incomplete. These storage
+readings do not invoke a tool or verify an installation's selection authority.
+
+Other canonical bare digests may name external executable files, Git content,
+schema identities or optional aliases; an absent bare digest is listed
+separately instead of being invented as a local object. The reader never
+follows a locator or retrieves a credential.
 
 Object bytes must have the declared length and digest. JSON-typed objects are
 walked recursively, including JSON embedded in strings by canonical
@@ -112,6 +139,11 @@ These are three added retention observations, separate from the six frozen
 GC declaration windows. The candidate has static review only in the recovered
 workspace: Rust, Cargo and the documentation parser environment are absent.
 Compilation and these actual journeys remain pending integration CI.
+The later carrier-reader correction adds no scenario or injected corruption
+window. Its storage-shape review follows `types/object.rs`, the research and
+control/E1 row writers, `wasm/artifact.rs` and the real
+`tool_install::bind_artifact_to_recovery` carrier. It has no independent
+executed ToolArtifact/corruption validation claim.
 
 ## Remaining deletion boundary
 

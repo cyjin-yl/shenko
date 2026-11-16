@@ -6,24 +6,25 @@ use anyhow::Result;
 use serde_json::{Map, Value};
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
 
-use super::{Reader, RetentionOrigin, RetentionReference};
+use super::{Reader, RetentionOrigin, RetentionReference, RetentionStorage};
 
 pub(super) fn is_json(media_type: &str) -> bool {
     media_type == "application/json" || media_type.ends_with("+json")
 }
 
-fn digest(text: &str) -> Option<Digest> {
+pub(super) fn digest(text: &str) -> Option<Digest> {
     let digest = Digest(text.into());
     digest.canonical_blake3_hex().map(|_| digest.clone())
 }
 
-fn short_text(map: &Map<String, Value>, key: &str) -> Option<String> {
+pub(super) fn short_text(map: &Map<String, Value>, key: &str) -> Option<String> {
     let text = map.get(key)?.as_str()?;
     (text.len() <= 1024).then(|| text.to_owned())
 }
 
-fn object_reference(map: &Map<String, Value>) -> Option<ObjectRef> {
+pub(super) fn object_reference(map: &Map<String, Value>) -> Option<ObjectRef> {
     let codec = map.get("codec")?.as_object()?;
+    map.get("locator")?.as_str()?;
     Some(ObjectRef {
         digest: digest(map.get("digest")?.as_str()?)?,
         bytes: map.get("bytes")?.as_u64()?,
@@ -43,14 +44,14 @@ impl Reader<'_> {
     pub(super) fn required_digest(&mut self, bytes: &[u8], origin: &RetentionOrigin) {
         if let Some(digest) = std::str::from_utf8(bytes).ok().and_then(digest) {
             self.reference(RetentionReference {
-                digest, object: None, required: true, origin: origin.clone(),
+                digest, object: None, required: true, storage: RetentionStorage::CasDigest, origin: origin.clone(),
             });
         } else {
             self.gap("invalid_required_digest", origin.clone(), None);
         }
     }
 
-    fn reference(&mut self, reference: RetentionReference) {
+    pub(super) fn reference(&mut self, reference: RetentionReference) {
         if self.report.references.len() >= self.report.limits.references {
             self.gap("reference_budget_exceeded", reference.origin, Some(reference.digest));
             self.exhausted = true;
@@ -60,7 +61,9 @@ impl Reader<'_> {
         self.report.references.push(reference);
     }
 
-    pub(super) fn json(&mut self, bytes: &[u8], origin: &RetentionOrigin, required: bool, depth: usize) {
+    pub(super) fn json(
+        &mut self, bytes: &[u8], origin: &RetentionOrigin, required: bool, depth: usize, object: Option<&ObjectRef>,
+    ) {
         if self.exhausted { return; }
         if depth > self.report.limits.depth {
             self.gap("json_depth_exceeded", origin.clone(), None);
@@ -75,13 +78,25 @@ impl Reader<'_> {
             };
         self.report.json_bytes_read = total;
         match serde_json::from_slice::<Value>(bytes) {
-            Ok(value) => self.value(&value, origin, depth),
+            Ok(value) => {
+                if depth == 0 && !super::carriers::readable_row(&value, origin) {
+                    self.gap("invalid_column_carrier", origin.clone(), None);
+                }
+                if object.is_some_and(|object| object.store_namespace == "wasm-tool-artifact")
+                    && !super::artifacts::readable_chunk_manifest(&value)
+                {
+                    self.gap("unsupported_tool_chunk_manifest", origin.clone(), None);
+                }
+                self.value(&value, origin, depth);
+            }
             Err(_) if required => self.gap("invalid_json_carrier", origin.clone(), None),
             Err(_) => {
                 if let Ok(text) = std::str::from_utf8(bytes)
                     && let Some(digest) = digest(text)
                 {
-                    self.reference(RetentionReference { digest, object: None, required: false, origin: origin.clone() });
+                    self.reference(RetentionReference {
+                        digest, object: None, required: false, storage: RetentionStorage::OptionalDigest, origin: origin.clone(),
+                    });
                 }
             }
         }
@@ -101,12 +116,19 @@ impl Reader<'_> {
                     // unknown record representation has a complete closure.
                     self.gap("unsupported_record_schema_version", origin.clone(), None);
                 }
-                let looks_typed = map.contains_key("store_namespace")
-                    && (map.contains_key("digest") || map.contains_key("codec"));
+                let artifact = self.artifact(map, origin);
+                // Missing namespace/codec is not permission to demote an
+                // ObjectRef-shaped carrier to a harmless optional digest.
+                let looks_typed = !artifact
+                    && ((map.contains_key("digest") && (map.contains_key("codec")
+                        || map.contains_key("store_namespace")
+                        || (map.contains_key("bytes") && map.contains_key("media_type"))))
+                        || (map.contains_key("store_namespace") && map.contains_key("codec")));
                 if looks_typed {
                     if let Some(object) = object_reference(map) {
                         self.reference(RetentionReference {
-                            digest: object.digest.clone(), object: Some(object), required: true, origin: origin.clone(),
+                            digest: object.digest.clone(), object: Some(object), required: true,
+                            storage: RetentionStorage::CasObject, origin: origin.clone(),
                         });
                     } else {
                         self.gap("invalid_object_reference", origin.clone(), None);
@@ -117,7 +139,7 @@ impl Reader<'_> {
                 for (key, nested) in map {
                     // A valid ObjectRef's codec digest is a schema identity, not
                     // an extra content edge. Other fields still support aliases.
-                    if looks_typed && key == "codec" { continue; }
+                    if (looks_typed && key == "codec") || (artifact && key == "digest") { continue; }
                     self.value(nested, origin, depth + 1);
                 }
             }
@@ -126,13 +148,15 @@ impl Reader<'_> {
             }
             Value::String(text) => {
                 if let Some(digest) = digest(text) {
-                    self.reference(RetentionReference { digest, object: None, required: false, origin: origin.clone() });
+                    self.reference(RetentionReference {
+                        digest, object: None, required: false, storage: RetentionStorage::OptionalDigest, origin: origin.clone(),
+                    });
                 } else if matches!(text.trim_start().as_bytes().first(), Some(b'{' | b'[')) {
                     // cognition_baselines.row_values and canonical Cell::Text
                     // embed original SQL JSON in strings. This retention-only
                     // over-approximation grants no graph/execution authority to
                     // transport, a native receipt reader or opaque CAS content.
-                    self.json(text.as_bytes(), origin, true, depth + 1);
+                    self.json(text.as_bytes(), origin, true, depth + 1, None);
                 }
             }
             _ => {}
@@ -213,7 +237,7 @@ impl Reader<'_> {
             self.report.external_or_absent_digests.remove(&reference.digest);
             if json {
                 self.expanded.insert(reference.digest);
-                self.json(&body, &origin, true, 0);
+                self.json(&body, &origin, true, 0, reference.object.as_ref());
             }
         }
         Ok(())

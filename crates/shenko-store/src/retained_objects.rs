@@ -13,6 +13,8 @@ use shenko_types::{commit::CommitRef, ids::{EntityId, LedgerSeq}, object::{Diges
 
 use crate::{ContentStore, Store};
 
+mod artifacts;
+mod carriers;
 mod closure;
 
 /// Finite audit budgets, independent of mutation/admission budgets. Exceeding
@@ -62,16 +64,29 @@ pub enum RetentionOrigin {
 #[derive(Debug, Clone, Serialize)]
 pub struct RetentionReference {
     pub digest: Digest,
-    /// Typed ObjectRefs are required CAS members. Other bare digests can name
-    /// external artifacts or schema identities; `required` distinguishes the
-    /// normalized columns that explicitly name local content. Neither form
+    /// Typed ObjectRefs are required CAS members. The storage classification
+    /// distinguishes local artifact locators from implementation identities
+    /// and Node-inline or manifest-assembled artifacts. No classification
     /// authorizes fetching a historical locator.
     pub object: Option<ObjectRef>,
     /// Some normalized cognition columns retain a CAS member by digest even
     /// before another carrier supplies its full ObjectRef. Other bare digests
     /// can name external files or implementation identities.
     pub required: bool,
+    pub storage: RetentionStorage,
     pub origin: RetentionOrigin,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetentionStorage {
+    CasObject,
+    CasDigest,
+    CasArtifact,
+    OptionalDigest,
+    ExternalArtifact,
+    NodeInlineArtifact,
+    ManifestAssembledArtifact,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -365,14 +380,16 @@ fn read_table(conn: &Connection, name: &str, layout: &TableLayout, reader: &mut 
                             let media = layout.columns.iter().position(|(name, _, _)| name == "media_type")
                                 .context("derivative media type missing")?;
                             let media: String = row.get(media + 1)?;
-                            if closure::is_json(&media) { reader.json(bytes, &origin, true, 0); }
+                            if closure::is_json(&media) { reader.json(bytes, &origin, true, 0, None); }
                         } else {
                             reader.gap("unsupported_blob_carrier", origin, None);
                         }
-                    } else if required_digest(name, column) {
+                    } else if carriers::required_digest(name, column) {
                         reader.required_digest(bytes, &origin);
+                    } else if name == "memory_intents" && column == "content_ref" {
+                        reader.memory_locator(bytes, &origin);
                     } else {
-                        reader.json(bytes, &origin, required_json(name, column), 0);
+                        reader.json(bytes, &origin, carriers::required_json(name, column), 0, None);
                     }
                 }
             }
@@ -382,20 +399,4 @@ fn read_table(conn: &Connection, name: &str, layout: &TableLayout, reader: &mut 
     reader.report.tables.push(RetainedTable { name: name.into(), rows_read: count,
         values_digest: complete.then(|| Digest(format!("blake3:{}", hash.finalize().to_hex()))) });
     Ok(())
-}
-
-fn required_json(table: &str, column: &str) -> bool {
-    (column == "data" && !matches!(table, "raw_sessions" | "session_events" | "content_stream_units"))
-        || column.ends_with("_json")
-        || matches!((table, column), ("identity_profiles", "profile")
-            | ("context_windows", "body") | ("cognition_baselines", "row_values")
-            | ("control_prepared_transitions", "admission" | "transition_ref" | "result_commit"))
-}
-
-fn required_digest(table: &str, column: &str) -> bool {
-    matches!((table, column),
-        ("cognition_contents", "digest")
-        | ("cognition_attitudes", "digest" | "supersedes_content")
-        | ("cognition_legacy_content", "content_digest")
-        | ("cognitive_root_nodes" | "cognitive_root_requests", "content_digest"))
 }
