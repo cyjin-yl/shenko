@@ -44,7 +44,7 @@ fn successor_scope(
     expected_receipts: u64,
 ) -> Result<(), ShenkoError> {
     let counts: (u64, u64, u64) = conn.query_row(
-        "SELECT (SELECT count(*) FROM operations WHERE task_id=?1),
+        "SELECT (SELECT count(*) FROM operations WHERE json_extract(data,'$.task_id')=?1),
             (SELECT count(*) FROM attempts WHERE operation_id=?2),
             (SELECT count(*) FROM evidence_receipts WHERE operation_id=?2)",
         params![original.task.task_id.to_string(), original.operation.operation_id.to_string()],
