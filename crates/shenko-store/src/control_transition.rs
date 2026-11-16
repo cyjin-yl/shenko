@@ -197,7 +197,7 @@ impl RowTransition {
     /// Bind the frozen rows to the public S1 identities, independently of the
     /// producer that captured them. The remaining SQL rows are exact deltas;
     /// head, committed result and successor may never be omitted or renamed.
-    fn validate_result(
+    pub(crate) fn validate_result(
         &self,
         step: &SubjectStep,
         head: &SubjectBranchHead,
@@ -354,6 +354,7 @@ pub(crate) fn local_table(name: &str) -> bool {
             | "subject_dispatch_owner"
             | "control_prepared_transitions"
             | "control_materializations"
+            | "local_installation_provisioning"
     )
 }
 
@@ -807,6 +808,13 @@ impl Store {
                 .prepared_recovery();
             let grant = reservation.grant().cloned();
             let result = match envelope["action"]["kind"].as_str() {
+                Some("native.claim") => self
+                    .apply_claim_transition(
+                        &reference,
+                        &reservation,
+                        crate::claim_transition::ClaimApplyMode::Prepared,
+                    )
+                    .map(|_| ()),
                 Some("subject.step_commit") => {
                     let step: SubjectStep =
                         serde_json::from_value(envelope["action"]["step"].clone())?;

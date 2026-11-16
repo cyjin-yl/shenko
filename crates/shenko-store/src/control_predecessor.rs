@@ -163,11 +163,23 @@ impl Store {
     pub fn inspect_control_predecessor(
         &self, reference: &ObjectRef, admission: &CommitAdmission,
     ) -> Result<ControlPredecessorEvidence, ShenkoError> {
-        self.inspect_control_predecessor_inner(reference, admission).map_err(failure)
+        self.inspect_control_predecessor_inner(reference, admission, &[], &[]).map_err(failure)
+    }
+
+    /// A typed action which narrows a shared read range must still prove that
+    /// its exact source task/ancestor and creator reads belong to the admitted
+    /// predecessor. This reads immutable evidence, never installs those rows.
+    pub(crate) fn inspect_control_predecessor_for_admission(
+        &self, reference: &ObjectRef, admission: &CommitAdmission,
+        expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep],
+    ) -> Result<ControlPredecessorEvidence, ShenkoError> {
+        self.inspect_control_predecessor_inner(reference, admission, expected_tasks, expected_steps)
+            .map_err(|error| ShenkoError::other(format!("invalid typed action predecessor: {error:#}")))
     }
 
     fn inspect_control_predecessor_inner(
         &self, reference: &ObjectRef, admission: &CommitAdmission,
+        expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep],
     ) -> Result<ControlPredecessorEvidence> {
         let root: Predecessor = self.read_control_value(reference, ROOT_CODEC)?;
         ensure!(root.schema_version == 1 && admission.schema_version == 1
@@ -205,6 +217,18 @@ impl Store {
             .find(|row| row.table == "subject_branch_heads" && row.key == root.head.agent_id.to_string())
             .and_then(|row| row.value("data")).context("snapshot subject head is absent")?)?;
         ensure!(serde_json::to_value(&actual)? == serde_json::to_value(&root.head)?, "snapshot head differs from root binding");
+        for task in expected_tasks {
+            let actual = manifest.rows.iter().find(|row| row.table == "tasks" && row.key == task.task_id.to_string())
+                .and_then(|row| row.value("data")).context("typed task is absent from the frozen snapshot")?;
+            ensure!(serde_json::from_str::<serde_json::Value>(actual)? == serde_json::to_value(task)?,
+                "typed task or ancestor differs from the frozen snapshot");
+        }
+        for step in expected_steps {
+            let actual = manifest.rows.iter().find(|row| row.table == "subject_steps" && row.key == step.step_id.to_string())
+                .and_then(|row| row.value("data")).context("typed creator is absent from the frozen snapshot")?;
+            ensure!(serde_json::from_str::<serde_json::Value>(actual)? == serde_json::to_value(step)?,
+                "typed creator differs from the frozen snapshot");
+        }
         let source_ledger_id = manifest.source_ledger_id;
         let fingerprint = manifest.fingerprint.clone();
         Ok(ControlPredecessorEvidence { source_ledger_id, fingerprint,

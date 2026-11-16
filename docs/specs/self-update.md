@@ -49,12 +49,28 @@ snapshot is retained in the recovery closure and re-read before selection.
 Node election epoch, selector epoch and subject controller epoch are distinct.
 
 After genesis, `Store::installation_id_for_subject` obtains stable installation
-identity from the verified immutable `genesis.bootstrap_event_ref` or an explicit
-provisioning record, not the current ledger writer ID. Fresh CLI genesis already
-seals that identity in the event; a separate `bootstrap_records` projection is
-not required for restart. When both representations exist, their installation
-and subject bindings must agree; missing or conflicting identity is an error,
-not a new installation. A staged copy acquires a distinct current ledger writer ID before its first
+identity from verified bootstrap and local provisioning evidence, not the
+current ledger writer ID. Fresh CLI genesis seals its birth installation in
+`genesis.bootstrap_event_ref`; a separate `bootstrap_records` projection is
+not required for restart. When both source representations exist, their
+installation and subject bindings must agree. Local provisioning cannot hide a
+source conflict. A peer retains that immutable birth identity and exact
+`cognition_origins` genesis/source ledger, while its independently prepared home
+has its own stable installation ID. The nonreplicated
+`local_installation_provisioning` row retains the complete initial home CAS
+reference and local commit/incarnation receipt after actual seed preparation
+and readback. It is excluded from canonical row transitions and peer archives.
+Its metadata alone selects no subject, Node primary, software route or consumer.
+Missing or conflicting evidence is an error, not a new installation.
+
+Same-installation SQLite slot backup preserves this local row and its historical
+receipt; reading it does not require that receipt's writer to be the current
+writer. The initial evidence is not overwritten by a compatible home capability
+upgrade. Start, Check and peer receive resolve the persisted installation before
+preparing the home. Only an unprovisioned store with no locally bound subject
+uses its first writer ID as a proposed initial identity, and the actual seed
+must still admit the filesystem before that identity is recorded.
+A staged copy acquires a distinct current ledger writer ID before its first
 local mutation; historical `commit_log.ledger_id` values and embedded source
 CommitRefs are not rewritten. The installation, owner, subject and genesis do
 not become new identities.

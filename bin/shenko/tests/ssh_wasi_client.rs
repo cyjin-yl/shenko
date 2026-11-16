@@ -11,12 +11,18 @@ use sha2::{Digest, Sha256};
 use std::{
     cell::Cell,
     fs,
-    io::{Read, Write},
+    io::Read,
     net::{TcpListener, TcpStream},
-    os::unix::{fs::PermissionsExt, process::CommandExt},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Command, ExitStatus},
     time::{Duration, Instant},
+};
+
+#[path = "support/process_runtime.rs"]
+mod process_runtime;
+use process_runtime::{
+    OwnedProcess, append_json, copy_diagnostics, file_sha256, health, write_sshd_config,
 };
 
 // A named execution cold-verifies its installed artifact and compiles it on
@@ -24,126 +30,6 @@ use std::{
 // outer budget additionally bounds CLI startup, verification and cleanup.
 const SSH_RUN_TIMEOUT_SECS: u64 = 120;
 const SSH_CLI_TIMEOUT_SECS: u64 = 180;
-
-/// Each command owns a process group that receives timeout/failure signals.
-/// Waiting for the owned child is bounded, and every observed join is retained
-/// beside its output. A leader join is not proof of every descendant's exit.
-struct OwnedProcess {
-    child: Child,
-    label: String,
-    log: PathBuf,
-    joined: bool,
-}
-
-impl OwnedProcess {
-    fn spawn(command: &mut Command, logs: &Path, label: &str) -> Result<Self> {
-        let child = command
-            .process_group(0)
-            .stdin(Stdio::null())
-            .stdout(fs::File::create(logs.join(format!("{label}.stdout")))?)
-            .stderr(fs::File::create(logs.join(format!("{label}.stderr")))?)
-            .spawn()
-            .with_context(|| format!("spawn {label}"))?;
-        let process = Self {
-            child,
-            label: label.into(),
-            log: logs.join("processes.jsonl"),
-            joined: false,
-        };
-        process.record(json!({"event":"spawned"}));
-        Ok(process)
-    }
-
-    fn record(&self, value: Value) {
-        let record = json!({"label":self.label, "pid":self.child.id(), "observation":value});
-        if let Err(error) = append_json(&self.log, &record) {
-            eprintln!(
-                "could not retain {} process observation: {error:#}",
-                self.label
-            );
-        }
-    }
-
-    fn poll(&mut self) -> Result<Option<ExitStatus>> {
-        let status = self.child.try_wait()?;
-        if let Some(status) = status
-            && !self.joined
-        {
-            self.joined = true;
-            self.record(
-                json!({"event":"joined", "status":status.to_string(), "exit_code":status.code()}),
-            );
-        }
-        Ok(status)
-    }
-
-    fn wait_for(&mut self, timeout: Duration) -> Result<Option<ExitStatus>> {
-        let started = Instant::now();
-        loop {
-            if let Some(status) = self.poll()? {
-                return Ok(Some(status));
-            }
-            if started.elapsed() >= timeout {
-                return Ok(None);
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    }
-
-    fn signal(&self, signal: i32) -> Result<()> {
-        let group = i32::try_from(self.child.id())?;
-        // SAFETY: this is the process group created for this still-owned child.
-        if unsafe { libc::kill(-group, signal) } != 0 {
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error.into());
-            }
-        }
-        self.record(json!({"event":"signal_requested", "signal":signal}));
-        Ok(())
-    }
-
-    fn stop(&mut self, signal: i32, grace: Duration) -> Result<(ExitStatus, bool)> {
-        if let Some(status) = self.poll()? {
-            return Ok((status, false));
-        }
-        self.signal(signal)?;
-        if let Some(status) = self.wait_for(grace)? {
-            return Ok((status, false));
-        }
-        self.signal(libc::SIGKILL)?;
-        let status = self
-            .wait_for(Duration::from_secs(5))?
-            .with_context(|| format!("{} was not joined after SIGKILL", self.label))?;
-        Ok((status, true))
-    }
-
-    fn finish(&mut self, timeout: Duration) -> Result<ExitStatus> {
-        if let Some(status) = self.wait_for(timeout)? {
-            return Ok(status);
-        }
-        self.record(json!({"event":"deadline_exceeded", "timeout_secs":timeout.as_secs()}));
-        let (status, _) = self.stop(libc::SIGKILL, Duration::ZERO)?;
-        anyhow::bail!("{} exceeded {timeout:?}; joined with {status}", self.label)
-    }
-}
-
-impl Drop for OwnedProcess {
-    fn drop(&mut self) {
-        if !self.joined
-            && let Err(error) = self.stop(libc::SIGKILL, Duration::ZERO)
-        {
-            self.record(json!({"event":"cleanup_failed", "error":format!("{error:#}")}));
-            if let Err(write_error) = fs::write(
-                self.log.with_extension("cleanup-failed"),
-                format!("{} pid {}: {error:#}\n", self.label, self.child.id()),
-            ) {
-                eprintln!("could not retain cleanup failure: {write_error}");
-            }
-            eprintln!("{} cleanup failed: {error:#}", self.label);
-        }
-    }
-}
 
 struct Fixture {
     root: PathBuf,
@@ -188,29 +74,6 @@ impl Drop for Fixture {
             let _ = fs::remove_dir_all(&self.root);
         }
     }
-}
-
-fn append_json(path: &Path, record: &Value) -> Result<()> {
-    let mut log = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    writeln!(log, "{}", serde_json::to_string(record)?)?;
-    log.sync_all()?;
-    Ok(())
-}
-
-fn copy_diagnostics(logs: &Path, destination: &Path) -> Result<()> {
-    fs::create_dir_all(destination)?;
-    for entry in fs::read_dir(logs)? {
-        let entry = entry?;
-        // Only this explicit public-output directory, never the installation,
-        // input files, private keys or private owner-control material.
-        if entry.file_type()?.is_file() {
-            fs::copy(entry.path(), destination.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
 }
 
 impl Fixture {
@@ -510,39 +373,6 @@ fn read_output(path: &Path, maximum: usize) -> Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn health(port: u16) -> Result<Value> {
-    let mut stream =
-        TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200))?;
-    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-    write!(
-        stream,
-        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    )?;
-    let mut response = Vec::new();
-    stream.take(64 * 1024).read_to_end(&mut response)?;
-    let split = response
-        .windows(4)
-        .position(|bytes| bytes == b"\r\n\r\n")
-        .context("health HTTP headers")?;
-    ensure!(response.starts_with(b"HTTP/1.1 200 "), "health HTTP status");
-    Ok(serde_json::from_slice(&response[split + 4..])?)
-}
-
-fn file_sha256(path: &Path) -> Result<String> {
-    let mut file = fs::File::open(path)?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
 #[test]
 fn ssh_wasi_auth_exec_sftp_and_refusal_journey() -> Result<()> {
     let artifact = std::env::var_os("SHENKO_SSH_WASI_ARTIFACT")
@@ -609,25 +439,12 @@ fn ssh_wasi_auth_exec_sftp_and_refusal_journey() -> Result<()> {
     let port = listener.local_addr()?.port();
     drop(listener);
     let config = fixture.root.join("sshd_config");
-    // Root-run container fixtures use PAM's account checks so a locked root
-    // password does not disable independently authorized public keys. The
-    // unprivileged fixture needs no privileged PAM session setup.
-    // SAFETY: geteuid only observes this process's effective identity.
-    let use_pam = if unsafe { libc::geteuid() } == 0 {
-        "yes"
-    } else {
-        "no"
-    };
-    fs::write(
+    write_sshd_config(
         &config,
-        format!(
-            "ListenAddress 127.0.0.1\nPort {port}\nHostKey {}\nPidFile {}\nAuthorizedKeysFile {}\n\
-         PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM {use_pam}\nStrictModes no\n\
-         PermitRootLogin yes\nSubsystem sftp internal-sftp\nLogLevel VERBOSE\n",
-            host_key.display(),
-            fixture.root.join("pid").display(),
-            fixture.root.join("authorized_keys").display(),
-        ),
+        &fixture.root,
+        &host_key,
+        &fixture.root.join("authorized_keys"),
+        port,
     )?;
     let server_log = fixture.logs().join("sshd.stderr");
     let sshd = std::env::var_os("SHENKO_SSHD").unwrap_or_else(|| "/usr/sbin/sshd".into());

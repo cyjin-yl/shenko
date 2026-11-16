@@ -1,0 +1,533 @@
+{
+  "kind": "observed_ci_candidate_result",
+  "head_sha": "15cfee0317a6f0a7c3e088657040531c6fdd8575",
+  "head_tree": "6238291fb12a178f495393fc80fc64e20d74fc61",
+  "checkout_merge_sha": "7b59a3366df264432c368a8a617aa4f64982ed1d",
+  "checkout_merge_tree": "6238291fb12a178f495393fc80fc64e20d74fc61",
+  "candidate_to_merge_changed_files": 0,
+  "run_id": 43886488027,
+  "run_attempt": 1,
+  "run_number": 67,
+  "event": "pull_request",
+  "run_url": "https://github.com/cyjin-yl/shenko/actions/runs/43886488027",
+  "created_at": "2026-11-16T14:30:43Z",
+  "updated_at": "2026-11-16T14:43:16Z",
+  "overall_result": "failure",
+  "rust_job_id": 133365943517,
+  "rust_job_url": "https://github.com/cyjin-yl/shenko/actions/runs/43886488027/job/133365943517",
+  "jobs": [
+    {
+      "name": "kernel-boundary",
+      "id": 133365942809,
+      "conclusion": "success"
+    },
+    {
+      "name": "rust",
+      "id": 133365943517,
+      "conclusion": "failure"
+    },
+    {
+      "name": "docs",
+      "id": 133365943610,
+      "conclusion": "success"
+    },
+    {
+      "name": "clippy-ratchet",
+      "id": 133365943698,
+      "conclusion": "success"
+    },
+    {
+      "name": "docs-migration",
+      "id": 133365943827,
+      "conclusion": "success"
+    },
+    {
+      "name": "web",
+      "id": 133365943836,
+      "conclusion": "success"
+    }
+  ],
+  "artifact": {
+    "id": 14235587723,
+    "name": "rust-evidence",
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43886488027/artifacts/14235587723",
+    "zip_bytes": 8247230,
+    "zip_sha256": "529537d2177fbe71bd00df847eaf24c909988e1839fb4536918bf93c3d3b8b72",
+    "matches_github_digest": true,
+    "zip_crc_check": "passed",
+    "entries": 1559,
+    "uncompressed_bytes": 185118055,
+    "retention": "original ZIP retained in the diagnostic workspace; complete extracted workspace logs, SSH evidence and derived tuple bytes remain there. Only the re-expandable compat directory was removed after ZIP re-verification. The repository keeps complete gzip workspace logs and selected unchanged SSH files, not compatibility databases."
+  },
+  "full_job_log": {
+    "retrieved": false,
+    "attempts": 2,
+    "error": "Transport closed",
+    "fallback_error": "generic fetch rejected the job logs URL as not an allowed endpoint",
+    "scope": "complete tee-produced workspace check/test logs are retained; setup/checkout/post-job stdout is not claimed"
+  },
+  "workspace_check": "passed",
+  "ssh_guest_build": "passed",
+  "workspace_tests": "failed",
+  "failures": [
+    {
+      "target": "-p shenko-store --test store_roundtrip",
+      "case": "bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence",
+      "location": "crates/shenko-store/tests/store_roundtrip.rs:305:9",
+      "assertion": "route inspection changed the live SQLite tuple",
+      "target_summary": {
+        "passed": 37,
+        "failed": 1,
+        "ignored": 0,
+        "filtered_out": 0,
+        "seconds": 6.03
+      },
+      "tuple_difference": "derived/tuple-difference.json",
+      "diagnosis": "The live Store activation_selector read is inside the measured no-write window. Only SHM offset 104 changed (before 9, after 20); main and WAL are identical. This is consistent with the fixture live SELECT changing a SQLite reader mark, not proof that the staged inspector wrote the tuple. The original assertion remains a real failing result.",
+      "scope": "Earlier raw-window and missing-CAS checks passed before the second comparison. Checks after the failed comparison, including the later Handoff case, did not execute."
+    }
+  ],
+  "observed_passes": [
+    {
+      "name": "ssh_wasi_auth_exec_sftp_and_refusal_journey",
+      "result": "passed",
+      "workspace_test_log_line": 1624
+    },
+    {
+      "name": "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+      "result": "passed",
+      "workspace_test_log_line": 1631
+    },
+    {
+      "name": "minority_agreement_survives_reopen_and_supersession_fences_original_branch",
+      "result": "passed",
+      "workspace_test_log_line": 2550
+    },
+    {
+      "name": "canonical_native_arming_keeps_original_intent_without_reissuing_execution",
+      "result": "passed",
+      "workspace_test_log_line": 2922
+    },
+    {
+      "name": "canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart",
+      "result": "passed",
+      "workspace_test_log_line": 2927
+    },
+    {
+      "name": "canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt",
+      "result": "passed",
+      "workspace_test_log_line": 2923
+    },
+    {
+      "name": "canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results",
+      "result": "passed",
+      "workspace_test_log_line": 2924
+    },
+    {
+      "name": "canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt",
+      "result": "passed",
+      "workspace_test_log_line": 2926
+    },
+    {
+      "name": "canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch",
+      "result": "passed",
+      "workspace_test_log_line": 2930
+    },
+    {
+      "name": "inspection_projections_keep_each_subjects_tasks_and_messages_private",
+      "result": "passed",
+      "workspace_test_log_line": 2937
+    }
+  ],
+  "ssh_wasi": {
+    "target_seconds": 203.75,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "artifact_bytes": 2552689,
+    "artifact_sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+    "cli_binary_sha256": "fc4c49e03909fdcc49ac4e98413f03135c69c9b8998532136048fee99946100a",
+    "scope": "real CLI bootstrap, install and selected-tool execution; keygen, pinned public-key authentication, exec status/streams, SFTP put/get, key and grant refusal; no native wasi.exec T1/E1/T2, remote deployment or long-run claim",
+    "installation_input_removed": true,
+    "same_installation_after_execution": true,
+    "bootstrap": {
+      "exit_code": 0,
+      "forced": false,
+      "health": {
+        "product": "Shenko",
+        "status": "ok",
+        "version": "0.1.0"
+      },
+      "port": 43079
+    },
+    "server_stop": {
+      "forced": false,
+      "status": "exit status: 0"
+    },
+    "timings": "derived/ssh-timings.json",
+    "no_process_deadline_observed": true
+  },
+  "start_boundary": {
+    "target_seconds": 1.4,
+    "scope": "actual first paused Start stops successfully on SIGINT, second Start retains subject/request and blocks inference until resume; observer sees real HTTP request and supplies no generated answer; restarted process is killed and joined for bounded cleanup",
+    "model_success": false
+  },
+  "component_agreement": {
+    "target_seconds": 0.34,
+    "scope": "seven durable Node identities, one three-member minority with a directly connected preferred coordinator and followers without a direct mutual edge, reopen and original authority fencing; same-process real Node stores and supplied observations, not remote SSH/process topology evidence"
+  },
+  "source_provenance": {
+    "receipt_source_dirty": true,
+    "recorded_inputs": 97,
+    "mismatches_against_head": [],
+    "comparison": "derived/source-input-comparison.json",
+    "scope": "all 97 recorded guest source inputs independently match the candidate; this does not reinterpret the original global dirty flag as clean"
+  },
+  "scope_limits": [
+    "CI is red on its one actual Store fixture failure; no later fix is called passing by this record",
+    "No evidence for the later local-installation provisioning or three independent Shenko processes",
+    "SSH named tool CLI is not native wasi.exec T1/E1/T2 or remote device deployment",
+    "No successful real model behavior, browser journey, physical network partition, 7-day or 30-day result"
+  ],
+  "retained_files": {
+    "github/run.json": {
+      "source": "run.json",
+      "bytes": 12528,
+      "sha256": "517b48317ca94be328e776ff1f0d76e3c7bb7372525f763247d70f967841df35",
+      "transformation": "none"
+    },
+    "github/jobs.json": {
+      "source": "jobs.json",
+      "bytes": 7823,
+      "sha256": "e51f87f230ec314f9a15634d0ab30bd127a64078512cbc2e283757fdc9b476b6",
+      "transformation": "none"
+    },
+    "github/artifacts.json": {
+      "source": "artifacts.json",
+      "bytes": 2667,
+      "sha256": "69b89da5b73a2ce6560ab985fc6fbc9e02a2a67c8be1befb2e5c6c18c408808b",
+      "transformation": "none"
+    },
+    "github/compare.json": {
+      "source": "compare.json",
+      "bytes": 12667,
+      "sha256": "06f325057a50af553735c8f7b9f1ac02d3f3148603d7523559d0a0f7be331f00",
+      "transformation": "none"
+    },
+    "github/job_logs.json": {
+      "source": "job_logs.json",
+      "bytes": 171,
+      "sha256": "e10c16e3bb8d0547aff0d8c5bcf10fa319e517fa22669deeb36a7b9860af3230",
+      "transformation": "none"
+    },
+    "github/job_logs_retry.json": {
+      "source": "job_logs_retry.json",
+      "bytes": 171,
+      "sha256": "e10c16e3bb8d0547aff0d8c5bcf10fa319e517fa22669deeb36a7b9860af3230",
+      "transformation": "none"
+    },
+    "github/generic-job-logs-error.json": {
+      "source": "generic-job-logs-error.json",
+      "bytes": 343,
+      "sha256": "f81a73d3edf97b2a2e601eaa751d5c8ea9cfc7f9d5d391b3b38fda08f6f7a585",
+      "transformation": "none"
+    },
+    "workspace-check.log.gz": {
+      "source": "artifact/workspace-check.log",
+      "bytes": 12134,
+      "sha256": "75a6ef66c029fb0278dc99bfab776f9a07f39fcf82d5bc1423f319f4fa70cac2",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 64357,
+      "uncompressed_sha256": "9b0114c297cd7948b3d12201b342c67de3089dc1d9d513efcacc208030d598b6"
+    },
+    "workspace-test.log.gz": {
+      "source": "artifact/workspace-test.log",
+      "bytes": 130102,
+      "sha256": "2479a04df25e719542296898debdbb0ed321efea8a4a33623fdef15a6252abeb",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 9046720,
+      "uncompressed_sha256": "69ad82d230a0ee96c42418cd59e8a748c41080a3c0aabc76035cd1269a1b4585"
+    },
+    "ssh-wasi/build/build-receipt.json": {
+      "source": "artifact/ssh-wasi/build/build-receipt.json",
+      "bytes": 13158,
+      "sha256": "0dfae8953be44d2c14dcd7ca0a516badfee5dd726d9bed0bc8b8003b3d8b766d",
+      "transformation": "none"
+    },
+    "ssh-wasi/openssh-journey.json": {
+      "source": "artifact/ssh-wasi/openssh-journey.json",
+      "bytes": 42978,
+      "sha256": "e1a310e90fa47e9f197ed01a0914592c52ea4d13be36b473aa5e067fe4b64ac5",
+      "transformation": "none"
+    },
+    "ssh-wasi/openssh-journey.guest-records.jsonl": {
+      "source": "artifact/ssh-wasi/openssh-journey.guest-records.jsonl",
+      "bytes": 25439,
+      "sha256": "79fac87d534759f27cce79e665a589103a6e7c2b63fde36d5f99be1a46565935",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/account.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/account.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/account.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/account.stdout",
+      "bytes": 5,
+      "sha256": "53175bcc0524f37b47062fafdda28e3f8eb91d519ca0a184ca71bbebe72f969a",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/bootstrap.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/bootstrap.stderr",
+      "bytes": 6441,
+      "sha256": "0b90731a51b64c09739dda700050f452264d6f204a9ea0117ef14c2f4c325824",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/bootstrap.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/bootstrap.stdout",
+      "bytes": 461,
+      "sha256": "47dd50948a888f3a2dd3b0b57af2aad4096571b0025b5c024821a9d45cb41d3a",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.guest-stdout",
+      "bytes": 91,
+      "sha256": "c9184cde3b3e708ee7930f4774959521066ff7880503fe840e87b291af17353d",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.stderr",
+      "bytes": 2770,
+      "sha256": "33dfc9770bd6dcdaf7d6863283b28f29e9177c70997116fa0664157c66b5d4a9",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.guest-stderr",
+      "bytes": 16,
+      "sha256": "6deffbb034a1585c217ee4933d50eba6cedb039b4c7cd2a0762194746e85398e",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.guest-stdout",
+      "bytes": 14,
+      "sha256": "08e7f1e071ea86647816066e289fcf6e016005f102891510daadd2d5d833915d",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.stderr",
+      "bytes": 2770,
+      "sha256": "55c976683795192ed69985102bcba74d69ee9187c5b782257437f236226dbfb0",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.guest-stdout",
+      "bytes": 47,
+      "sha256": "0ff5665d8e66e9ca96ae00d99e3bac1ffb26bddb215843868bd99cd04da070ad",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.stderr",
+      "bytes": 2773,
+      "sha256": "bd57536bafc6b5c692d25cf6a25f66be9ae94eb4f21607351b60793a9e985d41",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.guest-stdout",
+      "bytes": 47,
+      "sha256": "053894d68fe2fb6f4617d45237d981d492ed7aa88c613e340d7a30f88f780de5",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.stderr",
+      "bytes": 2771,
+      "sha256": "16d32166ad8dc9597dd1d244a3ada5e4b04a1626258741076f98c09651a93811",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.guest-stderr",
+      "bytes": 29,
+      "sha256": "97a3970f9537c2cbc6122ccc74fbc8c7a27c958c7315b653cfc9a11b3a3b3fb4",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.guest-stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.stderr",
+      "bytes": 2771,
+      "sha256": "52b2414c238aa789ccbdf8dea3a78dffbd34794de23b0aef766bf43870d0f0e5",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.guest-stderr",
+      "bytes": 62,
+      "sha256": "44e9e9145283092e4cc7316450f19ff913343e00c6953eccd9686e67b5bac781",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.guest-stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.stderr",
+      "bytes": 2772,
+      "sha256": "552011a47b23776ef57e6ae45bd2023db9db18236b10db9f0fc6616b43bfa6c0",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-records.jsonl": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-records.jsonl",
+      "bytes": 25439,
+      "sha256": "79fac87d534759f27cce79e665a589103a6e7c2b63fde36d5f99be1a46565935",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/host-keygen.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/host-keygen.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/host-keygen.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/host-keygen.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/install.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/install.stderr",
+      "bytes": 668,
+      "sha256": "d693c29ffa75e4372f8b46bb134edcda16bbb3a75092542352f359f4df3283af",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/install.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/install.stdout",
+      "bytes": 4540,
+      "sha256": "df37a25461ff6fbc1808a4672a8630908066969bab4d533bf5078e3a983c112c",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/inventory.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/inventory.stderr",
+      "bytes": 486,
+      "sha256": "3187dff957adced142e507ab3222f09337c1ab3fc332825a28c83ece1384e5f1",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/inventory.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/inventory.stdout",
+      "bytes": 7440,
+      "sha256": "4838009470c6f91214b9546455c907c0dc20d098eeed4959133eb49957c1db75",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/processes.jsonl": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/processes.jsonl",
+      "bytes": 2242,
+      "sha256": "94b0678755400e9d33a1d9ef2500397f23632c928e8f55fa8dfbe0fa308b5caa",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/sshd.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/sshd.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "derived/tuple-difference.json": {
+      "source": "derived/tuple-difference.json",
+      "bytes": 1542,
+      "sha256": "fb8f494248fc07105c9883b728291f4c08b87fa6006cf3b3ffff525e3e6cc382",
+      "transformation": "none"
+    },
+    "derived/ssh-timings.json": {
+      "source": "derived/ssh-timings.json",
+      "bytes": 8746,
+      "sha256": "6d3e90802d40a34658f6a870d4a2ce1b8e65ec788205b3a5e2825976b634c028",
+      "transformation": "none"
+    },
+    "derived/source-input-comparison.json": {
+      "source": "derived/source-input-comparison.json",
+      "bytes": 27761,
+      "sha256": "364883e196b2da31036223c81bf07bd26eeb29ea86ab36656fb9f16823980cdf",
+      "transformation": "none"
+    },
+    "ssh-wasi/build/build.log.gz": {
+      "source": "artifact/ssh-wasi/build/build.log",
+      "bytes": 2625,
+      "sha256": "7c17287d68f4135281e0ee5f991b4cb3f575d72aa8003dadd097c2dd6ad06186",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 8994,
+      "uncompressed_sha256": "3d370fc26e24e471fb4612b0e7f501db547e0c0ee3be818883b59e9fb92352fa"
+    },
+    "ssh-wasi/openssh-journey.sshd.log.gz": {
+      "source": "artifact/ssh-wasi/openssh-journey.sshd.log",
+      "bytes": 557,
+      "sha256": "cc2645dca73b2e968976228a217627fe8e4ef8e8cb5989953c4188b6931f36ce",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 2924,
+      "uncompressed_sha256": "a9e3176ff8ccc32132de60a2b108927e12e3119cbe97642e89a6fdc4522abed5"
+    },
+    "ssh-wasi/diagnostics/sshd.stderr.gz": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/sshd.stderr",
+      "bytes": 557,
+      "sha256": "cc2645dca73b2e968976228a217627fe8e4ef8e8cb5989953c4188b6931f36ce",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 2924,
+      "uncompressed_sha256": "a9e3176ff8ccc32132de60a2b108927e12e3119cbe97642e89a6fdc4522abed5"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "activities": [],
+  "artifacts": [],
+  "artifacts_error": null,
+  "connected_clients": 0,
+  "control_reconciliations": [],
+  "control_reconciliations_error": null,
+  "data_dir": "/__w/shenko/shenko/.ci/evidence/real-single-node/installation",
+  "device_discovery": "not_wired",
+  "devices": [],
+  "identity": {
+    "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+    "display_name": null,
+    "naming": "unnamed",
+    "revision": 1,
+    "soul": null
+  },
+  "inference_capacity": "unprobed",
+  "last_outbox_observed_at": null,
+  "model": "Qwen3-0.6B-Q4_K_M",
+  "model_configured": true,
+  "outbox_wired": true,
+  "status": "unknown",
+  "status_source": "no live subject-state binding; recent outbox is not a thinking signal",
+  "step": null,
+  "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4"
+}

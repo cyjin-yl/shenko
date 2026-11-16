@@ -1,0 +1,5 @@
+[delegate:claude.seat:1] {"command":["claude","-p","Qwen3-0.6B-Q4_K_M"],"seat_id":"pre-selected seat 1234567890","lease_id":"pre-selected lease 1234567890","lease_epoch":1,"fence_capability":"claude.control:<session-anchor>"} 开启并挂接 Qwen3-0.6B-Q4_K_M 有限模型 child。
+
+[delegate:web_ui] {"op":"list","limit":1} —— 等待两个任务实际返回结果。
+
+[wait:end] —— 当前等待结束。现在在正文中报告计算结果和原样回显的标记，不模拟执行，也不提前宣称成功。

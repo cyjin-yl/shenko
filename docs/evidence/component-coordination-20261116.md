@@ -179,6 +179,94 @@ fixes require their own candidate result. No all-CI-green claim is made here.
   and long-run observation remain unverified. No physical exactly-once effect
   or global single activity is claimed under network partition.
 
+## Real Start and pinned SSH continuation
+
+The isolated continuation from `09a235e` adds
+[`component_process.rs`](../../bin/shenko/tests/component_process.rs), one
+continuous process journey. It shares the existing SSH fixture's bounded
+owned-process and OpenSSH provisioning helpers; the named SSH WASI journey
+keeps its original protocol assertions. No Observe response, certificate,
+member identity, Store fork or admission result is supplied by a fixture closure.
+
+The runner creates seven separate Node/Store installations and authenticates
+their actual IDs over seven real loopback OpenSSH servers. Each source has a
+distinct private client key and each destination a pinned host key. Private
+configuration launchers exec the system `ssh` and exact candidate CLI without
+altering their protocol input/output. No ambient account, provider or channel
+configuration is inherited. The journey uses public `sync enroll`, `sync push`,
+`sync adopt`, Joint/Final membership commands and the failed-election branch
+path. It retains one verified source genesis while A and C obtain independent
+local ledgers, homes and explicit availability branches. This starts new branch
+work; it does not take over imported Running tasks.
+
+The public bootstrap chain exposed a production identity defect before this
+journey was executed: `sync receive` prepared a receiver home using the receiver
+ID, but later Start resolved the imported immutable bootstrap to the source
+installation ID and rejected that receiver home. The local provisioning change
+above fixes that distinction while retaining the original bootstrap event,
+source origin and strict home/path admission. Neither a manifest's arbitrary
+ID nor a peer's source receipt can create the local provisioning row. The
+journey checks that peer import does not copy this row or make a subject local,
+and that the legitimate fork retains the original genesis and local home ID.
+
+After the initial setup, accepted source keys enforce only A↔B and B↔C;
+A↔C authentication fails, and D through G's owned SSH servers stop. Three
+independent, owned Start processes run against the seven-member electorate.
+A/C have no configured model. B has a configured but explicitly **unprobed**
+binding to an owned socket that never serves model responses, plus a real
+`--pause-at-start` boundary. The socket must receive no connection, and all
+three stores must retain zero inference/external attempts. This verifies no
+model capability, intelligence comparison or physical network partition.
+
+The success conditions require the actual three-member certificate and full
+observed neighbourhoods, B's agreed paused Store branch and authority binding,
+and both live followers' absence of consumers/authority binding. A real follower
+attempt to open B's branch must fail without changing its Store head/attempts.
+Each resident must renew the same persisted runtime ID, then all owned Start
+leaders must exit successfully on SIGINT and every owned SSH listener must
+close. Bounded process-group signalling and leader joins are retained; these
+observations do not prove arbitrary escaped descendants have stopped.
+
+The execution budget is 900 seconds, each one-shot CLI is limited to 180 seconds,
+and each Start readiness wait to 180 seconds within that work budget. Teardown
+separately allows each owned Start 20 seconds and each SSH server 3 seconds,
+followed by a bounded SIGKILL/join fallback that makes the journey fail. Logs,
+binary SHA-256, actual public argv, SSH pins/topology, identity/genesis/home
+observations, certificate, process joins and failure result survive cleanup.
+Private client keys, owner controls, input files and installation databases
+are not copied to the artifact. Both normal CI and Nightly already provision
+OpenSSH; their workspace suite includes this ordinary test target and additionally
+retain `.ci/evidence/component-process` on success or failure.
+
+Focused entry point, after the same OpenSSH prerequisites as those workflows:
+
+```bash
+cargo test --locked -p shenko --test component_process -- --nocapture
+```
+
+At this change's preparation, **the new real process journey has not run**.
+The final metadata command
+`cargo check --offline --locked -j1 -p shenko -p shenko-store -p shenko-seed --tests`
+passed in 1 minute 33 seconds under the shared lock and target. It covers the
+new process target and the reused seed capability-migration and Store bootstrap
+identity journeys, including local provenance not hiding source identity
+conflicts. It executes none of them. Normal documentation checking passed with
+`errors: []`. Migration conservation initially reported the existing
+`SPEC:41.4` mismatch on the `09a235e` base; applying the already integrated
+documentation-only `d690647` fix moved its implementation note outside the
+immutable block, and `--verify-migration` then passed with `errors: []`.
+Both document reports explicitly state `product_tested: false`; no manifest or
+checksum baseline changed. New Rust files passed formatting checks and the
+diff passed whitespace checks. Targeted Clippy metadata for `component_process`
+initially reported seven new loop/conditional diagnostics. They were corrected
+without changing the scenario or assertions; the same target then completed in
+1.20 seconds without a diagnostic in the new test. Existing library warnings
+remain, and this local command is not the remote full ratchet.
+Existing Node protocol successes above do not stand
+in for this new CLI/SSH observation. Hosted-runner execution, coordinator loss,
+physical multi-device faults, actual model readiness and long-run acceptance
+remain separate evidence obligations.
+
 ## Star-topology continuation
 
 The isolated `feat/component-star-topology-20261116` increment starts from

@@ -35,7 +35,7 @@
   },
   "full_ship_work_complete": false,
   "remaining_scope": [
-    "canonical S0, native claim, authoritative task predecessor/read-closure semantics, model quota and publication transitions",
+    "canonical S0, other native claims, general authoritative task predecessor/read-closure semantics, model quota and publication transitions",
     "actual model availability/ranking and nonreciprocal component routing",
     "real NapCat, coding seat, self-update activation and rollback S2",
     "real service and accessible browser journeys",
@@ -101,11 +101,13 @@
     "runtime_test_execution": "both authored journeys passed in CI 43864453626, candidate 6782627ea89e17774bc65ba54d459ad85804fef1",
     "scope": "paired native.complete/native.finish canonical frozen results; foreign parked predecessor remains debt, not execution takeover"
   },
-  "inventory_observed_utc": "2026-11-16T12:03:08Z",
+  "inventory_observed_utc": "2026-11-16T15:03:10Z",
   "open_issues": 21,
   "open_pull_requests": [
     302,
-    303
+    303,
+    305,
+    306
   ],
   "third_ci": {
     "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
@@ -298,7 +300,8 @@
       "log_sha256": "2fbbc09321a23af306f544231b16e0c43b2d92e54abf85a1359fa35dee074f9e",
       "scope": "Exact existing FiberHandle may finish its dispose barrier after admission closes; failure diagnostics and the Unknown latch remain. This small runtime target actually ran; the complete CLI stop/reopen journey still needs candidate CI.",
       "log_encoding": "gzip; decompresses byte-for-byte to the complete original stdout/stderr log, including its terminal blank line",
-      "compressed_log_sha256": "adc7f6c5a4969346a97148d5159a8ef8c0f6082abc87856a5194036d4e0a0e44"
+      "compressed_log_sha256": "adc7f6c5a4969346a97148d5159a8ef8c0f6082abc87856a5194036d4e0a0e44",
+      "later_actual_runtime": "The complete CLI paused stop/reopen/resume journey passed on 15c CI43886488027; see ci-15cfee0-20261116/observation.json."
     },
     "context_windows": {
       "source_commits": [
@@ -306,36 +309,54 @@
         "071bacb693f17d177853605b605ba7bf9f955d9d"
       ],
       "scope": "Read-only private SQLite/WAL snapshot with active route/selector verification and no live Store::open or source repair. Original context payloads are not read.",
-      "metadata_check": "Store tests and CLI lib passed; actual extended bootstrap/reopen journey awaits candidate CI."
+      "metadata_check": "Store tests and CLI lib passed; actual extended bootstrap/reopen journey awaits candidate CI.",
+      "actual_runtime": "15c reached raw/missing-CAS/active-slot checks, then failed the fixture comparison described in latest_completed_ci. Later Handoff assertions did not execute; bc404ba preserves them for the next CI."
     },
     "ssh_cli_budget": {
       "source_commit": "be08376a557067f7122fe5e7cdfe85581a7e56a7",
       "fixture_wasi_timeout_seconds": 120,
       "fixture_outer_process_timeout_seconds": 180,
       "production_default_timeout_seconds": 60,
-      "scope": "Previous fixture explicitly used 30 seconds. New bounded budget and phase timings retain all protocol assertions and the original deadline semantics. Not an SSH pass; actual candidate execution remains pending."
+      "scope": "The previous fixture explicitly used 30 seconds. All original protocol assertions now actually passed with the explicit 120/180 second fixture limits on 15c. Production default remains 60 seconds. This is one hosted OpenSSH CLI journey, not physical deployment or native task T1/E1/T2 acceptance."
     },
     "canonical_native_arm": {
       "source_commit": "1ae1bbdbe55b2ebd7cb5753285417980705e5f53",
       "documentation": "../development/canonical-native-arming.md",
       "metadata_check_exit_code": 0,
       "metadata_check_seconds": 26.93,
-      "actual_new_journey_executed": false,
-      "scope": "Claimed non-model native T1 only; exact three writes preserve original intent, identities, source commit and timestamp. Prepared/learned recovery cannot issue a fresh execution permit. Foreign parking and missing authoritative task predecessors remain debt."
+      "actual_new_journey_executed": true,
+      "scope": "Claimed non-model native T1 only; exact three writes preserve original intent, identities, source commit and timestamp. Prepared/learned recovery cannot issue a fresh execution permit. Foreign parking and missing authoritative task predecessors remain debt.",
+      "actual_runtime_observation": "ci-15cfee0-20261116/observation.json"
     },
     "reciprocal_star_component": {
       "source_commit": "753868191f31233b549899b187ec720fefd02d11",
       "node_test_metadata_exit_code": 0,
       "cli_lib_metadata_exit_code": 0,
-      "actual_new_journey_executed": false,
-      "scope": "Original preferred coordinator must directly reach every member; follower neighbourhoods may differ. Full ACK, fresh coordinator observations and final admission gates remain. Seven-voter/three-member protocol journey includes a model-free resident; no real SSH star or relay acceptance yet."
+      "actual_new_journey_executed": true,
+      "scope": "Original preferred coordinator must directly reach every member; follower neighbourhoods may differ. Full ACK, fresh coordinator observations and final admission gates remain. Seven-voter/three-member protocol journey includes a model-free resident; no real SSH star or relay acceptance yet.",
+      "actual_runtime_observation": "ci-15cfee0-20261116/observation.json"
     },
-    "new_combined_candidate_runtime_result": "not yet executed",
+    "new_combined_candidate_runtime_result": "15c completed with five passing gates and one failing Store fixture; subsequent local-home provisioning and canonical first-claim changes still await their own CI.",
     "model_runtime_experiment": {
       "source_commit": "de32652d6f1a80237751bbaf95fb474a071963f6",
       "inspection": "single-node-runtime-b12359/observation.json",
       "change": "Explicit FA on, K/V F16 and verbosity 4 for the fixed CPU runtime, with real process/backend observations. Fixed weights, full product prompt, sampling, request/phase deadlines and all success predicates retained.",
-      "actual_experiment_outcome": "not yet run"
+      "actual_experiment_outcome": "Run43885905651 failed after real protocol corrections exhausted context, not the old request timeout; see fourth_real_model_failure."
+    },
+    "local_installation_and_real_component_process": {
+      "source_commit": "0838bb44515bf037676f446400980f2c0ccc8c4b",
+      "metadata_exit_code": 0,
+      "scope": "Record verified local physical-home provisioning without changing imported bootstrap/genesis/origin. Same-installation writer changes retain the original identity. New real seven-SSH-identity/three-Start star journey has not run; no model or physical partition proof.",
+      "documentation": "component-coordination-20261116.md"
+    },
+    "canonical_native_first_claim": {
+      "source_commit": "c8850b1b483ca5a2bfe1f561ac99de70ca5d27fe",
+      "scope_clarification_commit": "0b6c49e4b8b1836396c7225e19d80f71353eae9e",
+      "documentation": "../development/canonical-native-first-claim.md",
+      "metadata_exit_code": 0,
+      "focused_clippy_metadata_exit_code": 0,
+      "actual_new_journey_executed": false,
+      "scope": "Exact first direct-root native delegation from locally materialized canonical S1. S1 may use quorum choice or existing local availability authority; a missing grant is not quorum proof. Current first preparation alone may issue a worker permit after final checks. Prepared/Learned remain factual; foreign Learned also requires a valid chosen claim and local S1 fact. The new eight-window journey covers the grant path only, not a newly executed grant-free or full foreign T1/E1/T2 chain."
     }
   },
   "parallel_integration": {
@@ -346,8 +367,56 @@
     "scope": "Preserve concurrent follower identity/catch-up and canonical capacity fallback, plus boxed model-child spec with unchanged serialization. Preserve this candidate native.arm/native.dispatch recovery and star coordinator observations. Unclassified foreign-key COMMIT failures retain the actual SQLite error and are not assumed to be missing-predecessor debt.",
     "merge_repair": "Restore original stream-terminal equality assertion replacing invalid literal 11: @ours. Keep read_installation_binding crate-visible alongside commit_error.",
     "diagnostic_behavior_change": "One specific cause-report attempt replaces an additional generic Unknown diagnostic for the same failed request. The renamed flag does not claim persistence; fail-soft loss counters, original stream/E1 Unknown, retained guard/quarantine and no redispatch remain. Historical two-report evidence is unchanged.",
-    "actual_integrated_runtime_result": "Broker deadline journey passed at 52c9ce0: 1 passed, 0 failed, 1.24s; relevant source files still match. Full candidate CI pending.",
+    "actual_integrated_runtime_result": "Broker deadline journey passed at 52c9ce0 and the later 15c workspace run retained only the separate context fixture failure. Full subsequent candidate CI still pending.",
     "capacity_report_scope": "Report capture refusal and intended original-plan admission before its result; no premature COMMIT success or durable-journal acknowledgement claim.",
     "broker_observation": "candidate-followups-20261116/broker-deadline-observation.json"
+  },
+  "continuation_pull_request": "https://github.com/cyjin-yl/shenko/pull/305",
+  "parallel_main_observation": {
+    "head_sha": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+    "merged_pr": 304,
+    "status": "main merge is being integrated separately; not yet part of this candidate checkpoint"
+  },
+  "latest_completed_ci": {
+    "head_sha": "15cfee0317a6f0a7c3e088657040531c6fdd8575",
+    "checkout_merge_sha": "7b59a3366df264432c368a8a617aa4f64982ed1d",
+    "run_id": 43886488027,
+    "conclusion": "failure",
+    "jobs": {
+      "kernel-boundary": "success",
+      "docs": "success",
+      "docs-migration": "success",
+      "web": "success",
+      "clippy-ratchet": "success",
+      "rust": "failure"
+    },
+    "observation": "ci-15cfee0-20261116/observation.json",
+    "actual_passes": [
+      "SSH WASI complete CLI installation/authentication/exec/SFTP/refusal journey: 203.75s",
+      "public paused Start/stop/reopen/resume boundary: 1.40s",
+      "reciprocal seven-voter/three-member star Node protocol",
+      "canonical native arm, dispatch, both native T2 journeys and both canonical S1 journeys"
+    ],
+    "only_test_failure": "Store route-inspection fixture included a live activation_selector SELECT inside its zero-touch measurement. Original main/WAL were byte-identical; only SHM offset 104 changed 9 to 20. The original failed result is retained.",
+    "followup_source_commit": "bc404ba821a90628837bbf54f35613476d209aa1",
+    "followup_scope": "Move fixture live reads before its baseline; preserve all exact tuple equality and route/Handoff assertions. New candidate execution is still required."
+  },
+  "fourth_real_model_failure": {
+    "run_id": 43885905651,
+    "head_sha": "da00eb8e35da3ffcb3a1aae2376061d81cc60363",
+    "checkout_merge_sha": "3c4d9e132a498904379c3e9caf7c4066c30135a9",
+    "conclusion": "failure",
+    "observation": "single-node-hosted-43885905651/observation.json",
+    "artifact_id": 14234729067,
+    "artifact_zip_sha256": "f1d5e8a81c5dfe5039caa1bc620daff822c0b4baa3177e1601a726e22ec7ef3a",
+    "original_files_in_complete_zip": 2645,
+    "actual_runtime": "Explicit FA on, f16 K/V, libggml-cpu-icelake.so observed. First 12723-token prefill took 266.679s; 170-token generation took 57.615s. Different observed CPU/backend prevents attributing a speedup solely to the configuration.",
+    "actual_product": "38 main requests and original durable terminals; 444 provider journal chunks and 2 public browser parts. 36 invalid control outputs and 1 incomplete result preceded HTTP400 context rejection at original main terminal seq763. No child, decision, child E1, qualifying output or restart continuation.",
+    "capacity_gaps": [
+      "Actual served meta.n_ctx=16384 was not consumed by top-level-only metadata parsing.",
+      "Protocol correction appended real messages while reusing the initial 14611-token estimate and policy selection; message count grew from 1 to 75.",
+      "Even the first observed 12723 input tokens plus the unchanged 4096-token output reservation exceed 16384; metadata parsing alone does not make this configuration valid."
+    ],
+    "full_single_node_acceptance": false
   }
 }

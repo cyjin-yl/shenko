@@ -127,6 +127,7 @@ impl Store {
         // Run migrations
         crate::migrations::run_migrations(&conn)?;
         conn.execute_batch(crate::authority::SCHEMA)?;
+        conn.execute_batch(crate::local_installation::SCHEMA)?;
 
         let sqlite_version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         let journal_mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;

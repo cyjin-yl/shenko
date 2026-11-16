@@ -25,6 +25,19 @@
 
 `/home` 是运行时声明的持久家园，`/memory` 是记忆边界；二者不能因重新打开数据库、改变 writer ledger 身份或复制目录而指向另一安装。安装、主体、分支、软件代际、写入者与一次调用各有自己的身份，不能互相代替。
 
+本地 home 准备与读回成功后，seed 把完整 manifest 封入 CAS，并由 Store 的
+`local_installation_provisioning` 保存初次安装 ID、对象引用和本地提交收据。
+接收 peer 的主体 genesis 保留源安装身份；只有精确匹配源 genesis/ledger 的
+导入来源，才能把该主体的安装元数据投影到本机已验证的 provisioning。该记录
+不进入 peer archive 或 canonical Store 行转换，不赋予主体选择、主节点或执行权限。
+同安装的 SQLite 槽位备份保留它，后续兼容的能力声明升级保留初始证据。
+
+`tool exec` 在同一个只读数据库快照中取得本地主体绑定和稳定安装 ID，并通过
+已有 CAS 校验 provisioning 或旧 bootstrap 证据；不会为 inspection 初始化 CAS、
+迁移数据库或准备 home。当前 manifest 仍必须通过原挂载路径、ready marker、
+运行时与能力声明检查。这个稳定 ID 修复不扩展该命令现有固定根数据库的 slot
+路由范围，不能替代 active selector/route 的完整验证。
+
 ## 挂载声明与实际能力
 
 `MountSpec` 明确记录宿主 `source`、客体 `guest_path`、模式、持久性、版本化属性，以及 COW 的 `workspace`、`branch` 和独立写权限 `writable`。

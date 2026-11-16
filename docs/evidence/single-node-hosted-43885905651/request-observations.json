@@ -1,0 +1,4565 @@
+{
+  "schema_version": 1,
+  "scope": "Derived from all original request attempts, raw result CAS, input CAS and stream terminals; does not add or replace any terminal. SHA-256 and byte lengths verified; ObjectRef BLAKE3 values are preserved as recorded, not independently recomputed.",
+  "requests": [
+    {
+      "ordinal": 1,
+      "request_id": "2ab074f8-1f55-4b57-8901-2ef434160247",
+      "attempt_id": "7513e552-4f60-489f-993b-b0843c6b3e51",
+      "step_id": "584da021-4418-42a4-b638-3d7fc4b5c0e1",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 15
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 106
+      },
+      "input_plan_ref": {
+        "digest": "blake3:307731f67ac9e6f78c20ad25f80fc7532cd290263680e1cf0e07830331c2cf6d",
+        "bytes": 56953,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/30/77/307731f67ac9e6f78c20ad25f80fc7532cd290263680e1cf0e07830331c2cf6d",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 13,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "94813d348d53c41af64ac0e6b0bd7b7474d4fb40f2958a2e30bc944c464632ff",
+      "result_ref": {
+        "digest": "blake3:dbd17ccf8e8f4b13a7351f6c629819cf97d28fa5eb68982670a3a2312cb1e0f4",
+        "bytes": 48571,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/db/d1/dbd17ccf8e8f4b13a7351f6c629819cf97d28fa5eb68982670a3a2312cb1e0f4",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "baac7da01dc278a16bc7a889f9ae81b3fea396358ea4b28ca0f9007108b470b2",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 170,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 12723,
+        "output_tokens": 170,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": null
+      },
+      "content": "[delegate:claude.seat:1] {\"command\":[\"claude\",\"-p\",\"Qwen3-0.6B-Q4_K_M\"],\"seat_id\":\"pre-selected seat 1234567890\",\"lease_id\":\"pre-selected lease 1234567890\",\"lease_epoch\":1,\"fence_capability\":\"claude.control:<session-anchor>\"} 开启并挂接 Qwen3-0.6B-Q4_K_M 有限模型 child。\n\n[delegate:web_ui] {\"op\":\"list\",\"limit\":1} —— 等待两个任务实际返回结果。\n\n[wait:end] —— 当前等待结束。现在在正文中报告计算结果和原样回显的标记，不模拟执行，也不提前宣称成功。",
+      "stream_summary": {
+        "events": 169,
+        "batches": 169,
+        "public_chunks": 2,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 84,
+      "journal_terminal": {
+        "stream_id": "provider/2ab074f8-1f55-4b57-8901-2ef434160247",
+        "seq": 84,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 170,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 104
+      },
+      "payload_message_count": 1,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 13
+    },
+    {
+      "ordinal": 2,
+      "request_id": "9e3d594b-3b90-4ed2-8d01-490977847d83",
+      "attempt_id": "e54131e0-315f-4d4c-a9cf-4bd7b969130a",
+      "step_id": "2ce724c4-4bfa-4485-9702-42eb1f015ade",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 109
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 124
+      },
+      "input_plan_ref": {
+        "digest": "blake3:f6a0e72863b886309a7ee9ee32a2fb5a80a67e5f6c537369a099ee71c7a9a36c",
+        "bytes": 57923,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/f6/a0/f6a0e72863b886309a7ee9ee32a2fb5a80a67e5f6c537369a099ee71c7a9a36c",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "988c873727816203b90170ce939ec540c832a3c7a84290e0d88b691c64f16496",
+      "result_ref": {
+        "digest": "blake3:4785b1cce5959222c7eea65407759911dea9d7de75914da44b11db3ba5ba25ac",
+        "bytes": 7627,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/47/85/4785b1cce5959222c7eea65407759911dea9d7de75914da44b11db3ba5ba25ac",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "47d15b21589793037c9fd947baf8ce04644217991e4b1d8a472a74091b321106",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 12969,
+        "output_tokens": 21,
+        "cache_read_tokens": 12719,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/9e3d594b-3b90-4ed2-8d01-490977847d83",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 122
+      },
+      "payload_message_count": 3,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 3,
+      "request_id": "cb15154d-f886-45c7-80e6-1f7a6d243b4d",
+      "attempt_id": "2b4f26e6-bb43-4074-9c6a-28484b470e71",
+      "step_id": "5f93c2cd-9efa-48b1-850b-e14d3dec3458",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 127
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 142
+      },
+      "input_plan_ref": {
+        "digest": "blake3:1a7b449073b98396ff8535e719429e32c46a5a9e7ad77b6649e27bb2e820d352",
+        "bytes": 58433,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/1a/7b/1a7b449073b98396ff8535e719429e32c46a5a9e7ad77b6649e27bb2e820d352",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "b579b81e45692b9d0d771191ebdb9e23bc8b338570246a67b0853e08661eb3f5",
+      "result_ref": {
+        "digest": "blake3:2a6bfa2dfe13a6ebe2c001a267a930090c3ea06970d1d54c1a53519da327901c",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2a/6b/2a6bfa2dfe13a6ebe2c001a267a930090c3ea06970d1d54c1a53519da327901c",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "84f70ba19c3d169fd9eafd96252ef5fc10581180c3fca7bc5529ef044d176a66",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13066,
+        "output_tokens": 21,
+        "cache_read_tokens": 12965,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/cb15154d-f886-45c7-80e6-1f7a6d243b4d",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 140
+      },
+      "payload_message_count": 5,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 4,
+      "request_id": "d8676f0f-c3fd-42bf-a569-69b4100bb4db",
+      "attempt_id": "1707d174-1a96-4af8-82c9-620db407d395",
+      "step_id": "81a91921-acb2-4aaf-b98f-a0affc486986",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 145
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 160
+      },
+      "input_plan_ref": {
+        "digest": "blake3:e23651d8be0df5219ed90e0b3354cfdf133dc9f3f08232ea2614e2ebbd81fc3c",
+        "bytes": 58943,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/e2/36/e23651d8be0df5219ed90e0b3354cfdf133dc9f3f08232ea2614e2ebbd81fc3c",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "a654305298777f23340ba554d3c328da39300608b8429df4e51f6bdc96e40150",
+      "result_ref": {
+        "digest": "blake3:22bc5e7f463076a121173e5c196e3b0ad4038055e9e779d4965ba5cb0d166038",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/22/bc/22bc5e7f463076a121173e5c196e3b0ad4038055e9e779d4965ba5cb0d166038",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "78a0012a3c182c154e60f0154f8297f9d6f2033d16ce16a97d00711b2fafcf67",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13163,
+        "output_tokens": 21,
+        "cache_read_tokens": 13062,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/d8676f0f-c3fd-42bf-a569-69b4100bb4db",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 158
+      },
+      "payload_message_count": 7,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 5,
+      "request_id": "c9e82be9-ac44-435b-9298-c9270019c3e0",
+      "attempt_id": "b7d9d971-2540-4b45-955a-dae27d67617a",
+      "step_id": "2d325928-e654-4773-9f8c-695c2f38a38d",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 163
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 178
+      },
+      "input_plan_ref": {
+        "digest": "blake3:8fff00ec9633cdd968ec9f0e46c4de66d23827cd452e1564bcfdbf95e9a7de24",
+        "bytes": 59453,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/8f/ff/8fff00ec9633cdd968ec9f0e46c4de66d23827cd452e1564bcfdbf95e9a7de24",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "8786b4667333c35d613ce7cbefed73743b00cd403b9d5540758357116848edc0",
+      "result_ref": {
+        "digest": "blake3:43883852d688fae1528d0561655379591ce38e40433bfc4d64ab1aaa7e372485",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/43/88/43883852d688fae1528d0561655379591ce38e40433bfc4d64ab1aaa7e372485",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "e1ac89003110f702547cf2525969273635f590275ed41c69b7a3f1713cf48180",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13260,
+        "output_tokens": 21,
+        "cache_read_tokens": 13159,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/c9e82be9-ac44-435b-9298-c9270019c3e0",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 176
+      },
+      "payload_message_count": 9,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 6,
+      "request_id": "b6e1c452-9db6-47e8-a26d-112cf9eef392",
+      "attempt_id": "07cc0e34-52cd-4b55-b68a-8ad8ac21c765",
+      "step_id": "068b724c-9c43-4258-a7a3-4ca22850b21b",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 181
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 196
+      },
+      "input_plan_ref": {
+        "digest": "blake3:c3e8f5a6b1806016fe2f395370edfbe8b83d9731e06ca7ff75020146df853b83",
+        "bytes": 59963,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/c3/e8/c3e8f5a6b1806016fe2f395370edfbe8b83d9731e06ca7ff75020146df853b83",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "ea78afa44298499182185fe26b22532c8347e289a9963f44a4953e35cd64f581",
+      "result_ref": {
+        "digest": "blake3:746ec62dc15c712d23c5e6d95450ba1ea70e91d207cc7c7a854d2f6dfe32ef65",
+        "bytes": 7625,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/74/6e/746ec62dc15c712d23c5e6d95450ba1ea70e91d207cc7c7a854d2f6dfe32ef65",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "e8800d50e46eced8de2d486dd8feb07e1cd10db2ccfae34fb7c4460eb2ded899",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13357,
+        "output_tokens": 21,
+        "cache_read_tokens": 13256,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/b6e1c452-9db6-47e8-a26d-112cf9eef392",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 194
+      },
+      "payload_message_count": 11,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 7,
+      "request_id": "ff266d33-a860-42c5-a081-ae2c7b2ab226",
+      "attempt_id": "e8b9da05-6e7f-4523-9902-d13b21916a5a",
+      "step_id": "4d278709-1247-470c-97f8-2fc4bbfdc7fb",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 199
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 214
+      },
+      "input_plan_ref": {
+        "digest": "blake3:35cfb7ca282274b89c48b17890e5e862e96dba2ab0a107b9a31f48fdf6db3210",
+        "bytes": 60473,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/35/cf/35cfb7ca282274b89c48b17890e5e862e96dba2ab0a107b9a31f48fdf6db3210",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "9ecb1ed7bf90b12091c878d1408083c8e8f1e66e44b274e8cde21c4c71d9754a",
+      "result_ref": {
+        "digest": "blake3:537006a802d2991c9d8df69a76b468b609dd4192da5a7a193fe54ba3b4c676f1",
+        "bytes": 7626,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/53/70/537006a802d2991c9d8df69a76b468b609dd4192da5a7a193fe54ba3b4c676f1",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "751abc0344edfe6f6c1d2c43e7aee6c296d800eb77f020325e78a62f08854cef",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13454,
+        "output_tokens": 21,
+        "cache_read_tokens": 13353,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/ff266d33-a860-42c5-a081-ae2c7b2ab226",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 212
+      },
+      "payload_message_count": 13,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 8,
+      "request_id": "381c781d-6aca-49b6-a76b-3625a3d933b6",
+      "attempt_id": "84550a55-7d66-4e4f-ab73-8f08d6f7984e",
+      "step_id": "6a84d4ac-8119-4374-859d-8647279b485b",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 217
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 232
+      },
+      "input_plan_ref": {
+        "digest": "blake3:2ce66d2aefd4d02fbf8a9ccf8148c080e74149d7e42389ec27f7b1c4dd51cfb4",
+        "bytes": 60983,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2c/e6/2ce66d2aefd4d02fbf8a9ccf8148c080e74149d7e42389ec27f7b1c4dd51cfb4",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "ea150a3d88c49ecb22f51326a75d44d68e3c56102564303fb2c5cd833b17552b",
+      "result_ref": {
+        "digest": "blake3:25b3080f2227b3d77ea8470dc066ab927bbc9dbf19d0863d442b6818b27afb12",
+        "bytes": 7617,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/25/b3/25b3080f2227b3d77ea8470dc066ab927bbc9dbf19d0863d442b6818b27afb12",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "3bdd615379fb565876502a5da347202e0b8dcb3107fa22173071980954562ca8",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13551,
+        "output_tokens": 21,
+        "cache_read_tokens": 13450,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/381c781d-6aca-49b6-a76b-3625a3d933b6",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 230
+      },
+      "payload_message_count": 15,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 9,
+      "request_id": "61a8ffe1-32d5-41d4-be31-739e8b59fcb0",
+      "attempt_id": "5016bb0e-f7f0-43ef-92da-1d1f19e78ed0",
+      "step_id": "bd9aa6c9-2a05-4511-afc6-a3c0cfef1b2b",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 235
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 250
+      },
+      "input_plan_ref": {
+        "digest": "blake3:589c4c242d3239dc5e3453359253e10c784a8e3951693a108a124dff88ffb911",
+        "bytes": 61493,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/58/9c/589c4c242d3239dc5e3453359253e10c784a8e3951693a108a124dff88ffb911",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "7cdf2210de5365d59db688b176e4ac38e804f6a9c5c9854413ea9c99e7aa38aa",
+      "result_ref": {
+        "digest": "blake3:85ec84464abd04f18c2e9460885964da99a122b66a6713273f3ccfdfc5ad38ec",
+        "bytes": 7609,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/85/ec/85ec84464abd04f18c2e9460885964da99a122b66a6713273f3ccfdfc5ad38ec",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "a81f4a1baff0c893e65e0e29f86da0449fefa359e9719068acb84b12590c11cc",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13648,
+        "output_tokens": 21,
+        "cache_read_tokens": 13547,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/61a8ffe1-32d5-41d4-be31-739e8b59fcb0",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 248
+      },
+      "payload_message_count": 17,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 10,
+      "request_id": "7478c54c-4cb3-45af-adf1-dcfbdeb01cee",
+      "attempt_id": "2b2ca403-1ad6-42d1-a9a9-6b1143e6ecc8",
+      "step_id": "25cc576f-fe05-48b3-86e6-141db644d94e",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 253
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 268
+      },
+      "input_plan_ref": {
+        "digest": "blake3:9ba4533cd6eabc041118b6c58880806203fcabad6de6376f1b7bfa5d5fcc8e1f",
+        "bytes": 62003,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/9b/a4/9ba4533cd6eabc041118b6c58880806203fcabad6de6376f1b7bfa5d5fcc8e1f",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "46f8be4e6df9de3c07c490cb9c64b5b14f19c55c1e27ebea5a58edbdc9c0834f",
+      "result_ref": {
+        "digest": "blake3:2a1344dbcee554709c22af4735d00dae957eee76eca31fae2ab5fb7f20e7c399",
+        "bytes": 7614,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2a/13/2a1344dbcee554709c22af4735d00dae957eee76eca31fae2ab5fb7f20e7c399",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "592c57b2375a5ad0ffe6c5b2e7ba79a2e595bcb3dbdbf25aefef22a27cc581d6",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13745,
+        "output_tokens": 21,
+        "cache_read_tokens": 13644,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/7478c54c-4cb3-45af-adf1-dcfbdeb01cee",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 266
+      },
+      "payload_message_count": 19,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 11,
+      "request_id": "f02ba4d0-d777-44c0-bca9-340c5c3912c3",
+      "attempt_id": "152eee71-d4f8-40f9-9510-2de40b44a5bf",
+      "step_id": "0dd6ce38-3dfb-40d6-959e-8e236bd00b46",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 271
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 286
+      },
+      "input_plan_ref": {
+        "digest": "blake3:b6861cda7f7eeb9aeda725e0bf080fc56b3b3e23fb172422bc038618225de81f",
+        "bytes": 62513,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/b6/86/b6861cda7f7eeb9aeda725e0bf080fc56b3b3e23fb172422bc038618225de81f",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "626e62792698d8ee8435243cea2f1c8d68047d9ccb4584112081d08b1d27c3be",
+      "result_ref": {
+        "digest": "blake3:4428782d0b0b7b612490ad15a8ea83fb5783f02015251152fec5284fb8068d7f",
+        "bytes": 7625,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/44/28/4428782d0b0b7b612490ad15a8ea83fb5783f02015251152fec5284fb8068d7f",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "1e11e10968e9879cc3af5f5e8ad3406dd1f84dbd114137234d7b460e9e8cdd50",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13842,
+        "output_tokens": 21,
+        "cache_read_tokens": 13741,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/f02ba4d0-d777-44c0-bca9-340c5c3912c3",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 284
+      },
+      "payload_message_count": 21,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 12,
+      "request_id": "1c0bdfd4-84ba-42e1-a693-c9570e23c49a",
+      "attempt_id": "c3741d68-d2e5-4a7d-8ee7-67832452a587",
+      "step_id": "26d6cb46-db56-4a11-9f72-bb3959a8d84b",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 289
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 304
+      },
+      "input_plan_ref": {
+        "digest": "blake3:f7bde6cdbe6e68a2d821e7368db7b27501eb21cd26cfa7ca9dac15997002967d",
+        "bytes": 63023,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/f7/bd/f7bde6cdbe6e68a2d821e7368db7b27501eb21cd26cfa7ca9dac15997002967d",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "e8da2545fa6678e19b40f357642fadb943b3452a025068557f4ccf37c86da27e",
+      "result_ref": {
+        "digest": "blake3:69fa40fd7a02c7920cde398c17d6b4ff5d1860a7baf5bdd6accd7733a65d56a7",
+        "bytes": 7615,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/69/fa/69fa40fd7a02c7920cde398c17d6b4ff5d1860a7baf5bdd6accd7733a65d56a7",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "f08a0e76bcd3b57a399c5865f522ce68966a9c83629d59c02d24b09d435c63ea",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 13939,
+        "output_tokens": 21,
+        "cache_read_tokens": 13838,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/1c0bdfd4-84ba-42e1-a693-c9570e23c49a",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 302
+      },
+      "payload_message_count": 23,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 13,
+      "request_id": "be49433c-a53c-4133-8567-388bcaa11e48",
+      "attempt_id": "3f62aeab-3a81-4b26-a47c-053d896e3ba5",
+      "step_id": "6726df75-5be2-4e08-b7b8-49bb09951f20",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 307
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 322
+      },
+      "input_plan_ref": {
+        "digest": "blake3:b790dbfe6a65db3166e5ae967185e242630bdb93039daa64deaced7d56532b5d",
+        "bytes": 63533,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/b7/90/b790dbfe6a65db3166e5ae967185e242630bdb93039daa64deaced7d56532b5d",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "d843986f433f428f2f6c7df59e58c4601b344a8dd62bc927d46718698417d451",
+      "result_ref": {
+        "digest": "blake3:21cad178a3352ef5256bd4eb2746ac87b1d0cfe2f66c8da5d92eb3440b0b6030",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/21/ca/21cad178a3352ef5256bd4eb2746ac87b1d0cfe2f66c8da5d92eb3440b0b6030",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "3339c099cdfa6c84ea2787e6e61772399804a9177c340e12e317dea251d6a831",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14036,
+        "output_tokens": 21,
+        "cache_read_tokens": 13935,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/be49433c-a53c-4133-8567-388bcaa11e48",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 320
+      },
+      "payload_message_count": 25,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 14,
+      "request_id": "d91d9f66-9bb2-4aac-87bc-a85a593797f8",
+      "attempt_id": "0aab652f-f77e-4a36-bdc0-44b6728de574",
+      "step_id": "e60c1588-c0b5-4d23-8352-5945797944ce",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 325
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 340
+      },
+      "input_plan_ref": {
+        "digest": "blake3:e19e1d713fcbe7c9686a83683c44580224357ed8074b654fadfef6c537fb8922",
+        "bytes": 64043,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/e1/9e/e19e1d713fcbe7c9686a83683c44580224357ed8074b654fadfef6c537fb8922",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "d8772dcf79292aed149d20f4b895c1da0d0925d1729168e514dc483890fa45c1",
+      "result_ref": {
+        "digest": "blake3:b9f6536432b9d71a0ad4503b53a88ea6d8ed1d844812ed3e139ea06f296b07f3",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/b9/f6/b9f6536432b9d71a0ad4503b53a88ea6d8ed1d844812ed3e139ea06f296b07f3",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "ed4dd1e31c33c1629597d31e9b3cf45d9bc62f72bb72a1b5c5dee710ce9f021f",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14133,
+        "output_tokens": 21,
+        "cache_read_tokens": 14032,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/d91d9f66-9bb2-4aac-87bc-a85a593797f8",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 338
+      },
+      "payload_message_count": 27,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 15,
+      "request_id": "46c8cfe0-10af-4d37-a2a8-7104496b1685",
+      "attempt_id": "9e59ea26-d8a6-44d6-a810-944248a1c8d1",
+      "step_id": "990dd65e-9f6c-4a67-9f52-b21f6630665b",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 343
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 358
+      },
+      "input_plan_ref": {
+        "digest": "blake3:19aaf92ae7ed0a4fa533dfe27a4932653776ae16e2b5cdb99a14254fe0ed6df1",
+        "bytes": 64553,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/19/aa/19aaf92ae7ed0a4fa533dfe27a4932653776ae16e2b5cdb99a14254fe0ed6df1",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "f6b895e1b083c5478360d82469b02b652fe899de7600d2b38083fe96d8f6564a",
+      "result_ref": {
+        "digest": "blake3:d807f8ded91a3074aa14fd791d56ec21840d320c98ace76cfe7fb021427314d4",
+        "bytes": 7625,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/d8/07/d807f8ded91a3074aa14fd791d56ec21840d320c98ace76cfe7fb021427314d4",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "70020f7bafb5f8fdc6e2cdcff1e5d05ea0708cbc24127cfd1a0b26f33fc38f8e",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14230,
+        "output_tokens": 21,
+        "cache_read_tokens": 14129,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/46c8cfe0-10af-4d37-a2a8-7104496b1685",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 356
+      },
+      "payload_message_count": 29,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 16,
+      "request_id": "b5df6d53-1fcc-49d2-bcf9-bfd9a8008052",
+      "attempt_id": "083d91fe-d894-4a1c-995c-7f547245d2cc",
+      "step_id": "f8205602-cf21-48f8-972a-8e3f26a31965",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 361
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 376
+      },
+      "input_plan_ref": {
+        "digest": "blake3:3d74ec4384162eb352651ee287a1380fcb76bdcc0de351b8e64a8c0c65f0ff4d",
+        "bytes": 65063,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/3d/74/3d74ec4384162eb352651ee287a1380fcb76bdcc0de351b8e64a8c0c65f0ff4d",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "f45bdaac49f6341f19b788dbad6e5fb81a58177979f4cf82f2bceb9dd93345f2",
+      "result_ref": {
+        "digest": "blake3:74f82c530fcf6f318f730fb35f85b3133609268e5328e3bf83c12fce4741b73b",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/74/f8/74f82c530fcf6f318f730fb35f85b3133609268e5328e3bf83c12fce4741b73b",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "b234d4b78337be4ea02a4335c339602898eafd539294ee3409e6c6ca56ab10fa",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14327,
+        "output_tokens": 21,
+        "cache_read_tokens": 14226,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/b5df6d53-1fcc-49d2-bcf9-bfd9a8008052",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 374
+      },
+      "payload_message_count": 31,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 17,
+      "request_id": "be4b3617-883d-436d-8d02-ff0336ffdf6b",
+      "attempt_id": "2b97d38d-1d7c-48ad-9aee-d5e5802e0b67",
+      "step_id": "5c1b7684-2c03-4327-8f8d-d9af9668ddca",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 379
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 394
+      },
+      "input_plan_ref": {
+        "digest": "blake3:cc71b844a1f23d35dcf8f2d0f777ffeb046ae8ec1e0a18b50bb5efe6931fab0f",
+        "bytes": 65573,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/cc/71/cc71b844a1f23d35dcf8f2d0f777ffeb046ae8ec1e0a18b50bb5efe6931fab0f",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "c3211c0de4c7cd35f767e970284e14986c3e0471f0184fcdf5a222c4770055c0",
+      "result_ref": {
+        "digest": "blake3:31b562f36bdc75382f8c9b126c3c6a78ba5232a490db5a7a37be9cf79cd3fdb2",
+        "bytes": 7614,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/31/b5/31b562f36bdc75382f8c9b126c3c6a78ba5232a490db5a7a37be9cf79cd3fdb2",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "a1df656fd4cff8232160dd9ce79f9602d48a74ab70b614c7284cb032600e022f",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14424,
+        "output_tokens": 21,
+        "cache_read_tokens": 14323,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/be4b3617-883d-436d-8d02-ff0336ffdf6b",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 392
+      },
+      "payload_message_count": 33,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 18,
+      "request_id": "ca193a58-318a-4b11-975d-1a0df3e0e0af",
+      "attempt_id": "a8c370b8-898d-4fc2-9855-c3496d9ccf50",
+      "step_id": "bf4ec470-15e6-4389-acfe-7b42d09b7174",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 397
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 412
+      },
+      "input_plan_ref": {
+        "digest": "blake3:eca6192724b1d799f8719a3b5a3393f938676044eec980bd76c453ee7634e520",
+        "bytes": 66083,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/ec/a6/eca6192724b1d799f8719a3b5a3393f938676044eec980bd76c453ee7634e520",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "24b266cf68d2633ce122d39f87065c92aa6d4af853d9386075a23e72c54fb41f",
+      "result_ref": {
+        "digest": "blake3:e778e6c3a3a8039fd4e9e3431ab3c0b01633608ff2b9d980990c18f4e742e1b0",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/e7/78/e778e6c3a3a8039fd4e9e3431ab3c0b01633608ff2b9d980990c18f4e742e1b0",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "638f2a17c84222e36b26024741c62cc4a10277541cb273144096c0f2a94a5bd2",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14521,
+        "output_tokens": 21,
+        "cache_read_tokens": 14420,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/ca193a58-318a-4b11-975d-1a0df3e0e0af",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 410
+      },
+      "payload_message_count": 35,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 19,
+      "request_id": "c690b9b4-db35-4b7c-83d0-3504eff35841",
+      "attempt_id": "5bd730e0-acac-48e2-ab2f-cb4417e81d75",
+      "step_id": "ea15190d-0184-4f66-9046-b13e3c58a8d9",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 415
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 430
+      },
+      "input_plan_ref": {
+        "digest": "blake3:2c0de7aa197f4408a051adcbc125dc4edcaa2e7a07e900ab9e354346f966cfcc",
+        "bytes": 66593,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2c/0d/2c0de7aa197f4408a051adcbc125dc4edcaa2e7a07e900ab9e354346f966cfcc",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "09ccd316eb5cf7aa460467fa1c09a70502aad882bf098c601fb6d11352cf74ce",
+      "result_ref": {
+        "digest": "blake3:32acb6f1940829ba3eb95518da4906f27329489876afd3fcda556b5c386076f6",
+        "bytes": 7625,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/32/ac/32acb6f1940829ba3eb95518da4906f27329489876afd3fcda556b5c386076f6",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "e60d4955b2ef7a71e25f833c6afa8fcbd6f2f2607e5259c3885ddf346bec1ad3",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14618,
+        "output_tokens": 21,
+        "cache_read_tokens": 14517,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/c690b9b4-db35-4b7c-83d0-3504eff35841",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 428
+      },
+      "payload_message_count": 37,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 20,
+      "request_id": "c3d02465-3a55-4c81-bd3c-a183a04739dd",
+      "attempt_id": "5cfe9858-216e-4e65-95d8-bb1ed2a010ac",
+      "step_id": "a5131273-7a1f-4b58-8440-c1fb6b138c50",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 433
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 448
+      },
+      "input_plan_ref": {
+        "digest": "blake3:36210eb326a2d950fe5d7ea9ca049ef167cbe34fccf0f25586892446c9b33bbc",
+        "bytes": 67103,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/36/21/36210eb326a2d950fe5d7ea9ca049ef167cbe34fccf0f25586892446c9b33bbc",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "288688feb5f87ce2ec63a72d5874b474cc2a232e3dcacae0a381579263434522",
+      "result_ref": {
+        "digest": "blake3:335bae2110c623f24feb9ad582f5cba31557e658ccdd5deb97194859ed1b4652",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/33/5b/335bae2110c623f24feb9ad582f5cba31557e658ccdd5deb97194859ed1b4652",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "4b8e9eb891a233effdea68dbd92a8e80cbb82bf44f2b130e3663b7659c1465bb",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14715,
+        "output_tokens": 21,
+        "cache_read_tokens": 14614,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/c3d02465-3a55-4c81-bd3c-a183a04739dd",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 446
+      },
+      "payload_message_count": 39,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 21,
+      "request_id": "e1ef5a73-5315-455e-bc19-f25f8c2070e0",
+      "attempt_id": "f941718f-ad8d-41e4-811b-478a6f1dc495",
+      "step_id": "5d24d0bb-8d0e-4188-b3d1-fbf6acab1bd7",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 451
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 466
+      },
+      "input_plan_ref": {
+        "digest": "blake3:19705e17ec2102a958a2ff9c19014fef7ef442aaee22151e68247112bbd68bca",
+        "bytes": 67613,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/19/70/19705e17ec2102a958a2ff9c19014fef7ef442aaee22151e68247112bbd68bca",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "a3e594fcd485d7641f8ff68562204af8ccd9c7c2a7b3510975c5bc8eb04982a7",
+      "result_ref": {
+        "digest": "blake3:04ffb82af00acb5c6be99b59854c19d8b335facec6b0d6d570b76379edca56e6",
+        "bytes": 7624,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/04/ff/04ffb82af00acb5c6be99b59854c19d8b335facec6b0d6d570b76379edca56e6",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "a4edfd5bdfc60c9c6af3fbd5bd3e57176dbc1849d8ae5b155396fa2850dfa473",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14812,
+        "output_tokens": 21,
+        "cache_read_tokens": 14711,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/e1ef5a73-5315-455e-bc19-f25f8c2070e0",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 464
+      },
+      "payload_message_count": 41,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 22,
+      "request_id": "448ac8b2-87ab-4757-b451-7935ae5243b3",
+      "attempt_id": "75548bd4-fe70-4b2c-936e-fe122a007c80",
+      "step_id": "4028c214-5ddc-40ba-a7a3-20bbcb154ee0",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 469
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 484
+      },
+      "input_plan_ref": {
+        "digest": "blake3:29e752fa20d716687fe440f02081b1adac7513044980c2cbe23cc24d7ab8352f",
+        "bytes": 68123,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/29/e7/29e752fa20d716687fe440f02081b1adac7513044980c2cbe23cc24d7ab8352f",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "22af49f7496d62a232c37ecd402f18c00a40338aeac3635d70696ba9270762e0",
+      "result_ref": {
+        "digest": "blake3:2a7a3d005905d960cfb4302e3303c94f291ade0686b43ddaf0710d319ea7567e",
+        "bytes": 7626,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2a/7a/2a7a3d005905d960cfb4302e3303c94f291ade0686b43ddaf0710d319ea7567e",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "4bb0063aad708f0df5631fe3180e4d6309595a960d9367632e907b41fff6bc41",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 14909,
+        "output_tokens": 21,
+        "cache_read_tokens": 14808,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/448ac8b2-87ab-4757-b451-7935ae5243b3",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 482
+      },
+      "payload_message_count": 43,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 23,
+      "request_id": "6074240d-b3de-4766-970e-6b4708737b03",
+      "attempt_id": "301315b7-797d-44f9-8e91-e0510069ed69",
+      "step_id": "a1b9ff43-4ddc-4e14-a981-5496d66f7cf8",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 487
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 502
+      },
+      "input_plan_ref": {
+        "digest": "blake3:9b07b3c85dccfcb45a87c5eb4bd89954396c31346e9fcc546bc01d9551807673",
+        "bytes": 68633,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/9b/07/9b07b3c85dccfcb45a87c5eb4bd89954396c31346e9fcc546bc01d9551807673",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "d7addf5afeb1660cc8db73a2294e44f220932a84373fb0febd60e9d38de7befe",
+      "result_ref": {
+        "digest": "blake3:7844fa4df6c2d3cd70e2ff103f4451e15d95fd2fdc4e6eb42e7f8269b3b2d73c",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/78/44/7844fa4df6c2d3cd70e2ff103f4451e15d95fd2fdc4e6eb42e7f8269b3b2d73c",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "168ddcb1798813af1f42c5d9ff66dd0bc1d983aecaf84542db37521e4542b2bc",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15006,
+        "output_tokens": 21,
+        "cache_read_tokens": 14905,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/6074240d-b3de-4766-970e-6b4708737b03",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 500
+      },
+      "payload_message_count": 45,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 24,
+      "request_id": "936cb2ad-46cd-4763-b7e6-2256dcb7d7b8",
+      "attempt_id": "4f3b47da-0119-4414-80d1-eb8f185152e5",
+      "step_id": "212e3bf8-88c6-4f48-97c4-fffde2de79aa",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 505
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 520
+      },
+      "input_plan_ref": {
+        "digest": "blake3:16242c5c8df2ee968e9097e48e9a7058d4c8952a6e3184ae18553eeefb568886",
+        "bytes": 69143,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/16/24/16242c5c8df2ee968e9097e48e9a7058d4c8952a6e3184ae18553eeefb568886",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "89adf61de82895e246375c9330eb642735b693ada6eb19c21fc02521743ef7d5",
+      "result_ref": {
+        "digest": "blake3:5fb71f6d47a90f9043fce6adbea6a30604afc0386fa2ab533ef69409f8c84449",
+        "bytes": 7626,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/5f/b7/5fb71f6d47a90f9043fce6adbea6a30604afc0386fa2ab533ef69409f8c84449",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "44e75d23790658533953e77aaf0fbba043b44ad7a575024ad6a2f81e32bae48e",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15103,
+        "output_tokens": 21,
+        "cache_read_tokens": 15002,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/936cb2ad-46cd-4763-b7e6-2256dcb7d7b8",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 518
+      },
+      "payload_message_count": 47,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 25,
+      "request_id": "9f66e8ae-8ee8-4255-81b8-c14fc258d8cd",
+      "attempt_id": "f04d32d6-ca32-42dc-983d-0b7d52e78ff6",
+      "step_id": "e35f02b5-5463-4650-8ebb-fc784c80a02c",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 523
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 538
+      },
+      "input_plan_ref": {
+        "digest": "blake3:f0d13b10ff1be8b8b2809a7bf096cae905ee88f353652f0730ab1b8b19f2a8c0",
+        "bytes": 69653,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/f0/d1/f0d13b10ff1be8b8b2809a7bf096cae905ee88f353652f0730ab1b8b19f2a8c0",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "0671b244b659e598eb3ec8b21f0eded4526f13769da431578bfa20039462e549",
+      "result_ref": {
+        "digest": "blake3:bc65c5ce8b05ce553a3131951294b7878662330430cdcec6130ed6a0f5fa6890",
+        "bytes": 7615,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/bc/65/bc65c5ce8b05ce553a3131951294b7878662330430cdcec6130ed6a0f5fa6890",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "1af028d5973f0d917578baf3f81a21ae3c2fbf2596891f9fc0898fe2ebb557c9",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15200,
+        "output_tokens": 21,
+        "cache_read_tokens": 15099,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/9f66e8ae-8ee8-4255-81b8-c14fc258d8cd",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 536
+      },
+      "payload_message_count": 49,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 26,
+      "request_id": "07951618-96bb-48b2-889d-dfce50aaa15e",
+      "attempt_id": "bd3d5756-7be0-42c5-b0d3-04942210aa15",
+      "step_id": "95a3b0ee-7eac-494f-b49b-da3ad35afd5a",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 541
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 556
+      },
+      "input_plan_ref": {
+        "digest": "blake3:d63993191eed8065b02e1bd467491ba7d2ed94e56c93973bbd8efa944308dc14",
+        "bytes": 70163,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/d6/39/d63993191eed8065b02e1bd467491ba7d2ed94e56c93973bbd8efa944308dc14",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "5ad35b27d878c35cb36bfa892c4a7284b0e760eecc31981593306b04584433ec",
+      "result_ref": {
+        "digest": "blake3:b3f05013cb5a0792dad3dc0986f5916d468531dae1a0f0518c3b628a2677cd44",
+        "bytes": 7614,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/b3/f0/b3f05013cb5a0792dad3dc0986f5916d468531dae1a0f0518c3b628a2677cd44",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "e14808962bdfc523192119ee6d51d7866f1419ba887b3ac250e915f59c9758a8",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15297,
+        "output_tokens": 21,
+        "cache_read_tokens": 15196,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/07951618-96bb-48b2-889d-dfce50aaa15e",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 554
+      },
+      "payload_message_count": 51,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 27,
+      "request_id": "1908c42c-2957-48ba-abff-87fd78a23637",
+      "attempt_id": "ffd5c081-6ea5-48bf-9e79-edd0c1fc1ff1",
+      "step_id": "c80b39dd-49d7-47f0-8892-824021f12abd",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 559
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 574
+      },
+      "input_plan_ref": {
+        "digest": "blake3:8beab17fdd453c45b621ac0a75f26c8d5934169a24b4b252755bceedd942fcf8",
+        "bytes": 70673,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/8b/ea/8beab17fdd453c45b621ac0a75f26c8d5934169a24b4b252755bceedd942fcf8",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "76e6b1192e3920d4274536eb51728ae863e43401c2b67d69b9e9db09c006c933",
+      "result_ref": {
+        "digest": "blake3:d369677b16008406700f0d542711d09c5c4c05f48d0ede4563d7fa8e20cb4387",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/d3/69/d369677b16008406700f0d542711d09c5c4c05f48d0ede4563d7fa8e20cb4387",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "fe21ac96f1945a20af526e4ca53ffdec467eadef0310c27f19062c46c8dc13f8",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15394,
+        "output_tokens": 21,
+        "cache_read_tokens": 15293,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/1908c42c-2957-48ba-abff-87fd78a23637",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 572
+      },
+      "payload_message_count": 53,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 28,
+      "request_id": "73e6c047-8035-4916-82c2-2e20595b5c31",
+      "attempt_id": "32ea45ad-b916-401d-8a1a-577658f248af",
+      "step_id": "bbdefe53-6c44-4434-99c3-a7ad0a8325d8",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 577
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 592
+      },
+      "input_plan_ref": {
+        "digest": "blake3:4c15c36fe016b0b2a5ceeb12170a2b950b5aca2c7fef2bc20fbb4c0d0978aa27",
+        "bytes": 71183,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/4c/15/4c15c36fe016b0b2a5ceeb12170a2b950b5aca2c7fef2bc20fbb4c0d0978aa27",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "56d0e0c6f8f21cc30920e353b412693f35141d1985e5a90490f80226ff1296d9",
+      "result_ref": {
+        "digest": "blake3:84ab5936e585ea7112d4ddb963f34049b0ee847ab9602496f95fa71c07c9d561",
+        "bytes": 7614,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/84/ab/84ab5936e585ea7112d4ddb963f34049b0ee847ab9602496f95fa71c07c9d561",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "df0d2d315bce654c8d119d0ced1ce67f14a44fb7d20fb2d12bba3c9193a561f1",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15491,
+        "output_tokens": 21,
+        "cache_read_tokens": 15390,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/73e6c047-8035-4916-82c2-2e20595b5c31",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 590
+      },
+      "payload_message_count": 55,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 29,
+      "request_id": "bdc2ef8e-6cbc-4de9-abe9-f55d943fbd95",
+      "attempt_id": "79a59626-d558-4da1-87c4-e9bfb8a30d46",
+      "step_id": "a7886c0f-ad7f-4001-a3dc-9590a0e04938",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 595
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 610
+      },
+      "input_plan_ref": {
+        "digest": "blake3:0e9e9352f8cdcb2f530956c7245054243f80213839cd3c8eb5262dcc177b4392",
+        "bytes": 71693,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/0e/9e/0e9e9352f8cdcb2f530956c7245054243f80213839cd3c8eb5262dcc177b4392",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "686c4fcf6f72a8c7822259cf7fbb627cc8cedd90bdf9893a45048a354d0f9a0f",
+      "result_ref": {
+        "digest": "blake3:fe8545a6de500e88abd07d11ac6cb43c20e13dcb62141063f63d8c370f870ef2",
+        "bytes": 7617,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/fe/85/fe8545a6de500e88abd07d11ac6cb43c20e13dcb62141063f63d8c370f870ef2",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "78a879cf0742e848327c5906681ac56c7689b24de8acc4146f5af46d6cf65555",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15588,
+        "output_tokens": 21,
+        "cache_read_tokens": 15487,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/bdc2ef8e-6cbc-4de9-abe9-f55d943fbd95",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 608
+      },
+      "payload_message_count": 57,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 30,
+      "request_id": "d984a56a-ef0d-43e1-a1b4-6505746cf3d3",
+      "attempt_id": "4399e4f2-b5e2-494c-bfaf-2d6da1f41e02",
+      "step_id": "b4906206-3fe8-42f7-afef-4308225d0c8f",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 613
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 628
+      },
+      "input_plan_ref": {
+        "digest": "blake3:2bc5b1711138f7316a7707aa4b1d9eee154f190cd3f1d5221d85fa3e5a0d67ea",
+        "bytes": 72203,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2b/c5/2bc5b1711138f7316a7707aa4b1d9eee154f190cd3f1d5221d85fa3e5a0d67ea",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "873f5f4b44129d4bc508fd50f425786ea22ff178c2ba4d862b1bbb62f1592dfc",
+      "result_ref": {
+        "digest": "blake3:aec98a6acb14d820b2a7add39b9be0f707204801a3ff22a30f3ea99a45f24b12",
+        "bytes": 7617,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/ae/c9/aec98a6acb14d820b2a7add39b9be0f707204801a3ff22a30f3ea99a45f24b12",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "461cf20a476cd18b4cdbf788f484ca7bbd9a77affb9f21896cb1a60a113bc92a",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15685,
+        "output_tokens": 21,
+        "cache_read_tokens": 15584,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/d984a56a-ef0d-43e1-a1b4-6505746cf3d3",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 626
+      },
+      "payload_message_count": 59,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 31,
+      "request_id": "caa7b2e8-a67a-44fc-a7c5-02d15a48fc77",
+      "attempt_id": "be1e3263-3b28-426a-b698-02426d9e8910",
+      "step_id": "38fcf310-1891-4d97-86ff-1b8e506a92e5",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 631
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 646
+      },
+      "input_plan_ref": {
+        "digest": "blake3:1cff998aa61d77d4bbbba37551290ccfec9b1e39ac397706173202d19fdab6b6",
+        "bytes": 72713,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/1c/ff/1cff998aa61d77d4bbbba37551290ccfec9b1e39ac397706173202d19fdab6b6",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "80c1382d6a4191b241d71d405e9afdb9f69c796b850cde5dba05c656de2d12f9",
+      "result_ref": {
+        "digest": "blake3:079ec6e30a43ec954d45cbd7791151efe2ae19f7eefeb90b0669fcaf8a2b56e2",
+        "bytes": 7616,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/07/9e/079ec6e30a43ec954d45cbd7791151efe2ae19f7eefeb90b0669fcaf8a2b56e2",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "afd6c14ec0b42539495386049f6ade0cc6c4c0bff0d09a4c7a7f537d202035f3",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15782,
+        "output_tokens": 21,
+        "cache_read_tokens": 15681,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/caa7b2e8-a67a-44fc-a7c5-02d15a48fc77",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 644
+      },
+      "payload_message_count": 61,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 32,
+      "request_id": "c640c929-4299-4298-887e-0548987f5335",
+      "attempt_id": "33c0deee-5c30-4e04-8d09-534b52d9b6d0",
+      "step_id": "f2fe8c91-1912-4f17-af00-992256e09fb8",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 649
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 664
+      },
+      "input_plan_ref": {
+        "digest": "blake3:a8e609c02bd70bd18051cc8394f6b16a5e23938f4092ed480417287b9f54da14",
+        "bytes": 73223,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/a8/e6/a8e609c02bd70bd18051cc8394f6b16a5e23938f4092ed480417287b9f54da14",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "16ed8cb056c81746771771b1fac83b02f6dee3188a009c978c9eef6d3d80cbac",
+      "result_ref": {
+        "digest": "blake3:2e973b1d10f86c2b0ee8130613729b21e1deac54f7bdca8a519bc18731386acf",
+        "bytes": 7626,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/2e/97/2e973b1d10f86c2b0ee8130613729b21e1deac54f7bdca8a519bc18731386acf",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "3afff25522ef34a4594fd8c94d1a52d3576df9a27d73730a4a5849fa98d14ea7",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15879,
+        "output_tokens": 21,
+        "cache_read_tokens": 15778,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/c640c929-4299-4298-887e-0548987f5335",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 662
+      },
+      "payload_message_count": 63,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 33,
+      "request_id": "0fab4cc1-1d0c-47bf-8b62-71a4be0ad4f6",
+      "attempt_id": "2098852e-7812-49fb-8666-05f251ebe6de",
+      "step_id": "cc210556-492b-4eed-818b-48d1fff07ef8",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 667
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 682
+      },
+      "input_plan_ref": {
+        "digest": "blake3:21645ad8f9abc69b437ea29c5859e8ad3da8d936a8caa94c43d171899c7b7f42",
+        "bytes": 73733,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/21/64/21645ad8f9abc69b437ea29c5859e8ad3da8d936a8caa94c43d171899c7b7f42",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "170d3df913ab1b0a6a3d69290a9bcfc4bb7acbcc02b4009767de07e1f152221c",
+      "result_ref": {
+        "digest": "blake3:ffc9d79d64d6b1fdcf124cb597558bf80064cac3930760d8b3ef0d8a876fe940",
+        "bytes": 7625,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/ff/c9/ffc9d79d64d6b1fdcf124cb597558bf80064cac3930760d8b3ef0d8a876fe940",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "ebde362a77a81ce53d39fafcad610b7d30f5b62731c4a09f7237d5a9f2fd4aa2",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 15976,
+        "output_tokens": 21,
+        "cache_read_tokens": 15875,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/0fab4cc1-1d0c-47bf-8b62-71a4be0ad4f6",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 680
+      },
+      "payload_message_count": 65,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 34,
+      "request_id": "bb76e5cd-5e18-4a86-afed-a95c15cf3358",
+      "attempt_id": "c2485a8b-b7c9-4f83-a332-090cddb2ea42",
+      "step_id": "d5b7e89b-08f3-43e9-96ed-3d67c4a06713",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 685
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 700
+      },
+      "input_plan_ref": {
+        "digest": "blake3:1389d49def0fa3bf6a074c52d351e7ce67c8234ad3f5482b5a532aedee171005",
+        "bytes": 74243,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/13/89/1389d49def0fa3bf6a074c52d351e7ce67c8234ad3f5482b5a532aedee171005",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "7624a43c5469cedc6b1f99b58be7282bc55f098f474d685b7854a2420c051eb1",
+      "result_ref": {
+        "digest": "blake3:33f9cf4aa89c088d8c8dd48dd037ff1728be12e404fb88caff326b8ef0569e7d",
+        "bytes": 7625,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/33/f9/33f9cf4aa89c088d8c8dd48dd037ff1728be12e404fb88caff326b8ef0569e7d",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "a843d608892f2adf54f8b76aa45a81506f820921dec1c6c10473c78a558b95e9",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 16073,
+        "output_tokens": 21,
+        "cache_read_tokens": 15972,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/bb76e5cd-5e18-4a86-afed-a95c15cf3358",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 698
+      },
+      "payload_message_count": 67,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 35,
+      "request_id": "6cbb2b23-ea7e-45f2-9b75-f4075ee8a1fc",
+      "attempt_id": "e2e5c923-a119-47ec-afe0-032bd5fa665d",
+      "step_id": "606a8e9d-b7f3-41f9-97fd-d4067b0fa827",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 703
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 718
+      },
+      "input_plan_ref": {
+        "digest": "blake3:ec99b4110b40f58c2115d8ec2cc45c3cae94fb8bddcca70390af93cf254daff0",
+        "bytes": 74753,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/ec/99/ec99b4110b40f58c2115d8ec2cc45c3cae94fb8bddcca70390af93cf254daff0",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "3fbe0b53d50f04e7bbdaed56a8d3f10bc157beedbf5dfdbb69aef7ddced3f041",
+      "result_ref": {
+        "digest": "blake3:37f958f7580c4132ceeb471de2d97bf37aa0eded57913687ba869d1c381db2b1",
+        "bytes": 7624,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/37/f9/37f958f7580c4132ceeb471de2d97bf37aa0eded57913687ba869d1c381db2b1",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "68f177e1f3ea9d4ab6cbabb6c5b4f5fdcdbf2c35c4e19b477c4d77fd589434c5",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 16170,
+        "output_tokens": 21,
+        "cache_read_tokens": 16069,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/6cbb2b23-ea7e-45f2-9b75-f4075ee8a1fc",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 716
+      },
+      "payload_message_count": 69,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 36,
+      "request_id": "96fb04de-5c7b-47f1-a476-0a3db39e3e4f",
+      "attempt_id": "d7593ad2-a874-406b-8e6e-ffcb679805ec",
+      "step_id": "71ce1329-e612-4735-b373-b17a708f955e",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 721
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 736
+      },
+      "input_plan_ref": {
+        "digest": "blake3:4c8a16e86bb994e451d6f02c49ecb718e36f2cabb07614f971161097fb38b37f",
+        "bytes": 75263,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/4c/8a/4c8a16e86bb994e451d6f02c49ecb718e36f2cabb07614f971161097fb38b37f",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "69533486272f1f9eeff2673eecb3981a16079b0f22618d5d0ea9552c44bb878f",
+      "result_ref": {
+        "digest": "blake3:0e361127111334f847d88dd6c297b8a5d10b3b98afb9118cac8dd7f549fad74c",
+        "bytes": 7617,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/0e/36/0e361127111334f847d88dd6c297b8a5d10b3b98afb9118cac8dd7f549fad74c",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "b6e059ac358219ad40bd861d29d188098bb52620943145c24fe4dca9ed538aea",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "stop",
+        "max_tokens": 4096,
+        "output_tokens": 21,
+        "length": false
+      },
+      "usage": {
+        "input_tokens": 16267,
+        "output_tokens": 21,
+        "cache_read_tokens": 16166,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/96fb04de-5c7b-47f1-a476-0a3db39e3e4f",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 21,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 734
+      },
+      "payload_message_count": 71,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 37,
+      "request_id": "ae2a9f26-04f5-4d61-bc65-20a37364416e",
+      "attempt_id": "931b7220-bd75-4084-8332-79a4cc9b3a21",
+      "step_id": "c4d32058-351c-47ad-88a0-bfd1c5c1c8cb",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 739
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 754
+      },
+      "input_plan_ref": {
+        "digest": "blake3:ef404cb1d64b4da279cc27b0ce58c3f47c11001d63136795b09496fdba197b40",
+        "bytes": 75773,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/ef/40/ef404cb1d64b4da279cc27b0ce58c3f47c11001d63136795b09496fdba197b40",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "a6a3d7f54fd7ee7883d246fc9e84c6e6d2f5b89439514058dfe7b56645871155",
+      "result_ref": {
+        "digest": "blake3:ca2df0e19efc3392ddbb8bc7792968fbcfd4a44db874f09ae8c04659ae9ad4b0",
+        "bytes": 7630,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/ca/2d/ca2df0e19efc3392ddbb8bc7792968fbcfd4a44db874f09ae8c04659ae9ad4b0",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "f450c62a303f315b8b9c96ea4a62e6e53cdbebd83a5bd180b87ef49ae921d1b8",
+      "status": "success",
+      "termination": {
+        "kind": "provider_terminal",
+        "stop_reason": "length",
+        "max_tokens": 4096,
+        "output_tokens": 20,
+        "length": true
+      },
+      "usage": {
+        "input_tokens": 16364,
+        "output_tokens": 20,
+        "cache_read_tokens": 16263,
+        "cache_write_tokens": null
+      },
+      "content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+      "stream_summary": {
+        "events": 22,
+        "batches": 22,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 10,
+      "journal_terminal": {
+        "stream_id": "provider/ae2a9f26-04f5-4d61-bc65-20a37364416e",
+        "seq": 10,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "provider_terminal",
+          "stop_reason": "length",
+          "max_tokens": 4096,
+          "output_tokens": 20,
+          "length": true
+        },
+        "terminal": 1,
+        "commit_seq": 752
+      },
+      "payload_message_count": 73,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    },
+    {
+      "ordinal": 38,
+      "request_id": "d49ecfb3-8397-4e5e-ac4e-da472978a4c4",
+      "attempt_id": "24642a00-7dd5-4213-b91c-c20c98c893c0",
+      "step_id": "80673d8e-785c-4cea-a4de-801f4b06c8d5",
+      "created_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 757
+      },
+      "terminal_commit": {
+        "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+        "seq": 763
+      },
+      "input_plan_ref": {
+        "digest": "blake3:74486710d95b13b1fc59dc1f88f879af47475e3ef143bea7b99f009f96e48322",
+        "bytes": 76294,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/74/48/74486710d95b13b1fc59dc1f88f879af47475e3ef143bea7b99f009f96e48322",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 12,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "input_sha256": "9bcb181ba8aa107ba2ff3858f74a41f436a4e57927d0bcdc0475c60688049b3b",
+      "result_ref": {
+        "digest": "blake3:27e4999a20944163b4c9859dd087f82631f5b6153db51a447a70837574fe6d1b",
+        "bytes": 661,
+        "media_type": "application/json",
+        "store_namespace": "subject_requests",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/27/e4/27e4999a20944163b4c9859dd087f82631f5b6153db51a447a70837574fe6d1b",
+        "codec": {
+          "name": "subject-request-result",
+          "major": 1,
+          "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+        }
+      },
+      "result_sha256": "a430162f2f141aad28715e38e62a8a5b774c134aa6d58218ada05c3cca508257",
+      "status": {
+        "rejected": {
+          "http_status": 400
+        }
+      },
+      "termination": {
+        "kind": "transport_rejected",
+        "stop_reason": null,
+        "max_tokens": null,
+        "output_tokens": null,
+        "length": false
+      },
+      "usage": null,
+      "content": null,
+      "stream_summary": {
+        "events": 0,
+        "batches": 0,
+        "public_chunks": 0,
+        "journaled": true
+      },
+      "journal_text_chunk_count": 0,
+      "journal_terminal": {
+        "stream_id": "provider/d49ecfb3-8397-4e5e-ac4e-da472978a4c4",
+        "seq": 0,
+        "shape": "whole",
+        "content_kind": "provider_terminal",
+        "data": {
+          "kind": "transport_rejected",
+          "stop_reason": null,
+          "max_tokens": null,
+          "output_tokens": null,
+          "length": false
+        },
+        "terminal": 1,
+        "commit_seq": 761
+      },
+      "payload_message_count": 75,
+      "context": {
+        "source": {
+          "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+          "source_commit_seq": 13,
+          "leaf_seq": 1,
+          "input_raw_event_ids": [
+            "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+          ],
+          "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+          "window_generation": 1,
+          "model_generation": 1
+        },
+        "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+        "capabilities": {
+          "binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "max_context_tokens": null,
+          "vision": null
+        },
+        "observed_input_tokens": null,
+        "estimated_input_tokens": 14611,
+        "budget_input_tokens": 14611,
+        "trigger_budget_input_tokens": 14611,
+        "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+        "reserved_output_tokens": 4096,
+        "unfinished_call_ids": [],
+        "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract": 5,
+        "selection": {
+          "outcome": "unavailable",
+          "reason": "model_context_limit_not_observed"
+        }
+      },
+      "input_body_schema_version": 13,
+      "input_ref_codec_major": 12
+    }
+  ]
+}

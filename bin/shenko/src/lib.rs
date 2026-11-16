@@ -1458,6 +1458,7 @@ async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bo
                 ..Default::default()
             });
             let prepared_home = bootstrap.prepare(store.installation_id_for_subject(agent_id)?)?;
+            prepared_home.record_local_provisioning(&store)?;
             let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
             // The same media services the running agent publishes, so a
@@ -1713,17 +1714,13 @@ async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bo
                 store.capabilities.wal_mode,
                 store.capabilities.fts5_available,
             );
-            let (installation_id, subject) = match store.get_existing_agent_id()? {
-                Some(agent_id) => (
-                    store.installation_id_for_subject(agent_id)?,
-                    shenko_seed::BootstrapSubjectState::ExistingGenesis,
-                ),
-                None => (
-                    store.ledger.ledger_id(),
-                    shenko_seed::BootstrapSubjectState::PendingGenesis,
-                ),
+            let subject = match store.get_existing_agent_id()? {
+                Some(_) => shenko_seed::BootstrapSubjectState::ExistingGenesis,
+                None => shenko_seed::BootstrapSubjectState::PendingGenesis,
             };
+            let installation_id = store.installation_id_for_home()?;
             let prepared = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
+            prepared.record_local_provisioning(&store)?;
             println!("Home manifest: {}", prepared.manifest_path.display());
             println!("Home: {}", serde_json::to_string_pretty(&prepared.manifest)?);
             for recovery in &prepared.recovered {
@@ -1848,10 +1845,7 @@ async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bo
                 "store ready"
             );
 
-            let installation_id = match store.get_existing_agent_id()? {
-                Some(agent_id) => store.installation_id_for_subject(agent_id)?,
-                None => store.ledger.ledger_id(),
-            };
+            let installation_id = store.installation_id_for_home()?;
             // Prepare the protected installation control channel before home
             // setup, connectors, or subject work can publish runtime effects.
             // Claiming is not a prerequisite for ordinary conversation.
@@ -1868,6 +1862,7 @@ async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bo
                 data_dir: data_dir.clone(),
             };
             let prepared_home = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
+            prepared_home.record_local_provisioning(&store)?;
             info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
             for recovery in &prepared_home.recovered {
                 tracing::warn!(%recovery, "completed home recovery");
@@ -3922,17 +3917,20 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // generation and readiness — a copied home manifest can never
             // alias a sibling installation's mounts.
             let manifest = shenko_seed::bootstrap::validate_home_for_exec(data_dir)?;
-            // Installation binding part 1: the home manifest's declared
-            // installation must be this store's ledger identity — a copied
-            // home/ manifest cannot alias a sibling installation's ledger.
-            let binding = shenko_store::Store::inspect_installation_binding(
+            // Installation binding part 1: the manifest must agree with the
+            // verified local provisioning (or legacy immutable bootstrap).
+            // A writer change never creates a new installation. Read identity
+            // and subject from the same zero-touch database/CAS snapshot.
+            let inspected = shenko_store::Store::inspect_home_installation_binding(
                 &data_dir.join("shenko.db"),
+                &data_dir.join("cas"),
             )?;
             anyhow::ensure!(
-                manifest.installation_id == binding.ledger_id,
+                manifest.installation_id == inspected.installation_id,
                 "INSTALLATION_IDENTITY_MISMATCH: home manifest installation_id \
-                 does not match this store's ledger; reconcile before exec"
+                 does not match this store's provisioned installation; reconcile before exec"
             );
+            let binding = inspected.binding;
             let node = Node::open_inspect(&data_dir.join("node"))?
                 .ok_or_else(|| {
                     anyhow::anyhow!(
@@ -4102,6 +4100,7 @@ fn root_command(data_dir: &Path, command: RootCli) -> Result<()> {
             });
             let installation_id = store.installation_id_for_subject(agent_id)?;
             let prepared = bootstrap.prepare(installation_id)?;
+            prepared.record_local_provisioning(&store)?;
             let (home_bytes, home_ref) = shenko_seed::bootstrap::seed_home_content(&prepared.manifest)?;
 
             // Seal home content in CAS.

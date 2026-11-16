@@ -334,3 +334,113 @@ unchanged historical evidence.
 
 Integration restores a terminal assertion damaged by literal merge text in
 `37ddbf7`; the reconciled candidate still needs its own actual test result.
+
+## 2026-11-16 hosted attempt with explicit CPU attention configuration
+
+[Run 43885905651](https://github.com/cyjin-yl/shenko/actions/runs/43885905651)
+built merge source `3c4d9e132a498904379c3e9caf7c4066c30135a9`
+(PR #305 head `da00eb8e35da3ffcb3a1aae2376061d81cc60363`). Its binary
+SHA-256 is `14472dadef68305d88c6c18aad3c0ba61da0f3e6e868bd1f4ba0cb80c785f1e9`.
+The pinned Qwen3-0.6B weights, full task/protocol prompt, sampling configuration,
+1,200,000 ms request limit and 1,800-second phase limit were retained. This
+attempt failed after real completed generations and protocol corrections; it
+did not hit the transport deadline.
+
+The server records `flash_attn = enabled` and a 1,792 MiB KV buffer, with 896 MiB
+each for f16 K and V. The ready process maps `libggml-cpu-icelake.so`; its
+reported CPU capabilities include AVX2 and AVX-512. The first 12,723-token
+prefill completed in 266,679.16 ms, or 47.71 tokens/second. Generation of 170
+tokens took a further 57,615.47 ms. The process had affinity CPUs `[0,1,2,3]`
+on a Xeon Platinum 8370C; the visible cgroup reports `cpu.max = max 100000`
+and effective cpuset `0-3`. The ready process's RSS was 2,295,236 KiB, which is
+a readiness observation, not the peak over the full run. The previous run used
+a different hosted CPU, so this is not a controlled speedup measurement or a
+complete attribution of its previous slow prefill.
+
+The input boundary again worked on the actual branch:
+
+| Fact in ledger `c93511cc-c1dc-4601-9d49-41861f5a549c` | Sequence |
+| --- | ---: |
+| Startup pause request and confirmed boundary | 6, 7 |
+| Live browser submission accepted | 9 |
+| Public runtime resume | 10 |
+| First main request created | 15 |
+| First main request's provider-terminal result | 106 |
+| Final main request created | 757 |
+| Final stream's transport-rejected terminal | 761 |
+| Final main request's transport-rejected result | 763 |
+
+The paused and accepted snapshots both have zero inference attempts. The
+56,953-byte first frozen input associates the actual subject, branch, step,
+request and accepted event with the complete user text inside
+`payload.messages`, including both requested children and the marker. The
+browser observed a durable receipt and two public stream parts without page
+errors. Stream parts are not committed output, stream-quality acceptance or a
+screen-reader test.
+
+The first generated response tried a `claude.seat` native delegation with
+invented preselected seat/lease values, followed by a `web_ui` delegation and a
+wait-end control. Its first JSON input was followed by prose on the same
+control line. The decoder correctly rejected the complete result with
+`native delegation input must be one JSON value`; no action was accepted.
+The decoded response text contains ordinary quotation marks. Backslashes in
+its enclosing JSON representation are not literal model output.
+
+The next 36 generated texts all contained:
+
+```text
+[wait:replace] {"condition":"新退出条件","reason":"更改了控制协议要求"}
+```
+
+The first 35 were rejected because the frozen context contained no semantic
+wait. The last reached the server context boundary and ended with `length`,
+which produced `MODEL_RESULT_INCOMPLETE`. Each correction retained the old
+result and created a new request identity. These were conclusive provider
+responses followed by new correction requests, not retransmissions of an
+unknown request.
+
+The final request contained 16,462 tokens. The server explicitly refused it
+because its served context was 16,384 tokens. The retained last result is
+`Rejected { http_status: 400 }` with `transport_rejected`, recorded at sequence
+763 for original request `d49ecfb3-8397-4e5e-ac4e-da472978a4c4`.
+The public WebSocket then closed after the CLI exited 1. That connection error
+is a consequence of the failure, not its underlying cause. This result is
+neither a timeout nor an Unknown terminal.
+
+There are 38 main request receipts and 38 matching stream terminal units:
+37 provider-terminal results (36 `stop`, one `length`) and one HTTP rejection.
+The journal retains 444 provider text chunks. There are zero committed
+decisions, zero child tasks, zero child operations and zero child E1 receipts;
+the task table contains only the root. No qualifying answer/marker output was
+committed, and the restart phase was not reached. The 2,645 artifact files
+are primarily main-request, stream and context CAS, not evidence of child
+execution. The only two `runtime_error` events report the HTTP rejection and
+the subject-loop failure. No context-policy or Cordis cleanup failure was
+recorded in this run; that narrower observation does not make its exit or
+restart successful.
+
+The original artifacts also expose two capacity integration gaps. The
+server's `/v1/models` response advertises `data[0].meta.n_ctx = 16384`, distinct
+from `n_ctx_train = 40960`. The current capability decoder only reads top-level
+context fields, so all frozen plans record an unknown model context limit and
+`model_context_limit_not_observed`. Separately, the correction path appends
+assistant/feedback messages to the frozen payload without updating its token
+estimate or policy selection. The message count grows from 1 to 75 while every
+context record retains estimated/budget input 14,611, reserved output 4,096 and
+the original source snapshot. The final provider refusal is correct; these
+earlier missing capacity and correction-planning connections still need a
+product change. This observation makes no change to prompts, model output,
+capacity checks or acceptance assertions.
+
+The [complete observation](../evidence/single-node-hosted-43885905651/observation.json)
+links the full original ZIP, all-entry SHA-256 inventory and a derived timeline
+of all 38 requests. Its verified ZIP SHA-256 is
+`f1d5e8a81c5dfe5039caa1bc620daff822c0b4baa3177e1601a726e22ec7ef3a`.
+All 2,645 original files remain inside that unchanged ZIP; 52 key originals
+are also expanded for reading. Every expanded copy was compared byte-for-byte
+with its archive entry. All request/result reference lengths, raw result CAS
+and corresponding stream terminal values were cross-checked. Recorded BLAKE3
+ObjectRefs are preserved without claiming an independent BLAKE3 recomputation.
+This remains a failed 0.6B mechanical experiment. Complete S1, the 27B quality
+baseline, NapCat/coding-seat S2, physical failures and 7/30-day acceptance are
+still unfulfilled.

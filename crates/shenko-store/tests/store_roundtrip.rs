@@ -220,6 +220,16 @@ fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() 
     drop(store);
     let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
     assert_eq!(reopened.installation_id_for_subject(agent)?, installation);
+    // This storage fixture records the seed caller's evidence boundary; the
+    // actual filesystem preparation is exercised by the seed/CLI journeys.
+    let local_home = reopened.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
+        "schema_version":1,"installation_id":installation,"state":"ready",
+        "mounts":[{"source":dir.join("home"),"guest_path":"/home"}],
+        "created_at":"2026-11-16T00:00:00Z","home_guest_path":"/home",
+    }))?, "application/json", shenko_store::LOCAL_HOME_NAMESPACE,
+        shenko_store::LOCAL_HOME_CODEC, 1)?.object;
+    let local_provisioning = reopened.record_local_installation_provisioning(installation, local_home)?;
+    assert_eq!(reopened.installation_id_for_home()?, installation);
 
     #[cfg(target_os = "linux")]
     {
@@ -250,6 +260,12 @@ fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() 
         let stale: i64 = main_only.query_row("SELECT count(*) FROM context_windows", [], |row| row.get(0))?;
         assert_eq!(stale, 0);
         drop(main_only);
+        // Finish live-connection fixture reads before taking the zero-touch
+        // baseline: even SELECT can update SQLite's WAL read mark in -shm.
+        // Only inspectors and raw file reads access the live database tuple
+        // inside the measured interval, preserving full byte equality checks.
+        let route = reopened.activation_selector(agent)?.context("genesis selector missing")?.route_authority_ref;
+        let route_bytes = reopened.cas.read_object(&route.digest)?;
         // Raw slot metadata needs no CAS. The installation query must reject
         // this missing route source instead of recreating it or trusting a path.
         std::fs::rename(dir.join("cas"), dir.join("retained-cas"))?;
@@ -278,8 +294,6 @@ fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() 
         assert_eq!(read_tuple()?, before, "inspection changed the live SQLite tuple");
         assert!(!dir.join("cas").exists(), "inspection created a live CAS directory");
         std::fs::rename(dir.join("retained-cas"), dir.join("cas"))?;
-        let route = reopened.activation_selector(agent)?.context("genesis selector missing")?.route_authority_ref;
-        let route_bytes = reopened.cas.read_object(&route.digest)?;
         let selected = Store::inspect_active_subject_context_windows(
             &dir.join("head.db"), &dir, &dir.join("cas"), None, 1,
         )?.context("selected window metadata missing")?;
@@ -350,6 +364,8 @@ fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() 
             serde_json::json!({"installation_id": foreign}).to_string(), genesis.created_commit.seq.0 as i64],
     )?;
     assert!(matches!(reopened.installation_id_for_subject(agent), Err(ShenkoError::Conflict(_))));
+    assert!(matches!(reopened.installation_id_for_home(), Err(ShenkoError::Conflict(_))));
+    assert_eq!(reopened.local_installation_provisioning()?, Some(local_provisioning));
     assert_eq!(reopened.cas.read_object(&genesis.bootstrap_event_ref.digest)?, event);
     Ok(())
 }
@@ -2990,6 +3006,195 @@ fn native_t2_evidence(store: &Store, claim: &shenko_store::NativeTaskClaim)
     let receipt_id = receipt.receipt_id;
     let operation = store.record_external_evidence(operation_id, attempt_id, receipt, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
     Ok((operation, store.external_evidence(receipt_id)?))
+}
+
+#[test]
+fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker() -> Result<()> {
+    use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_ASSIGNMENT, NATIVE_RECOVERY}, cognition::CognitionImportOptions};
+    use shenko_types::{authority::CommitAuthorityStamp, ids::EntityId, object::{Digest, ObjectRef},
+        subject::{DelegationIntent, StepDecision}, task::{DispatchEligibility, ImplementationRef, NativeTaskDefinition, TaskState}};
+
+    let (dir, source, agent) = initialized_subject();
+    let state = Arc::new(parking_lot::Mutex::new(NativeT2AuthorityState::default()));
+    let head = source.load_subject(agent)?.0;
+    let stamp = CommitAuthorityStamp { source_id: "native-claim-source".into(), holder_id: EntityId::new(), subject_id: agent,
+        branch_id: head.branch_id.clone(), revision: Digest::blake3(b"first native claim authority") };
+    source.attach_commit_authority(Arc::new(NativeT2Authority {
+        source: "native-claim-source", stamp: Some(stamp.clone()), state: Arc::clone(&state),
+    }))?;
+    source.activate_runtime_authority(&head)?;
+    let chosen = || -> Result<shenko_types::authority::CommitAuthorityGrant> {
+        let state = state.lock();
+        state.grants.get(&state.last).cloned().context("retained chosen first claim")
+    };
+    let (head, first) = source.load_subject(agent)?;
+    let result = recorded_result(&source, &head, first)?;
+    let next = EntityId::new();
+    let mut step = committed_candidate(&source, result, next);
+    let mut decision: StepDecision = serde_json::from_slice(&source.cas.read_object(
+        &step.decision_ref.as_ref().context("original decision")?.digest)?)?;
+    let [fresh_id, retry_id, lost_id, restart_id] = std::array::from_fn(|_| EntityId::new());
+    for task_id in [fresh_id, retry_id, lost_id, restart_id] {
+        decision.delegated_task_intents.push(DelegationIntent { intent_id: task_id,
+            goal: "Observe with the original native request".into(), system_prompt: String::new(), model: None,
+            capabilities: vec![], budget_hint: None, reply_grant: None,
+            definition: Some(NativeTaskDefinition { kind: "fixture.native.observe".into(), definition_version: 7,
+                input: serde_json::json!({"source":"original S1 request", "task":task_id}) }),
+        });
+    }
+    step.decision_ref = Some(source.cas.seal_object(&serde_json::to_vec(&decision)?,
+        "application/json", "test", "StepDecision", 8)?.object);
+    // The receiving installation retains its ordinarily parked root. Only
+    // chosen S1 creates these new delegation rows on that distinct ledger.
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    let follower = Store::open(dir.join("claim-follower.db"), dir.join("claim-follower-cas"))?;
+    follower.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+    follower.attach_commit_authority(Arc::new(NativeT2Authority {
+        source: "native-claim-follower", stamp: None, state: Arc::clone(&state),
+    }))?;
+    let parked_root = follower.external_task(head.subject_root_task_id)?;
+    assert!(matches!(parked_root.dispatch_eligibility, DispatchEligibility::Parked { .. }));
+    source.commit_step_and_advance_head(&step, &head, next)?;
+    let birth = chosen()?;
+    let birth_objects = source.admission_objects(&birth.admission.payload_ref)?;
+    assert_eq!(follower.recover_control_admission(&birth, &birth_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
+    assert_ne!(source.ledger.ledger_id(), follower.ledger.ledger_id());
+    let pending = source.external_task(fresh_id)?;
+    assert_eq!(pending.record_revision.0, 0);
+    assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+
+    // A later ordinary archive carries the source's applied fact, but parks
+    // the target and does not carry this installation's application receipt.
+    archive.clear();
+    source.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    let imported = Store::open(dir.join("claim-parked.db"), dir.join("claim-parked-cas"))?;
+    imported.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+    imported.attach_commit_authority(Arc::new(NativeT2Authority {
+        source: "native-claim-parked", stamp: None, state: Arc::clone(&state),
+    }))?;
+    let parked = imported.external_task(fresh_id)?;
+    assert!(matches!(parked.dispatch_eligibility, DispatchEligibility::Parked { .. }));
+    assert!(imported.control_admission_applied(&birth.admission)?);
+    assert!(!imported.control_admission_applied_here(&birth.admission)?);
+    let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"native claim implementation"), registry_revision: 1 };
+    let fresh = source.claim_native_task(fresh_id, implementation.clone(), false)?.context("one current claim permit")?;
+    let claim_grant = chosen()?;
+    let claim_objects = source.admission_objects(&claim_grant.admission.payload_ref)?;
+    let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&claim_grant.admission.payload_ref.digest)?)?;
+    assert_eq!(envelope["action"]["kind"], "native.claim");
+    let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
+    assert_eq!(transition["plan"]["task"], serde_json::to_value(&pending)?);
+    assert_eq!(transition["plan"]["birth"]["admission"], serde_json::to_value(&birth.admission)?);
+    assert_eq!(transition["plan"]["invocation"], serde_json::to_value(&fresh.invocation)?);
+    assert_eq!(transition["rows"]["result_commit"], serde_json::to_value(fresh.task.updated_commit)?);
+    assert_eq!(transition["rows"]["created_at"], serde_json::to_value(fresh.task.first_run_at)?);
+    assert_eq!(fresh.task.updated_commit.ledger_id, source.ledger.ledger_id());
+    assert_eq!(fresh.task.memos[NATIVE_ASSIGNMENT]["assigned_commit"], serde_json::to_value(fresh.task.updated_commit)?);
+    let task_table = transition["rows"]["tables"].as_array().context("claim tables")?.iter()
+        .find(|table| table["before"]["table"]["name"] == "tasks").context("target task dependency")?;
+    assert_eq!(task_table["complete_read"], false);
+    assert_eq!(task_table["before"]["rows"].as_object().context("claim task preimage")?.len(), 1);
+    let watermark = source.current_commit_seq()?;
+    assert!(source.claim_native_task(fresh_id, implementation.clone(), false)?.is_none());
+    assert_eq!(source.current_commit_seq()?, watermark);
+    assert_eq!(follower.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
+    assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&fresh.task)?);
+    assert_eq!(serde_json::to_value(follower.external_task(head.subject_root_task_id)?)?, serde_json::to_value(&parked_root)?);
+    assert_eq!(serde_json::to_value(follower.external_task(retry_id)?)?, serde_json::to_value(source.external_task(retry_id)?)?);
+    assert!(follower.claim_native_task(fresh_id, implementation.clone(), false)?.is_none());
+    let watermark = follower.current_commit_seq()?;
+    assert_eq!(follower.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::Applied);
+    assert_eq!(follower.current_commit_seq()?, watermark);
+    assert_eq!(imported.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::ReconciliationRequired);
+    assert_eq!(serde_json::to_value(imported.external_task(fresh_id)?)?, serde_json::to_value(&parked)?);
+    assert!(!imported.control_admission_applied_here(&claim_grant.admission)?);
+    assert!(imported.claim_native_task(fresh_id, implementation.clone(), false)?.is_none());
+    assert_eq!(imported.pending_control_reconciliations(agent)?.len(), 1);
+
+    // First actual choose does not make an older local preparation fresh.
+    let before_retry = source.external_task(retry_id)?;
+    state.lock().fail_before_choose = true;
+    let refused = source.claim_native_task(retry_id, implementation.clone(), false);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("fixture failed before choosing dispatch")), "{refused:#?}");
+    assert_eq!(serde_json::to_value(source.external_task(retry_id)?)?, serde_json::to_value(before_retry)?);
+    assert!(source.claim_native_task(retry_id, implementation.clone(), false)?.is_none());
+    assert!(!chosen()?.replayed);
+    assert!(matches!(source.external_task(retry_id)?.state, TaskState::Running { .. }));
+
+    // Even a retained grant cannot omit the typed absence dependency. The
+    // malformed plan is fatal, with no Running write or materialization marker.
+    let before_lost = source.external_task(lost_id)?;
+    state.lock().lose_reply = true;
+    let refused = source.claim_native_task(lost_id, implementation.clone(), false);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("fixture lost chosen T2 reply")), "{refused:#?}");
+    let lost = chosen()?;
+    let objects = source.admission_objects(&lost.admission.payload_ref)?;
+    let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&lost.admission.payload_ref.digest)?)?;
+    let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let mut transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
+    transition["rows"]["tables"].as_array_mut().context("lost claim tables")?
+        .retain(|table| table["before"]["table"]["name"] != "operations");
+    let fault_ref = source.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json",
+        "commit-authority", "store-native-claim-transition", 1)?.object;
+    envelope["action"]["transition_ref"] = serde_json::to_value(fault_ref)?;
+    let mut fault = lost.clone();
+    fault.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json",
+        "commit-authority", "commit-admission", 1)?.object;
+    state.lock().grants.insert(fault.admission.conflict_key.clone(), fault.clone());
+    let malformed = source.recover_control_admission(&fault, &source.admission_objects(&fault.admission.payload_ref)?, true);
+    assert!(matches!(&malformed, Err(error) if error.to_string().contains("missing operations dependency")), "{malformed:#?}");
+    assert_eq!(serde_json::to_value(source.external_task(lost_id)?)?, serde_json::to_value(before_lost)?);
+    assert!(!source.control_admission_applied_here(&fault.admission)?);
+    state.lock().grants.insert(lost.admission.conflict_key.clone(), lost.clone());
+    assert_eq!(source.recover_control_admission(&lost, &objects, true)?, ControlRecoveryOutcome::RecoveredCanonical);
+    assert!(source.claim_native_task(lost_id, implementation.clone(), false)?.is_none());
+
+    // A source crash before choose retains its original worker/timestamp. The
+    // preactivation recovery installs that fact without granting a new worker.
+    state.lock().fail_before_choose = true;
+    let refused = source.claim_native_task(restart_id, implementation.clone(), false);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("fixture failed before choosing dispatch")), "{refused:#?}");
+    let connection = rusqlite::Connection::open(dir.join("head.db"))?;
+    let prepared_ref: String = connection.query_row("SELECT transition_ref FROM control_prepared_transitions WHERE action_id=?1",
+        [EntityId::derived("commit-admission-action-v1", format!("task/{restart_id}/claim/0").as_bytes()).to_string()], |row| row.get(0))?;
+    let prepared_ref: ObjectRef = serde_json::from_str(&prepared_ref)?;
+    let prepared: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&prepared_ref.digest)?)?;
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    reopened.attach_commit_authority(Arc::new(NativeT2Authority {
+        source: "native-claim-source", stamp: Some(stamp), state: Arc::clone(&state),
+    }))?;
+    let recovery = reopened.resume_prepared_step_commits(agent)?;
+    assert_eq!(recovery.applied, 1);
+    assert!(recovery.unresolved.is_empty());
+    assert!(!chosen()?.replayed);
+    let installed = reopened.external_task(restart_id)?;
+    assert_eq!(serde_json::to_value(installed.updated_commit)?, prepared["rows"]["result_commit"]);
+    assert_eq!(serde_json::to_value(installed.first_run_at)?, prepared["rows"]["created_at"]);
+    assert_eq!(installed.memos[NATIVE_ASSIGNMENT]["worker_id"], prepared["plan"]["invocation"]["worker_id"]);
+    assert_ne!(installed.memos[NATIVE_ASSIGNMENT]["worker_id"], serde_json::to_value(reopened.capabilities.incarnation)?);
+    assert!(reopened.claim_native_task(restart_id, implementation.clone(), false)?.is_none());
+    assert_eq!(reopened.resume_prepared_step_commits(agent)?.applied, 0);
+    // The existing, separately ordered worker-loss protocol makes progress;
+    // it does not upgrade the historical first claim into another permit.
+    let head = reopened.load_subject(agent)?.0;
+    reopened.activate_runtime_authority(&head)?;
+    assert_eq!(reopened.recover_native_tasks()?, 4);
+    let pending = reopened.external_task(restart_id)?;
+    assert_eq!(pending.record_revision.0, 2);
+    assert_eq!(pending.memos[NATIVE_RECOVERY], true);
+    let new_claim = reopened.claim_native_task(restart_id, implementation, false)?.context("separate no-operation recovery invocation")?;
+    assert_eq!(new_claim.task.record_revision.0, 3);
+    assert_ne!(serde_json::to_value(new_claim.invocation.invocation_id)?, prepared["plan"]["invocation"]["invocation_id"]);
+    assert_eq!(new_claim.invocation.worker_id, reopened.capabilities.incarnation);
+    assert_eq!(new_claim.task.first_run_at, installed.first_run_at);
+    for database in ["head.db", "claim-follower.db", "claim-parked.db"] {
+        let connection = rusqlite::Connection::open(dir.join(database))?;
+        assert_eq!(connection.query_row("SELECT count(*) FROM operations", [], |row| row.get::<_, i64>(0))?, 0);
+        assert_eq!(connection.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 0);
+    }
+    Ok(())
 }
 
 #[test]

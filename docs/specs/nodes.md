@@ -338,6 +338,23 @@ preparation with `replayed=false`. The typed projection excludes model-child
 quota and subject publication T1, and cannot overwrite imported parking.
 See [canonical native arming](../development/canonical-native-arming.md).
 
+The first claim of an exact non-model native delegation born in a locally
+materialized canonical S1 also has a typed `native.claim` transition. That S1
+may be quorum chosen or admitted by the existing local availability authority;
+`grant=None` is not quorum evidence. Its independent
+reader proves the direct-root task dependency and original S1 birth; the root
+itself can remain parked. Only the current source call that first prepared and
+finally validates its worker, dispatcher and authority can receive a fresh claim.
+Prepared and learned applications retain the original Running fact without a
+worker permit. Foreign Learned application still needs a legitimate chosen
+claim grant and this installation's actual S1 materialization. The local
+availability path retains its source authority, dispatcher and worker checks;
+the new eight-window journey covers only the grant path and awaits execution,
+with no new execution evidence for grant-free availability. Ordinary imported
+targets, recovery claims and atomic child-tool
+creation plus claim remain outside this narrow scope. See
+[canonical first native claim](../development/canonical-native-first-claim.md).
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,
@@ -350,7 +367,8 @@ actual writes and local marker commit atomically, and learned application does
 not re-evaluate time, allocate new result identities or call a provider.
 
 This implementation is deliberately conservative: read tables bind their full
-range, while insert-only tables bind their affected keys. Unrelated parked
+range, while insert-only tables bind their affected keys. The typed first-claim
+reader additionally proves its target-only task range. Unrelated parked
 replica tasks stay parked. A missing or different required predecessor,
 incompatible schema, or conflicting original receipt remains reconciliation
 debt; a cognition archive is never treated as permission to restore executable
@@ -361,10 +379,11 @@ The live Store provider and runtime reconstruction path retain local markers
 only after Store COMMIT. A live authority failure cancels and drains the owned
 runtime before rebuilding its branch-scoped consumers. Storage failure retains
 its actual error instead of being disguised as an election retry. A follower
-may materialize a verified chosen S1, non-model native T1, native dispatch marker or native T2 without becoming a primary, but this
+may materialize a verified chosen S1, first native claim, non-model native T1,
+native dispatch marker or native T2 without becoming a primary, but this
 factual projection supplies no new physical send permit.
 
-The other admission boundaries, including S0 request arming, native claims,
+The other admission boundaries, including S0 request arming, other native claims,
 model-child/quota and publication T1, other trusted-executor T1 and publication T2, still
 carry original plans rather than this canonical transition. Calling their
 ordinary code on another ledger is not deterministic replication. When a
@@ -489,11 +508,17 @@ open. The later reciprocal-star extension, including a model-free resident,
 still requires its own actual protocol and real-process results. Canonical S1,
 the paired native T2 boundaries and native dispatch have actual focused journey
 results with exact candidate scope in their linked evidence. Non-model native
-T1 now also has a typed frozen transition; its new journey awaits candidate CI.
-The remaining replay work includes S0 request arming, native claims,
+T1 also has a typed frozen transition; its journey passed on `15cfee0` in
+[CI 43886488027](https://github.com/cyjin-yl/shenko/actions/runs/43886488027).
+That whole run still failed the separately documented context-inspection fixture.
+The first native claim from a locally materialized canonical S1, under quorum
+choice or the existing local availability authority, has a separately bounded
+typed implementation. Its new grant-path journey awaits candidate CI; no new
+execution evidence covers grant-free availability.
+The remaining replay work includes S0 request arming, other native claims,
 model-child/quota and publication T1, other trusted-executor T1 and publication
 T2. They still carry original plans rather than canonical transitions, and
-authoritative task predecessors remain a separate gap. The
+general authoritative task predecessors remain a separate gap. The
 [runtime authority evidence](../evidence/runtime-authority-bridge-20261115.md)
 records the passing integrated journeys without claiming those remaining goals.
 

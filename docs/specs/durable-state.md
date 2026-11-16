@@ -855,6 +855,8 @@ tmux send-keys、按回车确认、任意 shell、无端到端幂等承诺的消
 
 已 claim 的非 model 原生任务在附有 commit authority 的 Store 上使用类型化 `native.arm`：原 task、request、operation、attempt 和 invocation 先封存，普通 T1 或与 dispatch marker 成对的 T1 均只允许其精确三行写入。当前调用首次建立准备并在最终事务重验 authority/dispatcher/invocation 后才可能取得 `None` 执行许可；旧准备、learned 和重启物化只保留原事实，即使其第一次 choose 返回 `replayed=false` 也不能重新执行。该范围不包含 model quota、publication 或 claim，也不以 archive 停泊记录充当可执行前驱。实现与验证边界见[原生 T1 canonical arming](../development/canonical-native-arming.md)。
 
+另一个受限入口是本安装实际物化的 canonical S1 所创建的非 model 原生 delegation 的首次 claim；该 S1 可来自 quorum chosen 或既有本地 availability authority，`grant=None` 不构成 quorum 证明。类型化 reader 独立核验原出生决策、本地物化收据，以及同一封存快照中的目标 task、结构性 root 与创建 step；只把原 task 投影为原 invocation 的 Running 事实。当前第一次准备的源调用须在最终事务重验权限、dispatcher 和 worker 才能取得 `Some`；该限制同样适用于 grant-free availability。旧准备和 learned 均无新 worker 许可，foreign Learned 仍须合法 chosen claim grant 与本安装实际 S1 物化事实。普通 archive 的目标停车不解除，恢复 claim、child-tool 原子创建并 claim、model 与 publication 仍不在此范围。新增八窗口旅程仅覆盖 grant 路径且尚待实际运行；grant-free 分支没有新增执行证据。后续 T1/E1/T2 的跨节点完整链路仍需独立证明，见[首次原生 claim 的精确范围](../development/canonical-native-first-claim.md)。
+
 <a id="spec-41-14"></a>
 <!-- migrated-contract: SPEC:41.14 -->
 ## 41.14 结构化错误与恢复动作

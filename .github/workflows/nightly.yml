@@ -60,6 +60,8 @@ jobs:
           mkdir -p /run/sshd .ci/evidence
           export SHENKO_SSH_WASI_ARTIFACT="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/build/shenko-ssh-wasi.wasm"
           export SHENKO_SSH_WASI_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/openssh-journey.json"
+          export SHENKO_COMPONENT_PROCESS_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/component-process"
+          export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
           cargo test --workspace --all-features --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
       # Existing ignored OS-process fixtures require explicit fresh roots or
       # fixed local helper execution. Provision them here; never add ignores to

@@ -459,7 +459,9 @@ fn receive<R: Read>(
         data_dir: data_dir.to_path_buf(),
         ..Default::default()
     });
-    drop(bootstrap.prepare(store.ledger.ledger_id())?);
+    let prepared = bootstrap.prepare(store.installation_id_for_home()?)?;
+    prepared.record_local_provisioning(store)?;
+    drop(prepared);
     // Cognition validates its entire declared closure before publication. A
     // package failure afterwards leaves local cognition durable but no ACK.
     let outcome = store.import_cognition_archive(
