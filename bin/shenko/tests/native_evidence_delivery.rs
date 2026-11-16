@@ -560,6 +560,9 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
                 .digest,
         )?,
     )?;
+    // The sealed S0 above carries this case; acknowledging it requires the
+    // decision schema that supports X11, while schema 8 remains historical.
+    decision.schema_version = shenko_store::channel::RECONCILIATION_DECISION_SCHEMA_VERSION;
     decision
         .unknown_acknowledgements
         .push(ReconciliationAcknowledgement {
@@ -577,7 +580,7 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
                 "application/json",
                 "test",
                 "StepDecision",
-                8,
+                decision.schema_version,
             )?
             .object,
     );
