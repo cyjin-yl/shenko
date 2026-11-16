@@ -19,7 +19,8 @@ use process_runtime::{
 use serde_json::{Value, json};
 use shenko_node::{Request, SyncPeer};
 use shenko_store::{
-    ControlRecoveryOutcome, NativeEvidenceDeliveryOutcome, Store, cognition::CognitionImportOptions,
+    ControlRecoveryOutcome, NativeEvidenceDeliveryOutcome, RetentionLimits, Store,
+    cognition::CognitionImportOptions,
 };
 use shenko_types::{
     authority::{CommitAuthorityGrant, CommitAuthorityStamp},
@@ -743,6 +744,19 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             .external_operation_evidence(originals[0].1.operation_id)?
             .is_empty()
     );
+    // Retention observation of the existing interrupted exchange: its durable
+    // descriptor is a root even before its CAS bytes or application arrive.
+    let pending_roots = receiver.retained_object_snapshot(RetentionLimits::default())?;
+    let NativeEvidenceAvailability::Sealed { evidence_ref: pending_ref } = &page.items[0].availability else {
+        anyhow::bail!("the interrupted exchange must name its original seal");
+    };
+    assert!(!pending_roots.complete);
+    assert!(pending_roots.references.iter().any(|reference|
+        reference.required && reference.digest == pending_ref.digest));
+    assert!(pending_roots.gaps.iter().any(|gap|
+        gap.kind == "referenced_object_unreadable" && gap.digest.as_ref() == Some(&pending_ref.digest)));
+    append_json(&fixture.logs().join("retained-object-observations.jsonl"),
+        &json!({"stage":"pending_before_original_chunk","snapshot":pending_roots}))?;
     // A new CLI process retries the durable pending manifest, then stops at
     // the receiver's missing actual T1 rather than accepting peer markers.
     let (blocked, blocked_report) = fixture.cli_sync(source_id)?;
@@ -1213,6 +1227,46 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             assert!(store.native_task_result(operation.task_id)?.is_none());
         }
     }
+    assert_eq!(fs::read(fixture.private().join("effects"))?, b"effect\neffect\n");
+    // The same real first/successor/ack/late-fact history now has all its
+    // declared bytes. Audit both the source and the physical receiver; this
+    // does not validate malformed delivery semantics or grant a GC permit.
+    for (name, store) in [("source", source.as_ref()), ("receiver", &receiver)] {
+        let before = store.current_commit_seq()?;
+        let objects = store.cas.object_digests()?;
+        let snapshot = store.retained_object_snapshot(RetentionLimits::default())?;
+        assert!(snapshot.complete, "retention gaps for {name}: {:?}", snapshot.gaps);
+        assert_eq!(snapshot.ledger_id, store.ledger.ledger_id());
+        assert_eq!(snapshot.source_through.0, before);
+        for receipt in receipts.iter().chain(std::iter::once(&later)) {
+            assert!(snapshot.verified_objects.contains(&receipt.raw_ref.digest));
+        }
+        for item in page.items.iter().chain(&next_page.items).chain(&successor_page.items) {
+            if let NativeEvidenceAvailability::Sealed { evidence_ref } = &item.availability {
+                assert!(snapshot.verified_objects.contains(&evidence_ref.digest));
+            }
+        }
+        assert!(snapshot.references.iter().any(|reference| matches!(&reference.origin,
+            shenko_store::retained_objects::RetentionOrigin::Row { table, .. }
+                if table == "native_evidence_materializations")));
+        append_json(&fixture.logs().join("retained-object-observations.jsonl"),
+            &json!({"stage":"retained_after_successor","store":name,"snapshot":snapshot}))?;
+        assert_eq!(store.current_commit_seq()?, before);
+        assert_eq!(store.cas.object_digests()?, objects);
+    }
+    // Exercise the public zero-touch audit command against the existing
+    // receiver, without supplying a bootstrap home or opening a new writer.
+    let before_audit = receiver.current_commit_seq()?;
+    let mut audit_command = fixture.command(env!("CARGO_BIN_EXE_shenko"))?;
+    audit_command.arg("--data-dir").arg(fixture.data("receiver"))
+        .args(["check", "--retained-objects"]);
+    let (audit_status, audit_bytes) = fixture.run(&mut audit_command, "check-retained-objects", None)?;
+    let audit: Value = serde_json::from_slice(&audit_bytes)?;
+    assert!(audit_status.success(), "{audit}");
+    assert_eq!(audit["scope"], "single_committed_database");
+    assert_eq!(audit["complete"], true);
+    assert_eq!(audit["ledger_id"], serde_json::to_value(receiver.ledger.ledger_id())?);
+    assert_eq!(receiver.current_commit_seq()?, before_audit);
     assert_eq!(fs::read(fixture.private().join("effects"))?, b"effect\neffect\n");
     append_json(
         &fixture.logs().join("observations.jsonl"),

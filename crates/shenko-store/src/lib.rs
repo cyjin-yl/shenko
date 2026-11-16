@@ -39,6 +39,8 @@ pub mod atoms;
 pub mod cognition_archive;
 pub mod contacts;
 pub mod recovery_sources;
+pub mod retained_objects;
+pub use retained_objects::{RetainedObjectSnapshot, RetentionLimits};
 pub mod semantic_wait;
 pub mod seat;
 pub mod runtime_boundary;

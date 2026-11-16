@@ -82,3 +82,8 @@ returned `GcReceipt` is not a durable Store GC task/deletion receipt.
 
 These limitations, including the first-E1 source/application and delivery-debt
 closures, remain explicit in the [native E1 retention boundary](canonical-native-e1-delivery.md#cas-retention-boundary).
+
+The [Store retained-object inventory](store-retained-objects.md) now supplies a
+bounded read-only audit of one committed database through `check
+--retained-objects`. It is not a registered producer or an all-slot deletion
+permit; the shared-CAS exclusion and runtime assembly obligations above remain.

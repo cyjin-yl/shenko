@@ -1408,6 +1408,19 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         anyhow::ensure!(rooted[0]["native_operation_settled"] == false);
         anyhow::ensure!(reopened.activation_selector(agent)?.context("working selector lost")?.selector_revision == 0);
         anyhow::ensure!(read_build_json(&reopened, &receipt_ref)? == receipt);
+        let retained = reopened.retained_object_snapshot(shenko_store::RetentionLimits::default())?;
+        anyhow::ensure!(retained.complete, "build retention gaps: {:?}", retained.gaps);
+        for reference in [&restored.recovery_closure_ref, &receipt_ref, &outcome_ref] {
+            anyhow::ensure!(retained.verified_objects.contains(&reference.digest));
+        }
+        // Both independently committed carriers must survive the read: the
+        // original raw observation and the candidate's recovery closure.
+        for table_name in ["session_events", "activation_records"] {
+            anyhow::ensure!(retained.references.iter().any(|reference| matches!(&reference.origin,
+                shenko_store::retained_objects::RetentionOrigin::Row { table, .. }
+                    if table == table_name)));
+        }
+        anyhow::ensure!(reopened.current_commit_seq()? == retained.source_through.0);
         drop(reopened);
         std::fs::remove_dir_all(dir)?;
         Ok(())

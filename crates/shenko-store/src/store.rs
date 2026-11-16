@@ -125,11 +125,7 @@ impl Store {
         configure_sqlite(&conn)?;
 
         // Run migrations
-        crate::migrations::run_migrations(&conn)?;
-        conn.execute_batch(crate::authority::SCHEMA)?;
-        conn.execute_batch(crate::native_evidence::SCHEMA)?;
-        conn.execute_batch(crate::native_evidence_delivery::SCHEMA)?;
-        conn.execute_batch(crate::local_installation::SCHEMA)?;
+        initialize_schema(&conn)?;
 
         let sqlite_version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         let journal_mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
@@ -1709,6 +1705,18 @@ impl Store {
             None => Ok(None),
         }
     }
+}
+
+/// The same current schema is used by writable opens and by the retention
+/// reader's private, empty schema catalogue. The latter never migrates the
+/// inspected database or creates a Store/writer incarnation.
+pub(crate) fn initialize_schema(conn: &Connection) -> Result<()> {
+    crate::migrations::run_migrations(conn)?;
+    conn.execute_batch(crate::authority::SCHEMA)?;
+    conn.execute_batch(crate::native_evidence::SCHEMA)?;
+    conn.execute_batch(crate::native_evidence_delivery::SCHEMA)?;
+    conn.execute_batch(crate::local_installation::SCHEMA)?;
+    Ok(())
 }
 
 /// Apply required SQLite settings.

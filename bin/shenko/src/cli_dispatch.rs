@@ -302,7 +302,23 @@ pub(crate) async fn dispatch(
             println!("Inference capacity: {:?}", model.capacity);
         }
 
-        Command::Check => {
+        Command::Check { retained_objects } => {
+            if retained_objects {
+                // The pointer only chooses the physical database to audit. Its
+                // path is reported; this does not assert active authority or
+                // coverage of the initial, historical or staged sibling slots.
+                let selected = shenko_update::slots::resolve_live_slot(&data_dir)?
+                    .unwrap_or_else(|| data_dir.clone());
+                let report = shenko_store::Store::inspect_retained_objects(
+                    &selected.join(shenko_update::SLOT_DB_FILENAME),
+                    &data_dir.join("cas"),
+                    shenko_store::RetentionLimits::default(),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                anyhow::ensure!(report.complete,
+                    "Store retention audit is incomplete; the report retains its gaps");
+                return Ok(());
+            }
             info!(data_dir=%data_dir.display(), "check");
             let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
                 data_dir: data_dir.clone(),
