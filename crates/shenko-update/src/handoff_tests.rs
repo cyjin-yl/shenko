@@ -264,6 +264,11 @@ fn candidate_slot(fixture: &Installation, generation: &RuntimeGeneration) -> Pat
     slots::SlotLayout::new(fixture.data_dir.clone()).slot_dir(generation)
 }
 
+struct FixturePreparation<'a> {
+    smoke: Option<ObjectRef>,
+    program: Option<(&'a Path, Digest)>,
+}
+
 /// An activation record shaped like the ones `prepare` creates, over real
 /// sealed references, with a caller-chosen phase and smoke evidence.
 fn activation_record(
@@ -273,9 +278,9 @@ fn activation_record(
     from_slot: &Path,
     to_slot: &Path,
     phase: ActivationPhase,
-    smoke_evidence_ref: Option<ObjectRef>,
-    prepared_program: Option<(&Path, Digest)>,
+    preparation: FixturePreparation<'_>,
 ) -> ActivationRecord {
+    let FixturePreparation { smoke: smoke_evidence_ref, program: prepared_program } = preparation;
     ActivationRecord {
         activation_id: EntityId::new(),
         agent_id: fixture.agent_id,
@@ -464,8 +469,7 @@ async fn activate_refuses_a_saved_smoke_report_that_failed() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
-        Some(evidence),
-        None,
+        FixturePreparation { smoke: Some(evidence), program: None },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -509,8 +513,7 @@ async fn activate_refuses_a_record_without_smoke_evidence() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
-        None,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -572,8 +575,7 @@ async fn activate_admits_a_saved_smoke_report_that_passed() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
-        Some(evidence),
-        Some((program.as_path(), Digest::blake3(b"candidate executable fixture\n"))),
+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), Digest::blake3(b"candidate executable fixture\n"))) },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -661,8 +663,7 @@ async fn rollback_refuses_a_retained_executable_whose_smoke_did_not_pass() {
         &previous_slot,
         &fixture.live_slot,
         ActivationPhase::Activated,
-        Some(passed_evidence),
-        None,
+        FixturePreparation { smoke: Some(passed_evidence), program: None },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -745,8 +746,7 @@ async fn reconcile_resumes_the_same_controller_after_an_interrupted_handoff() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
-        None,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     record.recovery_closure_ref = seal(
         &fixture.store,
@@ -895,8 +895,7 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
-        None,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1034,8 +1033,7 @@ async fn activate_refuses_a_candidate_program_that_changed_after_its_smoke() {
         &fixture.live_slot,
         &slot,
         ActivationPhase::Smoke,
-        Some(evidence),
-        Some((program.as_path(), digested)),
+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), digested)) },
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1117,8 +1115,7 @@ async fn reconcile_refuses_a_boundary_bound_to_another_frozen_request() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
-        None,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     record.recovery_closure_ref = seal(
         &fixture.store,
@@ -1253,8 +1250,7 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         &fixture.live_slot,
         &slot.slot_dir,
         ActivationPhase::Smoke,
-        Some(evidence),
-        Some((program.as_path(), artifact_digest)),
+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), artifact_digest)) },
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
