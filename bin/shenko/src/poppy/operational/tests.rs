@@ -45,7 +45,7 @@ async fn checkout_unknown_is_repaired_from_immutable_observation_without_replay(
         ..Default::default()
     })
     .prepare(store.ledger.ledger_id())?;
-    let agent = crate::bootstrap_genesis(
+    let agent = crate::runtime_bootstrap::bootstrap_genesis(
         &store,
         None,
         &home.manifest,

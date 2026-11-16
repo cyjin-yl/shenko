@@ -19,12 +19,15 @@ use super::{
     vault::Vault,
 };
 
-pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand) -> Result<()> {
+pub(crate) async fn command(
+    data_dir: &Path,
+    command: crate::cli::CompatPoppyCommand,
+) -> Result<()> {
     let value = match command {
-        crate::CompatPoppyCommand::Discover { origin } => {
+        crate::cli::CompatPoppyCommand::Discover { origin } => {
             serde_json::to_value(discovery::discover(&origin).await?)?
         }
-        crate::CompatPoppyCommand::Init {
+        crate::cli::CompatPoppyCommand::Init {
             client_id,
             jwks_uri,
             profile_uri,
@@ -32,7 +35,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             redirect_uri,
             payment_handlers_file,
         } => {
-            crate::create_data_directory(data_dir)?;
+            crate::runtime_bootstrap::create_data_directory(data_dir)?;
             Operator::initialize(
                 data_dir,
                 OperatorConfig {
@@ -51,11 +54,11 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             )?
             .public_documents()?
         }
-        crate::CompatPoppyCommand::ConfigurePayments { file } => {
+        crate::cli::CompatPoppyCommand::ConfigurePayments { file } => {
             Operator::configure_payments(&Vault::open(data_dir, false)?, payment_handlers(&file)?)?
                 .public_documents()?
         }
-        crate::CompatPoppyCommand::Identity { public_dir } => {
+        crate::cli::CompatPoppyCommand::Identity { public_dir } => {
             let operator = Operator::load(&Vault::open(data_dir, false)?)?;
             let documents = operator.public_documents()?;
             if let Some(directory) = public_dir {
@@ -79,7 +82,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             }
             documents
         }
-        crate::CompatPoppyCommand::Connect {
+        crate::cli::CompatPoppyCommand::Connect {
             origin,
             unit_id,
             enable,
@@ -127,7 +130,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
                 "company":connection.report.company_identifier,"user_id":connection.user_id,
                 "session_id":connection.session_id,"account_authorization_created":false})
         }
-        crate::CompatPoppyCommand::Connections => {
+        crate::cli::CompatPoppyCommand::Connections => {
             let mut connections = Vec::new();
             if let Some(node) = Node::open_inspect(&data_dir.join("node"))? {
                 for fact in node.installed_unit_facts()? {
@@ -152,7 +155,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             }
             json!({"connections":connections})
         }
-        crate::CompatPoppyCommand::NewSession { unit_id } => {
+        crate::cli::CompatPoppyCommand::NewSession { unit_id } => {
             let mut node = crate::compat::node_of(data_dir)?;
             let unit = reference(&node, &unit_id)?;
             let (fact, bytes) = unit.exact(&node)?;
@@ -177,7 +180,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             json!({"connection":reference(&node,&unit_id)?,"previous_session_id":previous,"session_id":connection.session_id,
                 "state_carried_from_old_session":false,"refresh_tokens_changed":false})
         }
-        crate::CompatPoppyCommand::Callback { unit_id, file } => {
+        crate::cli::CompatPoppyCommand::Callback { unit_id, file } => {
             let node = crate::compat::node_of(data_dir)?;
             let connection = Connection::read(&node, &reference(&node, &unit_id)?)?;
             let bytes = super::vault::read_private(&file)?;
@@ -188,7 +191,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             let reference = account::store_callback(&vault, &connection, callback)?;
             json!({"callback_ref":reference,"secret_exported":false})
         }
-        crate::CompatPoppyCommand::Credential {
+        crate::cli::CompatPoppyCommand::Credential {
             reference,
             file,
             unit_id,
@@ -244,7 +247,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             json!({"credential_ref":reference,"checkout_observation":checkout_observation,
                 "node_local":true,"secret_exported":false})
         }
-        crate::CompatPoppyCommand::Probe { unit_id } => {
+        crate::cli::CompatPoppyCommand::Probe { unit_id } => {
             let node = crate::compat::node_of(data_dir)?;
             let reference = reference(&node, &unit_id)?;
             let connection = Connection::read(&node, &reference)?;
