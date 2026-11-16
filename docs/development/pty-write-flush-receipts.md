@@ -75,6 +75,7 @@ OpenSSH process, shell, OS PTY, or device acceptance journey.
 
 Continuous cross-process installation exclusion, canonical/import/slot mutation
 coordination, selection checks on old Store handles, and the managed stdio wire
-boundary remain separate work. Closing this local stream cannot retract bytes
+boundary remain separate work; the [installation permit plan](installation-write-permit-plan.md)
+records their callsites and still-unimplemented requirements. Closing this local stream cannot retract bytes
 already transmitted, stop unrelated human input, prove a remote process stopped,
 or promise a physical effect happened exactly once.
