@@ -2,6 +2,7 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [Store 留存审计、准备身份与原件导出的后续候选](retention-preparation-export-20261116/README.md)：保留逐字节整合复核、原作者源码、三组各不超过九个窗口的边界及零新增行为的导出接线；本地未执行 Rust。工具 manifest 的类型／同摘要别名漏口已修；全槽位 GC、全安装写入排他和完整自开发仍待后续。Clippy 归档误分类的原失败与输入闭包缺口另行保留，未放宽门禁。
 - [CI 3e62：Rust 通过、Clippy 失败与成功原件缺口](ci-3e62c0e5-20261116/README.md)：实际 checkout `1c01c95a`／tree `1ccf8f0b`；1,094 通过、0 失败，原 E1 后继旅程通过。四完整 ZIP／1,904 成员、52 份 native E1 原件及五份完整 job 日志保留；Unknown、缺失对象债务和两次实际副作用均可追溯。S2 build／PTY 测试通过，但部分成功原回执被 fixture 删除或捕获，明确保留不能回填的缺口；Clippy 七条归档误分类及真实绑定告警未冒称解决。
 - [CI 10d4：编译通过，E1 后继查询与 Clippy 失败](ci-10d4a325-20261116/README.md)：实际 checkout、四份完整原 ZIP／1,900 成员、五份完整 job 日志与所有 native E1 原件保留；1,088 通过、1 失败、11 忽略。后继查询读取不存在的列，单谓词修复仍待新 CI；Clippy 的原归档误分类和 fixture 警告分别保留，未删改原件或放宽门禁。
 - [S2 本次实际构建产物与持久回执候选](s2-build-receipt-20261116/README.md)：使用 Cargo 原 metadata/JSON 产物及每次独占输出，保存完整有界原流与 typed CAS/raw history 根；五个新窗口和三个原拒绝窗口待实际 Rust 执行，不冒称测试后自修改或完整 S2。

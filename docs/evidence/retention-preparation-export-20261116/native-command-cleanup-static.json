@@ -1,0 +1,49 @@
+{
+  "base": "3e62c0e517a246872101cd1e61a694b2156bc919",
+  "kind": "source_only_check",
+  "tools": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "git_diff_check": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "existing_native_handler_production_bytes_unchanged": true,
+  "frozen_scenario_files_sha256": {
+    "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs": "c0da4d1a763e8277a87b7bcc298ae9ae34290ea2f4c90d22309fc6cd1498653c",
+    "crates/shenko-exec-ssh/src/seat/runtime.rs": "83d7dd5b9e51cc3da959216a8fa6a28691dfda2f686a5b1f67971da306ad1c43",
+    "crates/shenko-exec-ssh/src/seat/tmux.rs": "483f6d44d39a9c53059be763469e613c16bcb816499b0b51773b82d021377285",
+    "crates/shenko-exec-ssh/src/ssh_exec.rs": "9fa71ed2e86e1e74a0fe7788844973d9c5dc15e42ddac3cf9bae475ce9bc881d",
+    "crates/shenko-store/tests/seat_lifecycle.rs": "6f4550dd268607d8cfee176c5ebc202eb0d9199a2306c076633ca0f92d9c4611"
+  },
+  "checked_relative_links": [
+    {
+      "source": "docs/development/native-command-cleanup-receipts.md",
+      "target": "../../crates/shenko-exec-ssh/src/native_transport/mod.rs"
+    },
+    {
+      "source": "docs/development/native-command-cleanup-receipts.md",
+      "target": "../../crates/shenko-exec-ssh/src/native.rs"
+    },
+    {
+      "source": "docs/development/native-command-cleanup-receipts.md",
+      "target": "../../crates/shenko-exec-ssh/src/task_runner.rs"
+    },
+    {
+      "source": "docs/development/pty-write-flush-receipts.md",
+      "target": "native-command-cleanup-receipts.md"
+    }
+  ],
+  "affected_existing_tests": 4,
+  "real_protocol_tests_amended": 2,
+  "new_test_functions": 0,
+  "rust_compiled": false,
+  "protocol_tests_run": false,
+  "limits": "No Rust toolchain; source checks do not establish runtime outcomes.",
+  "source_commit": "1d81cc6f052f6e2f14e14e4d87f96a6f1d43630f",
+  "source_tree": "fc268086e7c13184d84f4dc6092e3f848c55b673",
+  "working_tree_clean": true
+}

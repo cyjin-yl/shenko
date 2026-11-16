@@ -1,0 +1,33 @@
+{
+  "base_commit": "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5",
+  "scope": "PTY fixture original-observation export only",
+  "new_distinct_scenarios": 0,
+  "original_distinct_scenarios": 5,
+  "original_assertions_retained_in_order": 30,
+  "only_added_assertion": "explicit evidence environment path must not be empty",
+  "unchanged_blocks_sha256": {
+    "gate_and_real_peer": "52b9d3664424bd8994a4fd2cbad8950a00cac73e6d89cff2dfe43ab155707a84",
+    "seat_handle_fence_reach_gate": "db66b4ddc7da37681614b6ea88864cb83b814c0d2166834f42be6a4135d1e303"
+  },
+  "physical_submit_interrupt_send_gate_operations_and_duration_literals_unchanged": true,
+  "same_test_functions": true,
+  "git_diff_check": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "local_links_checked": [
+    "installation-write-permit-plan.md"
+  ],
+  "tools": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "rust_compiled": false,
+  "export_executed": false,
+  "old_ci": "43968540714 original five-window test passed; successful captured receipts absent, not reconstructed",
+  "source_commit": "d80d8cbb7992e6ec40e5cb7075ebc0e83fec71c1",
+  "source_tree": "6f6fba935ac96b31a65875ac19338074b92d4663",
+  "working_tree_clean": true
+}
