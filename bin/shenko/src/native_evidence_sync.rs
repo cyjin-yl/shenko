@@ -20,7 +20,7 @@ pub(super) enum Ineligible {
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum EvidencePageResponse {
     Manifest {
-        page: NativeEvidencePage,
+        page: Box<NativeEvidencePage>,
     },
     NotEligible {
         schema_version: u32,
@@ -95,7 +95,7 @@ pub(super) fn serve(
         serde_json::to_vec(&page)?.len() <= shenko_node::CONTROL_PAGE_BYTES,
         "native E1 manifest exceeds bounded page size"
     );
-    Ok(EvidencePageResponse::Manifest { page })
+    Ok(EvidencePageResponse::Manifest { page: Box::new(page) })
 }
 
 #[derive(Debug, Serialize)]
@@ -245,7 +245,7 @@ pub(super) fn pull(
         let response: EvidencePageResponse =
             serde_json::from_value(response).context("decode bounded native E1 manifest")?;
         let page = match response {
-            EvidencePageResponse::Manifest { page } => page,
+            EvidencePageResponse::Manifest { page } => *page,
             EvidencePageResponse::NotEligible {
                 schema_version,
                 scope,

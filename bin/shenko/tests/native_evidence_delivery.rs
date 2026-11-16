@@ -880,7 +880,7 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
     assert_eq!(receiver.current_commit_seq()?, watermark);
     assert_eq!(
         serde_json::to_value(receiver.external_operation(originals[1].1.operation_id)?)?,
-        serde_json::to_value(advanced)?
+        serde_json::to_value(&advanced)?
     );
     assert_eq!(
         receiver
