@@ -9,7 +9,8 @@ use shenko_store::Store;
 use shenko_types::cognition::{AttitudeConfidence, ReasonPointer};
 use shenko_types::cognitive_root::{
     CognitiveRootCapture, CognitiveRootContent, CognitiveRootReinstatement,
-    CognitionSelectorRef, HomeContentRef, RootApplication, RootApplicationScope,
+    CognitionSelectorRef, EffectDisposition, ExternalEffectDisposition, HomeContentRef,
+    RootApplication, RootApplicationScope,
     RootApplicationState, RootFence, RootRef, RuntimeStateGap, RuntimeStateParticipant,
     SoftwareSlotRef, UnitSelectorEntry, UnitSelectorSnapshot,
     HOME_CONTENT_CODEC, HOME_CONTENT_CODEC_MAJOR, HOME_CONTENT_NAMESPACE,
@@ -327,6 +328,133 @@ fn idempotent_capture_returns_same_node() {
     let node2 = store.capture_cognitive_root(capture).unwrap();
     assert_eq!(node1.root_revision, node2.root_revision);
     assert_eq!(node1.attitude_id, node2.attitude_id);
+}
+
+#[test]
+fn root_request_identity_survives_reopen() {
+    let (store, dir) = test_store();
+    let agent_id = store.get_existing_agent_id().unwrap().unwrap();
+    let capture = CognitiveRootCapture {
+        request_id: EntityId::new(),
+        fence: default_fence(),
+        content: make_content(&store),
+        reasons: Vec::new(),
+        confidence: AttitudeConfidence::Unknown,
+        effects: Vec::new(),
+    };
+    let first = store.capture_cognitive_root(capture.clone()).unwrap();
+    let mut second_capture = capture.clone();
+    second_capture.request_id = EntityId::new();
+    let second = store.capture_cognitive_root(second_capture).unwrap();
+    // Equal content at two revisions must not make their targets interchangeable.
+    assert_eq!(first.content.digest(), second.content.digest());
+    let reinstate = CognitiveRootReinstatement {
+        request_id: EntityId::new(),
+        fence: default_fence(),
+        target: RootRef::of(&first),
+        reasons: Vec::new(),
+        confidence: AttitudeConfidence::Unknown,
+        effects: Vec::new(),
+    };
+    let restored = store.reinstate_cognitive_root(reinstate.clone()).unwrap();
+    drop(store);
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    assert_eq!(store.capture_cognitive_root(capture.clone()).unwrap(), first);
+    assert_eq!(store.reinstate_cognitive_root(reinstate.clone()).unwrap(), restored);
+
+    let mut changed_capture = capture.clone();
+    changed_capture.content.runtime = RuntimeStateParticipant::NotCaptured(RuntimeStateGap::new(
+        "a different capture",
+    ));
+    assert!(matches!(
+        store.capture_cognitive_root(changed_capture),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    let mut changed_target = reinstate.clone();
+    changed_target.target = RootRef::of(&second);
+    assert!(matches!(
+        store.reinstate_cognitive_root(changed_target),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    let mut changed_digest = reinstate.clone();
+    changed_digest.target.content = Digest::blake3(b"different target content");
+    assert!(matches!(
+        store.reinstate_cognitive_root(changed_digest),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    let mut capture_as_reinstate = reinstate.clone();
+    capture_as_reinstate.request_id = capture.request_id;
+    assert!(matches!(
+        store.reinstate_cognitive_root(capture_as_reinstate),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    let mut reinstate_as_capture = capture;
+    reinstate_as_capture.request_id = reinstate.request_id;
+    assert!(matches!(
+        store.capture_cognitive_root(reinstate_as_capture),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    assert_eq!(store.cognitive_root_head(agent_id).unwrap().unwrap().node, restored);
+    assert_eq!(store.cognitive_root_chain(agent_id, 10).unwrap().len(), 3);
+}
+
+#[test]
+fn contradictory_root_effects_roll_back_capture_and_reinstatement() {
+    let (store, dir) = test_store();
+    let agent_id = store.get_existing_agent_id().unwrap().unwrap();
+    let effect = ExternalEffectDisposition {
+        effect_id: EntityId::new(),
+        disposition: EffectDisposition::Unknown,
+    };
+    let contradictory = ExternalEffectDisposition {
+        effect_id: effect.effect_id,
+        disposition: EffectDisposition::Reconciled,
+    };
+    let mut capture = CognitiveRootCapture {
+        request_id: EntityId::new(),
+        fence: default_fence(),
+        content: make_content(&store),
+        reasons: Vec::new(),
+        confidence: AttitudeConfidence::Unknown,
+        effects: vec![effect.clone(), contradictory.clone()],
+    };
+    assert!(matches!(
+        store.capture_cognitive_root(capture.clone()),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    assert!(store.cognitive_root_head(agent_id).unwrap().is_none());
+    assert!(store.cognitive_root_request(capture.request_id).unwrap().is_none());
+    let conn = rusqlite::Connection::open(dir.join("store.db")).unwrap();
+    for table in ["cognitive_root_nodes", "cognitive_root_requests", "cognitive_root_effects", "cognition_attitudes"] {
+        let count: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 0, "rejected capture left rows in {table}");
+    }
+    capture.effects = vec![effect.clone(), effect.clone()];
+    let first = store.capture_cognitive_root(capture).unwrap();
+    let mut reinstate = CognitiveRootReinstatement {
+        request_id: EntityId::new(),
+        fence: default_fence(),
+        target: RootRef::of(&first),
+        reasons: Vec::new(),
+        confidence: AttitudeConfidence::Unknown,
+        effects: vec![effect.clone(), contradictory],
+    };
+    assert!(matches!(
+        store.reinstate_cognitive_root(reinstate.clone()),
+        Err(shenko_types::error::ShenkoError::Conflict(_))
+    ));
+    assert!(store.cognitive_root_request(reinstate.request_id).unwrap().is_none());
+    assert_eq!(store.cognitive_root_head(agent_id).unwrap().unwrap().node, first);
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM cognitive_root_effects", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 1);
+    reinstate.effects = vec![effect.clone(), effect];
+    let restored = store.reinstate_cognitive_root(reinstate).unwrap();
+    assert_eq!(restored.root_revision, first.root_revision + 1);
+    drop(store);
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    assert_eq!(store.cognitive_root_head(agent_id).unwrap().unwrap().node, restored);
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM cognitive_root_effects", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 2);
 }
 
 #[test]
