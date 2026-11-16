@@ -209,7 +209,7 @@ def checked_members(archive):
                 and not any(ord(char) < 32 for char in name), "unsafe ZIP member name")
         path = PurePosixPath(name)
         parts = name.rstrip("/").split("/")
-        require(name and not path.is_absolute() and all(part not in ("", ".", "..") for part in parts)
+        require(name and len(name) <= 1024 and not path.is_absolute() and all(part not in ("", ".", "..") for part in parts)
                 and not any(":" in part for part in parts), "unsafe ZIP member path")
         normalized = "/".join(parts)
         require(normalized not in seen, "duplicate ZIP member path")
@@ -426,6 +426,36 @@ def scan_logs(evidence):
             for name, info in results.items()}, results
 
 
+def protocol_observations(evidence, facts):
+    terms = ("reject", "protocol", "malformed", "invalid", "output_error", "r0")
+    matches = []
+    availability = {}
+    for table in ("session_events", "inbox_events"):
+        rows = rows_at(facts, table)
+        availability[table] = rows is not None
+        if rows is None:
+            continue
+        for index, row in enumerate(rows):
+            rendered = json.dumps(row, ensure_ascii=False, sort_keys=True)
+            found = [term for term in terms if term in rendered.lower()]
+            if found:
+                matches.append({
+                    "source": evidence.base + "final.ledger.json#/" + table + "/" + str(index),
+                    "matched_terms": found, "original_row": row})
+    save(evidence.out / "protocol-observations.json", {
+        "table_availability": availability, "matches": matches,
+        "interpretation": "literal retained-fact matches, not an inferred rejection count or failure cause"})
+    return {"table_availability": availability, "matching_rows": len(matches),
+            "complete_derivative": "protocol-observations.json",
+            "last_matches": [
+                {"source": entry["source"], "matched_terms": entry["matched_terms"],
+                 "row_excerpt": json.dumps(entry["original_row"], ensure_ascii=False)[:2048],
+                 "truncated": len(json.dumps(entry["original_row"], ensure_ascii=False)) > 2048,
+                 "excerpt_limit_characters": 2048}
+                for entry in matches[-20:]],
+            "interpretation": "literal matches only; full unchanged rows remain in the original ledger"}
+
+
 def analyze(out, archive, members):
     evidence = Evidence(out, archive, members)
     manifest = evidence.journey("manifest.json")
@@ -465,8 +495,11 @@ def analyze(out, archive, members):
                     "message_count": len(payload.get("messages", [])) if isinstance(payload, dict) else None,
                     "reserved_max_tokens": payload.get("max_tokens") if isinstance(payload, dict) else None}
                 detail["plan_identity_matches_attempt"] = (
-                    plan.get("request_id") == attempt.get("request_id")
-                    and plan.get("step_id") == attempt.get("step_id"))
+                    all(isinstance(value, str) and value for value in
+                        (plan.get("request_id"), plan.get("step_id"),
+                         attempt.get("request_id"), attempt.get("step_id")))
+                    and plan["request_id"] == attempt["request_id"]
+                    and plan["step_id"] == attempt["step_id"])
             terminal = attempt.get("terminal")
             if isinstance(terminal, dict):
                 result = evidence.resolve_cas(terminal.get("result_ref"), origin + "/terminal/result_ref")
@@ -480,7 +513,7 @@ def analyze(out, archive, members):
     table_fields = {
         "subject_branch_heads": "mode", "subject_steps": "state", "tasks": "kind",
         "task_results": "outcome", "operations": "state", "attempts": "dispatch_stage",
-        "evidence_receipts": "evidence", "subject_request_attempts": "state",
+        "evidence_receipts": "decode_status", "subject_request_attempts": "state",
         "subject_quiesce_requests": "state", "subject_intents": "state"}
     table_counts = {table: counted(rows_at(facts, table), field)
                     for table, field in table_fields.items()}
@@ -493,6 +526,7 @@ def analyze(out, archive, members):
                             "subject_quiesce_requests", "subject_intents")},
         "table_absence_is_not_zero": True})
     logs, log_details = scan_logs(evidence)
+    protocol = protocol_observations(evidence, facts)
     reported_checks = summary.get("checks") if isinstance(summary, dict) else None
     clean = {}
     for key in ("first_exit", "last_exit"):
@@ -529,7 +563,7 @@ def analyze(out, archive, members):
         "restart_evidence": {name: evidence.base + name in members for name in
                              ("restart.self.json", "restart.runtime.log", "restart.ledger.json",
                               "restart.input.json", "restart.websocket.jsonl")},
-        "clean_stop": clean, "log_summary": logs,
+        "clean_stop": clean, "log_summary": logs, "protocol_fact_matches": protocol,
         "missing_members": sorted(set(evidence.missing)), "parse_errors": evidence.parse_errors,
         "limits": {"zip_bytes": ZIP_BYTES, "members": MAX_MEMBERS, "expanded_bytes": MAX_EXPANDED,
                    "member_bytes": MAX_MEMBER, "parsed_json_bytes": MAX_JSON},
@@ -543,7 +577,7 @@ def analyze(out, archive, members):
     console = {key: analysis[key] for key in
                ("source", "original_summary", "final_ledger_available", "table_counts",
                 "recomputed_original_predicates", "restart_evidence", "clean_stop",
-                "missing_members", "acceptance_boundary", "cas_boundary")}
+                "protocol_fact_matches", "missing_members", "acceptance_boundary", "cas_boundary")}
     console["durable_requests"] = [
         {key: row[key] for key in ("source", "request_id", "attempt_id", "state",
                                   "created_commit", "terminal")}
@@ -553,8 +587,37 @@ def analyze(out, archive, members):
         if name.endswith((".runtime.log", "failure.txt"))}
     rendered = json.dumps(console, ensure_ascii=False, indent=2)
     if len(rendered.encode("utf-8")) > 1024 * 1024:
-        rendered = json.dumps({"console_truncated": True, "complete_derivative": "analysis.json",
-                               "bounded_json_prefix": rendered[:256 * 1024]}, ensure_ascii=False)
+        original_errors = summary.get("errors") if isinstance(summary, dict) else None
+        errors = original_errors if isinstance(original_errors, list) else []
+        checks = reported_checks if isinstance(reported_checks, dict) else {}
+        compact = {
+            "console_truncated": True, "complete_derivative": "analysis.json",
+            "source": analysis["source"], "clean_stop": clean,
+            "restart_evidence": analysis["restart_evidence"],
+            "original_product_passed": summary.get("passed") if isinstance(summary, dict) else None,
+            "summary_errors_available": isinstance(original_errors, list),
+            "summary_error_count": len(errors) if isinstance(original_errors, list) else None,
+            "summary_error_excerpts": [
+                {"source": evidence.base + "summary.json#/errors/" + str(index),
+                 "text": str(error)[:4096], "truncated": len(str(error)) > 4096}
+                for index, error in enumerate(errors[:10])],
+            "reported_check_count": len(checks) if isinstance(reported_checks, dict) else None,
+            "reported_checks": {str(key)[:256]: value if type(value) is bool else str(value)[:256]
+                                for key, value in list(checks.items())[:100]},
+            "final_ledger_available": facts is not None,
+            "table_counts": {table: {key: value for key, value in info.items() if key != "values"}
+                             for table, info in table_counts.items()},
+            "durable_request_count": len(request_details) if requests is not None else None,
+            "runtime_diagnostic_excerpts": {
+                name: [{"source_path": name, "line": entry["line"], "text": entry["text"][:1024],
+                        "truncated": len(entry["text"]) > 1024}
+                       for entry in info["matches"][-10:]]
+                for name, info in list((name, info) for name, info in log_details.items()
+                                       if name.endswith((".runtime.log", "failure.txt")))[:6]},
+            "excerpt_boundary": "At most 10 errors/100 checks/6 logs x 10 lines; text excerpts "
+                                "are bounded. Complete original and derived files are uploaded.",
+            "acceptance_boundary": analysis["acceptance_boundary"]}
+        rendered = json.dumps(compact, ensure_ascii=False, indent=2)
     print(rendered)
     return {"analysis_complete": True, "original_product_passed":
             summary.get("passed") if isinstance(summary, dict) else None}
