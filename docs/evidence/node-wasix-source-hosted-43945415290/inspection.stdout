@@ -1,0 +1,1 @@
+{"zip_members_verified": 121, "internal_entries_verified": 120, "source_bindings_verified": 4, "symlink_blobs_verified": 8, "failure": {"line": 255367, "text": "../deps/v8/src/builtins/builtins-typed-array.cc:17:10: fatal error: 'wasi/wasi-simdutf-compat.h' file not found"}, "product_tested": false}

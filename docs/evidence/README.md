@@ -2,6 +2,7 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [第二次 Node-WASIX 源构建：绝对 header 链接失败](node-wasix-source-hosted-43945415290/README.md)：完整原 ZIP 的 121 个成员、实际 checkout、工具/源码/资源和全部原输入保留并独立核验。构建越过 OpenSSL 归档命令后，因固定上游中的绝对 symlink 无法打开 V8 header 而失败；原 8 个符号链接已只读核对。没有 module、cell、reopen 或正式能力通过，前轮失败仍保留，未重跑或调高限额。
 - [C19 directory-lock integration and actual local checks](c19-directory-lock-integration-20261116/README.md): adopts PR #314 on this integration branch, preserves both source revisions/authors and the alternative PR #313 review. The integrated 15 existing + 2 concurrency scenarios passed locally; the existing subprocesses are now bounded. Read-only report support and local serialization do not prove a 7/30-day run or physical durability.
 - [CI a1d3：E1 fixture 编译失败与精确修复](ci-a1d3fa6e-20261116/README.md)：保留实际 merge checkout、独立 baseline、四个完整原 ZIP 和五份完整解码 job 日志；四门通过，Rust/Clippy 因同一 moved-value 错误失败，另有真实 production `large_enum_variant` 增量。Guest 与 workspace tests 全部跳过；两个零新增场景的最小源码修复仍待下一候选 CI，原失败不改写。
 - [83bf CI 的六处 capture 失败与原件](ci-83bf3914-20261116/README.md)：实际 checkout `2d275430`／tree `d695242e`、独立 baseline `84ae1940`；五门成功、Rust 六失败，四份完整 ZIP 和可取得的完整日志均保留。E1 导出明确部分失败；非 pinned SQLite 诊断与其两次初始失败也保留。随后源码修复仍需新 CI。

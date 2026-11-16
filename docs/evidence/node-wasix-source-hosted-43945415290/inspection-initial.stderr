@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/faaa3ccca531/shenko-native-e1-successor/docs/evidence/node-wasix-source-hosted-43945415290/inspect_archive.py", line 58, in <module>
+    data = base64.b64decode(response["content"], validate=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/base64.py", line 88, in b64decode
+    return binascii.a2b_base64(s, strict_mode=validate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+binascii.Error: Only base64 data is allowed
