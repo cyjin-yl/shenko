@@ -25,6 +25,10 @@ use std::{process::Stdio, sync::Arc, time::Duration};
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const PRINTF: &str = "/usr/bin/printf";
 const CONTRACT: &[u8] = b"shenko.host.printf/v1: exit 0 and exact frozen UTF-8 stdout; no shell";
+const PROMPT_SECTION: &str = r#"启动主机 /usr/bin/printf，把 text 原样写入捕获的 stdout；不经过 shell，也不把 text 当作格式串。
+输入一个 JSON 对象：{"text":"要原样输出的文本","timeout_secs":5}。只接受 text 和可选的 timeout_secs。text 最多 65536 个 UTF-8 字节，不能含 NUL；timeout_secs 为 1 至 30 的整数，省略时为 5 秒。
+结果包含 exit_code、stdout_utf8、stderr_utf8、exact_postcondition 和 transport_error。成功要求原回执确认退出码为 0、stdout 与封存的 text 完全一致，且 stderr 为空；捕获 stdout 本身不表示已向用户或会话发消息。
+进程可能已运行而回执尚未取得；结果 Unknown 时保留原尝试，不自动重跑。"#;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -310,7 +314,7 @@ impl NativeTaskHandler for HostPrintfHandler {
             },
             role_revision: "native-child/1".into(),
             authority_refs: vec!["host.process.printf.no_effects/v1".into()],
-            prompt_section: None,
+            prompt_section: Some(PROMPT_SECTION.into()),
         }
     }
 
