@@ -775,8 +775,6 @@ T1 是一个原子批次，至少包含：
 
 T1 后只能执行已冻结的那份操作。重新展开 discovery、改参数或改目标必须成为新的明确意图，不在 replay 时偷偷再跑 before-hook 改写它。provider 返还外部 handle 时应尽早通过提交保存；handle 带 backend instance 身份，重启后验证仍有效，不能把旧 slot ID 当永久资源。
 
-已 claim 的非 model 原生任务在附有 commit authority 的 Store 上使用类型化 `native.arm`：原 task、request、operation、attempt 和 invocation 先封存，普通 T1 或与 dispatch marker 成对的 T1 均只允许其精确三行写入。当前调用首次建立准备并在最终事务重验 authority/dispatcher/invocation 后才可能取得 `None` 执行许可；旧准备、learned 和重启物化只保留原事实，即使其第一次 choose 返回 `replayed=false` 也不能重新执行。该范围不包含 model quota、publication 或 claim，也不以 archive 停泊记录充当可执行前驱。实现与验证边界见[原生 T1 canonical arming](../development/canonical-native-arming.md)。
-
 同一调用本身跨多个不可原子的外部域时，记录可区分子 Operation 及依赖。例如“改文件→git push→发 QQ”分别拥有自己的 T1/T2；三步不能共用一条“全部完成/全部回滚”。
 
 ### X09. T2：证据与完成状态不得形成撕裂 `[P+S；DUR-P1/DUR-P3]`
@@ -852,6 +850,10 @@ tmux send-keys、按回车确认、任意 shell、无端到端幂等承诺的消
 迟到回执按原 operation、attempt、producer schema 路由到保留 reader，随后作为 E1 事实保存。producer epoch 只用于关联，不作为“丢弃事实”的理由；新控制 epoch 也不授予旧 callback 新命令权。无 reader 时保存 uninterpreted，并由主体自主安装 reader、迁移或派 child 调查。reader/ledger/验证器本身都允许升级；保留是当前恢复依赖，不是永久不可修改 Ring 0。
 
 <!-- /migrated-contract: SPEC:41.4 -->
+
+### 当前原生 T1 实现范围
+
+已 claim 的非 model 原生任务在附有 commit authority 的 Store 上使用类型化 `native.arm`：原 task、request、operation、attempt 和 invocation 先封存，普通 T1 或与 dispatch marker 成对的 T1 均只允许其精确三行写入。当前调用首次建立准备并在最终事务重验 authority/dispatcher/invocation 后才可能取得 `None` 执行许可；旧准备、learned 和重启物化只保留原事实，即使其第一次 choose 返回 `replayed=false` 也不能重新执行。该范围不包含 model quota、publication 或 claim，也不以 archive 停泊记录充当可执行前驱。实现与验证边界见[原生 T1 canonical arming](../development/canonical-native-arming.md)。
 
 <a id="spec-41-14"></a>
 <!-- migrated-contract: SPEC:41.14 -->
