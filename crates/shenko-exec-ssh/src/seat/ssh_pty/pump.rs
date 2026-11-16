@@ -297,8 +297,8 @@ impl Pump {
             let event = tokio::select! {
                 biased;
                 () = wait_for_close(&mut self.close_rx) => WriteEvent::Stop,
-                result = &mut writing => WriteEvent::Finished(result),
-                event = receiver.recv() => WriteEvent::Remote(event),
+                _result = &mut writing => WriteEvent::Finished(_result),
+                _event = receiver.recv() => WriteEvent::Remote(_event),
             };
             match event {
                 WriteEvent::Stop => break,
@@ -322,8 +322,8 @@ impl Pump {
             let event = tokio::select! {
                 biased;
                 () = wait_for_close(&mut self.close_rx) => PumpEvent::Stop,
-                event = self.session.recv() => PumpEvent::Remote(event),
-                command = self.commands.recv() => PumpEvent::Command(command),
+                _event = self.session.recv() => PumpEvent::Remote(_event),
+                _command = self.commands.recv() => PumpEvent::Command(_command),
             };
             match event {
                 PumpEvent::Stop | PumpEvent::Command(None) => break,
