@@ -1,9 +1,10 @@
+import { text as t } from './messages';
 import type { IconName } from './icons';
 import type { ViewName } from './projection';
 
 /**
  * Lens contributions — the shell's first extension point
- * (docs/specs/web-interface.md#spec-21-3).
+ *
  *
  * The subject's stream is the one fixed surface. Everything else is a lens
  * that opens beside it, and the shell's own pages are registered through the
@@ -61,10 +62,10 @@ export function lensSnapshot(): LensContribution[] {
   return snapshot;
 }
 
-registerLens({ id: 'tasks', title: '任务', icon: 'tasks', order: 10, source: 'shell', view: 'tasks' });
-registerLens({ id: 'memory', title: '记忆', icon: 'memory', order: 20, source: 'shell', view: 'memory' });
+registerLens({ id: 'tasks', title: t('config.tasks'), icon: 'tasks', order: 10, source: 'shell', view: 'tasks' });
+registerLens({ id: 'memory', title: t('config.memory'), icon: 'memory', order: 20, source: 'shell', view: 'memory' });
 registerLens({ id: 'playground', title: 'Playground', icon: 'playground', order: 30, source: 'shell', view: 'playground' });
-registerLens({ id: 'config', title: '配置', icon: 'config', order: 90, source: 'shell', view: 'config' });
+registerLens({ id: 'config', title: t('config.title'), icon: 'config', order: 90, source: 'shell', view: 'config' });
 
 /// Works the reader pinned as lenses. This is a reading preference of this
 /// browser, like the theme: it does not change the work or its permissions.

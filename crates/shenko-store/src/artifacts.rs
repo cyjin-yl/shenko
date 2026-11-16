@@ -1,4 +1,4 @@
-//! Durable Playground business state — docs/specs/configuration-playground.md#spec-43-2.
+//! Durable Playground business state.
 //!
 //! An artifact is a long-lived work: its source, build lock, frontend bundle,
 //! backend entry, persistent state bindings, action schemas, operation
@@ -69,7 +69,7 @@ pub fn ensure_artifact_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// The frontend half of a manifest — docs/specs/configuration-playground.md#spec-43-2.
+/// The frontend half of a manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FrontendBinding {
@@ -78,7 +78,7 @@ pub struct FrontendBinding {
     pub surface_contract_ref: ObjectRef,
 }
 
-/// The backend half of a manifest — docs/specs/configuration-playground.md#spec-43-2.
+/// The backend half of a manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BackendManifest {
@@ -88,7 +88,7 @@ pub struct BackendManifest {
     pub service_contract_ref: ObjectRef,
 }
 
-/// A versioned artifact manifest — docs/specs/configuration-playground.md#spec-43-2.
+/// A versioned artifact manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactManifest {
@@ -109,7 +109,7 @@ pub struct ArtifactManifest {
     pub recovery_closure_ref: ObjectRef,
 }
 
-/// The durable state of one artifact — docs/specs/configuration-playground.md#spec-43-2.
+/// The durable state of one artifact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactRecord {
@@ -140,7 +140,7 @@ pub struct ArtifactRecord {
 }
 
 /// The subject-facing fact that announces one artifact record transition —
-/// docs/specs/configuration-playground.md#spec-43-2 (`artifact.state_changed` enters the same subject inbox).
+/// (`artifact.state_changed` enters the same subject inbox).
 ///
 /// It is committed in the SAME ledger transaction as the record it describes,
 /// so a transition can never be durable without its admitted inbox fact and an
@@ -616,7 +616,7 @@ impl Store {
         Ok(out)
     }
 
-    /// The artifact roots this installation can enumerate — docs/specs/configuration-playground.md#spec-43-2.
+    /// The artifact roots this installation can enumerate.
     ///
     /// A root is only usable when the recorded identity still matches the
     /// directory on disk; a replaced root is reported, never silently used.

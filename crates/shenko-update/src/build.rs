@@ -1,4 +1,4 @@
-//! Candidate builds and artifact identity — docs/specs/self-update.md#spec-9-3, docs/specs/self-update.md#spec-35-4.
+//! Candidate builds and artifact identity.
 //!
 //! A build provider turns a source tree into a candidate artifact with a
 //! content identity. The running device does not have to be the build device:

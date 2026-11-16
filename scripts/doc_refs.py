@@ -14,12 +14,74 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 import ast
+import hashlib
+import io
 import json
 import re
+import tokenize
 
 
 class ReferenceError(ValueError):
     """A reference is missing, unsupported, malformed or ambiguous."""
+
+
+CONTRACT_CITATION = re.compile(r'docs/(?:specs|requirements|governance)/[^\s`<>"\']+\.md#')
+CONTRACT_REFERENCE = re.compile(
+    r'docs/(?:specs|requirements|governance)/[A-Za-z0-9_.-]+\.md#'
+    r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')
+CONTRACT_RANGE = re.compile(
+    r'docs/[\w/.-]+\.md#spec-[0-9-]+[–—]docs/[\w/.-]+\.md#spec-[0-9-]+')
+
+
+def contract_citation_references(comment):
+    return [match.group(0).rstrip('.') for match in CONTRACT_REFERENCE.finditer(comment)]
+
+
+def contract_citation_ranges(comment):
+    return sorted(set(match.group(0) for match in CONTRACT_RANGE.finditer(comment)))
+
+
+def citation_fingerprint(comment):
+    # Grammars differ in whether a line-comment node includes its final EOL.
+    # The migration separately retains and hashes the original token bytes.
+    return hashlib.sha256(comment.rstrip('\r\n').encode('utf-8')).hexdigest()
+
+
+def contract_citation_counts(comments):
+    return Counter(citation_fingerprint(comment) for comment in comments
+                   if CONTRACT_CITATION.search(comment))
+
+
+def citation_site_id(site):
+    identity = [site['source_path'], site['comment_sha256'], site['symbol_refs']]
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=False,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def citation_migration_digest(sites):
+    return hashlib.sha256(json.dumps(sites, ensure_ascii=False, sort_keys=True,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def relocated_citation_locations(site, binding):
+    """Retain the original copy budget when a comment moves or is removed."""
+    count = site.get('occurrences')
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise ReferenceError('citation has invalid original multiplicity')
+    locations = binding.get('citation_locations')
+    if not isinstance(locations, dict):
+        raise ReferenceError('citation needs explicit current locations')
+    if any(not isinstance(path, str) or not isinstance(value, int)
+           or isinstance(value, bool) or value <= 0 for path, value in locations.items()):
+        raise ReferenceError('citation has invalid current multiplicity')
+    if sum(locations.values()) > count:
+        raise ReferenceError('citation relocation adds unrecorded copies')
+    return locations
+
+
+def markdown_link_targets(text):
+    return [target for _, line in outside_fences(text)
+            for target in re.findall(r'\]\(([^\s)]+)(?:\s+"[^"]*")?\)', line)]
 
 
 def outside_fences(text):
@@ -139,7 +201,7 @@ def _one(symbols, identity):
         raise ReferenceError(f'ambiguous symbol {identity!r}: {count} definitions; qualify its owner')
 
 
-def _python_symbols(text):
+def _python_symbols(text, comments=None):
     symbols = Counter()
 
     def walk(nodes, owners):
@@ -164,13 +226,23 @@ def _python_symbols(text):
                     walk(handler.body, owners)
 
     try:
-        walk(ast.parse(text).body, [])
+        tree = ast.parse(text)
+        walk(tree.body, [])
     except SyntaxError as error:
         raise ReferenceError(f'Python syntax is unsupported: {error.msg}') from error
+    if comments is not None:
+        comments.extend(token.string for token in tokenize.generate_tokens(io.StringIO(text).readline)
+                        if token.type == tokenize.COMMENT)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body:
+                first = node.body[0]
+                if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                        and isinstance(first.value.value, str)):
+                    comments.append(ast.get_source_segment(text, first))
     return symbols
 
 
-def _tree_symbols(text, suffix):
+def _tree_symbols(text, suffix, comments=None):
     try:
         from tree_sitter import Language, Parser
         if suffix == '.rs':
@@ -202,6 +274,8 @@ def _tree_symbols(text, suffix):
         return ''.join(spelling(node).split())
 
     def walk(node, owners):
+        if comments is not None and node.type in {'comment', 'line_comment', 'block_comment'}:
+            comments.append(spelling(node))
         child_owners = owners
         if suffix == '.rs' and node.type == 'impl_item':
             owner = type_name(node.child_by_field_name('type'))
@@ -300,17 +374,14 @@ class ReferenceResolver:
     def __init__(self, root):
         self.root = Path(root)
         self.cache = {}
+        self.comment_cache = {}
 
-    def resolve(self, reference):
-        if not isinstance(reference, str):
-            raise ReferenceError('reference must be a path#identity string')
-        relative, separator, identity = reference.partition('#')
-        if not separator or not identity:
-            raise ReferenceError(f'reference needs an explicit identity: {reference!r}')
+    def _load(self, relative):
         path = repository_path(self.root, relative)
         suffix = path.suffix
         if relative not in self.cache:
             text = path.read_text(encoding='utf-8')
+            comments = []
             if suffix == '.json':
                 def unique_object(pairs):
                     value = {}
@@ -321,9 +392,9 @@ class ReferenceResolver:
                     return value
                 self.cache[relative] = json.loads(text, object_pairs_hook=unique_object)
             elif suffix == '.py':
-                self.cache[relative] = _python_symbols(text)
+                self.cache[relative] = _python_symbols(text, comments)
             elif suffix in {'.rs', '.ts', '.tsx', '.js', '.mjs'}:
-                self.cache[relative] = _tree_symbols(text, suffix)
+                self.cache[relative] = _tree_symbols(text, suffix, comments)
             elif suffix == '.html':
                 parser = _HtmlSymbols()
                 parser.feed(text)
@@ -359,7 +430,24 @@ class ReferenceResolver:
                                                    for anchor in explicit_anchors(line))
             else:
                 raise ReferenceError(f'unsupported reference language: {suffix or "(none)"}')
-        symbols = self.cache[relative]
+            self.comment_cache[relative] = comments
+        return path, self.cache[relative]
+
+    def source_comments(self, relative):
+        """Read lexical comments and Python docstrings, never quoted code examples."""
+        path, _ = self._load(relative)
+        if path.suffix not in {'.rs', '.ts', '.tsx', '.js', '.mjs', '.py'}:
+            raise ReferenceError(f'unsupported source-comment language: {path.suffix}')
+        return tuple(self.comment_cache[relative])
+
+    def resolve(self, reference):
+        if not isinstance(reference, str):
+            raise ReferenceError('reference must be a path#identity string')
+        relative, separator, identity = reference.partition('#')
+        if not separator or not identity:
+            raise ReferenceError(f'reference needs an explicit identity: {reference!r}')
+        path, symbols = self._load(relative)
+        suffix = path.suffix
         if suffix == '.json':
             if not identity.startswith('/'):
                 raise ReferenceError('structured-data references require a nonempty RFC 6901 pointer')

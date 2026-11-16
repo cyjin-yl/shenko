@@ -1085,6 +1085,8 @@ ClockProvider 与 EnvironmentProvider 是拟议职责名，不宣称当前已有
 
 <!-- /migrated-contract: SPEC:45.14 -->
 
+主体循环的错误投影将原 `ProtocolError` 的 code、scope、retry、可选身份与完整 details 放入 `runtime_error.data.extra.error`，沿用日记既有的脱敏和大小限制。broker 接纳失败的可读 message 与生产诊断保留 `admission_error` 主因；容量恢复与重试事实记录失败留在结构化 details 中，不替换主因或改变原 request / after_reconcile 语义。
+
 <a id="spec-51"></a>
 <!-- migrated-contract: SPEC:51 -->
 # 51 认知元概念：内容、态度与理由

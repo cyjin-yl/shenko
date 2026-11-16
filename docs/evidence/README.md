@@ -5,5 +5,6 @@
 - [统一 Node、安装同步与认知恢复](node-sync-cognition-20261026.json)：#71 / PR72，映射 C17/C10/C09/C01/C03；真实接收安装与模型不可用时的确定性恢复，同一 PVE 故障域，不宣称全 C17 或物理多机容灾。
 - 较早的 [C17 首条独立节点旅程](c17-native-first-journey-20261025.json)、[ownership/E1 修复](c17-ownership-evidence-repair-20261025.json)、[SSH 安装回执修复](c17-script-receipts-20261025.json) 保留各自版本和更窄边界，不能替代后续主应用输入的验证。
 - [C19 长跑观察工具](c19-longrun-observation-tooling-20261029.json)：#24；该记录本身的保守窗口准入、日志/重启/进程身份修复与 9 个独立场景清单；记录内的 schema 与场景数是它自己的历史版本，不能读成当前工具状态（当前工具为 schema 3 记录／schema 5 报告，要求实际打开执行文件的逐样本 SHA-256，见 [长跑观察](../development/long-run-observation.md)）。**不包含任何长跑结果**。当前工具回归与原生核验须使用各自源码绑定的新回执；旧自检手记不证明新合同或物理耐久性，不能当 S5 长期验收。
+- [文档布局与源码追踪来源](documentation-layout-20261116.json)：记录导航原文与研究归档的搬迁位置、原始摘要，以及 coverage 中源码注释迁移的入口。`checks_run` 为空、`product_tested=false`；它是供整合验证消费的来源绑定，没有产品通过声明。
 
 大日志、录屏和敏感环境信息可以保存在合适的私有工件存储；仓库保留非秘密的内容摘要、hash、位置与复现方法。最终completion.json与报告按COMPLETION合同生成。不能提前生成一个success示例让goal误判产品完成。

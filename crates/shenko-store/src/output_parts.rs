@@ -1,4 +1,4 @@
-//! Durable ordered public-text output parts — docs/specs/web-interface.md#spec-21-11 流数据与显示状态.
+//! Durable ordered public-text output parts — 流数据与显示状态.
 //!
 //! Real streaming starts at the provider stream (ArchBroker), is gated to
 //! public text using the canonical output source boundaries, and is

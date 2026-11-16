@@ -1,4 +1,4 @@
-//! 任务记录 — docs/specs/durable-state.md#spec-41-4 X02
+//! 任务记录 — X02
 //! TaskRecord 含完整可恢复状态。
 
 use serde::{Deserialize, Serialize};
@@ -101,7 +101,7 @@ pub enum DispatchEligibility {
     },
 }
 
-/// 任务状态，docs/specs/durable-state.md#spec-41-4 X02
+/// 任务状态， X02
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "status")]
 pub enum TaskState {
@@ -149,7 +149,7 @@ pub enum WaitJoinPolicy {
     AllSettled,
 }
 
-/// 完整 TaskRecord — docs/specs/durable-state.md#spec-41-4 X02
+/// 完整 TaskRecord — X02
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRecord {
     pub record_schema_version: u32,
@@ -187,7 +187,7 @@ pub struct TaskRecord {
 impl TaskRecord {
     /// The subject's own root task: self-owned, never dispatched by the
     /// scheduler, created atomically with subject genesis so the launch
-    /// binding is part of the birth transaction (docs/specs/subject-runtime.md#spec-41-5, docs/specs/plugins.md#spec-44-6).
+    /// binding is part of the birth transaction.
     pub fn subject_root(
         task_id: EntityId,
         agent_id: EntityId,
@@ -291,7 +291,7 @@ pub struct NativeEvidenceObservation {
 /// It is plain protocol data: the ledger issues it when a worker claims a
 /// task, and a native task handler receives it with its invocation. It lives
 /// here so that a handler can name it without depending on the ledger crate
-/// (docs/specs/kernel.md#kernel-7).
+///
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskInvocation {
     pub task_id: EntityId,
