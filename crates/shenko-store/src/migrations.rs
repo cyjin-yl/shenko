@@ -146,6 +146,20 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // rule can already hold several receipts for one scope and no migration
     // may re-key or delete a durable receipt.
     conn.execute_batch(crate::receipt_admission::SCHEMA)?;
+    // A pair can contradict several distinct incoming facts. Replace the
+    // legacy pair-only uniqueness constraint without rewriting any conflict
+    // row; receipt admission compares the preserved normalized facts.
+    let unique_conflict_pair: bool = conn.query_row(
+        "SELECT \"unique\" FROM pragma_index_list('evidence_receipt_conflicts') WHERE name='idx_evidence_conflicts_pair'",
+        [], |row| row.get(0),
+    )?;
+    if unique_conflict_pair {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch("DROP INDEX IF EXISTS idx_evidence_conflicts_pair;
+            CREATE INDEX idx_evidence_conflicts_pair
+                ON evidence_receipt_conflicts(receipt_id, original_receipt_id);")?;
+        tx.commit()?;
+    }
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
