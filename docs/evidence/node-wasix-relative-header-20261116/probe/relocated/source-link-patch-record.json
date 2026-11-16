@@ -1,0 +1,22 @@
+{
+  "path": "crates/shenko-wasm/ports/node-wasix/patches/0002-relative-simdutf-header.patch",
+  "sha256": "105193b2dc85af5297e3fbd266b42441dc5b4baef26be0dff639cb7d1aa8ecdc",
+  "source_path": "deps/v8/include/wasi/wasi-simdutf-compat.h",
+  "source_mode": "120000",
+  "before_blob": "f7e59ed84434ac2100e830dfc652203f1ccdad48",
+  "before_target": "/home/victoryang00/node-wasix32/deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+  "after_blob": "3589e61e26b635c6f1620181732b9d04dea83fa8",
+  "after_target": "../../third_party/simdutf/simdutf-wasi-compat.h",
+  "target_path": "deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+  "target_blob": "e855e0ab27eecb80fabb1c05d1abb08caaf3c4d8",
+  "target_sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9",
+  "target_bytes": 1449,
+  "purpose": "replace the fixed upstream's author-machine absolute header symlink with its exact same-tree relative target",
+  "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "resolved_target": "deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+  "original_link_sha256": "e9a3435e5f0b6916070df2c51e633cb78d02f39fa5eda31367c82bade47dbaa1",
+  "patched_link_sha256": "0ed60b9d1cbb8e2c0be6888ee3a4a48797ea803e8a925f65f4cdf9f90d0f0ee7",
+  "unchanged_target_sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9",
+  "combined_diff_sha256": "e74db257c2cb29cff7a3300f4ecb428c587c08ec9ac518ce5c93e3e5b40afb73"
+}

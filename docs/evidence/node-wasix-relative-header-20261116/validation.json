@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-11-16T21:40:48.564358+00:00",
+  "source_base_at_probe": "10d4a325560a1054fbde00162e8e7696007c2eab",
+  "source_base_tree": "86af69f6e0a2c4434c252d570f23a8afa1c5d5ec",
+  "original_failure_archive_source": "18f5c09e47e670958fddf92d09c9809a09118b4b",
+  "builder_sha256": "48836fc0958df4a8297397a834f16241d4f4181f588313132f49f84640508614",
+  "verifier_sha256": "224a3f8833ccb25c6371b9106ebf06f7e11c527ed4bd00848c71cb59ca6a8080",
+  "command": "python3 crates/shenko-wasm/ports/node-wasix/verify_relative_header.py --original-evidence /workspace/scratch/faaa3ccca531/shenko-native-e1-successor/docs/evidence/node-wasix-source-hosted-43945415290 --work /workspace/scratch/faaa3ccca531/node-relative-header-fixture --evidence /workspace/scratch/faaa3ccca531/shenko-node-header/docs/evidence/node-wasix-relative-header-20261116/probe",
+  "exit_code": 0,
+  "elapsed_seconds_observed_by_exec": 0.199419607,
+  "distinct_windows": 3,
+  "protected_repl_blocks_unchanged": 2,
+  "python_syntax": "AST parse successful",
+  "runtime_runner_and_workflow_unchanged": true,
+  "source_probe_replayed_afterward": false,
+  "full_source_build_started": false,
+  "rust_executed": false,
+  "docs_parser_run": false,
+  "git_diff_check_exit_code": 0
+}

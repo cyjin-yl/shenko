@@ -225,8 +225,13 @@ but no matching source-built artifact has yet been verified.
 The [source-build candidate](../evidence/node-wasix-source-build-20261116/README.md)
 adds a separate explicit opt-in route from that exact source and fixed official
 toolchain assets. It retains the fresh module and unsigned build record before
-running the unchanged driver/input journey; its implementation has only static
-checks so far, with no source-build or guest success claim.
+running the unchanged driver/input journey. The [first actual source build](../evidence/node-wasix-source-hosted-43922989826/README.md)
+failed in the OpenSSL archive recipe. After that recipe's recorded repair,
+the [second actual source build](../evidence/node-wasix-source-hosted-43945415290/README.md)
+failed on a fixed upstream header symlink pointing to its author's machine.
+The [relative-link candidate](../evidence/node-wasix-relative-header-20261116/README.md)
+preserves the same-tree header and has three finite patch/provenance checks;
+it has no subsequent source-build, guest, checkpoint or reopen result.
 See the [artifact identities, failures and reproducer](../evidence/named-node-wasix-20261116/README.md).
 No installed named-target availability or recovery claim changes, and Bun
 remains an independent obligation.

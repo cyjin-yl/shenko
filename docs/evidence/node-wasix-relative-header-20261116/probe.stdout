@@ -1,0 +1,82 @@
+{
+  "scope": "Synthetic minimal Git fixtures seeded by verified original bytes; not the upstream checkout or a compiler run",
+  "node_or_wasix_executed": false,
+  "product_capability_installed": false,
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "windows": [
+    {
+      "name": "relocated",
+      "resolved_target": "deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+      "mode_preserved": true,
+      "target_unchanged": true,
+      "archive_patch": {
+        "path": "crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch",
+        "sha256": "93970b459d28ad3ac6af9c6446bc175220b4ea3b2f9ab29f5330710454d5fee9",
+        "source_path": "tools/gyp/pylib/gyp/generator/make.py",
+        "before_sha256": "29092beb6082ee2170676449f74204f73a9843486e2468f073bca75468ce2245",
+        "after_sha256": "da8c30caf420fcbd795a8ed9d06b1bb730aec1d138c555d558f5b8f6b0ba3b02",
+        "purpose": "use the existing per-object response-file archive recipes for wasi/wasm instead of one oversized command argument",
+        "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+        "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+        "effective_diff_sha256": "e6340d558da7eb465b2e109f9b2ebbc38e6a67c7cc686cb7dc1692998fb1c10e"
+      },
+      "link_patch": {
+        "path": "crates/shenko-wasm/ports/node-wasix/patches/0002-relative-simdutf-header.patch",
+        "sha256": "105193b2dc85af5297e3fbd266b42441dc5b4baef26be0dff639cb7d1aa8ecdc",
+        "source_path": "deps/v8/include/wasi/wasi-simdutf-compat.h",
+        "source_mode": "120000",
+        "before_blob": "f7e59ed84434ac2100e830dfc652203f1ccdad48",
+        "before_target": "/home/victoryang00/node-wasix32/deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+        "after_blob": "3589e61e26b635c6f1620181732b9d04dea83fa8",
+        "after_target": "../../third_party/simdutf/simdutf-wasi-compat.h",
+        "target_path": "deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+        "target_blob": "e855e0ab27eecb80fabb1c05d1abb08caaf3c4d8",
+        "target_sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9",
+        "target_bytes": 1449,
+        "purpose": "replace the fixed upstream's author-machine absolute header symlink with its exact same-tree relative target",
+        "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+        "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+        "resolved_target": "deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+        "original_link_sha256": "e9a3435e5f0b6916070df2c51e633cb78d02f39fa5eda31367c82bade47dbaa1",
+        "patched_link_sha256": "0ed60b9d1cbb8e2c0be6888ee3a4a48797ea803e8a925f65f4cdf9f90d0f0ee7",
+        "unchanged_target_sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9",
+        "combined_diff_sha256": "e74db257c2cb29cff7a3300f4ecb428c587c08ec9ac518ce5c93e3e5b40afb73"
+      }
+    },
+    {
+      "name": "changed-link",
+      "expected_refusal": "fixed upstream header link differs before patching",
+      "actual_refusal": "fixed upstream header link differs before patching",
+      "link_unchanged": true,
+      "target_unchanged": true,
+      "link_patch_not_executed": true
+    },
+    {
+      "name": "changed-header",
+      "expected_refusal": "fixed upstream header target differs before patching",
+      "actual_refusal": "fixed upstream header target differs before patching",
+      "link_unchanged": true,
+      "target_unchanged": true,
+      "link_patch_not_executed": true
+    }
+  ],
+  "original_zip_sha256": "8048e747580e94197b730e1ebec321088dd45171a0ca1f9edb5076379f895ba5",
+  "builder_sha256": "48836fc0958df4a8297397a834f16241d4f4181f588313132f49f84640508614",
+  "original_upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "original_upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "original_header_sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9",
+  "original_link_blob": "f7e59ed84434ac2100e830dfc652203f1ccdad48",
+  "passed": true,
+  "unchanged_source_components": [
+    "build_budget",
+    "BUILD_SECONDS",
+    "ASSETS",
+    "fetch_toolchain",
+    "verify_archive_response_rule",
+    "apply_source_patch"
+  ],
+  "runtime_runner_unchanged": true,
+  "workflow_unchanged": true,
+  "distinct_windows": 3
+}

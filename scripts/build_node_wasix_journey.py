@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build pinned Node/V8 WASIX plus its recorded patch, then the original journey."""
+"""Build pinned Node/V8 WASIX plus its recorded patches, then the original journey."""
 
 import argparse
 import fcntl
@@ -33,6 +33,21 @@ SOURCE_PATCH = {
     "after_sha256": "da8c30caf420fcbd795a8ed9d06b1bb730aec1d138c555d558f5b8f6b0ba3b02",
     "purpose": "use the existing per-object response-file archive recipes for wasi/wasm instead of one oversized command argument",
 }
+SOURCE_LINK_PATCH = {
+    "path": "crates/shenko-wasm/ports/node-wasix/patches/0002-relative-simdutf-header.patch",
+    "sha256": "105193b2dc85af5297e3fbd266b42441dc5b4baef26be0dff639cb7d1aa8ecdc",
+    "source_path": "deps/v8/include/wasi/wasi-simdutf-compat.h",
+    "source_mode": "120000",
+    "before_blob": "f7e59ed84434ac2100e830dfc652203f1ccdad48",
+    "before_target": "/home/victoryang00/node-wasix32/deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+    "after_blob": "3589e61e26b635c6f1620181732b9d04dea83fa8",
+    "after_target": "../../third_party/simdutf/simdutf-wasi-compat.h",
+    "target_path": "deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+    "target_blob": "e855e0ab27eecb80fabb1c05d1abb08caaf3c4d8",
+    "target_sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9",
+    "target_bytes": 1449,
+    "purpose": "replace the fixed upstream's author-machine absolute header symlink with its exact same-tree relative target",
+}
 BUILD_SECONDS = 7200
 ASSETS = (
     {"name": "wasixcc", "version": "0.4.7", "source_commit": "d59389f68277c60b65cb1cc1524de641d845d336",
@@ -53,6 +68,7 @@ CRITICAL_SOURCE = (
     "tools/v8_gypfiles/features.gypi", "tools/v8_gypfiles/toolchain.gypi", "tools/v8_gypfiles/v8.gyp",
     "tools/gyp/pylib/gyp/generator/make.py",
     "deps/v8/src/builtins/wasm32/builtins-wasm32.cc", "lib/internal/buffer.js", "src/node_version.h",
+    "deps/v8/src/builtins/builtins-typed-array.cc", SOURCE_LINK_PATCH["target_path"],
 )
 
 
@@ -202,6 +218,53 @@ def verify_archive_response_rule(source, evidence):
     journey.require(selected, "generated OpenSSL target did not select the recorded response-file archive rule")
 
 
+def source_blob(raw):
+    return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+
+
+def apply_source_link_patch(source, repository, evidence, run):
+    patch = repository / SOURCE_LINK_PATCH["path"]
+    link = source / SOURCE_LINK_PATCH["source_path"]
+    target = source / SOURCE_LINK_PATCH["target_path"]
+    journey.require(journey.digest(patch) == SOURCE_LINK_PATCH["sha256"], "relative header patch identity changed")
+    journey.require(link.is_symlink(), "fixed upstream header is not the recorded symlink")
+    before = os.fsencode(os.readlink(link))
+    (evidence / "source-link.original").write_bytes(before)
+    journey.require(source_blob(before) == SOURCE_LINK_PATCH["before_blob"]
+                    and os.fsdecode(before) == SOURCE_LINK_PATCH["before_target"], "fixed upstream header link differs before patching")
+    journey.require(target.is_file() and not target.is_symlink()
+                    and target.resolve(strict=True).is_relative_to(source.resolve(strict=True)), "fixed upstream header target is not an owned regular file")
+    journey.require(target.stat().st_size == SOURCE_LINK_PATCH["target_bytes"], "fixed upstream header target differs before patching")
+    target_bytes = target.read_bytes()
+    journey.require(len(target_bytes) == SOURCE_LINK_PATCH["target_bytes"]
+                    and source_blob(target_bytes) == SOURCE_LINK_PATCH["target_blob"]
+                    and hashlib.sha256(target_bytes).hexdigest() == SOURCE_LINK_PATCH["target_sha256"], "fixed upstream header target differs before patching")
+    shutil.copyfile(patch, evidence / "source-link.patch")
+    run("source-link-patch-check", ["git", "apply", "--check", str(patch)])
+    run("source-link-patch-apply", ["git", "apply", "--whitespace=error-all", str(patch)])
+    journey.require(link.is_symlink(), "patched header lost its symlink mode")
+    after = os.fsencode(os.readlink(link))
+    (evidence / "source-link.patched").write_bytes(after)
+    journey.require(source_blob(after) == SOURCE_LINK_PATCH["after_blob"]
+                    and os.fsdecode(after) == SOURCE_LINK_PATCH["after_target"], "patched header link differs from the recorded postimage")
+    journey.require(link.resolve(strict=True) == target.resolve(strict=True)
+                    and link.read_bytes() == target_bytes and target.read_bytes() == target_bytes,
+                    "patched header does not resolve to the unchanged same-tree target")
+    run("source-with-links-paths", ["git", "diff", "--name-only", "HEAD", "--"])
+    expected_paths = sorted([SOURCE_PATCH["source_path"], SOURCE_LINK_PATCH["source_path"]])
+    journey.require((evidence / "source-with-links-paths.stdout").read_text().splitlines() == expected_paths,
+                    "source patches changed an unrecorded tracked file")
+    run("source-with-links-diff", ["git", "diff", "--binary", "HEAD", "--"])
+    record = {**SOURCE_LINK_PATCH, "upstream_commit": SOURCE_COMMIT, "upstream_tree": SOURCE_TREE,
+              "resolved_target": SOURCE_LINK_PATCH["target_path"],
+              "original_link_sha256": hashlib.sha256(before).hexdigest(),
+              "patched_link_sha256": hashlib.sha256(after).hexdigest(),
+              "unchanged_target_sha256": hashlib.sha256(target_bytes).hexdigest(),
+              "combined_diff_sha256": journey.digest(evidence / "source-with-links-diff.stdout")}
+    journey.write_json(evidence / "source-link-patch-record.json", record)
+    return record
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-revision", required=True)
@@ -246,6 +309,7 @@ def main():
         journey.write_json(evidence / "manifest.json", {
             "source_revision": head, "upstream_repository": SOURCE_URL, "upstream_commit": SOURCE_COMMIT, "upstream_tree": SOURCE_TREE,
             "source_patch": SOURCE_PATCH,
+            "source_link_patch": SOURCE_LINK_PATCH,
             "source_transfer_bytes": None, "source_transfer_size_note": "Git transfer size is not known in advance; the actual object store and worktree are observed after fetch",
             "builder_sha256": journey.digest(Path(__file__)), "runner_sha256": journey.digest(Path(journey.__file__)),
             "driver_sha256": journey.DRIVER_SHA256, "first_input_sha256": journey.FIRST_INPUT_SHA256,
@@ -295,6 +359,7 @@ def main():
         journey.require(not (source / "out").exists(), "source checkout already contains build output")
         keep_build_inputs(source, evidence)
         patch_record = apply_source_patch(source, repository, evidence, run)
+        link_patch_record = apply_source_link_patch(source, repository, evidence, run)
         summary["stage"] = "download-toolchain"
         roots = fetch_toolchain(work, evidence, resources, deadline)
         installer = unique_file(roots["wasixcc"], "wasixccenv")
@@ -329,8 +394,8 @@ def main():
         run("compile", make, wall=BUILD_SECONDS)
         run("source-patched-diff-after-build", ["git", "diff", "--binary", "HEAD", "--"])
         journey.require((evidence / "source-patched-diff-after-build.stdout").read_bytes()
-                        == (evidence / "source-patched-diff.stdout").read_bytes(),
-                        "tracked source changed beyond the recorded archive patch during build")
+                        == (evidence / "source-with-links-diff.stdout").read_bytes(),
+                        "tracked source changed beyond the recorded patches during build")
         output = source / "out/Release/node"
         journey.require(output.is_file() and not output.is_symlink() and output.stat().st_size <= 512 * MIB, "fresh Node output is missing, aliased, or exceeds its retained bound")
         with output.open("rb") as module:
@@ -343,6 +408,7 @@ def main():
         attestation = {"kind": "observed-local-build-record", "cryptographically_signed": False, "build_succeeded": True,
                        "source_repository": SOURCE_URL, "source_commit": SOURCE_COMMIT, "source_tree": SOURCE_TREE,
                        "tracked_source_matches_recorded_patch_after_build": True, "source_patch": patch_record,
+                       "source_link_patch": link_patch_record,
                        "fresh_output_directory": True,
                        "configure_command": configure, "compile_command": make, "toolchain_assets": ASSETS, "build_tools": tool_records,
                        "module_bytes": output.stat().st_size, "module_sha256": module_hash, "module_path": "out/Release/node",
