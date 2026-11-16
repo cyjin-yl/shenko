@@ -110,6 +110,7 @@
 - **Cordis 内核（shenko-kernel：Plugin/Service 生命周期、capability、hooks、effect contract）** — 已接线（`Supervisor` 是运行时装配根）
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md
+  - 上下文策略观察器退出时直接等待已持有 Fiber 的 `dispose` 屏障；全局 shutdown 关闭新操作准入后，已有策略与工具仍须完成清理，清理失败保留原始错误。
 
 - **Hook API（HookRegistry）** — 已接线（`Supervisor` 持有 registry，共享运行库将同一实例注入 subject loop）
   - [§37](specs/context-policies.md#spec-37)
