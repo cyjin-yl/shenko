@@ -15,6 +15,7 @@
 - [内核收敛计划](development/kernel-convergence.md)：代码向内核合同收敛的步骤；[依赖边界基线](state/kernel-boundary.json)由 `scripts/check_kernel_boundary.py` 检查，只查结构。
 - [AGENTS](../AGENTS.md) 与 [shenko-dev](../.agents/skills/shenko-dev/SKILL.md)：开发哲学与协作。
 - [实现地图](IMPLEMENTATION_DOCS_MAP.md)：调用点与实现缺口，不冒充运行验收。
+- [Poppy：发现与签名基础](specs/ecosystem-adapters.md#poppy-foundation)：Issue #297 的首个可选适配增量及尚未接线的账号、商务传输边界。
 - [可选外部历史研究](specs/external-history.md)：Obelisk 查询、完整原文归档、可追溯引用；[实施 TODO 与验收](development/obelisk-history.md)。
 - [完整交付合同](governance/COMPLETION.md)：正式范围及证据等级。
 - [需求索引](requirements/README.md)：165 项需求、63 组行为、59 条来源、236 条具名验收。

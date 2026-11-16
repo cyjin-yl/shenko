@@ -14,6 +14,8 @@ mod runtime_branches;
 mod runtime_authority;
 pub mod obelisk;
 mod compat;
+#[cfg(feature = "compat-poppy")]
+mod poppy;
 mod runtime_owner;
 mod context_policy;
 mod document_runtime;
@@ -206,7 +208,7 @@ pub enum CompatCommand {
     /// Installed plugins, their enable state and the external units a previous
     /// import recorded. Reads only; never connects or imports anything.
     Status,
-    /// Offer or withdraw one adapter unit. The two plugins are independent.
+    /// Offer or withdraw one independently installed adapter unit.
     Enable { unit_id: String },
     Disable { unit_id: String },
     /// External MCP connections, described by an operator-supplied file.
@@ -215,12 +217,26 @@ pub enum CompatCommand {
         #[command(subcommand)]
         command: CompatMcpCommand,
     },
+    /// Public Poppy company discovery; account access is separate.
+    #[cfg(feature = "compat-poppy")]
+    Poppy {
+        #[command(subcommand)]
+        command: CompatPoppyCommand,
+    },
     /// Agent Skills source material, preserved exactly as selected.
     #[cfg(feature = "compat-skill")]
     Skill {
         #[command(subcommand)]
         command: CompatSkillCommand,
     },
+}
+
+#[cfg(feature = "compat-poppy")]
+#[derive(Subcommand, Debug)]
+pub enum CompatPoppyCommand {
+    /// Read public discovery metadata as a diagnostic, without installing a
+    /// service, sending credentials or creating a commerce workflow.
+    Discover { origin: String },
 }
 
 #[cfg(feature = "compat-mcp")]
