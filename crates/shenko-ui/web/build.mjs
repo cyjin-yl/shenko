@@ -4,16 +4,18 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   realpathSync,
   readdirSync,
+  renameSync,
   lstatSync,
   unlinkSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } from './compiler.mjs';
@@ -124,10 +126,22 @@ if (prototypesOnly) {
 }
 
 mkdirSync(staticDir, { recursive: true });
-await build({
+// Preserve prior generations outside the served tree. A new generation's
+// manifest must name exactly its emitted modules, without stale demo chunks.
+const chunkDir = join(staticDir, 'chunks');
+if (existsSync(chunkDir)) {
+  const generatedDir = join(webRoot, 'generated');
+  mkdirSync(generatedDir, { recursive: true });
+  const history = mkdtempSync(join(generatedDir, 'asset-history-'));
+  renameSync(chunkDir, join(history, 'chunks'));
+}
+const bundle = await build({
   absWorkingDir: webRoot,
-  entryPoints: [join(webRoot, 'src', 'main.tsx')],
-  outfile: join(staticDir, 'app.js'),
+  entryPoints: { app: join(webRoot, 'src', 'main.tsx') },
+  outdir: staticDir,
+  chunkNames: 'chunks/[name]-[hash]',
+  splitting: true,
+  metafile: true,
   bundle: true,
   minify: true,
   format: 'esm',
@@ -144,6 +158,13 @@ await build({
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'warning',
 });
+const modules = Object.keys(bundle.metafile.outputs)
+  .map((path) => relative(staticDir, resolve(webRoot, path)).split(sep).join('/'))
+  .sort();
+if (!modules.includes('app.js') || modules.some((name) =>
+  name !== 'app.js' && !/^chunks\/[A-Za-z0-9_-]+\.js$/.test(name))) {
+  throw new Error('Unexpected browser module output; refusing to publish an incomplete module set');
+}
 
 // This exact CLI path was reviewed: the shadcn preset only writes local CSS;
 // it does not take the init/add package-manager branches.
@@ -180,7 +201,7 @@ if (receiptPath) {
 }
 const artifactNames = [
   'theme-bootstrap.js',
-  'app.js',
+  ...modules,
   'app.css',
   'proto-ui-style.css',
   'proto-ui-tokens.generated.css',

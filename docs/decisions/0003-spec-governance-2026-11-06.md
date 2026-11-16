@@ -21,6 +21,8 @@ LayerFS 只在认知状态回滚上不考虑。[§10.2.1](../specs/durable-state
 
 `docs/history/` 与 `docs/research/archive/` 是历史来源，这次不改。
 
+后续目录整理只改变保管位置：研究归档统一搬到 `docs/history/research/`，原件字节和原路径记录在[来源清单](../history/manifest.json)。上句保留 2026-11-06 当时的决定，不再表示有两个现行归档入口。
+
 ## 本次改动
 
 | 位置 | 旧表述 | 新表述 | 理由 |

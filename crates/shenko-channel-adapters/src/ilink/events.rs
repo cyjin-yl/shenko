@@ -1,4 +1,4 @@
-//! Classification of WeChat iLink messages — docs/specs/channels.md#spec-15-1, docs/specs/channel-adapters.md#spec-15-3, docs/specs/channel-adapters.md#spec-16.
+//! Classification of WeChat iLink messages.
 //!
 //! The provider pushes `WeixinMessage` objects. The fields the adapter uses
 //! are the provider's own:

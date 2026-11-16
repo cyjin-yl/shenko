@@ -1,4 +1,4 @@
-//! The Feishu/Lark event-dispatcher monitor — docs/specs/channel-adapters.md#spec-16, docs/specs/channel-adapters.md#spec-15-3, docs/specs/channels.md#spec-35-6.
+//! The Feishu/Lark event-dispatcher monitor.
 //!
 //! Ingress is a WebSocket long connection to the platform's callback
 //! dispatcher. The connection authenticates with the app ticket

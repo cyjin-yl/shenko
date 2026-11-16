@@ -834,7 +834,7 @@ async fn unreadable_unrelated_decision_keeps_degraded_recovery_and_the_dispatche
 /// SelfWake on the "subject" source, the durable row survives a lost volatile
 /// wake through pending_inbox_events, a replayed admission is an exact
 /// replay — never a second row — and the staged-input boundary consumes the
-/// same lane every other complete input uses (docs/specs/subject-runtime.md#spec-13-8).
+/// same lane every other complete input uses.
 #[tokio::test]
 async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     use shenko_store::InboxAdmission;
