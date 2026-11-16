@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use rmcp::{
     ClientLifecycleMode, RoleClient,
-    model::{ClientCapabilities, ClientConfig, ClientRequest, Implementation, ProtocolVersion},
+    model::{ClientCapabilities, ClientConfig, ClientRequest, GetExtensions, Implementation, ProtocolVersion},
     service::{
         PeerRequestOptions, RunningService, RxJsonRpcMessage, ServiceError, TxJsonRpcMessage,
         serve_client_with_lifecycle_and_ct,
@@ -23,6 +23,9 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
+use tokio_util::task::task_tracker::TaskTrackerToken;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 /// Per-request authorization owned by the application that holds credentials.
@@ -35,13 +38,15 @@ pub trait HttpRequestAuthorizer: Send + Sync {
         request: &'a mut reqwest::Request,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
-    /// Retain the final SDK-serialized request after authorization and the
-    /// frozen-body checks, before any socket dispatch. The credential owner
+    /// Retain the final serialized request durably, after authorization and the
+    /// frozen-body checks and before any socket dispatch. The credential owner
     /// decides how to protect its bytes; this protocol layer never logs them.
-    /// Failure refuses this send and never authorizes a replay.
-    fn before_send(&self, _request: &reqwest::Request) -> Result<()> {
-        Ok(())
-    }
+    ///
+    /// [`CaptureState::capture`] invokes this only on an owned blocking
+    /// worker. Check `cancellation` before starting persistence and between
+    /// durable stages. Cancellation cannot undo a write already in progress;
+    /// preserve any partial record without granting dispatch or replay.
+    fn capture_request(&self, request: &reqwest::Request, cancellation: &CancellationToken) -> Result<()>;
 
     /// An optional isolated client for this exact request. For discovered
     /// services this lets the credential owner pin checked DNS addresses at
@@ -75,6 +80,225 @@ pub trait HttpRequestAuthorizer: Send + Sync {
     ) -> Result<()> {
         Ok(())
     }
+}
+
+/// Why a pre-dispatch capture refused this request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureFailureKind {
+    /// The capture refused or failed. Nothing was dispatched.
+    Refused,
+    /// The capture did not finish inside its budget. Nothing was dispatched.
+    Timeout,
+    /// The capture worker itself failed. Nothing was dispatched.
+    Worker,
+}
+
+/// A typed local failure of the durable pre-dispatch capture.
+///
+/// It proves this particular request was not sent. Earlier protocol exchanges
+/// and other requests retain their own outcomes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CaptureFailure {
+    pub kind: CaptureFailureKind,
+    pub cause: String,
+}
+
+impl std::fmt::Display for CaptureFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            CaptureFailureKind::Refused => write!(
+                formatter,
+                "final request was not retained before dispatch: {}",
+                self.cause
+            ),
+            CaptureFailureKind::Timeout => write!(
+                formatter,
+                "final request retention exceeded its budget: {}",
+                self.cause
+            ),
+            CaptureFailureKind::Worker => write!(
+                formatter,
+                "final request retention worker failed: {}",
+                self.cause
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CaptureFailure {}
+
+/// The default budget for a pre-dispatch capture when no request deadline
+/// applies, such as the connection handshake.
+pub const DEFAULT_CAPTURE_BUDGET: Duration = Duration::from_secs(5);
+
+/// Owns blocking capture workers through timeout and caller cancellation.
+/// The operation/session must await [`Self::close`] before publishing its
+/// terminal observation or releasing the vault and ledger owners.
+#[derive(Clone, Default)]
+pub struct CaptureState {
+    inner: Arc<CaptureInner>,
+}
+
+#[derive(Default)]
+struct CaptureInner {
+    workers: Mutex<CaptureWorkers>,
+    tracker: TaskTracker,
+    stop: CancellationToken,
+}
+
+#[derive(Default)]
+struct CaptureWorkers {
+    closed: bool,
+    abandoned: Vec<JoinHandle<Result<()>>>,
+}
+
+impl CaptureState {
+    pub async fn capture(
+        &self,
+        authorizer: Arc<dyn HttpRequestAuthorizer>,
+        request: &reqwest::Request,
+        budget: Duration,
+    ) -> Result<()> {
+        // reqwest clones its materialized Body through shared Bytes, keeping
+        // an abandoned worker independent without copying credential payloads.
+        let request = request.try_clone().ok_or_else(|| CaptureFailure {
+            kind: CaptureFailureKind::Refused,
+            cause: "final request capture requires a materialized body".into(),
+        })?;
+        let lifetime = {
+            let workers = self.inner.workers.lock();
+            if workers.closed {
+                return Err(CaptureFailure {
+                    kind: CaptureFailureKind::Refused,
+                    cause: "capture owner is retiring".into(),
+                }.into());
+            }
+            self.inner.tracker.token()
+        };
+        if budget.is_zero() {
+            return Err(CaptureFailure {
+                kind: CaptureFailureKind::Timeout,
+                cause: "no request deadline remains for retention".into(),
+            }.into());
+        }
+        let cancellation = self.inner.stop.child_token();
+        let worker_cancellation = cancellation.clone();
+        let worker_lifetime = lifetime.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _lifetime = worker_lifetime;
+            ensure!(!worker_cancellation.is_cancelled(), "capture cancelled before persistence");
+            authorizer.capture_request(&request, &worker_cancellation)
+        });
+        let mut pending = PendingCapture {
+            owner: self.clone(), worker: Some(worker), cancellation, _lifetime: lifetime,
+        };
+        let worker = pending.worker.as_mut().context("capture worker ownership missing")?;
+        match tokio::time::timeout(budget, worker).await {
+            Ok(result) => {
+                pending.worker.take();
+                capture_result(result)
+            }
+            Err(_) => Err(CaptureFailure {
+                kind: CaptureFailureKind::Timeout,
+                cause: format!("final request retention exceeded {budget:?}"),
+            }.into()),
+        }
+    }
+
+    pub fn stop(&self) {
+        self.inner.workers.lock().closed = true;
+        self.inner.stop.cancel();
+        self.inner.tracker.close();
+    }
+
+    /// A blocking filesystem call cannot be forcibly cancelled. Wait for it
+    /// and retain any late failure instead of detaching it after a timeout.
+    pub async fn close(&self) -> Result<()> {
+        self.stop();
+        self.inner.tracker.wait().await;
+        let abandoned = std::mem::take(&mut self.inner.workers.lock().abandoned);
+        let mut failure: Option<anyhow::Error> = None;
+        for worker in abandoned {
+            if let Err(error) = capture_result(worker.await) {
+                failure = Some(match failure {
+                    Some(primary) => primary.context(format!("another capture also failed: {error:#}")),
+                    None => error,
+                });
+            }
+        }
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+}
+
+struct PendingCapture {
+    owner: CaptureState,
+    worker: Option<JoinHandle<Result<()>>>,
+    cancellation: CancellationToken,
+    _lifetime: TaskTrackerToken,
+}
+
+impl Drop for PendingCapture {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        if let Some(worker) = self.worker.take() {
+            self.owner.inner.workers.lock().abandoned.push(worker);
+        }
+    }
+}
+
+fn capture_result(result: std::result::Result<Result<()>, tokio::task::JoinError>) -> Result<()> {
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(match error.downcast::<CaptureFailure>() {
+            Ok(failure) => failure.into(),
+            Err(error) => CaptureFailure {
+                kind: CaptureFailureKind::Refused, cause: format!("{error:#}"),
+            }.into(),
+        }),
+        Err(error) => Err(CaptureFailure {
+            kind: CaptureFailureKind::Worker, cause: error.to_string(),
+        }.into()),
+    }
+}
+
+/// Carried in the SDK's non-serialized request extensions. Budgets and typed
+/// failures belong to the exact RPC, including concurrent calls; SSE, DELETE
+/// and another request cannot lend it a local no-dispatch observation.
+#[derive(Clone)]
+pub(crate) struct RequestCapture {
+    deadline: Instant,
+    budget: Duration,
+    failure: Arc<Mutex<Option<CaptureFailure>>>,
+}
+
+impl RequestCapture {
+    fn new(deadline: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + deadline, budget: capture_budget(deadline),
+            failure: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub(crate) fn budget(&self) -> Duration {
+        self.budget.min(self.deadline.saturating_duration_since(Instant::now()))
+    }
+
+    pub(crate) fn record_failure(&self, failure: CaptureFailure) {
+        self.failure.lock().get_or_insert(failure);
+    }
+
+    fn failure(&self) -> Option<CaptureFailure> {
+        self.failure.lock().clone()
+    }
+}
+
+/// Leave time for the remote exchange, without extending short deadlines.
+pub fn capture_budget(deadline: Duration) -> Duration {
+    (deadline / 4).min(DEFAULT_CAPTURE_BUDGET)
 }
 
 /// Public connection description. Secrets are installation-local environment
@@ -176,6 +400,8 @@ pub struct Session {
     // A mutex keeps Session shareable while that Send future is parked.
     reclaim: Mutex<Option<ReclaimFuture>>,
     http_lifetimes: TaskTracker,
+    capture_state: CaptureState,
+    capture_requests: bool,
 }
 
 impl Session {
@@ -220,6 +446,8 @@ impl Session {
         let http_lifetimes = TaskTracker::new();
         let mut reclaim = None;
         let mut child: Option<Box<dyn ChildWrapper>> = None;
+        let capture_state = CaptureState::default();
+        let connection_capture = RequestCapture::new(deadline);
         let connect = async {
             match spec {
                 ConnectionSpec::Stdio {
@@ -303,8 +531,9 @@ impl Session {
                         value.set_sensitive(true);
                         config.custom_headers.insert(name, value);
                     }
-                    let http = crate::http::BoundedHttpClient::new(http, authorizer.clone())
-                        .with_retirement(retirement.clone(), http_lifetimes.token());
+                    let http = crate::http::BoundedHttpClient::new(
+                        http, authorizer.clone(), capture_state.clone(), connection_capture.clone(),
+                    ).with_retirement(retirement.clone(), http_lifetimes.token());
                     let transport = StreamableHttpClientTransport::with_client(http, config);
                     let (transport, cleanup) = ReclaimTransport::new(transport, || {
                         rmcp::transport::streamable_http_client::StreamableHttpError::TransportChannelClosed
@@ -332,8 +561,14 @@ impl Session {
                 retirement,
                 reclaim: Mutex::new(reclaim),
                 http_lifetimes,
+                capture_state,
+                capture_requests: authorizer.is_some(),
             }),
             Err(error) => {
+                let error = match connection_capture.failure() {
+                    Some(failure) => anyhow::Error::new(failure).context(error),
+                    None => error,
+                };
                 retirement.cancel();
                 let process = async {
                     if let Some(mut child) = child {
@@ -352,6 +587,10 @@ impl Session {
                 let (process, transport) = tokio::join!(process, transport);
                 http_lifetimes.close();
                 http_lifetimes.wait().await;
+                let error = match capture_state.close().await {
+                    Ok(()) => error,
+                    Err(cleanup) => error.context(format!("MCP capture cleanup also failed: {cleanup:#}")),
+                };
                 Err(with_cleanup_error(error, process, transport))
             }
         }
@@ -366,7 +605,7 @@ impl Session {
     /// this adapter never guesses a follow-up or reissues an unknown effect.
     pub async fn request(
         &self,
-        request: ClientRequest,
+        mut request: ClientRequest,
         deadline: Duration,
         cancellation: &CancellationToken,
     ) -> Result<Response> {
@@ -375,34 +614,46 @@ impl Session {
                 reason: "cancelled_before_request_dispatch",
             });
         }
+        let capture = self.capture_requests.then(|| RequestCapture::new(deadline));
+        if let Some(capture) = &capture {
+            request.extensions_mut().insert(capture.clone());
+        }
         // Bound the whole exchange, not only the response handle. Queue
         // admission and the SDK's timeout-cancellation notification can both
         // block behind a stalled transport writer.
         let exchange = async {
-            let handle = self
-                .service
-                .peer()
-                .send_cancellable_request(request, PeerRequestOptions::with_timeout(deadline))
-                .await?;
-            handle.await_response().await
+            let result = async {
+                let handle = self
+                    .service
+                    .peer()
+                    .send_cancellable_request(request, PeerRequestOptions::with_timeout(deadline))
+                    .await?;
+                handle.await_response().await
+            }.await;
+            Self::response(result)
         };
         let result = tokio::select! {
             biased;
-            result = exchange => result,
+            _result = exchange => _result,
             _ = cancellation.cancelled() => {
                 // Interrupt the protocol worker; the owner must still await
                 // close() to join the stdio group. HTTP effects may continue.
                 self.retirement.cancel();
                 self.service.cancellation_token().cancel();
-                return Ok(Response::Unknown { reason: "cancelled_without_remote_completion" });
+                Ok(Response::Unknown { reason: "cancelled_without_remote_completion" })
             }
             _ = tokio::time::sleep(deadline) => {
                 self.retirement.cancel();
                 self.service.cancellation_token().cancel();
-                return Ok(Response::Unknown { reason: "request_deadline_elapsed" });
+                Ok(Response::Unknown { reason: "request_deadline_elapsed" })
             }
         };
-        Self::response(result)
+        // A refused capture is a local refusal, not an unknown remote
+        // outcome. Only this RPC's extension can supply that observation.
+        if let Some(failure) = capture.and_then(|capture| capture.failure()) {
+            return Err(anyhow::Error::new(failure));
+        }
+        result
     }
 
     fn response(
@@ -463,6 +714,11 @@ impl Session {
         // and streams carry these tokens, so abort alone is not reported as
         // drained: wait until every future has actually released its resources.
         self.http_lifetimes.wait().await;
+        let reclaimed = match (reclaimed, self.capture_state.close().await) {
+            (Err(error), Err(cleanup)) => Err(error.context(format!("MCP capture cleanup also failed: {cleanup:#}"))),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        };
         match (joined, reclaimed) {
             (Err(error), Err(cleanup)) => {
                 Err(error.context(format!("MCP transport reclaim also failed: {cleanup}")))
@@ -477,6 +733,7 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.retirement.cancel();
         self.service.cancellation_token().cancel();
+        self.capture_state.stop();
     }
 }
 

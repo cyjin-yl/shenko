@@ -13,6 +13,7 @@ use shenko_compat::{
     installation::{UnitRef, plugin_enabled},
     recorded::{RecordedCall, Workers, joined, reconcile_original},
 };
+use shenko_compat_mcp::protocol::CaptureFailure;
 use shenko_compat_poppy::UNIT_ID;
 use shenko_exec_host::BrowserProvider;
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
@@ -377,12 +378,21 @@ impl Runtime {
             }
         };
         cancellation.cancel();
+        let capture_cleanup = client.close_captures().await;
         let mut value = match observed {
             Ok(value) => value,
-            Err(error) => json!({"status":"unknown","reason":format!("{error:#}"),
-                "original_operation":invocation.operation_id,"original_input":call.operation.final_input_ref,
-                "request_dispatched":null,"remote_effects_stopped":false}),
+            Err(error) => match error.downcast_ref::<CaptureFailure>() {
+                Some(failure) => json!({"status":"rejected","reason":failure.to_string(),
+                    "capture_failure":failure,"request_dispatched":false,"effect_observation":"none",
+                    "original_operation":invocation.operation_id,"original_input":call.operation.final_input_ref}),
+                None => json!({"status":"unknown","reason":format!("{error:#}"),
+                    "original_operation":invocation.operation_id,"original_input":call.operation.final_input_ref,
+                    "request_dispatched":null,"remote_effects_stopped":false}),
+            },
         };
+        if let Err(error) = capture_cleanup {
+            value["capture_cleanup_error"] = format!("{error:#}").into();
+        }
         if let Some(reason) = stop_reason {
             // Retain any response actually observed during cooperative cleanup.
             // A deadline never proves that the merchant stopped its operation.
@@ -412,6 +422,9 @@ fn settlement(
 ) {
     match value["status"].as_str() {
         Some("unknown") => (None, EffectStatus::Unknown, None),
+        Some("rejected") if value["request_dispatched"] == false && value.get("capture_failure").is_some() => {
+            (Some(OperationOutcome::Failed), EffectStatus::None, None)
+        }
         Some("rejected")
             if value["request_dispatched"] == false || value["effect_observation"] == "none" =>
         {

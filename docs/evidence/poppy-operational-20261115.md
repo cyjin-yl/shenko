@@ -218,3 +218,34 @@ cargo test -p shenko-compat-mcp --test plugin_lifecycle --locked --offline -j2 s
 
 此坐标修复尚未运行任何构建、测试、lint 或 formatter；由主席使用上述 checkout 精确选择器
 验证同一持久源码。此前候选和历史 CI 不作为本次修改的通过证据。
+
+### 同日：发送前封存的异步执行与收尾所有权
+
+接续工作树为 `shenko/worktrees/poppy302-repair-20261116`，保留
+`9788b95473529acc1bcbb0331dbe547a47529023` 的 Store 接纳坐标修复及既有 dirty 源码。
+项目根 `build/taste-20261116/publication/poppy302-native-r4.json` 记录该提交的 checkout
+旅程通过、MCP 首次 deadline 失败及空闲容器中的后续通过；这些历史记录全部保留。
+本段接续源码没有执行构建、测试、lint、formatter、模型或商家请求，历史结果不验证本修复。
+
+同步 `before_send` 与未完成的异步回调实现已迁移到同一 `CaptureState::capture` 入口。
+该入口使用 reqwest 对 materialized Body 的共享字节克隆，把完整 capture callback 放到
+blocking worker，统一产生 typed `CaptureFailure`。CompanyAuthorizer 只在短锁下取得
+`Arc<CommerceDispatch>`；vault/CAS/SQLite 写入及 authority 读取均在长锁之外执行。
+MCP 使用 SDK 非序列化 request extensions 保存各自的 deadline 与 failure，避免并发 RPC、
+SSE 或 cleanup 的错误互相归属。REST 使用同一入口；任一 capture 失败均在 socket dispatch
+之前返回，Poppy 原生观察保留 typed cause、`request_dispatched:false` 与本地失败级别。
+
+超时或 future 被放弃时，join handle 转交回原 capture owner；取消仅检查阶段边界，不能
+撤销已经进入 OS 的同步或删除私有片段。Session 的失败握手与正常关闭都 drain captures，
+REST 由原生 operation worker 在 E1 前 drain；迟到持久化失败进入 cleanup 结果或原始观察。
+最终请求 evidence 仍走 `9788b954` 的同一 Store append 事务，Armed、原幂等键、不可覆盖
+私有请求、首次 receipt/cursor 及禁止重发的合同与断言均保留。
+
+仅扩充上述两个既有消费者：checkout 选择器改为 async，继续核对真正 append 坐标与重开，
+并要求重复封存返回 typed refusal；MCP/TCP 消费者保留原 JSON/SSE 上限，加入并发成功请求
+与封存拒绝的独立归属，以及 current-thread runtime 中受控阻塞 capture 的 timeout、零
+merchant dispatch、关闭等待原 worker、迟到失败留存。没有新增测试函数或放宽 deadline。
+
+主席在既有 CT102 开发容器、同一持久源中运行的精确选择器仍是本节上方两条命令。应使用
+新的 `SHENKO_COMPAT_EVIDENCE_ROOT` 留存本次 MCP fixture，并把新结果绑定到实际修改后的
+源码；本子席没有运行它们。

@@ -551,6 +551,19 @@ vault。共享 CAS 只保存受认证的私有引用、摘要和公开请求标�
 不冒充商家响应，不改写原 attempt 的 final receipt。中断、持久化失败或已存在的私有请求
 引用都不授予重发资格；无法确定结果时仍按原身份保留 Unknown。
 
+最终请求封存由 session 或原生 operation 的 `CaptureState` 持有 blocking worker：vault
+写入与同步、CAS 封存、SQLite evidence append 和其中的 authority 读取都不占用 async
+worker，也不持有共享 commerce slot 的长锁。每次等待使用请求期限的四分之一，最多五秒；
+MCP 还按同一 RPC 的剩余期限收紧，不给短期限增加最低等待或额外 grace。RPC 的本地封存
+失败通过 SDK 非序列化 extensions 绑定到该请求，保留类型化的 refused、timeout 或 worker
+原因，不把并发请求、SSE 或 DELETE 的失败借给另一次调用。此失败证明该请求没有发送；
+此前发现或读取仍保留各自的真实观察。
+
+取消或超时不强制中断已经进入 OS 的文件同步。放弃等待时，worker 的 join handle 仍归原
+owner 所有，session 关闭或 operation 的 E1 结算前必须 join 并保留迟到错误。各耐久阶段间
+检查取消；已经形成的私有片段或请求事实留存，不删除、不覆盖，也不能据此重发。本地封存
+拒绝记录 `request_dispatched:false` 和原 typed cause，不冒充远端完成级别或商家响应。
+
 ### 账号授权与私有浏览器流程
 
 账号动作由 [`account.rs`](../../bin/shenko/src/poppy/account.rs) 实现：

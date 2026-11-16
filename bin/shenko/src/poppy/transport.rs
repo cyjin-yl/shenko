@@ -11,7 +11,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_compat::recorded::{RecordedCall, seal};
-use shenko_compat_mcp::protocol::{ConnectionSpec, HttpRequestAuthorizer, Session};
+use shenko_compat_mcp::protocol::{CaptureState, ConnectionSpec, HttpRequestAuthorizer, Session, capture_budget};
 use shenko_compat_poppy::{
     auth::{AccountTokens, TokenType},
     discovery::DiscoveryOptions,
@@ -278,14 +278,14 @@ impl CompanyClient {
                 service == commerce::service_binding(&self, request.transport)?,
                 "commerce send owner differs from its frozen service or OAuth resource"
             );
-            *self.http.commerce.lock() = Some(CommerceDispatch {
+            *self.http.commerce.lock() = Some(Arc::new(CommerceDispatch {
                 store,
                 call: RecordedCall { operation: call.operation.clone(), attempt: call.attempt.clone() },
                 request,
                 service,
-                plan: None,
-                final_reference: None,
-            });
+                plan: Mutex::new(None),
+                final_reference: Mutex::new(None),
+            }));
         }
         Ok(self)
     }
@@ -294,13 +294,37 @@ impl CompanyClient {
         if !plan.operation.changes_state() {
             return Ok(());
         }
-        let mut owner = self.http.commerce.lock();
-        let owner = owner.as_mut().context("commerce mutation has no armed RecordedCall owner")?;
+        let owner = self.commerce_owner()?;
         owner.prepare(plan, completion)
     }
 
     pub fn final_commerce_request(&self) -> Option<Value> {
-        self.http.commerce.lock().as_ref().and_then(|owner| owner.final_reference.clone())
+        let owner = self.http.commerce.lock().clone()?;
+        owner.final_reference.lock().clone()
+    }
+
+    pub async fn capture_final_request(
+        &self,
+        authorizer: Arc<CompanyAuthorizer>,
+        request: &Request,
+    ) -> Result<()> {
+        self.http.captures.capture(
+            authorizer, request, capture_budget(self.timeout),
+        ).await
+    }
+
+    /// The retained operation worker joins late captures before E1 settlement.
+    pub async fn close_captures(&self) -> Result<()> {
+        self.http.captures.close().await
+    }
+
+    /// The armed commerce dispatch owner, if this client owns one.
+    fn commerce_owner(&self) -> Result<Arc<CommerceDispatch>> {
+        self.http
+            .commerce
+            .lock()
+            .clone()
+            .context("commerce mutation has no armed RecordedCall owner")
     }
 
     pub fn original_commerce_request(
@@ -502,7 +526,7 @@ impl CompanyClient {
             .await?
             .context("Poppy pinned HTTP client missing")?;
         authorizer.authorize(&mut request).await?;
-        authorizer.before_send(&request)?;
+        self.capture_final_request(authorizer.clone(), &request).await?;
         let response = client
             .execute(request)
             .await
@@ -701,13 +725,16 @@ pub(super) struct CompanyAuthorizer {
 }
 
 impl HttpRequestAuthorizer for CompanyAuthorizer {
-    fn before_send(&self, request: &Request) -> Result<()> {
+    fn capture_request(&self, request: &Request, cancellation: &CancellationToken) -> Result<()> {
+        // CaptureState runs this entire callback on its blocking worker,
+        // including the ledger/installation authority checks.
         check_guard(&self.guard)?;
-        if let Some(owner) = self.http.commerce.lock().as_mut() {
-            owner.retain_request(&self.http.vault, request)?;
+        ensure!(!cancellation.is_cancelled(), "final request capture cancelled");
+        let owner = self.http.commerce.lock().clone();
+        if let Some(owner) = owner {
+            owner.retain_request(&self.http.vault, request, cancellation)?;
         }
-        // Persistence may take time; losing authority while sealing still
-        // refuses dispatch, without erasing the original request identity.
+        ensure!(!cancellation.is_cancelled(), "final request capture cancelled");
         check_guard(&self.guard)
     }
 
@@ -854,10 +881,11 @@ struct CommerceDispatch {
     call: RecordedCall,
     request: CommerceRequest,
     service: ServiceBinding,
-    plan: Option<PreparedCommerceRequest>,
-    final_reference: Option<Value>,
+    plan: Mutex<Option<PreparedCommerceRequest>>,
+    final_reference: Mutex<Option<Value>>,
 }
 
+#[derive(Clone)]
 struct PreparedCommerceRequest {
     method: String,
     endpoint: String,
@@ -867,8 +895,9 @@ struct PreparedCommerceRequest {
 }
 
 impl CommerceDispatch {
-    fn prepare(&mut self, plan: &RequestPlan, completion: &Value) -> Result<()> {
-        ensure!(self.plan.is_none() && self.final_reference.is_none(), "commerce request is already prepared; no replay is permitted");
+    fn prepare(&self, plan: &RequestPlan, completion: &Value) -> Result<()> {
+        let mut prepared = self.plan.lock();
+        ensure!(prepared.is_none() && self.final_reference.lock().is_none(), "commerce request is already prepared; no replay is permitted");
         ensure!(
             plan.operation == self.request.operation
                 && plan.transport == self.request.transport
@@ -892,18 +921,26 @@ impl CommerceDispatch {
                 Ok(Digest::blake3(&encoded))
             }).transpose()?,
         };
-        self.plan = Some(PreparedCommerceRequest {
+        *prepared = Some(PreparedCommerceRequest {
             method: plan.method.into(), endpoint: plan.endpoint.clone(), payload_digest,
             request_id, completion: completion.clone(),
         });
         Ok(())
     }
 
-    fn retain_request(&mut self, vault: &Vault, request: &Request) -> Result<()> {
+    /// Retain the final request durably. This runs on a blocking worker: it
+    /// writes the node-local protected record, seals the public reference and
+    /// appends the evidence receipt. The shared dispatch lock is never held
+    /// across this work.
+    fn retain_request(
+        &self,
+        vault: &Vault,
+        request: &Request,
+        cancellation: &CancellationToken,
+    ) -> Result<()> {
         let mut rpc = Value::Null;
         let checked = (|| -> Result<()> {
-            let body = request.body().map(|body| body.as_bytes()
-                .context("final commerce body is not materialized")).transpose()?;
+            let body = request.body().and_then(reqwest::Body::as_bytes);
             if self.request.transport == Transport::Mcp {
                 if request.method() != Method::POST {
                     return Ok(());
@@ -920,8 +957,9 @@ impl CommerceDispatch {
             } else if request.method() == Method::GET || request.method() == Method::HEAD {
                 return Ok(());
             }
-            let plan = self.plan.as_ref().context("commerce mutation reached send before its final plan was frozen")?;
-            ensure!(self.final_reference.is_none(), "original commerce request is already sealed; no automatic replay");
+            let plan = self.plan.lock().clone()
+                .context("commerce mutation reached send before its final plan was frozen")?;
+            ensure!(self.final_reference.lock().is_none(), "original commerce request is already sealed; no automatic replay");
             ensure!(
                 request.method().as_str() == plan.method && request.url().as_str() == plan.endpoint,
                 "final commerce method or destination changed"
@@ -979,9 +1017,13 @@ impl CommerceDispatch {
             clear_json(&mut snapshot);
             let encoded = Zeroizing::new(encoded?);
             let private_ref = format!("commerce-request-{}", attempt.attempt_id);
+            ensure!(!cancellation.is_cancelled(), "final request capture cancelled before vault publication");
             // A prior file, even without its public receipt, is an interrupted
             // send boundary. Never replace it or take it as permission to send.
             vault.write_immutable(&private_ref, &encoded)?;
+            // A cancelled write can leave an immutable private fragment. Keep
+            // it; neither timeout nor its later completion authorizes a send.
+            ensure!(!cancellation.is_cancelled(), "final request capture cancelled after vault publication");
             let reference = json!({"schema_version":1,"operation_id":operation.operation_id,
                 "attempt_id":attempt.attempt_id,"node_id":attempt.node_id,
                 "private_ref":private_ref,"private_digest":Digest::blake3(&encoded),
@@ -1002,10 +1044,11 @@ impl CommerceDispatch {
                     shenko_types::ids::EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO,
                 ),
             });
+            ensure!(!cancellation.is_cancelled(), "final request capture cancelled before evidence append");
             // Append evidence without marking this request as a response or
             // changing Armed/final_receipt_id. A crash still recovers Unknown.
             self.store.commit(batch)?;
-            self.final_reference = Some(reference);
+            *self.final_reference.lock() = Some(reference);
             Ok(())
         })();
         clear_json(&mut rpc);
@@ -1070,7 +1113,8 @@ struct HttpState {
     nonces: Mutex<BTreeMap<String, String>>,
     backoff: Mutex<BackoffDocument>,
     secrets: Mutex<SecretRegistry>,
-    commerce: Mutex<Option<CommerceDispatch>>,
+    commerce: Mutex<Option<Arc<CommerceDispatch>>>,
+    captures: CaptureState,
 }
 
 #[derive(Clone, Copy)]
@@ -1166,6 +1210,7 @@ impl HttpState {
             backoff: Mutex::new(backoff),
             secrets: Mutex::new(SecretRegistry::default()),
             commerce: Mutex::new(None),
+            captures: CaptureState::default(),
         })
     }
 

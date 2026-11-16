@@ -9,7 +9,7 @@ use base64::{
 };
 use ring::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use shenko_compat::recorded::seal;
-use shenko_compat_mcp::protocol::HttpRequestAuthorizer;
+use shenko_compat_mcp::protocol::{CaptureFailure, CaptureFailureKind};
 use shenko_compat_poppy::{
     discovery::{
         DeclaredCapabilities, DiscoveredDocument, DiscoveryReport, DiscoverySource, DiscoveryState,
@@ -35,8 +35,8 @@ const ACCEPTANCE: &str = "an identity-bound completed checkout and unchanged pur
 const RETRY: &str = "observe the original checkout without repeating complete";
 const PROCESSOR: &str = "com.example.fixture_processor";
 
-#[test]
-fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> Result<()> {
+#[tokio::test]
+async fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> Result<()> {
     let directory = TemporaryDirectory::new()?;
     let root = &directory.0;
     let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
@@ -238,7 +238,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     )?;
     // Exercise the production final-send callback with the exact signed HTTP
     // body. No fixture merchant is contacted and no response is invented here.
-    authorizer.before_send(&final_request)?;
+    client.capture_final_request(authorizer.clone(), &final_request).await?;
     let final_reference = client.final_commerce_request().context("final request reference")?;
     let request_head = store.external_operation(original_id)?;
     let request_append_commit = request_head.evidence_through.context("final request append cursor")?;
@@ -272,7 +272,13 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
             && store.external_operation_attempt(original_id)?.final_receipt_id.is_none(),
         "receipt replay rewrote its first admission coordinate or changed the armed attempt"
     );
-    ensure!(authorizer.before_send(&final_request).is_err(), "sealed mutation was eligible for replay");
+    let replay_capture = client.capture_final_request(authorizer.clone(), &final_request).await;
+    ensure!(
+        replay_capture.as_ref().err().and_then(|error| error.downcast_ref::<CaptureFailure>())
+            .is_some_and(|failure| failure.kind == CaptureFailureKind::Refused),
+        "sealed mutation did not return a typed capture refusal: {replay_capture:?}"
+    );
+    client.close_captures().await?;
     drop(authorizer);
     let unknown = original_call.observe(&store,
         json!({"status":"unknown","reason":"controller stopped after send; no merchant result observed",

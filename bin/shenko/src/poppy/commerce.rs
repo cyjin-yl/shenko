@@ -235,12 +235,18 @@ pub(super) async fn execute(
         // Protocol and schema errors deliberately omit raw credential-bearing
         // payloads. The original request/key stay in the envelope on failure.
         envelope["reason"] = error.to_string().into();
-        envelope["status"] = if envelope["network_started"] == false {
-            "rejected"
+        if let Some(failure) = error.downcast_ref::<shenko_compat_mcp::protocol::CaptureFailure>() {
+            envelope["capture_failure"] = serde_json::to_value(failure)?;
+            envelope["request_dispatched"] = false.into();
+            envelope["effect_observation"] = "none".into();
+            envelope["status"] = "rejected".into();
         } else {
-            "unknown"
+            envelope["status"] = if envelope["network_started"] == false {
+                "rejected"
+            } else {
+                "unknown"
+            }.into();
         }
-        .into();
     }
     envelope["observed_at"] = json!(chrono::Utc::now());
     client.redact_observation(&mut envelope)?;

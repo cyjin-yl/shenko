@@ -12,7 +12,7 @@ use http::{
 };
 use reqwest::header::CONTENT_TYPE;
 use rmcp::{
-    model::{ClientJsonRpcMessage, ErrorData, JsonRpcMessage, ServerJsonRpcMessage},
+    model::{ClientJsonRpcMessage, ErrorData, GetExtensions, JsonRpcMessage, ServerJsonRpcMessage},
     transport::{
         common::http_header::{EVENT_STREAM_MIME_TYPE, HEADER_SESSION_ID, JSON_MIME_TYPE},
         streamable_http_client::{
@@ -288,18 +288,24 @@ pub struct BoundedHttpClient {
     authorizer: Option<Arc<dyn crate::protocol::HttpRequestAuthorizer>>,
     retirement: CancellationToken,
     lifetime: Option<TaskTrackerToken>,
+    capture_state: crate::protocol::CaptureState,
+    connection_capture: crate::protocol::RequestCapture,
 }
 
 impl BoundedHttpClient {
-    pub fn new(
+    pub(crate) fn new(
         client: reqwest::Client,
         authorizer: Option<Arc<dyn crate::protocol::HttpRequestAuthorizer>>,
+        capture_state: crate::protocol::CaptureState,
+        connection_capture: crate::protocol::RequestCapture,
     ) -> Self {
         Self {
             client,
             authorizer,
             retirement: CancellationToken::new(),
             lifetime: None,
+            capture_state,
+            connection_capture,
         }
     }
 
@@ -342,6 +348,7 @@ impl BoundedHttpClient {
     async fn execute(
         &self,
         builder: reqwest::RequestBuilder,
+        capture: Option<&crate::protocol::RequestCapture>,
     ) -> Result<reqwest::Response, StreamableHttpError<reqwest::Error>> {
         let mut request = builder.build()?;
         let url = request.url().clone();
@@ -405,9 +412,18 @@ impl BoundedHttpClient {
                     "HTTP authorization changed the frozen method, destination or payload",
                 ));
             }
-            authorizer
-                .before_send(&request)
-                .map_err(|_| authorization_error("final HTTP request could not be retained"))?;
+            let budget = capture.map_or(crate::protocol::DEFAULT_CAPTURE_BUDGET, |capture| capture.budget());
+            drop(body);
+            if let Err(error) = self.capture_state.capture(authorizer.clone(), &request, budget).await {
+                if let Some(capture) = capture {
+                    let failure = error.downcast_ref::<crate::protocol::CaptureFailure>()
+                        .cloned().unwrap_or_else(|| crate::protocol::CaptureFailure {
+                            kind: crate::protocol::CaptureFailureKind::Worker, cause: format!("{error:#}"),
+                        });
+                    capture.record_failure(failure);
+                }
+                return Err(authorization_error("final HTTP request could not be retained before dispatch"));
+            }
         }
         let response = client.execute(request).await?;
         if let Some(authorizer) = &self.authorizer {
@@ -455,6 +471,12 @@ impl StreamableHttpClient for BoundedHttpClient {
         max_sse_event_size: usize,
     ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
         let exchange = async {
+            let capture = match &message {
+                JsonRpcMessage::Request(request) => Some(request.request.extensions()
+                    .get::<crate::protocol::RequestCapture>().cloned()
+                    .unwrap_or_else(|| self.connection_capture.clone())),
+                _ => None,
+            };
             let mut request = self
                 .client
                 .post(uri.as_ref())
@@ -467,7 +489,7 @@ impl StreamableHttpClient for BoundedHttpClient {
             if let Some(session) = session_id {
                 request = request.header(HEADER_SESSION_ID, session.as_ref());
             }
-            let response = self.execute(request.json(&message)).await?;
+            let response = self.execute(request.json(&message), capture.as_ref()).await?;
             if let Some(error) = auth_error(&response) {
                 return Err(error);
             }
@@ -589,7 +611,7 @@ impl StreamableHttpClient for BoundedHttpClient {
             request = request.bearer_auth(auth);
         }
         request = custom_headers(request, headers)?;
-        let response = self.execute(request).await?;
+        let response = self.execute(request, None).await?;
         if response.status() == StatusCode::METHOD_NOT_ALLOWED {
             return Ok(());
         }
@@ -640,7 +662,7 @@ impl StreamableHttpClient for BoundedHttpClient {
                 request = request.bearer_auth(auth);
             }
             request = custom_headers(request, headers)?;
-            let response = self.execute(request).await?;
+            let response = self.execute(request, None).await?;
             if response.status() == StatusCode::METHOD_NOT_ALLOWED {
                 return Err(StreamableHttpError::ServerDoesNotSupportSse);
             }
