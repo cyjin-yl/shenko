@@ -1,0 +1,8 @@
+{"label":"000-keygen","status":"exit status: 0"}
+{"label":"001-keygen","status":"exit status: 0"}
+{"label":"002-account","status":"exit status: 0"}
+{"label":"003-source-page","status":"exit status: 0"}
+{"label":"004-source-page","status":"exit status: 0"}
+{"label":"005-sync-evidence","status":"exit status: 1"}
+{"label":"006-sync-evidence","status":"exit status: 1"}
+{"label":"007-sync-evidence","status":"exit status: 0"}
