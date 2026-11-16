@@ -1,4 +1,4 @@
-//! Named WASM tool installation and execution — docs/specs/wasm-tools.md#spec-8-2, docs/specs/wasm-home.md#spec-8-3, docs/specs/wasm-tools.md#spec-18-8/R008/R101.
+//! Named WASM tool installation and execution.
 //!
 //! A tool is a real upstream artifact (WASI command module bytes) with a
 //! declared name, version, ABI, source and content digest. Installation
@@ -63,7 +63,7 @@ impl ToolMountProfile {
                 // the mount: a managed COW mount must keep showing the
                 // branch's overlay over its base, so a read-only profile is
                 // a read-only *view of the branch*, not a direct mount over
-                // the base (docs/specs/wasm-home.md#spec-8-3 / A08).
+                // the base (/ A08).
                 actual.withdraw_write();
             }
             actual
@@ -156,7 +156,7 @@ pub struct ToolDescriptor {
     /// by definition.
     #[serde(default)]
     pub artifact: Option<crate::artifact::ToolArtifactRef>,
-    /// The capability requirements this package declares — docs/specs/self-update.md#spec-9
+    /// The capability requirements this package declares
     /// "权限需求". They are requirements, never grants: they are admitted
     /// against what the executor actually hands the guest (the frozen mount
     /// closure and the explicit invocation environment), and a version
@@ -309,7 +309,7 @@ pub fn inspect_module(artifact: &[u8]) -> Result<ModuleInspection> {
 }
 
 /// A declared named product target and its real state. This is the honest
-/// docs/specs/wasm-tools.md#spec-8-2 list in code: status reflects whether a verified runnable artifact is
+/// list in code: status reflects whether a verified runnable artifact is
 /// installed *right now*, not whether the name is "supported" on paper.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedToolTarget {
@@ -320,7 +320,7 @@ pub struct NamedToolTarget {
     pub upstream: &'static str,
     /// SPDX license of that upstream project. An installed tool keeps it.
     pub license: &'static str,
-    /// The docs/specs/wasm-tools.md#spec-8-2 compatibility class the target really has: W0 standard
+    /// The compatibility class the target really has: W0 standard
     /// component, W1 extended POSIX userland, W2 dedicated host imports, H
     /// host adaptation, R remote environment.
     pub compatibility: &'static str,
@@ -352,7 +352,7 @@ impl TargetMatch {
     }
 }
 
-/// Declared named targets. Order is the docs/specs/wasm-tools.md#spec-8-2 order.
+/// Declared named targets. Order is the order.
 pub const NAMED_TARGETS: &[NamedToolTarget] = &[
     NamedToolTarget {
         name: "toybox",
@@ -611,7 +611,7 @@ pub struct NamedTargetStatus {
     pub name: String,
     pub upstream: String,
     pub license: String,
-    /// The docs/specs/wasm-tools.md#spec-8-2 compatibility class the target really has.
+    /// The compatibility class the target really has.
     pub compatibility: String,
     /// Host imports or runtime features needed beyond WASI preview1.
     pub required_capabilities: Vec<String>,

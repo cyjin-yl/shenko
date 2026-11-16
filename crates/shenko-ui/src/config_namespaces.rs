@@ -1,4 +1,4 @@
-//! Built-in configuration namespaces — docs/specs/configuration-playground.md#spec-43-1.
+//! Built-in configuration namespaces.
 //!
 //! A namespace is how a plugin publishes one class of settings. Three facts
 //! stay separate: the saved desired revision (`config_entries`), what a

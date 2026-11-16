@@ -1,9 +1,10 @@
+import { text as t } from './messages';
 import { useId } from 'react';
 import type { UiNode } from './projection';
 import { Button, ProtoInput } from './ui-kit';
 
 /**
- * The configuration panel — docs/specs/configuration-playground.md#spec-43-1.
+ * The configuration panel.
  *
  * Every row is a fact the service actually reported: the saved desired
  * revision, the value each consumer adopted, and the value a consumer runs
@@ -30,7 +31,7 @@ interface ConfigEntryRow {
 type Emit = (nodeId: string, actionId: string, payload?: Record<string, unknown>) => void;
 
 function shown(value: unknown): string {
-  if (value === undefined) return '未知';
+  if (value === undefined) return t('common.unknown');
   if (value === null) return 'null';
   if (typeof value === 'string') return value;
   return JSON.stringify(value);
@@ -40,23 +41,23 @@ export function ConfigEntries({ node, emit }: { node: UiNode; emit: Emit }) {
   const labelPrefix = useId();
   const rows = (Array.isArray(node.props.entries) ? node.props.entries : []) as ConfigEntryRow[];
   const live = node.props.live === true;
-  if (node.props.entries_error === true) return <p className="muted is-error">配置接口不可用。</p>;
-  if (rows.length === 0) return <p className="muted">当前没有注册的配置项。</p>;
+  if (node.props.entries_error === true) return <p className="muted is-error">{t('config.entriesUnavailable')}</p>;
+  if (rows.length === 0) return <p className="muted">{t('config.entriesEmpty')}</p>;
   return <ul className="config-entries">{rows.map((row) => {
     const adoptions = Array.isArray(row.adoptions) ? row.adoptions : [];
     const labelId = `${labelPrefix}-${encodeURIComponent(row.key)}`;
     return <li className="config-entry" key={row.key}>
       <div className="config-entry-head">
         <code className="config-key" id={labelId}>{row.key}</code>
-        <span className="muted">{row.application ?? '生效方式未知'}</span>
+        <span className="muted">{row.application ?? t('config.applicationUnknown')}</span>
       </div>
       {/* Saved, adopted and running are three facts; saving is not health. */}
       <dl className="facts is-compact">
-        <div className="fact"><dt>已保存</dt><dd>{row.desired_revision === undefined ? '无' : `revision ${row.desired_revision}`}</dd></div>
-        <div className="fact"><dt>实际运行</dt><dd className="is-mono">{shown(row.current_value)}</dd></div>
-        <div className="fact"><dt>采用</dt><dd>{adoptions.length === 0
-          ? '尚无 consumer 采用'
-          : adoptions.map((adoption) => `${adoption.consumer_id ?? '未知 consumer'} · r${adoption.adopted_revision ?? '?'}`).join('；')}</dd></div>
+        <div className="fact"><dt>{t('config.saved')}</dt><dd>{row.desired_revision === undefined ? t('common.none') : `revision ${row.desired_revision}`}</dd></div>
+        <div className="fact"><dt>{t('config.running')}</dt><dd className="is-mono">{shown(row.current_value)}</dd></div>
+        <div className="fact"><dt>{t('config.adoption')}</dt><dd>{adoptions.length === 0
+          ? t('config.noAdoption')
+          : adoptions.map((adoption) => `${adoption.consumer_id ?? t('config.consumerUnknown')} · r${adoption.adopted_revision ?? '?'}`).join('；')}</dd></div>
       </dl>
       {row.current_value_error && <p className="muted is-error">{row.current_value_error}</p>}
       {row.error
@@ -66,7 +67,7 @@ export function ConfigEntries({ node, emit }: { node: UiNode; emit: Emit }) {
             className="input is-mono"
             labelledBy={labelId}
             value={row.draft ?? ''}
-            placeholder="新值（JSON）"
+            placeholder={t('config.newValue')}
             onValueChange={(detail: { value: string }) => emit('config', 'config.draft', { entry: row.key, value: detail.value })}
           />
           <Button
@@ -74,7 +75,7 @@ export function ConfigEntries({ node, emit }: { node: UiNode; emit: Emit }) {
             size="sm"
             disabled={!live || !row.apply_action}
             onClick={() => { if (row.apply_action) emit('config', row.apply_action); }}
-          >提交修改</Button>
+          >{t('config.apply')}</Button>
         </div>}
     </li>;
   })}</ul>;

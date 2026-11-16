@@ -1,5 +1,5 @@
 //! Notes-backed rollover compact — an independently installable ContextPolicy
-//! plugin (docs/specs/context-policies.md#spec-12-3-1, "OMP notes-backed windows").
+//! plugin ("OMP notes-backed windows").
 //!
 //! The adopted behaviour is the installed OMP rollover contract (docs
 //! `compaction.md`, "Experimental notes-backed context windows"; the SPEC pins

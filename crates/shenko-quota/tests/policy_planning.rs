@@ -1,4 +1,4 @@
-//! docs/specs/quota-resources.md#spec-42-3 / QA05 planning targets, holds and pacing on synthetic readings.
+//! / QA05 planning targets, holds and pacing on synthetic readings.
 //!
 //! Every provider figure here is a synthetic fixed-period statusline reading. These are
 //! library-level consumers: they show that the new policy fields change the

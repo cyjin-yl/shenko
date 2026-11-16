@@ -61,7 +61,7 @@ pub enum UpdateCommand {
         /// Print the machine-readable report.
         json: bool,
     },
-    /// docs/specs/cognition-units.md#spec-51-4 append-node rollback of the cognitive root. This restores the
+    /// append-node rollback of the cognitive root. This restores the
     /// subject's state root to a historical node by appending a new node
     /// with equal content — never rewinding, truncating or deleting the
     /// chain. Distinct from the generation `Rollback` which switches the
@@ -188,7 +188,7 @@ pub async fn execute(command: UpdateCommand, service: &UpdateService, agent_id: 
     }
 }
 
-/// Execute a docs/specs/cognition-units.md#spec-51-4 root rollback through the controller's [`RootChain`] seam.
+/// Execute a root rollback through the controller's [`RootChain`] seam.
 ///
 /// The `UpdateService` is expected to provide a `RootChain` implementor.
 /// If the controller has not published one yet, this function returns an

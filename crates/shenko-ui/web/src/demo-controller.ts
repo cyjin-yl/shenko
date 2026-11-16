@@ -1,3 +1,6 @@
+import { message as m } from './messages';
+import { demoThreadData } from './demo-fixtures';
+export { demoThreadData };
 import {
   UI_INTENT_SCHEMA,
   buildProjection,
@@ -203,7 +206,7 @@ class DemoController implements ProjectionController {
       !action
     ) return;
     if (action.revision !== intent.action_revision) {
-      this.state.display.notice = '模拟视图已变化，旧动作已拒绝。';
+      this.state.display.notice = m('demo.staleAction');
       this.emit();
       return;
     }
@@ -253,19 +256,19 @@ class DemoController implements ProjectionController {
       case 'timeline.code_wrap':
         this.state.display.wrap = !this.state.display.wrap;
         this.state.display.notice = this.state.display.wrap
-          ? '模拟视图：长代码行已软换行'
-          : '模拟视图：长代码行保持原样';
+          ? m('demo.wrapEnabled')
+          : m('demo.wrapDisabled');
         this.emit();
         break;
       case 'part.copy': {
         const content = String(action.payload?.content ?? '');
         void navigator.clipboard?.writeText(content).then(
           () => {
-            this.state.display.notice = '已从模拟投影复制';
+            this.state.display.notice = m('demo.copied');
             this.emit();
           },
           () => {
-            this.state.display.notice = '复制不可用；请手动选择文本。';
+            this.state.display.notice = m('copy.unavailable');
             this.emit();
           },
         );

@@ -128,5 +128,5 @@ impl HandoffParticipant for InferenceDomain {
         let details = self.0.quiesce_for_handoff().await?;
         Ok(HandoffParticipantReceipt { participant: self.name().into(), stopped: Vec::new(), details })
     }
-    async fn resume(&self) -> Result<()> { self.0.resume_after_handoff_abort(); Ok(()) }
+    async fn resume(&self) -> Result<()> { self.0.resume_after_handoff_abort() }
 }

@@ -1,6 +1,6 @@
 //! 宿主 OpenSSH 执行器；不是 WASM SSH，也没有使用 russh。
-//! 外部效果不提供自动重放或远端已停止的虚假保证。docs/specs/remote-seats.md#spec-11, docs/specs/durable-state.md#spec-36, docs/specs/architecture.md#spec-41。
-use anyhow::{Result, anyhow, bail};
+//! 外部效果不提供自动重放或远端已停止的虚假保证。
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -79,6 +79,26 @@ pub struct ExecDiagnostic {
     pub reason: ExecUncertainty,
     pub local_process_reaped: bool,
     pub reconciliation: String,
+}
+
+impl ExecDiagnostic {
+    fn observed(
+        reason: ExecUncertainty,
+        local_process_reaped: bool,
+        remote: bool,
+        failures: &[String],
+    ) -> Self {
+        let mut reconciliation = if remote {
+            "仅停止/回收本机 SSH 不证明远端进程已停；按原任务/seat/目标核验外部状态，不自动重发。此 execution_id 不是远端 receipt handle。".to_string()
+        } else {
+            "直接子进程回收状态见 local_process_reaped；既有文件/网络效果不回滚，逃逸进程需另行核验。".to_string()
+        };
+        for failure in failures {
+            reconciliation.push('\n');
+            reconciliation.push_str(failure);
+        }
+        Self { reason, local_process_reaped, reconciliation }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,16 +317,36 @@ impl SshExecutor {
         }
         let execution_id = uuid::Uuid::new_v4();
         // spawn 错误发生在派发之前；派发后的不确定性必须返回结构化结果。
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().context(if remote {
+            "OpenSSH process spawn failed"
+        } else {
+            "local command process spawn failed"
+        })?;
         let mut group = ProcessGroupGuard {
             pid: child.id(),
             armed: true,
         };
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let stdout_pipe = child.stdout.take().expect("已配置 stdout pipe");
-        let stderr_pipe = child.stderr.take().expect("已配置 stderr pipe");
-        let mut stdin_pipe = child.stdin.take().expect("configured stdin");
+        let mut failures = Vec::new();
+        let (Some(stdout_pipe), Some(stderr_pipe), Some(mut stdin_pipe)) =
+            (child.stdout.take(), child.stderr.take(), child.stdin.take())
+        else {
+            failures.push("spawned process did not expose all configured stdio pipes".into());
+            let reaped = terminate_child(&mut child, &group, &mut failures).await;
+            group.armed = !reaped;
+            return Ok(ExecResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: -1,
+                timed_out: false,
+                execution_id: Some(execution_id),
+                outcome: Some(ExecOutcome::Unknown),
+                diagnostic: Some(ExecDiagnostic::observed(
+                    ExecUncertainty::OutputUnavailable, reaped, remote, &failures,
+                )),
+            });
+        };
         let write_input = async move {
             let written = stdin_pipe.write_all(input).await;
             // ChildStdin shutdown alone does not close the pipe. Remote JSON
@@ -317,47 +357,43 @@ impl SshExecutor {
         async fn capture<R: tokio::io::AsyncRead + Unpin>(
             mut pipe: R,
             bytes: &mut Vec<u8>,
-        ) -> std::io::Result<usize> {
+        ) -> Result<usize> {
             let size = (&mut pipe)
                 .take(2 * 1024 * 1024 + 1)
                 .read_to_end(bytes)
                 .await?;
             if size > 2 * 1024 * 1024 {
                 // Keep draining to avoid deadlocking a producer on a full pipe.
-                tokio::io::copy(&mut pipe, &mut tokio::io::sink()).await?;
-                Err(std::io::Error::other("output limit exceeded"))
+                let error = anyhow!(std::io::Error::other("output limit exceeded"));
+                if let Err(drain_error) = tokio::io::copy(&mut pipe, &mut tokio::io::sink()).await {
+                    return Err(error.context(format!("output drain also failed: {drain_error}")));
+                }
+                Err(error)
             } else {
                 Ok(size)
             }
         }
         let collect = async {
-            let (status, out, err, written) = tokio::join!(
+            tokio::join!(
                 child.wait(),
                 capture(stdout_pipe, &mut stdout),
                 capture(stderr_pipe, &mut stderr),
                 write_input
-            );
-            (
-                status,
-                out.and(written).and_then(|_| {
-                    if stdout.len() > 2 * 1024 * 1024 || stderr.len() > 2 * 1024 * 1024 {
-                        Err(std::io::Error::other("output limit exceeded"))
-                    } else {
-                        Ok(0)
-                    }
-                }),
-                err,
             )
         };
         let completion = match timeout {
-            Some(duration) => tokio::time::timeout(duration, collect).await.ok(),
+            Some(duration) => match tokio::time::timeout(duration, collect).await {
+                Ok(completion) => Some(completion),
+                Err(error) => {
+                    failures.push(format!("execution deadline elapsed: {error}"));
+                    None
+                }
+            },
             None => Some(collect.await),
         };
         let (exit_code, timed_out, outcome, reason, reaped) = match completion {
             None => {
-                group.terminate();
-                let _ = child.start_kill();
-                let reaped = child.wait().await.is_ok();
+                let reaped = terminate_child(&mut child, &group, &mut failures).await;
                 (
                     -1,
                     true,
@@ -370,58 +406,84 @@ impl SshExecutor {
                     reaped,
                 )
             }
-            Some((status, out_read, err_read)) => match status {
-                Ok(status) => {
-                    let code = status.code().unwrap_or(-1);
-                    let reason = if out_read.is_err() || err_read.is_err() {
-                        Some(ExecUncertainty::OutputUnavailable)
-                    } else if remote && code == 255 {
-                        Some(ExecUncertainty::SshExit255)
-                    } else if remote && status.code().is_none() {
-                        Some(ExecUncertainty::TransportTerminated)
-                    } else {
-                        None
-                    };
-                    (
-                        code,
-                        false,
-                        if reason.is_some() {
-                            ExecOutcome::Unknown
+            Some((status, out_read, err_read, written)) => {
+                let output_unavailable = out_read.is_err() || err_read.is_err() || written.is_err();
+                if let Err(error) = out_read {
+                    failures.push(format!("stdout capture failed: {error:#}"));
+                }
+                if let Err(error) = err_read {
+                    failures.push(format!("stderr capture failed: {error:#}"));
+                }
+                if let Err(error) = written {
+                    failures.push(format!("stdin delivery failed: {error}"));
+                }
+                match status {
+                    Ok(status) => {
+                        let code = status.code().unwrap_or(-1);
+                        let reason = if output_unavailable {
+                            Some(ExecUncertainty::OutputUnavailable)
+                        } else if remote && code == 255 {
+                            Some(ExecUncertainty::SshExit255)
+                        } else if remote && status.code().is_none() {
+                            Some(ExecUncertainty::TransportTerminated)
                         } else {
-                            ExecOutcome::Exited
-                        },
-                        reason,
-                        true,
-                    )
+                            None
+                        };
+                        (
+                            code,
+                            false,
+                            if reason.is_some() {
+                                ExecOutcome::Unknown
+                            } else {
+                                ExecOutcome::Exited
+                            },
+                            reason,
+                            true,
+                        )
+                    }
+                    Err(error) => {
+                        failures.push(format!("process wait failed: {error}"));
+                        let reaped = terminate_child(&mut child, &group, &mut failures).await;
+                        (
+                            -1,
+                            false,
+                            ExecOutcome::Unknown,
+                            Some(ExecUncertainty::TransportTerminated),
+                            reaped,
+                        )
+                    }
                 }
-                Err(_) => {
-                    group.terminate();
-                    let _ = child.start_kill();
-                    let reaped = child.wait().await.is_ok();
-                    (
-                        -1,
-                        false,
-                        ExecOutcome::Unknown,
-                        Some(ExecUncertainty::TransportTerminated),
-                        reaped,
-                    )
-                }
-            },
+            }
         };
         group.armed = !reaped;
         Ok(ExecResult {
             stdout: String::from_utf8_lossy(&stdout).into_owned(),
             stderr: String::from_utf8_lossy(&stderr).into_owned(),
             exit_code, timed_out, execution_id: Some(execution_id), outcome: Some(outcome),
-            diagnostic: reason.map(|reason| ExecDiagnostic {
-                reason, local_process_reaped: reaped,
-                reconciliation: if remote {
-                    "仅停止/回收本机 SSH 不证明远端进程已停；按原任务/seat/目标核验外部状态，不自动重发。此 execution_id 不是远端 receipt handle。".into()
-                } else {
-                    "直接子进程回收状态见 local_process_reaped；既有文件/网络效果不回滚，逃逸进程需另行核验。".into()
-                },
-            }),
+            diagnostic: reason.map(|reason| ExecDiagnostic::observed(reason, reaped, remote, &failures)),
         })
+    }
+}
+
+/// Cleanup diagnostics supplement the initiating uncertainty; none of these
+/// failures turns a dispatched command into a safe-to-replay error.
+async fn terminate_child(
+    child: &mut tokio::process::Child,
+    group: &ProcessGroupGuard,
+    failures: &mut Vec<String>,
+) -> bool {
+    if let Err(error) = group.terminate() {
+        failures.push(format!("process-group termination failed: {error}"));
+    }
+    if let Err(error) = child.start_kill() {
+        failures.push(format!("direct-child termination failed: {error}"));
+    }
+    match child.wait().await {
+        Ok(_) => true,
+        Err(error) => {
+            failures.push(format!("child reap failed: {error}"));
+            false
+        }
     }
 }
 
@@ -433,24 +495,32 @@ struct ProcessGroupGuard {
 }
 
 impl ProcessGroupGuard {
-    fn terminate(&self) {
+    fn terminate(&self) -> std::io::Result<()> {
         #[cfg(unix)]
-        if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
-            unsafe extern "C" {
-                fn kill(pid: i32, signal: i32) -> i32;
+        if let Some(pid) = self.pid {
+            let pid = i32::try_from(pid)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+            if pid <= 0 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid child process-group id"));
             }
-            // SAFETY：子进程以自身 PID 建立独立组；负 PID 只定位该组，9 是 Unix SIGKILL。
-            unsafe {
-                kill(-pid, 9);
+            // SAFETY：子进程以自身 PID 建立独立组；负 PID 只定位该组。
+            if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
+                let error = std::io::Error::last_os_error();
+                // An already-gone group needs no signal; only wait confirms
+                // whether the direct child was reaped.
+                if error.raw_os_error() != Some(libc::ESRCH) {
+                    return Err(error);
+                }
             }
         }
+        Ok(())
     }
 }
 
 impl Drop for ProcessGroupGuard {
     fn drop(&mut self) {
-        if self.armed {
-            self.terminate();
+        if self.armed && let Err(error) = self.terminate() {
+            tracing::warn!(%error, pid = ?self.pid, "process-group cleanup failed while dropping execution");
         }
     }
 }

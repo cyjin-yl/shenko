@@ -1,5 +1,5 @@
 //! Inference broker — fair asynchronous dispatch over one physical resource
-//! domain. docs/specs/inference.md#spec-13, docs/specs/nodes.md#spec-22-1, docs/specs/context-policies.md#spec-41-8–docs/specs/inference.md#spec-41-10, docs/specs/inference.md#spec-47.
+//! domain.
 //!
 //! Every controlled call — the subject, a child, memory work, compaction,
 //! diagnostics — enters this broker. The provider is resolved from the open
@@ -11,10 +11,11 @@
 //! budget belongs to the physical domain, the residency pool is described in
 //! [`crate::kv`]. A request whose remote outcome is unknown keeps its
 //! capacity and is quarantined as debt until it is reconciled.
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy};
 use shenko_types::ids::EntityId;
 use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
@@ -29,9 +30,8 @@ use crate::kv::{
 };
 use crate::registry::{ProviderRegistry, ProviderRuntime, TokenCount};
 use crate::request::{
-    BrokeredCall, InferencePriority, InferenceRequest, InferenceResponse, InferenceResult,
-    InferenceStatus, ProviderBinding, ProviderCapabilities, ProviderVisionCaps, RequestPurpose,
-    TerminationEvidence, TerminationKind,
+    BrokeredCall, InferenceRequest, InferenceResponse, InferenceResult,
+    ProviderBinding, ProviderCapabilities, ProviderVisionCaps, RequestPurpose, TerminationKind,
 };
 use crate::resource::{CapacitySnapshot as DomainCapacity, ResourceDomain, ResourceDomainIdentity, ResourceDomainRegistry};
 use crate::stream::{BoundedStreamPublisher, PublicStreamSink, StreamIdentity, StreamJournalSink};
@@ -152,6 +152,14 @@ pub struct AvailableProvider {
 type Accounting = Arc<Mutex<HashMap<EntityId, Option<AdmissionGuard>>>>;
 type RecoverySources = Arc<Mutex<HashMap<EntityId, Arc<dyn InferenceRecoverySource>>>>;
 
+fn lock_broker_state<'a, T>(state: &'a Mutex<T>, name: &str) -> Result<MutexGuard<'a, T>> {
+    state.lock().map_err(|_| {
+        ProtocolError::new("BROKER_STATE_POISONED", ErrorScope::Request, RetryStrategy::NeverAutomatically)
+            .with_details(serde_json::json!({ "state": name, "remote_debt_released": false }))
+            .into()
+    })
+}
+
 #[derive(Clone)]
 pub struct BrokerHandle {
     tx: mpsc::UnboundedSender<Submission>,
@@ -244,11 +252,12 @@ impl BrokerHandle {
 
     /// Restore an original armed request before admitting any new inference.
     /// Repeated recovery and live requests cannot count the same identity twice.
-    pub fn recover_unknown(&self, request_id: EntityId) {
-        self.accounting.lock().expect("broker accounting poisoned")
-            .entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
+    pub fn recover_unknown(&self, request_id: EntityId) -> Result<()> {
+        let mut accounting = lock_broker_state(&self.accounting, "accounting")?;
+        accounting.entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
         self.domain
             .quarantine(request_id, now_ms(), "recovered without terminal evidence");
+        Ok(())
     }
 
     /// Register the original ledger reader while restoring a request. A known
@@ -257,8 +266,8 @@ impl BrokerHandle {
     pub fn register_recovered(&self, source: Arc<dyn InferenceRecoverySource>) -> Result<()> {
         let id = source.request_id();
         {
-            let accounting = self.accounting.lock().expect("broker accounting poisoned");
-            let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+            let accounting = lock_broker_state(&self.accounting, "accounting")?;
+            let mut sources = lock_broker_state(&self.recovery_sources, "recovery_sources")?;
             if !sources.contains_key(&id) {
                 ensure!(!accounting.contains_key(&id), "known request has no original recovery reader; preserve unknown charge");
                 sources.insert(id, source);
@@ -270,7 +279,7 @@ impl BrokerHandle {
     /// A request ID only wakes its already-pinned reader. It is never release
     /// evidence by itself, and this API accepts no caller-supplied result.
     pub fn reconcile_recorded(&self, request_id: EntityId) -> Result<()> {
-        let source = self.recovery_sources.lock().expect("broker recovery sources poisoned")
+        let source = lock_broker_state(&self.recovery_sources, "recovery_sources")?
             .get(&request_id).cloned().ok_or_else(|| anyhow!("request has no original durable recovery reader"))?;
         let result = source.read_terminal_result()?;
         if let Some(result) = &result {
@@ -279,8 +288,8 @@ impl BrokerHandle {
                 && result.termination.kind != TerminationKind::Unknown,
                 "recovered inference lacks matching original terminal evidence");
         }
-        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
-        let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+        let mut accounting = lock_broker_state(&self.accounting, "accounting")?;
+        let mut sources = lock_broker_state(&self.recovery_sources, "recovery_sources")?;
         // Reading the ledger must not hold the broker lock. A real terminal
         // completion may retire this reader while that read is in progress:
         // its stale None must not recreate debt after release, nor may an old
@@ -292,17 +301,19 @@ impl BrokerHandle {
             accounting.entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
             return Ok(());
         };
-        if accounting.get(&source.request_id()).is_some_and(Option::is_some) {
-            let guard = accounting.remove(&source.request_id()).flatten().expect("checked charge");
-            match result.termination.kind {
-                TerminationKind::NeverDispatched => guard.release_never_dispatched(),
-                TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => guard.release_terminal(),
-                TerminationKind::Unknown => unreachable!("terminal evidence checked above"),
+        if let Some(guard) = accounting.get_mut(&request_id).and_then(Option::take) {
+            accounting.remove(&request_id);
+            if result.termination.kind == TerminationKind::NeverDispatched {
+                guard.release_never_dispatched();
+            } else {
+                // Matching terminal evidence was validated before taking the
+                // charge; Unknown never reaches a capacity-release path.
+                guard.release_terminal();
             }
             self.domain.reconcile_debt(request_id);
             // The original terminal evidence ends the context read hold the
             // unknown outcome kept charged; the context may now be reclaimed
-            // at the next safe boundary (docs/specs/inference.md#spec-41-10).
+            // at the next safe boundary.
             self.kv
                 .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
             self.accounting_changed.notify_one();
@@ -322,15 +333,16 @@ impl BrokerHandle {
     /// Unknown remote outcomes stay charged; this is not remote termination.
     pub async fn quiesce_for_handoff(&self) -> Result<serde_json::Value> {
         {
-            let _accounting = self.accounting.lock().expect("broker accounting poisoned");
+            let accounting = lock_broker_state(&self.accounting, "accounting")?;
             self.handoff_closed.store(true, std::sync::atomic::Ordering::Release);
+            drop(accounting);
         }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
         loop {
             let snapshot = {
-                let accounting = self.accounting.lock().expect("broker accounting poisoned");
+                let accounting = lock_broker_state(&self.accounting, "accounting")?;
                 if accounting.values().any(Option::is_none) { None } else {
-                    let sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+                    let sources = lock_broker_state(&self.recovery_sources, "recovery_sources")?;
                     let requests = accounting.iter().map(|(id, charge)| {
                         let source = sources.get(id);
                         serde_json::json!({
@@ -357,10 +369,12 @@ impl BrokerHandle {
         }
     }
 
-    pub fn resume_after_handoff_abort(&self) {
-        let _accounting = self.accounting.lock().expect("broker accounting poisoned");
+    pub fn resume_after_handoff_abort(&self) -> Result<()> {
+        let accounting = lock_broker_state(&self.accounting, "accounting")?;
         self.handoff_closed.store(false, std::sync::atomic::Ordering::Release);
+        drop(accounting);
         self.accounting_changed.notify_one();
+        Ok(())
     }
 
     pub fn capacity(&self) -> CapacitySnapshot {
@@ -403,9 +417,15 @@ impl BrokerHandle {
     /// degradation, against the agent and conversation of the actual request.
     /// The write is fail-soft and never replaces the error it reports.
     pub fn set_runtime_error_sink(&self, sink: Arc<dyn RuntimeErrorSink>) {
-        if let Ok(mut guard) = self.error_sink.lock() {
-            *guard = Some(sink);
-        }
+        let previous = match self.error_sink.lock() {
+            Ok(mut guard) => guard.replace(sink),
+            Err(error) => {
+                warn!(%error, "runtime error sink could not be installed");
+                return;
+            }
+        };
+        // A replaced plugin may own destructors; retire it after unlocking.
+        drop(previous);
     }
 
     pub fn submit_recorded(&self, req: InferenceRequest, sink: Arc<dyn InferenceReceiptSink>) -> Result<()> {
@@ -495,24 +515,34 @@ impl BrokerHandle {
             self.registry.runtime_for(&req.provider_binding).is_some(),
             "no installed provider runtime can serve this binding"
         );
-        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
-        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire),
-            "BROKER_HANDOFF_CLOSED: request rejected before enqueue/send");
-        ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
         let id = req.request_id;
         if let Some(sink) = &receipt_sink {
             ensure!(sink.request_id() == id && sink.binding() == &req.provider_binding
                 && sink.payload() == &req.payload, "receipt owner differs from submitted request seal");
+        }
+        let mut accounting = lock_broker_state(&self.accounting, "accounting")?;
+        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire),
+            "BROKER_HANDOFF_CLOSED: request rejected before enqueue/send");
+        ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
+        // Keep both maps locked through enqueue and its rollback: a failed
+        // send must not need another fallible lock to undo local admission.
+        let mut sources = lock_broker_state(&self.recovery_sources, "recovery_sources")?;
+        if let Some(sink) = &receipt_sink {
             let source: Arc<dyn InferenceRecoverySource> = sink.clone();
-            let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
             ensure!(!sources.contains_key(&id), "request already has an original receipt owner");
             sources.insert(id, source);
         }
         accounting.insert(id, None);
-        if self.tx.send(Submission { request: req, receipt_sink, purpose, stream }).is_err() {
+        if let Err(failed) = self.tx.send(Submission { request: req, receipt_sink, purpose, stream }) {
             accounting.remove(&id);
-            self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&id);
-            return Err(anyhow!("broker admission closed; request was not enqueued"));
+            let source = sources.remove(&id);
+            drop(sources);
+            drop(accounting);
+            drop(source);
+            drop(failed);
+            return Err(ProtocolError::new("BROKER_ADMISSION_CLOSED", ErrorScope::Request, RetryStrategy::AfterReconcile)
+                .with_details(serde_json::json!({ "request_id": id, "enqueued": false }))
+                .into());
         }
         Ok(())
     }
@@ -596,7 +626,6 @@ struct CompletedRequest {
 pub struct Broker {
     rx: mpsc::UnboundedReceiver<Submission>,
     domain: Arc<ResourceDomain>,
-    domains: Arc<ResourceDomainRegistry>,
     registry: Arc<ProviderRegistry>,
     accounting: Accounting,
     recovery_sources: RecoverySources,
@@ -618,7 +647,7 @@ impl Broker {
 
     pub fn with_local_provider(provider: crate::local_provider::LocalModelProvider, max: u64) -> Result<(Self, BrokerHandle)> {
         provider.binding().validate_endpoint()?;
-        let domain = default_domain(AdmissionController::new(max))?;
+        let domain = default_domain(AdmissionController::new(max));
         Self::with_runtime(Arc::new(provider), domain)
     }
 
@@ -630,7 +659,7 @@ impl Broker {
         max: u64,
     ) -> Result<(Self, BrokerHandle)> {
         provider.binding().validate_endpoint()?;
-        let domain = default_domain(AdmissionController::new(max))?;
+        let domain = default_domain(AdmissionController::new(max));
         Self::with_runtime(Arc::new(provider), domain)
     }
 
@@ -655,24 +684,24 @@ impl Broker {
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
     ) -> (Self, BrokerHandle) {
-        let domains = Arc::new(ResourceDomainRegistry::new());
-        let _ = domains.register(Arc::clone(&domain));
-        Self::assemble(registry, domain, domains)
+        Self::assemble(registry, domain)
     }
 
     fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
         let runtime = env_runtime()?;
-        let domain = default_domain(admission.clone())?;
+        let domain = default_domain(admission);
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::assemble(registry, domain, Arc::new(ResourceDomainRegistry::new())))
+        Ok(Self::assemble(registry, domain))
     }
 
     fn assemble(
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
-        domains: Arc<ResourceDomainRegistry>,
     ) -> (Self, BrokerHandle) {
+        let domains = Arc::new(ResourceDomainRegistry::new());
+        domains.register(Arc::clone(&domain))
+            .expect("invariant: a fresh domain registry has no conflicting identity or incarnation");
         let (tx, rx) = mpsc::unbounded_channel();
         // The binding comes from the installed runtime, not from a profile
         // table: the runtime is what actually executes the request.
@@ -694,7 +723,6 @@ impl Broker {
             Self {
                 rx,
                 domain: Arc::clone(&domain),
-                domains: Arc::clone(&domains),
                 registry: Arc::clone(&registry),
                 accounting: Arc::clone(&accounting),
                 recovery_sources: Arc::clone(&recovery_sources),
@@ -724,11 +752,8 @@ impl Broker {
     pub fn offline() -> (Self, BrokerHandle) {
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::new(OfflineRuntime));
-        let domain = default_domain(AdmissionController::nominal())
-            .expect("the default domain is constructible");
-        let domains = Arc::new(ResourceDomainRegistry::new());
-        let _ = domains.register(Arc::clone(&domain));
-        Self::assemble(registry, domain, domains)
+        let domain = default_domain(AdmissionController::nominal());
+        Self::assemble(registry, domain)
     }
 
     /// Observe what the bound backend actually offers, and adopt what the
@@ -771,7 +796,9 @@ impl Broker {
         let mut pool = self.domain.kv_mut();
         self.kv.adopt_identity(&mut pool, &identity);
         self.kv.apply_capabilities(&mut pool, capabilities);
-        let _ = self.kv.rebalance(&mut pool);
+        if let Err(error) = self.kv.rebalance(&mut pool) {
+            warn!(%error, "observed KV capabilities adopted but residency rebalance failed");
+        }
         capabilities
     }
 
@@ -788,14 +815,25 @@ impl Broker {
         // this backend offers; the metadata read below is only the model ceiling.
         self.adopt_capabilities(&snapshot);
         let binding = runtime.binding();
-        let metadata = snapshot
-            .raw_evidence
-            .iter()
-            .filter_map(|document| serde_json::from_value::<ModelMetadataList>(document.clone()).ok())
-            .flat_map(|list| list.data)
-            .find(|model| model.id == binding.model())
-            .ok_or_else(|| anyhow!("bound model metadata not found"))?;
-        ProviderCapabilities::from_metadata(binding, metadata)
+        let mut has_more = false;
+        for document in &snapshot.raw_evidence {
+            // Metrics and diagnostics are separate evidence, not failed model
+            // lists. A document presenting a data member must parse as one.
+            if document.get("data").is_none() {
+                continue;
+            }
+            let list = ModelMetadataList::deserialize(document)
+                .context("provider returned invalid model metadata")?;
+            has_more |= list.has_more == Some(true);
+            if let Some(metadata) = list.data.into_iter().find(|model| model.id == binding.model()) {
+                return ProviderCapabilities::from_metadata(binding, metadata);
+            }
+        }
+        Err(ProtocolError::new(
+            if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },
+            ErrorScope::Request,
+            RetryStrategy::NewRevision,
+        ).with_details(serde_json::json!({ "model": binding.model(), "has_more": has_more })).into())
     }
 
     /// Count the tokens one request would send, when the binding supports it.
@@ -810,57 +848,79 @@ impl Broker {
             .ok_or_else(|| anyhow!("no installed provider runtime can serve this binding"))
     }
 
-    fn finish(&self, completed: CompletedRequest) {
+    fn finish(
+        completed: CompletedRequest,
+        accounting: &Accounting,
+        recovery_sources: &RecoverySources,
+        domain: &ResourceDomain,
+        kv: &KvAllocator,
+        error_sink: &ErrorSinkCell,
+    ) -> Result<()> {
         let CompletedRequest { request, receipt_sink, result, guard } = completed;
         let request_id = request.request_id;
-        if let Some(sink) = receipt_sink {
-            if let Err(error) = sink.record(&result) {
-                warn!(request_id=%request_id, %error, "model receipt not durably recorded; retaining unknown charge");
-                self.accounting.lock().expect("broker accounting poisoned")
-                    .insert(request_id, Some(guard));
-                return;
+        let settlement = (|| -> Result<()> {
+            if let Some(sink) = receipt_sink {
+                if let Err(error) = sink.record(&result) {
+                    domain.quarantine(request_id, now_ms(), "model receipt not durably recorded");
+                    match lock_broker_state(accounting, "accounting") {
+                        Ok(mut accounting) => { accounting.insert(request_id, Some(guard)); }
+                        Err(retention_error) => {
+                            // Dropping an unreleased guard keeps occupancy even
+                            // when its bookkeeping lock is unavailable.
+                            return Err(error.context(format!(
+                                "model receipt not durably recorded; retaining charge also failed: {retention_error:#}"
+                            )));
+                        }
+                    }
+                    return Err(error.context("model receipt not durably recorded; original charge retained"));
+                }
             }
+            // Dropping the receiver does not cancel the already executing
+            // provider future or establish its remote termination.
+            let mut accounting = lock_broker_state(accounting, "accounting")?;
+            let mut sources = lock_broker_state(recovery_sources, "recovery_sources")?;
+            let retired_source = match result.termination.kind {
+                TerminationKind::ProviderTerminal | TerminationKind::TransportRejected | TerminationKind::NeverDispatched => {
+                    accounting.remove(&request_id);
+                    let source = sources.remove(&request_id);
+                    domain.reconcile_debt(request_id);
+                    kv.release_unknown_read(&mut domain.kv_mut(), &request_id.to_string());
+                    if result.termination.kind == TerminationKind::NeverDispatched {
+                        guard.release_never_dispatched();
+                    } else {
+                        guard.release_terminal();
+                    }
+                    source
+                }
+                TerminationKind::Unknown => {
+                    accounting.insert(request_id, Some(guard));
+                    domain.quarantine(request_id, now_ms(), "the provider outcome could not be determined");
+                    None
+                }
+            };
+            drop(sources);
+            drop(accounting);
+            drop(retired_source);
+            Ok(())
+        })();
+        if let Err(error) = settlement {
+            domain.quarantine(request_id, now_ms(), "inference completion could not be durably settled");
+            crate::error_sink::journal_runtime_error(error_sink, &report_for(
+                &request, result.purpose, "BROKER_COMPLETION_FAILED",
+                "inference completion could not be durably settled; original capacity retained",
+            ));
+            return Err(error.context(format!("inference completion settlement failed for {request_id}")));
         }
-        let termination = result.termination.kind;
-        // Dropping the receiver does not cancel the already executing provider
-        // future. Its actual completion is still accounted before this guard.
-        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
-        match termination {
-            TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => {
-                accounting.remove(&request_id);
-                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
-                self.domain.reconcile_debt(request_id);
-                // Defensive drain: a hold can only exist after an unknown
-                // outcome, and this result is that outcome's own terminal fact.
-                self.kv
-                    .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
-                guard.release_terminal();
-            }
-            TerminationKind::NeverDispatched => {
-                accounting.remove(&request_id);
-                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
-                self.domain.reconcile_debt(request_id);
-                self.kv
-                    .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
-                guard.release_never_dispatched();
-            }
-            TerminationKind::Unknown => {
-                accounting.insert(request_id, Some(guard));
-                crate::error_sink::journal_runtime_error(
-                    &self.error_sink,
-                    &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
-                );
-                self.domain.quarantine(
-                    request_id,
-                    now_ms(),
-                    "the provider outcome could not be determined",
-                );
-            }
+        if result.termination.kind == TerminationKind::Unknown {
+            crate::error_sink::journal_runtime_error(
+                error_sink,
+                &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
+            );
         }
-        drop(accounting);
         // The caller may have disappeared; the durable receipt above does not
         // depend on it.
         let _ = request.result_tx.send(result);
+        Ok(())
     }
 
     pub async fn run(mut self) {
@@ -886,11 +946,15 @@ impl Broker {
                 let Some(guard) = self.domain.try_admit() else {
                     break;
                 };
-                let submission = queue.pop().expect("queue checked non-empty");
+                let submission = queue.pop().expect(
+                    "invariant: FairQueue::is_empty and pop inspect the same lanes without intervening mutation"
+                );
                 let registry = Arc::clone(&self.registry);
                 let domain = Arc::clone(&self.domain);
                 let kv = Arc::clone(&self.kv);
                 let error_sink = Arc::clone(&self.error_sink);
+                let accounting = Arc::clone(&self.accounting);
+                let recovery_sources = Arc::clone(&self.recovery_sources);
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
                     let Submission { request, receipt_sink, purpose, stream } = submission;
@@ -905,12 +969,20 @@ impl Broker {
                         &error_sink,
                     )
                     .await;
-                    let _ = completed_tx.send(CompletedRequest {
+                    let completed = CompletedRequest {
                         request,
                         receipt_sink,
                         result,
                         guard,
-                    });
+                    };
+                    if let Err(failed) = completed_tx.send(completed) {
+                        // Losing the dispatch loop does not revoke the
+                        // original durable receipt owner's completion.
+                        let completed = failed.0;
+                        if let Err(error) = Self::finish(completed, &accounting, &recovery_sources, &domain, &kv, &error_sink) {
+                            warn!(error=%format!("{error:#}"), "model completion settlement failed");
+                        }
+                    }
                 });
                 inflight += 1;
             }
@@ -945,7 +1017,9 @@ impl Broker {
                 Event::Completed(completed) => {
                     if let Some(completed) = completed {
                         inflight -= 1;
-                        self.finish(completed);
+                        if let Err(error) = Self::finish(completed, &self.accounting, &self.recovery_sources, &self.domain, &self.kv, &self.error_sink) {
+                            warn!(error=%format!("{error:#}"), "model completion settlement failed");
+                        }
                     }
                     prefer_input = true;
                 }
@@ -983,9 +1057,9 @@ fn env_runtime() -> Result<Arc<dyn ProviderRuntime>> {
 /// The engine identity is unknown, so the domain offers no hard guarantee; it
 /// only keeps one conservative budget for everything this deployment runs. A
 /// deployment that knows its engines binds them explicitly.
-fn default_domain(admission: AdmissionController) -> Result<Arc<ResourceDomain>> {
+fn default_domain(admission: AdmissionController) -> Arc<ResourceDomain> {
     let capacity = admission.capacity();
-    Ok(ResourceDomain::new(
+    ResourceDomain::new(
         ResourceDomainIdentity {
             domain_id: "default.unclassified".into(),
             engine_identity: "unclassified".into(),
@@ -996,7 +1070,7 @@ fn default_domain(admission: AdmissionController) -> Result<Arc<ResourceDomain>>
         capacity.provenance,
         None,
         crate::admission::CapacityProvenance::Unknown,
-    ))
+    )
 }
 
 /// The typed unavailable runtime.
@@ -1038,7 +1112,7 @@ impl ProviderRuntime for OfflineRuntime {
         false
     }
 
-    async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
+    async fn complete(&self, _request: &InferenceRequest) -> Result<InferenceResponse> {
         Err(anyhow!("no provider is configured"))
     }
 
@@ -1064,7 +1138,8 @@ mod tests {
     use super::*;
     use crate::admission::{CapacityPool, CapacityProvenance};
     use crate::request::{
-        InferenceMessage, InferencePayload, TokenUsage, WireErrorCode,
+        InferenceMessage, InferencePayload, InferencePriority, InferenceStatus,
+        TerminationEvidence, TokenUsage, WireErrorCode,
     };
     use crate::stream::{
         SseDecoder, SseFrame, StreamBatch, StreamEvent, StreamSinkError,
@@ -1341,7 +1416,7 @@ mod tests {
 
         // C=1: continuous Subject work cannot starve Low children.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1)).unwrap()).unwrap();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1))).unwrap();
         let (subject_one, subject_one_rx) = submit(&handle, InferencePriority::Subject);
         let (low_one, low_one_rx) = submit(&handle, InferencePriority::Low);
         let (subject_two, subject_two_rx) = submit(&handle, InferencePriority::Subject);
@@ -1374,7 +1449,7 @@ mod tests {
 
         // C=2: two same-tier futures really overlap and start in FIFO order.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2)).unwrap()).unwrap();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2))).unwrap();
         assert_eq!(handle.capacity().pool, CapacityPool::Compute);
         assert_eq!(handle.capacity().value, Some(2));
         assert_eq!(handle.capacity().provenance, CapacityProvenance::Configured);
@@ -1410,7 +1485,7 @@ mod tests {
 
         // C=0: work stays pending instead of receiving synthetic capacity failure.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(0)).unwrap()).unwrap();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(0))).unwrap();
         let (_, mut pending_rx) = submit(&handle, InferencePriority::Subject);
         let run = tokio::spawn(broker.run());
         assert!(
@@ -1974,7 +2049,7 @@ mod tests {
     }
 
     /// A streamed call reaches the reader surface AND the receipt owner —
-    /// docs/specs/web-interface.md#spec-57-5. The stream is an additional ordered surface, never a
+    /// The stream is an additional ordered surface, never a
     /// replacement for the recorded result, and a control line never crosses
     /// into the reader's text.
     #[tokio::test(flavor = "current_thread")]
@@ -1982,7 +2057,7 @@ mod tests {
         let (provider, mut starts) = ControlledProvider::new();
         let (broker, handle) = Broker::with_runtime(
             provider.clone(),
-            default_domain(AdmissionController::new(1)).unwrap(),
+            default_domain(AdmissionController::new(1)),
         )
         .expect("the fixture binds");
         let binding = handle.binding().clone();
@@ -2108,7 +2183,7 @@ mod tests {
         // enter the provider, and the diagnostic figure must equal what the
         // dispatch path enforces.
         let (provider, mut starts) = ControlledProvider::new();
-        let domain = default_domain(AdmissionController::new(2)).unwrap();
+        let domain = default_domain(AdmissionController::new(2));
         let (broker, handle) = Broker::with_runtime(provider.clone(), Arc::clone(&domain)).unwrap();
         domain.register_external_client(ExternalClientUsage {
             client_ref: "ext-1".into(),
@@ -2163,7 +2238,7 @@ mod tests {
         // C=1 plus one enforceable external unit: nothing local may dispatch;
         // releasing the reservation must wake the queued request.
         let (provider, mut starts) = ControlledProvider::new();
-        let domain = default_domain(AdmissionController::new(1)).unwrap();
+        let domain = default_domain(AdmissionController::new(1));
         let (broker, handle) = Broker::with_runtime(provider.clone(), Arc::clone(&domain)).unwrap();
         domain.register_external_client(ExternalClientUsage {
             client_ref: "ext-1".into(),

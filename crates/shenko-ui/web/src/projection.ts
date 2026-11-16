@@ -1,20 +1,22 @@
+import { message as m, preferredLocale, type LocalizedText, type UiLocale } from './messages';
+
 /**
- * Shenko's stable application-semantic UI boundary (docs/specs/web-interface.md#spec-21-2).
+ * Shenko's stable application-semantic UI boundary.
  *
  * This is deliberately not Proto-UI's private PrototypeIR and is not accepted
  * by upstream compilePrototype: the build-time compiler (web/compiler.mjs)
  * compiles Shenko's own Prototype *source* into React DOM source, while server
  * projections keep their own schema. Pages and service DTOs never expose IR.
  */
-export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v1' as const;
+export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v2' as const;
 export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
 
 export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config' | 'playground';
 
-/// The Proto-UI playground surface — docs/specs/configuration-playground.md#spec-43-2. Every fact below comes
+/// The Proto-UI playground surface. Every fact below comes
 /// from the durable records; the view renders them, it does not invent a
 /// second artifact index.
-/// One work of the subject, as the timeline carries it (docs/specs/configuration-playground.md#spec-57-6).
+/// One work of the subject, as the timeline carries it.
 ///
 /// The timeline shows the subject's works and lets the reader OPEN one. The
 /// revision is the work's own durable revision: an action is bound to it, so
@@ -29,11 +31,11 @@ export interface WorkView {
   updated_at?: string;
 }
 
-/// A work the reader opened (docs/specs/configuration-playground.md#spec-57-6).
+/// A work the reader opened.
 ///
 /// It carries the work's own revision: an action is bound to the revision
 /// the reader saw, so a work that moved on refuses the stale action.
-/// The ownership facts of this installation (docs/specs/plugins.md#spec-44-4).
+/// The ownership facts of this installation.
 ///
 /// `claimed` is a fact, not a hope: an unclaimed installation says so, and
 /// the claim capability's own state is reported separately.
@@ -93,7 +95,7 @@ export type TaskSummary = {
   terminal_at?: string | null;
 };
 
-// Durable admission stages — docs/specs/web-interface.md#spec-41-18: accepted/selected/committed are
+// Durable admission stages: accepted/selected/committed are
 // separate fact receipts, never a single progress bar.
 export type ReceiptState =
   | 'sending'
@@ -117,7 +119,7 @@ export interface TimelinePart {
   /** A committed message bound this part to an S1 step (either it carried the
    *  full committed text, or a streamed prefix was absorbed by it). A part
    *  without this binding is durable ledger content but not a committed step:
-   *  the view never prints a step number or "已提交" for it (docs/specs/web-interface.md#spec-21-11). */
+   *  the view never prints a step number or m('timeline.committed') for it. */
   committed: boolean;
   step: number;
   step_id: string;
@@ -132,7 +134,7 @@ export interface TimelinePart {
 }
 
 /**
- * A reading place keyed by a stable rendered entry identity (docs/specs/web-interface.md#spec-21-11), never by
+ * A reading place keyed by a stable rendered entry identity, never by
  * scroll offset alone. `offset` is the anchor entry's top relative to the
  * viewport top, so history backfilled above it does not move the reader.
  */
@@ -160,7 +162,7 @@ export interface ReadingSelection {
 /**
  * The visible outcome of one semantic-document action attempt. Acceptance is
  * durable admission of an input, not execution; execution is the subject's
- * disposition of that input (docs/specs/web-interface.md#spec-21-8).
+ * disposition of that input.
  */
 export interface ActionReceiptView {
   submission_id: string;
@@ -175,7 +177,7 @@ export interface ActionReceiptView {
     | 'rejected'
     | 'unavailable'
     | 'conflict';
-  detail?: string;
+  detail?: LocalizedText;
   /** Durable admission facts once the Store has reported them. */
   event_id?: string;
   accepted_commit?: string;
@@ -193,14 +195,14 @@ export interface SubmissionPayload {
   observed_step_id?: string;
 }
 
-/** Where an admitted input is actually handled (docs/specs/web-interface.md#spec-41-18 placement). */
+/** Where an admitted input is actually handled (placement). */
 export interface SubmissionPlacement {
   requested: 'append' | 'steer';
   actual: 'pending' | 'next_boundary' | 'live_steer' | 'cancel_reseal';
   target_request_id?: string;
 }
 
-/** Durable withdrawal record (docs/specs/web-interface.md#spec-41-18); never deletes the admitted fact. */
+/** Durable withdrawal record; never deletes the admitted fact. */
 export interface WithdrawalView {
   cancel_id: string;
   commit_ref: string;
@@ -212,7 +214,7 @@ export interface Submission {
   created_at: string;
   accepted_seq?: number;
   receipt: ReceiptState;
-  detail?: string;
+  detail?: LocalizedText;
   event_id?: string;
   accepted_commit?: string;
   selected_step_id?: string;
@@ -253,10 +255,10 @@ export interface SubmissionHistoryState {
   has_older: boolean;
   next_before?: SubmissionCursor;
   newest_cursor?: SubmissionCursor;
-  error?: string;
+  error?: LocalizedText;
 }
 
-// docs/specs/web-interface.md#spec-21-8: numbered options preserve action identity across degradation.
+// numbered options preserve action identity across degradation.
 export interface ActionOption {
   index: number;
   action_id: string;
@@ -271,7 +273,7 @@ export interface ActionOption {
 
 export type DegradedMode = 'rich' | 'card' | 'text';
 
-/** A validated semantic document degraded to this surface's facts (docs/specs/web-interface.md#spec-21-7). */
+/** A validated semantic document degraded to this surface's facts. */
 export interface DegradedDocument {
   mode: DegradedMode;
   document_id: string;
@@ -405,7 +407,7 @@ export interface DisplayState {
   anchor?: ReadingAnchor;
   /** Restored text selection, replayed only while the entry text matches. */
   selection?: ReadingSelection;
-  notice?: string;
+  notice?: LocalizedText;
 }
 
 export interface UiState {
@@ -450,7 +452,7 @@ export interface UiState {
   /** The work the reader opened, and the fact of opening it. */
   work?: OpenedWork;
   work_error?: boolean;
-  /** The ownership facts: whether this installation is claimed (docs/specs/plugins.md#spec-44-4). */
+  /** The ownership facts: whether this installation is claimed. */
   owner_state?: OwnerState;
   /** The name the reader is trying to give the instance. */
   name_draft?: string;
@@ -473,7 +475,7 @@ export interface UiNode {
   node_id: string;
   kind: string;
   props: Record<string, any>;
-  a11y: Record<string, string | number | boolean>;
+  a11y: Record<string, LocalizedText | number | boolean>;
   layout: Record<string, string | number | boolean>;
   action_refs: string[];
   fallback?: string;
@@ -493,6 +495,7 @@ export interface UiCapabilities {
 }
 
 export interface UiProjection {
+  locale: UiLocale;
   schema_version: typeof UI_PROJECTION_SCHEMA;
   surface_id: string;
   revision: number;
@@ -568,7 +571,7 @@ export function semanticHash(text: string): string {
 }
 
 /**
- * What the view may claim about one entry (docs/specs/web-interface.md#spec-21-11): committed text carries an
+ * What the view may claim about one entry: committed text carries an
  * S1 step, a durable streamed prefix does not, and a chunk gap means the text
  * on screen is provably incomplete.
  */
@@ -609,7 +612,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
     );
     return node(`part.${identity}`, 'subject_part', { part }, [], {
       action_refs: [copyAction],
-      a11y: { label: `第 ${part.step} 轮已提交内容` },
+      a11y: { label: part.committed ? m('timeline.committedAnnouncement', { step: part.step }) : m('timeline.streamAnnouncement') },
       fallback: 'raw_text',
     });
   });
@@ -724,7 +727,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     });
   });
   // Degraded semantic documents ride the timeline as their own nodes; the
-  // numbered options keep actions completable at every rung (docs/specs/web-interface.md#spec-21-7, docs/specs/web-interface.md#spec-21-8).
+  // numbered options keep actions completable at every rung.
   // A surface belongs to the committed step that carried it, so it renders
   // next to that step instead of drifting to the end of history.
   const documentRows = state.documents.map((document) => {
@@ -790,10 +793,10 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   for (const row of surfaceRows) {
     if (!row.placed) timelineChildren.push(row.node);
   }
-  // The subject's works ride the timeline (docs/specs/configuration-playground.md#spec-57-6): a reader meets the
+  // The subject's works ride the timeline: a reader meets the
   // work where the subject made it and can open it there. Only the most
   // recent works are carried — the timeline is the subject's story, not a
-  // work management screen (docs/specs/configuration-playground.md#spec-43-2).
+  // work management screen.
   const works = (state.playground?.artifacts ?? []) as WorkView[];
   for (const work of works.slice(-6)) {
     const openRef = addAction(
@@ -846,7 +849,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         addAction(actions, 'timeline.code_wrap', 'timeline.code_wrap', 'display-v1'),
         addAction(actions, 'timeline.selection', 'timeline.selection', 'display-v1'),
       ],
-      a11y: { label: '主体时间线' },
+      a11y: { label: m('timeline.label') },
       layout: { hidden: false },
       fallback: 'committed_text',
     },
@@ -895,7 +898,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     [],
     {
       action_refs: [draftAction, appendAction, steerAction],
-      a11y: { label: '向同一主体追加输入' },
+      a11y: { label: m('composer.appendLabel') },
       layout: { hidden: false },
     },
   );
@@ -908,7 +911,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       open: state.display.open_sections[section] === true,
     }, [], { action_refs: [action] });
   });
-  // The opened work's actions (docs/specs/configuration-playground.md#spec-57-6). Each one is bound to the
+  // The opened work's actions. Each one is bound to the
   // revision the reader saw, and the request id behind them is stable for
   // that (work, action, revision) — so a repeated submit is the same request.
   const workActionRefs: string[] = [];
@@ -924,7 +927,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       ));
     }
   }
-  // The naming and the claim are the reader's own acts (docs/specs/web-interface.md#spec-21-1, docs/specs/plugins.md#spec-44-4).
+  // The naming and the claim are the reader's own acts.
   const nameDraftRef = addAction(actions, 'identity.name.draft', 'identity.name.draft', 'identity-v1', true);
   const nameRef = addAction(actions, 'identity.name', 'identity.name', 'identity-v1', state.connection === 'online');
   const claimDraftRef = addAction(actions, 'owner.claim.draft', 'owner.claim.draft', 'owner-v1', true);
@@ -950,7 +953,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     owner_claim_draft_ref: claimDraftRef,
   }, sectionNodes, {
     action_refs: [panelAction],
-    a11y: { label: '主体详情', modal: state.display.panel_open },
+    a11y: { label: m('subject.details'), modal: state.display.panel_open },
     layout: { open: state.display.panel_open },
   });
 
@@ -972,6 +975,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   const configDraftAction = addAction(actions, 'config.draft', 'config.draft', 'config-draft-v1', state.source === 'live');
   const projection: UiProjection = {
     schema_version: UI_PROJECTION_SCHEMA,
+    locale: preferredLocale(),
     surface_id: state.source === 'demo' ? 'shenko.main.demo' : 'shenko.main.live',
     revision,
     source: state.source,

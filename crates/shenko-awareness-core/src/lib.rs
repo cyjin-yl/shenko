@@ -1,6 +1,6 @@
-//! Awareness framework — docs/specs/cognition-units.md#spec-45.
+//! Awareness framework.
 //! Installable cognition units (perception, awareness, Skill, code) with a
-//! shared installation authority, and SelfKnowledgeProvider — docs/specs/cognition-units.md#spec-38
+//! shared installation authority, and SelfKnowledgeProvider
 //! built-in self-explanation.
 pub mod awareness_host;
 pub mod cognition;

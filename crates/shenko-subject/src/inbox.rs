@@ -1,4 +1,4 @@
-//! Persistent subject inbox — docs/specs/subject-runtime.md#spec-5-1
+//! Persistent subject inbox
 use tokio::sync::{mpsc, Mutex};
 
 // The event types are protocol data defined in `shenko-types`; the queue

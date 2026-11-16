@@ -5,8 +5,10 @@ Production and all-target diagnostics have separate per-package/per-lint counts.
 No checked-in warning budget is used. The same compiler enumerates its default
 Rust warnings for the workspace edition and probes which it actually accepts.
 Force-warn keeps these and Clippy's selected lints visible through allow/expect
-attributes; the source-policy comparison also rejects new suppressions, ignored
-tests and lint changes.
+attributes. Unwrap/expect counts come only from normal library/binary builds,
+where rustc excludes test code; their complete all-target output is retained.
+The source-policy comparison rejects new suppressions, ignored tests and lint
+changes in either scope.
 """
 import argparse
 from collections import Counter
@@ -22,6 +24,7 @@ from base_ref import ROOT, resolve_base
 TOOLCHAIN = tomllib.loads((ROOT / 'rust-toolchain.toml').read_text())['toolchain']['channel']
 EDITION = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['edition']
 CLIPPY_LINTS = ('clippy::all', 'clippy::unwrap_used', 'clippy::expect_used')
+PRODUCTION_ONLY_LINTS = frozenset(CLIPPY_LINTS[1:])
 
 
 def lint_policy(output):
@@ -225,7 +228,7 @@ def source_policy(root):
     return controls, configuration
 
 
-def collect(root, target, output, selection, environment, lint_flags):
+def collect(root, target, output, selection, environment, lint_flags, *, production):
     environment = dict(environment, CARGO_TARGET_DIR=str(target))
     metadata = json.loads(subprocess.check_output(
         ['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], cwd=root, env=environment, text=True))
@@ -233,6 +236,7 @@ def collect(root, target, output, selection, environment, lint_flags):
     packages = {package['id']: package['name'] for package in metadata['packages'] if package['id'] in members}
     command = ['cargo', 'clippy', '--workspace', '--locked', '-j2', '--message-format=json', *selection, '--', *lint_flags]
     counts = Counter()
+    production_only = Counter()
     artifacts = set()
     finished = False
     print(f'{root}: {" ".join(command)}', flush=True)
@@ -254,11 +258,20 @@ def collect(root, target, output, selection, environment, lint_flags):
                     print(diagnostic.get('rendered') or diagnostic['message'], flush=True)
                 if diagnostic['level'] == 'warning':
                     code = (diagnostic.get('code') or {}).get('code') or diagnostic['message']
-                    counts[(packages[record['package_id']], code)] += 1
+                    key = (packages[record['package_id']], code)
+                    if code in PRODUCTION_ONLY_LINTS and not production:
+                        production_only[key] += 1
+                    else:
+                        counts[key] += 1
         status = process.wait()
     if status or not finished or not artifacts:
         raise RuntimeError(f'Clippy failed ({status}) in {root}; retained {output.with_suffix(".stderr.log")}')
-    return counts
+    return counts, production_only
+
+
+def diagnostic_counts(counts):
+    return [{'package': key[0], 'lint': key[1], 'count': count}
+            for key, count in sorted(counts.items())]
 
 
 def main():
@@ -281,23 +294,29 @@ def main():
         errors.append('Clippy/Cargo configuration differs from the immutable baseline; lint policy cannot lower its own gate')
     comparisons = {}
     for scope, selection in [('production', ['--lib', '--bins']), ('all-targets', ['--all-targets'])]:
-        old = collect(baseline, args.target_root.resolve() / 'baseline' / scope, output / f'base-{scope}', selection,
-                      environment, policy['flags'])
-        new = collect(ROOT, args.target_root.resolve() / 'candidate' / scope, output / f'candidate-{scope}', selection,
-                      environment, policy['flags'])
+        old, old_production_only = collect(
+            baseline, args.target_root.resolve() / 'baseline' / scope, output / f'base-{scope}', selection,
+            environment, policy['flags'], production=scope == 'production')
+        new, new_production_only = collect(
+            ROOT, args.target_root.resolve() / 'candidate' / scope, output / f'candidate-{scope}', selection,
+            environment, policy['flags'], production=scope == 'production')
         comparisons[scope] = {
-            'baseline': [{'package': key[0], 'lint': key[1], 'count': count} for key, count in sorted(old.items())],
-            'candidate': [{'package': key[0], 'lint': key[1], 'count': count} for key, count in sorted(new.items())],
+            'cargo_target_selection': selection,
+            'production_only_lints_compared': scope == 'production',
+            'baseline': diagnostic_counts(old), 'candidate': diagnostic_counts(new),
+            'baseline_uncompared_production_only_diagnostics': diagnostic_counts(old_production_only),
+            'candidate_uncompared_production_only_diagnostics': diagnostic_counts(new_production_only),
         }
         errors.extend(f'{scope}: {package}: {lint} increased by {count}'
                       for (package, lint), count in sorted((new - old).items()))
     receipt = {'baseline': base, 'candidate': subprocess.check_output(
         ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         **policy, 'comparisons': comparisons, 'errors': errors}
+    receipt['production_only_lints'] = sorted(PRODUCTION_ONLY_LINTS)
     (output / 'ratchet.json').write_text(json.dumps(receipt, indent=2) + '\n')
     if errors:
         raise SystemExit('\n'.join(errors))
-    print('Production and all-target workspace diagnostics do not exceed the immutable baseline')
+    print('Compiler/Clippy warnings and production unwrap/expect diagnostics do not exceed the immutable baseline')
 
 
 if __name__ == '__main__':
