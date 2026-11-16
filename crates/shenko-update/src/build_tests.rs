@@ -4,19 +4,52 @@
 use anyhow::{Context, Result};
 
 use super::*;
+use crate::test_evidence::FixtureEvidence;
 
-struct Workspace(PathBuf);
+struct Workspace(PathBuf, FixtureEvidence);
 
 impl Workspace {
-    fn new() -> Result<Self> {
+    fn new(name: &str) -> Result<Self> {
         let path = std::env::temp_dir().join(format!("shenko-build-receipt-{}", EntityId::new()));
         std::fs::create_dir_all(&path)?;
-        Ok(Self(path))
+        let mut evidence = FixtureEvidence::new(name)?;
+        evidence.record("original-workspace", &serde_json::json!({ "path": path }));
+        Ok(Self(path, evidence))
+    }
+
+    fn source(&mut self, label: &str, path: &Path) {
+        for name in ["Cargo.toml", "Cargo.lock", "src/main.rs"] {
+            self.1.file(label, &path.join(name));
+        }
+    }
+
+    fn build_observation(&mut self, label: &str, result: &std::result::Result<BuildOutcome, BuildError>) {
+        let outcome = match result {
+            Ok(outcome) => {
+                self.1.record(label, outcome);
+                Some(outcome)
+            }
+            Err(error) => {
+                self.1.record(label, &serde_json::json!({
+                    "original_error": format!("{error:?}"), "outcome": error.outcome(),
+                }));
+                error.outcome()
+            }
+        };
+        if let Some(artifact) = outcome.and_then(|value| value.artifact.as_ref()) {
+            self.1.owned_file("actual-candidate-artifact", &artifact.path, &self.0);
+        }
     }
 }
 
 impl Drop for Workspace {
-    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    fn drop(&mut self) {
+        if !self.1.enabled() || self.1.completed() {
+            let _ = std::fs::remove_dir_all(&self.0);
+        } else {
+            eprintln!("incomplete build fixture originals retained at {}", self.0.display());
+        }
+    }
 }
 
 fn cargo() -> PathBuf {
@@ -61,12 +94,15 @@ fn read_stream(cas: &ContentStore, value: &serde_json::Value) -> Result<Vec<u8>>
 #[test]
 fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
-        let workspace = Workspace::new()?;
+        let mut workspace = Workspace::new("redirected-rebuild-and-failure")?;
         let source = workspace.0.join("source");
         project(&source, "receipt-candidate", "old candidate")?;
         std::fs::write(source.join("Cargo.lock"), "version = 4\n[[package]]\nname = \"receipt-candidate\"\nversion = \"0.1.0\"\n")?;
         let build_request = request(&source, "build-a");
-        let first = provider(source.join("target")).build(&build_request).await?;
+        workspace.source("source-before-build-a", &source);
+        let first_result = provider(source.join("target")).build(&build_request).await;
+        workspace.build_observation("build-a", &first_result);
+        let first = first_result?;
         let first_artifact = first.artifact.as_ref().context("first Cargo build has no artifact")?;
         let first_owned_path = first_artifact.path.clone();
         let old_path = source.join("target").join("debug")
@@ -75,6 +111,7 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         std::fs::copy(&first_owned_path, &old_path)?;
         let old_digest = first_artifact.digest.clone();
         let first_run = observe_command(&old_path, &[], &source, None, &probe_limits()).await;
+        workspace.1.record("original-old-artifact-execution", &first_run);
         anyhow::ensure!(first_run.succeeded(), "old artifact did not execute: {first_run:?}");
         anyhow::ensure!(first_run.stdout.bytes == b"old candidate\n");
 
@@ -85,7 +122,10 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         let builder = provider(workspace.0.join("provider-root"));
         let mut second_request = request(&source, "build-b");
         second_request.extra_args.extend(["--target-dir".into(), target.to_string_lossy().into_owned()]);
-        let rebuilt = builder.build(&second_request).await?;
+        workspace.source("source-before-build-b", &source);
+        let rebuilt_result = builder.build(&second_request).await;
+        workspace.build_observation("build-b", &rebuilt_result);
+        let rebuilt = rebuilt_result?;
         let artifact = rebuilt.artifact.as_ref().context("rebuild has no artifact")?;
         anyhow::ensure!(artifact.path.starts_with(std::fs::canonicalize(&target)?));
         anyhow::ensure!(artifact.path != old_path && artifact.digest != old_digest);
@@ -101,6 +141,7 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         anyhow::ensure!(layout.owned_directory != first.output_layout.as_ref().context("first output identity missing")?.owned_directory);
         anyhow::ensure!(Digest::blake3(&std::fs::read(&first_owned_path)?) == old_digest);
         let execution = observe_command(&artifact.path, &[], &source, None, &probe_limits()).await;
+        workspace.1.record("original-rebuilt-artifact-execution", &execution);
         anyhow::ensure!(execution.succeeded(), "rebuilt artifact did not execute: {execution:?}");
         anyhow::ensure!(execution.stdout.bytes == b"rebuilt candidate\n");
         anyhow::ensure!(artifact.source_revision.is_none(), "a non-checkout cannot claim a source commit");
@@ -108,6 +149,8 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         let cas_dir = workspace.0.join("cas");
         let cas = ContentStore::new(cas_dir.clone())?;
         let receipt = rebuilt.seal(&cas)?;
+        workspace.1.record("original-build-b-sealed-reference", &receipt);
+        workspace.1.tree("original-build-b-cas", &cas_dir);
         drop(cas);
         let reopened = ContentStore::open_existing(cas_dir.clone())?;
         let saved = read_json(&reopened, &receipt)?;
@@ -120,7 +163,10 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         // A later real compilation error retains its own failed invocation;
         // neither of the two existing executables can be substituted for it.
         std::fs::write(source.join("src/main.rs"), "fn main() { this is not Rust; }\n")?;
-        let failure = builder.build(&request(&source, "build-c")).await.err().context("invalid Rust unexpectedly built")?;
+        workspace.source("source-before-build-c", &source);
+        let failed_result = builder.build(&request(&source, "build-c")).await;
+        workspace.build_observation("build-c", &failed_result);
+        let failure = failed_result.err().context("invalid Rust unexpectedly built")?;
         let failed = failure.outcome().context("failed invocation was discarded")?;
         anyhow::ensure!(failed.artifact.is_none() && failed.build_id != rebuilt.build_id);
         let failed_invocation = failed.invocation.as_ref().context("failed command missing")?;
@@ -128,6 +174,8 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         anyhow::ensure!(failed_invocation.exit_code.is_some_and(|code| code != 0));
         anyhow::ensure!(!failed_invocation.stdout.bytes.is_empty());
         let failed_ref = failed.seal(&reopened)?;
+        workspace.1.record("original-build-c-sealed-reference", &failed_ref);
+        workspace.1.tree("original-build-c-cas", &cas_dir);
         drop(reopened);
         let reopened = ContentStore::open_existing(cas_dir)?;
         let failed_saved = read_json(&reopened, &failed_ref)?;
@@ -135,6 +183,7 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
         anyhow::ensure!(read_stream(&reopened, &failed_saved["invocation"]["stderr"])? == failed_invocation.stderr.bytes);
         anyhow::ensure!(failed_saved["artifact"].is_null() && failed_saved["refusal"].is_string());
         anyhow::ensure!(Digest::blake3(&std::fs::read(&artifact.path)?) == artifact.digest);
+        workspace.1.finish()?;
         Ok(())
     })
 }
@@ -142,13 +191,17 @@ fn redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt() -> Re
 #[test]
 fn two_real_matching_cargo_targets_are_refused_as_ambiguous() -> Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
-        let workspace = Workspace::new()?;
+        let mut workspace = Workspace::new("ambiguous-real-cargo-targets")?;
         project(&workspace.0.join("a"), "candidate-a", "candidate a")?;
         project(&workspace.0.join("b"), "candidate-b", "candidate b")?;
         std::fs::write(workspace.0.join("Cargo.toml"), "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"3\"\n")?;
         std::fs::write(workspace.0.join("Cargo.lock"), "version = 4\n[[package]]\nname = \"candidate-a\"\nversion = \"0.1.0\"\n[[package]]\nname = \"candidate-b\"\nversion = \"0.1.0\"\n")?;
-        let error = provider(workspace.0.join("target")).build(&request(&workspace.0, "ambiguous")).await
-            .err().context("two matching binary targets were accepted")?;
+        for path in ["Cargo.toml", "Cargo.lock", "a/Cargo.toml", "a/src/main.rs", "b/Cargo.toml", "b/src/main.rs"] {
+            workspace.1.file("original-ambiguous-source", &workspace.0.join(path));
+        }
+        let build_result = provider(workspace.0.join("target")).build(&request(&workspace.0, "ambiguous")).await;
+        workspace.build_observation("ambiguous-build", &build_result);
+        let error = build_result.err().context("two matching binary targets were accepted")?;
         let observed = error.outcome().context("ambiguous invocation was discarded")?;
         anyhow::ensure!(observed.artifact.is_none());
         anyhow::ensure!(observed.refusal.as_deref() == Some("multiple matching compiler artifacts are ambiguous"), "{error}");
@@ -159,6 +212,7 @@ fn two_real_matching_cargo_targets_are_refused_as_ambiguous() -> Result<()> {
             .filter(|message| message["reason"] == "compiler-artifact" && message["target"]["name"] == "shenko")
             .count();
         anyhow::ensure!(messages == 2, "actual matching compiler messages: {messages}");
+        workspace.1.finish()?;
         Ok(())
     })
 }
@@ -166,13 +220,16 @@ fn two_real_matching_cargo_targets_are_refused_as_ambiguous() -> Result<()> {
 #[test]
 fn overflowing_real_compiler_output_is_stopped_and_never_an_artifact() -> Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
-        let workspace = Workspace::new()?;
+        let mut workspace = Workspace::new("overflowing-real-compiler-output")?;
         project(&workspace.0, "bounded-candidate", "candidate")?;
         std::fs::write(workspace.0.join("Cargo.lock"), "version = 4\n[[package]]\nname = \"bounded-candidate\"\nversion = \"0.1.0\"\n")?;
         let mut builder = provider(workspace.0.join("target"));
         builder.limits.stream_bytes = 16;
-        let error = builder.build(&request(&workspace.0, "bounded")).await
-            .err().context("truncated Cargo evidence was accepted")?;
+        let original_source = workspace.0.clone();
+        workspace.source("original-overflow-source", &original_source);
+        let build_result = builder.build(&request(&workspace.0, "bounded")).await;
+        workspace.build_observation("overflow-build", &build_result);
+        let error = build_result.err().context("truncated Cargo evidence was accepted")?;
         let observed = error.outcome().context("overflow lost the original build attempt")?;
         anyhow::ensure!(observed.artifact.is_none());
         let invocation = observed.invocation.as_ref().context("overflow invocation missing")?;
@@ -181,6 +238,7 @@ fn overflowing_real_compiler_output_is_stopped_and_never_an_artifact() -> Result
         anyhow::ensure!(invocation.local_process_reaped && invocation.stdout.eof && invocation.stderr.eof,
             "the original child and readers were not settled: {invocation:?}");
         anyhow::ensure!(invocation.error.is_some() && invocation.cleanup_error.is_none(), "{invocation:?}");
+        workspace.1.finish()?;
         Ok(())
     })
 }

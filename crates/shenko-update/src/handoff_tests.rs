@@ -20,6 +20,8 @@ use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep, SubjectStep
 use shenko_types::task::{DispatchEligibility, TaskRecord};
 
 use super::*;
+#[cfg(unix)]
+use crate::test_evidence::FixtureEvidence;
 
 /// An explicit local-installation authority: no committed node claim, a
 /// present local-branch binding, stable across every re-read so authority
@@ -374,7 +376,9 @@ fn smoke_script(generation: &str) -> String {
 #[tokio::test]
 #[cfg(unix)]
 async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
+    let mut evidence = FixtureEvidence::new("refused-prebuilt-observations").unwrap();
     let fixture = installation();
+    evidence.watch_installation(&fixture.data_dir);
     let failed_report = serde_json::to_string(&smoke_report(
         &RuntimeGeneration::new("gen-failed-report"),
         false,
@@ -408,7 +412,8 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
     let mut refused_generations = Vec::new();
     for (name, script, detail) in cases {
         let candidate = write_executable(&fixture.data_dir, name, &script);
-        let error = fixture
+        evidence.file("original-prebuilt-candidate", &candidate);
+        let prepared = fixture
             .service
             .prepare(PrepareRequest {
                 agent_id: fixture.agent_id,
@@ -416,8 +421,12 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
                 source: CandidateSource::Prebuilt { path: candidate },
                 primary_claim: None,
             })
-            .await
-            .unwrap_err();
+            .await;
+        evidence.record("original-prepare-result", &serde_json::json!({
+            "case": name, "result_debug": format!("{prepared:?}"),
+            "original_error": prepared.as_ref().err().map(|error| format!("{error:#}")),
+        }));
+        let error = prepared.unwrap_err();
         let UpdateError::SmokeFailed(message) = &error else {
             panic!("expected SmokeFailed for {name}, got {error:?}");
         };
@@ -436,7 +445,7 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
         assert_working_runtime_intact(&fixture);
         refused_generations.push(format!("gen-{name}"));
     }
-    let retained = verify_refused_build_observations_after_reopen(fixture, &refused_generations);
+    let retained = verify_refused_build_observations_after_reopen(fixture, &refused_generations, evidence);
     assert!(retained.is_ok(), "refused build observation was not retained: {retained:?}");
 }
 
@@ -1331,6 +1340,7 @@ fn read_build_json(store: &Store, reference: &ObjectRef) -> Result<serde_json::V
 fn verify_refused_build_observations_after_reopen(
     fixture: Installation,
     generations: &[String],
+    mut evidence: FixtureEvidence,
 ) -> Result<()> {
     let db = fixture.live_slot.join(SLOT_DB_FILENAME);
     let dir = fixture.data_dir.clone();
@@ -1339,6 +1349,7 @@ fn verify_refused_build_observations_after_reopen(
     let reopened = Store::open(db, dir.join("cas"))?;
     let head = reopened.load_subject(agent)?.0;
     let events = reopened.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?;
+    evidence.record("original-reopened-session-events", &events);
     let mut observed = Vec::new();
     for event in &events {
         if event.event_type != "runtime_error" { continue; }
@@ -1366,6 +1377,8 @@ fn verify_refused_build_observations_after_reopen(
     anyhow::ensure!(observed.len() == generations.len());
     anyhow::ensure!(reopened.activation_records(agent)?.is_empty());
     drop(reopened);
+    evidence.closed_installation(&dir);
+    evidence.finish()?;
     std::fs::remove_dir_all(dir)?;
     Ok(())
 }
@@ -1374,14 +1387,23 @@ fn verify_refused_build_observations_after_reopen(
 #[cfg(unix)]
 fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure() -> Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let mut evidence = FixtureEvidence::new("prepared-build-observation-reopened")?;
         let fixture = installation();
+        evidence.watch_installation(&fixture.data_dir);
         let generation = RuntimeGeneration::new("receipt-qualified");
         let original_head = fixture.store.load_subject(fixture.agent_id)?.0;
         let candidate = write_executable(&fixture.data_dir, "candidate-with-receipt", &smoke_script(&generation.0));
-        let record = fixture.service.prepare(PrepareRequest {
+        evidence.file("original-prebuilt-candidate", &candidate);
+        let prepared = fixture.service.prepare(PrepareRequest {
             agent_id: fixture.agent_id, generation: generation.clone(),
             source: CandidateSource::Prebuilt { path: candidate.clone() }, primary_claim: None,
-        }).await?;
+        }).await;
+        evidence.record("original-prepare-result", &serde_json::json!({
+            "result_debug": format!("{prepared:?}"),
+            "original_error": prepared.as_ref().err().map(|error| format!("{error:#}")),
+            "activation_record": prepared.as_ref().ok(),
+        }));
+        let record = prepared?;
         anyhow::ensure!(record.phase == ActivationPhase::Smoke);
         let closure = read_build_json(&fixture.store, &record.recovery_closure_ref)?;
         let receipt_ref: ObjectRef = serde_json::from_value(closure["build_receipt_ref"].clone())?;
@@ -1400,6 +1422,7 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         let restored = reopened.activation_record(record.activation_id)?.context("activation was lost")?;
         anyhow::ensure!(restored.recovery_closure_ref == record.recovery_closure_ref);
         let events = reopened.session_events_range(EntityId(original_head.branch_id.0), 0, i64::MAX)?;
+        evidence.record("original-reopened-session-events", &events);
         let rooted = events.iter().filter(|event| event.event_type == "update_build_observation")
             .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1422,6 +1445,8 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         }
         anyhow::ensure!(reopened.current_commit_seq()? == retained.source_through.0);
         drop(reopened);
+        evidence.closed_installation(&dir);
+        evidence.finish()?;
         std::fs::remove_dir_all(dir)?;
         Ok(())
     })
