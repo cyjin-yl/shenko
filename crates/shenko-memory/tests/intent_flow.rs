@@ -83,6 +83,69 @@ fn unsupported_intent_kind_is_recorded_as_failed() {
         store.memory_intent_state(intent.intent_id).unwrap().as_deref(),
         Some("failed")
     );
+
+    // The full request surface must keep recall's operation too, even when
+    // it carries text that a save worker could otherwise turn into an entry.
+    let mut request = shenko_memory::MemoryRequest::save(memory.agent_id(), "query input is not a new fact");
+    request.operation = shenko_store::MEMORY_OP_RECALL.into();
+    memory.accept_request(&request).unwrap();
+    assert!(matches!(memory.process_intent(request.intent_id).unwrap(), ProcessOutcome::Failed(_)));
+    assert!(store.memory_entry(request.intent_id).unwrap().is_none());
+    assert_eq!(store.memory_intent(request.intent_id).unwrap().unwrap().record.kind, "recall");
+}
+
+#[test]
+fn reopened_worker_fails_legacy_operations_without_blocking_supported_memory() {
+    let dir = std::env::temp_dir().join(format!("shenko-memory-operation-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let agent = EntityId::new();
+    let legacy = EntityId::new();
+    // A pre-validation library row has no sidecar, but it must still be
+    // enumerated and refused under its real operation after restart.
+    {
+        let connection = rusqlite::Connection::open(dir.join("intent.db")).unwrap();
+        connection.execute(
+            "INSERT INTO memory_intents
+                (intent_id,agent_id,kind,knowledge_kind,scope,content,entry_id,state,created_at_ms,updated_at_ms)
+             VALUES(?1,?2,'unknown-operation','custom-knowledge','personal','preserve this input',?1,'accepted',0,0)",
+            rusqlite::params![legacy.to_string(), agent.to_string()],
+        ).unwrap();
+    }
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+    let mut unsupported = shenko_memory::MemoryRequest::save(agent, "must not be accepted");
+    unsupported.operation = "unknown-operation".into();
+    let error = memory.accept_request(&unsupported).unwrap_err();
+    assert!(matches!(error.downcast_ref::<shenko_types::error::ShenkoError>(),
+        Some(shenko_types::error::ShenkoError::Conflict(_))));
+    assert!(store.memory_intent(unsupported.intent_id).unwrap().is_none());
+    let mut supported = shenko_memory::MemoryRequest::reflection(
+        agent, "保留反思的来源和开放知识标签", vec!["session:original-observation".into()],
+    );
+    supported.knowledge_kind = "a caller-owned knowledge label".into();
+    memory.accept_request(&supported).unwrap();
+    assert!(store.pending_library_memory_intents(agent, 10).unwrap().contains(&legacy));
+    drop(memory);
+    drop(store);
+
+    let store = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+    assert_eq!(memory.process_all().unwrap(), 1);
+    let failed = store.memory_intent(legacy).unwrap().unwrap().record;
+    assert_eq!(failed.kind, "unknown-operation");
+    assert_eq!(failed.content, "preserve this input");
+    assert_eq!(failed.state, "failed");
+    assert!(failed.reason.unwrap().contains("unknown-operation"));
+    assert!(store.memory_entry(legacy).unwrap().is_none());
+    let reflected = store.memory_intent(supported.intent_id).unwrap().unwrap().record;
+    assert_eq!(reflected.kind, "reflect");
+    assert_eq!(reflected.state, "committed");
+    assert_eq!(reflected.sources, supported.sources);
+    let entry = memory.read(supported.intent_id).unwrap().unwrap();
+    assert_eq!(entry.kind, supported.knowledge_kind);
+    assert_eq!(entry.content, supported.content);
+    assert!(matches!(memory.process_intent(legacy).unwrap(), ProcessOutcome::AlreadyProcessed(state) if state == "failed"));
+    assert_eq!(memory.process_all().unwrap(), 0);
 }
 
 #[test]
