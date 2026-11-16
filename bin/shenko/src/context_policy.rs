@@ -37,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-use crate::{ContextCommand, ContextPolicyCommand};
+use crate::cli::{ContextCommand, ContextPolicyCommand};
 
 /// The installation unit id of a context strategy.
 pub fn unit_id(policy_id: &str) -> String {

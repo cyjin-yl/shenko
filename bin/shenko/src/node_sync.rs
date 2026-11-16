@@ -1637,7 +1637,7 @@ fn report_cognition_publication(status: &mut Value, outcome: &Result<CognitionSn
 }
 
 pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
-    let store = Arc::new(crate::open_installation_store(&data_dir)?);
+    let store = Arc::new(crate::runtime_bootstrap::open_installation_store(&data_dir)?);
     // Adoption is the divergence-reconciliation entry: it opens the node
     // without the binding gate (a diverged installation must still be able
     // to reach it) and refuses before any write when the adoption would
@@ -1996,7 +1996,7 @@ pub fn observe(
 }
 
 pub fn node_command(data_dir: &Path) -> Result<()> {
-    let store = crate::open_installation_store(data_dir)?;
+    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let mut bytes = Vec::new();
     std::io::stdin()
         .take(shenko_node::MAX_NODE_REQUEST as u64 + 1)

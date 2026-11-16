@@ -17,11 +17,11 @@ use shenko_compat_mcp::{McpConnection, UNIT_ID as MCP_UNIT};
 use shenko_compat_skill::{InstalledSource, SkillSource, SourceInput, SourceQuery, MAX_READ_BYTES, UNIT_ID as SKILL_UNIT, metadata};
 use shenko_node::{Node, UnitRequest};
 
-use crate::CompatCommand;
+use crate::cli::CompatCommand;
 #[cfg(feature = "compat-mcp")]
-use crate::CompatMcpCommand;
+use crate::cli::CompatMcpCommand;
 #[cfg(feature = "compat-skill")]
-use crate::CompatSkillCommand;
+use crate::cli::CompatSkillCommand;
 
 /// One compatibility plugin the product can offer. Both are optional: the
 /// product ships as neither, and installing one never installs the other.

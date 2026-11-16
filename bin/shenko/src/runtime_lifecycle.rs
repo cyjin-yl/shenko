@@ -1,0 +1,138 @@
+//! Runtime services, live hook events and primary-error-preserving supervisor teardown.
+use std::{path::PathBuf, sync::Arc};
+
+use anyhow::Result;
+use shenko_identity::IdentityService;
+
+use crate::{Command, cli_dispatch, runtime_authority};
+
+pub(crate) async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
+    // Reuse the actual published C03 host: one native root, one install.
+    let supervisor =
+        shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
+    // The runtime's own services first: the live plugin registry and the
+    // hook graph. Every plugin below resolves them through the Cordis service
+    // lookup, so registration and withdrawal happen on the real lifecycle
+    // instead of on a startup snapshot.
+    let _runtime_services = supervisor.publish_services().await?;
+    let policy: Arc<dyn shenko_identity::IdentityPolicy> =
+        Arc::new(shenko_identity::DefaultIdentityPolicy);
+    let _identity_plugin = supervisor
+        .spawn(shenko_identity::IdentityPlugin, policy)
+        .await?;
+    let identity_context = supervisor.context().clone();
+    let identity_service = identity_context.try_service::<IdentityService>()?;
+    // Replaceable quota strategies (docs/specs/quota-resources.md#spec-42-1): the runtime publishes the
+    // installed forecaster/router/cadence set so the subject, its finite
+    // model children and the intervention worker all decide with one set.
+    // The configured default is the replayable docs/specs/quota-resources.md#spec-42-5 baseline; installing
+    // another strategy is a library/assembly decision and is reported here
+    // rather than silently assumed.
+    let quota_strategies = shenko_quota::QuotaStrategies::baseline();
+    tracing::info!(
+        strategies = ?quota_strategies.describe(),
+        "quota strategies installed"
+    );
+    let _quota_strategy_plugin = supervisor
+        .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
+        .await?;
+    let mut active_authority = None;
+    let result = cli_dispatch::dispatch(
+        command, data_dir, &supervisor, &identity_context, &identity_service, &mut active_authority,
+    ).await;
+    let rebuilding = active_authority.as_ref()
+        .is_some_and(|authority| authority.recovery_required().is_some())
+        || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);
+    let result = if rebuilding {
+        match tokio::time::timeout(std::time::Duration::from_secs(15), supervisor.stop()).await {
+            Ok(Ok(())) => {},
+            Ok(Err(error)) => tracing::warn!(error=%error, "authority teardown incomplete; original facts retained"),
+            Err(_) => tracing::warn!("authority teardown observation timed out; original admitted effects remain unresolved"),
+        }
+        result
+    } else {
+        match supervisor.stop().await {
+            Ok(()) => result,
+            Err(cleanup) => match result {
+                Ok(()) => Err(cleanup),
+                Err(error) => Err(error.context(format!("supervisor cleanup also failed: {cleanup}"))),
+            },
+        }
+    };
+    // Classify once, after cleanup can no longer replace a genuine storage
+    // failure with an earlier authority-recovery wrapper.
+    match active_authority {
+        Some(authority) => authority.finish_result(result),
+        None => result,
+    }
+}
+
+/// Dispatch the runtime's own changes into the live hook graph.
+///
+/// The registry publishes a revision whenever a provider, a capability or a
+/// help document appears or disappears. The graph dispatches those events at
+/// this boundary, so a plugin that subscribed to `runtime.capability_changed`
+/// observes the real installation instead of a startup snapshot. The task is
+/// event driven: it waits for a revision, it does not poll.
+pub(super) fn spawn_runtime_hook_pump(
+    supervisor: &shenko_kernel::Supervisor,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let mut revisions = supervisor.runtime.changed();
+    let hooks = supervisor.hooks.clone();
+    let cancel = cancel.clone();
+    tokio::spawn(async move {
+        loop {
+            for dispatch in hooks.drain_pending().await {
+                tracing::debug!(
+                    point = %dispatch.point,
+                    results = dispatch.results.len(),
+                    "runtime change dispatched into the hook graph"
+                );
+            }
+            // Wait for the next registry revision or the shutdown signal;
+            // the pump never blocks teardown.
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                changed = revisions.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// docs/specs/cognition-units.md#spec-45-14 store-backed kernel error sink: plugin-runtime failures observed
+/// at kernel boundaries (Cordis lifecycle incidents, hook-graph admission
+/// refusals, publish revision conflicts) journal into the SAME subject store
+/// as every other runtime-error fact — no second DB, no autonomous action.
+/// `journal_runtime_error` is fail-soft (it counts a dropped journal write
+/// instead of propagating), so a journal failure can never recurse into the
+/// observation path that produced it.
+pub(super) struct StoreErrorSink {
+    pub(super) store: Arc<shenko_store::store::Store>,
+    pub(super) agent_id: shenko_types::ids::EntityId,
+}
+
+impl shenko_kernel::ErrorSink for StoreErrorSink {
+    fn observe(
+        &self,
+        site: shenko_kernel::ErrorSite,
+        message: String,
+        extra: serde_json::Value,
+    ) {
+        self.store.journal_runtime_error(
+            self.agent_id,
+            shenko_store::RuntimeErrorContext {
+                kind: site.kind.to_string(),
+                source_module: site.module.to_string(),
+                message,
+                step_no: site.step_no,
+                task_id: site.task_id,
+                extra,
+            },
+        );
+    }
+}
