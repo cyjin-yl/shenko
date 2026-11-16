@@ -1,0 +1,56 @@
+{
+  "kind": "archive_validation_only",
+  "recorded_at_utc": "2026-11-16T19:45:32.190849+00:00",
+  "source_head": "262f980e2db13dac7d12e7df861fbf0ba707999d",
+  "source_tree": "1740cd95768523613fd36d8da46c2ad91a7b60f2",
+  "original_file_count": 41,
+  "archives": [
+    {
+      "artifact": "rust-original.zip",
+      "bytes": 8344922,
+      "sha256": "0349bd440955cfd4368ba2f4a5b7c60bde2ac5dfbbd44e487c169f29af3708fa",
+      "member_count": 1868,
+      "all_members_read_with_crc_and_sha256": true,
+      "uncompressed_bytes": 178024193
+    },
+    {
+      "artifact": "clippy-original.zip",
+      "bytes": 2735317,
+      "sha256": "a11d455bdf1d6b91b8f64e593dcd638e878bf1a318f659c3c38a7c69aec5c99c",
+      "member_count": 18,
+      "all_members_read_with_crc_and_sha256": true,
+      "uncompressed_bytes": 44776870
+    }
+  ],
+  "native_e1_original_files": 27,
+  "native_e1_matches_rust_zip": true,
+  "clippy_base_and_ratchet_match_zip": true,
+  "workspace_counts_recomputed_from_original_workspace_test_log": {
+    "summary_count": 152,
+    "totals": {
+      "passed": 1079,
+      "failed": 0,
+      "ignored": 11,
+      "measured": 0,
+      "filtered": 88
+    }
+  },
+  "job_log_gzip_roundtrip_byte_identical": true,
+  "line_endings_normalized": false,
+  "workflow_or_test_rerun": false,
+  "docs_check_rerun": false,
+  "previous_member_manifests_match_all_original_zip_bytes": true,
+  "standalone_original_files_signed_url_scan": {
+    "urls_observed": 757,
+    "signed_download_urls": 0
+  },
+  "git_diff_check": {
+    "full_archive_exit": 2,
+    "diagnostics_only_in_unchanged_original_bytes": {
+      "docs/evidence/ci-262f980e-20261116/native-e1/005-sync-evidence.stderr": 1,
+      "docs/evidence/ci-262f980e-20261116/native-e1/sshd.stderr": 686
+    },
+    "authored_readme_and_derived_json_exit": 0,
+    "original_whitespace_preserved": true
+  }
+}

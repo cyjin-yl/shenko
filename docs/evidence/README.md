@@ -29,3 +29,9 @@
 - [第五次 32K 真实模型失败与独立复核](real-single-node-model5-43916477826/README.md)：完整原 ZIP、40 次协议拒绝、最后 Unknown、能力说明缺口，未冒称闭环。
 - [环境中断与固定源码恢复](environment-recovery-20261116/README.md)：原失败、只读诊断、原身份 shallow 恢复与 main 整合边界。
 - [51a 原失败 ZIP 的恢复后补证](ci-51a1ce43-20261116/archive-recovered/README.md)：完整字节与成员校验追加，不覆盖当时记录。
+- [262 CI 六门通过与完整原件](ci-262f980e-20261116/README.md)：实际 aa58209c checkout／1740cd95 tree、84ae1940 baseline；保留两完整 ZIP、完整 job 原文与首次 E1 原件。此结果不覆盖随后容量、留证、seat 或 Node 构建规则改动。
+- [首次 E1 原始事实与 CAS 的安全留证](native-e1-retention-20261116/README.md)：成功和失败清理前保留选定原始行与有类型的对象闭包；两个 Python 导出窗口通过，新 Rust／SSH 运行仍待对应候选验证。
+- [Canonical capture 容量与 once-evaluation 边界](../development/canonical-capture-budget.md)：同一事务中一次评估、流式完整性观察、预付行与 JSON 容量及既有 S1 准入退路；九个新窗口尚未在 Rust 环境执行，不声称消除了全表 I/O 或一般读取集缺口。
+- [固定 Node 源码构建的完整失败原件](node-wasix-source-hosted-43922989826/README.md)：原 3,195.484 秒构建在 OpenSSL 归档处失败；完整 ZIP、stderr 与资源观测保留，没有 Node 链接、guest cell 或恢复通过。
+- [Node 归档长参数修复与有限诊断](node-wasix-archive-recipe-20261116/README.md)：固定上游两处分支补丁；普通和 thin 响应文件规则保留 928 个输入及顺序，初次 ptrace 拒绝原件也保留；完整 WASIX 构建及运行未重跑。
+- [原始作者与提交对象](source-checkpoints-20261116/README.md)：保存原始 Git commit／tree／作者与时间，不把来源保全误算成产品验证，待修的 seat checkpoint 也明确保留原状态。
