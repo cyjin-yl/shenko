@@ -11171,6 +11171,10 @@
         "docs/specs/durable-state.md#spec-41-4",
         "docs/specs/nodes.md#spec-5-4-2"
       ],
+      "crates/shenko-subject/src/loop_runner.rs#retry_pacing": [
+        "docs/specs/subject-runtime.md#spec-41-5",
+        "docs/specs/subject-runtime.md#spec-5-1"
+      ],
       "crates/shenko-subject/src/loop_runner.rs#run_subject_loop": [
         "docs/specs/channels.md#spec-41-6",
         "docs/specs/cognition-units.md#spec-45-14",
@@ -11252,6 +11256,10 @@
       "crates/shenko-subject/src/recovery_tests.rs#a_single_gated_reconciliation_cannot_block_a_later_ready_child": [
         "docs/specs/subject-runtime.md#spec-5-6"
       ],
+      "crates/shenko-subject/src/recovery_tests.rs#a_slow_child_never_blocks_a_finished_childs_result_projection": [
+        "docs/requirements/design-provenance.md#spec-39-3",
+        "docs/specs/subject-runtime.md#spec-5-6"
+      ],
       "crates/shenko-subject/src/recovery_tests.rs#an_empty_upper_read_with_inserted_page_still_bounds_the_round": [
         "docs/specs/subject-runtime.md#spec-5-6"
       ],
@@ -11269,6 +11277,9 @@
       ],
       "crates/shenko-subject/src/recovery_tests.rs#same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch": [
         "docs/specs/subject-runtime.md#spec-5-6"
+      ],
+      "crates/shenko-subject/src/recovery_tests.rs#semantic_wait_is_durable_and_never_renewed_by_polling": [
+        "docs/specs/subject-runtime.md#spec-41-5"
       ],
       "crates/shenko-subject/src/recovery_tests.rs#stop_joins_workers_even_while_a_service_handle_is_retained": [
         "docs/specs/subject-runtime.md#spec-5-6"
@@ -32114,9 +32125,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "0556423eaaaa723ee9211c4f26cc6e4e5e4ea6e7e178865c72366e6d80bffdcb": {
         "symbol_refs": [
@@ -32175,9 +32184,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::idle_perception"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "069b6e92d028440398562d0c3323f82f964fabf0934d075f2e234406cdd01518": {
         "symbol_refs": [
@@ -32545,9 +32552,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "0dca563de2986d424d8e69bbe1331e2114573966fa503cb8ba42dfdb83444f1a": {
         "symbol_refs": [
@@ -32563,9 +32568,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#stop_joins_workers_even_while_a_service_handle_is_retained"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "0e409298aaa6420028c0ebe5477c18b0c5f53a859944fa52947a09bb6a1f02ec": {
         "symbol_refs": [
@@ -32676,9 +32679,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "10c3f0a3ab9c548eeac5f53449a3713fd80c073fcd4407da812383c381815225": {
         "symbol_refs": [
@@ -32869,9 +32870,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "150b7853e942a4d4608b986ccd1f8df0155d30bf68733162ec7e2ea095474e0c": {
         "symbol_refs": [
@@ -32954,9 +32953,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "16be23fdda5e1444b3e1f0214d2017329bc8dcdac27c79e41f65b443be04494f": {
         "symbol_refs": [
@@ -33062,9 +33059,7 @@
           "crates/shenko-subject/src/loop_runner.rs#frozen_input"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "1893aaf86f289cc019ae49ffe83d94d6304fc3a004a3218bcdbdd5d481903154": {
         "symbol_refs": [
@@ -33457,9 +33452,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "2026a69a9aeeae24fa1a0a20f018ee0ca3860d61e1f95f08c20c114bd463b871": {
         "symbol_refs": [
@@ -33883,9 +33876,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#stop_unit_boundaries_leave_recoverable_step_state"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "2845df461fed3d3ae23735bd916ede2a899df460531b8f1f1cfab65014462414": {
         "symbol_refs": [
@@ -33946,9 +33937,7 @@
           "crates/shenko-subject/src/request_recovery_tests.rs#the_loop_keeps_polling_an_active_semantic_wait_and_a_restart_keeps_its_deadline"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/request_recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "2af2d1584382eba116a8b53b60f2251384ffd2278fa42e28dacb89abe30a42cb": {
         "symbol_refs": [
@@ -34163,9 +34152,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "2e5967600d72d01668c30a2531bdd91bef98e6a55bc4e95c2204a644ab3e9dc7": {
         "symbol_refs": [
@@ -34283,18 +34270,14 @@
           "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "32062b73f26d866cea97cfd36057977804c634afd83d3edb1c4f1a79d8be76dd": {
         "symbol_refs": [
           "crates/shenko-subject/src/request_recovery_tests.rs#a_recorded_provider_rejection_continues_the_same_sealed_subject_step"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/request_recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "32b8b7cc5f6d9cb687c3d55de11937aa13e26ffe9e1d9f43a53ae30533c5c55b": {
         "symbol_refs": [
@@ -34354,12 +34337,11 @@
       },
       "335dfc9a2574ad88912ae9358602d10cca406bab98a814059de8b7d06bf010ed": {
         "symbol_refs": [
-          "crates/shenko-subject/src/recovery_tests.rs#GatedHandler"
+          "crates/shenko-subject/src/recovery_tests.rs#GatedHandler",
+          "crates/shenko-subject/src/recovery_tests.rs#a_slow_child_never_blocks_a_finished_childs_result_projection"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "33bc4a6605457a7583e8e185f9962422aa7431ec42d6ac9c4216eb898e3181c9": {
         "symbol_refs": [
@@ -34446,9 +34428,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "3559400d56ef766945993c33471f7511ac28c52edbcf4a3a912778f7b51dac66": {
         "symbol_refs": [
@@ -34826,9 +34806,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#undecodable_admitted_input_does_not_block_unrelated_subject_work"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "3bc34a0c351263375b844e32619f2bd473aa7b12e7444f4157ad58337dc2fdb7": {
         "symbol_refs": [
@@ -34943,9 +34921,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::attention_budget"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "3e2cd4fa3030854b0921a3acc936c2bff5a50f8b2a7d62eabf524582501670ae": {
         "symbol_refs": [
@@ -35081,9 +35057,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#subject_loop_error_is_journaled_as_runtime_error_fact"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "4128d11bcaa273a2ff4972a54a99228324dd7f66f683512dcb8ddc755e9e47a7": {
         "symbol_refs": [
@@ -36280,9 +36254,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#subject_loop_error_is_journaled_as_runtime_error_fact"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "5b7457c8faaa742554f3db554ef6a7ee41803cc87dcd482d860ac4d88ce58f12": {
         "symbol_refs": [
@@ -36352,9 +36324,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "5d2631b437badca4a9068c9ac0a929bc44d4d30afbd2b68812f4b492a4ad768c": {
         "symbol_refs": [
@@ -36503,9 +36473,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "605e265b81ad0110f36c37ef8e3b5a5f39d8bdcc4b55d143979c6790388641b1": {
         "symbol_refs": [
@@ -36760,9 +36728,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#the_attention_budget_comes_from_the_subjects_own_policy"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "6648482a4bc911370d8f69bc4c2d23ef966b557bbb786aa0fa040687d5e7ef34": {
         "symbol_refs": [
@@ -36796,9 +36762,7 @@
           "crates/shenko-subject/src/loop_runner.rs#hold_paused_sources"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "66cf7c6eb8c1e7c542fd3bcc18b2646017d1f2436b86afc68a3ceb371ac79474": {
         "symbol_refs": [
@@ -36869,9 +36833,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#identity_revision_applies_at_step_boundary_behind_fixed_contract"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "67bd0a1e9e791a74db30d0e17cfd95228618f2ffd437e8e46acc8c0c8d568041": {
         "symbol_refs": [
@@ -37092,12 +37054,11 @@
       },
       "6c55506b50b4ac2bb47b533bbb27c9b3594fe7fc724cb43615b3ea8b6606ed62": {
         "symbol_refs": [
-          "crates/shenko-subject/src/recovery_tests.rs#commit_output"
+          "crates/shenko-subject/src/recovery_tests.rs#commit_output",
+          "crates/shenko-subject/src/recovery_tests.rs#semantic_wait_is_durable_and_never_renewed_by_polling"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "6c62d51e0a5119dd1f8396d78212e6a2f9cfac24e772795429a592208cdc4edd": {
         "symbol_refs": [
@@ -37122,9 +37083,7 @@
           "crates/shenko-subject/src/loop_runner.rs#retry_continuation"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "6d42e504ce1ad280f62f1633102c6c1f3290cf5fd1c3e6ea8a966369abc8fd32": {
         "symbol_refs": [
@@ -37758,9 +37717,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "7ab83ee025ce4484dbbe4d1bf2e009eb7b76c63c1ea71b874a9a7cbe20443336": {
         "symbol_refs": [
@@ -37917,9 +37874,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "7dbae547be22bebc85e501a9b1f2e890c6d74e3709c4a381cf8e4e1d15f5e08e": {
         "symbol_refs": [
@@ -38141,9 +38096,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "80942f9554105fe0418ce7b3105709ddc6305d867c962dac5b9da51c8ee6186c": {
         "symbol_refs": [
@@ -38177,9 +38130,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "817193d21ad6f8e55321f5a58979f770a478c7f847ff592ce628aaad62df091f": {
         "symbol_refs": [
@@ -38195,9 +38146,7 @@
           "crates/shenko-subject/src/request_recovery_tests.rs#a_recorded_provider_rejection_continues_the_same_sealed_subject_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/request_recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "81abbd865ef203e80d8b26ab38beaa63e1aecac7c97a79fbbaa3f1670fa2ef37": {
         "symbol_refs": [
@@ -38222,9 +38171,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#personality_stays_out_of_the_tool_contract"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "82482069d6a5cf985e282041bf205a8af892eb562ecb9fd018a9e6f560d56b3f": {
         "symbol_refs": [
@@ -38400,9 +38347,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SUBJECT_CONTRACT"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "851a817e8d360f461b2178f5d270b900b249c436a8bc41da7eefc687d958758a": {
         "symbol_refs": [
@@ -38517,9 +38462,7 @@
           "crates/shenko-subject/src/loop_runner.rs#system_prompt_suffix"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "883d0f6a3ae85f7f4e8f766c60d5e4fc080c83ba59735e7e5dbc628f1a0e82a8": {
         "symbol_refs": [
@@ -38675,9 +38618,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "8ac9c5f3a60f46de3837f684e339f5c4b741ab20dadd9b1d8473528c9d51b2a0": {
         "symbol_refs": [
@@ -38815,9 +38756,7 @@
           "crates/shenko-subject/src/loop_runner.rs#FrozenStepInput"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "8c020b6203fc1787369cc44ccfdf35878c4f80c5a241bf9a43bac037a3de833f": {
         "symbol_refs": [
@@ -39143,12 +39082,11 @@
       },
       "915183e8356e3d9089c98298730ba9f81e6344a18e1db4dfae400622fb50ae22": {
         "symbol_refs": [
-          "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events"
+          "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events",
+          "crates/shenko-subject/src/loop_runner.rs#retry_pacing"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "9188a34eaa7979a70e59f5b7aa9358a6150fc703a2cd041cd849e56964584f54": {
         "symbol_refs": [
@@ -39278,12 +39216,11 @@
       },
       "9475b322e7eb8b2e709f6871672c28b415c554482ec858ce6b0863290a86de5e": {
         "symbol_refs": [
-          "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events"
+          "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events",
+          "crates/shenko-subject/src/loop_runner.rs#retry_pacing"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "949822358ba9ce5cc6d7d7153a93caa034140e22d5dd119a29574e36ed6bb9a6": {
         "symbol_refs": [
@@ -39874,9 +39811,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "a0e9cf236f8a680e7a706ecddcc5f5a411bdc831b42a71255509c28e9b3433ec": {
         "symbol_refs": [
@@ -39901,9 +39836,7 @@
           "crates/shenko-subject/src/loop_runner.rs#run_subject_loop"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "a20cbc4e9541289a05de11c32c695f8adfec01b4094e3cb2128c36da6158b328": {
         "symbol_refs": [
@@ -40009,9 +39942,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#a_single_gated_reconciliation_cannot_block_a_later_ready_child"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "a4d6633dd9c50f74f6aebccff5a3d0c68a605bda8f30e9aa733fe37374884874": {
         "symbol_refs": [
@@ -40207,9 +40138,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "a9e334b908553e72703f1c22c288d9d9bcdc044f1111569e3d6b37b93b1d1708": {
         "symbol_refs": [
@@ -40240,9 +40169,7 @@
           "crates/shenko-subject/src/loop_runner.rs#FrozenStepInput"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "aa7a65dd3a08f363ad9d6f7b96d25fc84d193cdc0d3d137c241142621b9ca70f": {
         "symbol_refs": [
@@ -40492,9 +40419,7 @@
           "crates/shenko-subject/src/recovery_tests.rs#an_empty_upper_read_with_inserted_page_still_bounds_the_round"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "aff893e68c81c086270f7037b8f6c260dc4a2af562fd312d8ab742f5d24f18c2": {
         "symbol_refs": [
@@ -40525,9 +40450,7 @@
           "crates/shenko-subject/src/loop_runner.rs#MAX_STEP_EVENTS"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "b0e2d2131dc14e169aa624bd38fc804457cc4764a796c0898eabb90ef35270a7": {
         "symbol_refs": [
@@ -40598,9 +40521,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "b2fb313178b1c68aba053ba0b4822b69ce2a3701a35b070cb78e83385693acae": {
         "symbol_refs": [
@@ -40878,9 +40799,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "b9399bc231546c57cfb957a95a4eaaa57033fef311d65001ba21c3354506f48d": {
         "symbol_refs": [
@@ -40977,9 +40896,7 @@
           "crates/shenko-subject/src/lib.rs#loop_runner"
         ],
         "binding_scope": "module_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "bba8e81521e81455bc956222dae16b9c8fb1084b752cf25bd8914bdebca124f9": {
         "symbol_refs": [
@@ -41112,9 +41029,7 @@
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "bf1df61809a9af0a0fd495580adccab07f8f6bac10cea7283b05997167452452": {
         "symbol_refs": [
@@ -41256,9 +41171,7 @@
           "crates/shenko-subject/src/loop_runner.rs#AttentionBudget"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "c2cd69203d6d4291d9cf1ec9b27ea2812c543c1e3db8da3f4fc3890edb969a26": {
         "symbol_refs": [
@@ -41590,9 +41503,7 @@
           "crates/shenko-subject/src/loop_runner.rs#stable_system_prompt"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "c7f167a88b93fdf3bfd3086194b841c4dba83d87735d372b89702d9e8077dc16": {
         "symbol_refs": [
@@ -41680,18 +41591,14 @@
           "crates/shenko-subject/src/recovery_tests.rs#same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/recovery_tests.rs": 1
-        }
+        "citation_locations": {}
       },
       "c8e41022ff49659b67b79e03fdd572b79c5d4d9474d03bdd7131b0ec7d5be987": {
         "symbol_refs": [
           "crates/shenko-subject/src/loop_runner.rs#execute_step"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "c8f0370a18a40a57c4b01990d5f1bb44841bfc4f1a4dc0f05bf6b63485a1e497": {
         "symbol_refs": [
@@ -41723,9 +41630,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::with_stream_sinks"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "c903d463a45a05352809b786aa5a0902ec0bfe6d460855b99802a8ac1c405b63": {
         "symbol_refs": [
@@ -41849,9 +41754,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "cb8341e55942259f4d438a222d29b81cac213f4b94decef3f7b5081e25cb8e2e": {
         "symbol_refs": [
@@ -42245,9 +42148,7 @@
           "crates/shenko-subject/src/loop_runner.rs#contribution_usage"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "d3ddf43e829cbca38637b6321d5c4a2c8c601abd62e82241d8c71214d1f626b7": {
         "symbol_refs": [
@@ -42727,9 +42628,7 @@
           "crates/shenko-subject/src/loop_runner.rs#seal_step_object"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "dca4b401bde528025b37fa62f36d85a677e20698709c3ece231514548374e313": {
         "symbol_refs": [
@@ -42745,9 +42644,7 @@
           "crates/shenko-subject/src/loop_runner.rs#retry_continuation"
         ],
         "binding_scope": "enclosing_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "dd24dc7c1270922cdcd377a63400414e96bb51e1535613b5ba45d5fad6613814": {
         "symbol_refs": [
@@ -43020,9 +42917,7 @@
           "crates/shenko-subject/src/loop_runner.rs#stable_system_prompt"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "e0629a6b9b03b6bb6c6670429beabd8b9df629d86346130a7c38078b084bfed4": {
         "symbol_refs": [
@@ -43945,9 +43840,7 @@
           "crates/shenko-subject/src/loop_runner.rs#stable_system_prompt"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "efa1dfa91f39e4e7c896da6a3b411482aaaa806216b00af04a8b2c5f45311356": {
         "symbol_refs": [
@@ -44044,9 +43937,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::subject_frame"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "f33489bc47489368bab2713a9ab0ffc8bd92629e4fe4f59839340cf145b84fb2": {
         "symbol_refs": [
@@ -44248,9 +44139,7 @@
           "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState::with_outbox"
         ],
         "binding_scope": "documented_declaration",
-        "citation_locations": {
-          "crates/shenko-subject/src/loop_runner.rs": 1
-        }
+        "citation_locations": {}
       },
       "f50a827dbe8826038da42ce455085b21fdd00d133b81ef6594a760d7bb5c1b8f": {
         "symbol_refs": [
