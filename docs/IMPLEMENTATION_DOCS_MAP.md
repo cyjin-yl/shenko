@@ -44,6 +44,8 @@
   - [§41.2](specs/durable-state.md#spec-41-2)、[§36](specs/durable-state.md#spec-36)
   - docs/specs/durable-state.md
   - docs/requirements/requirements.json（R030、R031）
+  - 2026-11-16 回执冲突保全修正（两条原生消费者通过）：`receipt_admission.rs::stage` 按 incoming/original receipt ID 对读取既有冲突，复用完整 fact 规范化（仅排除 `received_commit`）判定重放；新冲突身份绑定该 ID 对与完整规范化事实。同一 ID 对下不同原件、或相同原件但不同 metadata 各自保留。`migrations.rs::run_migrations` 将旧 `idx_evidence_conflicts_pair` 唯一索引原位替换为非唯一查询索引，不删除、改键或重写旧行，旧 pair-only 身份也按内容去重。
+  - `crates/shenko-store/tests/receipt_conflicts.rs` 的真实 Store/SQLite/CAS 回归均已通过：`same_receipt_id_retains_distinct_facts_and_deduplicates_delivery_replay` 覆盖 A 接纳、同 ID 的 B/C 均拒绝且重开后仍可读、不同 delivery commit 的 B 重放无新增提交、metadata 差异和跨 ledger/投递顺序的稳定冲突身份；`legacy_pair_index_migration_keeps_rows_and_deduplicates_normalized_replay` 覆盖旧唯一索引与 pair-only 行迁移、完整行字节/身份不变、旧 B 重放与新增 C、再次重开去重。[X04](specs/durable-state.md#spec-41-4) 与[回执合同](specs/plugins.md#spec-41-7-3)保持不变。
 
 - **协议类型（ID、CommitRef、TaskRecord 等）** — 已接线
   - [§41.3](specs/durable-state.md#spec-41-3)
