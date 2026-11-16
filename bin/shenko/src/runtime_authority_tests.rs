@@ -20,7 +20,7 @@ impl Fixture {
         let home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
             data_dir: fixture.0.clone(), ..Default::default()
         }).prepare(store.ledger.ledger_id())?;
-        let agent = crate::bootstrap_genesis(&store, None, &home.manifest, &shenko_seed::ModelProfile::from_env())?;
+        let agent = crate::runtime_bootstrap::bootstrap_genesis(&store, None, &home.manifest, &shenko_seed::ModelProfile::from_env())?;
         let (head, mut step) = store.load_subject(agent)?;
         let plan = crate::recovery_integration_tests::prepare_fixture_s0(&store, &head, &step);
         let old_revision = step.record_revision;

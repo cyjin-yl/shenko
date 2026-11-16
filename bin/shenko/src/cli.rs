@@ -35,12 +35,26 @@ pub enum CompatCommand {
         #[command(subcommand)]
         command: CompatMcpCommand,
     },
+    /// Public Poppy company discovery; account access is separate.
+    #[cfg(feature = "compat-poppy")]
+    Poppy {
+        #[command(subcommand)]
+        command: CompatPoppyCommand,
+    },
     /// Agent Skills source material, preserved exactly as selected.
     #[cfg(feature = "compat-skill")]
     Skill {
         #[command(subcommand)]
         command: CompatSkillCommand,
     },
+}
+
+#[cfg(feature = "compat-poppy")]
+#[derive(Subcommand, Debug)]
+pub enum CompatPoppyCommand {
+    /// Read public discovery metadata as a diagnostic, without installing a
+    /// service, sending credentials or creating a commerce workflow.
+    Discover { origin: String },
 }
 
 #[cfg(feature = "compat-mcp")]

@@ -22,6 +22,8 @@ use shenko_node::{Node, UnitRequest};
 use crate::cli::CompatCommand;
 #[cfg(feature = "compat-mcp")]
 use crate::cli::CompatMcpCommand;
+#[cfg(feature = "compat-poppy")]
+use crate::cli::CompatPoppyCommand;
 #[cfg(feature = "compat-skill")]
 use crate::cli::CompatSkillCommand;
 
@@ -118,7 +120,7 @@ pub async fn command(data_dir: &Path, command: CompatCommand) -> Result<()> {
         CompatCommand::Mcp { command } => mcp(data_dir, command).await,
         #[cfg(feature = "compat-poppy")]
         CompatCommand::Poppy { command } => match command {
-            crate::CompatPoppyCommand::Discover { origin } => {
+            CompatPoppyCommand::Discover { origin } => {
                 let report = shenko_compat_poppy::discovery::discover(&origin).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 Ok(())
