@@ -2694,6 +2694,7 @@ struct NativeT2AuthorityState {
     grants: std::collections::BTreeMap<String, shenko_types::authority::CommitAuthorityGrant>,
     last: String,
     lose_reply: bool,
+    fail_before_choose: bool,
 }
 
 struct NativeT2Authority {
@@ -2709,6 +2710,9 @@ impl shenko_types::authority::CommitAuthorityProvider for NativeT2Authority {
         -> std::result::Result<Option<shenko_types::authority::CommitAuthorityGrant>, shenko_types::error::ShenkoError>
     {
         let mut state = self.state.lock();
+        if std::mem::take(&mut state.fail_before_choose) {
+            return Err(shenko_types::error::ShenkoError::conflict("fixture failed before choosing dispatch"));
+        }
         let grant = if let Some(original) = state.grants.get(&admission.conflict_key) {
             if original.admission != *admission {
                 return Err(shenko_types::error::ShenkoError::conflict("fixture cannot replace a chosen action"));
@@ -2820,6 +2824,161 @@ fn native_t2_evidence(store: &Store, claim: &shenko_store::NativeTaskClaim)
     let receipt_id = receipt.receipt_id;
     let operation = store.record_external_evidence(operation_id, attempt_id, receipt, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
     Ok((operation, store.external_evidence(receipt_id)?))
+}
+
+#[test]
+fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart() -> Result<()> {
+    use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_DISPATCH, NativeDispatchTransition::{AlreadyCommitted, Won}}, cognition::CognitionImportOptions};
+    use shenko_types::{authority::CommitAuthorityGrant, commit::CommitRef, evidence::*, ids::EntityId, object::ObjectRef, operation::*, task::DispatchEligibility};
+    let fixture = NativeT2Fixture::new(false)?;
+    let ctx = &fixture.parent.invocation;
+    let first = arm_dispatch_probe(&fixture.store, ctx, "fresh-model-step");
+    let first_attempt = fixture.store.external_attempt(first.1)?;
+    let first_operation = fixture.store.external_operation(first.0)?;
+    assert_eq!(fixture.store.commit_native_dispatch(ctx, first.0, first.1)?, Won);
+    assert_eq!(fixture.store.commit_native_dispatch(ctx, first.0, first.1)?, AlreadyCommitted);
+    assert_eq!(serde_json::to_value(fixture.store.external_attempt(first.1)?)?, serde_json::to_value(first_attempt)?);
+    assert_eq!(serde_json::to_value(fixture.store.external_operation(first.0)?)?, serde_json::to_value(first_operation)?);
+
+    // A source call sealed its plan, but its provider never chose anything.
+    // The same live runtime retry must recognize that older preparation;
+    // the provider's first grant is false-replayed, not a fresh send permit.
+    let queued = arm_dispatch_probe(&fixture.store, ctx, "queued-before-choose");
+    let queued_attempt = fixture.store.external_attempt(queued.1)?;
+    fixture.state.lock().fail_before_choose = true;
+    assert!(matches!(fixture.store.commit_native_dispatch(ctx, queued.0, queued.1),
+        Err(error) if error.to_string().contains("fixture failed before choosing dispatch")));
+    assert!(!fixture.state.lock().grants.contains_key(&format!("attempt/{}/dispatch", queued.1)));
+    assert_eq!(fixture.store.commit_native_dispatch(ctx, queued.0, queued.1)?, AlreadyCommitted);
+    let queued_grant = fixture.chosen()?;
+    assert!(!queued_grant.replayed, "this is the provider's first actual choose");
+    assert!(fixture.store.control_admission_applied_here(&queued_grant.admission)?);
+    assert_eq!(serde_json::to_value(fixture.store.external_attempt(queued.1)?)?, serde_json::to_value(queued_attempt)?);
+    assert!(fixture.store.external_operation_evidence(queued.0)?.is_empty());
+
+    let ids = arm_dispatch_probe(&fixture.store, ctx, "chosen-reply-lost");
+    let original_attempt = fixture.store.external_attempt(ids.1)?;
+    let original_operation = fixture.store.external_operation(ids.0)?;
+    let before = fixture.store.external_task(ctx.task_id)?;
+    let mut archive = Vec::new();
+    fixture.store.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    let follower = Store::open(fixture.dir.join("dispatch-follower.db"), fixture.dir.join("dispatch-follower-cas"))?;
+    follower.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+    follower.attach_commit_authority(Arc::new(NativeT2Authority {
+        source: "dispatch-follower", stamp: None, state: Arc::clone(&fixture.state),
+    }))?;
+    let parked = follower.external_task(ctx.task_id)?;
+    assert!(matches!(parked.dispatch_eligibility, DispatchEligibility::Parked { .. }));
+    fixture.state.lock().lose_reply = true;
+    assert!(matches!(fixture.store.commit_native_dispatch(ctx, ids.0, ids.1),
+        Err(error) if error.to_string().contains("fixture lost chosen T2 reply")));
+    let grant = fixture.chosen()?;
+    let objects = fixture.store.admission_objects(&grant.admission.payload_ref)?;
+    assert_eq!(follower.recover_control_admission(&grant, &objects, false)?, ControlRecoveryOutcome::ReconciliationRequired);
+    assert_eq!(serde_json::to_value(follower.external_task(ctx.task_id)?)?, serde_json::to_value(&parked)?);
+    assert!(!follower.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(follower.pending_control_reconciliations(fixture.agent)?.len(), 1);
+
+    // A nominally chosen delta cannot replace the original source commit in
+    // the task marker. Validation rejects it before any task/receipt write.
+    let mut envelope: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let mut transition: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&reference.digest)?)?;
+    let logical = transition["rows"]["result_commit"].clone();
+    let task_table = transition["rows"]["tables"].as_array_mut().context("transition tables")?.iter_mut()
+        .find(|table| table["before"]["table"]["name"] == "tasks").context("task delta")?;
+    let data_column = task_table["before"]["table"]["columns"].as_array().context("task columns")?
+        .iter().position(|column| column == "data").context("task JSON column")?;
+    let data = &mut task_table["changes"][0]["after"][data_column]["value"];
+    let mut substituted: serde_json::Value = serde_json::from_str(data.as_str().context("task JSON")?)?;
+    substituted["memos"][NATIVE_DISPATCH]["attempts"][ids.1.to_string()]["commit"]["ledger_id"] = serde_json::to_value(EntityId::new())?;
+    *data = serde_json::to_value(serde_json::to_string(&substituted)?)?;
+    let bad_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json", "commit-authority", "store-native-dispatch-transition", 1)?.object;
+    envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
+    let mut fault: CommitAuthorityGrant = grant.clone();
+    fault.admission.payload_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
+    fixture.state.lock().grants.insert(fault.admission.conflict_key.clone(), fault.clone());
+    let bad_objects = fixture.store.admission_objects(&fault.admission.payload_ref)?;
+    assert!(matches!(fixture.store.recover_control_admission(&fault, &bad_objects, true),
+        Err(error) if error.to_string().contains("dispatch write differs from its named marker")));
+    assert_eq!(serde_json::to_value(fixture.store.external_task(ctx.task_id)?)?, serde_json::to_value(&before)?);
+    assert!(!fixture.store.control_admission_applied_here(&fault.admission)?);
+    fixture.state.lock().grants.insert(grant.admission.conflict_key.clone(), grant.clone());
+
+    assert_eq!(fixture.store.recover_control_admission(&grant, &objects, true)?, ControlRecoveryOutcome::RecoveredCanonical);
+    assert_eq!(fixture.store.commit_native_dispatch(ctx, ids.0, ids.1)?, AlreadyCommitted);
+    assert_eq!(fixture.store.external_task(ctx.task_id)?.memos[NATIVE_DISPATCH]["attempts"][ids.1.to_string()]["commit"], logical);
+    assert_eq!(serde_json::to_value(fixture.store.external_attempt(ids.1)?)?, serde_json::to_value(&original_attempt)?);
+    assert_eq!(serde_json::to_value(fixture.store.external_operation(ids.0)?)?, serde_json::to_value(original_operation)?);
+    assert!(fixture.store.external_operation_evidence(ids.0)?.is_empty());
+
+    // A later original provider fact remains independent of replay. Reading
+    // the materialized decision cannot replace that E1 or rename its attempt.
+    let raw = fixture.store.cas.seal_object(b"original late provider receipt", "text/plain", "dispatch-test", "text", 1)?.object;
+    let evidence = EvidenceReceipt {
+        record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(ids.0), attempt_id: Some(ids.1),
+        source_id: "original-dispatch-provider".into(), source_instance_id: "original-worker".into(),
+        source_event_key: Some(format!("ended:{}", ids.1)), producer_epoch: Some(original_attempt.epoch.0), producer_schema_version: Some("1".into()),
+        raw_ref: raw, decoder_ref: Some(original_attempt.implementation_ref), decode_status: DecodeStatus::Decoded,
+        observation_level: Some(ObservationLevel::RemoteCompleted), normalized_ref: None, observed_at: Some(chrono::Utc::now()),
+        received_commit: original_attempt.armed_commit,
+    };
+    let receipt_id = evidence.receipt_id;
+    fixture.store.record_external_evidence(ids.0, ids.1, evidence, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+    let retained = fixture.store.external_evidence(receipt_id)?;
+    assert_eq!(fixture.store.recover_control_admission(&grant, &objects, true)?, ControlRecoveryOutcome::Applied);
+    assert_eq!(fixture.store.commit_native_dispatch(ctx, ids.0, ids.1)?, AlreadyCommitted);
+    assert_eq!(fixture.store.external_evidence(receipt_id)?, retained);
+    assert_eq!(fixture.store.external_attempt(ids.1)?.final_receipt_id, Some(receipt_id));
+
+    // Repeat the actual unchosen crash window across Store incarnation loss.
+    // Startup has only the durable prepared descriptor, never the old live
+    // caller's right to receive Won, even when this choose is also new.
+    let interrupted = arm_dispatch_probe(&fixture.store, ctx, "restart-before-choose");
+    let original_attempt = fixture.store.external_attempt(interrupted.1)?;
+    let original_operation = fixture.store.external_operation(interrupted.0)?;
+    fixture.state.lock().fail_before_choose = true;
+    assert!(matches!(fixture.store.commit_native_dispatch(ctx, interrupted.0, interrupted.1),
+        Err(error) if error.to_string().contains("fixture failed before choosing dispatch")));
+    assert!(!fixture.state.lock().grants.contains_key(&format!("attempt/{}/dispatch", interrupted.1)));
+    let before = fixture.store.external_task(ctx.task_id)?;
+    assert!(before.memos[NATIVE_DISPATCH]["attempts"].get(interrupted.1.to_string()).is_none());
+    let reopened = fixture.reopen()?;
+    let recovery = reopened.resume_prepared_step_commits(fixture.agent)?;
+    assert_eq!(recovery.applied, 1);
+    assert!(recovery.unresolved.is_empty());
+    let grant = fixture.chosen()?;
+    assert!(!grant.replayed, "startup did the first actual choose");
+    assert_eq!(reopened.commit_native_dispatch(ctx, interrupted.0, interrupted.1)?, AlreadyCommitted);
+    assert_eq!(reopened.resume_prepared_step_commits(fixture.agent)?.applied, 0);
+    assert_eq!(serde_json::to_value(reopened.external_attempt(interrupted.1)?)?, serde_json::to_value(original_attempt)?);
+    assert_eq!(serde_json::to_value(reopened.external_operation(interrupted.0)?)?, serde_json::to_value(original_operation)?);
+    assert!(reopened.external_operation_evidence(interrupted.0)?.is_empty());
+
+    let envelope: serde_json::Value = serde_json::from_slice(&reopened.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    let transition_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let transition: serde_json::Value = serde_json::from_slice(&reopened.cas.read_object(&transition_ref.digest)?)?;
+    let logical: CommitRef = serde_json::from_value(transition["rows"]["result_commit"].clone())?;
+    let task = reopened.external_task(ctx.task_id)?;
+    assert_eq!(task.updated_commit, logical);
+    assert_eq!(task.memos[NATIVE_DISPATCH]["attempts"][interrupted.1.to_string()]["commit"], serde_json::to_value(logical)?);
+    assert_eq!(task.task_revision, before.task_revision);
+    assert_eq!(task.record_revision, before.record_revision.next());
+    let conn = rusqlite::Connection::open(fixture.dir.join("head.db"))?;
+    let physical: String = conn.query_row("SELECT data FROM control_materializations WHERE action_id=?1",
+        [grant.admission.action_id.to_string()], |row| row.get(0))?;
+    let physical: serde_json::Value = serde_json::from_str(&physical)?;
+    assert_eq!(physical["logical_result"], serde_json::to_value(logical)?);
+    assert_ne!(physical["committed_at"], physical["logical_result"]);
+    let event_id = shenko_types::ids::EntityId::derived("commit-authority-admission-v1", grant.admission.conflict_key.as_bytes());
+    let event: String = conn.query_row("SELECT data FROM inbox_events WHERE event_id=?1",
+        [event_id.to_string()], |row| row.get(0))?;
+    let event: serde_json::Value = serde_json::from_str(&event)?;
+    assert_eq!(event["created_at"], transition["rows"]["created_at"]);
+    assert_eq!(event["payload"]["committed_at"], serde_json::to_value(logical)?);
+    assert_eq!(conn.query_row("SELECT count(*) FROM control_materializations WHERE action_id=?1",
+        [grant.admission.action_id.to_string()], |row| row.get::<_, i64>(0))?, 1);
+    Ok(())
 }
 
 #[test]

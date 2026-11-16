@@ -1158,10 +1158,19 @@ mod tests {
             anyhow::ensure!(observations.terminals.lock().as_slice() == std::slice::from_ref(&result.termination));
             {
                 let errors = observations.errors.lock();
-                anyhow::ensure!(errors.len() == 1 && errors[0].code == "INFERENCE_TRANSPORT_TIMEOUT"
-                    && errors[0].request_id == request_id && errors[0].agent_id == agent_id
-                    && errors[0].message.contains("500 ms"),
-                    "expected the sealed 500ms deadline in the error journal; observed {errors:?}");
+                // The transport diagnostic precedes the broker's existing
+                // durable unknown-outcome accounting. Both facts belong to
+                // the original request; neither may suppress the other.
+                let [timeout, unknown] = errors.as_slice() else {
+                    anyhow::bail!("expected the timeout and unknown-outcome reports, got {errors:?}");
+                };
+                anyhow::ensure!(timeout.code == "INFERENCE_TRANSPORT_TIMEOUT"
+                    && timeout.request_id == request_id && timeout.agent_id == agent_id
+                    && timeout.message.contains("500 ms"),
+                    "unexpected timeout report: {timeout:?}");
+                anyhow::ensure!(unknown.code == "INFERENCE_OUTCOME_UNKNOWN"
+                    && unknown.request_id == request_id && unknown.agent_id == agent_id,
+                    "unexpected unknown-outcome report: {unknown:?}");
             }
             anyhow::ensure!(handle.active_count() == 1);
             handle.reconcile_recorded(request_id)?;

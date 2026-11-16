@@ -1,0 +1,35 @@
+test runtime_branches::tests::fork_recovers_between_stores_without_replaying_original_attempts ... ok
+test runtime_authority::tests::chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown ... ok
+
+test execution::tests::a_dropped_connection_after_dispatch_stays_unknown_until_reconciled ... ok
+test execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt ... FAILED
+
+
+---- execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt stdout ----
+Error: Condition failed: `errors.len() == 1 && errors[0].code == "INFERENCE_TRANSPORT_TIMEOUT" &&
+errors[0].request_id == request_id && errors[0].agent_id == agent_id &&
+errors[0].message.contains("500 ms")`
+
+
+failures:
+    execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt
+
+test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+error: test failed, to rerun pass `-p shenko-broker --lib`
+     Running tests/kv_capability.rs (.ci/target/rust/debug/deps/kv_capability-d3afa7e472a41906)
+
+running 1 test
+test minority_agreement_survives_reopen_and_supersession_fences_original_branch ... ok
+
+test cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch ... ok
+test canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt ... ok
+test cas_seal_and_read_roundtrip ... ok
+test canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch ... ok
+test canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results ... ok
+test canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt ... ok
+test channel_conversation_reads_staged_messages_and_hides_publication_echoes ... ok
+running 1 test
+test ssh_wasi_auth_exec_sftp_and_refusal_journey has been running for over 60 seconds
+test ssh_wasi_auth_exec_sftp_and_refusal_journey ... ok
+

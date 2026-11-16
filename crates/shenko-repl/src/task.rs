@@ -9,8 +9,9 @@
 //!   session's real engine).
 //!
 //! Every op arms T1 (`arm_external_operation`), runs the blocking session
-//! work under `spawn_blocking`, seals frozen input / observation / bounded
-//! normalized result into CAS, and settles with `record_external_evidence`.
+//! work under `spawn_blocking` only after its complete input and resource
+//! binding have been sealed and T1 succeeds. Observations and bounded results
+//! then settle the original attempt through `record_external_evidence`.
 //! Resolution refusals (`REPL_SESSION_UNAVAILABLE`, `REPL_KERNEL_UNAVAILABLE`,
 //! path-admission refusals) are recorded as the task's explicit result, never
 //! a silent park. A recovered InFlight operation is settled as E1 unknown —
@@ -49,11 +50,15 @@ const SESSION_CONTRACT: &[u8] =
       cancel/dispose/install_dependencies) with a durable R0 journal, an R1 driver state file where \
       the kernel declares one, candidate-environment dependency commits, and no R2 claim anywhere. \
       A binding pins one interpreter artifact (and its stdlib tree) by digest; create resolves it \
-      again instead of trusting the caller's path";
+      before T1 instead of trusting the caller's path. Internal request schema 2 freezes \
+      the complete request and resource identity before any session work; an existing \
+      operation is a factual read and never permission to repeat the effect";
 const CELL_CONTRACT: &[u8] =
     b"shenko.repl.cell/v1: execute one journaled cell on the session's real engine (live owned \
       interpreter process or one-shot WASI guest), preserve the R0 work record with stream \
-      digests and the driver report, and never replay declared-effect cells during recovery";
+      digests and the driver report, and never replay declared-effect cells during recovery. \
+      Internal request schema 2 freezes the complete source and cell identity before T1; \
+      only its fresh admission starts the cell, and recovery never repeats that attempt";
 
 // ---------------------------------------------------------------------------
 // Input schemas (model-facing, deny-unknown-fields).
@@ -257,42 +262,12 @@ fn resolution_refusal(message: &str) -> bool {
         || message.contains("REPL_ENTRY_")
 }
 
-/// Reject malformed requests before T1 without opening a session or starting
-/// an interpreter. The effect runner repeats the strict parse when selecting
-/// its typed arguments; this preflight is deliberately limited to pure syntax.
-fn validate_session_arguments(op: SessionOp, payload: &serde_json::Value) -> Result<()> {
-    match op {
-        SessionOp::ListKernels | SessionOp::ListSessions => {
-            let _: NoArgs = op_args(payload)
-                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
-        }
-        SessionOp::Create => {
-            let _: CreateInput = op_args(payload)
-                .map_err(|error| anyhow::anyhow!("REPL_KERNEL_INVALID: {error}"))?;
-        }
-        SessionOp::InstallKernel => {
-            let _: InstallKernelInput = op_args(payload)
-                .map_err(|error| anyhow::anyhow!("REPL_ENTRY_INVALID: {error}"))?;
-        }
-        SessionOp::InstallDependencies => {
-            let _: InstallInput = op_args(payload)
-                .map_err(|error| anyhow::anyhow!("REPL_INSTALL_INVALID: {error}"))?;
-        }
-        SessionOp::Inspect | SessionOp::Checkpoint | SessionOp::Restore
-        | SessionOp::Fork | SessionOp::Reset | SessionOp::Cancel | SessionOp::Dispose => {
-            let _: SessionRef = op_args(payload)
-                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
-        }
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // Frozen inputs and bounded results (sealed into CAS).
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-struct SessionOpObservation {
+struct SessionObservedBinding {
     op: String,
     kernel_id: Option<String>,
     /// Installed binding the op resolved, when it used one.
@@ -307,10 +282,151 @@ struct SessionOpObservation {
 struct CellFrozenInput {
     op: String,
     session_id: EntityId,
+    cell: EntityId,
+    source_ref: ObjectRef,
     source_len: usize,
     source_digest: String,
     cell_kind: String,
+    session_binding: crate::session::SessionExecutionBinding,
 }
+
+#[derive(Debug, Clone, Serialize)]
+struct ArtifactBinding {
+    path: PathBuf,
+    digest: String,
+    directory: bool,
+}
+
+impl ArtifactBinding {
+    fn read(path: PathBuf) -> Result<Self> {
+        let directory = path.is_dir();
+        let digest = if directory {
+            crate::install::tree_digest(&path)?
+        } else {
+            crate::journal::hash_reader(fs::File::open(&path)?)?.0
+        };
+        Ok(Self { path, digest, directory })
+    }
+
+    fn verify(&self) -> Result<()> {
+        let current = Self::read(self.path.clone())?;
+        ensure!(current.digest == self.digest && current.directory == self.directory,
+            "REPL_BINDING_STALE: artifact changed after T1 preparation");
+        Ok(())
+    }
+}
+
+/// All resolution here is read-only. In particular `SessionStore::open` may
+/// repair a journal and must stay after T1, while cancellation keeps its
+/// independent token path instead of waiting for a running cell's mutex.
+struct SessionPreparation {
+    input: SessionInput,
+    payload: serde_json::Value,
+    create_kernel: Option<(crate::kernel::KernelProfile, String)>,
+    created_session_id: Option<EntityId>,
+    session_binding: Option<crate::session::SessionExecutionBinding>,
+    artifacts: Vec<ArtifactBinding>,
+}
+
+impl SessionPreparation {
+    fn new(sessions: &SessionStore, payload: &serde_json::Value) -> Result<Self> {
+        let input: SessionInput = serde_json::from_value(payload.clone())
+            .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+        let mut prepared = Self {
+            input, payload: payload.clone(), create_kernel: None, created_session_id: None,
+            session_binding: None, artifacts: Vec::new(),
+        };
+        match prepared.input.op {
+            SessionOp::ListKernels | SessionOp::ListSessions => {
+                let _: NoArgs = op_args(payload)
+                    .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+            }
+            SessionOp::Create => {
+                let create: CreateInput = op_args(payload)
+                    .map_err(|error| anyhow::anyhow!("REPL_KERNEL_INVALID: create payload: {error}"))?;
+                let (profile, digest) = build_kernel(sessions, &create)?;
+                let module = ArtifactBinding::read(crate::entry::profile_module(&profile).to_path_buf())?;
+                ensure!(module.digest == digest, "REPL_BINDING_STALE: interpreter changed during preparation");
+                prepared.artifacts.push(module);
+                for mount in &profile.extra_mounts {
+                    prepared.artifacts.push(ArtifactBinding::read(mount.source.clone())?);
+                }
+                prepared.create_kernel = Some((profile, digest));
+                prepared.created_session_id = Some(EntityId::new());
+            }
+            SessionOp::InstallKernel => {
+                let install: InstallKernelInput = op_args(payload)
+                    .map_err(|error| anyhow::anyhow!("REPL_ENTRY_INVALID: install_kernel payload: {error}"))?;
+                crate::entry::validate_entry_name(&install.entry)?;
+                ensure!(install.replace || !sessions.entries_root().join(&install.entry).exists(),
+                    "REPL_ENTRY_EXISTS: kernel entry already exists; explicit replacement is required");
+                let module = sessions.admit_module(&install.module)?;
+                let stdlib = install.stdlib.as_ref().map(|path| sessions.admit_module(path)).transpose()?;
+                let profile = crate::adapters::profile_for_target(
+                    &install.target, install.entry.clone(), module.clone(), stdlib.clone())?;
+                crate::kernel::validate_module_mode(&profile, &module)?;
+                prepared.artifacts.push(ArtifactBinding::read(module.clone())?);
+                prepared.payload["module"] = serde_json::to_value(module)?;
+                if let Some(stdlib) = stdlib {
+                    prepared.artifacts.push(ArtifactBinding::read(stdlib.clone())?);
+                    prepared.payload["stdlib"] = serde_json::to_value(stdlib)?;
+                }
+            }
+            op => {
+                let route: SessionRoute = op_args(payload)
+                    .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+                if op == SessionOp::InstallDependencies {
+                    let install: InstallInput = op_args(payload)
+                        .map_err(|error| anyhow::anyhow!("REPL_INSTALL_INVALID: {error}"))?;
+                    let mut wheels = Vec::new();
+                    for wheel in install.wheels {
+                        let wheel = sessions.admit_wheel(&wheel)?;
+                        prepared.artifacts.push(ArtifactBinding::read(wheel.clone())?);
+                        wheels.push(wheel);
+                    }
+                    prepared.payload["wheels"] = serde_json::to_value(wheels)?;
+                } else {
+                    let _: SessionRef = op_args(payload)
+                        .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+                }
+                prepared.session_binding = Some(crate::session::SessionExecutionBinding::read(
+                    &sessions.session_dir(route.session_id))?);
+                if op == SessionOp::Fork { prepared.created_session_id = Some(EntityId::new()); }
+            }
+        }
+        Ok(prepared)
+    }
+
+    fn binding(&self) -> serde_json::Value {
+        serde_json::json!({
+            "execution_request": self.payload, "create_kernel": self.create_kernel,
+            "created_session_id": self.created_session_id,
+            "session": self.session_binding, "artifacts": self.artifacts,
+        })
+    }
+
+    fn verify(&self, sessions: &SessionStore) -> Result<()> {
+        for artifact in &self.artifacts { artifact.verify()?; }
+        if let Some(binding) = &self.session_binding {
+            let route: SessionRoute = op_args(&self.payload)?;
+            binding.verify_manifest(&sessions.session_dir(route.session_id))?;
+        }
+        Ok(())
+    }
+}
+
+/// Positive local evidence that no requested session/cell work was started.
+/// Other post-T1 failures remain uncertain and never arm another attempt.
+#[derive(Debug)]
+struct BeforeReplExecution(anyhow::Error);
+
+impl std::fmt::Display for BeforeReplExecution {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl std::error::Error for BeforeReplExecution {}
 
 #[derive(Debug, Serialize)]
 struct SessionResult {
@@ -554,6 +670,48 @@ struct HandlerCore {
 }
 
 impl HandlerCore {
+    fn seal_request(
+        &self, invocation: &NativeTaskInvocation, binding: &impl Serialize, schema: &str,
+    ) -> Result<ObjectRef> {
+        self.seal(&serde_json::json!({
+            "schema_version": 2,
+            "task_id": invocation.task_invocation.task_id,
+            "operation_id": invocation.operation_id,
+            "task_input_ref": invocation.task.input_ref,
+            "request": invocation.input,
+            "binding": binding,
+        }), schema)
+    }
+
+    /// An original result is a factual read before any discovery, opening or
+    /// execution. A request with a different body cannot reuse its identity.
+    /// Historical schema-1 inputs stay available through `reconcile`; their
+    /// incomplete execution-time envelopes cannot be upgraded into new work.
+    fn existing(&self, invocation: &NativeTaskInvocation) -> Result<Option<OperationRecord>> {
+        let Some(operation) = self.store.find_external_operation(invocation.operation_id)? else {
+            return Ok(None);
+        };
+        ensure!(operation.task_id == invocation.task_invocation.task_id
+            && operation.operation_name == self.operation_name
+            && operation.logical_key == "native-handler",
+            "original_operation_contract_mismatch");
+        ensure!(operation.input_schema_version == 2,
+            "REPL_RECOVERY_REQUIRED: historical operation must use its original reconciliation path");
+        let bytes = self.store.cas.read_object(&operation.final_input_ref.digest)?;
+        ensure!(bytes.len() as u64 == operation.final_input_ref.bytes
+            && Digest::blake3(&bytes) == operation.input_digest
+            && operation.input_digest == operation.final_input_ref.digest,
+            "REPL_RECEIPT_CORRUPT: original request seal does not verify");
+        let sealed: serde_json::Value = serde_json::from_slice(&bytes)?;
+        ensure!(sealed["schema_version"] == 2
+            && sealed["task_id"] == serde_json::to_value(invocation.task_invocation.task_id)?
+            && sealed["operation_id"] == serde_json::to_value(invocation.operation_id)?
+            && sealed["task_input_ref"] == serde_json::to_value(&invocation.task.input_ref)?
+            && sealed["request"] == invocation.input,
+            "operation_conflict: original REPL request differs");
+        Ok(Some(operation))
+    }
+
     fn seal<T: Serialize>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
         match self.store.cas.seal_object(
             &serde_json::to_vec(value)?,
@@ -587,7 +745,7 @@ impl HandlerCore {
             task_id: invocation.task_invocation.task_id,
             logical_key: "native-handler".into(),
             operation_name: self.operation_name.into(),
-            input_schema_version: 1,
+            input_schema_version: 2,
             output_schema_version: 1,
             final_input_ref: input_ref.clone(),
             input_digest: input_ref.digest.clone(),
@@ -787,9 +945,22 @@ fn cell_effect_of(outcome: &crate::contract::CellOutcome) -> EffectStatus {
 /// Seal one journaled stream file: full bytes into CAS by streaming, plus a
 /// bounded head preview (the only bytes ever resident in memory).
 fn seal_stream(store: &Store, session_dir: &Path, relative: &Path) -> Result<(ObjectRef, Vec<u8>, bool)> {
-    let mut file = fs::File::open(session_dir.join(relative))?;
+    // Capture from the very same reads CAS seals. seal_reader consumes its
+    // input to EOF; a second read of that file would silently return empty.
+    struct WithPreview<R> { reader: R, preview: Vec<u8> }
+    impl<R: Read> Read for WithPreview<R> {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            let count = self.reader.read(bytes)?;
+            let retained = count.min((MAX_PREVIEW_BYTES + 1).saturating_sub(self.preview.len()));
+            self.preview.extend_from_slice(&bytes[..retained]);
+            Ok(count)
+        }
+    }
+    let mut stream = WithPreview {
+        reader: fs::File::open(session_dir.join(relative))?, preview: Vec::new(),
+    };
     let sealed = match store.cas.seal_reader(
-        &mut file, "application/octet-stream", "repl-streams", "repl-stream", 1,
+        &mut stream, "application/octet-stream", "repl-streams", "repl-stream", 1,
     ) {
         Ok(sealed) => sealed,
         Err(error) => {
@@ -797,8 +968,7 @@ fn seal_stream(store: &Store, session_dir: &Path, relative: &Path) -> Result<(Ob
             return Err(error.into());
         }
     };
-    let mut preview = Vec::new();
-    file.read_to_end(&mut preview)?;
+    let mut preview = stream.preview;
     let truncated = preview.len() > MAX_PREVIEW_BYTES;
     preview.truncate(MAX_PREVIEW_BYTES);
     Ok((sealed.object, preview, truncated))
@@ -814,7 +984,7 @@ pub struct ReplSessionHandler {
 }
 
 type SessionOpOutcome = (
-    SessionOpObservation,
+    SessionObservedBinding,
     serde_json::Value,
     bool,
     Option<OperationOutcome>,
@@ -831,7 +1001,7 @@ impl ReplSessionHandler {
                 operation_name: "repl.session.v1",
                 contract: SESSION_CONTRACT,
                 plugin_id: "3b3f2c94-7d1e-4f6a-9c3d-8a2e5f1b6d40".parse().expect("fixed plugin UUID"),
-                role_revision: "native-repl-session/1",
+                role_revision: "native-repl-session/2",
                 authority_ref: "repl.managed_session.execute/v1",
             },
             sessions: Arc::new(SessionStore::new(data_dir)?),
@@ -845,68 +1015,64 @@ impl ReplSessionHandler {
     }
 
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let input: SessionInput = serde_json::from_value(invocation.input.clone())
-            .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
-        validate_session_arguments(input.op, &invocation.input)?;
-
-        // Freeze the *requested* operation, not an observation of work that
-        // has already run. The former implementation spawned the real session
-        // operation before T1 and armed the resulting post-effect snapshot.
-        // Recovered InFlight attempts must never call that worker again.
-        let input_ref = self.core.seal(&invocation.input, "repl-session-frozen-input")?;
-        let bindings = ResourceBindings {
-            provider: "repl.session.v1".into(),
-            account_identity: String::new(),
-            runtime_node: invocation.task_invocation.node_id.to_string(),
-            mount_generation: 0,
-            capability_level: "managed_session_home".into(),
-            extra: serde_json::json!({
-                "op": input.op.wire_name(),
-                "session_id": invocation.input.get("session_id"),
-                "entry": invocation.input.get("entry")
-            }),
+        if let Some(existing) = self.core.existing(&invocation)? { return Ok(existing); }
+        let prepared = match SessionPreparation::new(&self.sessions, &invocation.input) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let message = format!("{error:#}");
+                if resolution_refusal(&message) {
+                    return self.record_refusal(&invocation, message).await;
+                }
+                return Err(error);
+            }
         };
-        let resource = self.core.seal(&bindings, "repl-session-binding")?;
-        let acceptance = self.core.seal(
-            &"one session operation observed against its durable session journal; resolution refusals are explicit",
-            "repl-session-acceptance",
-        )?;
-        let retry = self.core.seal(
-            &"armed session work has an unknown outcome until the original attempt is reconciled; never replay it",
-            "repl-session-retry",
-        )?;
-        let (mut operation, mut attempt) =
-            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry);
-        if let Some(existing) = self.core.store.arm_external_operation(
+        let store = Arc::clone(&self.core.store);
+        let (mut operation, mut attempt) = {
+            let binding = prepared.binding();
+            let input_ref = self.core.seal_request(&invocation, &binding, "repl-session-request-v2")?;
+            let bindings = ResourceBindings {
+                provider: "repl.session.v1".into(),
+                account_identity: String::new(),
+                runtime_node: invocation.task_invocation.node_id.to_string(),
+                mount_generation: 0,
+                capability_level: "managed_session_home".into(),
+                extra: binding,
+            };
+            let resource = self.core.seal(&bindings, "repl-session-binding")?;
+            let acceptance = self.core.seal(
+                &"session op completed against the durable session journal; refusals carry an explicit REPL_* reason",
+                "repl-session-acceptance",
+            )?;
+            let retry = self.core.seal(
+                &"an armed session op without a conclusive observation remains unknown; no automatic replay",
+                "repl-session-retry",
+            )?;
+            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)
+        };
+        if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
         )? {
             return Ok(existing);
         }
-
-        // T1 is durable before create/restore/reset/fork/installation or even
-        // a live session open. A refusal discovered now settles this very
-        // attempt, rather than arming a replacement with a new input.
+        // No session open, signal, filesystem mutation or interpreter worker
+        // is reached until this exact source invocation wins durable T1.
         let sessions = Arc::clone(&self.sessions);
-        let payload = invocation.input.clone();
         let task_id = invocation.task_invocation.task_id;
         let worker_id = invocation.task_invocation.worker_id;
-        let prepared: Result<SessionOpOutcome> = tokio::task::spawn_blocking(move ||
-            run_session_op(&sessions, &payload, input, task_id, worker_id)).await?;
-        let (observed, value, decoded, outcome, effect, event_key) = match prepared {
-            Ok(parts) => parts,
-            Err(error) => {
-                let message = format!("{error:#}");
-                if resolution_refusal(&message) {
-                    return self.record_refusal(&invocation, &operation, &attempt, message);
-                }
-                // Without a conclusive result the original armed attempt
-                // remains Unknown. No rearm or implicit retry follows.
-                return Err(error);
+        let observed = tokio::task::spawn_blocking(move || {
+            prepared.verify(&sessions).map_err(BeforeReplExecution)?;
+            run_session_op(&sessions, &prepared, task_id, worker_id)
+        }).await?;
+        let (binding, value, decoded, outcome, effect, event_key) = match observed {
+            Ok(observed) => observed,
+            Err(error) if error.is::<BeforeReplExecution>() => {
+                return self.refusal_evidence(&invocation, &operation, &attempt, format!("{error:#}"));
             }
+            Err(error) => return Err(error),
         };
         let raw = self.core.seal(&serde_json::json!({
             "operation_id": invocation.operation_id,
-            "observed_session": observed,
+            "execution_binding": binding,
             "result": value,
         }), "repl-session-observation")?;
         let normalized = self.core.seal(&value, "repl-session-result")?;
@@ -914,8 +1080,36 @@ impl ReplSessionHandler {
             decoded, outcome, effect, event_key)
     }
 
-    /// Settle a resolution refusal on the already-armed attempt. No new T1.
-    fn record_refusal(
+    /// Record an explicit REPL_* resolution refusal as the task's real outcome.
+    async fn record_refusal(&self, invocation: &NativeTaskInvocation, detail: String)
+        -> Result<OperationRecord>
+    {
+        let store = Arc::clone(&self.core.store);
+        let (mut operation, mut attempt) = {
+            let input_ref = self.core.seal_request(invocation, &serde_json::json!({"resolution_refusal":detail}),
+                "repl-session-request-v2")?;
+            let bindings = ResourceBindings {
+                provider: "repl.session.v1".into(),
+                account_identity: String::new(),
+                runtime_node: invocation.task_invocation.node_id.to_string(),
+                mount_generation: 0,
+                capability_level: "resolution".into(),
+                extra: serde_json::json!({"error": detail}),
+            };
+            let resource = self.core.seal(&bindings, "repl-session-binding")?;
+            let acceptance = self.core.seal(&"explicit resolution refusal", "repl-session-acceptance")?;
+            let retry = self.core.seal(&"no execution attempted", "repl-session-retry")?;
+            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
+        };
+        if let Some(existing) = store.arm_external_operation(
+            &invocation.task_invocation, &mut operation, &mut attempt,
+        )? {
+            return Ok(existing);
+        }
+        self.refusal_evidence(invocation, &operation, &attempt, detail)
+    }
+
+    fn refusal_evidence(
         &self, invocation: &NativeTaskInvocation, operation: &OperationRecord,
         attempt: &AttemptRecord, detail: String,
     ) -> Result<OperationRecord> {
@@ -933,18 +1127,18 @@ impl ReplSessionHandler {
         self.core.evidence(invocation, operation, attempt, raw, Some(normalized),
             true, Some(OperationOutcome::Failed), EffectStatus::None, None)
     }
-
 }
 
 /// Execute one session op with the session mutex held. Blocking by design
 /// (real process I/O); the caller wraps this in `spawn_blocking`.
 fn run_session_op(
     sessions: &Arc<SessionStore>,
-    payload: &serde_json::Value,
-    input: SessionInput,
+    prepared: &SessionPreparation,
     task_id: EntityId,
     worker_id: EntityId,
 ) -> Result<SessionOpOutcome> {
+    let payload = &prepared.payload;
+    let input = &prepared.input;
     match input.op {
         SessionOp::ListKernels => {
             let _strict: NoArgs = op_args(payload)
@@ -968,7 +1162,7 @@ fn run_session_op(
             // caller must not have to remember interpreter paths.
             let entries = crate::entry::list(&sessions.entries_root())?;
             let value = serde_json::to_value(ListKernelsResult { targets, entries })?;
-            Ok((SessionOpObservation { op: "list_kernels".into(), kernel_id: None, module: None,
+            Ok((SessionObservedBinding { op: "list_kernels".into(), kernel_id: None, module: None,
                 entry: None, module_digest: None, session_id: None, limits: None }, value, true,
                 Some(OperationOutcome::Succeeded), EffectStatus::None, None))
         }
@@ -981,16 +1175,17 @@ fn run_session_op(
             // repaired, so this observation changes nothing.
             let listings = crate::session::list_sessions(&sessions.sessions_root_cloned())?;
             let value = serde_json::to_value(ListSessionsResult { sessions: listings })?;
-            Ok((SessionOpObservation { op: "list_sessions".into(), kernel_id: None, entry: None,
+            Ok((SessionObservedBinding { op: "list_sessions".into(), kernel_id: None, entry: None,
                 module: None, module_digest: None, session_id: None, limits: None }, value, true,
                 Some(OperationOutcome::Succeeded), EffectStatus::None, None))
         }
         SessionOp::Create => {
             let create: CreateInput = op_args(payload)
                 .map_err(|error| anyhow::anyhow!("REPL_KERNEL_INVALID: create payload: {error}"))?;
-            let (profile, module_digest) = build_kernel(sessions, &create)?;
+            let (profile, module_digest) = prepared.create_kernel.clone()
+                .context("REPL_KERNEL_INVALID: no frozen create binding")?;
             let provider = crate::session::WasiReplProvider::new(sessions.sessions_root_cloned());
-            let session = provider.create(crate::contract::CreateSession {
+            let session = provider.create_bound(crate::contract::CreateSession {
                 kernel: profile.clone(),
                 bind: crate::contract::TaskBinding {
                     task: Some(task_id),
@@ -1004,7 +1199,8 @@ fn run_session_op(
                     enforced: false,
                 },
                 preview_bytes: create.preview_bytes,
-            })?;
+            }, prepared.created_session_id.context("REPL_SESSION_INVALID: no frozen new session id")?,
+                Some(&module_digest))?;
             let session_id: EntityId = session.session_dir().file_name().and_then(|n| n.to_str())
                 .and_then(|n| n.parse().ok())
                 .context("REPL_SESSION_INVALID: session directory has no id")?;
@@ -1022,7 +1218,7 @@ fn run_session_op(
                 detail: None,
                 error: None,
             })?;
-            Ok((SessionOpObservation { op: "create".into(), kernel_id: Some(profile.kernel_id.clone()),
+            Ok((SessionObservedBinding { op: "create".into(), kernel_id: Some(profile.kernel_id.clone()),
                 entry: create.entry.clone(), module: Some(match &profile.module {
                     crate::kernel::ModuleSource::ModulePath(path) => path.clone(),
                 }), module_digest: Some(module_digest), session_id: Some(session_id),
@@ -1060,7 +1256,7 @@ fn run_session_op(
                 )),
                 error: None,
             })?;
-            Ok((SessionOpObservation {
+            Ok((SessionObservedBinding {
                 op: "install_kernel".into(),
                 kernel_id: Some(entry.entry.clone()),
                 entry: Some(entry.entry.clone()),
@@ -1075,7 +1271,7 @@ fn run_session_op(
                 .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
             let session_id = reference.session_id;
             let requested = sessions.request_cancel(session_id)?;
-            let frozen = SessionOpObservation { op: "cancel".into(), kernel_id: None,
+            let frozen = SessionObservedBinding { op: "cancel".into(), kernel_id: None,
                 entry: None, module: None, module_digest: None, session_id: Some(session_id),
                 limits: None };
             let value = serde_json::to_value(SessionResult {
@@ -1108,11 +1304,13 @@ fn run_session_op(
             };
             let session_id = route.session_id;
             let handle = sessions.open(session_id)?;
-            let frozen = SessionOpObservation { op: input.op.wire_name().into(),
+            let frozen = SessionObservedBinding { op: input.op.wire_name().into(),
                 kernel_id: None, entry: None, module: None, module_digest: None,
                 session_id: Some(session_id), limits: None };
             let mut session = handle.lock()
                 .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
+            session.verify_native_binding(prepared.session_binding.as_ref()
+                .context("REPL_SESSION_INVALID: no frozen session binding")?)?;
             match input.op {
                 SessionOp::Inspect => {
                     let info = session.inspect()?;
@@ -1177,7 +1375,8 @@ fn run_session_op(
                         if ready { EffectStatus::Complete } else { EffectStatus::Partial }, None))
                 }
                 SessionOp::Fork => {
-                    let forked = session.fork(&sessions.sessions_root_cloned())?;
+                    let forked = session.fork_identified(&sessions.sessions_root_cloned(),
+                        prepared.created_session_id.context("REPL_SESSION_INVALID: no frozen fork id")?)?;
                     let forked_id = forked.session_dir().file_name().and_then(|n| n.to_str())
                         .and_then(|n| n.parse().ok())
                         .context("REPL_SESSION_INVALID: fork directory has no id")?;
@@ -1370,7 +1569,7 @@ impl ReplCellHandler {
                 operation_name: "repl.cell.v1",
                 contract: CELL_CONTRACT,
                 plugin_id: "9a1d5e20-3b8c-4e7f-2a6d-1c4e9b0f3a58".parse().expect("fixed plugin UUID"),
-                role_revision: "native-repl-cell/1",
+                role_revision: "native-repl-cell/2",
                 authority_ref: "repl.managed_session.execute_cell/v1",
             },
             sessions,
@@ -1390,30 +1589,37 @@ impl ReplCellHandler {
             Ok((input, source))
         })();
         let (input, source) = parsed?;
+        let session_binding = crate::session::SessionExecutionBinding::read(
+            &self.sessions.session_dir(input.session_id))?;
+        let source_ref = match self.core.store.cas.seal_object(
+            &source, "application/octet-stream", "repl-effects", "repl-cell-source", 1,
+        ) {
+            Ok(sealed) => sealed.object,
+            Err(error) => {
+                self.core.store.close_external_writer();
+                return Err(error.into());
+            }
+        };
         let frozen = CellFrozenInput {
             op: "execute".into(),
             session_id: input.session_id,
+            cell: EntityId::new(),
+            source_ref,
             source_len: source.len(),
             source_digest: crate::journal::hash_bytes(&source),
-            cell_kind: format!("{:?}", input.cell_kind).to_lowercase(),
+            cell_kind: match input.cell_kind {
+                CellKindInput::Pure => "pure", CellKindInput::DeclaredEffect => "declared_effect",
+                CellKindInput::Unknown => "unknown",
+            }.into(),
+            session_binding,
         };
         Ok((frozen, source, input.cell_kind))
     }
 
-    async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let (frozen, source, cell_kind) = self.prepare(&invocation)?;
-        let cell_kind_contract = match cell_kind {
-            CellKindInput::Pure => crate::contract::CellKind::Pure,
-            CellKindInput::DeclaredEffect => crate::contract::CellKind::DeclaredEffect,
-            CellKindInput::Unknown => crate::contract::CellKind::Unknown,
-        };
-        let session_id = frozen.session_id;
-
-        // The source bytes, replay boundary and session identity are all
-        // sealed *before* any interpreter step. The prior code executed the
-        // cell and persisted its streams before arming T1, so a crash/retry
-        // could run an externally effective cell twice.
-        let input_ref = self.core.seal(&invocation.input, "repl-cell-frozen-input")?;
+    fn prepare_operation(
+        &self, invocation: &NativeTaskInvocation, frozen: &CellFrozenInput,
+    ) -> Result<(OperationRecord, AttemptRecord)> {
+        let input_ref = self.core.seal_request(invocation, frozen, "repl-cell-request-v2")?;
         let bindings = ResourceBindings {
             provider: "repl.cell.v1".into(),
             account_identity: String::new(),
@@ -1421,30 +1627,46 @@ impl ReplCellHandler {
             mount_generation: 0,
             capability_level: "managed_session_cell".into(),
             extra: serde_json::json!({
-                "session_id": session_id,
-                "source_digest": frozen.source_digest,
-                "cell_kind": frozen.cell_kind
+                "session": frozen.session_binding,
+                "cell": frozen.cell,
+                "source_ref": frozen.source_ref,
             }),
         };
         let resource = self.core.seal(&bindings, "repl-cell-binding")?;
         let acceptance = self.core.seal(
-            &"one cell executed under its durable session journal, with original source and stream digests",
+            &"cell completed under the session journal; stream digests and the driver report bind the outcome",
             "repl-cell-acceptance",
         )?;
         let retry = self.core.seal(
-            &"an armed cell without conclusive observation remains unknown and is never automatically replayed",
+            &"an armed cell without a conclusive observation remains unknown; no automatic replay",
             "repl-cell-retry",
         )?;
-        let (mut operation, mut attempt) =
-            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry);
+        Ok(self.core.new_operation(invocation, input_ref, resource, acceptance, retry))
+    }
+
+    async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        if let Some(existing) = self.core.existing(&invocation)? { return Ok(existing); }
+        let (frozen, source, cell_kind) = match self.prepare(&invocation) {
+            Ok(prepared) => prepared,
+            Err(error) if resolution_refusal(&format!("{error:#}")) => {
+                return self.record_refusal(&invocation, format!("{error:#}")).await;
+            }
+            Err(error) => return Err(error),
+        };
+        let (mut operation, mut attempt) = self.prepare_operation(&invocation, &frozen)?;
         if let Some(existing) = self.core.store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
         )? {
             return Ok(existing);
         }
-
+        let cell_kind_contract = match cell_kind {
+            CellKindInput::Pure => crate::contract::CellKind::Pure,
+            CellKindInput::DeclaredEffect => crate::contract::CellKind::DeclaredEffect,
+            CellKindInput::Unknown => crate::contract::CellKind::Unknown,
+        };
         let sessions = Arc::clone(&self.sessions);
         let store = Arc::clone(&self.core.store);
+        let session_id = frozen.session_id;
         let task_label = invocation.task_invocation.task_id;
         let prepared: Result<(
             crate::contract::CellResult,
@@ -1452,31 +1674,33 @@ impl ReplCellHandler {
             (ObjectRef, Vec<u8>, bool),
             (ObjectRef, Vec<u8>, bool),
         )> = tokio::task::spawn_blocking(move || {
+            frozen.session_binding.verify_manifest(&sessions.session_dir(session_id))
+                .map_err(BeforeReplExecution)?;
             let handle = sessions.open(session_id)?;
             let mut session = handle.lock()
                 .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
-            let result = session.execute(crate::contract::CellRequest {
+            // Opening can already heal a manifest or finish a reset. Any
+            // later refusal therefore keeps this original attempt unknown;
+            // it cannot prove that no session mutation happened.
+            session.check_native_cell(&frozen.session_binding)?;
+            let result = session.execute_identified(crate::contract::CellRequest {
                 source,
                 cell_kind: cell_kind_contract,
                 labels: BTreeMap::from([("task".into(), task_label.to_string())]),
-            })?;
+            }, frozen.cell)?;
             let dir = session.session_dir().to_path_buf();
             let outcome = result.record.outcome.clone();
             let stdout = seal_stream(&store, &dir, &result.record.stdout_path)?;
             let stderr = seal_stream(&store, &dir, &result.record.stderr_path)?;
             Ok((result, outcome, stdout, stderr))
         }).await?;
+
         let (cell, outcome, stdout_evidence, stderr_evidence) = match prepared {
             Ok(parts) => parts,
-            Err(error) => {
-                let message = format!("{error:#}");
-                if message.contains("REPL_SESSION_UNAVAILABLE") || message.contains("REPL_RECOVERY_REQUIRED") {
-                    return self.record_refusal(&invocation, &operation, &attempt, message);
-                }
-                // The cell may have run but its outcome was not retained.
-                // Preserve this original attempt as Unknown for reconciliation.
-                return Err(error);
+            Err(error) if error.is::<BeforeReplExecution>() => {
+                return self.refusal_evidence(&invocation, &operation, &attempt, format!("{error:#}"));
             }
+            Err(error) => return Err(error),
         };
 
         let (outcome_str, exit_code) = outcome_of(&outcome);
@@ -1506,9 +1730,11 @@ impl ReplCellHandler {
                 _ => None,
             },
         };
+
         let raw = self.core.seal(&serde_json::json!({
             "operation_id": invocation.operation_id,
             "session_id": session_id,
+            "cell": cell.record.cell,
             "seq": cell.record.seq,
             "outcome": result_view.outcome,
         }), "repl-cell-observation")?;
@@ -1517,14 +1743,42 @@ impl ReplCellHandler {
             true, Some(operation_outcome_of(&outcome)), cell_effect_of(&outcome), None)
     }
 
-    /// A refused session is a terminal observation of this same armed cell,
-    /// never an excuse to invent an additional external-operation attempt.
-    fn record_refusal(
+    async fn record_refusal(&self, invocation: &NativeTaskInvocation, detail: String)
+        -> Result<OperationRecord>
+    {
+        let store = Arc::clone(&self.core.store);
+        let (mut operation, mut attempt) = {
+            let input_ref = self.core.seal_request(invocation, &serde_json::json!({"resolution_refusal":detail}),
+                "repl-cell-request-v2")?;
+            let bindings = ResourceBindings {
+                provider: "repl.cell.v1".into(),
+                account_identity: String::new(),
+                runtime_node: invocation.task_invocation.node_id.to_string(),
+                mount_generation: 0,
+                capability_level: "resolution".into(),
+                extra: serde_json::json!({"error": detail}),
+            };
+            let resource = self.core.seal(&bindings, "repl-cell-binding")?;
+            let acceptance = self.core.seal(&"explicit resolution refusal", "repl-cell-acceptance")?;
+            let retry = self.core.seal(&"no cell executed", "repl-cell-retry")?;
+            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
+        };
+        if let Some(existing) = store.arm_external_operation(
+            &invocation.task_invocation, &mut operation, &mut attempt,
+        )? {
+            return Ok(existing);
+        }
+        self.refusal_evidence(invocation, &operation, &attempt, detail)
+    }
+
+    fn refusal_evidence(
         &self, invocation: &NativeTaskInvocation, operation: &OperationRecord,
         attempt: &AttemptRecord, detail: String,
     ) -> Result<OperationRecord> {
         let value = CellResultView {
-            session_id: EntityId::nil(), seq: 0, cell: EntityId::nil(),
+            session_id: invocation.input.get("session_id").cloned()
+                .and_then(|value| serde_json::from_value(value).ok()).unwrap_or_else(EntityId::nil),
+            seq: 0, cell: EntityId::nil(),
             outcome: "refused".into(), exit_code: None,
             stdout_b64: None, stdout_bytes: None, stdout_ref: None,
             stderr_b64: None, stderr_bytes: None, stderr_ref: None,
@@ -1539,7 +1793,6 @@ impl ReplCellHandler {
         self.core.evidence(invocation, operation, attempt, raw, Some(normalized),
             true, Some(OperationOutcome::Failed), EffectStatus::None, None)
     }
-
 }
 
 #[async_trait]
@@ -1648,6 +1901,20 @@ mod tests {
         input: serde_json::Value,
         commit_task: bool,
     ) -> Result<OperationRecord> {
+        handler.execute(prepare_invocation(store, core, handler, kind, schema, input, commit_task)?).await
+    }
+
+    fn registered_invocation(
+        store: &Arc<Store>, core: &HandlerCore, handler: &dyn NativeTaskHandler,
+        kind: &str, schema: &str, input: serde_json::Value,
+    ) -> Result<NativeTaskInvocation> {
+        prepare_invocation(store, core, handler, kind, schema, input, true)
+    }
+
+    fn prepare_invocation(
+        store: &Arc<Store>, core: &HandlerCore, handler: &dyn NativeTaskHandler,
+        kind: &str, schema: &str, input: serde_json::Value, commit_task: bool,
+    ) -> Result<NativeTaskInvocation> {
         let (task_id, invocation_id) = (EntityId::new(), EntityId::new());
         let epoch = ControllerEpoch(1);
         let zero = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
@@ -1701,21 +1968,29 @@ mod tests {
         context.task_id = Some(task_id);
         context.invocation_id = Some(invocation_id);
         context.controller_epoch = epoch;
-        handler
-            .execute(NativeTaskInvocation {
-                context,
-                task_invocation,
-                task,
-                operation_id: EntityId::new(),
-                authority: AuthorityRef {
-                    delegation_id: task_id,
-                    delegation_revision: RecordRevision(0),
-                    decision_ref: EntityId::new(),
-                },
-                input,
-                child_tools: None,
-            })
-            .await
+        Ok(NativeTaskInvocation {
+            context,
+            task_invocation,
+            task,
+            operation_id: EntityId::new(),
+            authority: AuthorityRef {
+                delegation_id: task_id,
+                delegation_revision: RecordRevision(0),
+                decision_ref: EntityId::new(),
+            },
+            input,
+            child_tools: None,
+        })
+    }
+
+    fn repeat(invocation: &NativeTaskInvocation) -> NativeTaskInvocation {
+        NativeTaskInvocation {
+            context: invocation.context.clone(),
+            task_invocation: invocation.task_invocation.clone(),
+            task: invocation.task.clone(), operation_id: invocation.operation_id,
+            authority: invocation.authority.clone(), input: invocation.input.clone(),
+            child_tools: None,
+        }
     }
 
     /// The sealed bounded result of exactly one settled observation.
@@ -1752,6 +2027,155 @@ mod tests {
             .as_str()
             .and_then(|id| id.parse().ok())
             .expect("result carries a session id")
+    }
+
+    /// One durable journey through denied admission, an observed effect,
+    /// duplicate invocation and an armed-before-worker crash. The guest
+    /// appends one real byte per execution; recovery must never append again.
+    #[test]
+    fn native_repl_t1_precedes_effect_and_recovery_never_reexecutes() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let (harness, root) = Harness::new("t1-before-effect")?;
+            let module = harness.data_dir.join("kernels/effect.wat");
+            fs::write(&module, r#"
+                (module
+                  (import "wasi_snapshot_preview1" "path_open"
+                    (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_write"
+                    (func $write (param i32 i32 i32 i32) (result i32)))
+                  (import "wasi_snapshot_preview1" "fd_close"
+                    (func $close (param i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (data (i32.const 64) "effects")
+                  (data (i32.const 80) "x")
+                  (func (export "_start")
+                    (if (call $open (i32.const 3) (i32.const 0) (i32.const 64)
+                        (i32.const 7) (i32.const 1) (i64.const 64) (i64.const 0)
+                        (i32.const 1) (i32.const 16)) (then unreachable))
+                    (i32.store (i32.const 0) (i32.const 80))
+                    (i32.store (i32.const 4) (i32.const 1))
+                    (if (call $write (i32.load (i32.const 16)) (i32.const 0)
+                        (i32.const 1) (i32.const 8)) (then unreachable))
+                    (drop (call $close (i32.load (i32.const 16))))
+                    (if (call $write (i32.const 2) (i32.const 0)
+                        (i32.const 1) (i32.const 8)) (then unreachable))
+                    (i32.store (i32.const 0) (i32.const 128))
+                    (i32.store (i32.const 4) (i32.const 16385))
+                    (if (call $write (i32.const 1) (i32.const 0)
+                        (i32.const 1) (i32.const 8)) (then unreachable))))
+            "#)?;
+
+            let create = registered_invocation(&harness.store, &harness.handler.core, &harness.handler,
+                "repl.session", "repl-session-request", serde_json::json!({
+                    "op": "create", "kernel_id": "python-wasi", "module": module,
+                }))?;
+            let mut fenced = repeat(&create);
+            fenced.task_invocation.task_revision = TaskRevision(1);
+            assert!(matches!(harness.handler.execute(fenced).await,
+                Err(error) if error.to_string().contains("stale_task")));
+            assert!(harness.store.find_external_operation(create.operation_id)?.is_none());
+            assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), 0);
+            let created = harness.handler.execute(repeat(&create)).await?;
+            assert_eq!(created.outcome, Some(OperationOutcome::Succeeded));
+            let created_id = session_id_of(&harness.normalized(&created)?);
+            let create_seal: serde_json::Value = serde_json::from_slice(
+                &harness.store.cas.read_object(&created.final_input_ref.digest)?)?;
+            assert_eq!(create_seal["binding"]["created_session_id"], serde_json::to_value(created_id)?);
+            let duplicate = harness.handler.execute(repeat(&create)).await?;
+            assert_eq!(duplicate.prepared_commit, created.prepared_commit);
+            assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), 1);
+
+            // A raw one-shot WASI session supplies the actual counted effect.
+            // This fixture does not claim Python/JS language delivery.
+            let provider = crate::session::WasiReplProvider::new(harness.handler.sessions.sessions_root());
+            let session = provider.create(crate::contract::CreateSession {
+                kernel: crate::kernel::KernelProfile {
+                    kernel_id: "effect-guest".into(), runtime: crate::contract::ReplRuntime::Other,
+                    runtime_label: "counted WASI effect".into(), backend: crate::contract::BackendKind::WasiPreview1,
+                    module: crate::kernel::ModuleSource::ModulePath(module), argv: vec!["effect-guest".into()],
+                    env: vec![], workdir_guest: "/home".into(), persistence: crate::kernel::StatePersistence::None,
+                    extra_mounts: vec![], dependency_lock: vec![], driver: crate::kernel::KernelDriver::None,
+                },
+                bind: crate::contract::TaskBinding { task: None, worker: None, scope: Some("T1 effect count".into()) },
+                limits: crate::contract::ResourceLimits::default(), preview_bytes: 0,
+            })?;
+            let session_dir = session.session_dir().to_path_buf();
+            let session_id: EntityId = session_dir.file_name().and_then(|name| name.to_str())
+                .context("session id")?.parse()?;
+            harness.handler.sessions.insert(session)?;
+            let cell_handler = ReplCellHandler::new(harness.store.clone(), harness.handler.sessions());
+            let cell = registered_invocation(&harness.store, &cell_handler.core, &cell_handler,
+                "repl.cell", "repl-cell-request", serde_json::json!({
+                    "op": "execute", "session_id": session_id,
+                    "source_b64": B64.encode(b"count one effect"), "cell_kind": "declared_effect",
+                }))?;
+            let effects = session_dir.join("home/effects");
+            let mut fenced = repeat(&cell);
+            fenced.task_invocation.task_revision = TaskRevision(1);
+            assert!(matches!(cell_handler.execute(fenced).await,
+                Err(error) if error.to_string().contains("stale_task")));
+            assert!(!effects.exists());
+            assert!(harness.store.find_external_operation(cell.operation_id)?.is_none());
+            let completed = cell_handler.execute(repeat(&cell)).await?;
+            assert_eq!(completed.outcome, Some(OperationOutcome::Succeeded));
+            assert_eq!(fs::metadata(&effects)?.len(), 1);
+            let result = normalized_result(&harness.store, &completed)?;
+            assert_eq!(B64.decode(result["stdout_b64"].as_str().context("stdout preview")?)?,
+                vec![0; MAX_PREVIEW_BYTES]);
+            assert_eq!(B64.decode(result["stderr_b64"].as_str().context("stderr preview")?)?, b"x");
+            assert_eq!(result["stdout_bytes"], MAX_PREVIEW_BYTES + 1);
+            assert_eq!(result["truncated"], true);
+            let stdout_ref: ObjectRef = serde_json::from_value(result["stdout_ref"].clone())?;
+            assert_eq!(harness.store.cas.read_object(&stdout_ref.digest)?, vec![0; MAX_PREVIEW_BYTES + 1]);
+            let seal: serde_json::Value = serde_json::from_slice(
+                &harness.store.cas.read_object(&completed.final_input_ref.digest)?)?;
+            assert_eq!(completed.input_schema_version, 2);
+            assert_eq!(seal["request"], cell.input);
+            assert_eq!(seal["binding"]["cell"], result["cell"]);
+            assert!(seal["binding"].get("seq").is_none());
+            let source_ref: ObjectRef = serde_json::from_value(seal["binding"]["source_ref"].clone())?;
+            assert_eq!(harness.store.cas.read_object(&source_ref.digest)?, b"count one effect");
+            assert_eq!(cell_handler.execute(repeat(&cell)).await?.prepared_commit, completed.prepared_commit);
+            let mut different = repeat(&cell);
+            different.input["source_b64"] = serde_json::json!(B64.encode(b"another effect"));
+            assert!(matches!(cell_handler.execute(different).await,
+                Err(error) if error.to_string().contains("operation_conflict")));
+            assert_eq!(fs::metadata(&effects)?.len(), 1);
+
+            // Stop exactly after production preparation and durable T1, before
+            // there is any worker result. A new controller cannot infer that the
+            // old worker did not run and cannot turn its original admission into
+            // a new permission to execute.
+            let unknown = registered_invocation(&harness.store, &cell_handler.core, &cell_handler,
+                "repl.cell", "repl-cell-request", cell.input.clone())?;
+            let (frozen, _, _) = cell_handler.prepare(&unknown)?;
+            let (mut armed, mut attempt) = cell_handler.prepare_operation(&unknown, &frozen)?;
+            assert!(harness.store.arm_external_operation(
+                &unknown.task_invocation, &mut armed, &mut attempt)?.is_none());
+            let attempt_id = attempt.attempt_id;
+            let data_dir = harness.data_dir.clone();
+            drop(cell_handler);
+            drop(harness);
+            let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+            let sessions = Arc::new(SessionStore::new(data_dir)?);
+            let recovered = ReplCellHandler::new(store.clone(), sessions);
+            let existing = recovered.execute(repeat(&unknown)).await?;
+            assert_eq!(existing.prepared_commit, armed.prepared_commit);
+            assert_eq!(existing.effect_status, EffectStatus::Unknown);
+            let reconciled = recovered.reconcile(&unknown.task, unknown.operation_id).await?;
+            assert_eq!(reconciled.effect_status, EffectStatus::Unknown);
+            assert!(reconciled.outcome.is_none());
+            assert_eq!(store.external_operation_attempt(unknown.operation_id)?.attempt_id, attempt_id);
+            let evidence = store.external_operation_evidence(unknown.operation_id)?;
+            assert_eq!(evidence.len(), 1);
+            assert_eq!(evidence[0].attempt_id, Some(attempt_id));
+            assert_eq!(recovered.execute(repeat(&cell)).await?.prepared_commit, completed.prepared_commit);
+            assert_eq!(fs::metadata(&effects)?.len(), 1);
+            drop(recovered);
+            drop(store);
+            fs::remove_dir_all(root)?;
+            Ok(())
+        })
     }
 
     /// Every advertised session op is dispatched with its own arguments:
@@ -2169,50 +2593,52 @@ mod tests {
     /// a committed task T1 refuses; neither a session create nor a cell may
     /// touch the external session journal. Before the T1-order fix the first
     /// create happened and the cell ran before the late arm was rejected.
-    #[tokio::test]
-    async fn refused_t1_does_not_create_a_session_or_execute_a_cell() -> Result<()> {
-        let (harness, root) = Harness::new("repl-before-t1")?;
-        let module = harness.data_dir.join("kernels").join("python.wat");
-        fs::write(&module, RESIDENT_GUEST)?;
-        let create = serde_json::json!({
-            "op": "create", "kernel_id": "python-wasi", "module": module,
-            "limits": {"max_wall_clock_ms": 500}
-        });
+    #[test]
+    fn refused_t1_does_not_create_a_session_or_execute_a_cell() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let (harness, root) = Harness::new("repl-before-t1")?;
+            let module = harness.data_dir.join("kernels").join("python.wat");
+            fs::write(&module, RESIDENT_GUEST)?;
+            let create = serde_json::json!({
+                "op": "create", "kernel_id": "python-wasi", "module": module,
+                "limits": {"max_wall_clock_ms": 500}
+            });
 
-        // The uncommitted task exists only in this invocation's memory, not
-        // in the authoritative Store. The attempted create must stop at T1.
-        let refused = invoke(&harness.store, &harness.handler.core, &harness.handler,
-            "repl.session", "repl-session-request", create.clone(), false).await;
-        assert!(refused.is_err(), "uncommitted task must not acquire T1");
-        assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), 0,
-            "T1 refusal cannot create even one durable session");
+            // The uncommitted task exists only in this invocation's memory, not
+            // in the authoritative Store. The attempted create must stop at T1.
+            let refused = invoke(&harness.store, &harness.handler.core, &harness.handler,
+                "repl.session", "repl-session-request", create.clone(), false).await;
+            assert!(refused.is_err(), "uncommitted task must not acquire T1");
+            assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), 0,
+                "T1 refusal cannot create even one durable session");
 
-        let created = harness.run(create).await?;
-        assert_eq!(created.outcome, Some(OperationOutcome::Succeeded));
-        let session_id = session_id_of(&harness.normalized(&created)?);
-        let sessions = harness.handler.sessions();
-        let cells_before = sessions.open(session_id)?.lock()
-            .map_err(|_| anyhow::anyhow!("test session lock poisoned"))?.inspect()?.cells_executed;
+            let created = harness.run(create).await?;
+            assert_eq!(created.outcome, Some(OperationOutcome::Succeeded));
+            let session_id = session_id_of(&harness.normalized(&created)?);
+            let sessions = harness.handler.sessions();
+            let cells_before = sessions.open(session_id)?.lock()
+                .map_err(|_| anyhow::anyhow!("test session lock poisoned"))?.inspect()?.cells_executed;
 
-        let cell = CellHarness::new(harness.store.clone(), Arc::clone(&sessions));
-        let input = serde_json::json!({
-            "op": "execute", "session_id": session_id,
-            "source_b64": B64.encode(b"print(7)"),
-            "cell_kind": "declared_effect"
-        });
-        let refused = invoke(&cell.store, &cell.handler.core, &cell.handler,
-            "repl.cell", "repl-cell-request", input, false).await;
-        assert!(refused.is_err(), "uncommitted cell must not acquire T1");
-        let cells_after = sessions.open(session_id)?.lock()
-            .map_err(|_| anyhow::anyhow!("test session lock poisoned"))?.inspect()?.cells_executed;
-        assert_eq!(cells_after, cells_before,
-            "a rejected cell must not mutate the original session journal");
+            let cell = CellHarness::new(harness.store.clone(), Arc::clone(&sessions));
+            let input = serde_json::json!({
+                "op": "execute", "session_id": session_id,
+                "source_b64": B64.encode(b"print(7)"),
+                "cell_kind": "declared_effect"
+            });
+            let refused = invoke(&cell.store, &cell.handler.core, &cell.handler,
+                "repl.cell", "repl-cell-request", input, false).await;
+            assert!(refused.is_err(), "uncommitted cell must not acquire T1");
+            let cells_after = sessions.open(session_id)?.lock()
+                .map_err(|_| anyhow::anyhow!("test session lock poisoned"))?.inspect()?.cells_executed;
+            assert_eq!(cells_after, cells_before,
+                "a rejected cell must not mutate the original session journal");
 
-        drop(cell);
-        drop(sessions);
-        drop(harness);
-        fs::remove_dir_all(root).ok();
-        Ok(())
+            drop(cell);
+            drop(sessions);
+            drop(harness);
+            fs::remove_dir_all(root).ok();
+            Ok(())
+        })
     }
 
 }

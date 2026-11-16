@@ -109,15 +109,54 @@ install `sshd` and `ssh-keygen`, build the artifact, and use absolute paths:
 ```sh
 SHENKO_SSH_WASI_ARTIFACT=/path/to/new-ssh-build/shenko-ssh-wasi.wasm \
 SHENKO_SSH_WASI_EVIDENCE=/path/to/new-evidence.json \
-cargo test -p shenko-wasm --test ssh_wasi_client --locked \
+cargo test -p shenko --test ssh_wasi_client --locked \
   -- --nocapture
 ```
 
-The journey generates the user's key inside the module, authenticates to a
-loopback-only OpenSSH server, checks independent stdout/stderr and exit 7,
-round-trips 100,003 binary bytes with SFTP, and refuses a wrong host key and
-an absent network grant. The server host key is fixture setup; it does not
-perform client authentication. Temporary private keys are removed when the
-fixture ends, while public execution evidence can be retained separately.
-Missing inputs fail the journey. This does not claim a sustained
-remote-device, mobile, Node/Bun, or long-running acceptance result.
+The existing single journey now lives in
+`bin/shenko/tests/ssh_wasi_client.rs`, where Cargo supplies the real CLI
+executable. It starts that CLI with an empty inherited environment (apart
+from the command search path, locale and local-only Git configuration),
+waits for its real health endpoint, and stops it through SIGINT. This uses
+the product's no-model bootstrap to create the ledger, subject, node and
+managed home; the fixture does not initialize those records itself.
+
+The CLI then installs the actual SSH artifact under the name `ssh`. The
+journey verifies its SHA-256 provenance, BLAKE3 identity, out-of-line CAS
+storage, recovery-closure binding and activated environment, and reads the
+selected tool back through `tool list`. It deletes its private copy of the
+installation input before any client request. Every subsequent request
+uses a new `tool exec --tool ssh` process against that same installation,
+so execution must resolve the selected unit and reconstruct verified CAS
+chunks. A final read verifies that ledger, subject and branch identities
+still match the bootstrap.
+
+All original protocol assertions remain: the module generates the client's
+key, authenticates to a loopback-only OpenSSH server, preserves independent
+stdout/stderr and exit 7, round-trips 100,003 binary bytes with SFTP, and
+refuses a wrong host key and an absent network grant. The server host key
+is fixture setup; it does not perform client authentication. The network
+grant is explicit for each action; installing a package never grants it.
+
+Every owned command has a deadline and a bounded stop/join path. Public
+CLI, guest and server logs, including failures, are copied beside the
+evidence JSON under its `.diagnostics` path. Private keys, stdin requests,
+owner-control files and the installation tree are never copied there.
+Temporary private keys are removed after process cleanup; a cleanup failure
+retains its private temporary tree and records the unresolved process.
+
+Missing inputs fail the journey. Compilation alone is not evidence that
+this installation path ran; an earlier direct-module result remains scoped
+to that earlier path and candidate. This journey does not prove native
+`wasi.exec` T1/E1/T2, a remote-device deployment, mobile, Node/Bun, or
+long-running acceptance.
+
+Candidate `6782627ea89e17774bc65ba54d459ad85804fef1` passed the earlier direct-module
+journey in [CI job 133289317901](https://github.com/cyjin-yl/shenko/actions/runs/43864453626/job/133289317901)
+in 176.32 seconds. The [retained observation](../../../../docs/evidence/ssh-wasi-ci-6782627-20261116/observation.json)
+binds its 2,552,689-byte module, public client/server receipts and all 97 source
+input hashes. The original build receipt's global dirty flag remains true;
+each recorded input independently matches the candidate's Git blob. The
+workspace job still failed on an unrelated broker test assertion, and this
+module journey does not prove the CLI installation path or a real remote
+deployment.

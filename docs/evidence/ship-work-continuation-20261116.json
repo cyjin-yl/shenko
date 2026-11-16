@@ -98,7 +98,7 @@
     "check": "cargo check --offline --locked -p shenko-store --tests -j1",
     "check_exit_code": 0,
     "check_seconds": 1.86,
-    "runtime_test_execution": "pending new candidate CI",
+    "runtime_test_execution": "both authored journeys passed in CI 43864453626, candidate 6782627ea89e17774bc65ba54d459ad85804fef1",
     "scope": "paired native.complete/native.finish canonical frozen results; foreign parked predecessor remains debt, not execution takeover"
   },
   "inventory_observed_utc": "2026-11-16T12:03:08Z",
@@ -106,5 +106,87 @@
   "open_pull_requests": [
     302,
     303
-  ]
+  ],
+  "third_ci": {
+    "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
+    "checkout_merge_sha": "afa186615fdfefedaa1569a09353957dbc47c293",
+    "run_id": 43864453626,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43864453626",
+    "jobs": {
+      "docs": "success",
+      "docs-migration": "success",
+      "kernel-boundary": "success",
+      "web": "success",
+      "rust": "failure",
+      "clippy-ratchet": "failure"
+    },
+    "workspace_all_targets_check": "success",
+    "native_t2_runtime_journeys": "success",
+    "ssh_wasi_runtime_journey": "success",
+    "evidence": "ssh-wasi-ci-6782627-20261116/observation.json",
+    "rust_failure": "new broker deadline journey incorrectly expected only one error, while Unknown settlement journals an additional original-identity outcome; correction requires revalidation",
+    "clippy_failure": "one new all-target cloned_ref_to_slice_refs diagnostic at execution.rs timeout terminal assertion; source fix preserves assertion; revalidation pending"
+  },
+  "third_nightly": {
+    "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
+    "run_id": 43865128676,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43865128676",
+    "observed_status": "in_progress",
+    "scope": "Both jobs started: pinned compiler suite and all-features Rust were running at the last observation; no completed new candidate result claimed."
+  },
+  "concurrent_followup_ci": {
+    "head_sha": "659109b62bc9897fe22827c4a24bd53c604cfa7c",
+    "checkout_merge_sha": "09c6251b2c844fa5b376512d5922912f0b692341",
+    "run_id": 43869244041,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43869244041",
+    "workspace_all_targets_check": "success",
+    "workspace_tests": "failure",
+    "failures": [
+      "broker deadline assertion expected one diagnostic instead of the existing timeout and Unknown pair",
+      "REPL strict missing session_id contract regressed from REPL_SESSION_INVALID to REPL_INSTALL_INVALID",
+      "Clippy: macro-generated expect_used increased by one in the new REPL tokio test"
+    ],
+    "new_repl_t1_refusal_regression": "actually passed on this source; root merged all its original assertions into the complete schema-2 implementation",
+    "ssh_direct_module_journey": "actually passed in 129.81s; not the later CLI installation journey",
+    "rust_artifact_id": 14227772300,
+    "rust_artifact_zip_sha256": "8a16208beee4c81b15853fb599e6bb5e4478d52c55488f4e90fc53c8285071e7",
+    "clippy_artifact_id": 14226828875,
+    "clippy_artifact_zip_sha256": "2a3aa2eaef2a5a42b176b08a7f1cfb7c0229b4e8ded29b1274d262696e771363",
+    "integration": "Merge f391453 preserves both concurrent histories and all assertions; root schema-2 preparation retains the original strict route validation. Runtime construction in the added test replaces only its macro wrapper. These changes need their own remote CI."
+  },
+  "concurrent_model_repeat": {
+    "head_sha": "42362620a0bf01e9e4c9b524ad8715cce0b9528f",
+    "run_id": 43867412535,
+    "conclusion": "cancelled",
+    "observation": "single-node-cancelled-4236262-20261116/observation.json",
+    "later_659_model_run": 43869243977,
+    "later_659_model_conclusion": "skipped after opt-in removal; not a pass"
+  },
+  "integrated_followup_local_checks": {
+    "checkpoint": "f391453",
+    "repl_test_target_metadata": {
+      "exit_code": 0,
+      "elapsed_seconds": 9.17
+    },
+    "broker_deadline_journey": {
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "elapsed_seconds": 1.21,
+      "kept_both_original_reports": true
+    },
+    "ssh_cli_installation_journey": {
+      "source_commit": "fe281f0987d09d8fd8ddf1ea16f0fc3eae414bdf",
+      "metadata_check_exit_code": 0,
+      "metadata_check_seconds": 140,
+      "actual_execution": "pending",
+      "original_protocol_assertions_preserved": 14
+    },
+    "model_runtime_settings": {
+      "source_commit": "58e26bb",
+      "parse_checks": "YAML, Bash and observation Python passed",
+      "actual_execution": "pending",
+      "model_prompt_sampling_context_deadline_unchanged": true
+    }
+  }
 }
