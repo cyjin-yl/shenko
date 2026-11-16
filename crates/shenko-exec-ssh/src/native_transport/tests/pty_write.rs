@@ -13,7 +13,8 @@ use russh::{Channel, ChannelId, ChannelMsg, Sig, keys::{PrivateKeyWithHashAlg, P
 use serde::Serialize;
 use shenko_types::{EntityId, RecordRevision, SeatIncarnation, TaskRevision};
 use std::{
-    future::Future, io, pin::Pin, sync::{Arc, Mutex}, task::{Context as TaskContext, Poll, Waker},
+    fs::File, future::Future, io::{self, Write as _}, path::PathBuf, pin::Pin,
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}, task::{Context as TaskContext, Poll, Waker},
     time::Duration,
 };
 use tokio::{
@@ -24,6 +25,102 @@ use tokio::{
 const WAIT: Duration = Duration::from_secs(5);
 const ORIGINAL_ERROR: &str = "fixture original underlying PTY flush error";
 const OUTPUT_MARKER: &str = "PTY-FIXTURE-OUTPUT-COMPLETE";
+
+struct EvidenceFile { file: File, next_event: u64 }
+
+/// Save observations while the original values still exist. Export failures
+/// never bypass the existing transport cleanup; they fail the final test.
+struct Evidence {
+    output: Mutex<Option<EvidenceFile>>,
+    failures: Mutex<Vec<String>>,
+    finished: AtomicBool,
+}
+
+impl Evidence {
+    fn open() -> Result<Arc<Self>> {
+        let opened: Result<Option<EvidenceFile>> = (|| {
+            let Some(path) = std::env::var_os("SHENKO_PTY_WRITE_EVIDENCE") else { return Ok(None); };
+            anyhow::ensure!(!path.is_empty(), "SHENKO_PTY_WRITE_EVIDENCE is empty");
+            let root = PathBuf::from(path);
+            std::fs::create_dir_all(&root).context("create explicit PTY evidence directory")?;
+            // A repeated run must not overwrite or append to another run's facts.
+            let file = File::options().write(true).create_new(true)
+                .open(root.join("original-pty-write-journey.jsonl"))
+                .context("create original PTY evidence log")?;
+            Ok(Some(EvidenceFile { file, next_event: 0 }))
+        })();
+        if let Err(error) = &opened { eprintln!("PTY evidence initialization failed: {error:#}"); }
+        let evidence = Arc::new(Self {
+            output: Mutex::new(opened?), failures: Mutex::new(Vec::new()), finished: AtomicBool::new(false),
+        });
+        evidence.record(None, "source", &serde_json::json!({
+            "test": "original_pty_writes_observe_flush_cancel_errors_and_channel_loss",
+            "package_version": env!("CARGO_PKG_VERSION"),
+            "github_sha": std::env::var("GITHUB_SHA").ok(),
+            "github_run_id": std::env::var("GITHUB_RUN_ID").ok(),
+            "github_run_attempt": std::env::var("GITHUB_RUN_ATTEMPT").ok(),
+            "source_identity_basis": "reported workflow environment; not a reconstructed source revision",
+        }));
+        Ok(evidence)
+    }
+
+    fn record<T: Serialize + ?Sized>(&self, fixture: Option<&str>, event: &str, value: &T) {
+        #[derive(Serialize)]
+        struct Event<'a, T: ?Sized> {
+            schema: &'static str,
+            sequence: u64,
+            observed_at: String,
+            fixture: Option<&'a str>,
+            event: &'a str,
+            value: &'a T,
+        }
+        let saved: Result<()> = (|| {
+            let mut output = self.output.lock().unwrap_or_else(|error| error.into_inner());
+            let Some(output) = output.as_mut() else { return Ok(()); };
+            let row = Event { schema: "shenko.pty-write-fixture-evidence.v1", sequence: output.next_event,
+                observed_at: chrono::Utc::now().to_rfc3339(), fixture, event, value };
+            output.next_event += 1;
+            let mut bytes = serde_json::to_vec(&row)?;
+            bytes.push(b'\n');
+            output.file.write_all(&bytes)?;
+            output.file.flush()?;
+            Ok(())
+        })();
+        if let Err(error) = saved {
+            let failure = format!("fixture={fixture:?}, event={event}: {error:#}");
+            eprintln!("PTY evidence write failed: {failure}");
+            self.failures.lock().unwrap_or_else(|error| error.into_inner()).push(failure);
+        }
+    }
+
+    fn finish(&self, original: Result<()>) -> Result<()> {
+        let prior_failures = self.failures.lock().unwrap_or_else(|error| error.into_inner()).clone();
+        self.record(None, "journey_result", &serde_json::json!({
+            "original_result": format!("{original:?}"),
+            "original_error": original.as_ref().err().map(|error| format!("{error:#}")),
+            "prior_export_errors": prior_failures,
+        }));
+        self.finished.store(true, Ordering::Release);
+        let failures = self.failures.lock().unwrap_or_else(|error| error.into_inner()).clone();
+        if failures.is_empty() { return original; }
+        let detail = format!("PTY evidence export failed: {}", failures.join("\n"));
+        match original {
+            Ok(()) => Err(anyhow::anyhow!(detail)),
+            Err(error) => Err(error.context(detail)),
+        }
+    }
+}
+
+impl Drop for Evidence {
+    fn drop(&mut self) {
+        if !self.finished.load(Ordering::Acquire) {
+            self.record(None, "journey_unfinished", &serde_json::json!({
+                "thread_panicking": std::thread::panicking(),
+                "note": "only the preceding observations were made; no final result or join is inferred",
+            }));
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GateMode { Pass, HoldWrite, HoldFlush, FailFlush }
@@ -316,10 +413,13 @@ struct Fixture {
     changed: Arc<Notify>,
     workers: Arc<Mutex<Vec<Worker>>>,
     gate: Gate,
+    evidence: Arc<Evidence>,
+    name: &'static str,
+    cleanup_attempted: bool,
 }
 
 impl Fixture {
-    async fn open(output: bool) -> Result<(Self, NativePtySession)> {
+    async fn open(output: bool, evidence: Arc<Evidence>, name: &'static str) -> Result<(Self, NativePtySession)> {
         let (client_io, server_io) = duplex(1024);
         let (server_io, server_close) = owned(server_io);
         let received = Arc::new(Mutex::new(Received::default()));
@@ -367,12 +467,30 @@ impl Fixture {
             Ok(opened) => opened,
             Err(error) => {
                 let stopped = cleanup(&mut protocol, &workers).await;
+                evidence.record(Some(name), "setup_failure", &serde_json::json!({
+                    "original_error": format!("{error:#}"), "cleanup": &stopped,
+                    "peer": &*received.lock().unwrap_or_else(|error| error.into_inner()),
+                    "io": gate.observation(),
+                }));
                 eprintln!("PTY original setup failure: {error:#}");
                 eprintln!("PTY setup cleanup: {}", serde_json::to_string(&stopped)?);
                 return Err(error.context(format!("fixture setup failed; original cleanup={stopped:?}")));
             }
         };
-        Ok((Self { protocol, handle, channel_id, received, changed, workers, gate }, session))
+        evidence.record(Some(name), "setup_completed", &serde_json::json!({ "output_enabled": output }));
+        Ok((Self { protocol, handle, channel_id, received, changed, workers, gate,
+            evidence, name, cleanup_attempted: false }, session))
+    }
+
+    fn record<T: Serialize + ?Sized>(&self, event: &str, value: &T) {
+        self.evidence.record(Some(self.name), event, value);
+    }
+
+    fn record_result<T: std::fmt::Debug>(&self, event: &str, result: &Result<T>) {
+        self.record(event, &serde_json::json!({
+            "original_result": format!("{result:?}"),
+            "original_error": result.as_ref().err().map(|error| format!("{error:#}")),
+        }));
     }
 
     async fn observed(&self, condition: impl Fn(&Received) -> bool) -> Result<()> {
@@ -394,6 +512,10 @@ impl Fixture {
 
     async fn finish(&mut self) -> Result<()> {
         let stopped = cleanup(&mut self.protocol, &self.workers).await;
+        self.cleanup_attempted = true;
+        self.record("original_protocol_worker_cleanup", &stopped);
+        self.record("original_peer_observations", &*self.received.lock().unwrap_or_else(|error| error.into_inner()));
+        self.record("original_io_observations", &self.gate.observation());
         eprintln!("PTY original protocol/worker cleanup: {}", serde_json::to_string(&stopped)?);
         eprintln!("PTY original peer data: {}", serde_json::to_string(&*self.received.lock().unwrap_or_else(|error| error.into_inner()))?);
         eprintln!("PTY underlying I/O observation: {}", serde_json::to_string(&self.gate.observation())?);
@@ -406,6 +528,14 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         self.protocol.close.close();
         for worker in self.workers.lock().unwrap_or_else(|error| error.into_inner()).iter() { worker.abort(); }
+        if !self.cleanup_attempted {
+            self.record("fixture_dropped_without_final_cleanup", &serde_json::json!({
+                "protocol_observer_retained": self.protocol.observer.is_some(),
+                "peer": &*self.received.lock().unwrap_or_else(|error| error.into_inner()),
+                "io": self.gate.observation(),
+                "note": "stream close/worker abort requested; no join is inferred",
+            }));
+        }
     }
 }
 
@@ -439,6 +569,11 @@ where F::Output: std::fmt::Debug
 
 async fn close_seat(fixture: &mut Fixture, seat: &SshPtySeat) -> Result<NativePtyObservation> {
     let close = timeout(Duration::from_secs(12), seat.close()).await;
+    fixture.record("original_retained_writes", &seat.write_observations());
+    fixture.record("original_close_result", &serde_json::json!({
+        "result_debug": format!("{close:?}"),
+        "observation": close.as_ref().ok().and_then(|result| result.as_ref().ok()),
+    }));
     eprintln!("PTY original retained writes: {}", serde_json::to_string(&seat.write_observations())?);
     eprintln!("PTY original close result: {close:?}");
     let stopped = fixture.finish().await;
@@ -450,11 +585,14 @@ async fn close_seat(fixture: &mut Fixture, seat: &SshPtySeat) -> Result<NativePt
 
 #[test]
 fn original_pty_writes_observe_flush_cancel_errors_and_channel_loss() -> Result<()> {
-    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+    let evidence = Evidence::open()?;
+    let original = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Err(error) => Err(error.into()),
+        Ok(runtime) => runtime.block_on(async {
         // 1. The actual first data flush is held. More than both SSH windows
         // flows in both directions once released, and submit's CR is retained.
         // 2. INT is a later same-FIFO command, never an application acceptance.
-        let (mut fixture, session) = Fixture::open(true).await?;
+        let (mut fixture, session) = Fixture::open(true, Arc::clone(&evidence), "flush-and-signal").await?;
         let seat = SshPtySeat::spawn(session, seat_handle(), 80, 24);
         let checked: Result<()> = async {
             let handle = seat_handle();
@@ -462,6 +600,7 @@ fn original_pty_writes_observe_flush_cancel_errors_and_channel_loss() -> Result<
             let text = "i".repeat(128 * 1024);
             let mut expected = text.as_bytes().to_vec();
             expected.push(b'\r');
+            fixture.record("original_submit_arguments", &serde_json::json!({ "text": &text, "fence": &fence }));
             fixture.gate.set(GateMode::HoldFlush);
             let before = fixture.gate.observation();
             let mut pending = Box::pin(seat.submit(&handle, &text, &fence));
@@ -477,11 +616,15 @@ fn original_pty_writes_observe_flush_cancel_errors_and_channel_loss() -> Result<
                 }
             }).await?;
             let records = seat.write_observations();
+            fixture.record("original_held_flush", &serde_json::json!({
+                "writes": &records, "io_before": &before, "io_observed": fixture.gate.observation(),
+            }));
             anyhow::ensure!(records.len() == 1 && records[0].state == NativePtyWriteState::Writing);
             anyhow::ensure!(records[0].input == NativePtyWriteInput::Data { bytes: expected.clone() });
             anyhow::ensure!(fixture.gate.observation().flushes_completed == before.flushes_completed);
             fixture.gate.set(GateMode::Pass);
             let response = timeout(WAIT, pending).await??;
+            fixture.record("original_data_response", &response);
             anyhow::ensure!(response.confirmation == AnswerConfirmation::Unconfirmed);
             let detail: serde_json::Value = serde_json::from_str(response.detail.as_deref().context("missing original data receipt")?)?;
             anyhow::ensure!(detail["state"] == "locally_flushed");
@@ -498,26 +641,33 @@ fn original_pty_writes_observe_flush_cancel_errors_and_channel_loss() -> Result<
             }).await?;
             eprintln!("PTY first actual flush receipt: {}", response.detail.context("lost data receipt")?);
             let signal = timeout(WAIT, seat.interrupt(&handle, &fence)).await??;
+            fixture.record("original_signal_response", &signal);
             anyhow::ensure!(signal.confirmation == AnswerConfirmation::Unconfirmed);
             fixture.observed(|received| received.signals == ["INT"] && received.input == expected).await?;
             let receipt = seat.write_observations();
+            fixture.record("original_signal_writes", &receipt);
             anyhow::ensure!(receipt.len() == 1 && receipt[0].state == NativePtyWriteState::LocallyFlushed);
             anyhow::ensure!(receipt[0].input == NativePtyWriteInput::SignalInt && receipt[0].writer_epoch == 7);
             anyhow::ensure!(fixture.received.lock().unwrap_or_else(|error| error.into_inner()).public_key_authentications == 1);
             Ok(())
         }.await;
         let closed = close_seat(&mut fixture, &seat).await;
+        fixture.record_result("original_checks", &checked);
+        fixture.record_result("original_close_checks", &closed);
         checked?;
         anyhow::ensure!(closed?.output_bytes == 128 * 1024, "full duplex output was not observed");
 
         // 3. Cancel the original write at a real blocked I/O poll. A second
         // admitted command never starts; opening the gate cannot revive either.
-        let (mut fixture, session) = Fixture::open(false).await?;
+        let (mut fixture, session) = Fixture::open(false, Arc::clone(&evidence), "cancelled-write").await?;
         let seat = SshPtySeat::spawn(session, seat_handle(), 80, 24);
         let checked: Result<()> = async {
             let handle = seat_handle();
             let fence = fence();
             fixture.gate.set(GateMode::HoldWrite);
+            fixture.record("original_submit_arguments", &serde_json::json!({
+                "text": "original-cancelled", "queued_text": "queued-never-sent", "fence": &fence,
+            }));
             let mut original = Box::pin(seat.submit(&handle, "original-cancelled", &fence));
             reach_gate(original.as_mut(), &fixture.gate, GateMode::HoldWrite).await?;
             let original_id = seat.write_observations().first().context("original command missing")?.write_id;
@@ -525,59 +675,81 @@ fn original_pty_writes_observe_flush_cancel_errors_and_channel_loss() -> Result<
             let pending = std::future::poll_fn(|cx| Poll::Ready(queued.as_mut().poll(cx).is_pending())).await;
             anyhow::ensure!(pending && seat.write_observations().len() == 2);
             let at_cancel = fixture.gate.observation();
+            fixture.record("original_at_cancel", &serde_json::json!({
+                "writes": seat.write_observations(), "io": &at_cancel,
+            }));
             drop(original);
             fixture.gate.set(GateMode::Pass);
             let refused = timeout(WAIT, queued).await??;
+            fixture.record("original_queued_response", &refused);
             anyhow::ensure!(matches!(refused.confirmation, AnswerConfirmation::NotSent { .. }));
             let records = seat.write_observations();
+            fixture.record("original_cancelled_writes", &records);
             let original = records.iter().find(|record| record.write_id == original_id).context("cancelled original lost")?;
             anyhow::ensure!(original.state == NativePtyWriteState::Unknown && original.local_stream_closed);
             anyhow::ensure!(original.input == NativePtyWriteInput::Data { bytes: b"original-cancelled\r".to_vec() });
             let queued = records.iter().find(|record| record.write_id != original_id).context("queued original lost")?;
             anyhow::ensure!(queued.state == NativePtyWriteState::NotSent);
             anyhow::ensure!(queued.input == NativePtyWriteInput::Data { bytes: b"queued-never-sent\r".to_vec() });
-            let closed = timeout(Duration::from_secs(12), seat.close()).await??;
+            let closed = timeout(Duration::from_secs(12), seat.close()).await;
+            fixture.record("original_first_cancel_close", &serde_json::json!({
+                "result_debug": format!("{closed:?}"),
+                "observation": closed.as_ref().ok().and_then(|result| result.as_ref().ok()),
+            }));
+            let closed = closed??;
             anyhow::ensure!(closed.session_end_observed);
             let after = fixture.gate.observation();
+            fixture.record("original_after_cancel_io", &after);
             anyhow::ensure!(after.write_polls == at_cancel.write_polls && after.bytes_written == at_cancel.bytes_written);
             anyhow::ensure!(fixture.received.lock().unwrap_or_else(|error| error.into_inner()).input.is_empty());
             Ok(())
         }.await;
         let closed = close_seat(&mut fixture, &seat).await;
+        fixture.record_result("original_checks", &checked);
+        fixture.record_result("original_close_checks", &closed);
         checked?;
         closed?;
 
         // 4. The original underlying flush error reaches Unknown with the full
         // input; later admission is refused and does not become a retry.
-        let (mut fixture, session) = Fixture::open(false).await?;
+        let (mut fixture, session) = Fixture::open(false, Arc::clone(&evidence), "flush-error").await?;
         let seat = SshPtySeat::spawn(session, seat_handle(), 80, 24);
         let checked: Result<()> = async {
             let handle = seat_handle();
             let fence = fence();
             fixture.gate.set(GateMode::HoldFlush);
+            fixture.record("original_submit_arguments", &serde_json::json!({
+                "text": "original-flush-error", "later_text": "not-a-retry", "fence": &fence,
+            }));
             let mut pending = Box::pin(seat.submit(&handle, "original-flush-error", &fence));
             reach_gate(pending.as_mut(), &fixture.gate, GateMode::HoldFlush).await?;
             fixture.gate.set(GateMode::FailFlush);
             let response = timeout(WAIT, pending).await??;
+            fixture.record("original_flush_error_response", &response);
             anyhow::ensure!(matches!(&response.confirmation, AnswerConfirmation::Unknown { reason } if reason.contains(ORIGINAL_ERROR)));
             let records = seat.write_observations();
+            fixture.record("original_flush_error_writes", &records);
             anyhow::ensure!(records.len() == 1 && records[0].state == NativePtyWriteState::Unknown);
             anyhow::ensure!(records[0].input == NativePtyWriteInput::Data { bytes: b"original-flush-error\r".to_vec() });
             anyhow::ensure!(response.detail.as_deref().is_some_and(|detail| detail.contains(ORIGINAL_ERROR)));
             let refused = timeout(WAIT, seat.submit(&handle, "not-a-retry", &fence)).await??;
+            fixture.record("original_later_refusal", &refused);
             anyhow::ensure!(matches!(refused.confirmation, AnswerConfirmation::NotSent { .. }));
             Ok(())
         }.await;
         let closed = close_seat(&mut fixture, &seat).await;
+        fixture.record_result("original_checks", &checked);
+        fixture.record_result("original_close_checks", &closed);
         checked?;
         closed?;
 
         // 5. A peer closes the channel while the original ciphertext cannot
         // flush. The actual barrier must refuse even after the stream unblocks.
-        let (mut fixture, mut session) = Fixture::open(false).await?;
+        let (mut fixture, mut session) = Fixture::open(false, Arc::clone(&evidence), "channel-loss").await?;
         let checked: Result<()> = async {
             fixture.gate.set(GateMode::HoldWrite);
             let (reader, writer) = session.split_io();
+            fixture.record("original_write_argument", &b"original-closed-channel"[..]);
             let mut pending = Box::pin(writer.send(b"original-closed-channel"));
             reach_gate(pending.as_mut(), &fixture.gate, GateMode::HoldWrite).await?;
             fixture.close_channel().await?;
@@ -587,20 +759,29 @@ fn original_pty_writes_observe_flush_cancel_errors_and_channel_loss() -> Result<
                 }
                 false
             }).await?;
+            fixture.record("original_channel_close_observed", &observed_close);
             anyhow::ensure!(observed_close, "peer channel close was not actually observed");
             fixture.gate.set(GateMode::Pass);
             let result = timeout(WAIT, pending).await?;
+            fixture.record("original_closed_channel_flush_result", &format!("{result:?}"));
             eprintln!("PTY original closed-channel flush result: {result:?}");
             let error = result.err().context("removed channel incorrectly received a successful flush receipt")?;
             anyhow::ensure!(error.to_string().contains("channel closed before its outbound flush boundary"));
             Ok(())
         }.await;
         let close = timeout(Duration::from_secs(12), session.close(Duration::from_millis(500))).await;
+        fixture.record("original_removed_channel_close", &serde_json::json!({
+            "result_debug": format!("{close:?}"), "observation": close.as_ref().ok(),
+        }));
         eprintln!("PTY original removed-channel close observation: {close:?}");
         let stopped = fixture.finish().await;
+        fixture.record_result("original_checks", &checked);
+        fixture.record_result("original_cleanup_checks", &stopped);
         checked?;
         anyhow::ensure!(close?.session_end_observed);
         stopped?;
         Ok(())
-    })
+        }),
+    };
+    evidence.finish(original)
 }
