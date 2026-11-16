@@ -139,6 +139,22 @@ it does not trigger another build. These observations are not E1 settlements,
 new activation authority or complete S2 qualification. Historical activation
 records remain readable without fabricating missing build provenance.
 
+Forward activation reads the prepared recovery closure and state-copy references
+again, checking their content digests, byte lengths and supported schema. Their
+target generation, slot and database must agree with the activation record and
+installation layout. The program path and digest come from that immutable
+preparation, not from the current mutable slot manifest. The manifest and actual
+program must both match it at the final forward helper's existing checks: before
+that path quiesces and again before the selector CAS. The live control caller
+has already retired its original process before this helper runs; this change
+does not add candidate preflight before that earlier live retirement.
+Changing the executable and rewriting its manifest together cannot reuse the
+old preparation. Missing historical artifact bindings are explicit refusals;
+they are not reconstructed from today's manifest. Already committed selection
+recovery still follows its original committed route and receipts, and rollback
+keeps its distinct retained-program direction. This identity check does not add
+qualification tests or claim that mutable source inputs were frozen.
+
 The current executable is also verified against its committed route and retained
 as an executable recovery artifact. The candidate gets a separate SQLite backup
 and copied state. Installation-level `versions`, shared CAS, node database and

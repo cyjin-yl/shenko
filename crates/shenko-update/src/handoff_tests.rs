@@ -274,6 +274,7 @@ fn activation_record(
     to_slot: &Path,
     phase: ActivationPhase,
     smoke_evidence_ref: Option<ObjectRef>,
+    prepared_program: Option<(&Path, Digest)>,
 ) -> ActivationRecord {
     ActivationRecord {
         activation_id: EntityId::new(),
@@ -285,7 +286,14 @@ fn activation_record(
         migrator_ref: delta_migrator_ref(),
         recovery_closure_ref: seal(
             &fixture.store,
-            &serde_json::json!({ "schema_version": 1, "authority": authority_json() }),
+            &serde_json::json!({
+                "schema_version": 1,
+                "authority": authority_json(),
+                "from_slot": from_slot,
+                "to_slot": to_slot,
+                "to_artifact": prepared_program.map(|(path, digest)|
+                    serde_json::json!({ "path": path, "digest": digest })),
+            }),
         ),
         contract_revision: "shenko.update.activation/v1".to_string(),
         phase,
@@ -457,6 +465,7 @@ async fn activate_refuses_a_saved_smoke_report_that_failed() {
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
         Some(evidence),
+        None,
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -500,6 +509,7 @@ async fn activate_refuses_a_record_without_smoke_evidence() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
+        None,
         None,
     );
     fixture.store.create_activation_record(&record).unwrap();
@@ -563,6 +573,7 @@ async fn activate_admits_a_saved_smoke_report_that_passed() {
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
         Some(evidence),
+        Some((program.as_path(), Digest::blake3(b"candidate executable fixture\n"))),
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -651,6 +662,7 @@ async fn rollback_refuses_a_retained_executable_whose_smoke_did_not_pass() {
         &fixture.live_slot,
         ActivationPhase::Activated,
         Some(passed_evidence),
+        None,
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -733,6 +745,7 @@ async fn reconcile_resumes_the_same_controller_after_an_interrupted_handoff() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
+        None,
         None,
     );
     record.recovery_closure_ref = seal(
@@ -883,6 +896,7 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
         None,
+        None,
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1003,7 +1017,7 @@ async fn activate_refuses_a_candidate_program_that_changed_after_its_smoke() {
             generation: target.0.clone(),
             cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
             artifact_path: Some(program.to_string_lossy().into_owned()),
-            artifact_digest: Some(digested),
+            artifact_digest: Some(digested.clone()),
             copied_through_seq: None,
             created_at: "2026-11-02T00:00:00Z".to_string(),
         },
@@ -1021,6 +1035,7 @@ async fn activate_refuses_a_candidate_program_that_changed_after_its_smoke() {
         &slot,
         ActivationPhase::Smoke,
         Some(evidence),
+        Some((program.as_path(), digested)),
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1102,6 +1117,7 @@ async fn reconcile_refuses_a_boundary_bound_to_another_frozen_request() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
+        None,
         None,
     );
     record.recovery_closure_ref = seal(
@@ -1220,7 +1236,7 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
             generation: target.0.clone(),
             cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
             artifact_path: Some(program.to_string_lossy().into_owned()),
-            artifact_digest: Some(artifact_digest),
+            artifact_digest: Some(artifact_digest.clone()),
             copied_through_seq: None,
             created_at: "2026-11-02T00:00:00Z".to_string(),
         },
@@ -1238,6 +1254,7 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         &slot.slot_dir,
         ActivationPhase::Smoke,
         Some(evidence),
+        Some((program.as_path(), artifact_digest)),
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1397,6 +1414,72 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         anyhow::ensure!(read_build_json(&reopened, &receipt_ref)? == receipt);
         drop(reopened);
         std::fs::remove_dir_all(dir)?;
+        Ok(())
+    })
+}
+
+#[test]
+#[cfg(unix)]
+fn activate_refuses_replaced_program_and_manifest_after_preparation_reopens() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let fixture = installation();
+        let generation = RuntimeGeneration::new("prepared-artifact-b");
+        let candidate = write_executable(&fixture.data_dir, "original-b", &smoke_script(&generation.0));
+        let record = fixture.service.prepare(PrepareRequest {
+            agent_id: fixture.agent_id, generation: generation.clone(),
+            source: CandidateSource::Prebuilt { path: candidate }, primary_claim: None,
+        }).await?;
+        anyhow::ensure!(record.phase == ActivationPhase::Smoke);
+        let closure = read_build_json(&fixture.store, &record.recovery_closure_ref)?;
+        let smoke_ref = record.smoke_evidence_ref.as_ref().context("prepared smoke was not retained")?;
+        let smoke = read_build_json(&fixture.store, smoke_ref)?;
+        let slot = candidate_slot(&fixture, &generation);
+        let mut manifest = slots::read_slot_manifest(&slot)?;
+        let program = PathBuf::from(manifest.artifact_path.as_deref().context("prepared program missing")?);
+        let prepared_digest = Digest::blake3(&fs::read(&program)?);
+        anyhow::ensure!(manifest.artifact_digest.as_ref() == Some(&prepared_digest));
+        anyhow::ensure!(closure["to_artifact"]["path"] == serde_json::to_value(&program)?);
+        anyhow::ensure!(closure["to_artifact"]["digest"] == serde_json::to_value(&prepared_digest)?);
+        let live_slot = fixture.live_slot.clone();
+        let dir = fixture.data_dir.clone();
+        let agent = fixture.agent_id;
+        drop(fixture);
+
+        let reopened = Arc::new(Store::open(live_slot.join(SLOT_DB_FILENAME), dir.join("cas"))?);
+        anyhow::ensure!(reopened.activation_record(record.activation_id)?.as_ref() == Some(&record));
+        let selector_before = reopened.activation_selector(agent)?.context("working selector missing")?;
+        let head_before = reopened.load_subject(agent)?.0;
+        let service = UpdateService::new(
+            dir.clone(), live_slot, Arc::clone(&reopened),
+            Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()),
+            Arc::new(crate::build::CargoBuildProvider::default()),
+        ).with_claim_source(Arc::new(FixtureAuthority));
+
+        // Both mutable witnesses now agree about C, while the sealed
+        // preparation and successful smoke still describe the original B.
+        let replacement = b"#!/bin/sh\nexit 23\n";
+        fs::write(&program, replacement)?;
+        let replacement_digest = Digest::blake3(replacement);
+        anyhow::ensure!(replacement_digest != prepared_digest);
+        manifest.artifact_digest = Some(replacement_digest.clone());
+        slots::write_slot_manifest(&slot, &manifest)?;
+        anyhow::ensure!(slots::read_slot_manifest(&slot)?.artifact_digest == Some(replacement_digest.clone()));
+        anyhow::ensure!(Digest::blake3(&fs::read(&program)?) == replacement_digest);
+        let error = match service.activate(record.activation_id, selector_before.selector_revision).await {
+            Err(error) => error,
+            Ok(_) => anyhow::bail!("a different program was admitted under B's preparation"),
+        };
+        anyhow::ensure!(format!("{error:#}").contains("does not match the sealed prepared artifact digest"),
+            "the refusal did not identify the original preparation: {error:#}");
+        anyhow::ensure!(reopened.activation_selector(agent)?.as_ref() == Some(&selector_before));
+        anyhow::ensure!(serde_json::to_value(reopened.load_subject(agent)?.0)? == serde_json::to_value(&head_before)?);
+        anyhow::ensure!(reopened.open_subject_quiesce(agent)?.is_none());
+        anyhow::ensure!(reopened.activation_record(record.activation_id)?.as_ref() == Some(&record));
+        anyhow::ensure!(read_build_json(&reopened, &record.recovery_closure_ref)? == closure);
+        anyhow::ensure!(read_build_json(&reopened, smoke_ref)? == smoke);
+        drop(service);
+        drop(reopened);
+        fs::remove_dir_all(dir)?;
         Ok(())
     })
 }

@@ -362,6 +362,27 @@ struct PreparationEvidence<'a> {
     build: &'a ObjectRef,
 }
 
+#[derive(Deserialize)]
+struct PreparedProgram {
+    path: PathBuf,
+    digest: Digest,
+}
+
+#[derive(Deserialize)]
+struct PreparedRecoveryClosure {
+    schema_version: u32,
+    to_slot: PathBuf,
+    to_artifact: PreparedProgram,
+}
+
+#[derive(Deserialize)]
+struct PreparedStateCopy {
+    schema_version: u32,
+    generation: RuntimeGeneration,
+    slot_dir: PathBuf,
+    db_path: PathBuf,
+}
+
 impl UpdateService {
     pub fn new(
         data_dir: PathBuf,
@@ -772,17 +793,52 @@ impl UpdateService {
     /// authority while the working runtime has already stopped.
     fn verified_candidate_program(&self, record: &ActivationRecord) -> UpdateResult<(PathBuf, Digest)> {
         let slot_dir = self.layout().slot_dir(&record.to_generation);
+        let closure_bytes = self.store.cas.read_object(&record.recovery_closure_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&closure_bytes) == record.recovery_closure_ref.digest
+                && closure_bytes.len() as u64 == record.recovery_closure_ref.bytes,
+            "the prepared recovery closure does not match its sealed reference");
+        let prepared: PreparedRecoveryClosure = serde_json::from_slice(&closure_bytes)
+            .context("the prepared recovery closure has no readable artifact binding")?;
+        ensure!(prepared.schema_version == 1, "unsupported prepared recovery closure schema");
+        let state_bytes = self.store.cas.read_object(&record.to_state_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&state_bytes) == record.to_state_ref.digest
+                && state_bytes.len() as u64 == record.to_state_ref.bytes,
+            "the prepared state copy does not match its sealed reference");
+        let state: PreparedStateCopy = serde_json::from_slice(&state_bytes)
+            .context("the prepared state copy has no readable slot binding")?;
+        ensure!(state.schema_version == 1, "unsupported prepared state-copy schema");
+        ensure!(state.generation == record.to_generation
+                && same_slot_path(&prepared.to_slot, &slot_dir)
+                && same_slot_path(&state.slot_dir, &slot_dir)
+                && same_slot_path(&state.db_path, &slot_dir.join(SLOT_DB_FILENAME)),
+            "the sealed prepared artifact and state copy do not name this activation's generation and slot");
+
         let manifest = slots::read_slot_manifest(&slot_dir).map_err(anyhow::Error::from)?;
+        ensure!(manifest.schema_version == slots::SlotManifest::SCHEMA_VERSION,
+            "unsupported candidate slot manifest schema");
         ensure!(manifest.generation == record.to_generation.0,
             "the candidate slot manifest names generation {}, not this activation's target {}",
             manifest.generation, record.to_generation.0);
-        let executable = manifest.artifact_path.context("candidate artifact path missing")?;
-        let digest = manifest.artifact_digest.context("candidate artifact digest missing")?;
+        // The manifest can change with the executable. Only the immutable
+        // preparation receipt says which program the old smoke qualified.
+        let resolve_program = |path: PathBuf| {
+            if path.is_absolute() { path } else { slot_dir.join(path) }
+        };
+        let declared = resolve_program(PathBuf::from(
+            manifest.artifact_path.context("candidate artifact path missing")?));
+        let executable = resolve_program(prepared.to_artifact.path);
+        ensure!(same_slot_path(&declared, &executable),
+            "the candidate slot manifest does not name the sealed prepared artifact path");
+        let digest = prepared.to_artifact.digest;
+        ensure!(manifest.artifact_digest.as_ref() == Some(&digest),
+            "the candidate slot manifest does not match the sealed prepared artifact digest");
         let bytes = std::fs::read(&executable)
-            .with_context(|| format!("candidate executable {executable} is unreadable"))?;
+            .with_context(|| format!("candidate executable {} is unreadable", executable.display()))?;
         ensure!(Digest::blake3(&bytes) == digest,
-            "candidate executable {executable} does not match its prepared artifact digest");
-        Ok((PathBuf::from(executable), digest))
+            "candidate executable {} does not match its prepared artifact digest", executable.display());
+        Ok((executable, digest))
     }
 
     fn authority_snapshot(&self) -> UpdateResult<serde_json::Value> {
