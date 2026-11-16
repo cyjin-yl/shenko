@@ -49,3 +49,25 @@ tree and all 45 added blob paths, modes and identities; those same blob bytes ar
 retained in the published CI archive. They determine the original source tree
 without duplicating both large ZIPs inside another bundle. This record preserves
 the original author and timestamp separately from its later integration commit.
+
+## Reviewed seat and E1 successor follow-up
+
+`seat-successor.bundle` separately preserves the reviewed seat follow-up
+`95e0a2d68b459f3cfee9561d5211a40b3d6a1499`, the E1 successor source
+`74ea34d6c6c7f52875a575d74b869480b63aac4b`, their intermediate original commits,
+and the local integration checkpoint. It requires public `83bf3914` and the
+original `e4d45747` / `5a1075de` objects available from the first bundle above.
+Obtain and verify that first bundle before fetching these follow-up refs.
+`seat-successor-checkpoints.json` records the exact hashes, authors, trees,
+prerequisites and an independent comparison of every changed Rust/Python source
+file after integration. All compared source blob identities match their reviewed
+originals; the documentation map was merged with the current public navigation.
+
+The seat correction retains observed close failures before a cancellation can
+lose them and puts all seven registrations in their actual owner generation.
+The E1 extension preserves the original first Unknown and only admits its one
+typed definite successor, without a new execution permission. Independent
+source reviews found no remaining confirmed blocker in those bounded changes.
+The six seat and seven successor observation windows still need the integrated
+candidate's actual Rust/SSH run. Source preservation and review do not establish
+that runtime result, actual coding, complete writer fencing or safe shared-CAS GC.

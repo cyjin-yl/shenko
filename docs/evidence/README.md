@@ -35,3 +35,5 @@
 - [固定 Node 源码构建的完整失败原件](node-wasix-source-hosted-43922989826/README.md)：原 3,195.484 秒构建在 OpenSSL 归档处失败；完整 ZIP、stderr 与资源观测保留，没有 Node 链接、guest cell 或恢复通过。
 - [Node 归档长参数修复与有限诊断](node-wasix-archive-recipe-20261116/README.md)：固定上游两处分支补丁；普通和 thin 响应文件规则保留 928 个输入及顺序，初次 ptrace 拒绝原件也保留；完整 WASIX 构建及运行未重跑。
 - [原始作者与提交对象](source-checkpoints-20261116/README.md)：保存原始 Git commit／tree／作者与时间，不把来源保全误算成产品验证，待修的 seat checkpoint 也明确保留原状态。
+- [托管 seat 生命周期候选与复核](managed-seat-lifecycle-20261116/README.md)：关闭取消保留失败、同 generation 的七个工具注册、六个新或扩展窗口；源码已复核，集成运行待验证。
+- [首次 Unknown 的一个因果 E1 后继](../development/canonical-native-e1-successor.md)：保留原观察、acknowledgement 与来源，七个新 SSH 窗口不获得执行权限；没有用较早首次 E1 的通过代替后继运行结果。
