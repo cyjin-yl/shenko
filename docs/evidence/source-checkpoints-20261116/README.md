@@ -96,3 +96,31 @@ for `cf4474209eed96feadcf0d00e260bb634a87e276`.
 all 84 added blob paths to its original tree. Every blob matches the integrated
 archive. This preserves the author's original commit without placing another
 copy of all four original ZIPs into a source bundle.
+
+## Seat arm admission, Unknown outcomes and CI compilation corrections
+
+`seat-admission-ci-repairs.bundle` preserves original arm source `2110ca5c`,
+outcome source `a17127c3`, the two CI corrections through `86892957`, and the
+pre-archive integration checkpoint `95451283`. Obtain public `a1d3fa6e`,
+original `5b1c8a31` from `gc-capture-repair.bundle`, and original `74ea34d6`
+from `seat-successor.bundle` before fetching these refs. Exact bundle bytes,
+hashes, original authors and times, prerequisites and source comparisons are
+recorded in `seat-admission-checkpoints.json`; bundle verification exited zero.
+The outcome integration merges the arm correction's module documentation; its
+code from the first `use` item onward is byte-identical to the original source.
+
+The combined seat increment has nine distinct scenarios, including the explicit
+NotSent control. It rechecks committed answer bindings when arming and preserves
+Unknown after a possible write, including a failed durable close. It does not
+establish continuous writer exclusion, actual coding-seat I/O or activation
+fencing. The two CI corrections borrow an existing test value and box the
+manifest page; they add no scenario or relaxed gate. [CI a1d3](../ci-a1d3fa6e-20261116/README.md)
+failed before workspace tests or the pinned guest build could execute. These
+new sources require their own actual candidate run.
+
+`cia1-archive-author.commit` preserves the exact original archive commit
+`0578856d`. Its base, original tree and 30 changed blob identities are in
+`cia1-archive-source-tree.json`. All 29 new archive files are unchanged after
+integration. The evidence index was merged with current entries, so its
+original bytes are separately retained as `cia1-archive-source-index.blob`.
+The merged index is not claimed byte-identical to the original source index.

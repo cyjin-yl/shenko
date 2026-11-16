@@ -190,6 +190,25 @@ claim expectations. This source checkpoint has not executed that journey;
 it needs the integrated candidate's Rust CI. It does not establish actual
 seat I/O, native task admission or the continuous transport fence above.
 
+The accompanying outcome correction preserves uncertainty through the guarded
+tmux and durable-answer paths. A timeout, non-Exited outcome or executor
+diagnostic keeps the complete `ExecFailure`, even if its exit code resembles
+a target-side refusal. The tmux response retains the original execution ID,
+stdout/stderr and reconciliation diagnostic; a successful Unknown close also
+retains that detail in the durable decision. If an adapter errors after arm
+and durable close then fails, the runtime returns the original Armed decision
+and Unknown response. The native handler therefore retains `EffectStatus::Unknown`
+instead of treating that failure as a pre-send `EffectStatus::None`.
+
+The additional checks cover Unknown classification with an explicit NotSent
+control, an Unknown result carrying a reserved guard exit, and a real Store
+with a controlled local append, failed close and refusal to resend after
+reopen. Including that explicit NotSent control and the five arm windows above,
+the combined increment has nine distinct scenarios. No additional scenario is
+introduced by the E1 compilation fixes.
+These checks have not yet run for this integrated source; the controlled
+append is not evidence of real tmux or SSH receiver behavior.
+
 On success the question becomes `decision_committed`, so a second decision for
 the same question is refused (`seat_question_not_open`). The only exception is
 a previous decision that ended `not_sent` — the remote provably never applied

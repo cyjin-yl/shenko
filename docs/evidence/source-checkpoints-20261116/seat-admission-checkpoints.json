@@ -1,0 +1,164 @@
+{
+  "recorded_at": "2026-11-16T21:04:18.452652+00:00",
+  "bundle": "seat-admission-ci-repairs.bundle",
+  "bytes": 15995,
+  "sha256": "d70001e441697a84fc9dc7a8334b16223bb2214591183f5d2cb7c259ef378160",
+  "create_command": [
+    "git",
+    "bundle",
+    "create",
+    "--version=3",
+    "docs/evidence/source-checkpoints-20261116/seat-admission-ci-repairs.bundle",
+    "refs/heads/checkpoint/seat-arm-original-20261116",
+    "refs/heads/checkpoint/seat-outcome-original-20261116",
+    "refs/heads/checkpoint/cia1-source-repairs-original-20261116",
+    "refs/heads/checkpoint/seat-admission-integration-20261116",
+    "^a1d3fa6ed41f9ba233aad5e5b3e7dfeaad281b9f",
+    "^5b1c8a310b959acca251d26c9d008520f7b6291f",
+    "^74ea34d6c6c7f52875a575d74b869480b63aac4b"
+  ],
+  "create_exit": 0,
+  "verify_exit": 0,
+  "prerequisites": [
+    "a1d3fa6ed41f9ba233aad5e5b3e7dfeaad281b9f",
+    "5b1c8a310b959acca251d26c9d008520f7b6291f",
+    "74ea34d6c6c7f52875a575d74b869480b63aac4b"
+  ],
+  "prerequisite_sources": [
+    "public a1d3fa6e",
+    "gc-capture-repair.bundle",
+    "seat-successor.bundle"
+  ],
+  "commits": [
+    {
+      "commit": "2110ca5cd7e95b6630eaebdcc20e833e64e9956c",
+      "tree": "3b40bec36b7a63de11b20931c6500dc6a2f64ccf",
+      "parents": "87ff847ae6b03805ffd0cded80eeec177ac850e5",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:35:06Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:35:06Z",
+      "message": "fix(seat): revalidate committed answer scope before arming\n\n",
+      "bundle_ref": "refs/heads/checkpoint/seat-arm-original-20261116"
+    },
+    {
+      "commit": "a17127c320549fd52512ad70e2c2603701f94555",
+      "tree": "a4fe5d5112c7e12a8cd9d71ee8538b7d959f8d86",
+      "parents": "5b1c8a310b959acca251d26c9d008520f7b6291f",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:47:03Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:47:03Z",
+      "message": "fix(seat): retain unknown writes through guarded and durable outcomes\n\n",
+      "bundle_ref": "refs/heads/checkpoint/seat-outcome-original-20261116"
+    },
+    {
+      "commit": "8689295761ec02e480167155d0ab0956e627fff3",
+      "tree": "47ed2f79b31c8db56626d668c9c59816c56ee7d4",
+      "parents": "3c998cea2c141a006b44d26ce5464daf910a2461",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:53:23Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:53:23Z",
+      "message": "fix: box the bounded native evidence manifest response\n\n",
+      "bundle_ref": "refs/heads/checkpoint/cia1-source-repairs-original-20261116"
+    },
+    {
+      "commit": "954512839185dd5dd09fcf26910ca537e7b1559f",
+      "tree": "8f4f661072cc82fd6cdc3b2ad5a6ddfe2d4d298e",
+      "parents": "d6ef11d31ce94524ba43d191e85eff286ab90b12",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:53:23Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:54:23Z",
+      "message": "fix: box the bounded native evidence manifest response\n\n(cherry picked from commit 8689295761ec02e480167155d0ab0956e627fff3)\n\n",
+      "bundle_ref": "refs/heads/checkpoint/seat-admission-integration-20261116"
+    }
+  ],
+  "source_comparison": [
+    {
+      "original_commit": "2110ca5cd7e95b6630eaebdcc20e833e64e9956c",
+      "integration_commit": "1b287dd2a2b66787412fb6c18228045e4f98a876",
+      "path": "crates/shenko-exec-ssh/src/seat/runtime.rs",
+      "original_blob": "ac5d8b9609228ac586529de0ea09ecbb902af899",
+      "integrated_blob": "ac5d8b9609228ac586529de0ea09ecbb902af899",
+      "identical": true
+    },
+    {
+      "original_commit": "2110ca5cd7e95b6630eaebdcc20e833e64e9956c",
+      "integration_commit": "1b287dd2a2b66787412fb6c18228045e4f98a876",
+      "path": "crates/shenko-store/src/seat.rs",
+      "original_blob": "a7344380182a3dae88fdd007a4a5a36bed3d206e",
+      "integrated_blob": "a7344380182a3dae88fdd007a4a5a36bed3d206e",
+      "identical": true
+    },
+    {
+      "original_commit": "2110ca5cd7e95b6630eaebdcc20e833e64e9956c",
+      "integration_commit": "1b287dd2a2b66787412fb6c18228045e4f98a876",
+      "path": "crates/shenko-store/tests/seat_lifecycle.rs",
+      "original_blob": "756f102d3d421872bdb04fec78e8efc2bbe0223a",
+      "integrated_blob": "756f102d3d421872bdb04fec78e8efc2bbe0223a",
+      "identical": true
+    },
+    {
+      "original_commit": "2110ca5cd7e95b6630eaebdcc20e833e64e9956c",
+      "integration_commit": "1b287dd2a2b66787412fb6c18228045e4f98a876",
+      "path": "docs/specs/remote-seats.md",
+      "original_blob": "46c33b788832b4fa794140fccc5d2b6c94d30032",
+      "integrated_blob": "46c33b788832b4fa794140fccc5d2b6c94d30032",
+      "identical": true
+    },
+    {
+      "original_commit": "a17127c320549fd52512ad70e2c2603701f94555",
+      "integration_commit": "2c6b174a855abb4b024282fb6701fbae04dcb290",
+      "path": "crates/shenko-exec-ssh/src/seat/runtime.rs",
+      "original_blob": "797041549bb24abee71cd18b80e9ef7a8fecad9e",
+      "integrated_blob": "dc4b4467291113f73d2f86c6a3c527a41b2ae04a",
+      "identical": false,
+      "difference": "Only module documentation merges the reviewed arm snapshot/continuous-fence boundary; all code from the first use item onward is byte-identical."
+    },
+    {
+      "original_commit": "a17127c320549fd52512ad70e2c2603701f94555",
+      "integration_commit": "2c6b174a855abb4b024282fb6701fbae04dcb290",
+      "path": "crates/shenko-exec-ssh/src/seat/tmux.rs",
+      "original_blob": "f00bd1239ccae801397b6a81ff3e9e52335084bf",
+      "integrated_blob": "f00bd1239ccae801397b6a81ff3e9e52335084bf",
+      "identical": true
+    },
+    {
+      "original_commit": "a17127c320549fd52512ad70e2c2603701f94555",
+      "integration_commit": "2c6b174a855abb4b024282fb6701fbae04dcb290",
+      "path": "crates/shenko-exec-ssh/src/ssh_exec.rs",
+      "original_blob": "bde0e978f3dbb8ce7e3a2eca6ef63247d0a24120",
+      "integrated_blob": "bde0e978f3dbb8ce7e3a2eca6ef63247d0a24120",
+      "identical": true
+    },
+    {
+      "original_commit": "3c998cea2c141a006b44d26ce5464daf910a2461",
+      "integration_commit": "d6ef11d31ce94524ba43d191e85eff286ab90b12",
+      "path": "bin/shenko/tests/native_evidence_delivery.rs",
+      "original_blob": "b27831676aa1828517f36910df39f4133a702a9b",
+      "integrated_blob": "b27831676aa1828517f36910df39f4133a702a9b",
+      "identical": true
+    },
+    {
+      "original_commit": "8689295761ec02e480167155d0ab0956e627fff3",
+      "integration_commit": "954512839185dd5dd09fcf26910ca537e7b1559f",
+      "path": "bin/shenko/src/native_evidence_sync.rs",
+      "original_blob": "7db118db34d3beb0001df779cf0bd24428cb36f4",
+      "integrated_blob": "7db118db34d3beb0001df779cf0bd24428cb36f4",
+      "identical": true
+    }
+  ],
+  "new_scenarios": 9,
+  "product_runtime_executed": false,
+  "scope": "Original seat arm/outcome sources and two minimal CI corrections. Includes the explicit NotSent control in nine distinct scenarios. CI a1d3 failed before these scenarios could execute; the next integrated candidate still requires its own actual Rust/SSH CI."
+}

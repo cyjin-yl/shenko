@@ -1,0 +1,225 @@
+{
+  "recorded_at": "2026-11-16T21:04:18.614476+00:00",
+  "commit": "0578856d64404344dc6bb7b69d2b54c922a83a5f",
+  "tree": "b740aa8de90bcbfded0312ae13d16542caa31531",
+  "base_commit": "8689295761ec02e480167155d0ab0956e627fff3",
+  "base_tree": "47ed2f79b31c8db56626d668c9c59816c56ee7d4",
+  "raw_commit_file": "cia1-archive-author.commit",
+  "raw_commit_bytes": 361,
+  "raw_commit_sha256": "f4aa84b1e51d4733f51e3e17e033a33629d23c593aa9cf4c4c5eab396d0b57ed",
+  "tree_elements": [
+    {
+      "path": "docs/evidence/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "10f1619380b33e747f63d609d79946cb8ecabe27",
+      "identical_at_integration": false,
+      "preserved_original_payload": "docs/evidence/source-checkpoints-20261116/cia1-archive-source-index.blob",
+      "integration_note": "Current evidence index retains all prior entries and merges the exact single new CI-a1 archive entry. This original source index is preserved separately, not claimed identical to the merged index."
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "73ee2a6784fdbd3ae59330d0d32e8d227e9ea94e",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/actual-checkout.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a55a5d3d3c28362ed8f57164108e534fada7ba3c",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/artifacts-final.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "98dd914b165c34a53fc7b430c8a75b568a4a76da",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/artifacts-initial.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "594f4d9a4ea6fabc4957519ca1f044bee109cf4a",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/artifacts-observation2.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c1ba64a9265e7df3ebd4c3418f2ea00f37a9fada",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/clippy-log.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "edcffee0ad47bdf9608811d0968ec955a4177805",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-final-full.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "970d53ae22aa39bdb13db0a8e8b4fedb04d9a8a8",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-initial.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "68fb3903240103444dab473389fe908f9c212ab3",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-observation2.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7b95da4777f744c4b2e47787ad07f37d40d13d5a",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-observation3.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3c87104743196d2391bffc118af23919959dd39c",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/run-final.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "606f03f8cecca7e8fcb91d5f965711ab6833751f",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/api/run-initial.tool.json.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3a8be24968406b4edab359451de754a5e76cdfa5",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/clippy.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b974fc1a5fc37a73d12910913afe8f98344dff8e",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/kernel.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5f476335648c75346019505e6236302ef73a6a42",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/rust.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3978c9f1e3ad4eb0c2ea406d0da1ac5811d8b256",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/web.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "05afade03b390244364866dbce9324b5ebbab460",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/clippy-derived-counts.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1d36ab073423d08a744020b1330a7da84ca712f7",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/derive_clippy_counts.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3571bea958b90c43c2a71de37dbdf8b091d69c9f",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/inventory.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6bc6a404e4f7c38d19d91fe413ee0d9e99d1a833",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/docs-job.log.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2f9320244c46f436fc419b34cf24425b43a09d47",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/kernel-job.log.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f10aae9c8bb208b65e5f266e4335719f60efb180",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/migration-job.log.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5b64ab1ced386ab7c7c8342f327ca7deac391bbe",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/rust-job.log.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "22b6ff88d5c680907d0bf2b64b341a5b6864c4e8",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/web-job.log.gz",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e4e49290080a34bbded9eb1e5e839e3cf699c37c",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/observations.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "518d29f2e8a4ea0657cd9c8d197f5c28c444f74f",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/clippy-evidence.original.zip",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0c94a4492348ea6c6b1d82a3b51a3af2609974c8",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/kernel-boundary-evidence.original.zip",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ac89cff329952746ed0672193712e7bca39d4c4c",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/rust-evidence.original.zip",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7dac9e54a191ba3b792fed76e382ce7d5c3b2b23",
+      "identical_at_integration": true
+    },
+    {
+      "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/web-evidence.original.zip",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7491385b381191e477f216c7b23c2daac7f9bd3e",
+      "identical_at_integration": true
+    }
+  ],
+  "note": "29 new evidence files remain byte-identical. The 30th changed file is the evidence index, merged at integration and preserved here separately as its original blob."
+}
