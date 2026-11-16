@@ -194,6 +194,10 @@ impl SeatRuntime {
             let transport_live = match attached.get(&seat.seat_id) {
                 None => Some(false),
                 Some((adapter, handle)) => {
+                    // The adapter declares what it can do; the fleet publishes
+                    // those flags independently of transport liveness. An
+                    // unattached durable record supplies no declaration.
+                    seat.capability = Some(adapter.capability());
                     match tokio::time::timeout(
                         std::time::Duration::from_millis(500),
                         adapter.transport_live(handle),
@@ -1082,6 +1086,10 @@ mod tests {
         assert_eq!(durable[0].transport_live, Some(false));
         assert!(durable[0].durable_only);
         assert_eq!(durable[0].seat.last_observed_at, None);
+        assert!(
+            durable[0].seat.capability.is_none(),
+            "a durable-only seat has no adapter to declare a capability"
+        );
         assert!(!serde_json::to_string(&durable).unwrap().contains("must-not-be-disclosed"));
 
         // A real owned child, not a protocol-readiness or model fixture.
@@ -1095,12 +1103,20 @@ mod tests {
         assert_eq!(attached[0].transport_live, Some(true));
         assert!(!attached[0].durable_only);
         assert!(attached[0].seat.last_observed_at.is_some());
+        // Compare the complete native declaration, including unsupported
+        // flags and notes, through the actual flattened fleet projection.
+        let declared = adapter.capability();
+        assert_eq!(attached[0].seat.capability.as_ref(), Some(&declared));
+        let published = serde_json::to_value(&attached[0]).unwrap();
+        assert_eq!(published["capability"], serde_json::to_value(&declared).unwrap());
         assert!(store.seat_current_lease(record.seat_id).unwrap().is_none());
 
         adapter.close().await;
         let (ended, _) = runtime.fleet_view(Some(task_id)).await.unwrap();
         assert_eq!(ended[0].transport_live, Some(false), "a retained handle is not a live process");
         assert!(ended[0].durable_only);
+        assert_eq!(ended[0].seat.capability.as_ref(), Some(&declared),
+            "adapter capability and transport liveness remain distinct facts");
         assert_eq!(store.seat(record.seat_id).unwrap().unwrap().record_revision, record.record_revision);
         assert!(store.seat_current_lease(record.seat_id).unwrap().is_none());
         drop(runtime);
@@ -1111,6 +1127,7 @@ mod tests {
         let (view, _) = restarted.fleet_view(Some(task_id)).await.unwrap();
         assert_eq!(view[0].seat.seat_id, record.seat_id);
         assert!(view[0].durable_only);
+        assert!(view[0].seat.capability.is_none(), "a reopened runtime has no adapter attached");
         assert_eq!(view[0].seat.last_observed_at, None, "no observation time is invented on reopen");
     }
 }

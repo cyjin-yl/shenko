@@ -209,6 +209,32 @@ pub struct SeatRecord {
 /// A bounded inventory page includes one extra row to reveal truncation.
 pub const SEAT_FLEET_LIMIT: usize = 32;
 
+/// What one seat adapter can actually do — the flags an adapter declares
+/// for itself.
+///
+/// This is a read-only publication: the durable seat record does not attest
+/// what an adapter can do, so these flags travel only with an attached
+/// adapter's declaration. They do not attest transport liveness and grant no
+/// authority; the writer lease does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeatCapability {
+    /// The remote agent sends structured question events.
+    pub structured_questions: bool,
+    /// Answers are delivered as a structured native response.
+    pub structured_answers: bool,
+    /// The screen can be observed with its attributes.
+    pub screen_observation: bool,
+    /// Free text can be steered into a running turn.
+    pub steer: bool,
+    /// The running turn can be interrupted.
+    pub interrupt: bool,
+    /// The remote session can be resumed.
+    pub resume: bool,
+    /// Anything the caller must know that the flags do not say.
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
 /// Credential-free durable facts about a task's seat. Stored seat and question
 /// revisions do not attest transport liveness or an observation timestamp.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,6 +247,11 @@ pub struct SeatFleetEntry {
     pub status: SeatStatus,
     pub open_question_count: u64,
     pub last_observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The capability flags the attached adapter declared for this seat. Absent
+    /// when no adapter is attached: the durable record does not attest what
+    /// an adapter can do, so the store never invents these flags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability: Option<SeatCapability>,
 }
 
 impl SeatLocation {
@@ -344,8 +375,8 @@ pub struct SeatLeaseRequest {
     pub lease_id: EntityId,
     pub seat_id: EntityId,
     pub holder_task_id: EntityId,
-    /// The holder's writer epoch (> 0). A newer epoch always displaces an
-    /// older current lease on the same seat.
+    /// The holder's writer epoch (> 0), strictly greater than every prior
+    /// acquisition on this seat, including leases that have already ended.
     pub lease_epoch: u64,
     /// The exact input capability the holder verified for this seat right
     /// before acquiring (e.g. `tmux.send-keys:%42`, `ssh.pty:host:pane`).
@@ -688,6 +719,22 @@ fn read_seat(conn: &rusqlite::Connection, id: EntityId) -> Result<Option<SeatRec
     data.map(|d| serde_json::from_str(&d).map_err(Into::into)).transpose()
 }
 
+fn check_seat_task(seat: &SeatRecord, task_id: EntityId) -> Result<()> {
+    ensure!(
+        seat.task_id == task_id,
+        seat_error(
+            "seat_task_mismatch",
+            RetryStrategy::NeverAutomatically,
+            serde_json::json!({
+                "seat_id": seat.seat_id.to_string(),
+                "seat_task_id": seat.task_id.to_string(),
+                "claimed_task_id": task_id.to_string(),
+            }),
+        )
+    );
+    Ok(())
+}
+
 /// Read one task row inside a caller's transaction. The seat fence binds a
 /// task revision, so the revision has to be read from the same transaction
 /// that admits the write — never from a separate lock acquisition.
@@ -764,6 +811,27 @@ fn current_lease(conn: &rusqlite::Connection, seat_id: EntityId) -> Result<Optio
         )
         .optional()?;
     data.map(|d| serde_json::from_str(&d).map_err(Into::into)).transpose()
+}
+
+fn highest_seat_lease_epoch(conn: &rusqlite::Connection, seat_id: EntityId) -> Result<u64> {
+    #[derive(Deserialize)]
+    struct Epoch {
+        #[serde(default)]
+        lease_epoch: u64,
+    }
+
+    // Stream the retained acquisition facts. SQLite's JSON numeric projection
+    // rounds epochs above i64::MAX to floating point; deserialize the original
+    // JSON integer so distinct u64 epochs remain distinct, without collecting
+    // the seat's history or allocating its other fields.
+    let mut query = conn.prepare("SELECT data FROM seat_leases WHERE seat_id=?1")?;
+    let mut rows = query.query([seat_id.to_string()])?;
+    let mut highest = 0;
+    while let Some(row) = rows.next()? {
+        let epoch: Epoch = serde_json::from_str(row.get_ref(0)?.as_str()?)?;
+        highest = highest.max(epoch.lease_epoch);
+    }
+    Ok(highest)
 }
 
 /// The single active seat bound to `(host, location key)` — the invariant
@@ -1056,9 +1124,14 @@ impl Store {
                 );
                 let lease = read_lease(&tx, decision.lease_id)?
                     .ok_or_else(|| ShenkoError::not_found("arm_seat_answer_decision: unknown lease"))?;
+                let seat = read_seat(&tx, decision.seat_id)?
+                    .ok_or_else(|| ShenkoError::not_found("arm_seat_answer_decision: unknown seat"))?;
+                check_seat_task(&seat, decision.task_id)?;
                 ensure!(
                     lease.is_current() && lease.is_writer_fence()
-                        && lease.lease_epoch == decision.lease_epoch,
+                        && lease.lease_epoch == decision.lease_epoch
+                        && lease.seat_id == decision.seat_id
+                        && lease.holder_task_id == decision.task_id,
                     seat_error(
                         "stale_authority",
                         RetryStrategy::AfterReconcile,
@@ -1290,10 +1363,22 @@ impl Store {
         )
     }
 
-    /// Acquire the single writer lease for a seat. If another lease is
-    /// current it is ended with `Superseded` — by docs/specs/remote-seats.md#spec-17-1 a new valid writer
-    /// always displaces the old one, and the displaced holder's writes are
-    /// refused by lease id afterwards.
+    /// Acquire the single writer lease for a seat — docs/specs/remote-seats.md#spec-17-1.
+    ///
+    /// A seat has at most one valid writer, and that writer is the seat's own
+    /// durable owner: only the task the seat record names may hold its writer
+    /// lease. A holder that names a foreign task is refused with
+    /// `seat_task_mismatch` and never displaces the live writer, so the
+    /// fleet can never keep naming one owner while another task writes.
+    ///
+    /// A takeover by that same owner needs a strictly greater
+    /// `lease_epoch`: the writer epoch is monotonic across the seat's entire
+    /// acquisition history, including release, human takeover and restart.
+    /// An epoch that does not exceed that history is refused with
+    /// `seat_lease_epoch_regression`, without changing any stored lease.
+    /// A greater epoch ends the current lease with
+    /// `Superseded` — a new valid writer displaces the old one, and the
+    /// displaced holder's writes are refused by lease id afterwards.
     /// `lease_id` is the caller's acquisition identity, chosen and durably
     /// saved before the attempt so the outcome is always re-identifiable:
     /// replaying the same
@@ -1325,8 +1410,19 @@ impl Store {
                 if let Some(existing) = read_lease(&tx, lease_id)? {
                     // This exact acquisition already committed; replay returns
                     // it verbatim, never a phantom second displacement.
-                    ensure!(existing.seat_id == seat_id && existing.holder_task_id == holder_task_id,
-                        "seat lease id already bound to different acquisition facts");
+                    ensure!(
+                        existing.seat_id == seat_id && existing.holder_task_id == holder_task_id
+                            && existing.lease_epoch == lease_epoch
+                            && existing.fence_capability == fence_capability,
+                        seat_error(
+                            "seat_lease_identity_conflict",
+                            RetryStrategy::NeverAutomatically,
+                            serde_json::json!({"lease_id": lease_id.to_string()}),
+                        )
+                    );
+                    let seat = read_seat(&tx, seat_id)?
+                        .ok_or_else(|| ShenkoError::not_found("acquire_seat_lease: unknown seat"))?;
+                    check_seat_task(&seat, holder_task_id)?;
                     tx.commit()?;
                     return Ok(existing);
                 }
@@ -1340,6 +1436,28 @@ impl Store {
                         serde_json::json!({"seat_id": seat_id.to_string()}),
                     )
                 );
+                // The seat's durable owner is the only task that may hold its
+                // writer lease. A foreign holder would displace a live writer
+                // while the fleet still names the owner.
+                check_seat_task(&seat, holder_task_id)?;
+                let current = current_lease(&tx, seat_id)?;
+                let highest_epoch = highest_seat_lease_epoch(&tx, seat_id)?;
+                if lease_epoch <= highest_epoch {
+                    return Err(seat_error(
+                        "seat_lease_epoch_regression",
+                        RetryStrategy::NeverAutomatically,
+                        serde_json::json!({
+                            "seat_id": seat_id.to_string(),
+                            "lease_id": lease_id.to_string(),
+                            "requested_lease_epoch": lease_epoch,
+                            "highest_lease_epoch": highest_epoch,
+                            "current_lease_id": current.as_ref().map(|lease| lease.lease_id),
+                            "current_lease_epoch": current.as_ref().map(|lease| lease.lease_epoch),
+                            "current_holder_task_id": current.as_ref().map(|lease| lease.holder_task_id),
+                        }),
+                    )
+                    .into());
+                }
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let lease = SeatLease {
@@ -1358,7 +1476,7 @@ impl Store {
                     created_commit: commit,
                     updated_commit: commit,
                 };
-                if let Some(mut old_lease) = current_lease(&tx, seat_id)? {
+                if let Some(mut old_lease) = current {
                     end_lease_tx(
                         &tx,
                         &mut old_lease,
@@ -1465,6 +1583,7 @@ impl Store {
                 serde_json::json!({"seat_id": lease.seat_id.to_string()}),
             )
         })?;
+        check_seat_task(&seat, task_id)?;
         if seat.status != SeatStatus::Active {
             return Err(seat_error(
                 "seat_retired",
@@ -1547,6 +1666,9 @@ impl Store {
                 status: seat.status,
                 open_question_count,
                 last_observed_at: None,
+                // The durable record does not attest what an adapter can do.
+                // Only an attached adapter publishes these flags.
+                capability: None,
             })
         }).collect()
     }

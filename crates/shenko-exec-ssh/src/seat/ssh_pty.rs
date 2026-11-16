@@ -18,13 +18,14 @@ use crate::native_transport::{NativePtyEvent, NativePtyObservation, NativePtySes
 use crate::seat::tmux::{ensure_terminal_question, infer_questions, map_answer_to_terminal_input};
 use crate::seat::{
     AnswerConfirmation, AnswerTransport, PreflightRefusalKind, SeatAdapter, SeatAdapterId,
-    SeatAnswer, SeatCapability, SeatEffectPlan, SeatHandle, SeatObservation, SeatPreflight,
+    SeatAnswer, SeatEffectPlan, SeatHandle, SeatObservation, SeatPreflight,
     SeatQuestionCandidate, SeatResponse, SeatWriteFence,
 };
 use crate::terminal::{TerminalMode, TerminalScreen};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use russh::Sig;
+use shenko_store::SeatCapability;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
