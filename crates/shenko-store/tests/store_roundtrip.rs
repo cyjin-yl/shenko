@@ -338,6 +338,7 @@ fn recorded_result_with_docket(
     reconciliation_docket: &[serde_json::Value],
 ) -> Result<shenko_types::subject::SubjectStep> {
     use shenko_types::{ids::*, subject::*};
+    let initial_revision = step.record_revision.0;
     let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
         shenko_context_policy::StoreWindowLog::new(Arc::clone(store), EntityId(head.branch_id.0)),
     ));
@@ -375,17 +376,17 @@ fn recorded_result_with_docket(
             "max_tokens":4096, "tools":[]},
     });
     step.state = SubjectStepState::Preparing;
-    step.record_revision = RecordRevision(1);
+    step.record_revision = RecordRevision(initial_revision + 1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
         "subject_step_input", plan_schema).unwrap().object);
-    store.upsert_step(&step, head, RecordRevision(0)).unwrap();
+    store.upsert_step(&step, head, RecordRevision(initial_revision)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
-    step.record_revision = RecordRevision(2);
+    step.record_revision = RecordRevision(initial_revision + 2);
     step.active_request_id = Some(EntityId::new());
-    store.upsert_step(&step, head, RecordRevision(1)).unwrap();
+    store.upsert_step(&step, head, RecordRevision(initial_revision + 1)).unwrap();
     step.state = SubjectStepState::ResultRecorded;
-    step.record_revision = RecordRevision(3);
+    step.record_revision = RecordRevision(initial_revision + 3);
     step.model_result_ref = Some(
         store
             .cas
@@ -414,7 +415,7 @@ fn recorded_result_with_docket(
             .unwrap()
             .object,
     );
-    store.upsert_step(&step, head, RecordRevision(2)).unwrap();
+    store.upsert_step(&step, head, RecordRevision(initial_revision + 2)).unwrap();
     Ok(step)
 }
 
@@ -2502,5 +2503,169 @@ fn channel_conversation_reads_staged_messages_and_hides_publication_echoes() -> 
         .iter()
         .filter(|row| row.direction != "outbound")
         .all(|row| row.thread_shape == Some(AudienceShape::Group)));
+    Ok(())
+}
+
+/// Store-focused accepted-value fixture. Real Node consensus/transport has its
+/// own journeys; here a retained chosen grant can outlive its source caller.
+struct CanonicalAuthority {
+    source: String,
+    stamp: Option<shenko_types::authority::CommitAuthorityStamp>,
+    chosen: Arc<parking_lot::Mutex<Option<shenko_types::authority::CommitAuthorityGrant>>>,
+    lose_reply: bool,
+}
+struct CanonicalGuard(Option<shenko_types::authority::CommitAuthorityStamp>);
+impl shenko_types::authority::CommitAuthorityGuard for CanonicalGuard {
+    fn stamp(&self) -> Option<&shenko_types::authority::CommitAuthorityStamp> { self.0.as_ref() }
+}
+impl shenko_types::authority::CommitAuthorityProvider for CanonicalAuthority {
+    fn source_id(&self) -> &str { &self.source }
+    fn prepare(&self, admission: &shenko_types::authority::CommitAdmission)
+        -> std::result::Result<Option<shenko_types::authority::CommitAuthorityGrant>, shenko_types::error::ShenkoError>
+    {
+        let grant = shenko_types::authority::CommitAuthorityGrant { admission:admission.clone(),
+            grant_id:format!("chosen:{}",admission.action_id), proof:serde_json::json!({"test":"retained chosen value"}), replayed:false };
+        *self.chosen.lock() = Some(grant.clone());
+        if self.lose_reply { return Err(shenko_types::error::ShenkoError::conflict("fixture lost chosen reply")); }
+        Ok(Some(grant))
+    }
+    fn acquire(&self, grant: Option<&shenko_types::authority::CommitAuthorityGrant>)
+        -> std::result::Result<Box<dyn shenko_types::authority::CommitAuthorityGuard>, shenko_types::error::ShenkoError>
+    {
+        if let Some(grant) = grant {
+            let chosen = self.chosen.lock();
+            if chosen.as_ref().is_none_or(|original| original.admission != grant.admission || original.grant_id != grant.grant_id) {
+                return Err(shenko_types::error::ShenkoError::conflict("not the retained chosen value"));
+            }
+        }
+        Ok(Box::new(CanonicalGuard(self.stamp.clone())))
+    }
+}
+
+fn canonical_source(store: &Arc<Store>, agent: shenko_types::ids::EntityId, lose_reply: bool)
+    -> Result<Arc<parking_lot::Mutex<Option<shenko_types::authority::CommitAuthorityGrant>>>>
+{
+    use shenko_types::{authority::CommitAuthorityStamp,ids::EntityId,object::Digest};
+    let chosen = Arc::new(parking_lot::Mutex::new(None));
+    let head = store.load_subject(agent)?.0;
+    store.attach_commit_authority(Arc::new(CanonicalAuthority { source:"canonical-source".into(),
+        stamp:Some(CommitAuthorityStamp { source_id:"canonical-source".into(),holder_id:EntityId::new(),subject_id:agent,
+            branch_id:head.branch_id.clone(),revision:Digest::blake3(b"canonical source authority") }),
+        chosen:Arc::clone(&chosen),lose_reply }))?;
+    store.activate_runtime_authority(&head)?;
+    Ok(chosen)
+}
+
+fn canonical_follower(store: &Store, chosen: Arc<parking_lot::Mutex<Option<shenko_types::authority::CommitAuthorityGrant>>>) -> Result<()> {
+    store.attach_commit_authority(Arc::new(CanonicalAuthority { source:"canonical-follower".into(),stamp:None,chosen,lose_reply:false }))?;
+    Ok(())
+}
+
+#[test]
+fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch() -> Result<()> {
+    use shenko_store::{ControlRecoveryOutcome, cognition::CognitionImportOptions};
+    use shenko_types::{ids::EntityId,store::RawInboxEvent};
+    let (dir, source, agent) = initialized_subject();
+    let chosen = canonical_source(&source,agent,true)?;
+    let (head, first) = source.load_subject(agent)?;
+    let result = recorded_result(&source,&head,first)?;
+    let next = EntityId::new();
+    let publication = publication_intent();
+    let publication_id = publication.intent_id;
+    let step = committed_candidate_with(&source,result,next,vec![publication]);
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(),None,&mut archive)?;
+    let follower = Store::open(dir.join("canonical-follower.db"),dir.join("follower-cas"))?;
+    follower.import_cognition_archive(&archive[..],&CognitionImportOptions::default())?;
+    assert_ne!(follower.ledger.ledger_id(),source.ledger.ledger_id());
+    canonical_follower(&follower,Arc::clone(&chosen))?;
+    let parked = follower.get_task(head.subject_root_task_id)?.context("imported root")?;
+    assert!(matches!(parked.dispatch_eligibility,shenko_types::task::DispatchEligibility::Parked { .. }));
+    assert!(source.commit_step_and_advance_head(&step,&head,next).is_err());
+    let grant = chosen.lock().clone().context("retained chosen grant")?;
+    let objects = source.admission_objects(&grant.admission.payload_ref)?;
+    assert_eq!(source.load_subject(agent)?.0.committed_step_no,0);
+    assert!(!source.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(source.recover_control_admission(&grant,&objects,true)?,ControlRecoveryOutcome::RecoveredCanonical);
+    // A replicated source event proves what the source applied, never that
+    // this receiving Store has performed its own atomic materialization.
+    let source_conn = rusqlite::Connection::open(dir.join("head.db"))?;
+    let applied_id = EntityId::derived("commit-authority-admission-v1",grant.admission.conflict_key.as_bytes());
+    let applied: String = source_conn.query_row("SELECT data FROM inbox_events WHERE event_id=?1",[applied_id.to_string()],|row| row.get(0))?;
+    let mut batch = WriteBatch::new();
+    batch.inbox_event_upserts.push(RawInboxEvent { event_id:applied_id,agent_id:agent,source:"commit-authority".into(),kind:"system_event".into(),payload_json:applied,received_at_ms:0 });
+    follower.commit(batch)?;
+    assert!(follower.control_admission_applied(&grant.admission)?);
+    assert!(!follower.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(follower.recover_control_admission(&grant,&objects,false)?,ControlRecoveryOutcome::RecoveredCanonical);
+    let source_head = source.load_subject(agent)?.0;
+    let follower_head = follower.load_subject(agent)?.0;
+    assert_eq!(serde_json::to_value(&follower_head)?,serde_json::to_value(&source_head)?);
+    assert_eq!(follower_head.committed_at.ledger_id,source.ledger.ledger_id());
+    assert_eq!(serde_json::to_value(follower.get_task(publication_id)?)?,serde_json::to_value(source.get_task(publication_id)?)?);
+    assert_eq!(serde_json::to_value(follower.get_task(head.subject_root_task_id)?)?,serde_json::to_value(Some(parked))?);
+    let source_events = source.session_events_range(EntityId(head.branch_id.0),0,100)?;
+    let follower_events = follower.session_events_range(EntityId(head.branch_id.0),0,100)?;
+    assert_eq!(serde_json::to_value(source_events)?,serde_json::to_value(follower_events)?);
+    let follower_conn = rusqlite::Connection::open(dir.join("canonical-follower.db"))?;
+    assert_eq!(follower_conn.query_row("SELECT count(*) FROM operations",[],|row| row.get::<_,i64>(0))?,0);
+    assert_eq!(follower_conn.query_row("SELECT count(*) FROM attempts",[],|row| row.get::<_,i64>(0))?,0);
+    let local_receipt: String = follower_conn.query_row("SELECT data FROM control_materializations WHERE action_id=?1",[grant.admission.action_id.to_string()],|row| row.get(0))?;
+    let local_receipt: serde_json::Value = serde_json::from_str(&local_receipt)?;
+    assert_eq!(local_receipt["committed_at"]["ledger_id"],follower.ledger.ledger_id().to_string());
+    assert_eq!(local_receipt["logical_result"],serde_json::to_value(source_head.committed_at)?);
+    drop(follower_conn); drop(follower);
+    let reopened = Store::open(dir.join("canonical-follower.db"),dir.join("follower-cas"))?;
+    assert!(reopened.control_admission_applied_here(&grant.admission)?);
+    let watermark = reopened.current_commit_seq()?;
+    assert_eq!(reopened.recover_control_admission(&grant,&objects,false)?,ControlRecoveryOutcome::Applied);
+    assert_eq!(watermark,reopened.current_commit_seq()?);
+    Ok(())
+}
+
+#[test]
+fn canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt() -> Result<()> {
+    use shenko_store::ControlRecoveryOutcome;
+    use shenko_types::{ids::EntityId,object::ObjectRef};
+    let (dir,source,agent) = initialized_subject();
+    let chosen = canonical_source(&source,agent,true)?;
+    let (head,first) = source.load_subject(agent)?;
+    let result = recorded_result(&source,&head,first)?;
+    let next = EntityId::new();
+    let publication = publication_intent();
+    let publication_id = publication.intent_id;
+    let step = committed_candidate_with(&source,result,next,vec![publication]);
+    assert!(source.commit_step_and_advance_head(&step,&head,next).is_err());
+    let grant = chosen.lock().clone().context("chosen S1")?;
+    let objects = source.admission_objects(&grant.admission.payload_ref)?;
+    let conn = rusqlite::Connection::open(dir.join("head.db"))?;
+    let original: String = conn.query_row("SELECT created_at FROM subject_steps WHERE step_id=?1",[step.step_id.to_string()],|row| row.get(0))?;
+    conn.execute("UPDATE subject_steps SET created_at='changed-after-prepare' WHERE step_id=?1",[step.step_id.to_string()])?;
+    assert_eq!(source.recover_control_admission(&grant,&objects,true)?,ControlRecoveryOutcome::ReconciliationRequired);
+    assert!(!source.control_admission_applied_here(&grant.admission)?);
+    assert!(source.get_task(publication_id)?.is_none());
+    conn.execute("UPDATE subject_steps SET created_at=?1 WHERE step_id=?2",rusqlite::params![original,step.step_id.to_string()])?;
+    // A malformed final row change fails after earlier SQL writes. All those
+    // writes and the local materialization marker must roll back together.
+    let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    let transition_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let mut transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&transition_ref.digest)?)?;
+    let tables = transition["tables"].as_array_mut().context("transition tables")?;
+    let last = tables.iter_mut().rev().find(|table| table["changes"].as_array().is_some_and(|rows| !rows.is_empty())).context("changed table")?;
+    last["changes"][0]["key"] = serde_json::json!("not the frozen row key");
+    let changed = source.cas.seal_object(&serde_json::to_vec(&transition)?,"application/json","commit-authority","store-s1-transition",1)?.object;
+    envelope["action"]["transition_ref"] = serde_json::to_value(changed)?;
+    let mut fault = grant.clone();
+    fault.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?,"application/json","commit-authority","commit-admission",1)?.object;
+    *chosen.lock() = Some(fault.clone());
+    let fault_objects = source.admission_objects(&fault.admission.payload_ref)?;
+    assert!(source.recover_control_admission(&fault,&fault_objects,true).is_err());
+    assert!(!source.control_admission_applied_here(&grant.admission)?);
+    assert!(source.get_task(publication_id)?.is_none());
+    assert_eq!(source.load_subject(agent)?.0.committed_step_no,0);
+    assert_eq!(conn.query_row("SELECT count(*) FROM subject_identity_receipts WHERE step_id=?1",[step.step_id.to_string()],|row| row.get::<_,i64>(0))?,0);
+    *chosen.lock() = Some(grant.clone());
+    assert_eq!(source.recover_control_admission(&grant,&objects,true)?,ControlRecoveryOutcome::RecoveredCanonical);
+    assert!(source.pending_control_reconciliations(agent)?.is_empty());
     Ok(())
 }

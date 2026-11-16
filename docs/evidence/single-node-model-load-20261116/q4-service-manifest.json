@@ -1,0 +1,31 @@
+{
+  "created_at_utc": "2026-11-16T10:59:02Z",
+  "purpose": "Explicit lower-tier real model single-node journey; not Qwen3.8-27B quality qualification",
+  "model": {
+    "id": "unsloth/Qwen3-0.6B-GGUF",
+    "base_model": "Qwen/Qwen3-0.6B",
+    "revision": "f2d6f9ca53a254cc379437c49e4b2eb447f779df",
+    "file": "Qwen3-0.6B-Q4_K_M.gguf",
+    "file_bytes": 396705472,
+    "sha256": "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a",
+    "hash_verified": true
+  },
+  "server": {
+    "release": "b12359",
+    "commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+    "hash_verified": true,
+    "ctx_size": 16384,
+    "parallel": 1,
+    "threads": 2,
+    "kv_cache_type": "q8_0",
+    "reasoning": "off",
+    "context_shift": false,
+    "cache_ram_mib": 64,
+    "weight_repack": false,
+    "base_url": "http://127.0.0.1:18832/v1",
+    "model_alias": "Qwen3-0.6B-Q4_K_M",
+    "mmap": false
+  },
+  "retry_reason": "First Q8 load was killed (137) before readiness; reduce resident weight bytes and disable mmap, without changing required journey outcomes."
+}

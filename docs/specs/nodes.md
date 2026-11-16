@@ -195,17 +195,48 @@ retained across at most three prefix/term recovery rounds.
 | Observed outcome | Current startup behavior |
 | --- | --- |
 | A fresh quorum chose the local primary and the final local fence still names this campaign | Start with the exact current authority; each global mutation still needs its own admission. |
-| Another primary is learned through an authenticated route | Return `PrimaryNotSelected`; do not invalidate that primary merely because this installation started. |
-| The election fails after any authenticated response from another configured voter | Back off once, catch up once without recampaigning, then return `PrimaryNotSelected` and stop local Start. Do not create a minority-component branch from these facts. |
+| Another primary is learned through an authenticated route | Return `PrimaryNotSelected` to the resident follower loop; retain the owner lock, catch up and recover learned canonical results before trying selection again. |
+| No global fence is available and several reachable configured voters form a minority | Independently observe every participant's authenticated routes. Only an exact reciprocal view, the same committed configuration, and every participant's durable acknowledgement can choose a component coordinator and its new availability branch. |
+| A connected view is incomplete, asymmetric, changed or lacks a resident candidate | Remain a follower and repeat bounded observation; a subset of responses does not create component authority. |
 | No authenticated response from another configured voter during this attempt | A branch fallback is eligible only while the failed campaign's term/configuration and absence of a fence still match a fresh reservation; materialize the actual Store branch before consumers. |
 | A newer prefix/term keeps changing or the authority snapshot changed before fallback | Bound recovery to three rounds and report not-selected or the actual authority conflict; never convert that conflict into isolated authority. |
 
-The connected-failure delay is 200–455 ms with node-derived jitter. This bounded
-retry is not a persistent follower or a component election protocol. Automatic
-coordination of a connected minority component and a resident follower lifecycle
-remain unimplemented. The normal connected-domain and every-component goals in
-[§5.4.1](#spec-5-4-1) remain requirements; stopping this local Start is an explicit
-implementation gap, not a change to those goals or a prohibition on intelligence.
+The contested-election delay remains 200–455 ms with node-derived jitter. The
+owned Start now stays resident after a not-selected or incomplete-component
+result, learns the control prefix, invokes chosen-result recovery without
+admitting subject work, and retries after two seconds. Cancellation stops the
+selection worker and its candidate observations. Local storage and invalid
+durable data errors still fail instead of becoming endless network retries.
+
+Component agreement is separate from the global control log. Its proposal
+binds the full sorted participant set, each participant's identity, term,
+configuration, local component revision and observed candidate, plus a new
+decision/branch identity. Every participant probes its own configured SSH
+routes before acknowledging. An acknowledgement advances a durable local
+component revision and invalidates its preceding availability origin before
+the reply. The exact original proposal, acknowledgements and full committed
+certificate remain in immutable command history after supersession. Replaying
+an older certificate cannot replace a newer local promise. Global membership
+and quorum thresholds never change to accommodate the smaller component.
+
+The selected coordinator publishes the complete certificate to every follower,
+confirms their retained selection, then materializes an actual Store fork.
+Only that coordinator may open the agreed branch. Before new Store admissions,
+it confirms the same reachable view and candidate observations; the final local
+Node reservation also checks the exact component revision/certificate. Learning
+a newer local promise, term, configuration or identity prevents fresh work under
+the old origin. This does not retract a previously granted physical send or
+prove that an unobserved remote process stopped.
+
+Runtime candidate observations expire locally after 30 seconds and refresh
+every five seconds. Expiry only changes eligibility for a new selection; it is
+not an authority lease. The shipped adapter advertises a resident configured
+model binding and uses Node identity as a deterministic tie break when no
+comparison exists. The typed candidate can retain supplied rank and model
+evidence, but configuration is not a successful inference and no automatic
+strongest-usable-model assessment is supplied here. That product requirement,
+transitive/asymmetric route handling, real multi-device/provider journeys and
+the full [§5.4.1](#spec-5-4-1) contract still require further work.
 
 ## Connected Store admission and materialization
 
@@ -227,35 +258,57 @@ needs actual admission ordering as well as this local check/commit boundary.
 An exact retry reads the original grant. It cannot obtain another physical send
 permit; historical grants remain readable after later cancellation or takeover.
 
-**The chosen value is an original plan, not a canonical Store transition.**
-Existing Store paths allocate local `CommitRef`s, IDs and timestamps during
-materialization. Calling the same S1 code against another ledger is therefore
-not deterministic replication of its original result. The frozen predecessor
-and its validated CAS rows are evidence, not an instruction to overwrite a live
-Store projection, rebase the old epoch or recreate an external attempt.
+For authority-bound **S1**, the chosen value now includes a canonical Store
+transition. The source evaluates the existing S1 transaction once under a
+rollback savepoint, freezes the actual read conditions, generated identifiers,
+timestamps and exact row changes, and durably reserves the original source
+`CommitRef` before consensus. The accepted CAS closure explicitly includes the
+objects referenced inside SQL JSON cells as well as the original predecessor,
+S0 context, decision and model result. A restart reuses this frozen value.
+`resume_prepared_step_commits` also resumes the source window between durable
+preparation and learning the consensus result, before a new runtime epoch is
+activated.
 
-The live Store provider and runtime reconstruction path are now wired. Local
-materialization is recorded only after the Store COMMIT succeeds; importing a
-receipt does not set the local, nonreplicated materialization marker. A live
-authority failure cancels and drains the owned runtime before rebuilding its
-branch-scoped consumers. Storage failure retains its actual error instead of
-being disguised as a request to retry an election.
+Each compatible Store applies only those frozen SQL writes, under its own
+IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
+exact predecessor and schema inside that transaction. Source `CommitRef`s,
+raw event identities, per-session sequence and result bytes remain unchanged;
+only the explicitly designated local receipt columns receive the receiving
+Store's sequence. The shared applied event contains the original logical
+result; the separate local materialization row carries that Store's physical
+receipt. Importing a source receipt cannot set that local marker. Both the
+actual writes and local marker commit atomically, and learned application does
+not re-evaluate time, allocate new result identities or call a provider.
 
-When a chosen plan has no confirmed materialization, the selected local primary
-retains the exact plan and predecessor evidence, exposes durable reconciliation
-debt, and enters an actual availability branch before starting fresh consumers.
-This path rechecks the selected authority snapshot and is distinct from the
-isolated-election fallback above. It does not assert that the original mutation
-succeeded, rebase its epoch, or regain its physical send permit. These paths have
-source integration; their combined behavior results await the final candidate.
-General canonical replay still
-requires a typed transition with explicit read conditions, fixed result/write
-identities, and a logical decision identity separate from each node's physical
-Store receipt. The current admission protocol alone does not supply that unit.
+This implementation is deliberately conservative: read tables bind their full
+range, while insert-only tables bind their affected keys. Unrelated parked
+replica tasks stay parked. A missing or different required predecessor,
+incompatible schema, or conflicting original receipt remains reconciliation
+debt; a cognition archive is never treated as permission to restore executable
+work. The implementation and its verification limits are recorded in
+[canonical S1 materialization](../development/canonical-s1-materialization.md).
+
+The live Store provider and runtime reconstruction path retain local markers
+only after Store COMMIT. A live authority failure cancels and drains the owned
+runtime before rebuilding its branch-scoped consumers. Storage failure retains
+its actual error instead of being disguised as an election retry. A follower
+may materialize a verified chosen S1 without becoming a primary, but this
+factual projection supplies no new physical send permit.
+
+The other admission boundaries, including S0 request arming and T1/T2, still
+carry original plans rather than this canonical transition. Calling their
+ordinary code on another ledger is not deterministic replication. When a
+chosen plan cannot be materialized, the selected local primary retains its
+original plan and predecessor evidence, exposes durable reconciliation debt,
+and enters an actual availability branch before starting fresh consumers. It
+rechecks selected authority and does not claim that the old mutation succeeded,
+rebase its epoch, or renew its external send permit. Full multi-node semantics
+still require canonical integration of those remaining boundaries and real
+multi-device fault acceptance.
 
 ## Actual availability branches
 
-The eligible isolated-election path and the selected-primary recovery path call
+The eligible isolated-election, agreed-component and selected-primary recovery paths call
 a Store branch transition instead of stopping at a Node `BranchFact`. They are
 not a blanket fallback for every rejected or unsuccessful election.
 `subject_branches.rs` retains the exact parent head,
@@ -274,10 +327,12 @@ namespace remains pinned to its durable genesis/configuration and is not
 replaced by the mutable local availability-branch identity.
 
 An availability fact also retains its opening authority: holder node ID,
-opening term, configuration revision/digest and the exact optional fence. The
+opening term, configuration revision/digest, exact optional fence, local
+component revision and optional agreed-certificate digest. The
 origin is read and written in the same immediate Node transaction.
 `open_availability_branch_if_current` compares the expected node, full identity,
-term, configuration, fence and complete current branch fact before opening.
+term, configuration, fence, component revision/certificate and complete current
+branch fact before opening.
 Including the branch fact closes the race where rejoin only marks a branch
 merged or advances its reconciliation floor without changing the control term:
 an earlier fallback observation cannot clear that newer fact back to open.
@@ -338,7 +393,7 @@ leave an unapplied Store action, which is a distinct reconciliation boundary.
 | Higher observed term | Retain the response and step down locally. A late lower-term response cannot undo it. |
 | `log_mismatch` / `log_conflict` | Refuse the entire invalid suffix; retain divergent values without rewriting the committed record. |
 | Election failure with no authenticated other-voter response and an unchanged failed-campaign snapshot | Materialize an explicit isolated branch before starting its consumers; do not retain a global-primary label. |
-| Connected rejection, unusable authenticated response or minority without quorum | Return `PrimaryNotSelected` and stop this local Start. Component coordination and a persistent follower remain required implementation work. |
+| Connected rejection, unusable authenticated response or incomplete minority agreement | Remain a resident follower. Only the full independently observed component's durable agreement authorizes its selected coordinator's new branch. |
 | Existing admission or recovered different value | Retain the original chosen plan and its provenance; do not substitute the caller's new payload or owner. |
 | Selected original plan without confirmed local materialization | Preserve plan/CAS evidence and reconciliation debt; recheck selected authority before a real child-branch continuation, without a new physical send permit. |
 | Stale fencing token or changed read position | Refuse the fresh mutation; original late receipts remain ingestible. |
@@ -356,8 +411,11 @@ their evidence boundaries and remaining work are distinct.
 | Node authority disconnected from Store mutation | Exact grant/read-fence checks under a Node reservation, Store authority binding, post-COMMIT local materialization records and live-consumer reconstruction. | Integrated reservation, cancellation and crash/reconstruction journeys passed; real multi-device/provider acceptance remains. A local guard alone proves no remote lease. |
 | Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix and staged-input selections, new task/step, origin/branch CAS and crash-recoverable Node projection. | Integrated fork/rebuild, input-inheritance, rejoin/refusal and authority-change journeys passed; physical partition and long-run acceptance remains. |
 
-Canonical cross-ledger transition replay, connected-minority component
-coordination and a persistent follower are still implementation gaps. The
+Connected-minority agreement and a resident follower now have runtime paths;
+their new journey has not yet executed successfully, and real multi-device,
+model-readiness and all-topology acceptance remain open. See the
+[component continuation evidence](../evidence/component-coordination-20261116.md).
+Canonical cross-ledger transition replay remains a separate work item. The
 [runtime authority evidence](../evidence/runtime-authority-bridge-20261115.md)
 records the passing integrated journeys without claiming those remaining goals.
 

@@ -39,6 +39,7 @@ struct AdmissionEnvelope {
 pub enum ControlRecoveryOutcome {
     Applied,
     RecoveredOriginal,
+    RecoveredCanonical,
     ReconciliationRequired,
 }
 
@@ -83,6 +84,31 @@ impl Store {
             && serde_json::to_value(&evidence.original_head)? == serde_json::to_value(&envelope.head)?,
             "chosen control predecessor disagrees with its source envelope");
         let current = self.load_subject(grant.admission.subject_id)?.0;
+        // Learned log entries also retain historical branches. They are
+        // evidence, not requests to acquire authority for the live branch.
+        // The real Node provider correctly refuses such a reservation; keep
+        // the original debt instead of turning that refusal into startup loss.
+        if current.branch_id != grant.admission.branch_id {
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
+        if envelope.action["kind"] == "subject.step_commit"
+            && let Some(reference) = envelope.action.get("transition_ref")
+        {
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            let step: SubjectStep = serde_json::from_value(envelope.action["step"].clone())?;
+            let expected_head: SubjectBranchHead = serde_json::from_value(envelope.action["expected_head"].clone())?;
+            let next: EntityId = serde_json::from_value(envelope.action["next_step_id"].clone())?;
+            ensure!(serde_json::to_value(&expected_head)? == serde_json::to_value(&envelope.head)?,
+                "canonical S1 head differs from its admitted envelope");
+            match self.recover_step_transition(grant, &reference, &step, &expected_head, next) {
+                Ok(_) => return Ok(ControlRecoveryOutcome::RecoveredCanonical),
+                Err(ShenkoError::Conflict(_) | ShenkoError::NotFound(_) | ShenkoError::ResnapshotRequired { .. }) => {}
+                Err(error) => return Err(error.into()),
+            }
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
         let compatible = evidence.original_source && !self.control_admission_applied(&grant.admission)?
             && serde_json::to_value(&current)? == serde_json::to_value(&envelope.head)?;
         if try_original && compatible && envelope.action["kind"] == "subject.step_commit" {

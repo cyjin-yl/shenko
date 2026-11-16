@@ -1024,6 +1024,12 @@ impl P1Host {
 
         let mut options = cap_std::fs::OpenOptions::new();
         options.read(read).write(write).append(append).truncate(truncate);
+        // Preview1 has no chmod import. Guest-created files (including SSH
+        // private keys) must therefore start private instead of inheriting a
+        // permissive host umask. This affects new files only; opening an
+        // existing file keeps its mode and COW copy-up preserves source mode.
+        #[cfg(unix)]
+        cap_std::fs::OpenOptionsExt::mode(&mut options, 0o600);
         if create {
             options.create(true);
         }

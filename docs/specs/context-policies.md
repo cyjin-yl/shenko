@@ -36,6 +36,13 @@ R116/A45 要求 budget compact 与 snapcompact 都是正式交付的独立插件
 - `enabled` 是单元自己的启停状态。`shenko context policy disable snapcompact` 之后 snapcompact 不再运行；`enable` 恢复。缺失的记录与已禁用的记录是两种不同事实。
 - 偏好顺序（先试哪个策略）目前跟随**已启用单元的安装顺序**；配置服务（namespace `shenko.context-policy`，logical key `compaction_preference`）一旦带上值即以配置为准。运行时如实报告当前用的是哪个来源。
 
+运行装配通过 `policy_config::ContextPreferenceNamespace` 把该配置入口注册到
+主体和面板共用的 `ConfigService`。值为策略 id 数组；保存后直接调用实际
+`PolicyRegistry::apply_preference`，回执保留请求顺序、实际已安装顺序和未知 id。
+未知 id 不等于安装成功，省略的已安装策略仍跟随其后。重启时校验并读取已封存的
+配置值；坏值明确报错，不能把默认值说成已经采用。配置入口不另建 enable/version
+权威，策略启停和实现配置仍属于上述安装单元。
+
 命令入口：
 
 ```

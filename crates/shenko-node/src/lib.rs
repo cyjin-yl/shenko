@@ -25,6 +25,8 @@ mod election;
 pub use election::*;
 mod authority_guard;
 pub use authority_guard::*;
+mod component;
+pub use component::*;
 mod branch_binding;
 pub use branch_binding::SubjectBranchProjection;
 mod control;
@@ -190,6 +192,11 @@ pub enum Request {
     CapabilityFacts,
     /// Deterministic candidacy ordering of the known member set; not an election.
     Coordination,
+    ComponentPresence,
+    /// Production adapters probe routes before preparing a component view.
+    ComponentObserve,
+    PrepareComponent { proposal: ComponentProposal },
+    CommitComponent { certificate: ComponentCertificate },
     Units {
         request: UnitRequest,
     },
@@ -525,6 +532,11 @@ impl Node {
             Request::Capabilities => Ok(serde_json::to_value(self.capability_profile()?)?),
             Request::CapabilityFacts => Ok(json!({"facts": self.capability_facts()?})),
             Request::Coordination => self.coordination_candidates(),
+            Request::ComponentPresence => Ok(serde_json::to_value(self.component_presence()?)?),
+            Request::ComponentObserve | Request::PrepareComponent { .. } => {
+                anyhow::bail!("component observation requires the authenticated route adapter")
+            }
+            Request::CommitComponent { certificate } => Ok(serde_json::to_value(self.commit_component(&certificate)?)?),
             Request::Units { request } => self.handle_unit_request(request),
             Request::Initialize { node_id, identity } => {
                 let tx = self

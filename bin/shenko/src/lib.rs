@@ -16,6 +16,7 @@ pub mod obelisk;
 mod compat;
 mod runtime_owner;
 mod context_policy;
+mod policy_config;
 mod document_runtime;
 mod inference_runtime;
 mod tool_install;
@@ -719,6 +720,13 @@ pub enum ToolCommand {
         /// KEY=VALUE guest environment entries (repeatable).
         #[arg(long = "env")]
         env: Vec<String>,
+        /// Explicit transport grant host:port[:connect|listen,accept] (repeatable).
+        /// IPv6 literals use [address]:port; an omitted grant opens no sockets.
+        #[arg(long = "network")]
+        network: Vec<String>,
+        /// Guest deadline in seconds (1..=300), including admitted socket waits.
+        #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=300))]
+        timeout_secs: u64,
         /// Host file whose bytes become guest stdin (default: empty).
         #[arg(long)]
         stdin_file: Option<PathBuf>,
@@ -1014,6 +1022,7 @@ async fn install_native_definitions(
     let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(
         Arc::clone(store),
     ));
+    config_service.register(Arc::new(policy_config::QuotaNamespace(Arc::clone(store))));
     let config_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
         Arc::new(shenko_ui::ConfigHandler::new(
             Arc::clone(store),
@@ -1884,14 +1893,15 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             );
             // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
+            let _runtime_cancel_on_exit = cancel.clone().drop_guard();
             // Establish the actual branch before constructing any scoped
             // registry or dispatch consumer, including model-free services.
-            let mut primary_fence = tokio::task::spawn_blocking({
-                let data_dir = data_dir.clone();
-                let store = Arc::clone(&store);
-                let cancel = cancel.clone();
-                move || node_sync::establish_primary(&data_dir, &store, &cancel)
-            }).await??;
+            let mut primary_fence = match node_sync::establish_runtime(
+                &data_dir, &store, &cancel, runtime_instance, &model_profile,
+            ).await? {
+                node_sync::RuntimeSelection::Selected(fence) => fence,
+                node_sync::RuntimeSelection::Stopped => return Ok(()),
+            };
             let authority_runtime = runtime_authority::RuntimeAuthority::attach(
                 &data_dir, &store, cancel.clone())?;
             active_authority = Some(authority_runtime.clone());
@@ -2302,6 +2312,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 },
             )
             .await?;
+            installed.config_service.register(Arc::new(
+                policy_config::ContextPreferenceNamespace::open(
+                    Arc::clone(&store), Arc::clone(&context_registry),
+                ),
+            ));
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
             inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(&store));
             handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
@@ -3834,6 +3849,8 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             read_only,
             args,
             env,
+            network,
+            timeout_secs,
             stdin_file,
             stdout_file,
             stderr_file,
@@ -3902,10 +3919,16 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             let mounts = profile.resolve(&manifest.mounts);
             let granted_environment: std::collections::BTreeMap<String, String> =
                 guest_env.iter().cloned().collect();
-            let granted = shenko_wasm::GrantedCapabilities::of_invocation(
+            let network_targets = network.iter().map(|target| parse_network_target(target))
+                .collect::<Result<Vec<_>>>()?;
+            let network_admission = shenko_wasm::NetworkAdmission::from_granted_targets(&network_targets)?;
+            let mut granted = shenko_wasm::GrantedCapabilities::of_invocation(
                 &mounts,
                 &granted_environment,
             );
+            if network_admission.is_some() {
+                granted = granted.with_network(network_targets);
+            }
             let unmet = shenko_wasm::capability_problems(&record.capabilities, &granted);
             anyhow::ensure!(
                 unmet.is_empty(),
@@ -3955,6 +3978,8 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             arguments.extend(args);
             command.arguments = arguments;
             command.environment = guest_env;
+            command.network = network_admission;
+            command.control.deadline = Some(std::time::Duration::from_secs(timeout_secs));
             let mut runtime = shenko_wasm::WasmRuntime::with_mounts(mounts)?;
             let code = runtime.run_wasi_module(&module, command);
             if stdout_file.is_none() {

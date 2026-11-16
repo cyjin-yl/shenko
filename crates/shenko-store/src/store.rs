@@ -803,12 +803,21 @@ impl Store {
         };
         let mut aliases = vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)];
         aliases.extend(expected_tasks.iter().map(crate::authority::task_revision_position));
-        let authority = self.reserve_admission(expected_head, crate::authority::AdmissionPosition {
+        let position = crate::authority::AdmissionPosition {
             key: format!("branch/{}/successor/{}:{}", expected_head.branch_id.0,
                 expected_head.committed_at.ledger_id, expected_head.committed_at.seq.0),
             aliases, expected_tasks, expected_steps: vec![previous],
             bind_parent: true, ..Default::default()
-        },
+        };
+        if self.has_commit_authority() {
+            let tasks = position.expected_tasks.clone();
+            let steps = position.expected_steps.clone();
+            let prepared = self.prepare_step_transition(step, expected_head, next_step_id, position)?;
+            let authority = self.reserve_sealed_admission(prepared.admission.clone(), tasks, steps)?;
+            return self.apply_step_transition(&prepared.admission, &prepared.transition_ref,
+                step, expected_head, next_step_id, &authority, false);
+        }
+        let authority = self.reserve_admission(expected_head, position,
             &serde_json::json!({"kind": "subject.step_commit", "step": step,
                 "expected_head": expected_head, "next_step_id": next_step_id}))?;
         self.ledger.with_mutation(
@@ -872,17 +881,34 @@ impl Store {
         authority: &crate::authority::AuthorityReservation,
     ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
         authority.check(&tx, self.capabilities.incarnation, Some(expected_head.agent_id))?;
-        let (mut head, previous, decision) = self.validate_step_commit(&tx, step, expected_head, next_step_id)?;
-        let seq = self.ledger.allocate_seq(&tx)?;
-        let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+        let commit_ref = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
+        let receipt = self.apply_step_commit_tx(&tx, step, expected_head, next_step_id, commit_ref)?;
+        authority.record_admission(&tx, commit_ref)?;
+        self.record_subject_commit(&tx, commit_ref, 4)?;
+        tx.commit().map_err(storage_error)?;
+        authority.materialized();
+        Ok(receipt)
+    }
+
+    /// The ordinary S1 transaction body. Canonical admission evaluates it once
+    /// in a rollback savepoint and seals its exact result before consensus.
+    /// Applying a learned result never calls this body again.
+    pub(crate) fn apply_step_commit_tx(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        next_step_id: EntityId,
+        commit_ref: CommitRef,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        let (mut head, previous, decision) = self.validate_step_commit(tx, step, expected_head, next_step_id)?;
+        let seq = commit_ref.seq;
         // Identity is settled under the SAME IMMEDIATE transaction as S1. The
         // intent carries the S0 revision; never rebase model edits onto latest.
         use shenko_types::identity::{IdentityOutcome, IdentityReceipt, IdentitySource};
-        let current_identity = crate::identity::read_latest(&tx, head.agent_id)?;
+        let current_identity = crate::identity::read_latest(tx, head.agent_id)?;
         let actual_revision = current_identity.as_ref().map(|p| p.revision);
         let outcome = if let Some(intent) = &decision.identity_intent {
             let frozen: serde_json::Value =
@@ -916,7 +942,7 @@ impl Store {
                     actual_revision,
                 }
             } else {
-                crate::identity::insert(&tx, &intent.proposed)?;
+                crate::identity::insert(tx, &intent.proposed)?;
                 IdentityOutcome::Applied {
                     expected_revision: intent.expected_revision,
                     revision: intent.proposed.revision,
@@ -947,14 +973,14 @@ impl Store {
         // read inside this transaction, and a stale or late change is settled
         // as a typed receipt instead of failing the whole S1.
         let wait_receipt = self.apply_semantic_wait(
-            &tx,
+            tx,
             &head,
             step,
             &decision,
             commit_ref,
             seq.0,
         )?;
-        let obligation_receipts = self.apply_obligation_changes(&tx, &head, step, &decision, commit_ref)?;
+        let obligation_receipts = self.apply_obligation_changes(tx, &head, step, &decision, commit_ref)?;
         let mut step = step.clone();
         step.commit_ref = Some(commit_ref);
         let successor = SubjectStep {
@@ -977,7 +1003,7 @@ impl Store {
             record_revision: RecordRevision(0),
             created_by_step_id: Some(step.step_id),
         };
-        update_step(&tx, &step, previous.record_revision, seq.0)?;
+        update_step(tx, &step, previous.record_revision, seq.0)?;
         // 与 S1 同事务保存处置索引；I 只据此确认，不把送入内存 channel 当消费。
         // deferred 可由后续步继续处理，已接受的处置不能产生第二份决定/外部意图。
         // The full EventDisposition JSON is stored, so a later committed step
@@ -1002,11 +1028,11 @@ impl Store {
                 ));
             }
         }
-        self.enqueue_subject_intents(&tx, &head, &step, &decision, commit_ref, false)?;
+        self.enqueue_subject_intents(tx, &head, &step, &decision, commit_ref, false)?;
         // The raw tool call facts of the committed intents are written in the
         // SAME transaction as the intent rows themselves, so a rolled back S1
         // leaves neither behind.
-        self.append_committed_intent_facts(&tx, &head, &step, &decision)?;
+        self.append_committed_intent_facts(tx, &head, &step, &decision)?;
         // The model result is a whole unit of the durable stream journal,
         // bound to its request/attempt identity and committed with the step:
         // a reconnecting UI or recovering consumer reads it back instead of
@@ -1017,7 +1043,7 @@ impl Store {
                 serde_json::to_string(model_result_ref).unwrap_or_else(|_| "{}".into())
             });
             self.journal_step_model_result(
-                &tx,
+                tx,
                 head.agent_id,
                 &head.branch_id.0.to_string(),
                 step.step_no as i64,
@@ -1034,10 +1060,10 @@ impl Store {
         }
         // The handled wait policy intent carries the exact receipt of this
         // step. It is settled, never left ready and never left blocked.
-        self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
-        self.settle_obligation_intents(&tx, &obligation_receipts, seq.0)?;
+        self.settle_semantic_wait_intent(tx, &wait_receipt, seq.0)?;
+        self.settle_obligation_intents(tx, &obligation_receipts, seq.0)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
-        insert_step(&tx, &successor, seq.0)?;
+        insert_step(tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;
         head.committed_step_id = Some(step.step_id);
         head.committed_at = commit_ref;
@@ -1053,10 +1079,6 @@ impl Store {
         if changed != 1 {
             return Err(ShenkoError::conflict("stale branch head"));
         }
-        authority.record_admission(&tx, commit_ref)?;
-        self.record_subject_commit(&tx, commit_ref, 4)?;
-        tx.commit().map_err(storage_error)?;
-        authority.materialized();
         Ok(self.subject_receipt(
             commit_ref,
             vec![

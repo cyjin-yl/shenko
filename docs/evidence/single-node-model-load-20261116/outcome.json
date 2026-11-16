@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "record_kind": "blocked_real_model_startup",
+  "observed_at": "2026-11-16T11:03:49Z",
+  "implementation_commit": "815c5a4c609c50a8d0268c36ff51f62d76a3d79d",
+  "candidate_cli": {
+    "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/shenko",
+    "sha256": "0a17e5e97dd97de231007d5a6f4e37285a080d31ff74e96e82f0b9419d34a549",
+    "source_revision": null,
+    "journey_launched": false
+  },
+  "model_requests_sent": 0,
+  "attempts": [
+    {
+      "model": "Qwen/Qwen3-0.6B-GGUF Q8_0",
+      "load_mode": "auto",
+      "exit_code": 137,
+      "listened": false,
+      "log": "q8-server.log"
+    },
+    {
+      "model": "unsloth/Qwen3-0.6B-GGUF Q4_K_M",
+      "load_mode": "none",
+      "exit_code": 137,
+      "listened": false,
+      "log": "q4-server.log"
+    }
+  ],
+  "preflight_failure": {
+    "exit_code": 1,
+    "reason": "llama b12359 rejected obsolete --no-mmap; actual help specifies --load-mode none",
+    "log": "q4-invalid-argument.log"
+  },
+  "diagnosis": "Both actual attempts were killed during weight loading, before the model listener was ready. Resource pressure is suspected; no kernel OOM attribution or cgroup limit is available. Do not promote exit137 alone into a confirmed OOM diagnosis.",
+  "environment": {
+    "platform": "Linux x86_64 shared executor",
+    "mem_total_mib": 9967,
+    "observed_mem_available_mib": [
+      2241,
+      1793
+    ],
+    "swap_mib": 0,
+    "proc_limits": "RSS and address space unlimited",
+    "cgroup_limits": "not exposed at /sys/fs/cgroup"
+  },
+  "tests": {
+    "command": "cargo test -p shenko --lib policy_config::tests -j1",
+    "outcome": "rustc shenko-store terminated SIGKILL before tests ran; no compiler error diagnosis",
+    "passed": false
+  },
+  "full_cases_passed": [],
+  "not_proven": [
+    "S1 real input/model/child/result/output/restart",
+    "new policy namespace Rust tests",
+    "Qwen3.8-27B quality gate",
+    "NapCat/coding seat S2",
+    "long-run or physical failures"
+  ],
+  "raw_files": {
+    "q4-invalid-argument.log": "7308964a7951aadbf24c7bccda7ffff73cedb8b82e7d685966bb4a2fef9b1f4d",
+    "q8-server.log": "6f8d6ae1eeb374f546df8463957f330a055dff3aa80bc516d4f156e5b95db726",
+    "q8-service-manifest.json": "d36dd685a5e7669d936fb6a5a2f33552c55b4448678ac1c408a1efd0019917f7",
+    "q4-server.log": "45f50c79b1117f5a53572481324218f94739e5b024e9e89f47ca9d15292a3aa4",
+    "q4-service-manifest.json": "30c3c9dc9f545a0e4cd3237afc71fc3978265138ea0f5fe8c2940a009661ec6a"
+  }
+}

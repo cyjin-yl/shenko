@@ -1,0 +1,8 @@
+0.00.045.770 W Setting 'enable_thinking' via --chat-template-kwargs is deprecated. Use --reasoning on / --reasoning off instead.
+0.00.046.557 I srv  llama_server: initializing ...
+0.00.046.579 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.046.742 I srv  init_listene: The UI is disabled
+0.00.046.750 I srv  init_listene: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.046.855 W srv  server_setup: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.048.671 I srv    load_model: loading model '/workspace/scratch/faaa3ccca531/s1-real-model/Qwen3-0.6B-Q8_0.gguf'
+0.00.430.573 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden

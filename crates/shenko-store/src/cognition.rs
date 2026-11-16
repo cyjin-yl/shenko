@@ -478,6 +478,13 @@ struct TableSpec {
     kind: RowKind,
 }
 
+/// Physical receipt positions are local projections. Canonical transitions
+/// use exactly the same distinction as the archive importer, never a column
+/// name heuristic that could rewrite original source sequence provenance.
+pub(crate) fn control_local_sequence(table: &str) -> Option<&'static str> {
+    TABLES.iter().find(|spec| spec.name == table).and_then(|spec| spec.local_seq)
+}
+
 /// The replicated tables, in the order the rows must be applied: a row may
 /// only reference a row that already exists.
 const TABLES: &[TableSpec] = &[

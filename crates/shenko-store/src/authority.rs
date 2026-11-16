@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS commit_authority_policy (
 CREATE TABLE IF NOT EXISTS subject_authority_bindings (
  agent_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_commit_seq INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS control_prepared_transitions (
+ action_id TEXT PRIMARY KEY, input_digest TEXT NOT NULL, admission TEXT NOT NULL,
+ result_commit TEXT NOT NULL, transition_ref TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS control_materializations (
  conflict_key TEXT PRIMARY KEY, action_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL,
  updated_commit_seq INTEGER NOT NULL
@@ -91,6 +95,10 @@ pub(crate) struct AuthorityReservation {
 }
 
 impl AuthorityRuntime {
+    pub(crate) fn activated(&self) -> bool {
+        self.activated.load(Ordering::Acquire)
+    }
+
     pub(crate) fn reserve(&self) -> Result<AuthorityReservation, ShenkoError> {
         let provider = self.provider.read().clone();
         Ok(AuthorityReservation {
@@ -99,7 +107,7 @@ impl AuthorityRuntime {
         })
     }
 
-    fn prepare(&self, admission: CommitAdmission) -> Result<AuthorityReservation, ShenkoError> {
+    pub(crate) fn prepare(&self, admission: CommitAdmission) -> Result<AuthorityReservation, ShenkoError> {
         let Some(provider) = self.provider.read().clone() else {
             return Ok(AuthorityReservation::unbound());
         };
@@ -115,6 +123,20 @@ impl AuthorityRuntime {
 }
 
 impl AuthorityReservation {
+    pub(crate) fn with_read_conditions(mut self, tasks: Vec<TaskRecord>, steps: Vec<SubjectStep>) -> Self {
+        self.expected_tasks = tasks;
+        self.expected_steps = steps;
+        self
+    }
+
+    /// Before consumers start, a new process may finish its predecessor's
+    /// durably prepared S1 using a newly checked primary reservation. This
+    /// bypasses only the old process incarnation, never the head/read checks.
+    pub(crate) fn prepared_recovery(mut self) -> Self {
+        self.recovery = true;
+        self
+    }
+
     /// Capture absence without rereading the source. An adapter attached
     /// afterward must not upgrade this unordered action into a guarded one;
     /// the final transaction will reject its new durable required policy.
@@ -179,6 +201,60 @@ impl AuthorityReservation {
             if serde_json::to_value(&current)? != serde_json::to_value(expected)? {
                 return Err(ShenkoError::conflict("subject step changed after its authority plan was frozen"));
             }
+        }
+        Ok(())
+    }
+
+    /// A learned transition is a factual projection, not a new execution
+    /// grant. The provider has verified the original chosen value while its
+    /// source reservation remains held. A follower need not be the primary,
+    /// but the Store must still be durably bound to that exact source.
+    pub(crate) fn check_materialization(&self, conn: &Connection) -> Result<(), ShenkoError> {
+        let provider = self.provider.as_ref().ok_or_else(|| authority_fenced("materialization source is absent"))?;
+        if self.guard.is_none() || self.grant.as_ref().is_none_or(|grant| !grant.replayed) {
+            return Err(authority_fenced("materialization requires a reserved learned grant"));
+        }
+        let required: Option<String> = conn.query_row(
+            "SELECT source_id FROM commit_authority_policy WHERE singleton=1", [], |row| row.get(0),
+        ).optional().map_err(storage_error)?;
+        if required.as_deref() != Some(provider.source_id()) {
+            return Err(authority_fenced("materialization authority source changed"));
+        }
+        Ok(())
+    }
+
+    /// The shared event contains only the frozen logical result. Local proof
+    /// and physical receipt stay in the nonreplicated materialization table.
+    /// Thus independently applying the same result creates identical history.
+    pub(crate) fn record_canonical_admission(
+        &self, tx: &Transaction<'_>, local_commit: CommitRef, logical_commit: CommitRef,
+        transition_ref: &shenko_types::object::ObjectRef, created_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ShenkoError> {
+        let admission = self.admission.as_ref().ok_or_else(|| authority_fenced("canonical admission missing"))?;
+        let event = InboxEvent {
+            event_id: EntityId::derived("commit-authority-admission-v1", admission.conflict_key.as_bytes()),
+            kind: InboxEventKind::SystemEvent, source: "commit-authority".into(), created_at,
+            payload: serde_json::json!({"kind":"authority.admission_applied", "admission":admission,
+                "committed_at":logical_commit, "transition_ref":transition_ref}),
+        };
+        if admission_applied(tx, admission)? {
+            let original: String = tx.query_row("SELECT data FROM inbox_events WHERE event_id=?1",
+                [event.event_id.to_string()], |row| row.get(0)).map_err(storage_error)?;
+            if serde_json::from_str::<serde_json::Value>(&original)? != serde_json::to_value(&event)? {
+                return Err(ShenkoError::conflict("canonical admission result differs from imported source fact"));
+            }
+        } else {
+            tx.execute("INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data,created_at)
+                VALUES(?1,?2,'system_event','commit-authority',0,?3,?4)",
+                params![event.event_id.to_string(), admission.subject_id.to_string(),
+                    serde_json::to_string(&event)?, created_at.to_rfc3339()]).map_err(storage_error)?;
+        }
+        if !admission_materialized(tx, admission)? {
+            tx.execute("INSERT INTO control_materializations(conflict_key,action_id,data,updated_commit_seq)
+                VALUES(?1,?2,?3,?4)", params![admission.conflict_key, admission.action_id.to_string(),
+                serde_json::to_string(&serde_json::json!({"admission":admission, "grant":self.grant,
+                    "committed_at":local_commit, "logical_result":logical_commit, "transition_ref":transition_ref}))?,
+                local_commit.seq.0 as i64]).map_err(storage_error)?;
         }
         Ok(())
     }
@@ -304,6 +380,19 @@ impl Store {
         })?;
         reservation.expected_tasks = position.expected_tasks;
         reservation.expected_steps = position.expected_steps;
+        Ok(reservation)
+    }
+
+    pub(crate) fn has_commit_authority(&self) -> bool {
+        self.ledger.authority.provider.read().is_some()
+    }
+
+    pub(crate) fn reserve_sealed_admission(
+        &self, admission: CommitAdmission, expected_tasks: Vec<TaskRecord>, expected_steps: Vec<SubjectStep>,
+    ) -> Result<AuthorityReservation, ShenkoError> {
+        let mut reservation = self.ledger.authority.prepare(admission)?;
+        reservation.expected_tasks = expected_tasks;
+        reservation.expected_steps = expected_steps;
         Ok(reservation)
     }
 

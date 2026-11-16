@@ -26,6 +26,10 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+#[path = "component_runtime.rs"]
+mod component_runtime;
+pub use component_runtime::{RuntimeSelection, establish_runtime, confirm_component_authority};
+
 const MAGIC: &[u8] = b"shenko-node-sync/2\n";
 const MAX_HEADER: u64 = 64 * 1024 * 1024;
 
@@ -41,9 +45,8 @@ impl std::fmt::Display for PeerResponded {
 }
 impl std::error::Error for PeerResponded {}
 
-/// A connected node that did not win must stop local subject startup. This
-/// is intentionally distinct from AuthorityRecoveryRequired: retrying Start
-/// forever would repeatedly disrupt the actual selected primary.
+/// A connected node that did not win remains a resident follower. Its next
+/// observation catches up without recampaigning against a reachable leader.
 #[derive(Debug)]
 pub struct PrimaryNotSelected(String);
 
@@ -882,10 +885,8 @@ pub fn commit_admission(
 /// votes over each configured member's authenticated route, and commit the
 /// primary claim when the committed configuration's quorum is satisfied.
 ///
-/// Automatic availability fallback is limited to an isolated node: no other
-/// configured voter answered through an authenticated route during recovery.
-/// A connected loser or minority must not invent a component-wide election.
-/// Such a node returns PrimaryNotSelected until component coordination exists.
+/// Isolated fallback and unanimous component agreement are distinct from a
+/// global quorum. A connected loser remains a follower of the chosen runtime.
 pub fn establish_primary(
     data_dir: &Path,
     store: &Store,
@@ -893,6 +894,9 @@ pub fn establish_primary(
 ) -> Result<Option<FencingToken>> {
     let mut node = open_node(data_dir, store)?;
     node.ensure_member_configuration()?;
+    if let Some(selected) = component_runtime::resume_component(data_dir, store, &mut node, cancel)? {
+        return Ok(selected);
+    }
     // A stored token is a historical fact, not a fresh quorum. Every startup
     // establishes a new durable primary; each subsequent connected-branch
     // Store admission also needs its own actual control-slot quorum.
@@ -939,6 +943,11 @@ pub fn establish_primary(
                 fence.leader_id, fence.term
             ))
             .into());
+        }
+        let mut observed_members = contacted.clone();
+        observed_members.insert(own);
+        if node.fencing_token()?.is_none() && contacted.len() > 0 && !config.has_quorum(&observed_members) {
+            return component_runtime::establish_component(data_dir, store, &mut node, cancel);
         }
         let campaign = node.campaign()?;
         let request = campaign.request.clone();
@@ -1057,10 +1066,10 @@ pub fn establish_primary(
                 cancel,
                 &mut contacted,
             )?;
-            return Err(PrimaryNotSelected(format!(
-                "term {} did not win; {} authenticated other voters responded; connected minority coordination is not available",
-                campaign.term, contacted.len()
-            )).into());
+            if node.fencing_token()?.is_some() {
+                return Err(PrimaryNotSelected("a global primary was learned while awaiting component agreement".into()).into());
+            }
+            return component_runtime::establish_component(data_dir, store, &mut node, cancel);
         }
         if cancel.is_cancelled() {
             bail!("primary recovery cancelled")
@@ -2025,6 +2034,14 @@ pub fn node_command(data_dir: &Path) -> Result<()> {
         shenko_node::Request::Adopt { .. } => open_node_for_adoption(data_dir, &store)?,
         _ => open_node(data_dir, &store)?,
     };
-    println!("{}", node.handle(request)?);
+    let value = match request {
+        shenko_node::Request::ComponentObserve => serde_json::to_value(component_runtime::observe_component(&mut node, &CancellationToken::new())?)?,
+        shenko_node::Request::PrepareComponent { proposal } => {
+            let observed = component_runtime::observe_component(&mut node, &CancellationToken::new())?;
+            serde_json::to_value(node.prepare_component(&proposal, &observed)?)?
+        }
+        request => node.handle(request)?,
+    };
+    println!("{value}");
     Ok(())
 }

@@ -78,7 +78,7 @@
   - [§25](specs/inference.md#spec-25)、[§42](specs/quota-resources.md#spec-42)
   - docs/specs/inference.md
 
-- **额度观测与 admission（shenko-quota）** — 已接线（策略文件经 `SHENKO_QUOTA_POLICY` 读取并持久化；quota crate 被 4 个 crate 消费）
+- **额度观测与 admission（shenko-quota）** — 已接线（策略文件经 `SHENKO_QUOTA_POLICY` 读取并持久化；运行中的 `config.manage` / 配置面板通过 `shenko.quota/policy` 写入同一策略账本；等待 admission 在下次有界重读时采用最新策略，已 armed 的发送保留原记账；quota crate 被 4 个 crate 消费）
   - [§42](specs/quota-resources.md#spec-42)、[§47.5](specs/inference.md#spec-47-5)
   - docs/specs/quota-resources.md
 
@@ -210,6 +210,9 @@
 - **Web UI（shenko-ui：时间线、ws、api、playground）** — 已接线
   - [§21](specs/web-interface.md#spec-21)、[§43](specs/configuration-playground.md#spec-43)
   - docs/specs/web-interface.md
+
+- **可执行策略配置（`bin/shenko/src/policy_config.rs`）** — 已接线（`shenko.quota/policy` 读回实际配额账本；`shenko.context-policy/compaction_preference` 修改实际策略选择器，重启恢复已保存顺序。未知策略 id 保留在请求顺序并在回执中披露；不把自然语言 `[policy]` 请求当成结构化配置执行，也不表示完整 S2 策略验收已完成）
+  - [§43.1](specs/configuration-playground.md#spec-43-1)、[§12.3.1](specs/context-policies.md#spec-12-3-1)、[§42](specs/quota-resources.md#spec-42)
 
 - **Playground 后端与 WASI 业务状态** — 已接线（`PlaygroundBackendHandler` 走既有 native Task/Operation/T1/E1/T2 路径）
   - [§43](specs/configuration-playground.md#spec-43)

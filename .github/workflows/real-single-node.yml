@@ -1,0 +1,90 @@
+name: Real single-node journey
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-single-node-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-model-journey:
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_TARGET_DIR: .ci/target/real-single-node
+      SHENKO_SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install build and observation prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3 python3-venv cmake clang pkg-config libssl-dev libgomp1 curl ca-certificates
+          python3 -m venv .ci/python
+          .ci/python/bin/pip install websockets==16.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> .ci/target/real-single-node
+          shared-key: rust-1.98.1-real-single-node
+      - name: Build the exact candidate CLI
+        run: cargo build --locked -p shenko -j2
+      - name: Obtain pinned real model and inference runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/model .ci/evidence
+          curl --fail --location --retry 3 'https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/f2d6f9ca53a254cc379437c49e4b2eb447f779df/Qwen3-0.6B-Q4_K_M.gguf' -o .ci/model/model.gguf
+          curl --fail --location --retry 3 'https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-ubuntu-x64.tar.gz' -o .ci/model/llama.tar.gz
+          echo 'ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a  .ci/model/model.gguf' | sha256sum --check
+          echo '0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e  .ci/model/llama.tar.gz' | sha256sum --check
+          sha256sum .ci/model/model.gguf .ci/model/llama.tar.gz > .ci/evidence/model.sha256
+          tar -xf .ci/model/llama.tar.gz -C .ci/model
+          .ci/model/llama-b12359/llama-server --version > .ci/evidence/model-runtime-version.txt 2>&1
+      - name: Observe real input, children, results, output and restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          .ci/model/llama-b12359/llama-server \
+            --model .ci/model/model.gguf --alias Qwen3-0.6B-Q4_K_M \
+            --host 127.0.0.1 --port 18832 --offline --no-webui \
+            --threads 2 --threads-batch 2 --threads-http 2 \
+            --ctx-size 16384 --parallel 1 --batch-size 256 --ubatch-size 64 \
+            --n-gpu-layers 0 --cache-type-k q8_0 --cache-type-v q8_0 \
+            --cache-ram 64 --load-mode none --no-repack --jinja --reasoning off \
+            --n-predict 1024 --no-context-shift \
+            --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5 \
+            --timeout 600 --log-timestamps --log-colors off \
+            > .ci/evidence/model-server.log 2>&1 &
+          model_pid=$!
+          trap 'kill -INT "$model_pid" 2>/dev/null || true; wait "$model_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18832/health > .ci/evidence/model-health.json; then break; fi
+            kill -0 "$model_pid"
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18832/health > .ci/evidence/model-health.json
+          .ci/python/bin/python scripts/real_single_node_journey.py \
+            --binary .ci/target/real-single-node/debug/shenko \
+            --source-revision "$GITHUB_SHA" \
+            --model-url http://127.0.0.1:18832/v1 --model Qwen3-0.6B-Q4_K_M \
+            --timeout 300 --evidence-dir .ci/evidence/real-single-node
+      - name: Retain actual outcomes, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-single-node-${{ github.sha }}
+          path: |
+            .ci/evidence/
+            !.ci/evidence/real-single-node/installation/**
+          if-no-files-found: warn
+
+# This explicit lower-tier mechanical experiment is not the Qwen3.8-27B
+# quality gate, NapCat/coding-seat S2, physical fault proof, or 7/30-day test.

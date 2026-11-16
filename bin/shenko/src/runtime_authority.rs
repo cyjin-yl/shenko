@@ -293,6 +293,9 @@ impl CommitAuthorityProvider for RuntimeAuthority {
             ));
         }
         if isolated {
+            let store = self.store.upgrade().ok_or_else(|| authority_fenced("authority Store was disposed"))?;
+            crate::node_sync::confirm_component_authority(&self.data_dir, &store, &self.cancel)
+                .map_err(|error| self.failure(error, term))?;
             return Ok(None);
         }
         let store = self

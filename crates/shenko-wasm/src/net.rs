@@ -238,6 +238,27 @@ pub struct NetworkAdmission {
 }
 
 impl NetworkAdmission {
+    /// Convert an invocation's explicit capability grant without performing
+    /// DNS or opening a socket. This can run before T1; the runtime only opens
+    /// the exact frozen targets after the attempt is armed. Package
+    /// requirements do not create a grant.
+    pub fn from_granted_targets(targets: &[shenko_node::NetworkTarget]) -> Result<Option<Self>> {
+        if targets.is_empty() {
+            return Ok(None);
+        }
+        let admitted = targets.iter().map(|target| {
+            AdmittedTarget::new(
+                target.host.clone(), target.port, target.resolve,
+                target.operations.iter().map(|operation| match operation {
+                    shenko_node::NetworkOperation::Connect {} => NetworkOperation::Connect,
+                    shenko_node::NetworkOperation::Listen {} => NetworkOperation::Listen,
+                    shenko_node::NetworkOperation::Accept {} => NetworkOperation::Accept,
+                }).collect(),
+            )
+        }).collect::<Result<Vec<_>>>()?;
+        Self::new(admitted).map(Some)
+    }
+
     /// Admit exactly `targets`. Empty, over-large or self-contradictory
     /// admissions are refused: there is no implicit "any" reach.
     pub fn new(targets: Vec<AdmittedTarget>) -> Result<Self> {
