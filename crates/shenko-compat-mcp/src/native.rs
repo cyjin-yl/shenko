@@ -225,14 +225,17 @@ impl Plugin for McpPlugin {
     fn inject(&self) -> InjectSpec { InjectSpec::none().require(NativeChildService::NAME) }
     fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> { Ok(config) }
     async fn apply(&self, ctx: Context, config: &Self::Input) -> Result<(), Self::ApplyError> {
-        shenko_compat::runtime::watch_installed(ctx, config.clone(), UNIT_ID, McpGeneration, |ctx| async move {
+        let generation = McpGeneration { shared_artifact_reader: config.shared_artifact_reader };
+        shenko_compat::runtime::watch_installed(ctx, config.clone(), UNIT_ID, generation, |ctx| async move {
             ctx.try_service::<McpRuntime>()?.reconcile_connections().await
         }).await.map_err(std::io::Error::other)
     }
 }
 
 #[derive(Clone)]
-struct McpGeneration;
+struct McpGeneration {
+    shared_artifact_reader: bool,
+}
 impl Plugin for McpGeneration {
     type Config = (Arc<Store>, Arc<Mutex<Node>>);
     type Input = Self::Config;
@@ -253,7 +256,9 @@ impl Plugin for McpGeneration {
         let _published = ctx.provide(runtime.clone()).map_err(std::io::Error::other)?;
         let handler: Arc<dyn NativeTaskHandler> = Arc::new(Handler(runtime));
         NativeTaskHandlerPlugin.apply(ctx.clone(), &handler).await?;
-        install_artifact_reader(ctx.clone(), config.0.clone()).await?;
+        if !self.shared_artifact_reader {
+            install_artifact_reader(ctx.clone(), config.0.clone()).await?;
+        }
         install_usage_digest(ctx, config.0.clone()).await
     }
 }

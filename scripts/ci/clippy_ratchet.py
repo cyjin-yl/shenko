@@ -24,7 +24,10 @@ from base_ref import ROOT, resolve_base
 TOOLCHAIN = tomllib.loads((ROOT / 'rust-toolchain.toml').read_text())['toolchain']['channel']
 EDITION = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['edition']
 CLIPPY_LINTS = ('clippy::all', 'clippy::unwrap_used', 'clippy::expect_used')
+<<<<<<< HEAD
 PRODUCTION_ONLY_LINTS = frozenset(CLIPPY_LINTS[1:])
+=======
+>>>>>>> 3a58c69f9495251a8a8946dfd8a96f6bda3d5cf8
 
 
 def lint_policy(output):
@@ -75,10 +78,20 @@ def lint_policy(output):
 
 
 def accepted_warning_lints(rustc, environment, output, discovered):
+<<<<<<< HEAD
     """Omit only lint names rejected by this compiler's actual flag parser.
 
     Stable rustc can list unstable lints in -W help. Keep unknown_lints in the
     actual policy and reject every unexpected diagnostic from either probe.
+=======
+    """Check the listing against the exact compiler's command-line interface.
+
+    Stable rustc may list an unstable lint in -W help, then reject that lint's
+    name when it appears in --force-warn. That creates unknown_lints in every
+    crate, including otherwise clean new crates. Only names this compiler
+    itself rejects in an isolated probe are omitted; source diagnostics and
+    the unknown_lints lint remain part of both workspace comparisons.
+>>>>>>> 3a58c69f9495251a8a8946dfd8a96f6bda3d5cf8
     """
     source = output / 'rustc-warning-probe.rs'
     source.write_text('pub fn clippy_ratchet_probe() {}\n')

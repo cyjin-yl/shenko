@@ -3757,6 +3757,7 @@ dependencies = [
  "shenko-compact-snap",
  "shenko-compat",
  "shenko-compat-mcp",
+ "shenko-compat-poppy",
  "shenko-compat-skill",
  "shenko-context-policy",
  "shenko-document",
@@ -4001,6 +4002,21 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "shenko-compat-poppy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "reqwest 0.13.5",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "url",
 ]
 
 [[package]]
