@@ -330,6 +330,8 @@ WebUI 通道的 `PublicationTarget` 指向浏览器会话而非外部 IM 平台�
 - [§56](../requirements/traceability.md#spec-56) 追踪矩阵里"SnowLuma/官方 QQ/Discord 适配未全部落地"那一行按本条理解：SnowLuma 一项不再是待做项，官方 QQ 一项升为下一条要真正做通的通道。
 <!-- /migrated-contract: SPEC:57.15 -->
 
+**NapCat 的 `proactive` 同样是未核实的声明。** NapCat（OneBot v11）的能力表也声明 `proactive: true`，但这条可达性**尚未对活平台核实过**：本插件从未在真实 NapCat/QQ 账号上完成过一次主动外发，它所在路线的被动回复窗口与频控额度也**没有测量值**。QQ 官方路线把窗口与限频记为"可变的平台事实"（[§16](channel-adapters.md#spec-16) 表格）；NapCat 这条路线目前处于同样的"未知"状态，不能读成"可无限主动触达"。声明的布尔值保持原样：未核实的是平台事实，不是能力表本身。
+
 ## Implementation appendix: built-in conversation reads (2026-11-13)
 
 `Store::channel_conversation_messages(agent_id, limit)` in
@@ -403,3 +405,14 @@ sealing and deferred re-staging to retain the original text and request
 identity. These source changes have not been executed by the coding worker.
 Parent verification must bind the combined candidate and distinguish native
 durability mechanisms from actual model behavior.
+
+<a id="spec-channel-evidence-level"></a>
+## Implementation appendix: channel acceptance evidence level (2026-11-16)
+
+**没有观察到任何渠道的真实平台往返。** 截至这条附录，仓库里没有任何一个通道（NapCat、QQ 官方、iLinkBot、飞书）在真实平台上跑过一次入站或出站往返：入站是对上游协议形状做出的分类，出站是能力表与派发参数之间的对照——两者都不是"消息真的到了对面"。
+
+`docs/evidence/qq-official-capability-audit-20261110.md` 是仓库里唯一的渠道证据文件，它**只对照官方文档与插件源码**（该文件末尾"边界（本文件不证明什么）"已写明"本文没有用一个真的 QQ 机器人账号发过消息"），不是一次真实账号的探测。
+
+因此 RT19 的验收证据等级是明确的：**能力表与可达动作的对照已经做完（doc-vs-doc 与源码级），真实平台往返尚未验收**。RT19 的命题——"能力表只列 `describe` 实际能产出的动作；不可达的动作不计入能力"——目前只在源码与文档层面成立；它在真实平台上的成立还需要一次带真实账号的往返证据，今天不存在。
+
+声明 `proactive: true` 的四条通道（NapCat、QQ 官方、iLinkBot、飞书）都受同一条限制约束：除 QQ 官方那条有平台文档记载的窗口与频控事实外，主动触达在真实平台上的可达性、被动回复窗口与频控额度都还没有测量值。能力表里的 `true` 表示"这条插件会去尝试"，不表示"已经观察它成功过"。
