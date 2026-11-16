@@ -82,6 +82,18 @@ Bare live SQLite/file mutation paths must be audited before calling this set
 complete. Merely adding a new optional API while old installed paths remain
 unguarded is not this increment.
 
+The concrete entry points above are in
+[`store.rs`](../../crates/shenko-store/src/store.rs),
+[`ledger.rs`](../../crates/shenko-store/src/ledger.rs),
+[`authority.rs`](../../crates/shenko-store/src/authority.rs),
+[`runtime_authority.rs`](../../bin/shenko/src/runtime_authority.rs),
+[`runtime_branches.rs`](../../bin/shenko/src/runtime_branches.rs),
+[`seat.rs`](../../crates/shenko-store/src/seat.rs),
+[`cognition/import.rs`](../../crates/shenko-store/src/cognition/import.rs),
+[`recovery_sources.rs`](../../crates/shenko-store/src/recovery_sources.rs),
+[`slots.rs`](../../crates/shenko-update/src/slots.rs) and
+[`handoff.rs`](../../crates/shenko-update/src/handoff.rs).
+
 ## Current selection and historical facts
 
 Fresh physical admission must verify the actual selector/head projection,
@@ -160,6 +172,121 @@ facts and a verifiable stop boundary across its own crash. The local shell path
 needs its own equivalent proof. Unknown never becomes an automatic resend. If
 an adapter cannot provide the capability, a request for it must be refused,
 not silently routed through the original unguarded path.
+
+## Native tmux prerequisite: actual call audit
+
+This section proposes the next transport prerequisite. It does not install it,
+make the OpenSSH path continuously fenced, or change an existing capability.
+The source binding is the same `c9db3aa8e315a1ea320d67584fdbff1129312762` above.
+
+### Existing paths are not interchangeable
+
+[`TmuxSeatAdapter::remote`](../../crates/shenko-exec-ssh/src/seat/tmux.rs)
+constructs [`TmuxSeat::remote`](../../crates/shenko-exec-ssh/src/ssh_exec.rs),
+which uses [`SshExecutor::over_ssh`](../../crates/shenko-exec-ssh/src/executor.rs).
+It always uses real SSH, including a loopback endpoint. Each command starts
+an independent OpenSSH process. It does not load user/system ssh_config or
+reuse ControlMaster, so preserving unspecified ProxyCommand configuration is
+not a requirement of this existing API.
+
+| Property | Existing OpenSSH tmux path | Existing installed native transport |
+| --- | --- | --- |
+| Target | `SshTarget` host, port and account; validated before process spawn | The same endpoint fields in a complete `SshBinding`, plus a `NativeInstallationSeal` for installed use |
+| Private identity | Explicit key path, explicitly enabled ambient agent, or both; default private identities are disabled | File opener reads one exact absolute file, checks permissions/type/size and matches the installed public key; no passphrase source or agent discovery |
+| Agent support | `use_agent=true` requires the caller's `SSH_AUTH_SOCK`; OpenSSH selects from that authorized agent | Protocol API accepts an explicit public identity and `Signer`; the installed file adapter does not provide an agent implementation |
+| Public trust | Strict OpenSSH validation; explicit known_hosts disables global trust, otherwise OpenSSH's default trust files apply | Exact CAS-sealed known_hosts bytes; parser accepts literal hosts/ports and revocations, and rejects hashed patterns, wildcard/negated rules, CA markers and certificates |
+| Signature policy | Actual installed OpenSSH policy under explicit flags | No RSA/SHA-1 fallback; installed file opener selects RSA/SHA-512 for an RSA key |
+| Limits | `TmuxSeat` currently calls unbounded `run_command`; stdout/stderr each cap at 2 MiB and continue draining | Explicit handshake/command/cleanup budgets and separate byte limits; single-use session |
+| Results | `ExecResult` contains lossy UTF-8 output, local process status and retained uncertainty; SSH process 255 remains ambiguous | `NativeCommandObservation` retains output bytes, remote exit/status, exec acceptance, channel closure, interruption and local session-end observation; a remote exit 255 is an actual status |
+| Cancellation | Process-group kill request and child kill-on-drop; the disappearing caller does not establish a joined writer | The original `OwnedStream` close guard prevents later underlying I/O polls; this is not remote process termination or remote application acknowledgement |
+
+These differences are enforced in
+[`native_installation.rs`](../../crates/shenko-exec-ssh/src/native_installation.rs),
+[`native_transport/trust.rs`](../../crates/shenko-exec-ssh/src/native_transport/trust.rs),
+[`native_transport/mod.rs`](../../crates/shenko-exec-ssh/src/native_transport/mod.rs)
+and [`native_transport/stream.rs`](../../crates/shenko-exec-ssh/src/native_transport/stream.rs).
+An OpenSSH configuration that native transport cannot represent must remain
+on its explicitly chosen compatibility path or be refused when native mode is
+requested. Silently selecting a different key, trust source or transport is not
+a migration.
+
+### Runtime entry and identity gaps
+
+The audited repository has no production caller of
+`TmuxSeatAdapter::remote`. The real startup path in
+[`runtime_sessions.rs`](../../bin/shenko/src/runtime_sessions.rs) only reattaches
+the durable local tmux records through
+[`SeatRuntime::reattach_record`](../../crates/shenko-exec-ssh/src/seat/runtime.rs).
+That method explicitly skips `host != "local"`, because the location record
+does not carry an SSH binding. Adding only a native constructor would therefore
+leave the new behavior unused by Start.
+
+There are two additional target-selection constraints to fix in a real native
+attachment path:
+
+- The current adapter's `discover` always writes `host="local"` and uses the
+  raw pane ID as `SeatHandle.location_id`, even for its remote constructor.
+  Multiple remote servers can legitimately have the same pane ID. The new
+  mode needs a stable installed-target/binding/pane identity, while retaining
+  the raw pane ID used by tmux on that server.
+- `SeatRuntime::attach` chooses `discovered.remove(0)`. An explicitly requested
+  remote pane must be selected by exact identity before attachment, not by the
+  server's list order. The Store already checks the active `(host, pane_id)`
+  claim in `register_seat`; that durable check must remain.
+
+Actual configured native SSH is already wired:
+[`runtime_start.rs`](../../bin/shenko/src/runtime_start.rs) receives `ssh_targets`,
+calls [`install_native_ssh`](../../bin/shenko/src/runtime_plugins.rs), then
+[`NativeSshTaskHandler::from_file`](../../crates/shenko-exec-host/src/ssh_task.rs)
+builds an immutable map of `NativeSshInstallation` values. That handler uses
+[`execute_selected_installed`](../../crates/shenko-exec-ssh/src/selected_task.rs)
+and [`SshTaskRunner`](../../crates/shenko-exec-ssh/src/task_runner.rs): target
+selection is evidence, T1 precedes authentication, and retry queries the
+original frozen operation. The map is currently private to that handler;
+the seat generation does not have the same installed registry.
+
+### Proposed smallest live-wired native mode
+
+Implement one explicit installed-native tmux attachment and answer path as a
+coherent prerequisite, without claiming installation exclusion. Keep existing
+local and OpenSSH constructors and their original records readable. The
+proposed scope is:
+
+| Source area | Necessary change, still proposed |
+| --- | --- |
+| `native_installation.rs`, `shenko-exec-host/src/ssh_task.rs` | Share the same immutable installed target registry with the real consumers; preserve exact public identity, binding revision, sealed trust and explicit opener. Do not construct targets from a model-supplied host/path or select a fallback identity. |
+| `runtime_start.rs`, `runtime_plugins.rs`, `runtime_sessions.rs` | Load the existing explicitly selected configuration once and make the native tmux handler part of the same seat Cordis generation. Preserve `ssh.native`, its Node/selection checks and the old no-configuration behavior. A retained Arc to an earlier seat generation is not an acceptable shortcut. |
+| A native tmux handler in `shenko-exec-ssh` | Admit an exact installed target and pane, with original seat/lease IDs and bounded limits, through a real native operation. Freeze installation selection before T1. Replayed admission must query original facts and cannot attach a new writable seat or send a command again. Any reused selection helper must preserve the existing distinction between selection and authorization. |
+| `ssh_exec.rs`, `seat/tmux.rs` | Keep the existing guarded command's pane/dead/program/PID checks, shell quoting and explicit Enter behavior. Add an explicitly selected native backend, target-qualified location and exact-pane attachment. Preserve the original process guard and its honest race with independent human input. |
+| `seat/runtime.rs`, only where required | Attach the requested exact handle under its real durable binding. Do not change all adapters to trust the first discovered pane. Retain the existing closing generation checks and Store location claim. |
+
+The native mode must consume the already owned
+`NativeSshSession::execute`, not enqueue bytes into an unowned child process.
+Its full guarded command and limits must be planned before the relevant T1;
+the existing tmux text-only plan is not a proof that a subsequently rebuilt
+remote shell command was frozen. Actual command completion remains an
+unconfirmed terminal input, never proof that the TUI accepted an answer.
+
+The old `terminal_write_response` helper's catch-all error-to-NotSent branch
+is valid only for its current validated OpenSSH call path. Native post-exec
+observations must use a typed branch that retains their complete original
+observation and preserves Unknown before interpreting reserved guard exit
+codes. Do not coerce native remote exit 255 into legacy SSH-process-255
+uncertainty, or coerce a lost native output into a target-side refusal.
+
+Automatic remote reattachment is not available merely because this new handler
+can attach once. It needs an immutable original binding/installation reference
+whose complete identity still matches the installed registry and original
+seat/task/lease, with an explicit stale-binding refusal. A host string or a
+new entry with the same target label is insufficient. Until that additional
+route is implemented, remote records must stay visibly durable-only after a
+restart; they must not silently acquire new leases or replay input.
+
+This proposed prerequisite changes neither Store permit admission nor any
+other writer. The separate local-shell/OpenSSH crash boundary and the whole
+installation mutation/slot protocol remain open. Its implementation and finite
+validation scope require a separate review; no new scenarios or Rust execution
+are claimed here.
 
 ## Boundedness and exclusions
 
