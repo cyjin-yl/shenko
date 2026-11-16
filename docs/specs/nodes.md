@@ -349,7 +349,8 @@ Prepared and learned applications retain the original Running fact without a
 worker permit. Foreign Learned application still needs a legitimate chosen
 claim grant and this installation's actual S1 materialization. The local
 availability path retains its source authority, dispatcher and worker checks;
-the new eight-window journey covers only the grant path and awaits execution,
+the new eight-window journey covers only the grant path and passed on
+`9b5a6cb` in [CI 43894092386](https://github.com/cyjin-yl/shenko/actions/runs/43894092386),
 with no new execution evidence for grant-free availability. Ordinary imported
 targets, recovery claims and atomic child-tool
 creation plus claim remain outside this narrow scope. See
@@ -505,7 +506,10 @@ their focused Node journey executed and passed in the Nightly scope recorded by
 the [component continuation evidence](../evidence/component-coordination-20261116.md),
 while real multi-device, model-readiness and all-topology acceptance remain
 open. The later reciprocal-star extension, including a model-free resident,
-still requires its own actual protocol and real-process results. Canonical S1,
+has actual protocol results on `15cfee0` and `9b5a6cb`; its real-process journey
+on `9b5a6cb` failed during the member-configuration setup comparison, before
+the three resident Start processes. The [original tuples and diagnosis](../evidence/ci-9b5a6cb-20261116/README.md)
+are retained; the corrected fixture still requires its own runtime result. Canonical S1,
 the paired native T2 boundaries and native dispatch have actual focused journey
 results with exact candidate scope in their linked evidence. Non-model native
 T1 also has a typed frozen transition; its journey passed on `15cfee0` in
@@ -513,7 +517,7 @@ T1 also has a typed frozen transition; its journey passed on `15cfee0` in
 That whole run still failed the separately documented context-inspection fixture.
 The first native claim from a locally materialized canonical S1, under quorum
 choice or the existing local availability authority, has a separately bounded
-typed implementation. Its new grant-path journey awaits candidate CI; no new
+typed implementation. Its new grant-path journey passed in the same `9b5a6cb` CI; no new
 execution evidence covers grant-free availability.
 The remaining replay work includes S0 request arming, other native claims,
 model-child/quota and publication T1, other trusted-executor T1 and publication

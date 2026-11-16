@@ -123,7 +123,9 @@ parked root and target records, unchanged siblings, fatal malformed-plan refusal
 idempotent receipts, factual recovery results, and zero operations or attempts
 created by claim materialization. The provider fixture supplies controlled
 chosen grants; this is not real network consensus or a physical effect journey.
-All eight windows use that grant path and still await actual candidate execution.
+All eight windows use that grant path. They passed on candidate `9b5a6cb` in
+[CI 43894092386](https://github.com/cyjin-yl/shenko/actions/runs/43894092386),
+whose Store roundtrip target passed 39 tests with none failed or ignored.
 There is no new execution evidence for the grant-free availability path. Its
 real native-child journey remains a separate acceptance gap.
 `cargo check --offline --locked -p shenko-store --test store_roundtrip` passed
@@ -134,5 +136,7 @@ new module, predecessor verification or new journey. The Store retained its
 13 existing rustc warnings; this focused inspection is not a full baseline
 ratchet comparison. Documentation checks, including `--verify-migration`,
 returned `errors=[]`, and `git diff --check` passed. No local test code generation
-or execution was performed. The new journey has not yet executed and awaits
-the parent's candidate CI.
+or execution was performed locally. The later remote result is retained with
+the [complete original job and workspace logs](../evidence/ci-9b5a6cb-20261116/README.md).
+That CI still failed the separate component-process setup comparison; it did
+not test the subsequent mainline integration or its fixture correction.

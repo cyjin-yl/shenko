@@ -320,3 +320,21 @@ The changed test was not run locally. Earlier passing two-member Node and
 archive-exchange journeys do not prove this changed view validation or the
 real Start/SSH adapter. A real multi-node route/startup journey, relay support
 and asymmetric topology handling remain outstanding.
+
+### Later 9b5a6cb process observation
+
+[CI 43894092386](https://github.com/cyjin-yl/shenko/actions/runs/43894092386)
+actually passed the reciprocal-star Node protocol, but the new seven-SSH-identity
+process journey failed in 69.02 seconds during its membership setup. It had not
+reached the three resident Start processes. The two observed configurations
+matched on revision, term, members, joint configuration and digest; only their
+node-local bounded-Append learning times differed. The original failure, full
+tuples, real transfer frontiers, cleanup and complete logs remain in
+[the source-bound observation](ci-9b5a6cb-20261116/README.md).
+
+The follow-up fixture compares those consensus fields and complete control
+frontiers across members, then reopens each Node through another CLI process
+and requires its own full configuration, including its local time, to remain
+identical. It preserves every later certificate, installation, follower,
+authority and heartbeat assertion. Its metadata compilation passed on
+`c1c915fa`; the corrected whole process journey has not yet run.

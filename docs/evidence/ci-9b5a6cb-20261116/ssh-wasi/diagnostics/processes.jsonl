@@ -1,0 +1,26 @@
+{"label":"bootstrap","observation":{"event":"spawned"},"pid":16727}
+{"label":"bootstrap","observation":{"event":"signal_requested","signal":2},"pid":16727}
+{"label":"bootstrap","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16727}
+{"label":"install","observation":{"event":"spawned"},"pid":16742}
+{"label":"install","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16742}
+{"label":"inventory","observation":{"event":"spawned"},"pid":16751}
+{"label":"inventory","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16751}
+{"label":"guest-0","observation":{"event":"spawned"},"pid":16756}
+{"label":"guest-0","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16756}
+{"label":"host-keygen","observation":{"event":"spawned"},"pid":16772}
+{"label":"host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16772}
+{"label":"sshd","observation":{"event":"spawned"},"pid":16773}
+{"label":"account","observation":{"event":"spawned"},"pid":16775}
+{"label":"account","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16775}
+{"label":"guest-1","observation":{"event":"spawned"},"pid":16776}
+{"label":"guest-1","observation":{"event":"joined","exit_code":7,"status":"exit status: 7"},"pid":16776}
+{"label":"guest-2","observation":{"event":"spawned"},"pid":16800}
+{"label":"guest-2","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16800}
+{"label":"guest-3","observation":{"event":"spawned"},"pid":16824}
+{"label":"guest-3","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16824}
+{"label":"guest-4","observation":{"event":"spawned"},"pid":16848}
+{"label":"guest-4","observation":{"event":"joined","exit_code":255,"status":"exit status: 255"},"pid":16848}
+{"label":"guest-5","observation":{"event":"spawned"},"pid":16867}
+{"label":"guest-5","observation":{"event":"joined","exit_code":255,"status":"exit status: 255"},"pid":16867}
+{"label":"sshd","observation":{"event":"signal_requested","signal":15},"pid":16773}
+{"label":"sshd","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16773}

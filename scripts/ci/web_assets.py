@@ -5,6 +5,8 @@ The checked-in static directory is only read. The existing build.mjs and
 compiler.mjs execute from a clean snapshot with no node_modules, generated
 compiler, generated prototypes or static output. Keep both generations and
 their manifests after failure; this command never updates expected digests.
+Dependency installation, tests and builds must leave every admitted source
+input unchanged, including the pinned upstream's tracked files and symlinks.
 """
 import argparse
 import copy
@@ -14,6 +16,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,11 +43,45 @@ def write_json(path, value):
 
 def inside(root, name):
     relative = PurePosixPath(name)
-    if relative.is_absolute() or not relative.parts or any(part in ('.', '..') for part in relative.parts):
+    if (relative.is_absolute() or not relative.parts or name != relative.as_posix()
+            or '\\' in name or '\0' in name or '..' in relative.parts):
         raise ValueError(f'Invalid artifact path: {name}')
     result = root.joinpath(*relative.parts)
     if not result.resolve().is_relative_to(root.resolve()):
         raise ValueError(f'Artifact escapes its owning root: {name}')
+    return result
+
+
+def checkout_inputs(root):
+    """Bind current physical bytes/modes to the immutable tracked membership.
+
+    ls-tree includes hidden inputs and records HEAD blob/mode provenance.
+    Symlinks are recorded literally instead of hashing their referents.
+    Generated untracked dist/node_modules outputs are outside this inventory;
+    compiler_files separately walks every physical compiler source file.
+    """
+    entries = subprocess.check_output(
+        ['git', 'ls-tree', '-r', '-z', '--full-tree', 'HEAD'], cwd=root).decode().split('\0')[:-1]
+    result = {}
+    for entry in entries:
+        metadata, name = entry.split('\t', 1)
+        git_mode, kind, blob = metadata.split()
+        path = inside(root, name)
+        mode = path.lstat().st_mode
+        if kind != 'blob':
+            raise ValueError(f'Upstream input is not a checked-out blob: {name}')
+        if git_mode == '120000' and stat.S_ISLNK(mode):
+            target = os.readlink(path)
+            content = os.fsencode(target)
+            value = {'target': target, 'bytes': len(content),
+                     'sha256': hashlib.sha256(content).hexdigest()}
+        elif git_mode in ('100644', '100755') and stat.S_ISREG(mode):
+            value = record(path)
+        else:
+            raise ValueError(f'Upstream input kind differs from its Git mode: {name}')
+        result[name] = {**value, 'mode': stat.S_IMODE(mode), 'git_mode': git_mode, 'git_blob': blob}
+    if not result:
+        raise ValueError('The pinned upstream checkout has no tracked source inputs')
     return result
 
 
@@ -91,6 +128,8 @@ def validate_static(directory, manifest):
         raise ValueError(f'{directory}: static bytes/membership do not match every recorded hash and byte count')
     for name in manifest['artifacts']:
         inside(directory, name)
+        if PurePosixPath(name).parts[0] == 'chunks' and not re.fullmatch(r'chunks/[A-Za-z0-9_-]+\.js', name):
+            raise ValueError(f'Invalid emitted JavaScript chunk path: {name}')
 
 
 def prepare(output):
@@ -128,7 +167,8 @@ def prepare(output):
     if len(entries) != 3 or set(entries) != {'@proto.ui/adapter-react', '@proto.ui/prototypes-shadcn', '@proto.ui/cli'}:
         raise ValueError('Revisit the public-closure contract: expected the actual three reviewed public entries')
     state = {'pin': pin, 'package_manager': manager, 'public_entries': entries,
-             'web_inputs': source_inputs, 'committed_static': files(STATIC),
+             'web_inputs': source_inputs, 'upstream_inputs': checkout_inputs(upstream),
+             'committed_static': files(STATIC),
              'node': (ROOT / '.node-version').read_text().strip()}
     write_json(output / 'inputs.json', state)
     if os.environ.get('GITHUB_ENV'):
@@ -193,11 +233,15 @@ def compiler_files(web, upstream, manifest):
         if (provenance['source']['sha256'] != prototype['compiler_source_sha256'] or
                 provenance['backend'] != prototype['compiler_backend'] or
                 provenance['irVersion'] != prototype['compiler_ir_version'] or
-                provenance['generatedSha256'] != prototype['generated_sha256']):
+                provenance['generatedSha256'] != prototype['generated_sha256'] or
+                provenance['sourceFiles'] != [{'file': PurePosixPath(prototype['entry']).name,
+                                               'sha256': prototype['entry_sha256']}]):
             raise ValueError(f'Prototype provenance does not match the real generation: {prototype["name"]}')
         directory = inside(web, prototype['output_directory'])
         declared = set()
         for artifact in provenance['artifacts']:
+            if artifact['path'] in declared:
+                raise ValueError(f'Duplicate generated Prototype artifact: {prototype["name"]}/{artifact["path"]}')
             declared.add(artifact['path'])
             required.append((directory, artifact['path'], artifact['sha256'], artifact.get('bytes')))
         actual = set(files(directory))
@@ -225,6 +269,8 @@ def check(output):
         raise ValueError(f'Unexpected build toolchain: {node}, pnpm@{pnpm}')
     if files(web) != state['web_inputs']:
         raise ValueError('The admitted clean frontend source changed before dependency installation')
+    if checkout_inputs(upstream) != state['upstream_inputs']:
+        raise ValueError('The pinned upstream source changed before dependency installation')
     environment = dict(os.environ, PROTO_UI_SOURCE=str(upstream),
                        PROTO_UI_BUILD_RECEIPT=str(output / 'upstream-build.json'), HUSKY='0')
     run(['pnpm', 'install', '--frozen-lockfile'], upstream, output, 'upstream-install', environment)
@@ -258,6 +304,14 @@ def check(output):
     for name in expected['artifacts'].keys() & actual['artifacts'].keys():
         if inside(output / 'committed', name).read_bytes() != inside(rebuilt, name).read_bytes():
             errors.append(f'Payload bytes differ: {name}')
+    # Frozen installation alone does not stop lifecycle scripts, tests or build
+    # tools rewriting their source. Compare the tree actually rebuilt as well
+    # as the untouched original checkout; generated output/dependency roots
+    # are the only frontend exclusions, and every tracked upstream byte stays
+    # bound to the original commit. Dynamic app/chunks payloads use the same
+    # complete artifact membership and byte checks as every other static file.
+    errors.extend(differences(state['web_inputs'], files(web, EXCLUDED), 'rebuilt_web_inputs'))
+    errors.extend(differences(state['upstream_inputs'], checkout_inputs(upstream), 'rebuilt_upstream_inputs'))
     if files(STATIC) != state['committed_static'] or files(WEB, EXCLUDED) != state['web_inputs']:
         errors.append('The original checkout changed during independent verification')
     write_json(output / 'comparison.json', {

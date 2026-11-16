@@ -13,7 +13,7 @@ use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
 use shenko_types::commit::CommitRef;
-use shenko_types::error::ShenkoError;
+use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::identity::{
     IdentityIntent, IdentityOutcome, IdentityProfile, IdentityReceipt, IdentitySource,
 };
@@ -349,10 +349,22 @@ fn retry_pacing(attempts: usize) -> std::time::Duration {
 /// generation — is not a continuation and is left to the caller's
 /// reconciliation. Unknown outcomes are not retry-permitted, so they can
 /// never enter this path.
+///
+/// `Stopped` is distinct from "no pacing": the durable step holds a fault or
+/// unreconciled debt, so the live loop must stop instead of arming another
+/// request for the same sealed step.
+enum RetryDecision {
+    /// The step is not retry-pending, or a real resource wait may be paced.
+    Continue(Option<(std::time::Duration, usize)>),
+    /// A durable retry fact forbids another attempt here; stop for explicit
+    /// reconciliation and keep the original request and its debt.
+    Stopped(ShenkoError),
+}
+
 fn retry_continuation(
     state: &mut SubjectLoopState,
     seal_at_entry: Option<&ObjectRef>,
-) -> Result<Option<(std::time::Duration, usize)>, ShenkoError> {
+) -> Result<RetryDecision, ShenkoError> {
     let (head, step) = state.store.load_subject(state.agent_id)?;
     if step.state != SubjectStepState::RetryPending
         || step.step_id != state.step.step_id
@@ -361,7 +373,7 @@ fn retry_continuation(
         || head.software_generation != state.head.software_generation
         || head.next_step_id != state.head.next_step_id
     {
-        return Ok(None);
+        return Ok(RetryDecision::Continue(None));
     }
     // A step that was ALREADY retry-pending entered this invocation and came
     // back with the same evidence did not record a new conclusive failure: the
@@ -369,7 +381,9 @@ fn retry_continuation(
     // resource wait, and it must stop for reconciliation instead of pacing
     // against a wall that will not move.
     if seal_at_entry.is_some_and(|seal| step.retry_reason_ref.as_ref() == Some(seal)) {
-        return Ok(None);
+        return Ok(RetryDecision::Stopped(ShenkoError::conflict(
+            "the sealed request cannot be resumed; reconcile the original attempt explicitly",
+        )));
     }
     // A human pause is a real control fact. A retry boundary is the safest
     // place to honour it: no model request is in flight and the retry evidence
@@ -379,7 +393,7 @@ fn retry_continuation(
             step_no = step.step_no,
             "requested pause met a retry boundary; stopping instead of re-attempting"
         );
-        return Ok(None);
+        return Ok(RetryDecision::Continue(None));
     }
     let object = step
         .retry_reason_ref
@@ -396,11 +410,19 @@ fn retry_continuation(
         InferenceRetryFact::NeverDispatched
             | InferenceRetryFact::ProviderRejected { http_status: 429 }
     );
-    if !provider_resource_wait
-        || step.active_attempt_id.is_some()
-        || !evidence.permits_retry(step.active_request_id)
-    {
-        return Ok(None);
+    if !provider_resource_wait {
+        // A lost dispatch or a refused admission is unknown debt, not a
+        // resource wait. Arming another request here would send the same
+        // external effect twice while the first outcome is still unknown.
+        return Ok(RetryDecision::Stopped(ShenkoError::conflict(format!(
+            "subject step {} holds unreconciled dispatch debt; reconcile the original request before another attempt",
+            step.step_no
+        ))));
+    }
+    if step.active_attempt_id.is_some() || !evidence.permits_retry(step.active_request_id) {
+        return Ok(RetryDecision::Stopped(ShenkoError::conflict(
+            "the sealed retry evidence does not permit another attempt for this request",
+        )));
     }
     let attempts = state
         .store
@@ -409,7 +431,7 @@ fn retry_continuation(
     let pacing = retry_pacing(attempts);
     state.head = head;
     state.step = step;
-    Ok(Some((pacing, attempts)))
+    Ok(RetryDecision::Continue(Some((pacing, attempts))))
 }
 
 pub struct SubjectLoopState {
@@ -767,6 +789,7 @@ pub async fn run_subject_loop(
     // durable journal fact. A retry streak is a degradation the subject can
     // read; each individual pacing interval is not a new fact.
     let mut retry_journaled = false;
+    let mut retry_state_error = None;
     let result = loop {
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");
@@ -937,10 +960,28 @@ pub async fn run_subject_loop(
             Ok(retry) => retry,
             Err(unreadable) => {
                 break Err(match outcome {
-                    Err(primary) => ShenkoError::conflict(format!(
-                        "{primary}; durable retry state unreadable: {unreadable}"
-                    )),
+                    Err(primary) => {
+                        // A failed recovery read supplements the original
+                        // error; it cannot replace its type or its details.
+                        retry_state_error = Some(unreadable);
+                        primary
+                    }
                     Ok(_) => unreadable,
+                });
+            }
+        };
+        let retry = match retry {
+            RetryDecision::Continue(pacing) => pacing,
+            // The durable retry fact forbids another attempt. Stopping here
+            // keeps the original request and its unknown debt; falling
+            // through would arm a second request for the same sealed step.
+            RetryDecision::Stopped(fault) => {
+                break Err(match outcome {
+                    Err(primary) => {
+                        retry_state_error = Some(fault);
+                        primary
+                    }
+                    Ok(_) => fault,
                 });
             }
         };
@@ -983,7 +1024,6 @@ pub async fn run_subject_loop(
         retry_journaled = false;
         if let Err(error) = outcome {
             // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
-            warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
             break Err(error);
         }
 
@@ -995,22 +1035,62 @@ pub async fn run_subject_loop(
     // can later read through errors.read — docs/specs/cognition-units.md#spec-45-14. The journal write is
     // fail-soft: it never masks or replaces the original error.
     if let Err(error) = &result {
-        state.store.journal_runtime_error(
-            state.agent_id,
-            shenko_store::RuntimeErrorContext {
-                kind: "subject_loop".into(),
-                source_module: module_path!().into(),
-                message: format!("subject loop stopped on error: {error}"),
-                step_no: Some(state.step.step_no),
-                task_id: None,
-                extra: serde_json::json!({}),
-            },
-        );
+        journal_subject_loop_error(&state, error, retry_state_error.as_ref());
     }
     // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
     state.inbox.close().await;
     info!("subject loop terminated");
     result
+}
+
+/// Project the original error without changing its type or recovery policy.
+/// ProtocolError's public Display is deliberately terse; its structured
+/// details belong in the existing bounded, redacted runtime-error journal.
+/// A secondary retry-state failure is reported separately from that error.
+fn journal_subject_loop_error(
+    state: &SubjectLoopState,
+    error: &ShenkoError,
+    retry_state_error: Option<&ShenkoError>,
+) {
+    let (mut message, mut extra) = match error {
+        ShenkoError::Protocol(protocol) => {
+            let cause = if protocol.code == "BROKER_ADMISSION_REJECTED" {
+                protocol.details.get("admission_error").and_then(serde_json::Value::as_str)
+            } else {
+                None
+            };
+            let message = match cause {
+                Some(cause) => format!("subject loop stopped on error: {error}: {cause}"),
+                None => format!("subject loop stopped on error: {error}"),
+            };
+            (message, serde_json::json!({"error": protocol}))
+        }
+        _ => (format!("subject loop stopped on error: {error}"), serde_json::json!({})),
+    };
+    if let Some(secondary) = retry_state_error {
+        let secondary_message = secondary.to_string();
+        message.push_str("; durable retry state unreadable: ");
+        message.push_str(&secondary_message);
+        extra["retry_state_error"] = match secondary {
+            ShenkoError::Protocol(protocol) => serde_json::json!({
+                "message": secondary_message,
+                "error": protocol,
+            }),
+            _ => serde_json::json!({"message": secondary_message}),
+        };
+    }
+    warn!(seq = state.step.step_no, err = %message, "主体恢复阻塞，停止新决定，等待重开和对账");
+    state.store.journal_runtime_error(
+        state.agent_id,
+        shenko_store::RuntimeErrorContext {
+            kind: "subject_loop".into(),
+            source_module: module_path!().into(),
+            message,
+            step_no: Some(state.step.step_no),
+            task_id: None,
+            extra,
+        },
+    );
 }
 
 /// The engineering default of docs/specs/channels.md#spec-41-6: one subject step selects at most this
@@ -1687,16 +1767,26 @@ async fn execute_step(
             // left: the broker owns the send boundary. The request stays
             // recoverable debt and the step is reconciled, never replayed
             // under the same identity.
-            broker.recover_unknown(request_id);
-            record_retry(
+            let recovery = broker.recover_unknown(request_id);
+            let retry_record = record_retry(
                 state,
                 InferenceRetryFact::DispatchLost {
                     reason: format!("broker admission rejected: {error}"),
                 },
-            )?;
-            return Err(ShenkoError::other(format!(
-                "broker admission rejected: {error}; outcome unknown, reconciled"
-            )));
+            );
+            // The send-boundary failure remains primary even if retaining its
+            // charge or journalling the retry fact also failed. Neither
+            // cleanup failure supplies evidence that the request was unsent.
+            return Err(ProtocolError::new(
+                "BROKER_ADMISSION_REJECTED", ErrorScope::Request, RetryStrategy::AfterReconcile,
+            ).with_details(serde_json::json!({
+                "request_id": request_id,
+                "admission_error": format!("{error:#}"),
+                "outcome": "unknown",
+                "unknown_charge_restored": recovery.is_ok(),
+                "recovery_error": recovery.err().map(|error| format!("{error:#}")),
+                "retry_record_error": retry_record.err().map(|error| format!("{error:#}")),
+            })).into());
         }
         let result = rx
             .await

@@ -1,4 +1,4 @@
-//! Native task handlers exposing docs/specs/repl.md#spec-19 REPL sessions to the subject runtime.
+//! Native task handlers exposing REPL sessions to the subject runtime.
 //!
 //! Two handler kinds follow the exact `wasi.exec` ledger pattern:
 //!
@@ -149,7 +149,7 @@ struct CreateInput {
 struct InstallKernelInput {
     /// Entry name the caller will `create` by.
     entry: String,
-    /// Named docs/specs/repl.md#spec-19-1 target this binding is built from.
+    /// Named target this binding is built from.
     target: String,
     /// Interpreter artifact, canonical-contained under `<data>/repl/kernels`.
     module: PathBuf,
@@ -581,7 +581,7 @@ impl SessionStore {
     }
     fn kernels_root(&self) -> PathBuf { self.data_dir.join("kernels") }
     fn wheels_root(&self) -> PathBuf { self.data_dir.join("wheels") }
-    /// Durable kernel bindings (docs/specs/repl.md#spec-19-1 replaceable kernel plugins). Kept apart
+    /// Durable kernel bindings (replaceable kernel plugins). Kept apart
     /// from `kernels`, which holds the admitted interpreter artifacts the
     /// bindings point at.
     fn entries_root(&self) -> PathBuf { self.data_dir.join("entries") }
@@ -2377,7 +2377,7 @@ mod tests {
         Ok(())
     }
 
-    /// A durable kernel binding is the docs/specs/repl.md#spec-19-1 replaceable-kernel entry: install
+    /// A durable kernel binding is the replaceable-kernel entry: install
     /// it once, discover it from `list_kernels`, create a session from the
     /// name, and fail closed when the artifact no longer matches. The guest
     /// below is the resident synthetic one, so this proves the binding and

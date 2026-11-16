@@ -1,4 +1,4 @@
-//! Agent-owned SSH identity generation — docs/specs/remote-seats.md#spec-11/R016.
+//! Agent-owned SSH identity generation.
 //!
 //! The agent creates and maintains its own ed25519 identity per node. This
 //! module writes a private key (mode 0600) and its OpenSSH `.pub`, and is
@@ -8,13 +8,19 @@
 //! (OpenSSH line + SHA-256 fingerprint) are exposed, matching the existing
 //! `NativeSshFileTargetConfig` invariant.
 
-use anyhow::{Context, Result, bail, ensure};
+#[cfg(unix)]
+use anyhow::{Context, Result, ensure};
+#[cfg(unix)]
 use russh::keys::{HashAlg, PublicKey, key::safe_rng, ssh_key::{
     Algorithm, LineEnding, PrivateKey,
 }};
 use serde::Serialize;
+#[cfg(unix)]
+use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy};
 use shenko_types::ids::EntityId;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Public-facing identity for R017 display/copy. Excludes the private-key
 /// bytes; `private_key_file` is a location, not material.
@@ -34,6 +40,7 @@ pub struct NodeSshIdentity {
     pub generated: bool,
 }
 
+#[cfg(unix)]
 const IDENTITY_FILE_NAME: &str = "id_ed25519";
 
 /// One `shenko.ssh.file-installation.v1` target entry authored from a
@@ -111,28 +118,33 @@ pub fn ensure_node_identity(dir: &Path, comment: &str) -> Result<NodeSshIdentity
     let priv_path = dir.join(IDENTITY_FILE_NAME);
     let pub_path = priv_path.with_extension("pub");
 
-    // Reopen an intact identity without regenerating.
-    if priv_path.exists() && pub_path.exists() {
-        if let Some(identity) = read_consistent_identity(&priv_path, &pub_path)? {
-            return Ok(identity);
-        }
-        bail!("existing SSH identity at {} is inconsistent; refusing to overwrite", priv_path.display());
+    // Only NotFound establishes absence. Permission and filesystem failures
+    // must retain their original cause, never select the key-generation path.
+    let private_exists = identity_file_exists(&priv_path)?;
+    let public_exists = identity_file_exists(&pub_path)?;
+    if private_exists && public_exists {
+        return read_consistent_identity(&priv_path, &pub_path);
     }
-    if priv_path.exists() != pub_path.exists() {
-        bail!("partial SSH identity at {}; remove the orphan file to re-key", priv_path.display());
-    }
+    ensure!(private_exists == public_exists,
+        ProtocolError::new("ssh_identity_partial", ErrorScope::Call, RetryStrategy::NeverAutomatically)
+            .with_details(serde_json::json!({
+                "private_key_file": priv_path,
+                "public_key_file": pub_path,
+                "private_present": private_exists,
+                "public_present": public_exists,
+            })));
 
     // Generate fresh ed25519 keypair with the crate's CSPRNG.
     let mut rng = safe_rng();
     let mut key = PrivateKey::random(&mut rng, Algorithm::Ed25519)
-        .map_err(|e| anyhow::anyhow!("ssh keygen failed: {e}"))?;
+        .context("SSH key generation failed")?;
     key.set_comment(comment.to_string());
     let private_openssh = key.to_openssh(LineEnding::LF)
-        .map_err(|e| anyhow::anyhow!("ssh key encode failed: {e}"))?;
+        .context("private SSH key encoding failed")?;
     let mut public = key.public_key().clone();
     public.set_comment("");
     let public_openssh = public.to_openssh()
-        .map_err(|e| anyhow::anyhow!("ssh pubkey encode failed: {e}"))?;
+        .context("public SSH key encoding failed")?;
 
     // Write private key mode 0600, create-new so a concurrent re-key or a
     // planted file is detected rather than overwritten.
@@ -142,9 +154,19 @@ pub fn ensure_node_identity(dir: &Path, comment: &str) -> Result<NodeSshIdentity
         .with_context(|| format!("public key write failed: {}", pub_path.display()))?;
 
     // Re-read to report the canonical stored identity, not the in-memory key.
-    read_consistent_identity(&priv_path, &pub_path)?
-        .map(|mut id| { id.generated = true; id })
-        .ok_or_else(|| anyhow::anyhow!("freshly written identity did not verify"))
+    let mut identity = read_consistent_identity(&priv_path, &pub_path)
+        .context("freshly written SSH identity did not verify; preserving stored files")?;
+    identity.generated = true;
+    Ok(identity)
+}
+
+#[cfg(unix)]
+fn identity_file_exists(path: &Path) -> Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("SSH identity metadata unavailable: {}", path.display())),
+    }
 }
 
 #[cfg(unix)]
@@ -155,38 +177,45 @@ fn write_new_file(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
         .write(true).create_new(true).mode(mode)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path).with_context(|| format!("create-new failed: {}", path.display()))?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
+    file.write_all(bytes)
+        .with_context(|| format!("SSH identity write failed: {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("SSH identity sync failed: {}", path.display()))?;
     Ok(())
 }
 
-/// Parse both files and confirm they encode the *same* key. Returns `Ok(None)`
-/// when either file is unreadable/mismatched so the caller can decide whether
-/// that means "inconsistent" (error) rather than "absent" (regenerate).
+/// Parse both files and confirm they encode the same key. Read and parse
+/// failures retain their typed causes; neither corruption nor unreadability
+/// authorizes regeneration of an identity the node may still depend on.
 #[cfg(unix)]
-fn read_consistent_identity(priv_path: &Path, pub_path: &Path) -> Result<Option<NodeSshIdentity>> {
-    let priv_bytes = match std::fs::read(priv_path) { Ok(b) => b, Err(_) => return Ok(None) };
-    let pub_bytes = match std::fs::read(pub_path) { Ok(b) => b, Err(_) => return Ok(None) };
-    let private = PrivateKey::from_openssh(&priv_bytes).ok();
-    let mut public = PublicKey::from_openssh(
-        std::str::from_utf8(&pub_bytes).unwrap_or("").trim_end()).ok();
-    let (private, public) = match (private, public.as_mut()) {
-        (Some(p), Some(q)) => (p, q),
-        _ => return Ok(None),
-    };
-    if private.public_key().key_data() != public.key_data() {
-        return Ok(None);
-    }
+fn read_consistent_identity(priv_path: &Path, pub_path: &Path) -> Result<NodeSshIdentity> {
+    let priv_bytes = std::fs::read(priv_path)
+        .with_context(|| format!("private SSH identity read failed: {}", priv_path.display()))?;
+    let pub_bytes = std::fs::read(pub_path)
+        .with_context(|| format!("public SSH identity read failed: {}", pub_path.display()))?;
+    let private = PrivateKey::from_openssh(&priv_bytes)
+        .with_context(|| format!("private SSH identity parse failed: {}", priv_path.display()))?;
+    let public_text = std::str::from_utf8(&pub_bytes)
+        .with_context(|| format!("public SSH identity is not UTF-8: {}", pub_path.display()))?;
+    let mut public = PublicKey::from_openssh(public_text.trim_end())
+        .with_context(|| format!("public SSH identity parse failed: {}", pub_path.display()))?;
+    ensure!(private.public_key().key_data() == public.key_data(),
+        ProtocolError::new("ssh_identity_mismatch", ErrorScope::Call, RetryStrategy::NeverAutomatically)
+            .with_details(serde_json::json!({
+                "private_key_file": priv_path,
+                "public_key_file": pub_path,
+            })));
     public.set_comment("");
-    let public_openssh = public.to_openssh().ok();
-    Ok(public_openssh.map(|public_key_openssh| NodeSshIdentity {
+    let public_key_openssh = public.to_openssh()
+        .context("public SSH identity encoding failed")?;
+    Ok(NodeSshIdentity {
         schema: "shenko.ssh.node-identity.v1",
         private_key_file: priv_path.to_path_buf(),
         public_key_openssh,
         fingerprint_sha256: public.fingerprint(HashAlg::Sha256).to_string(),
         algorithm: public.algorithm().to_string(),
         generated: false,
-    }))
+    })
 }
 
 #[cfg(all(test, unix))]

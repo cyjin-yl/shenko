@@ -1,6 +1,6 @@
 //! Native consumer for the exact-version half of the perception runtime.
 //!
-//! docs/specs/cognition-units.md#spec-45-1, docs/specs/cognition-units.md#spec-45-2, docs/specs/cognition-units.md#spec-45-4, docs/specs/cognition-units.md#spec-45-10-1: a perception unit is a definition, not a
+//! a perception unit is a definition, not a
 //! fact. What this node knows is whatever a source bound to one exact
 //! installed revision actually observed; the observation is archived against
 //! that revision and outlives it. Nothing here is scored from source text:
@@ -488,7 +488,7 @@ fn an_updated_installation_units_version_retires_the_old_source() -> Result<()> 
         "the observation belongs to the newly installed revision, not the retired one"
     );
 
-    // The 0.1.0 observation is retained as a fact about 0.1.0 (docs/specs/cognition-units.md#spec-45-10-1)
+    // The 0.1.0 observation is retained as a fact about 0.1.0
     // and still names its own binding.
     let read = sandbox.catalog.read(INSTALLATION_UNITS, "0.1.0")?;
     ensure!(

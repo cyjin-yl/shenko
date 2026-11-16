@@ -247,7 +247,7 @@ fn open_node_inner(
     Ok(node)
 }
 
-/// The installation-level half of `adopt_identity` (docs/specs/nodes.md#spec-5-4): the node may
+/// The installation-level half of `adopt_identity`: the node may
 /// adopt the trusted identity only when the store's subject binding stays
 /// coherent with it — either no local subject is bound yet (the node carries
 /// the adopted self until the subject's retained facts arrive; the binding
@@ -323,7 +323,7 @@ pub fn cognition_report_options(data_dir: &Path) -> CognitionSnapshotOptions {
 /// of the peer-visible cognition report. It states a snapshot and the ledger
 /// watermark it covered; it is not a liveness, capacity or recoverability
 /// claim, and no peer reads it as one. It is a mechanism observation, not
-/// cognitive content, an attitude or a confidence (docs/specs/cognition-units.md#spec-51-1).
+/// cognitive content, an attitude or a confidence.
 ///
 /// Unchanged content publishes nothing new: the Node keeps one revision per
 /// observed content digest, so a tick that observes the same bytes returns the
@@ -1608,7 +1608,7 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
     // always one this installation actually computed from its Store.
     // A publication failure is reported, never silently replaced by an older
     // report: a peer then keeps reading the last real observation it has. An
-    // unchanged snapshot publishes nothing new (docs/specs/cognition-units.md#spec-51-1 dedup), so a steady tick
+    // unchanged snapshot publishes nothing new (dedup), so a steady tick
     // is a read, not a new revision.
     let cognition = publish_cognition_report(store, &mut node, data_dir);
     if let Err(error) = &cognition {
@@ -1672,7 +1672,7 @@ fn report_cognition_publication(status: &mut Value, outcome: &Result<CognitionSn
 }
 
 pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
-    let store = Arc::new(crate::open_installation_store(&data_dir)?);
+    let store = Arc::new(crate::runtime_bootstrap::open_installation_store(&data_dir)?);
     // Adoption is the divergence-reconciliation entry: it opens the node
     // without the binding gate (a diverged installation must still be able
     // to reach it) and refuses before any write when the adoption would
@@ -1692,7 +1692,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             // the report a peer reads from the node route is whatever this
             // installation last published, so it is produced from the Store
             // here instead of only by the background replication tick. An
-            // unchanged Store keeps the published revision (docs/specs/cognition-units.md#spec-51-1 dedup).
+            // unchanged Store keeps the published revision (dedup).
             let published = publish_cognition_report(&store, &mut node, &data_dir);
             if let Err(error) = &published {
                 tracing::warn!(error=%error, "cognition report not published; the route keeps the last real report");
@@ -2002,7 +2002,7 @@ pub fn spawn_runtime(
 /// only with the committed election's fencing token; `None` records an honest
 /// executor/recovery/replica observation with no domain-primary claim —
 /// e.g. a deterministic bootstrap or an availability branch after a
-/// partition (docs/specs/nodes.md#spec-5-4-3).
+/// partition.
 pub fn observe(
     data_dir: &Path,
     store: &Store,
@@ -2037,8 +2037,7 @@ pub fn observe(
 /// consumer and no replica worker, and it claims no domain-primary
 /// authority. The observation is the queryable fact that tells a resident
 /// follower apart from a runtime that never started: it never claims the
-/// executor, recovery or replica duties of a selected runtime
-/// (docs/specs/nodes.md#spec-5-4-3).
+/// executor, recovery or replica duties of a selected runtime.
 pub fn observe_follower(
     data_dir: &Path,
     store: &Store,
@@ -2059,7 +2058,7 @@ pub fn observe_follower(
 }
 
 pub fn node_command(data_dir: &Path) -> Result<()> {
-    let store = crate::open_installation_store(data_dir)?;
+    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let mut bytes = Vec::new();
     std::io::stdin()
         .take(shenko_node::MAX_NODE_REQUEST as u64 + 1)

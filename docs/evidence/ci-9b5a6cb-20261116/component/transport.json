@@ -1,0 +1,19 @@
+{
+  "cli_binary": "/__w/shenko/shenko/.ci/target/rust/debug/shenko",
+  "cli_sha256": "5c5f6c94e9407a3cbb9b97a5d3bd23fb5b5072f5ad29c36af3c079e91c8897f3",
+  "known_hosts": "[127.0.0.1]:32983 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGuET8pQDOglr01rOaf07EzLNRNsyNmdBdWrJIfwWF91\n[127.0.0.1]:33821 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE74By97nZn9i4hdcIZA4PEgEfxhskWriBA/LYjSEzQQ\n[127.0.0.1]:36617 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAf19/HqUpSz2nHS7/qEz8MDj9H5ys2LmgY+oewVA+DI\n[127.0.0.1]:42171 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHSuXZC/1nHvtjBJUF3rKhiTIWx2/LGwBt/RMM9JRKFO\n[127.0.0.1]:39945 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICILxiW2cjr56XyL4zo+raH0WG506RMkYVhmqiIOoSKQ\n[127.0.0.1]:36125 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMFFuNM1zuvkJF2dietw1OCyM/YCuJJqlXutQdVXQKJv\n[127.0.0.1]:36669 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICvSvg3mScwzScxLXfx7SFMer9Vpsd9LxEQCz36gyPzY\n",
+  "ports": [
+    32983,
+    33821,
+    36617,
+    42171,
+    39945,
+    36125,
+    36669
+  ],
+  "remote_launcher_sha256": "10d2e9613afde2a157edbac04416e4932be74fd1f11a028ba6ca6df78ad35b19",
+  "scope": "real pinned OpenSSH; private -F configuration launcher; no fabricated protocol response; one host, not physical partition",
+  "ssh_launcher_sha256": "8f09aaa61671e080871c84f8ba8c5bcd4e5f2aec0ccf2a638db0ee3eb530c8c5",
+  "system_ssh": "/usr/bin/ssh",
+  "system_ssh_sha256": "04f2ff5f506a3f332e7adeb1478a4c551ae74acdd328e6fb5c2495664d4064e6"
+}

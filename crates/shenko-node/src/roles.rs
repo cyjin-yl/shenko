@@ -155,7 +155,7 @@ impl Node {
     ///
     /// The `Primary` role is the only authority-bearing observation: the
     /// caller must present the current fencing token of a committed election
-    /// (docs/specs/nodes.md#spec-5-4-3). A stale token is refused; without a committed claim the
+    /// A stale token is refused; without a committed claim the
     /// observation is refused too — an unverified node never records itself
     /// as the primary of a domain.
     pub fn observe_runtime_roles(

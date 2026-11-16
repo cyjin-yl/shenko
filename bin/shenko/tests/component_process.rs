@@ -13,7 +13,9 @@ use process_runtime::{
 };
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
-use shenko_node::{ComponentCertificate, ComponentObservation, MemberConfiguration};
+use shenko_node::{
+    ComponentCertificate, ComponentObservation, ControlFrontier, MemberConfiguration,
+};
 use shenko_types::ids::EntityId;
 use std::{
     cell::Cell,
@@ -669,6 +671,8 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
     let shown = fixture.json(1, &["sync", "members", "show"], None)?;
     let configuration: MemberConfiguration =
         serde_json::from_value(shown["member_configuration"].clone())?;
+    let frontier: ControlFrontier =
+        serde_json::from_value(fixture.node(1, json!({"command":"control_frontier"}))?)?;
     ensure!(
         configuration.voters() == ids.iter().copied().collect(),
         "actual seven-member electorate differs"
@@ -677,17 +681,43 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
         !configuration.has_quorum(&ids[..3].iter().copied().collect()),
         "three nodes are not a minority"
     );
+    let mut member_observations = Vec::new();
     for index in 0..NODES.len() {
         let shown = fixture.json(index, &["sync", "members", "show"], None)?;
+        let retained: MemberConfiguration =
+            serde_json::from_value(shown["member_configuration"].clone())?;
+        // Bounded Append records the local learning time. It is not part of
+        // ConfigurationEntry or its chosen value. Compare every consensus
+        // identity field and the complete committed prefix across members;
+        // then prove each member retains its own full metadata after reopen.
         ensure!(
-            shown["member_configuration"] == serde_json::to_value(&configuration)?,
+            retained.revision == configuration.revision
+                && retained.term == configuration.term
+                && retained.members == configuration.members
+                && retained.joint_new == configuration.joint_new
+                && retained.digest == configuration.digest,
             "member configuration was not actually retained"
         );
+        let retained_frontier: ControlFrontier =
+            serde_json::from_value(fixture.node(index, json!({"command":"control_frontier"}))?)?;
+        ensure!(
+            retained_frontier == frontier,
+            "member retained a different committed control prefix"
+        );
+        let reopened = fixture.json(index, &["sync", "members", "show"], None)?;
+        ensure!(
+            shown["member_configuration"] == reopened["member_configuration"],
+            "member's complete configuration metadata changed after CLI reopen"
+        );
+        member_observations.push(json!({
+            "node":NODES[index],"configuration":retained,
+            "frontier":retained_frontier,"reopened":reopened["member_configuration"],
+        }));
     }
     fs::write(
         fixture.logs().join("membership.json"),
         serde_json::to_vec_pretty(
-            &json!({"configuration":configuration,"node_ids":ids,"origin_health":origin_health,"origin_identity":identity,"origin_ledger":origin.ledger_id}),
+            &json!({"configuration":configuration,"frontier":frontier,"members":member_observations,"node_ids":ids,"origin_health":origin_health,"origin_identity":identity,"origin_ledger":origin.ledger_id}),
         )?,
     )?;
 

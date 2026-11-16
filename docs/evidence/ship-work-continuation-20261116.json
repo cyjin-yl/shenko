@@ -309,8 +309,9 @@
         "071bacb693f17d177853605b605ba7bf9f955d9d"
       ],
       "scope": "Read-only private SQLite/WAL snapshot with active route/selector verification and no live Store::open or source repair. Original context payloads are not read.",
-      "metadata_check": "Store tests and CLI lib passed; actual extended bootstrap/reopen journey awaits candidate CI.",
-      "actual_runtime": "15c reached raw/missing-CAS/active-slot checks, then failed the fixture comparison described in latest_completed_ci. Later Handoff assertions did not execute; bc404ba preserves them for the next CI."
+      "metadata_check": "Store tests and CLI lib metadata passed; subsequent 9b CI actually executed the complete preserved journey.",
+      "actual_runtime": "The complete original bootstrap/inspection journey passed on 9b CI43894092386, including exact main/WAL/SHM equality and both inactive-slot and unresolved-Handoff refusal. It does not establish actual candidate activation.",
+      "previous_actual_runtime": "15c reached raw/missing-CAS/active-slot checks, then failed the fixture comparison described in latest_completed_ci. Later Handoff assertions did not execute; bc404ba preserves them for the next CI."
     },
     "ssh_cli_budget": {
       "source_commit": "be08376a557067f7122fe5e7cdfe85581a7e56a7",
@@ -336,7 +337,7 @@
       "scope": "Original preferred coordinator must directly reach every member; follower neighbourhoods may differ. Full ACK, fresh coordinator observations and final admission gates remain. Seven-voter/three-member protocol journey includes a model-free resident; no real SSH star or relay acceptance yet.",
       "actual_runtime_observation": "ci-15cfee0-20261116/observation.json"
     },
-    "new_combined_candidate_runtime_result": "15c completed with five passing gates and one failing Store fixture; subsequent local-home provisioning and canonical first-claim changes still await their own CI.",
+    "new_combined_candidate_runtime_result": "9b completed with five passing gates; the only failed target was component_process setup. New main304 integration and the member-time fixture correction have metadata/structural checks but still require exact-candidate runtime CI.",
     "model_runtime_experiment": {
       "source_commit": "de32652d6f1a80237751bbaf95fb474a071963f6",
       "inspection": "single-node-runtime-b12359/observation.json",
@@ -346,8 +347,9 @@
     "local_installation_and_real_component_process": {
       "source_commit": "0838bb44515bf037676f446400980f2c0ccc8c4b",
       "metadata_exit_code": 0,
-      "scope": "Record verified local physical-home provisioning without changing imported bootstrap/genesis/origin. Same-installation writer changes retain the original identity. New real seven-SSH-identity/three-Start star journey has not run; no model or physical partition proof.",
-      "documentation": "component-coordination-20261116.md"
+      "scope": "Record verified local physical-home provisioning without changing imported bootstrap/genesis/origin. Same-installation writer changes retain the original identity. The real seven-SSH-identity process journey ran on 9b and failed at membership setup before the three resident Start processes; no completed star, model or physical partition proof.",
+      "documentation": "component-coordination-20261116.md",
+      "actual_runtime_observation": "ci-9b5a6cb-20261116/observation.json"
     },
     "canonical_native_first_claim": {
       "source_commit": "c8850b1b483ca5a2bfe1f561ac99de70ca5d27fe",
@@ -355,8 +357,9 @@
       "documentation": "../development/canonical-native-first-claim.md",
       "metadata_exit_code": 0,
       "focused_clippy_metadata_exit_code": 0,
-      "actual_new_journey_executed": false,
-      "scope": "Exact first direct-root native delegation from locally materialized canonical S1. S1 may use quorum choice or existing local availability authority; a missing grant is not quorum proof. Current first preparation alone may issue a worker permit after final checks. Prepared/Learned remain factual; foreign Learned also requires a valid chosen claim and local S1 fact. The new eight-window journey covers the grant path only, not a newly executed grant-free or full foreign T1/E1/T2 chain."
+      "actual_new_journey_executed": true,
+      "scope": "Exact first direct-root native delegation from locally materialized canonical S1. S1 may use quorum choice or existing local availability authority; a missing grant is not quorum proof. Current first preparation alone may issue a worker permit after final checks. Prepared/Learned remain factual; foreign Learned also requires a valid chosen claim and local S1 fact. The new eight-window journey passed on 9b and covers the grant path only, not grant-free availability or a full foreign T1/E1/T2 chain.",
+      "actual_runtime_observation": "ci-9b5a6cb-20261116/observation.json"
     }
   },
   "parallel_integration": {
@@ -375,9 +378,55 @@
   "parallel_main_observation": {
     "head_sha": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
     "merged_pr": 304,
-    "status": "main merge is being integrated separately; not yet part of this candidate checkpoint"
+    "status": "Integrated in this candidate through the retained two-parent source merges; metadata and structural checks passed. Runtime CI on this integrated source is still required.",
+    "integration_checkpoint_before_evidence": "7baa9da5cac132e48022c2373f85d1bfd2d2a654",
+    "observation": "main-304-integration-20261116/observation.json"
   },
   "latest_completed_ci": {
+    "head_sha": "9b5a6cb8987806879b8cfb713321744bd087bc0e",
+    "head_tree": "6d48becc87eacfb1f00c2b050e6b27987b663e86",
+    "checkout_merge_sha": "6621968fbb2528475157d30488215ec16fa62e90",
+    "run_id": 43894092386,
+    "conclusion": "failure",
+    "jobs": {
+      "kernel-boundary": "success",
+      "docs": "success",
+      "docs-migration": "success",
+      "web": "success",
+      "clippy-ratchet": "success",
+      "rust": "failure"
+    },
+    "observation": "ci-9b5a6cb-20261116/observation.json",
+    "actual_passes": [
+      "Canonical first-claim eight-window grant-path journey; Store roundtrip 39 passed, 0 failed, 0 ignored, 6.31s",
+      "Canonical native arm/dispatch/T2/S1; reciprocal-star Node protocol",
+      "Complete exact main/WAL/SHM zero-touch and inactive-slot/unresolved-Handoff refusal journey",
+      "SSH WASI complete CLI installation/authentication/exec/SFTP/refusal journey: 204.51s",
+      "Public paused Start/stop/reopen/resume boundary: 1.41s"
+    ],
+    "only_test_failure": "component_process failed after 69.02s in membership setup. Five consensus fields and transfer frontiers matched; the fixture incorrectly required the node-local bounded-Append committed_at timestamps to be identical. The three resident Start processes were not reached.",
+    "followup_source_commit": "1784d91cf59da524dc6781012ee4db99dc3ad206",
+    "followup_scope": "Compare every consensus identity field and complete ControlFrontier across nodes; reopen each node through another CLI and compare its entire original metadata including local committed_at. All later process/authority assertions remain. New candidate runtime execution is required."
+  },
+  "fourth_real_model_failure": {
+    "run_id": 43885905651,
+    "head_sha": "da00eb8e35da3ffcb3a1aae2376061d81cc60363",
+    "checkout_merge_sha": "3c4d9e132a498904379c3e9caf7c4066c30135a9",
+    "conclusion": "failure",
+    "observation": "single-node-hosted-43885905651/observation.json",
+    "artifact_id": 14234729067,
+    "artifact_zip_sha256": "f1d5e8a81c5dfe5039caa1bc620daff822c0b4baa3177e1601a726e22ec7ef3a",
+    "original_files_in_complete_zip": 2645,
+    "actual_runtime": "Explicit FA on, f16 K/V, libggml-cpu-icelake.so observed. First 12723-token prefill took 266.679s; 170-token generation took 57.615s. Different observed CPU/backend prevents attributing a speedup solely to the configuration.",
+    "actual_product": "38 main requests and original durable terminals; 444 provider journal chunks and 2 public browser parts. 36 invalid control outputs and 1 incomplete result preceded HTTP400 context rejection at original main terminal seq763. No child, decision, child E1, qualifying output or restart continuation.",
+    "capacity_gaps": [
+      "Actual served meta.n_ctx=16384 was not consumed by top-level-only metadata parsing.",
+      "Protocol correction appended real messages while reusing the initial 14611-token estimate and policy selection; message count grew from 1 to 75.",
+      "Even the first observed 12723 input tokens plus the unchanged 4096-token output reservation exceed 16384; metadata parsing alone does not make this configuration valid."
+    ],
+    "full_single_node_acceptance": false
+  },
+  "ci_15c_before_first_claim": {
     "head_sha": "15cfee0317a6f0a7c3e088657040531c6fdd8575",
     "checkout_merge_sha": "7b59a3366df264432c368a8a617aa4f64982ed1d",
     "run_id": 43886488027,
@@ -400,23 +449,5 @@
     "only_test_failure": "Store route-inspection fixture included a live activation_selector SELECT inside its zero-touch measurement. Original main/WAL were byte-identical; only SHM offset 104 changed 9 to 20. The original failed result is retained.",
     "followup_source_commit": "bc404ba821a90628837bbf54f35613476d209aa1",
     "followup_scope": "Move fixture live reads before its baseline; preserve all exact tuple equality and route/Handoff assertions. New candidate execution is still required."
-  },
-  "fourth_real_model_failure": {
-    "run_id": 43885905651,
-    "head_sha": "da00eb8e35da3ffcb3a1aae2376061d81cc60363",
-    "checkout_merge_sha": "3c4d9e132a498904379c3e9caf7c4066c30135a9",
-    "conclusion": "failure",
-    "observation": "single-node-hosted-43885905651/observation.json",
-    "artifact_id": 14234729067,
-    "artifact_zip_sha256": "f1d5e8a81c5dfe5039caa1bc620daff822c0b4baa3177e1601a726e22ec7ef3a",
-    "original_files_in_complete_zip": 2645,
-    "actual_runtime": "Explicit FA on, f16 K/V, libggml-cpu-icelake.so observed. First 12723-token prefill took 266.679s; 170-token generation took 57.615s. Different observed CPU/backend prevents attributing a speedup solely to the configuration.",
-    "actual_product": "38 main requests and original durable terminals; 444 provider journal chunks and 2 public browser parts. 36 invalid control outputs and 1 incomplete result preceded HTTP400 context rejection at original main terminal seq763. No child, decision, child E1, qualifying output or restart continuation.",
-    "capacity_gaps": [
-      "Actual served meta.n_ctx=16384 was not consumed by top-level-only metadata parsing.",
-      "Protocol correction appended real messages while reusing the initial 14611-token estimate and policy selection; message count grew from 1 to 75.",
-      "Even the first observed 12723 input tokens plus the unchanged 4096-token output reservation exceed 16384; metadata parsing alone does not make this configuration valid."
-    ],
-    "full_single_node_acceptance": false
   }
 }

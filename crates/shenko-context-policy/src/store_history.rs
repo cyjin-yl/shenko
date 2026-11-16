@@ -572,7 +572,7 @@ impl NotesJournal for StoreNotesJournal {
     }
 
     /// Seal one retained revision's bytes into the content store and return
-    /// the reference (docs/specs/cognition-units.md#spec-51-1: content is immutable and addressed by
+    /// the reference (content is immutable and addressed by
     /// digest).
     ///
     /// The journal row is never rewritten: sealing is idempotent (the same
