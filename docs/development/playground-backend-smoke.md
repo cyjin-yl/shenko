@@ -7,9 +7,46 @@ never a production instance or another seat. No model or QQ service is needed.
 
 ## Actual path and limits
 
-- `PUT /playground/{id}` commits immutable content + version metadata, selects
-  `meta.json`, then durably imports a stable full `InboxEvent` into the existing
-  `inbox_events` table. Startup repairs a crash between head selection and import.
+- `PUT /playground/{id}` seals content and the complete version/manifest closure
+  in CAS, then commits the artifact record, manifest and stable full `InboxEvent`
+  in one ledger transaction. `meta.json` and immutable version files are local
+  projections. Missing or failed projections do not undo a committed effect;
+  readers use the retained CAS facts and startup can rebuild the files. Older
+  file-selected heads are imported only when the artifact has no durable
+  record. When a durable head exists, even a higher file revision remains
+  unselected. Superseded `meta.json` bytes and explicit unselected-head
+  provenance are retained under `retained-heads/`; immutable versions remain
+  untouched, so rebuilding a projection does not erase a foreign/legacy head.
+- `playground.manage:1` binds that same transaction to the original armed
+  operation and attempt. Its immutable `checkpoint_scope_ref` contains the
+  exact observation and E1 receipt identity, including observation time. A crash
+  after the effect and before E1 is settled from this checkpoint, never by
+  calling create/put/rollback again. Concurrent retries return the winner's
+  checkpoint; new writes check the current dispatcher, invocation, epoch,
+  generation and artifact row revision inside the transaction. A stale owner
+  may read a committed result but cannot append a new effect. Legacy armed
+  operations without a checkpoint stay unknown rather than being replayed.
+  The checkpoint also roots the exact historical artifact state and manifest
+  refs in CAS. Replicating this proof reports the effect committed on its source;
+  it does not authorize replacing a newer destination artifact head. The
+  cognition importer currently groups artifact rows and task/operation rows
+  separately, so importing a historical result is not proof that the peer's
+  current artifact record is present or adopted. Query the current artifact
+  separately; reconciliation never recreates or rewinds it to match a receipt.
+- The native handler and Web UI use the same Playground instance. Production
+  assembly attaches its native dispatcher and subject inbox to the shared
+  cells, including when the server receives an already constructed instance.
+- Reader stage/publish/rollback requests retain their own frozen action and
+  original result in CAS. A deterministic artifact/actor/request identity
+  points to that receipt from the existing append-only inbox, in the same
+  source transaction as the artifact transition. Consuming the inbox fact does
+  not remove the request identity. A replay returns the original record/version
+  and commit before inspecting today's head; changed input under the same key
+  conflicts. A first no-change stage/publish still records its receipt. The
+  public routes use the installation's existing `Participant` namespace, as
+  backend actions do; they do not claim authenticated per-person identity.
+  The receipt fact names the related change event so consumers can distinguish
+  a request acknowledgment from a second artifact change.
 - `PUT .../backend` creates another artifact version. It binds exact WAT/WASM CAS
   bytes and a typed, versioned invocation contract. No shell/interpreter runs.
 - `POST .../backend/action` requires `{request_id,backend_digest,action,input}`.
@@ -130,12 +167,18 @@ with the new digest increments the byte to 2. Both independent clicks survive;
 identical content is not deduplicated across different request identities.
 
 A new request with the old digest must return 409 `ARTIFACT_VERSION_STALE`.
-Then `POST "$BASE/rollback"` with `{"revision":<original binding revision>}`.
+Then `POST "$BASE/rollback"` with
+`{"revision":<original binding revision>,"request_id":"restore-original"}`.
 Require original content/MIME/title/backend binding restored as a **new** revision,
 old/new revisions retained by `GET "$BASE/versions"`, and binary business byte
-still **2**. The content-first crash shape is also covered by the permanent
+still **2**. The retained legacy orphan shape is also covered by the permanent
 consumer test: an orphan write stays on disk, is not published as history, and
-is never overwritten by the next version or rollback.
+is never overwritten by the next version or rollback. The manage recovery
+regression interrupts before E1, obstructs the local projection, reopens the
+database, and requires the original result while later revisions and business
+data remain intact. These deterministic tests do not establish real-model
+success with the model-visible `schema_version`, operation and rollback input
+contract; that evidence requires an available local model and actual sampling.
 
 ## Deliberately still open
 

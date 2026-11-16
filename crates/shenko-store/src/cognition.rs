@@ -519,6 +519,20 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     TableSpec {
+        name: "subject_head_history",
+        key: &["snapshot_id"],
+        columns: &["snapshot_id", "agent_id", "branch_id", "data"],
+        local_seq: Some("received_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "subject_branch_forks",
+        key: &["branch_id"],
+        columns: &["branch_id", "agent_id", "parent_branch_id", "data"],
+        local_seq: Some("created_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
         name: "subject_steps",
         key: &["step_id"],
         columns: &[
@@ -1203,42 +1217,6 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
-    // Recording control and priority inputs (media.rs v2): the recording
-    // projection and its immutable control notices. A control notice is the
-    // armed effect behind a recording; the media stream is its anchor.
-    TableSpec {
-        name: "media_recordings",
-        key: &["stream_key", "recording_id"],
-        columns: &[
-            "stream_key", "recording_id", "agent_id", "state", "started_at_ms",
-            "stopped_at_ms", "scope_json", "start_control_id",
-            "stop_control_id", "reason", "event_id", "admitted_at_ms",
-            "admitted_commit_ref",
-        ],
-        local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "media_recording_controls",
-        key: &["stream_key", "control_id"],
-        columns: &[
-            "stream_key", "control_id", "recording_id", "action", "state",
-            "data", "event_id", "admitted_at_ms", "admitted_commit_ref",
-        ],
-        local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "media_priority_inputs",
-        key: &["stream_key", "priority_id"],
-        columns: &[
-            "stream_key", "priority_id", "kind", "text", "occurred_at_ms",
-            "audio_json", "reason", "data", "event_id", "admitted_at_ms",
-            "admitted_commit_ref",
-        ],
-        local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
     // Playground artifacts (artifacts.rs): the artifact record, its
     // version manifests and the runtime instances bound to it. Divergent
     // peer revisions reconcile through the existing baseline/conflict-unit
@@ -1530,6 +1508,28 @@ struct GitBaseline {
 }
 
 impl Store {
+    /// The control-plane predecessor uses the same membership, semantic-unit
+    /// and CAS closure checks as a normal cognition import. It deliberately
+    /// excludes installation credentials, writer leases and filesystem state.
+    pub(crate) fn validate_control_manifest(&self, manifest: &CognitionManifest) -> Result<()> {
+        ensure!(manifest.fingerprint == fingerprint_of_manifest(manifest), "control snapshot fingerprint differs");
+        ensure!(manifest.files.is_empty() && manifest.file_origins.is_empty() && manifest.git_history.is_none(),
+            "control predecessor is not a filesystem handover");
+        check_archive_membership(manifest)?;
+        ensure!(!LOCAL_CONTROL_CLASSES.iter().any(|class| manifest.fact_classes.iter().any(|declared| declared == *class)
+            || manifest.rows.iter().any(|row| row.table == **class)), "control predecessor carries installation-local control");
+        validate_cognition_rows(manifest)?;
+        self.validate_obligation_rows(&manifest.rows)?;
+        let mut gaps = manifest.gaps.clone();
+        gaps.extend(memory_intent_binding_gaps(&manifest.rows));
+        gaps.extend(crate::media::media_recovery_gaps(&manifest.rows));
+        gaps.extend(archive_membership_gaps(&manifest.rows));
+        gaps.extend(self.verify_manifest_closure(manifest));
+        ensure!(!gaps.iter().any(|gap| gap.blocking), "control predecessor has an incomplete required fact closure: {gaps:?}");
+        Ok(())
+    }
+
+
     /// Export the recovery snapshot of this store.
     ///
     /// The facts come from one consistent read snapshot. The CAS closure is
@@ -2031,16 +2031,10 @@ impl Store {
         }))
     }
 
-    fn collect_snapshot(
-        &self,
-        options: &CognitionSnapshotOptions,
-        allocate_order: bool,
-    ) -> Result<Collected> {
-        let (rows, derivatives, agent_id, high_water, snapshot_seq) =
-            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
+    pub(crate) fn cognition_object_roots(&self, rows: &[CognitionRow]) -> (Vec<ObjectRef>, Vec<Digest>) {
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
-        for row in &rows {
+        for row in rows {
             for (name, value) in &row.values {
                 if let Some(value) = value.as_deref() {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
@@ -2062,6 +2056,17 @@ impl Store {
                 roots.push(object);
             }
         }
+        (roots, external)
+    }
+
+    fn collect_snapshot(
+        &self,
+        options: &CognitionSnapshotOptions,
+        allocate_order: bool,
+    ) -> Result<Collected> {
+        let (rows, derivatives, agent_id, high_water, snapshot_seq) =
+            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
+        let (roots, external) = self.cognition_object_roots(&rows);
         let (objects, missing) = self.collect_closure(&roots)?;
 
         let mut files: Vec<(CognitionFileDescriptor, PathBuf)> = Vec::new();
@@ -2237,7 +2242,7 @@ impl Store {
     }
 
     /// The verified CAS closure of the given roots, recursively.
-    fn collect_closure(
+    pub(crate) fn collect_closure(
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
@@ -2413,7 +2418,7 @@ impl Store {
     pub(crate) fn validate_obligation_recovery(&self, conn: &rusqlite::Connection) -> Result<()> {
         let mut rows = Vec::new();
         for spec in TABLES.iter().filter(|spec| matches!(spec.name,
-            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_intents" | "subject_intent_steps"
+            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_head_history" | "subject_intents" | "subject_intent_steps"
                 | "channel_record_migrations" | "inbox_events"))
         {
             rows.extend(read_table(conn, spec)?);
@@ -2483,6 +2488,34 @@ impl Store {
                 let mut notebook_applied = false;
                 let mut unit_owned_rows: HashSet<(&str, &str)> = HashSet::new();
                 for row in &ordered {
+                    // Another branch is a parallel historical fact. It cannot
+                    // replace this installation's active controller projection.
+                    // Retain every exact head by content identity instead of
+                    // treating distinct branches as competing updates to it.
+                    if row.table == "subject_branch_heads" && archives_parallel_head(&tx, row)? {
+                        let data = row.value("data").context("parallel head data missing")?;
+                        let snapshot = Digest::blake3(data.as_bytes());
+                        let historical = CognitionRow {
+                            table: "subject_head_history".into(), key: snapshot.0.clone(),
+                            values: vec![("snapshot_id".into(), Some(snapshot.0)),
+                                ("agent_id".into(), row.value("agent_id").map(str::to_owned)),
+                                ("branch_id".into(), row.value("branch_id").map(str::to_owned)),
+                                ("data".into(), Some(data.to_owned()))],
+                        };
+                        let history_spec = spec_for("subject_head_history").context("branch history table is not registered")?;
+                        match read_existing(&tx, history_spec, &historical)? {
+                            Some(existing) => {
+                                ensure!(rows_equivalent(history_spec, &existing, &historical.values), "historical head content collision");
+                                unchanged += 1;
+                            }
+                            None => {
+                                insert_row(&tx, history_spec, &historical, seq)?;
+                                record_origin(&tx, history_spec, &historical, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+                                inserted += 1;
+                            }
+                        }
+                        continue;
+                    }
                     if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions"
                         | "media_recordings" | "media_recording_controls" | "media_priority_inputs")
                         || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
@@ -2611,6 +2644,9 @@ impl Store {
                             }
                         }
                         Some(local_values) => {
+                            ensure!(!matches!(spec.name, "subject_branch_forks" | "subject_head_history")
+                                || rows_equivalent(spec, &local_values, &effective.values),
+                                "immutable subject branch provenance cannot be replaced");
                             ensure!(spec.kind != RowKind::SubjectIntent
                                 || !is_immutable_terminal_settlement(&local_values)
                                 || rows_equivalent(spec, &local_values, &effective.values),
@@ -2753,6 +2789,18 @@ impl Store {
                         | "subject_raw_inputs" | "session_events" | "inbox_events" | "channel_record_migrations")),
                         "required obligation conflict unit diverges; nothing published");
                     self.validate_obligation_recovery(&tx)?;
+                }
+                if tx.query_row("SELECT EXISTS(SELECT 1 FROM subject_branch_forks)", [], |row| row.get::<_, bool>(0)).map_err(db)? {
+                    let mut branch_rows = Vec::new();
+                    for spec in TABLES.iter().filter(|spec| matches!(spec.name,
+                        "subject_branch_forks" | "subject_head_history" | "subject_branch_heads"
+                        | "subject_steps" | "tasks" | "session_events" | "subject_raw_inputs" | "context_notes"))
+                    {
+                        branch_rows.extend(read_table(&tx, spec)?);
+                    }
+                    // Re-check the ACTUAL reconciled closure: a rejected raw
+                    // event cannot leave an admitted child with partial memory.
+                    crate::subject_branches::validate_branch_rows(&branch_rows)?;
                 }
                 let (verified_files, file_conflicts) = self.restore_files(
                     &tx, files, &options.memory_root, &options.workspace_root, &manifest.file_origins, peer_id,
@@ -3478,7 +3526,7 @@ fn validate_subject_boundaries(
             && entity("committed_step_id") == head.committed_step_id
             && column_mode == data_mode,
             "imported subject head column/value mismatch");
-        if column_mode == "paused" || data_mode == "paused" {
+        if (column_mode == "paused" || data_mode == "paused") && !archives_parallel_head(conn, incoming)? {
             ensure!(column_mode == "paused" && data_mode == "paused",
                 "imported paused subject head has inconsistent mode fields");
             let local = read_existing(conn, head_spec, incoming)?
@@ -3502,7 +3550,8 @@ fn validate_subject_boundaries(
             "local paused subject head has inconsistent mode fields");
         let agent_id = head.agent_id.to_string();
         for incoming in manifest.rows.iter().filter(|row|
-            row.table == head_spec.name && row.value("agent_id") == Some(agent_id.as_str()))
+            row.table == head_spec.name && row.value("agent_id") == Some(agent_id.as_str())
+                && row.value("branch_id") == Some(head.branch_id.0.to_string().as_str()))
         {
             validate_local_paused_successor(conn, &head)?;
             let local = read_existing(conn, head_spec, incoming)?
@@ -3522,6 +3571,14 @@ fn validate_subject_boundaries(
         }
     }
     Ok(())
+}
+
+fn archives_parallel_head(conn: &rusqlite::Connection, incoming: &CognitionRow) -> Result<bool> {
+    let local: Option<String> = conn.query_row(
+        "SELECT branch_id FROM subject_branch_heads WHERE agent_id=?1",
+        [incoming.value("agent_id").context("subject head agent missing")?], |row| row.get(0),
+    ).optional().map_err(db)?;
+    Ok(local.as_deref().is_some_and(|branch| Some(branch) != incoming.value("branch_id")))
 }
 
 fn validate_local_paused_successor(conn: &rusqlite::Connection, head: &SubjectBranchHead) -> Result<()> {
@@ -3693,6 +3750,10 @@ fn local_fact_classes(include_local_control: bool) -> Vec<String> {
     names
 }
 
+// Membership became mandatory in schema 6. A later writer schema must not
+// silently extend the legacy exemption to archives that already required it.
+const MEMBERSHIP_REQUIRED_SCHEMA: u32 = 6;
+
 /// The archive's membership must be a membership this reader knows, and
 /// every row must belong to it. An archive naming an unknown class, or
 /// carrying a row outside its own declared membership, is refused whole:
@@ -3707,13 +3768,11 @@ fn check_archive_membership(manifest: &CognitionManifest) -> Result<()> {
         );
     }
     if manifest.fact_classes.is_empty() {
-        // An archive of the current schema must declare its membership: a
-        // current archive that hides which fact classes it carries is
-        // refused. An archive written before the membership existed
-        // declares nothing and is admitted under its own older schema.
+        // Only archives predating mandatory membership can omit it. This is
+        // a format-introduction boundary, not the latest writer version.
         ensure!(
-            manifest.schema < crate::cognition_archive::ARCHIVE_SCHEMA,
-            "current cognition archive must declare its fact classes"
+            manifest.schema < MEMBERSHIP_REQUIRED_SCHEMA,
+            "cognition schema 6 and later must declare its fact classes"
         );
         return Ok(());
     }
@@ -3798,6 +3857,7 @@ fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
         ensure!(identities.insert((row.table.as_str(), row.key.as_str())),
             "duplicate cognition fact identity in {}", row.table);
     }
+    crate::subject_branches::validate_branch_rows(&manifest.rows)?;
     Ok(())
 }
 
@@ -6410,7 +6470,7 @@ mod archive_admission_tests {
             seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(),
             home_manifest_ref: object.clone(), bootstrap_event_ref: object.clone(), created_commit: commit,
         };
-        let head = SubjectBranchHead {
+        let head = SubjectBranchHead { branch_origin: None,
             agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
             controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration::default(),
             genesis_ref: GenesisRef { ledger_id: commit.ledger_id, genesis_id },
@@ -6478,12 +6538,12 @@ mod archive_admission_tests {
     }
 
     #[test]
-    fn unknown_fact_does_not_produce_a_verified_partial_import() {
+    fn unknown_fact_does_not_produce_a_verified_partial_import() -> Result<()> {
         let root = std::env::temp_dir().join(format!("shenko-cognition-{}", EntityId::new()));
-        fs::create_dir(&root).unwrap();
-        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
-        source.insert_memory_entry(&MemoryEntry::new(EntityId::new(), "known fact")).unwrap();
-        let mut export = source.export_cognition(&Default::default()).unwrap();
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        source.insert_memory_entry(&MemoryEntry::new(EntityId::new(), "known fact"))?;
+        let mut export = source.export_cognition(&Default::default())?;
         export.manifest.rows.push(CognitionRow {
             table: "future_required_fact".into(),
             key: "1".into(),
@@ -6491,10 +6551,27 @@ mod archive_admission_tests {
         });
         export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
         let mut archive = Vec::new();
-        export.write_archive(&mut archive).unwrap();
-        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
         assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
-        assert!(receiver.list_memory(10).unwrap().is_empty());
+        assert!(receiver.list_memory(10)?.is_empty());
+        let before = receiver.current_commit_seq()?;
+        // Both the introduction format and the current writer format must
+        // reject an intentionally malformed declaration before publishing.
+        for schema in [MEMBERSHIP_REQUIRED_SCHEMA, crate::cognition_archive::ARCHIVE_SCHEMA] {
+            let mut missing = source.export_cognition(&Default::default())?;
+            missing.manifest.schema = schema;
+            missing.manifest.fact_classes.clear();
+            missing.manifest.fingerprint = fingerprint_of_manifest(&missing.manifest);
+            let mut archive = Vec::new();
+            missing.write_archive(&mut archive)?;
+            let error = receiver.import_cognition_archive(&archive[..], &Default::default())
+                .err().context("archive without required membership was admitted")?;
+            assert!(error.to_string().contains("must declare its fact classes"));
+            assert_eq!(receiver.current_commit_seq()?, before);
+            assert!(receiver.list_memory(10)?.is_empty());
+        }
+        Ok(())
     }
 
     /// Cognitive atoms are REQUIRED archive facts (docs/specs/cognition-units.md#spec-51-1). They travel

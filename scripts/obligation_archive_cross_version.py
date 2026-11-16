@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Drive the two-binary archive protocol proof for archive schema 5 <-> 6.
+"""Drive the historical two-binary archive protocol proof for schema 5 <-> 6.
+
+This tool remains pinned to those historical formats; it does not verify the
+repository's current schema-7 writer.
 
 The consumer program is `crates/shenko-store/examples/obligation_archive_consumer.rs`.
 It is compiled twice by the parent:
@@ -8,7 +11,7 @@ It is compiled twice by the parent:
     a crate whose `[[bin]] path` is the consumer source and whose `shenko-store`
     dependency points at the old tree (the retained
     `build/obligation-lifecycle-20261105/old5-reader` probe crate is that);
-  * the *current* binary with `cargo build --example obligation_archive_consumer`
+  * the schema-6 binary with `cargo build --example obligation_archive_consumer`
     in the schema-6 tree.
 
 This script never edits an archive and never rewrites a serialized schema
@@ -22,7 +25,7 @@ Every command, its exit status, its stdout/stderr and all checks are written to
 Usage:
   python3 scripts/obligation_archive_cross_version.py \
       --old5-binary <old schema-5 consumer> \
-      --new6-binary <current schema-6 consumer> \
+      --new6-binary <historical schema-6 consumer> \
       --root <fresh durable directory> \
       (--obligation-root <store root with a genuine committed obligation> |
        --new6-archive <genuine schema-6 archive>) \

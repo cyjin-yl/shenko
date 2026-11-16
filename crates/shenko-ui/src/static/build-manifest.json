@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
-    "previous_reviewed_commit": "35195a6e6f1ba6a7d800da0029f2683013abd18b",
+    "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+    "previous_reviewed_commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/tank/shared/projects/shenko/build/claude-followups-20261113/proto-pending-mount-update-1113",
+    "source_checkout": "/workspace/scratch/4de31219f954/proto-ui-shenko-readiness-next",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/shenko/build/claude-followups-20261113/proto-public-41282-r1/build.json",
-      "receipt_sha256": "14d4067cb5c128195093294cd65e0985897ecae717cb38855cbfdf03bb1d3f48"
+      "receipt_path": "/workspace/scratch/4de31219f954/evidence/continuation/web-certified/upstream-build.json",
+      "receipt_sha256": "a4aac6048daf4369e5c0054676de344bb77d0db8bcdfbc698886d25a76712c36"
     }
   },
   "packages": [
@@ -62,12 +62,12 @@
     "package_sha256": "4d81f10128f809c79a3f7730d1f936171f9bff2713846333c88c56524483258e",
     "entry": "packages/compiler/src/index.ts",
     "entry_sha256": "d44270de2799c5db59bc1675ed05e4061273c4f18a27808944a114920e2458a9",
-    "source_tree_sha256": "3b7f37ecddc4fdb1b858bc614c5ba470dee483289417d101560491f8fa3efa95",
+    "source_tree_sha256": "3317af48496bc0ed0c6d447c11223f23b60a769732f39e4f112c36cc127fa18c",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "b79b7c8bc2d15d02e5321c2fe110687e6dbd16238ad1b614c5e344444c322888",
-      "bytes": 2277438,
+      "sha256": "c915bf31223a1f951b99dd23d69907638c81291583a195ddd141e0201dfb15e6",
+      "bytes": 2278557,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -136,16 +136,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/shenko/worktrees/claude-pr293-align-20261113/crates/shenko-ui/web",
-  "built_at": "2026-11-13T11:46:13.652Z",
+  "web_root": "/workspace/scratch/4de31219f954/shenko-ship/crates/shenko-ui/web",
+  "built_at": "2026-11-15T16:44:37.297Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1131362,
-      "sha256": "6db193f101241a21e6d865ef5a14bcd57037f21420b9941b8625f2e37b9d6a25"
+      "bytes": 1132502,
+      "sha256": "a2a71f5fdf1baca8239cb44dfd6aea9f8a7b2bf29f387088ea97c1e65ab74f10"
     },
     "app.css": {
       "bytes": 50644,

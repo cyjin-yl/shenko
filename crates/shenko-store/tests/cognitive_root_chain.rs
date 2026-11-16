@@ -64,7 +64,7 @@ fn test_store() -> (Arc<Store>, std::path::PathBuf) {
         bootstrap_event_ref: home.clone(),
         created_commit: genesis_commit,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id,
         branch_id: branch_id.clone(),
         subject_root_task_id: EntityId::new(),

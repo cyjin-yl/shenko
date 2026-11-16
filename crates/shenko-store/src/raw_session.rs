@@ -224,7 +224,8 @@ fn journal_extra(value: &serde_json::Value) -> serde_json::Value {
 ///
 /// The link rows are an index over raw events, never a second truth store:
 /// the raw row stays the only record of what was staged, and the link only
-/// says which step owns which source event.
+/// says which step selected which source event. A fork may select the same
+/// immutable raw fact through its receipt; it does not take over its origin.
 pub(crate) const RAW_SESSION_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subject_raw_inputs (
     step_id TEXT NOT NULL REFERENCES subject_steps(step_id),
@@ -235,7 +236,7 @@ CREATE TABLE IF NOT EXISTS subject_raw_inputs (
     commit_seq INTEGER NOT NULL,
     PRIMARY KEY (step_id, source_event_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_raw_inputs_raw
+CREATE INDEX IF NOT EXISTS idx_subject_raw_inputs_raw
     ON subject_raw_inputs(raw_event_id);
 CREATE INDEX IF NOT EXISTS idx_subject_raw_inputs_step_seq
     ON subject_raw_inputs(step_id, seq);
@@ -291,7 +292,7 @@ fn role_of(event_type: &str) -> &str {
 }
 
 /// The immutable description of a branch's raw session.
-fn raw_session_data(agent_id: EntityId, branch_id: &BranchId) -> String {
+pub(crate) fn raw_session_data(agent_id: EntityId, branch_id: &BranchId) -> String {
     serde_json::json!({
         "v": 1,
         "kind": "subject_branch",
@@ -411,12 +412,8 @@ pub(crate) fn next_session_seq(
     conn: &Connection,
     session_id: EntityId,
 ) -> Result<i64, ShenkoError> {
-    conn.query_row(
-        "SELECT COALESCE(MAX(seq), 0) + 1 FROM session_events WHERE session_id = ?1",
-        params![session_id.to_string()],
-        |r| r.get(0),
-    )
-    .map_err(storage_error)
+    crate::subject_branches::history_leaf_conn(conn, session_id)?.unwrap_or(0)
+        .checked_add(1).ok_or_else(|| ShenkoError::conflict("raw history sequence exhausted"))
 }
 
 /// Append one fact to a raw session at the store-assigned next seq.
@@ -593,7 +590,7 @@ fn stage_input(
     tx.execute(
         "UPDATE inbox_events SET consumed=1
          WHERE event_id=?1 AND consumed=0
-           AND (source IN (?2, 'playground', 'subject') OR source LIKE 'media/%')",
+           AND (source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR source LIKE 'media/%')",
         params![input.event_id.to_string(), crate::web_input::WEB_INPUT_SOURCE],
     )
     .map_err(storage_error)?;
@@ -715,20 +712,26 @@ impl Store {
         source_event_id: EntityId,
     ) -> Result<Option<StoredSessionEvent>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let raw_id: Option<String> = conn.query_row(
-            "SELECT i.raw_event_id FROM subject_raw_inputs i
-             JOIN subject_branch_heads h ON i.session_id=h.branch_id
-             WHERE h.agent_id=?1 AND i.source_event_id=?2
-             ORDER BY i.seq LIMIT 1",
-            params![agent_id.to_string(), source_event_id.to_string()],
+        let branch: Option<String> = conn.query_row(
+            "SELECT branch_id FROM subject_branch_heads WHERE agent_id=?1", [agent_id.to_string()],
             |row| row.get(0),
         ).optional().map_err(storage_error)?;
-        let Some(raw_id) = raw_id else { return Ok(None); };
-        let id = raw_id.parse::<EntityId>()
-            .map_err(|error| ShenkoError::storage(format!("bad raw event id {raw_id}: {error}")))?;
-        read_session_event(&conn, id)?.map(Some).ok_or_else(|| {
-            ShenkoError::conflict("staged input original raw row missing")
-        })
+        let Some(branch) = branch else { return Ok(None); };
+        let branch = branch.parse().map_err(storage_error)?;
+        for (scope, lower, upper) in crate::subject_branches::history_segments(&conn, branch, 0, i64::MAX)? {
+            let raw_id: Option<String> = conn.query_row(
+                "SELECT raw_event_id FROM subject_raw_inputs
+                 WHERE session_id=?1 AND source_event_id=?2 AND seq BETWEEN ?3 AND ?4
+                 ORDER BY seq LIMIT 1",
+                params![scope.to_string(), source_event_id.to_string(), lower, upper], |row| row.get(0),
+            ).optional().map_err(storage_error)?;
+            if let Some(raw_id) = raw_id {
+                let id = raw_id.parse().map_err(storage_error)?;
+                return read_session_event(&conn, id)?.map(Some).ok_or_else(||
+                    ShenkoError::conflict("staged input original raw row missing"));
+            }
+        }
+        Ok(None)
     }
 
     /// The old loop carried only the last thought in memory. Admitting an
@@ -831,10 +834,7 @@ impl Store {
         if input.get("events").and_then(serde_json::Value::as_array) != Some(&originals) {
             return Err(ShenkoError::conflict("S0 original inbox facts changed"));
         }
-        let leaf: Option<i64> = tx.query_row(
-            "SELECT MAX(seq) FROM session_events WHERE session_id = ?1",
-            params![context.scope_id.to_string()], |row| row.get(0),
-        ).map_err(storage_error)?;
+        let leaf = crate::subject_branches::history_leaf_conn(tx, context.scope_id)?;
         let leaf = leaf.map(u64::try_from).transpose()
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         let window: Option<(String, i64, String)> = tx.query_row(
@@ -904,7 +904,7 @@ impl Store {
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
              WHERE i.agent_id=?1 AND (
-               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject') OR i.source LIKE 'media/%'))
+               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR i.source LIKE 'media/%'))
                OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
                     OR json_extract(d.disposition,'$.disposition')='deferred')))
              ORDER BY i.rowid LIMIT ?4",

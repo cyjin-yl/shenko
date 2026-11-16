@@ -4,11 +4,14 @@
 //! reports `ProviderUnavailable` with the honest reason, never a different
 //! engine's output.
 
+use crate::attempt::{OxrAttemptBinding, OxrAttemptClaim, OxrAttemptContext, OxrAttemptReceipt};
 use crate::oxr_client::{
     CredentialHandle, DEFAULT_POLL_INTERVAL, DEFAULT_POLL_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrTransport,
+    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrObservation, OxrSubmission, OxrTransport,
 };
-use crate::types::{PageProvenance, PageRef, PageResult, ParseRequest};
+use crate::types::{
+    DOCUMENT_PARSE_DEFINITION_VERSION, PageProvenance, PageRef, PageResult, ParseRequest,
+};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,8 +28,18 @@ pub enum PageOutcome {
     PageFailed(String),
     /// The page's outcome is UNKNOWN: the request may or may not have been
     /// processed upstream (transport failure, rate limit, lost task). This is
-    /// deliberately not a terminal failure — the page is retryable under the
-    /// same cache key, but the caller has to reconcile the unknown first.
+    /// deliberately not a terminal failure. The caller must reconcile the
+    /// original attempt; this does not authorize another upload.
+    Unknown(String),
+}
+
+/// Whole-document discovery has the same outcome distinctions as a page.
+/// An unknown external effect must survive before any page count is known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageCountOutcome {
+    Known(u32),
+    Undetermined,
+    Failed(String),
     Unknown(String),
 }
 
@@ -42,12 +55,26 @@ pub trait DocumentProvider: Send + Sync {
     /// engine prerequisites attested). The honest answer; absence is not an
     /// error to hide.
     async fn availability(&self) -> ProviderAvailability;
-    /// The number of pages the provider can serve for this document, when it
-    /// can determine the count without guessing. `None` = unknown; the
-    /// boundary never fabricates a page count. The default reports unknown.
-    async fn page_count(&self, source_bytes: &[u8], req: &ParseRequest) -> Result<Option<u32>> {
+    /// Request-scoped readiness may serve committed results while the engine
+    /// is offline. Providers without durable results use live availability.
+    async fn availability_for(
+        &self,
+        source_bytes: &[u8],
+        req: &ParseRequest,
+    ) -> ProviderAvailability {
         let _ = (source_bytes, req);
-        Ok(None)
+        self.availability().await
+    }
+    /// The number of pages the provider can serve for this document, when it
+    /// can determine the count without guessing. Undetermined means no count
+    /// is available; Unknown means an external parse may have executed.
+    async fn page_count(
+        &self,
+        source_bytes: &[u8],
+        req: &ParseRequest,
+    ) -> Result<PageCountOutcome> {
+        let _ = (source_bytes, req);
+        Ok(PageCountOutcome::Undetermined)
     }
     /// Parse one page. Implementations must not be called unless
     /// `availability()` is `Ready`; the boundary checks first.
@@ -126,6 +153,9 @@ pub struct OxrProviderConfig {
     pub request_timeout: Option<Duration>,
     pub poll_interval: Option<Duration>,
     pub poll_timeout: Option<Duration>,
+    /// The host's original durable operation/attempt and receipt adapter.
+    /// Without this binding an upload cannot be made safely across restart.
+    pub attempt: Option<OxrAttemptContext>,
 }
 
 /// The SoMarkAI/OXR provider (Optical Everything Recognition). OXR is an
@@ -138,6 +168,21 @@ pub struct OxrProviderConfig {
 /// scope, credential — and reports an honest Unavailable listing exactly the
 /// missing prerequisite when it cannot run, per issue #89: an absent
 /// capability is reported, never auto-substituted.
+#[derive(Debug)]
+struct StoredDocument {
+    document: OxrDocument,
+    raw_output_ref: Option<String>,
+}
+
+impl std::ops::Deref for StoredDocument {
+    type Target = OxrDocument;
+    fn deref(&self) -> &Self::Target {
+        &self.document
+    }
+}
+
+type SharedDocument = Arc<OnceCell<Result<Arc<StoredDocument>, OxrError>>>;
+
 pub struct OxrProvider {
     endpoint: Option<String>,
     model_identity: Option<String>,
@@ -147,12 +192,13 @@ pub struct OxrProvider {
     /// The real HTTP client when the endpoint and credential bind; `Err`
     /// keeps the rejection reason so `availability()` can name it.
     client: Result<OxrClient, String>,
-    params_digest: Option<String>,
+    params_digest: String,
+    attempt: Option<OxrAttemptContext>,
     /// Whole-document parses shared across one request's pages. Upstream has
     /// no per-page endpoint and the hosted API is QPS-limited, so one upload
     /// per document is the only honest pattern: concurrent `parse_page`
     /// calls on the same source share the same in-flight parse.
-    documents: Mutex<HashMap<String, Arc<OnceCell<Arc<OxrDocument>>>>>,
+    documents: Mutex<HashMap<String, SharedDocument>>,
 }
 
 impl OxrProvider {
@@ -173,7 +219,7 @@ impl OxrProvider {
             .map_err(|error| error.to_string()),
             _ => Err(String::new()),
         };
-        let params_digest = Some(params_digest_of(&config));
+        let params_digest = params_digest_of(&config);
         Self {
             endpoint: config.endpoint,
             model_identity: config.model_identity,
@@ -182,6 +228,7 @@ impl OxrProvider {
             engine: config.engine,
             client,
             params_digest,
+            attempt: config.attempt,
             documents: Mutex::new(HashMap::new()),
         }
     }
@@ -219,6 +266,13 @@ impl OxrProvider {
                     .into(),
             );
         }
+        match &self.attempt {
+            None => return Some("no OXR durable operation/attempt receipt store bound".into()),
+            Some(attempt) if attempt.account_identity.trim().is_empty() => {
+                return Some("no OXR account identity bound".into());
+            }
+            Some(_) => {}
+        }
         let client = self
             .client
             .as_ref()
@@ -232,45 +286,215 @@ impl OxrProvider {
         }
     }
 
-    /// The document parse shared across this source's pages. One upload per
-    /// (source digest, closure, byte length): the byte length joins the key
-    /// so a caller that misbinds a digest to different bytes does not share a
-    /// parse it must not share.
+    /// Share both results and failures between pages. Cancellation can leave
+    /// the local cell empty, but the host's durable claim remains armed and
+    /// prevents another upload after drop, provider recreation or restart.
     async fn document_for(
         &self,
         client: &OxrClient,
         source_bytes: &[u8],
         req: &ParseRequest,
-    ) -> Result<Arc<OxrDocument>, OxrError> {
-        let key = format!(
-            "{}\u{1f}{}\u{1f}{}",
-            req.source_digest,
-            self.closure_id(),
-            source_bytes.len()
-        );
+    ) -> Result<Arc<StoredDocument>, OxrError> {
+        let attempt = self
+            .attempt
+            .as_ref()
+            .ok_or_else(|| OxrError::Receipt("no durable attempt binding".into()))?;
+        let binding = self.attempt_binding(source_bytes, req)?;
         let cell = {
             let mut documents = self.documents.lock().await;
             documents
-                .entry(key)
+                .entry(
+                    binding
+                        .digest()
+                        .map_err(|error| OxrError::Request(error.to_string()))?,
+                )
                 .or_insert_with(|| Arc::new(OnceCell::new()))
                 .clone()
         };
-        // `source_name` is the upload name: upstream infers the document type
-        // from it. A failure leaves the cell unset, so the next page retries
-        // rather than inheriting a cached failure.
-        let file_name = req
-            .source_name
-            .clone()
-            .unwrap_or_else(|| "document".to_owned());
-        let document = cell
-            .get_or_try_init(|| async {
-                client
-                    .parse_document(&file_name, source_bytes)
-                    .await
-                    .map(Arc::new)
+        cell.get_or_init(|| async {
+            self.run_attempt(client, source_bytes, attempt, &binding)
+                .await
+                .map(Arc::new)
+        })
+        .await
+        .clone()
+    }
+
+    /// Freeze the exact upload identity without contacting the endpoint. A
+    /// native host seals this in its T1 checkpoint at the dispatch claim.
+    pub fn attempt_binding(
+        &self,
+        source_bytes: &[u8],
+        req: &ParseRequest,
+    ) -> Result<OxrAttemptBinding, OxrError> {
+        let client = self
+            .client
+            .as_ref()
+            .map_err(|reason| OxrError::Request(reason.clone()))?;
+        let attempt = self
+            .attempt
+            .as_ref()
+            .ok_or_else(|| OxrError::Receipt("no durable attempt binding".into()))?;
+        if req.schema_version != DOCUMENT_PARSE_DEFINITION_VERSION
+            || req.closure_id != self.closure_id()
+            || req.scope != self.scope
+        {
+            return Err(OxrError::Request(
+                "request schema, closure or scope differs from the bound provider".into(),
+            ));
+        }
+        Ok(OxrAttemptBinding {
+            operation_id: attempt.operation_id,
+            attempt_id: attempt.attempt_id,
+            account_identity: attempt.account_identity.clone(),
+            source_digest: req.source_digest.clone(),
+            source_bytes_digest: format!("blake3:{}", blake3::hash(source_bytes).to_hex()),
+            source_name: req.source_name.clone().unwrap_or_else(|| "document".into()),
+            request_schema_version: req.schema_version,
+            closure_id: self.closure_id().into(),
+            scope: self.scope.clone(),
+            endpoint: client.endpoint().into(),
+            model_identity: self
+                .model_identity
+                .clone()
+                .ok_or_else(|| OxrError::Request("no model identity bound".into()))?,
+            params_digest: self.params_digest.clone(),
+        })
+    }
+
+    async fn run_attempt(
+        &self,
+        client: &OxrClient,
+        source_bytes: &[u8],
+        attempt: &OxrAttemptContext,
+        binding: &OxrAttemptBinding,
+    ) -> Result<StoredDocument, OxrError> {
+        let claim = attempt
+            .store
+            .claim(binding)
+            .map_err(|error| OxrError::Receipt(error.to_string()))?;
+        let task = match claim {
+            OxrAttemptClaim::Dispatch => {
+                let observed = client
+                    .submit_document_observed(&binding.source_name, source_bytes)
+                    .await;
+                match observed.outcome {
+                    Ok(OxrSubmission::Accepted(task)) => {
+                        attempt
+                            .store
+                            .append(
+                                binding,
+                                &OxrAttemptReceipt {
+                                    task: Some(task.clone()),
+                                    outcome: None,
+                                    raw_output_ref: None,
+                                },
+                                observed.response.as_ref(),
+                            )
+                            .map_err(|error| OxrError::Receipt(error.to_string()))?;
+                        task
+                    }
+                    result => {
+                        let outcome = result.map(|submission| match submission {
+                            OxrSubmission::Completed(document) => document,
+                            OxrSubmission::Accepted(_) => unreachable!("handled above"),
+                        });
+                        let saved = attempt
+                            .store
+                            .append(
+                                binding,
+                                &OxrAttemptReceipt {
+                                    task: None,
+                                    outcome: Some(outcome.clone()),
+                                    raw_output_ref: None,
+                                },
+                                observed.response.as_ref(),
+                            )
+                            .map_err(|error| OxrError::Receipt(error.to_string()))?;
+                        return outcome.map(|document| StoredDocument {
+                            document,
+                            raw_output_ref: saved.raw_output_ref,
+                        });
+                    }
+                }
+            }
+            OxrAttemptClaim::Replay(Some(receipt)) => match (&receipt.outcome, receipt.task) {
+                (Some(Ok(document)), _) => {
+                    return Ok(StoredDocument {
+                        document: document.clone(),
+                        raw_output_ref: receipt.raw_output_ref,
+                    });
+                }
+                (Some(Err(error)), _) if !error.outcome_is_unknown() => return Err(error.clone()),
+                (_, Some(task)) => task,
+                (Some(Err(error)), None) => return Err(error.clone()),
+                _ => {
+                    return Err(OxrError::OutcomeUnknown(
+                        "armed upload has no usable receipt".into(),
+                    ));
+                }
+            },
+            OxrAttemptClaim::Replay(None) => {
+                return Err(OxrError::OutcomeUnknown("original upload is already armed without a receipt; reconcile it, do not resend".into()));
+            }
+        };
+        // A later reconciliation may check an expired task once. It never
+        // invents a fresh polling budget or submits the document again.
+        let mut last_receipt = None;
+        let mut observe = |observed: &OxrObservation<Option<OxrDocument>>| {
+            last_receipt = Some(
+                attempt
+                    .store
+                    .append(
+                        binding,
+                        &OxrAttemptReceipt {
+                            task: Some(task.clone()),
+                            outcome: observed.outcome.clone().transpose(),
+                            raw_output_ref: None,
+                        },
+                        observed.response.as_ref(),
+                    )
+                    .map_err(|error| OxrError::Receipt(error.to_string()))?,
+            );
+            Ok(())
+        };
+        let outcome = if chrono::Utc::now() >= task.poll_deadline {
+            let observed = client.check_document_observed(&task).await;
+            observe(&observed)?;
+            observed.outcome.and_then(|document| {
+                document.ok_or_else(|| {
+                    OxrError::OutcomeUnknown(
+                        "original polling deadline expired; remote task still pending".into(),
+                    )
+                })
             })
-            .await?;
-        Ok(Arc::clone(document))
+        } else {
+            client
+                .poll_document_with_observer(&task, &mut observe)
+                .await
+        };
+        // A timeout before another complete response has no raw body. Retain
+        // the unknown fact without replacing any previously admitted terminal
+        // response. All completed pending polls remain in immutable history.
+        let saved = match last_receipt {
+            Some(receipt) if receipt.outcome.as_ref() == Some(&outcome) => receipt,
+            _ => attempt
+                .store
+                .append(
+                    binding,
+                    &OxrAttemptReceipt {
+                        task: Some(task),
+                        outcome: Some(outcome.clone()),
+                        raw_output_ref: None,
+                    },
+                    None,
+                )
+                .map_err(|error| OxrError::Receipt(error.to_string()))?,
+        };
+        outcome.map(|document| StoredDocument {
+            document,
+            raw_output_ref: saved.raw_output_ref,
+        })
     }
 }
 
@@ -291,23 +515,60 @@ impl DocumentProvider for OxrProvider {
         }
     }
 
-    async fn page_count(&self, source_bytes: &[u8], req: &ParseRequest) -> Result<Option<u32>> {
-        let client = match &self.client {
-            Ok(client) => client,
-            Err(reason) if reason.is_empty() => {
-                anyhow::bail!("OXR provider is not bound to a usable endpoint")
+    async fn availability_for(
+        &self,
+        source_bytes: &[u8],
+        req: &ParseRequest,
+    ) -> ProviderAvailability {
+        if let (Ok(binding), Some(attempt)) =
+            (self.attempt_binding(source_bytes, req), &self.attempt)
+        {
+            match attempt.store.receipt(&binding) {
+                Ok(Some(receipt))
+                    if receipt
+                        .outcome
+                        .as_ref()
+                        .is_some_and(|outcome| match outcome {
+                            Ok(_) => true,
+                            Err(error) => !error.outcome_is_unknown(),
+                        }) =>
+                {
+                    return ProviderAvailability::Ready;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    return ProviderAvailability::Unavailable {
+                        reason: format!("OXR original receipt unavailable: {error}"),
+                    };
+                }
             }
-            Err(reason) => {
-                anyhow::bail!("OXR provider is not bound to a usable endpoint: {reason}")
+        }
+        self.availability().await
+    }
+
+    async fn page_count(
+        &self,
+        source_bytes: &[u8],
+        req: &ParseRequest,
+    ) -> Result<PageCountOutcome> {
+        let client = self.client.as_ref().map_err(|reason| {
+            anyhow::anyhow!("OXR provider is not bound to a usable endpoint: {reason}")
+        })?;
+        match self.document_for(client, source_bytes, req).await {
+            Ok(document) => Ok(
+                match document
+                    .page_count
+                    .or_else(|| u32::try_from(document.pages.len()).ok())
+                {
+                    Some(count) => PageCountOutcome::Known(count),
+                    None => PageCountOutcome::Undetermined,
+                },
+            ),
+            Err(error) if error.outcome_is_unknown() => {
+                Ok(PageCountOutcome::Unknown(error.to_string()))
             }
-        };
-        // The count comes from the same shared document parse the pages use:
-        // `metadata.page_num` is upstream's own statement, and the page list
-        // is the fallback when upstream did not report it.
-        let document = self.document_for(client, source_bytes, req).await?;
-        Ok(document
-            .page_count
-            .or_else(|| u32::try_from(document.pages.len()).ok()))
+            Err(error) => Ok(PageCountOutcome::Failed(error.to_string())),
+        }
     }
 
     async fn parse_page(
@@ -330,7 +591,7 @@ impl DocumentProvider for OxrProvider {
         };
         let document = match self.document_for(client, source_bytes, req).await {
             Ok(document) => document,
-            Err(error) if error.is_retryable() => {
+            Err(error) if error.outcome_is_unknown() => {
                 return Ok(PageOutcome::Unknown(format!(
                     "page {} outcome unknown: {error}",
                     page.page_index
@@ -352,7 +613,10 @@ impl DocumentProvider for OxrProvider {
                 page,
                 source_digest: req.source_digest.clone(),
                 blocks: parsed.blocks.clone(),
-                provenance: self.provenance(),
+                provenance: PageProvenance {
+                    raw_output_ref: document.raw_output_ref.clone(),
+                    ..self.provenance()
+                },
                 // Bboxes only mean "restored to the original page" when the
                 // page's own coordinate space is known; without a page_size
                 // the coordinates have no declared space.
@@ -383,9 +647,9 @@ impl DocumentProvider for OxrProvider {
             provider_id: self.provider_id().into(),
             code_version: self.closure_id().into(),
             model_version: self.model_identity.clone(),
-            params_digest: self.params_digest.clone(),
-            // This crate does not retain the raw upstream body in a CAS; the
-            // caller seals the mapped result, so no raw-output ref is claimed.
+            params_digest: Some(self.params_digest.clone()),
+            // Provider-wide metadata cannot claim a body. Each parsed page
+            // carries its own admitted original response reference above.
             raw_output_ref: None,
         }
     }
@@ -396,18 +660,17 @@ impl DocumentProvider for OxrProvider {
 /// The credential and endpoint are deliberately not inputs: the digest names
 /// the parameter set, not the deployment.
 fn params_digest_of(config: &OxrProviderConfig) -> String {
-    let engine = match &config.engine {
-        OxrEngineBinding::Remote => "remote".to_owned(),
-        OxrEngineBinding::Local { attestation } => {
-            format!("local:attested={}", attestation.is_some())
-        }
-    };
-    let canonical = format!(
-        "document.parse/oxr-params/v1;transport={:?};output_formats=json;\
-         element_formats=upstream-default;feature_config=upstream-default;engine={engine}",
-        config.transport,
-    );
-    format!("blake3:{}", blake3::hash(canonical.as_bytes()).to_hex())
+    let canonical = serde_json::json!({
+        "schema": "document.parse/oxr-params/v2",
+        "transport": format!("{:?}", config.transport),
+        "output_formats": "json", "element_formats": "upstream-default",
+        "feature_config": "upstream-default", "engine": format!("{:?}", config.engine),
+        "request_timeout": config.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT),
+        "poll_timeout": config.poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
+        "poll_interval": config.poll_interval.unwrap_or(DEFAULT_POLL_INTERVAL),
+    });
+    let bytes = canonical.to_string().into_bytes();
+    format!("blake3:{}", blake3::hash(&bytes).to_hex())
 }
 
 /// Select the provider for a parse request's closure. Only the named

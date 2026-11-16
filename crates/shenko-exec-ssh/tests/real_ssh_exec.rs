@@ -61,7 +61,7 @@ fn open_subject_fixture() -> Result<(PathBuf, Arc<Store>, EntityId, EntityId)> {
         .cas
         .seal_object(b"r018 fixture seed", "text/plain", "fixture", "raw", 1)?
         .object;
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent,
         branch_id: branch.clone(),
         subject_root_task_id: EntityId::new(),

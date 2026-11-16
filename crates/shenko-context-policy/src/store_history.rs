@@ -81,7 +81,7 @@ impl StoreHistory {
         }
         let call_status = match payload.intent_id.as_deref() {
             Some(id) => match id.parse::<EntityId>() {
-                Ok(id) => self.store.subject_call_evidence(self.session_id, id).map_err(storage)?
+                Ok(id) => self.store.subject_call_evidence(event.session_id, id).map_err(storage)?
                     .map_or(CallStatus::Unknown, |facts| subject_status(id, &facts)),
                 Err(_) => CallStatus::Unknown,
             },
@@ -167,7 +167,7 @@ impl HistorySource for StoreHistory {
         let to = i64::try_from(to).unwrap_or(i64::MAX);
         let from = i64::try_from(from).map_err(storage)?;
         self.store
-            .session_events_range(self.session_id, from, to)
+            .branch_history_range(self.session_id, from, to)
             .map_err(storage)?
             .into_iter()
             .map(|event| self.item(event))
@@ -176,16 +176,15 @@ impl HistorySource for StoreHistory {
 
     fn read_event(&self, event_id: EntityId) -> Result<Option<HistoryItem>, StorageError> {
         self.store
-            .session_event(event_id)
+            .branch_history_event(self.session_id, event_id)
             .map_err(storage)?
-            .filter(|event| event.session_id == self.session_id)
             .map(|event| self.item(event))
             .transpose()
     }
 
     fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
         self.store
-            .session_leaf_seq(self.session_id)
+            .branch_history_leaf_seq(self.session_id)
             .map_err(storage)?
             .map(|seq| u64::try_from(seq).map_err(storage))
             .transpose()

@@ -439,8 +439,12 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
     let Some(playground) = state.playground.as_ref() else {
         return Json(json!({ "available": false }));
     };
-    let artifacts: Vec<Value> = playground.list().into_iter().map(|version| {
-        let durable = playground.durable_record(version.artifact_id).ok().flatten();
+    let versions = match playground.list() {
+        Ok(versions) => versions,
+        Err(error) => return Json(json!({"available": false, "error": error.to_string()})),
+    };
+    let artifacts = versions.into_iter().map(|version| -> anyhow::Result<Value> {
+        let durable = playground.durable_record(version.artifact_id)?;
         // docs/specs/cognition-units.md#spec-51-1: the default projection of a revision chain is a fact
         // pair — how many committed versions exist and when the newest was
         // written. How many *older* versions the default view shows is the
@@ -451,9 +455,8 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
         // read.
         let committed_version_count = playground
             .revisions(version.artifact_id)
-            .map(|revisions| revisions.len())
-            .ok();
-        json!({
+            .map(|revisions| revisions.len())?;
+        Ok(json!({
             "artifact_id": version.artifact_id,
             "title": version.title,
             "mime": version.mime,
@@ -469,8 +472,16 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
             "backend": version.backend.is_some(),
             "lifecycle": durable.as_ref().map(|record| record.lifecycle.clone()),
             "record": durable,
-        })
-    }).collect();
+        }))
+    }).collect::<anyhow::Result<Vec<_>>>();
+    let artifacts = match artifacts {
+        Ok(artifacts) => artifacts,
+        Err(error) => return Json(json!({"available": false, "error": error.to_string()})),
+    };
+    let roots = match playground.roots() {
+        Ok(roots) => roots,
+        Err(error) => return Json(json!({"available": false, "error": error.to_string()})),
+    };
     // The playground surface also lists the registered configuration
     // namespaces: an artifact's settings are managed through the same
     // configuration service as every other setting, not through a private
@@ -482,7 +493,7 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
         .unwrap_or_default();
     Json(json!({
         "available": true,
-        "roots": playground.roots(),
+        "roots": roots,
         "artifacts": artifacts,
         "namespaces": namespaces,
     }))
@@ -684,19 +695,14 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         .and_then(|live| live.last_outbox_observed_at());
     let outbox_wired = state.live.as_ref().is_some_and(|live| live.is_wired());
 
-    let artifacts: Vec<Value> = match state.playground.as_ref() {
-        Some(playground) => playground
-            .list()
-            .into_iter()
-            .map(|record| {
-                json!({
-                    "id": record.artifact_id.to_string(),
-                    "title": record.title,
-                    "kind": "file",
-                })
-            })
-            .collect(),
-        None => Vec::new(),
+    let (artifacts, artifacts_error) = match state.playground.as_ref() {
+        Some(playground) => match playground.list() {
+            Ok(records) => (Some(records.into_iter().map(|record| json!({
+                "id": record.artifact_id.to_string(), "title": record.title, "kind": "file",
+            })).collect::<Vec<_>>()), None),
+            Err(error) => (None, Some(error.to_string())),
+        },
+        None => (Some(Vec::new()), None),
     };
 
     // Instance identity (docs/specs/subject-runtime.md#spec-6): the name is the instance's, not the brand.
@@ -709,7 +715,17 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         store.latest_identity(agent_id).ok()?
     });
 
+    let (control_reconciliations, control_reconciliations_error) = match (&state.store, subject_id) {
+        (Some(store), Some(agent_id)) => match store.pending_control_reconciliations(agent_id) {
+            Ok(facts) => (Some(facts), None),
+            Err(error) => (None, Some(error.to_string())),
+        },
+        _ => (None, None),
+    };
+
     Json(json!({
+        "control_reconciliations": control_reconciliations,
+        "control_reconciliations_error": control_reconciliations_error,
         "status": status,
         "status_source": "no live subject-state binding; recent outbox is not a thinking signal",
         "subject_id": subject_id.map(|id| id.to_string()),
@@ -734,6 +750,7 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         "device_discovery": "not_wired",
         "activities": [],
         "artifacts": artifacts,
+        "artifacts_error": artifacts_error,
     }))
 }
 
@@ -1061,7 +1078,7 @@ mod naming_tests {
             bootstrap_event_ref: object,
             created_commit: zero,
         };
-        let head = SubjectBranchHead {
+        let head = SubjectBranchHead { branch_origin: None,
             agent_id: agent,
             branch_id: branch.clone(),
             subject_root_task_id: EntityId::new(),

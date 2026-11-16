@@ -1,0 +1,236 @@
+{
+  "kind": "source_bound_process_and_ci_repair",
+  "date": "2026-11-15",
+  "base_commit": "054817b0d5729fed56ec5a974d101c31edfd1410",
+  "source_sha256": {
+    ".github/workflows/nightly.yml": "a5bb897c3c922a7c7a0fa2d8a67724760927e4e3b9803f5673b5e2519429374d",
+    "crates/shenko-subject/src/obligation_partition_tests.rs": "bcb63e848373aa967992bd62453fd1d200fef5eb2f04a10ca8e6c26dde4fd9ba"
+  },
+  "environment": {
+    "rustc": "1.98.1",
+    "cargo": "1.98.1",
+    "jobs": 2,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "incremental": false
+  },
+  "partition": {
+    "command": "SHENKO_OBLIGATION_PARTITION_ROOT=<fresh root> python3 scripts/ci/ignored_test.py --package shenko-subject --name loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator",
+    "state": "passed",
+    "checks": [
+      {
+        "check": "fresh_root",
+        "passed": true
+      },
+      {
+        "check": "origin_commits_one_open_obligation",
+        "passed": true
+      },
+      {
+        "check": "peers_fork_one_origin",
+        "passed": true
+      },
+      {
+        "check": "peer_a_settles_completed",
+        "passed": true
+      },
+      {
+        "check": "peer_b_settles_cancelled",
+        "passed": true
+      },
+      {
+        "check": "settlements_overlap_in_process_lifetimes",
+        "passed": true
+      },
+      {
+        "check": "peers_compete_on_one_obligation",
+        "passed": true
+      },
+      {
+        "check": "peer-a_archive_is_genuine_schema6",
+        "passed": true
+      },
+      {
+        "check": "peer-b_archive_is_genuine_schema6",
+        "passed": true
+      },
+      {
+        "check": "competing_settlement_refused_as_one_unit",
+        "passed": true
+      },
+      {
+        "check": "refusal_publishes_no_rows_in_a",
+        "passed": true
+      },
+      {
+        "check": "converged_store_accepts_the_winning_settlement",
+        "passed": true
+      },
+      {
+        "check": "competing_settlement_after_convergence_never_replaces",
+        "passed": true
+      },
+      {
+        "check": "competing_settlement_refused_over_replicated_facts",
+        "passed": true
+      },
+      {
+        "check": "relay_preserves_typed_settlements",
+        "passed": true
+      },
+      {
+        "check": "archives_are_byte_stable",
+        "passed": true
+      },
+      {
+        "check": "every_store_reopens_and_validates",
+        "passed": true
+      }
+    ],
+    "receipt_sha256": "6e2419cc04747aea431f084a1cfe945d91489893185fae6f84cb6218c4134e84",
+    "log_sha256": "3019aea80953b8b7f4bd63e021b71c46c50b7984541c0f4be416f85da8901931",
+    "executable": {
+      "blake3": "blake3:e7c15233b26c0add740a1631bd826ceb95bdcf54ab866f38bd0f12e9fda839ad",
+      "bytes": 69282768,
+      "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_subject-60a77ba236f314b9"
+    },
+    "started_at_ms": 1794744049833,
+    "finished_at_ms": 1794744051017,
+    "scope": "Source-level obligation partition settlement proof: real parser, Store, CAS and archive code, two independent OS processes settling from one committed origin with a rendezvous barrier, archive exchange, unit refusal, convergence, sticky terminal state, relay and reopen. Not a power-loss, distributed-installation, network, or model-efficacy proof; no provider request is made.",
+    "limits": [
+      "peers are byte copies of one quiesced store, so they share the origin ledger identity and incarnation",
+      "the content store may gain unreferenced sealed objects during a refused import; no fact is published",
+      "no model, provider or network is involved; the authored control text is parsed by the real parser"
+    ]
+  },
+  "failed_runs_retained": [
+    {
+      "name": "partition-baseline",
+      "failure": "fresh-store projection comparison included receiver-local updated_seq absent from the replicated archive",
+      "receipt_sha256": "04dfbc9a808a236bbd77e183ac3b9be141f46291ad30abb3da208b0dd9352056"
+    },
+    {
+      "name": "partition-fixed",
+      "failure": "cloned source ledgers reused export order; anti-equivocation correctly refused before the intended obligation-unit check",
+      "receipt_sha256": "d2da9dee0a9aa67edf18ba7507c46183607551207081b695c6c63e9aad2d79ae"
+    }
+  ],
+  "repair": {
+    "selection": "use the actual full loop_runner module path; ignored_test.py still refuses zero matches",
+    "projection": "compare every replicated obligation field and independently verify the receiver local import watermark; same-store/refusal/reopen comparisons still include updated_seq",
+    "source_order": "retain B first genuine export, then exchange its next genuine archive to reach the existing exact required-unit refusal; neither archive bytes nor importer checks are altered",
+    "browser": "nightly compiler container installs Chromium and binds the existing harness through CHROME_PATH; full compiler suite and existing failure expectations remain unchanged"
+  },
+  "other_checks": {
+    "documentation_integrity": "passed",
+    "kernel_boundary_independent_baseline": "passed; baseline 054817b0d5729fed56ec5a974d101c31edfd1410",
+    "nightly_yaml": "parsed and exact selector/browser path checked"
+  },
+  "published_checkpoint": {
+    "candidate": "eb714f6a04acd1c6a49711b0e6beb712c4708c3f",
+    "ci_url": "https://github.com/cyjin-yl/shenko/actions/runs/43712239826",
+    "ci_passed": [
+      "rust",
+      "docs",
+      "docs-migration",
+      "kernel-boundary",
+      "web"
+    ],
+    "ci_failure": {
+      "job": "clippy-ratchet",
+      "diagnostics": [
+        "all-targets: shenko-node: clippy::unwrap_used increased by 84",
+        "all-targets: shenko-subject: clippy::expect_used increased by 1"
+      ],
+      "followup": "Added regression journeys now propagate errors with Result and context; no lint suppression or baseline change. A later candidate must pass the actual ratchet."
+    },
+    "nightly_url": "https://github.com/cyjin-yl/shenko/actions/runs/43712410540",
+    "native": {
+      "full_feature_suite": "failed in inherited shenko-exec-ssh fixture executor::tests::ssh_argv_and_transport_unknown: Text file busy (os error 26); that crate reported 91 passed and 1 failed, so this run does not establish the remainder of the workspace suite",
+      "partition_process_proof": "passed",
+      "restricted_native_helper_lost_reply": "passed",
+      "restricted_native_helper_identity_refusal": "passed",
+      "followup": "Use a checked-in immutable executable fixture through an isolated per-test symlink; retain the real SSH argv/exit/unknown assertions. No production SSH retry is added."
+    },
+    "compiler": {
+      "passed": 1511,
+      "failed": 3,
+      "skipped": 1,
+      "files_passed": 74,
+      "files_failed": 2,
+      "failures": [
+        "pointer-facts-native.test.ts: Vue2 complete emitted pointer graph has 11 strict TypeScript diagnostics",
+        "web-component-native-browser.test.ts: explicit undefined capture lacks the expected diagnostic for both shadow=false and shadow=true"
+      ],
+      "scope": "Chromium provisioning enabled the previously unavailable browser paths. The complete pinned compiler suite remains red; no assertions, skips or pin were changed to hide these upstream defects."
+    }
+  },
+  "not_proven": [
+    "complete pinned compiler suite green after provisioning",
+    "physical power-loss durability",
+    "network partitions between distinct installations",
+    "real model behavior",
+    "full S1-S5 acceptance"
+  ],
+  "upstream_recheck": {
+    "repository": "Proto-UI/Proto-UI",
+    "observed_main": "7d30a788f4bd79189cbe2dd499ded9ff22ba91e1",
+    "retained_pin": "41282cb0ddc39283826e52e9932be123fc83eb47",
+    "merge_base": "35195a6e6f1ba6a7d800da0029f2683013abd18b",
+    "reason": "Observed main is divergent and does not contain the reviewed pending React mount update fix at the retained pin. Do not remove that required compiler behavior merely to move a source label."
+  },
+  "integration_assembly": {
+    "source_commit": "f457a24f6bbae3696c62f635cd765d635eed406f",
+    "scope": "All runtime slices and independent review corrections integrated; this record preserves confirmed local evidence before the final CI gate. Subsequent CI results belong to the exact PR head shown by GitHub.",
+    "source_sha256": {
+      "bin/shenko/src/document_runtime.rs": "fdd4c8cb5ba7d09eaf36a2c6d444bbf1c3e07728f0daad3070e7805034a69579",
+      "bin/shenko/src/node_sync.rs": "aafa6e8e7b4a2f927f05a6870812bb5153eebd4c8740e416944fad404bb7604a",
+      "bin/shenko/src/update_runtime.rs": "24fe37bb5e543b49db805e8a87d268eb7fecf6920329c6655ac97c1952c8a611",
+      "crates/shenko-node/src/election.rs": "bdf7c99449764f7762c70a553dfa9ccdc59bc0d235a6ab3dec31e29c082e0216",
+      "crates/shenko-store/src/artifacts.rs": "c3111365e64b215fff2db4c864f13029c457a2329f73d18a2de36fd49308a16e",
+      "crates/shenko-store/src/child.rs": "80eecc6e05b41196f5a5098dd40ddc6076dfed3acdf041265f45377efa667500",
+      "crates/shenko-store/src/external.rs": "a9db2f308a679d771dce6223d2185fd707d8757a8648d880c28a899425119df6",
+      "crates/shenko-ui/src/playground.rs": "969fd290a72e0ef2b974345d73c85ca319efaf302a9c84876aa1917a1c690224",
+      "crates/shenko-ui/src/playground_manage.rs": "07c08da824001ccc9e4e3943cf2a9b0a54eb68aa72ba6bbc25f6ede89a4148be",
+      "crates/shenko-subject/src/obligation_partition_tests.rs": "6461f220dff3c7e9faee3f175500246a2a29d3bfc4941e76546fa0f1bd9e68db",
+      "crates/shenko-ui/src/static/build-manifest.json": "f5baf68fc4bc8d3e3dd327adc1ff86e7afd4cd85d4f91961f73b7356b06c6611"
+    },
+    "checks": {
+      "workspace_all_targets": {
+        "command": "cargo check --workspace --all-targets --locked -j1",
+        "state": "passed",
+        "log_sha256": "69ad0495912c19a3bc05bce06b8388b631b346d3af2618bf03d8d35dc04565f3"
+      },
+      "documentation_integrity": "passed; errors=[]",
+      "documentation_migration_conservation": "passed; errors=[]",
+      "kernel_boundary": "passed against base 054817b0d5729fed56ec5a974d101c31edfd1410; no new violations",
+      "playground_focused": "11 passed; native recovery, real HTTP/native/WASI, original reader receipt replay, stale owner, corrupt closure",
+      "document_focused": "18 existing library cases and 2 native recovery journeys passed",
+      "targeted_clippy": "UI lib/tests, Store lib, document and native module checked with CI force-warn groups; no added-line diagnostics; complete baseline ratchet remains a separate CI gate",
+      "web": {
+        "node": "24.22.1",
+        "pnpm": "10.32.1",
+        "upstream_pin": "41282cb0ddc39283826e52e9932be123fc83eb47",
+        "public_packages_built": 42,
+        "typecheck": "passed",
+        "consumer_tests_passed": 34,
+        "consumer_tests_failed": 0,
+        "hashed_production_assets_verified": 10
+      }
+    },
+    "review_corrections": [
+      "HTTP publish/rollback replay cannot replace newer user state",
+      "ledger/CAS errors remain explicit through HTTP and the Self panel",
+      "native document T1 and dispatch grant share one transaction after preflight",
+      "completed document replay validates full frozen input, including selected pages",
+      "CLI resumes an already committed Joint from retained facts and catches up all voters before establishing current primary"
+    ],
+    "required_ci": "https://github.com/cyjin-yl/shenko/pull/299/checks",
+    "acceptance_limits": [
+      "No live served-model or OXR quality evidence",
+      "No quorum persistence of the actual Node control-log entry",
+      "No atomic Node-to-Store authority bridge or actual availability-branch fork",
+      "No physical multi-device failure or long-run acceptance claim"
+    ]
+  }
+}

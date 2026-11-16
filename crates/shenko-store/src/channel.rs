@@ -21,7 +21,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::channel::{ChannelDispatch, ChannelReceipt};
 use shenko_types::commit::CommitRef;
-use shenko_types::ids::{ControllerEpoch, EntityId, LedgerSeq, RecordRevision};
+use shenko_types::ids::{ControllerEpoch, EntityId, LedgerSeq, RecordRevision, TaskRevision};
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionedRef};
 use shenko_types::operation::{
     AttemptDispatchStage, AttemptRecord, AuthorityRef, EffectStatus, OperationContractRef,
@@ -170,6 +170,17 @@ enum PublicationAdmission {
     },
 }
 
+#[derive(Serialize)]
+struct PublicationSendPlan {
+    intent_id: EntityId,
+    dispatch: ChannelDispatch,
+    task: TaskRecord,
+    authoring_step: EntityId,
+    epoch: ControllerEpoch,
+    attempt_id: EntityId,
+    invocation_id: EntityId,
+}
+
 /// The result of one T1 attempt, after its transaction settled.
 enum PublicationArm {
     Armed(ArmedPublication),
@@ -278,10 +289,14 @@ impl Store {
 
     /// The committed publications the channel runtime may dispatch.
     pub fn ready_publications(&self, limit: usize) -> Result<Vec<PublicationIntent>> {
-        self.committed_intents(Some("publication"), Some("ready"), limit)?
-            .into_iter()
-            .map(|intent| Ok(serde_json::from_value(intent.payload)?))
-            .collect()
+        let conn = self.ledger.conn.lock();
+        let mut statement = conn.prepare("SELECT i.payload FROM subject_intents i
+            JOIN subject_steps s ON s.step_id=i.step_id
+            JOIN subject_branch_heads h ON h.agent_id=i.agent_id AND h.branch_id=s.branch_id
+            WHERE i.kind='publication' AND i.state='ready' ORDER BY i.created_seq,i.intent_id LIMIT ?1")?;
+        let rows = statement.query_map([i64::try_from(limit)?], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|data| Ok(serde_json::from_str(&data)?)).collect()
     }
 
     /// T1: claim the publication intent and arm its operation and attempt.
@@ -304,8 +319,37 @@ impl Store {
         intent_id: EntityId,
         dispatch: &ChannelDispatch,
     ) -> Result<Option<ArmedPublication>> {
+        let plan = {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            match self.publication_admission(&tx, intent_id)? {
+                PublicationAdmission::Arm { task, authoring_step, epoch } => Some(PublicationSendPlan {
+                    intent_id, dispatch: dispatch.clone(), task, authoring_step, epoch,
+                    attempt_id: EntityId::derived("publication-attempt-v1", intent_id.to_string().as_bytes()),
+                    invocation_id: EntityId::derived("publication-invocation-v1", intent_id.to_string().as_bytes()),
+                }),
+                _ => None,
+            }
+        };
+        let authority = match &plan {
+            Some(plan) => {
+                let (head, mut position) = self.task_admission_position(intent_id,
+                    format!("publication/{intent_id}/dispatch"))?;
+                position.operation_id = Some(intent_id);
+                position.attempt_id = Some(plan.attempt_id);
+                if let Some((parent, revision)) = publication_parent_authority(&self.ledger.conn.lock(), &plan.task)? {
+                    ensure!(parent.task_revision == revision && parent.abort_request.is_none(),
+                        "child publication authorization changed before T1 preparation");
+                    position.reads.push(crate::authority::task_authority_position(&parent));
+                    position.snapshot_tasks.push(parent);
+                }
+                self.reserve_admission(&head, position,
+                    &serde_json::json!({"kind": "publication.arm", "plan": plan}))?
+            },
+            None => self.reserve_authority()?,
+        };
         let outcome = self.ledger.with_mutation(
-            || self.try_arm_publication(intent_id, dispatch),
+            || self.try_arm_publication(intent_id, plan.as_ref(), &authority),
             |error| {
                 error.is::<rusqlite::Error>()
                     || error.is::<serde_json::Error>()
@@ -316,6 +360,9 @@ impl Store {
                         })
             },
         )?;
+        // The refusal owns its own admission. Release the first source
+        // reservation before entering that boundary (Node → Store lock order).
+        drop(authority);
         match outcome {
             PublicationArm::Armed(armed) => Ok(Some(armed)),
             PublicationArm::Idle => Ok(None),
@@ -342,10 +389,12 @@ impl Store {
     fn try_arm_publication(
         &self,
         intent_id: EntityId,
-        dispatch: &ChannelDispatch,
+        plan: Option<&PublicationSendPlan>,
+        authority: &crate::authority::AuthorityReservation,
     ) -> Result<PublicationArm> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        authority.check(&tx, self.capabilities.incarnation, None)?;
         self.check_dispatch_owner(&tx)?;
         let (task, authoring_step, epoch) = match self.publication_admission(&tx, intent_id)? {
             PublicationAdmission::NotReady | PublicationAdmission::Deferred(_) => {
@@ -360,26 +409,31 @@ impl Store {
                 epoch,
             } => (task, authoring_step, epoch),
         };
-        let armed = self.arm_publication_tx(&tx, intent_id, dispatch, &task, authoring_step, epoch)?;
+        let plan = plan.context("publication became ready after authority preparation; retry its exact plan")?;
+        ensure!(serde_json::to_value(&task)? == serde_json::to_value(&plan.task)?
+            && authoring_step == plan.authoring_step && epoch == plan.epoch,
+            "publication changed after its immutable admission was prepared");
+        let (armed, replayed) = self.arm_publication_tx(&tx, plan, authority)?;
         tx.commit()?;
-        Ok(PublicationArm::Armed(armed))
+        authority.materialized();
+        Ok(if replayed { PublicationArm::Idle } else { PublicationArm::Armed(armed) })
     }
 
     fn arm_publication_tx(
-        &self,
-        tx: &Transaction<'_>,
-        intent_id: EntityId,
-        dispatch: &ChannelDispatch,
-        task: &TaskRecord,
-        authoring_step: EntityId,
-        epoch: ControllerEpoch,
-    ) -> Result<ArmedPublication> {
+        &self, tx: &Transaction<'_>, plan: &PublicationSendPlan,
+        authority: &crate::authority::AuthorityReservation,
+    ) -> Result<(ArmedPublication, bool)> {
+        let intent_id = plan.intent_id;
+        let dispatch = &plan.dispatch;
+        let task = &plan.task;
+        let authoring_step = plan.authoring_step;
+        let epoch = plan.epoch;
         let mut record = self.publication_operation(intent_id, dispatch, authoring_step)?;
         let seq = self.ledger.allocate_seq(tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         record.prepared_commit = commit;
-        let attempt_id = EntityId::new();
-        let invocation_id = EntityId::new();
+        let attempt_id = plan.attempt_id;
+        let invocation_id = plan.invocation_id;
         let attempt = AttemptRecord {
             record_schema_version: 1,
             attempt_id,
@@ -459,13 +513,18 @@ impl Store {
                 self.capabilities.incarnation.to_string()
             ],
         )?;
-        Ok(ArmedPublication {
+        let replayed = authority.record_admission(tx, commit)?;
+        if replayed {
+            tx.execute("UPDATE subject_intents SET state='unknown',owner=NULL WHERE intent_id=?1",
+                [intent_id.to_string()])?;
+        }
+        Ok((ArmedPublication {
             operation_id: intent_id,
             attempt_id,
             task_id: intent_id,
             account: dispatch.account.clone(),
             armed_commit: commit,
-        })
+        }, replayed))
     }
 
     /// Classify one publication intent from its committed facts.
@@ -557,14 +616,25 @@ impl Store {
         };
         let head: SubjectBranchHead = {
             let data: String = tx.query_row(
-                "SELECT data FROM subject_branch_heads WHERE branch_id=?1",
-                [step.branch_id.0.to_string()],
+                "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                [task.agent_id.to_string()],
                 |row| row.get(0),
             )?;
             serde_json::from_str(&data)?
         };
         if head.mode != SubjectMode::Active {
             return Ok(PublicationAdmission::Deferred("subject is not active"));
+        }
+        if step.branch_id != head.branch_id {
+            return Ok(PublicationAdmission::Deferred("publication belongs to a retained parent branch"));
+        }
+        if let Some((parent, revision)) = publication_parent_authority(tx, &task)?
+            && (parent.agent_id != task.agent_id || parent.task_revision != revision
+                || parent.abort_request.is_some()
+                || !crate::child::task_in_current_branch(tx, &parent, &head)?)
+        {
+            return Ok(PublicationAdmission::Undispatchable { kind: "child_authority_revoked",
+                reason: "the child task's original publication authority was cancelled or replaced".into() });
         }
         if head.controller_epoch != step.controller_epoch {
             return Ok(PublicationAdmission::Undispatchable {
@@ -684,10 +754,34 @@ impl Store {
                 1,
             )?
             .object;
+        let revision = {
+            let conn = self.ledger.conn.lock();
+            let row: Option<(String, u64)> = conn.query_row(
+                "SELECT state,revision FROM subject_intents WHERE intent_id=?1 AND kind='publication'",
+                [intent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+            let Some((state, revision)) = row else { ensure!(!strict, "publication missing"); return Ok(false); };
+            if state != "ready" { ensure!(!strict, "publication is not ready: {state}"); return Ok(false); }
+            let task = crate::child::read_task(&conn, intent_id)?.context("publication task missing")?;
+            let head_data: String = conn.query_row("SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                [task.agent_id.to_string()], |row| row.get(0))?;
+            let head: shenko_types::subject::SubjectBranchHead = serde_json::from_str(&head_data)?;
+            if !crate::child::task_in_current_branch(&conn, &task, &head)? { return Ok(false); }
+            revision
+        };
+        let (head, mut position) = self.task_admission_position(intent_id,
+            format!("publication/{intent_id}/refuse/{revision}"))?;
+        if position.expected_tasks.first().is_some_and(|task| task.is_terminal()) {
+            position.reads.append(&mut position.aliases);
+        }
+        position.aliases.push(format!("intent/{intent_id}/revision/{revision}"));
+        let authority = self.reserve_admission(&head, position, &serde_json::json!({
+            "kind":"publication.refuse", "intent_id":intent_id, "revision":revision, "detail_ref":object,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let state: Option<String> = tx
                     .query_row(
@@ -701,6 +795,9 @@ impl Store {
                     tx.commit()?;
                     return Ok(false);
                 }
+                let current_revision: u64 = tx.query_row("SELECT revision FROM subject_intents WHERE intent_id=?1",
+                    [intent_id.to_string()], |row| row.get(0))?;
+                ensure!(current_revision == revision, "publication changed after refusal was chosen");
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 tx.execute(
@@ -743,7 +840,10 @@ impl Store {
                         )?;
                     }
                 }
+                authority.record_admission(&tx, commit)?;
+                self.intent_log(&tx, commit)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(true)
             },
             |error| {
@@ -920,7 +1020,7 @@ impl Store {
             // unknown effect still settles it the moment definite evidence
             // arrives, and the case it acknowledged turns `resolved` with
             // it. It is never re-armed and never silently resent.
-            let mut statement = conn.prepare("SELECT i.intent_id FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown','acknowledged') AND (i.result_ref IS NULL OR i.result_ref!=o.data) AND (json_extract(o.data,'$.state') IN ('resolved','reconciling') OR (i.state='unknown' AND i.owner IS NULL)) ORDER BY i.updated_seq LIMIT 32")?;
+            let mut statement = conn.prepare("SELECT i.intent_id FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id JOIN subject_steps s ON s.step_id=i.step_id JOIN subject_branch_heads h ON h.agent_id=i.agent_id AND h.branch_id=s.branch_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown','acknowledged') AND (i.result_ref IS NULL OR i.result_ref!=o.data) AND (json_extract(o.data,'$.state') IN ('resolved','reconciling') OR (i.state='unknown' AND i.owner IS NULL)) ORDER BY i.updated_seq LIMIT 32")?;
                     statement
                 .query_map([], |row| row.get::<_, String>(0))?
                         .collect::<rusqlite::Result<Vec<_>>>()?
@@ -987,21 +1087,64 @@ impl Store {
                 }
                             }
                         }
+        let proposed: Vec<(String, String, u64)> = {
+            let conn = self.ledger.conn.lock();
+            let mut statement = conn.prepare("SELECT i.intent_id,o.data,i.revision FROM subject_intents i
+                JOIN operations o ON o.operation_id=i.intent_id
+                JOIN subject_steps s ON s.step_id=i.step_id
+                JOIN subject_branch_heads h ON h.agent_id=i.agent_id AND h.branch_id=s.branch_id
+                WHERE i.kind='publication' AND i.state IN ('claimed','unknown','acknowledged')
+                  AND (json_extract(o.data,'$.state')='resolved' OR (json_extract(o.data,'$.state')='reconciling' AND i.state IN ('claimed','unknown')))
+                  AND (i.result_ref IS NULL OR i.result_ref!=o.data) ORDER BY i.updated_seq LIMIT 32")?;
+            statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let proposed = proposed.into_iter().filter_map(|row| {
+            let operation = match serde_json::from_str::<OperationRecord>(&row.1) {
+                Ok(operation) => operation, Err(error) => return Some(Err(anyhow::Error::from(error))),
+            };
+            if operation.state == OperationState::Resolved
+                && !outcomes.get(&operation.operation_id).is_some_and(|(revision, _)| *revision == operation.record_revision)
+            { None } else { Some(Ok(row)) }
+        }).collect::<Result<Vec<_>>>()?;
+        if proposed.is_empty() { return Ok(()); }
+        let key = shenko_types::object::Digest::blake3(&serde_json::to_vec(&proposed)?);
+        let mut position = crate::authority::AdmissionPosition { key: format!("publication/settlement/{key}"), ..Default::default() };
+        let mut subject = None;
+        for (id, data, revision) in &proposed {
+            let task_id: EntityId = id.parse()?;
+            let operation: OperationRecord = serde_json::from_str(data)?;
+            let (head, mut dependency) = self.task_admission_position(task_id, String::new())?;
+            if subject.as_ref().is_some_and(|prior: &shenko_types::subject::SubjectBranchHead| prior.agent_id != head.agent_id) {
+                anyhow::bail!("publication settlement spans different subjects");
+            }
+            subject = Some(head);
+            let changes_task = operation.state == OperationState::Resolved
+                && dependency.expected_tasks.first().is_some_and(|task| !task.is_terminal() && task.abort_request.is_none());
+            if !changes_task { dependency.reads.append(&mut dependency.aliases); }
+            position.aliases.extend(dependency.aliases);
+            position.aliases.push(format!("intent/{id}/revision/{revision}"));
+            position.reads.extend(dependency.reads);
+            for task in dependency.expected_tasks {
+                if !position.expected_tasks.iter().any(|old| old.task_id == task.task_id) { position.expected_tasks.push(task); }
+            }
+        }
+        let authority = self.reserve_admission(&subject.context("publication settlement subject missing")?, position,
+            &serde_json::json!({"kind":"publication.settle", "original_rows":proposed, "outcomes":outcomes}))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
-                let rows: Vec<(String, String)> = {
-                    // An acknowledged intent is only revisited when the
-                    // operation reached a definite result: while it is still
-                    // reconciling the subject's decision stands and must not
-                    // be overwritten back to `unknown` on every pass.
-                    let mut statement = tx.prepare("SELECT i.intent_id,o.data FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown','acknowledged') AND (json_extract(o.data,'$.state')='resolved' OR (json_extract(o.data,'$.state')='reconciling' AND i.state IN ('claimed','unknown'))) AND (i.result_ref IS NULL OR i.result_ref!=o.data) LIMIT 32")?;
-                    statement
-                        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-                        .collect::<rusqlite::Result<Vec<_>>>()?
-                };
+                let rows = proposed.iter().map(|(id, data, revision)| -> Result<(String, String)> {
+                    let current: (String, u64) = tx.query_row("SELECT o.data,i.revision FROM subject_intents i
+                        JOIN operations o ON o.operation_id=i.intent_id WHERE i.intent_id=?1", [id],
+                        |row| Ok((row.get(0)?, row.get(1)?)))?;
+                    ensure!(current.0 == *data && current.1 == *revision,
+                        "publication outcome changed after its settlement was chosen");
+                    Ok((id.clone(), data.clone()))
+                }).collect::<Result<Vec<_>>>()?;
                 if rows.is_empty() {
                     return Ok(());
                 }
@@ -1076,8 +1219,10 @@ impl Store {
                         }
                     }
                 }
+                authority.record_admission(&tx, commit)?;
                 self.intent_log(&tx, commit)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(())
             },
             |error: &anyhow::Error| {
@@ -1088,6 +1233,20 @@ impl Store {
             },
         )
     }
+}
+
+/// Child completion is not cancellation. Preserve its original task revision
+/// as the publication authority; cancellation consumes that same Node read
+/// position and the final T1 transaction checks the actual retained parent.
+fn publication_parent_authority(
+    conn: &rusqlite::Connection, task: &TaskRecord,
+) -> Result<Option<(TaskRecord, TaskRevision)>> {
+    let Some(parent) = task.memos.get("publication_parent_task_id") else { return Ok(None); };
+    let parent_id: EntityId = serde_json::from_value(parent.clone())?;
+    let revision: TaskRevision = serde_json::from_value(task.memos.get("publication_parent_task_revision")
+        .cloned().context("child publication authorization revision missing")?)?;
+    let parent = crate::child::read_task(conn, parent_id)?.context("child publication authorizer missing")?;
+    Ok(Some((parent, revision)))
 }
 
 /// The rows of a table that still hold a legacy publication target.
