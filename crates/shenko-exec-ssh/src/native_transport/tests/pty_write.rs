@@ -431,7 +431,7 @@ where F::Output: std::fmt::Debug
 {
     timeout(WAIT, async {
         tokio::select! {
-            result = future => Err(anyhow::anyhow!("input completed before its held underlying boundary: {result:?}")),
+            _result = future => Err(anyhow::anyhow!("input completed before its held underlying boundary: {_result:?}")),
             () = gate.blocked(mode) => Ok(()),
         }
     }).await?
