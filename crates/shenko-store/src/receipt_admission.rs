@@ -32,16 +32,15 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 use tracing::info;
 
 use crate::ledger::Ledger;
-use crate::store::Store;
+use crate::store::{Store, storage_error};
 
 /// Additive schema: the preserved conflict facts, plus the lookup index the
 /// source-scope admission rule reads.
 ///
-/// The index is deliberately NOT unique: stores written before this rule can
-/// already hold several receipts for one scope/key, and a migration must not
-/// delete or re-key a durable receipt to make an index build. Those rows stay
-/// readable; every new admission is decided by [`decide`] inside the write
-/// transaction.
+/// The lookup indexes are deliberately NOT unique: a source scope can already
+/// hold several legacy receipts, and a conflicting pair can hold several
+/// distinct refused facts. Migrations never delete or re-key these rows.
+/// Admission and conflict replay are decided inside the write transaction.
 pub(crate) const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS evidence_receipt_conflicts (
     conflict_id TEXT PRIMARY KEY,
@@ -55,7 +54,7 @@ CREATE TABLE IF NOT EXISTS evidence_receipt_conflicts (
     updated_commit_seq INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_conflicts_pair
+CREATE INDEX IF NOT EXISTS idx_evidence_conflicts_pair
     ON evidence_receipt_conflicts(receipt_id, original_receipt_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_conflicts_operation
     ON evidence_receipt_conflicts(operation_id);
@@ -212,9 +211,10 @@ pub(crate) fn is_key_conflict(error: &ShenkoError) -> bool {
 
 /// Write one refused receipt into the caller's transaction.
 ///
-/// Returns `None` when this exact (incoming, original) pair is already
-/// preserved: a repeated conflict attempt adds no second fact and never
-/// rewrites the first one.
+/// Returns `None` when this pair already preserves the same incoming fact,
+/// excluding its delivery commit. Distinct refused facts under the same pair
+/// each keep their own identity; a replay never rewrites a preserved fact,
+/// including one stored with the legacy pair-only identity.
 pub(crate) fn stage(
     tx: &Transaction<'_>,
     ledger: &Ledger,
@@ -222,28 +222,34 @@ pub(crate) fn stage(
     incoming: &EvidenceReceipt,
     conflict: &KeyConflict,
 ) -> Result<Option<EntityId>, ShenkoError> {
-    let conflict_id = EntityId::derived(
-        "shenko.evidence.receipt.key_conflict",
-        format!(
-            "{}:{}",
-            incoming.receipt_id, conflict.original.receipt_id
-        )
-        .as_bytes(),
-    );
-    let preserved: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM evidence_receipt_conflicts
+    let incoming_fact = fact(incoming).map_err(storage_error)?;
+    let mut query = tx
+        .prepare(
+            "SELECT data FROM evidence_receipt_conflicts
              WHERE receipt_id=?1 AND original_receipt_id=?2",
-            params![
-                incoming.receipt_id.to_string(),
-                conflict.original.receipt_id.to_string()
-            ],
-            |row| row.get(0),
         )
-        .map_err(|error| ShenkoError::storage(error.to_string()))?;
-    if preserved > 0 {
-        return Ok(None);
+        .map_err(storage_error)?;
+    let mut rows = query
+        .query(params![
+            incoming.receipt_id.to_string(),
+            conflict.original.receipt_id.to_string()
+        ])
+        .map_err(storage_error)?;
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        let data: String = row.get(0).map_err(storage_error)?;
+        let preserved: EvidenceReceiptConflict =
+            serde_json::from_str(&data).map_err(storage_error)?;
+        if fact(&preserved.receipt).map_err(storage_error)? == incoming_fact {
+            return Ok(None);
+        }
     }
+    let identity = serde_json::to_vec(&(
+        incoming.receipt_id,
+        conflict.original.receipt_id,
+        incoming_fact,
+    ))
+    .map_err(storage_error)?;
+    let conflict_id = EntityId::derived("shenko.evidence.receipt.key_conflict", &identity);
     let mut receipt = incoming.clone();
     receipt.received_commit = CommitRef::new(ledger.ledger_id(), seq);
     let record = EvidenceReceiptConflict {
