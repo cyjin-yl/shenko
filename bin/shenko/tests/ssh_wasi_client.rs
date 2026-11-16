@@ -450,7 +450,10 @@ impl Fixture {
                 "--tool",
                 "ssh",
                 "--timeout-secs",
-                "30",
+                // This total budget includes cold compilation of the real
+                // SSH module with fuel and epoch instrumentation. The journey
+                // checks SSH behavior; runtime deadline tests own short bounds.
+                "120",
                 "--stdin-file",
             ])
             .arg(&input)
@@ -461,7 +464,8 @@ impl Fixture {
         if let Some(port) = port {
             command.arg("--network").arg(format!("127.0.0.1:{port}"));
         }
-        let status = self.run(&mut command, &label, Duration::from_secs(60))?;
+        // Include CLI startup and ABI inspection outside the WASI run budget.
+        let status = self.run(&mut command, &label, Duration::from_secs(180))?;
         let record = json!({
             "action":request["action"], "exit_code":status.code(), "outcome":status.to_string(),
             "stdout":read_output(&stdout, 256 * 1024)?, "stderr":read_output(&stderr, 64 * 1024)?,

@@ -143,6 +143,10 @@ refuses a wrong host key and an absent network grant. The server host key
 is fixture setup; it does not perform client authentication. The network
 grant is explicit for each action; installing a package never grants it.
 
+Each guest request has a 120-second WASI budget, including cold compilation
+with fuel and epoch instrumentation, and a 180-second CLI process deadline
+that also covers startup and ABI inspection. Short runtime deadline behavior
+is covered separately by the runtime tests; this journey checks SSH behavior.
 Every owned command has a deadline and a bounded stop/join path. Public
 CLI, guest and server logs, including failures, are copied beside the
 evidence JSON under its `.diagnostics` path. Private keys, stdin requests,
