@@ -12,7 +12,7 @@
 //! ungoverned, so only an object created after adoption proves that the
 //! producer's roots — not the adoption epoch — protected it.
 
-use anyhow::Result;
+use anyhow::{Result, bail, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64_STD};
 use shenko_node::{Node, UnitDescriptor, UnitExport, UnitKind, UnitPackage, UnitRequest};
 use shenko_store::cas::ContentStore;
@@ -23,7 +23,10 @@ use shenko_wasm::artifact::{
     TOOL_ARTIFACT_PRODUCER, read_chunk_manifest, read_staged_artifact, stage_artifact_file,
     stream_sha256,
 };
-use shenko_wasm::gc::{CasGc, GcOutcome};
+use shenko_wasm::gc::{
+    CAS_ROOTS_DIR, CasGc, CasRootProducer, GcOutcome, GcRefusalReason, REGISTRY_FILE,
+    RecordedRoots, RootRegistry, write_root_record,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -60,6 +63,29 @@ fn multi_chunk_module() -> Vec<u8> {
         len = payload.len()
     );
     wat::parse_str(wat).expect("fixture module must assemble")
+}
+
+fn declaration_refusal_preserves_objects(
+    cas: &ContentStore,
+    gc: &CasGc<'_>,
+    producers: &[&dyn CasRootProducer],
+    expected_detail: &str,
+) -> Result<()> {
+    let before = cas.object_digests()?;
+    let refusal = match gc.reclaim(producers)? {
+        GcOutcome::Refused(refusal) => refusal,
+        outcome => bail!("inconsistent root declarations reached reclamation: {outcome:?}"),
+    };
+    ensure!(
+        refusal.reason == GcRefusalReason::RegistryInvalid
+            && refusal.detail.contains(expected_detail),
+        "wrong declaration refusal: {refusal}"
+    );
+    assert_eq!(
+        cas.object_digests()?, before,
+        "a refused declaration must preserve roots and collectable orphans"
+    );
+    Ok(())
 }
 
 /// The installed tool's bytes and its chunk manifest survive reclamation,
@@ -194,6 +220,61 @@ fn installed_tool_bytes_are_roots_and_an_unrelated_orphan_is_collected() -> Resu
     assert_eq!(chunk_digests.len(), staged.chunks);
 
     let producer = ToolArtifactRoots::new(&node, &store);
+
+    // Five distinct declaration failures share this installed tool and its
+    // collectable orphan. Every refusal must leave the whole CAS intact.
+    // First, a duplicate in the persisted registry cannot be normalized away.
+    let registry_path = data.join(CAS_ROOTS_DIR).join(REGISTRY_FILE);
+    let registry_bytes = fs::read(&registry_path)?;
+    let mut malformed: RootRegistry = serde_json::from_slice(&registry_bytes)?;
+    malformed.producers.push(TOOL_ARTIFACT_PRODUCER.into());
+    fs::write(&registry_path, serde_json::to_vec(&malformed)?)?;
+    declaration_refusal_preserves_objects(&cas, &gc, &[&producer], "sorted and unique")?;
+    fs::write(&registry_path, &registry_bytes)?;
+
+    // An extra participant has no namespace overlap; the old planner could
+    // silently skip it. Its missing record must not be mistaken for coverage.
+    let extra = RecordedRoots::new(data.clone(), "undeclared-retainer", &[]);
+    declaration_refusal_preserves_objects(
+        &cas, &gc, &[&producer, &extra], "not in the adopted registry",
+    )?;
+
+    // A registered producer cannot silently widen the adopted namespace set.
+    let expanded = RecordedRoots::new(
+        data.clone(), TOOL_ARTIFACT_PRODUCER, &[ARTIFACT_NAMESPACE, "undeclared-namespace"],
+    );
+    declaration_refusal_preserves_objects(
+        &cas, &gc, &[&expanded], "outside the adopted registry",
+    )?;
+
+    // A durable record must report the same namespace claims as the actual
+    // producer, even when it still contains every real tool digest.
+    let mut recorded_roots = producer.enumerate()?;
+    let expected_roots = recorded_roots.roots.clone();
+    let recorded = RecordedRoots::new(data.clone(), TOOL_ARTIFACT_PRODUCER, &[ARTIFACT_NAMESPACE]);
+    recorded_roots.namespaces = vec!["different-namespace".into()];
+    write_root_record(&data, &recorded_roots)?;
+    declaration_refusal_preserves_objects(
+        &cas, &gc, &[&recorded], "enumerated namespaces",
+    )?;
+
+    // Deduplicating the record's report would conceal a malformed complete
+    // declaration, so an otherwise equal namespace set is also refused.
+    recorded_roots.namespaces = vec![ARTIFACT_NAMESPACE.into(), ARTIFACT_NAMESPACE.into()];
+    write_root_record(&data, &recorded_roots)?;
+    declaration_refusal_preserves_objects(
+        &cas, &gc, &[&recorded], "without duplicates",
+    )?;
+
+    // A corrected durable declaration is usable again without changing its
+    // roots. The original real-producer reclamation and byte checks follow.
+    recorded_roots.namespaces = vec![ARTIFACT_NAMESPACE.into()];
+    write_root_record(&data, &recorded_roots)?;
+    let recorded_plan = gc.plan(&[&recorded])?;
+    assert_eq!(recorded_plan.reachable, expected_roots);
+    assert!(recorded_plan.candidates.contains(&orphan));
+    drop(recorded_plan);
+
     match gc.reclaim(&[&producer])? {
         GcOutcome::Reclaimed(receipt) => {
             // The receipt names the exact producer set that decided this run.
