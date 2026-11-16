@@ -907,7 +907,8 @@ pub fn establish_primary(
     let previous_availability = if node.local_identity()?.is_some() {
         let reservation = Node::open(&data_dir.join("node"))?.reserve_authority()?;
         let previous = reservation.snapshot();
-        (previous.is_current_availability() && previous.fence.is_none()).then(|| previous.clone())
+        (previous.is_current_availability() && previous.fence.is_none() && previous.component.is_none())
+            .then(|| previous.clone())
     } else {
         None
     };
@@ -937,6 +938,7 @@ pub fn establish_primary(
                 outcome["outcome"] == "synchronized"
                     && outcome["member"] == json!(fence.leader_id)
             })
+            && component_runtime::primary_is_resident(&node, &fence, cancel)?
         {
             return Err(PrimaryNotSelected(format!(
                 "authenticated primary {} retains term {}",
@@ -946,7 +948,7 @@ pub fn establish_primary(
         }
         let mut observed_members = contacted.clone();
         observed_members.insert(own);
-        if node.fencing_token()?.is_none() && contacted.len() > 0 && !config.has_quorum(&observed_members) {
+        if node.fencing_token()?.is_none() && !contacted.is_empty() && !config.has_quorum(&observed_members) {
             return component_runtime::establish_component(data_dir, store, &mut node, cancel);
         }
         let campaign = node.campaign()?;
@@ -1099,6 +1101,8 @@ pub fn establish_primary(
                     && previous.identity == expected.identity
                     && previous.term.checked_add(1) == Some(expected.term)
                     && previous.configuration == expected.configuration
+                    && previous.component_revision == expected.component_revision
+                    && expected.component.is_none()
                     && serde_json::to_value(&previous.branch)?
                         == serde_json::to_value(&expected.branch)?
             }

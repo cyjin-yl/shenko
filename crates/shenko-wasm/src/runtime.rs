@@ -156,10 +156,10 @@ impl WasiCancellation {
 /// both `deadline` and `cancel` interrupt **guest code** at wasmtime epoch
 /// checkpoints, with a check granularity of `WASI_EPOCH_CHECK_INTERVAL`.
 /// A guest blocked inside a host call that has no stop observation (for
-/// example `fd_read` on an empty pipe, or `poll_oneoff` on a WASI clock
-/// subscription) stays blocked until that host call returns. Network host
-/// calls are the exception: they poll in bounded slices against the same
-/// [`RunStop`], so a blocked socket read ends with the run.
+/// example `fd_read` on an empty non-network pipe) stays blocked until that
+/// host call returns. Network host calls and `poll_oneoff` clock waits poll
+/// in bounded slices against the same [`RunStop`], so these waits end with
+/// the run. DNS uses a cancellable async resolver on an owned executor.
 /// `deadline` is measured from the start of the run and includes module
 /// compilation and mount setup, so an elapsed budget reports
 /// `WasiRunOutcome::DeadlineExceeded` before the guest executes at all.
@@ -703,13 +703,14 @@ where
     let stdio = StdioStreams::from_async(command.stdin.async_stream(),
         command.stdout.async_stream(), command.stderr.async_stream());
     let mut host = P1Host::new(bindings, stdio, command.arguments, command.environment)?;
+    host.set_run_stop(stop.clone());
     host.set_replay_io(command.replay_io);
     host.set_revocation(command.control.revocation.as_ref().map(WasiRevocation::state));
     // Sockets are opened from the admission before the guest exists, so the
     // guest can only ever reach an endpoint the caller was granted. A stop
     // observed while connecting ends the run here, with no guest code run.
     if let Some(admission) = command.network {
-        match host.install_network(admission, stop.clone())? {
+        match host.install_network(admission)? {
             crate::net::NetworkStart::Installed => {}
             crate::net::NetworkStart::Stopped(outcome) => return Ok(outcome),
         }
@@ -1067,6 +1068,13 @@ mod tests {
             rt.run_wasi_module(exit7.as_bytes(), no_stdio())?,
             WasiRunOutcome::Exited(7),
             "proc_exit(7) surfaces as exit code 7"
+        );
+
+        let exit255 = exit7.replace("i32.const 7", "i32.const 255");
+        assert_eq!(
+            rt.run_wasi_module(exit255.as_bytes(), no_stdio())?,
+            WasiRunOutcome::Exited(255),
+            "SSH refusal exit255 stays a guest outcome, not a host trap"
         );
 
         fs::remove_dir_all(&home).ok();

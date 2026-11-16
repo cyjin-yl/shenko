@@ -7,14 +7,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
-use parking_lot::RwLock;
 use serde_json::{Value, json};
 use shenko_context_policy::PolicyRegistry;
 use shenko_store::{
     Store,
     config::{ConfigAdoption, ConfigChange},
 };
-use shenko_types::object::{Digest, SchemaRef};
+use shenko_types::object::{Digest, ObjectRef, SchemaRef};
 use shenko_ui::config_service::{
     ConfigApplication, ConfigApplyOutcome, ConfigNamespace, ConfigNamespaceHandler,
     builtin_contract,
@@ -24,6 +23,7 @@ pub const QUOTA_NAMESPACE: &str = "shenko.quota";
 pub const QUOTA_KEY: &str = "policy";
 pub const CONTEXT_NAMESPACE: &str = "shenko.context-policy";
 pub const PREFERENCE_KEY: &str = "compaction_preference";
+const CONTEXT_CONSUMER: &str = "shenko-context-policy.selection";
 
 const QUOTA_CONTRACT: &[u8] = b"shenko.quota.policy/v1: complete QuotaPolicy; append immutable policy identity/revision; readback latest durable policy; applies to subsequent admissions and observations";
 const CONTEXT_CONTRACT: &[u8] = b"shenko.context-policy.compaction_preference/v1: array of strategy ids; requested order is live; unlisted installed strategies follow; missing strategies remain visible in receipt; restore saved order on restart";
@@ -74,27 +74,18 @@ impl ConfigNamespaceHandler for QuotaNamespace {
     }
 
     fn apply(&self, change: &ConfigChange, desired: &Value) -> Result<ConfigApplyOutcome> {
-        let policy: shenko_quota::QuotaPolicy = serde_json::from_value(desired.clone())
-            .context("resource policy must be one complete QuotaPolicy")?;
-        // Deserialize/serialize equality also rejects misspelled inputs that
-        // the older QuotaPolicy reader would otherwise silently discard.
-        let normalized = serde_json::to_value(&policy)?;
+        // Reject fields the actual typed reader would discard, including
+        // nested ones. Re-serializing cannot detect these reliably: valid
+        // default-valued fields intentionally disappear from historical
+        // policy bytes. This keeps the policy type as the sole schema.
+        let mut ignored = Vec::new();
+        let policy: shenko_quota::QuotaPolicy =
+            serde_ignored::deserialize(desired, |path| ignored.push(path.to_string()))
+                .context("resource policy must be one complete QuotaPolicy")?;
         ensure!(
-            desired
-                .as_object()
-                .is_some_and(
-                    |object| object.keys().all(|key| normalized.get(key).is_some()
-                        || matches!(
-                            key.as_str(),
-                            "objective"
-                                | "target_utilization_range"
-                                | "planning_horizon"
-                                | "emergency_reserve_by_window"
-                                | "uncertainty_margin"
-                                | "admission_pacing"
-                        ))
-                ),
-            "resource policy contains an unknown field"
+            ignored.is_empty(),
+            "resource policy contains unknown fields: {}",
+            ignored.join(", ")
         );
         let policy_receipt = self.0.record_quota_policy(&policy, chrono::Utc::now())?;
         ensure!(
@@ -137,33 +128,32 @@ impl ConfigNamespaceHandler for QuotaNamespace {
 pub struct ContextPreferenceNamespace {
     store: Arc<Store>,
     registry: Arc<PolicyRegistry>,
-    load_error: RwLock<Option<String>>,
 }
 
 impl ContextPreferenceNamespace {
-    pub fn open(store: Arc<Store>, registry: Arc<PolicyRegistry>) -> Self {
-        let restore = || -> Result<()> {
-            let Some(entry) = store.config_entry(CONTEXT_NAMESPACE, PREFERENCE_KEY)? else {
-                return Ok(());
-            };
-            let Some(reference) = entry.desired_value_ref else {
-                return Ok(());
-            };
-            let bytes = store.cas.read_object(&reference.digest)?;
-            ensure!(
-                bytes.len() as u64 == reference.bytes && Digest::blake3(&bytes) == reference.digest,
-                "saved context preference does not match its sealed reference"
-            );
-            let desired: Value = serde_json::from_slice(&bytes)?;
+    pub fn open(store: Arc<Store>, registry: Arc<PolicyRegistry>) -> Result<Self> {
+        let adoption = store
+            .config_adoptions(CONTEXT_NAMESPACE, PREFERENCE_KEY)?
+            .into_iter()
+            .find(|adoption| adoption.consumer_id == CONTEXT_CONSUMER);
+        if let Some(adoption) = adoption {
+            let change = store
+                .config_change_at_revision(
+                    CONTEXT_NAMESPACE,
+                    PREFERENCE_KEY,
+                    adoption.adopted_revision,
+                )?
+                .context("adopted context preference has no durable change record")?;
+            let reference = adopted_context_reference(&change, &adoption)?;
+            let desired = read_context_value(&store.cas, reference)?;
             registry.apply_preference(parse_preference(&desired)?);
-            Ok(())
-        };
-        let load_error = restore().err().map(|error| format!("{error:#}"));
-        Self {
-            store,
-            registry,
-            load_error: RwLock::new(load_error),
         }
+        // No adoption means installation order still owns selection. A saved
+        // failed or interrupted intent is visible through ConfigValueView,
+        // but cannot become a successful adoption just because we restarted.
+        // If a recorded adoption was unreadable, return above before the
+        // subject's consumers can start with a silently substituted default.
+        Ok(Self { store, registry })
     }
 }
 
@@ -177,6 +167,121 @@ fn parse_preference(desired: &Value) -> Result<Vec<String>> {
     Ok(ids)
 }
 
+fn adopted_context_reference<'a>(
+    change: &'a ConfigChange,
+    adoption: &ConfigAdoption,
+) -> Result<&'a ObjectRef> {
+    ensure!(
+        change.namespace == CONTEXT_NAMESPACE
+            && change.logical_key == PREFERENCE_KEY
+            && change.desired_revision == adoption.adopted_revision
+            && change.adopted.iter().any(|recorded| {
+                recorded.consumer_id == CONTEXT_CONSUMER
+                    && recorded.adopted_revision == adoption.adopted_revision
+                    && recorded.adopted_at_commit == adoption.adopted_at_commit
+            }),
+        "context preference adoption does not match its durable change"
+    );
+    change
+        .desired_patch_ref
+        .as_ref()
+        .context("adopted context preference has no sealed value")
+}
+
+fn read_context_value(
+    cas: &shenko_store::cas::ContentStore,
+    reference: &ObjectRef,
+) -> Result<Value> {
+    let bytes = cas.read_object(&reference.digest)?;
+    ensure!(
+        bytes.len() as u64 == reference.bytes && Digest::blake3(&bytes) == reference.digest,
+        "context preference does not match its sealed reference"
+    );
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Offline/CLI inspection reports saved intent and recorded adoption, never
+/// inventing a live registry observation or changing the installation.
+pub fn inspect_context_preference(data_dir: &std::path::Path, default: &[String]) -> Result<Value> {
+    let snapshot = Store::inspect_config(
+        &data_dir.join("shenko.db"),
+        CONTEXT_NAMESPACE,
+        PREFERENCE_KEY,
+    )?;
+    let desired_revision = snapshot.entry.as_ref().map(|entry| entry.desired_revision);
+    let desired_reference = snapshot
+        .entry
+        .as_ref()
+        .and_then(|entry| entry.desired_value_ref.as_ref());
+    let adoption = snapshot
+        .adoptions
+        .iter()
+        .find(|adoption| adoption.consumer_id == CONTEXT_CONSUMER);
+    let cas = if desired_reference.is_some() || adoption.is_some() {
+        Some(shenko_store::cas::ContentStore::open_existing(
+            data_dir.join("cas"),
+        )?)
+    } else {
+        None
+    };
+    let inspect_value = |reference: &ObjectRef| -> (Option<Value>, Option<String>) {
+        let read = || {
+            read_context_value(
+                cas.as_ref().context("configuration CAS unavailable")?,
+                reference,
+            )
+        };
+        match read() {
+            Ok(value) => {
+                let error = parse_preference(&value)
+                    .err()
+                    .map(|error| format!("{error:#}"));
+                (Some(value), error)
+            }
+            Err(error) => (None, Some(format!("{error:#}"))),
+        }
+    };
+    let (desired_value, desired_value_error) =
+        desired_reference.map(inspect_value).unwrap_or((None, None));
+    let (adopted_value, adopted_value_error) = match adoption {
+        Some(adoption) => {
+            let reference = snapshot
+                .adopted_changes
+                .iter()
+                .find(|change| change.desired_revision == adoption.adopted_revision)
+                .context("adopted context preference has no durable change record")
+                .and_then(|change| adopted_context_reference(change, adoption));
+            match reference {
+                Ok(reference) => inspect_value(reference),
+                Err(error) => (None, Some(format!("{error:#}"))),
+            }
+        }
+        None => (None, None),
+    };
+    let (preference, source) = if adoption.is_some() {
+        if adopted_value_error.is_none() {
+            (adopted_value.clone(), "last recorded adoption")
+        } else {
+            (None, "last recorded adoption unavailable")
+        }
+    } else {
+        (
+            Some(json!(default)),
+            "installation order (no recorded adoption)",
+        )
+    };
+    Ok(json!({
+        "preference": preference, "preference_source": source,
+        "desired_revision": desired_revision,
+        "desired_value": desired_value, "desired_value_error": desired_value_error,
+        "desired_change_state": snapshot.desired_change.as_ref().map(|change| &change.state),
+        "adopted_revision": adoption.map(|adoption| adoption.adopted_revision),
+        "adopted_value": adopted_value, "adopted_value_error": adopted_value_error,
+        "adoptions": snapshot.adoptions,
+        "runtime_observed": false,
+    }))
+}
+
 impl ConfigNamespaceHandler for ContextPreferenceNamespace {
     fn descriptor(&self) -> ConfigNamespace {
         descriptor(
@@ -188,19 +293,15 @@ impl ConfigNamespaceHandler for ContextPreferenceNamespace {
     }
 
     fn read(&self) -> Result<Value> {
-        if let Some(error) = self.load_error.read().as_ref() {
-            anyhow::bail!("saved context preference is unusable: {error}");
-        }
         Ok(json!(self.registry.preference()))
     }
 
     fn consumers(&self) -> Vec<String> {
-        vec!["shenko-context-policy.selection".into()]
+        vec![CONTEXT_CONSUMER.into()]
     }
 
     fn apply(&self, change: &ConfigChange, desired: &Value) -> Result<ConfigApplyOutcome> {
         let adoption = self.registry.apply_preference(parse_preference(desired)?);
-        *self.load_error.write() = None;
         let observation = self.store.seal_config_object(
             &json!({
                 "schema_version": 1, "change_id": change.change_id,

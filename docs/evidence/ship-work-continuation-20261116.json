@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-11-16",
+  "kind": "ship_work_continuation_verification",
+  "pull_request": "https://github.com/cyjin-yl/shenko/pull/303",
+  "first_ci": {
+    "head_sha": "14dcaf068576adcf3f070b6788564e589c59e651",
+    "run_id": 43856075188,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43856075188",
+    "jobs": {
+      "docs": "success",
+      "docs-migration": "success",
+      "kernel-boundary": "success",
+      "web": "success",
+      "rust": "failure",
+      "clippy-ratchet": "failure"
+    },
+    "rust_failure": "ssh_wasi_client test supplied std::io::Cursor<Vec<u8>> where StdinStream is required; all-target compilation failed before workspace tests",
+    "clippy_artifact_id": 14221199236,
+    "clippy_failure": "candidate all-target compilation failed on the same Cursor error; diagnostic comparison also identified new warnings addressed by the follow-up source commits",
+    "tests_executed_by_rust_job": false
+  },
+  "local_guest_build": {
+    "receipt": "ssh-wasi-build-20261116/build-receipt.json",
+    "log": "ssh-wasi-build-20261116/build-output.txt",
+    "exit_code": 0,
+    "artifact_sha256": "d71c5e683a8138600bfdd425145937c4deaab59779105c34768fee9b965c4b4d",
+    "artifact_bytes": 8716209,
+    "real_guest_ssh_session_executed": false,
+    "scope": "Compilation of the actual pinned WASI SSH guest; not authentication, exec, SFTP or capability acceptance"
+  },
+  "local_combined_candidate": {
+    "runtime_tests_passed": false,
+    "reason": "Heavy native Store/Node/Wasmtime compilation was killed by SIGKILL before candidate tests ran. Later root fixes receive remote CI verification; structural parsing and docs checks are not runtime evidence."
+  },
+  "full_ship_work_complete": false,
+  "remaining_scope": [
+    "canonical S0 and non-S1 control transitions, task predecessor semantics",
+    "actual model availability/ranking and nonreciprocal component routing",
+    "real NapCat, coding seat, self-update activation and rollback S2",
+    "real service and accessible browser journeys",
+    "Node/Bun WASM and remaining named devices/runtimes",
+    "actual candidate-specific 7/30-day and physical fault observation"
+  ]
+}

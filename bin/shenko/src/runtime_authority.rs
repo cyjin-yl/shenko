@@ -45,6 +45,20 @@ impl std::fmt::Display for AuthorityRecoveryRequired {
 }
 impl std::error::Error for AuthorityRecoveryRequired {}
 
+#[derive(Debug)]
+struct RuntimeObservationFailure;
+
+impl std::fmt::Display for RuntimeObservationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("owned runtime observation failed")
+    }
+}
+impl std::error::Error for RuntimeObservationFailure {}
+
+pub(crate) fn observation_failure(error: anyhow::Error) -> anyhow::Error {
+    error.context(RuntimeObservationFailure)
+}
+
 fn has_storage_failure(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<ShenkoError>()
@@ -57,7 +71,9 @@ fn has_storage_failure(error: &anyhow::Error) -> bool {
 }
 
 pub(crate) fn requires_reconstruction(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<AuthorityRecoveryRequired>().is_some() && !has_storage_failure(error)
+    error.downcast_ref::<AuthorityRecoveryRequired>().is_some()
+        && error.downcast_ref::<RuntimeObservationFailure>().is_none()
+        && !has_storage_failure(error)
 }
 
 impl RuntimeAuthority {
@@ -82,9 +98,33 @@ impl RuntimeAuthority {
         Ok(provider)
     }
 
-    /// Run before constructing any branch-scoped consumer. A chosen foreign
-    /// plan is evidence, not permission to replay it into a different ledger.
+    /// Run before constructing any branch-scoped consumer or changing its
+    /// controller epoch. A learned canonical result may be projected by a
+    /// follower; only the selected runtime may resume a local prepared plan.
     pub fn recover_before_consumers(&self) -> Result<bool> {
+        self.recover_before_consumers_with_preparation(true)
+    }
+
+    pub fn recover_before_following(&self) -> Result<()> {
+        self.recover_before_consumers_with_preparation(false).map(|_| ())
+    }
+
+    fn recover_before_consumers_with_preparation(&self, allow_preparation: bool) -> Result<bool> {
+        let result = self.recover_before_consumers_inner(allow_preparation);
+        match result {
+            Ok(forked) => {
+                // A successful retained-result recovery/fork resolved any
+                // startup authority retry. No live consumer exists yet.
+                if !self.active.load(Ordering::Acquire) {
+                    self.recovery.lock().take();
+                }
+                Ok(forked)
+            }
+            Err(error) => self.finish_result(Err(error)).map(|()| false),
+        }
+    }
+
+    fn recover_before_consumers_inner(&self, allow_preparation: bool) -> Result<bool> {
         let store = self
             .store
             .upgrade()
@@ -115,7 +155,23 @@ impl RuntimeAuthority {
                 unresolved.get_or_insert(grant.grant_id);
             }
         }
-        if let Some(grant_id) = unresolved.filter(|_| selected_here) {
+        let owns_current_branch = allow_preparation && (selected_here || is_availability(&snapshot));
+        let mut local_preparation = false;
+        if unresolved.is_none() && owns_current_branch && !self.active.load(Ordering::Acquire) {
+            let prepared = store.resume_prepared_step_commits(snapshot.identity.agent_id)?;
+            if let Some(debt) = prepared.unresolved.into_iter().next() {
+                local_preparation = debt.grant_id.is_none();
+                unresolved = Some(debt.grant_id.unwrap_or_else(|| format!("prepared:{}", debt.action_id)));
+            }
+        }
+        if let Some(grant_id) = unresolved.filter(|_| owns_current_branch) {
+            if let Some(component) = snapshot.component.as_ref() {
+                node.relinquish_component_if_current(component,
+                    &format!("original prepared transition requires a new component branch: {grant_id}"))?;
+                return Err(AuthorityRecoveryRequired(
+                    "component coordinator retired its blocked origin; a fresh full agreement is required".into(),
+                ).into());
+            }
             // Stable across a crash between the Node fact, Store fork and
             // Node identity projection. Root's exact receipt repair finishes
             // only this parent→child transition on reopen.
@@ -123,7 +179,11 @@ impl RuntimeAuthority {
                 "unmaterialized-control-branch-v1",
                 format!("{}:{grant_id}", snapshot.identity.branch_id).as_bytes(),
             );
-            let reason = format!("selected-plan recovery unavailable: {grant_id}");
+            let reason = if local_preparation {
+                format!("local prepared transition recovery unavailable: {grant_id}")
+            } else {
+                format!("selected-plan recovery unavailable: {grant_id}")
+            };
             node.open_availability_branch_if_current(
                 branch_id,
                 Some(snapshot.identity.agent_id),
@@ -134,11 +194,14 @@ impl RuntimeAuthority {
             let reservation = Node::open(&self.data_dir.join("node"))?.reserve_authority()?;
             let current = reservation.snapshot();
             if current.identity != snapshot.identity
+                || current.term != snapshot.term
+                || current.configuration != snapshot.configuration
                 || current.fence != snapshot.fence
-                || current
-                    .fence
-                    .as_ref()
-                    .is_none_or(|fence| fence.leader_id != current.node_id)
+                || current.component_revision != snapshot.component_revision
+                || current.component != snapshot.component
+                || serde_json::to_value(&current.branch)? != serde_json::to_value(&snapshot.branch)?
+                || !(is_availability(current) || current.fence.as_ref()
+                    .is_some_and(|fence| fence.leader_id == current.node_id))
             {
                 return Err(AuthorityRecoveryRequired(
                     "selected primary changed before its recovery fork".into(),
@@ -202,7 +265,10 @@ impl RuntimeAuthority {
                 Err(error) => Err(error.context(failure)),
             };
         }
-        if result.as_ref().err().is_some_and(has_storage_failure) {
+        if result.as_ref().err().is_some_and(|error| {
+            has_storage_failure(error)
+                || error.downcast_ref::<RuntimeObservationFailure>().is_some()
+        }) {
             return result;
         }
         match self.recovery_required() {
@@ -239,6 +305,9 @@ impl RuntimeAuthority {
         };
         if recover {
             let reason = error.to_string();
+            if !self.active.load(Ordering::Acquire) {
+                self.recovery.lock().get_or_insert_with(|| reason.clone());
+            }
             self.request_recovery(reason.clone());
             authority_fenced(reason)
         } else {

@@ -17,7 +17,8 @@
 
 [§5.4](nodes.md#spec-5-4)、[§22](nodes.md#spec-22)、[§38](cognition-units.md#spec-38)、[§41](architecture.md#spec-41)、[§44](plugins.md#spec-44); C17.
 The sections below describe the implemented control/runtime boundary at
-continuation source through `58b30ba` on 2026-11-15. Durable original-plan admission,
+the 2026-11-15 continuation source through `58b30ba`, plus the separately
+identified component/follower source increment on 2026-11-16. Durable original-plan admission,
 the Store authority bridge and real branch continuation are wired into startup
 and runtime reconstruction. Four integrated runtime/branch fault journeys and
 the existing owner-lock regression passed at `60e9963`; see the
@@ -207,6 +208,14 @@ result, learns the control prefix, invokes chosen-result recovery without
 admitting subject work, and retries after two seconds. Cancellation stops the
 selection worker and its candidate observations. Local storage and invalid
 durable data errors still fail instead of becoming endless network retries.
+The owned observation worker cancels its runtime on renewal or task failure,
+and its original error is joined before teardown. Durable authority does not
+expire with presence, so this explicit local stop is required; it does not
+prove that an already admitted external effect stopped.
+Retaining a remote global primary additionally requires a fresh authenticated
+resident-process observation: an SSH Node command alone can outlive the subject
+process. Expiry allows an ordinary quorum campaign, whose actual accepted
+control value fences new work; expiry itself proves no physical stop.
 
 Component agreement is separate from the global control log. Its proposal
 binds the full sorted participant set, each participant's identity, term,
@@ -228,9 +237,21 @@ a newer local promise, term, configuration or identity prevents fresh work under
 the old origin. This does not retract a previously granted physical send or
 prove that an unobserved remote process stopped.
 
-Runtime candidate observations expire locally after 30 seconds and refresh
+Before activation advances the controller epoch, a selected runtime also
+resumes its original durably prepared S1 descriptor. Followers only materialize
+learned results. A changed predecessor retains either its actual chosen grant
+debt or an explicit local-preparation debt, then requires a real new branch.
+A component coordinator cannot rename the branch in its certificate: it
+durably retires that exact promise and negotiates a new full agreement instead.
+The retirement fact and original certificate remain queryable. A component
+that later becomes a singleton also receives a new branch; only an unchanged
+prior singleton episode may reuse its branch identity.
+
+Runtime observations expire locally after 30 seconds and refresh
 every five seconds. Expiry only changes eligibility for a new selection; it is
-not an authority lease. The shipped adapter advertises a resident configured
+not an authority lease. Resident process identity and optional model candidacy
+remain separate: a model-free runtime is observable without becoming an
+intelligence candidate. The shipped adapter advertises a configured
 model binding and uses Node identity as a deterministic tie break when no
 comparison exists. The typed candidate can retain supplied rank and model
 evidence, but configuration is not a successful inference and no automatic

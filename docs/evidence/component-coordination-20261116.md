@@ -35,13 +35,38 @@ increment: this caller permits its learned, eligible current-branch results
 to materialize on a follower without granting that follower execution authority.
 Local storage and malformed durable-state errors remain failures.
 
-Candidate willingness refreshes every five seconds and expires locally after
+Resident process observations refresh every five seconds and expire locally after
 30 seconds. A changed or expired observation forces a fresh agreement; the
 stored certificate alone cannot keep a dead coordinator selected indefinitely.
-The runtime advertises only a configured model binding. Optional supplied
+Global follower selection likewise checks this fresh observation instead of
+treating an answering one-shot SSH command as a living primary process. Model
+candidacy remains optional and separate from process presence: the runtime
+advertises only a configured model binding as a candidate. Optional supplied
 preference ranks retain their model-evidence digest, while the default uses
 stable Node identity as the coordination tie break. No inference success or
 comparative intelligence is fabricated from configuration, model name or OS.
+Registration binds a new owned runtime once; heartbeat renewal compares that
+runtime ID under the same Node transaction. A delayed old blocking heartbeat
+cannot replace the newer process observation.
+The selected runtime also returns its heartbeat task to the owned Start
+lifecycle. Every Start exit cancels and joins it before runtime/owner teardown;
+selection failures and cancellation join it inside the selection loop.
+An observation write failure, superseded process, or worker failure cancels its
+owned runtime immediately and retains the original error through that join.
+Durable authority reservations do not treat presence as a lease; explicit local
+cancellation stops fresh admissions while preserving already admitted facts.
+An observation failure remains a runtime failure even if concurrent authority
+recovery was requested, rather than being hidden by an automatic rebuild.
+
+The follow-up connects the Store's `PreparedStepRecovery` API from
+`6769353`, `d4158ec` and `2ba90aa` before controller activation. A follower
+only projects learned results. A selected source resumes the same prepared
+descriptor; a temporary authority refusal returns to resident selection, and
+an incompatible predecessor retains typed chosen/local debt. A blocked
+component coordinator durably retires its exact certificate and negotiates a
+new component branch. A former component that becomes isolated cannot reuse
+the old component branch as its new singleton episode. Unrelated branch
+adoption/rejoin also invalidates the old component projection.
 
 ## Verification observed
 
@@ -52,7 +77,8 @@ membership transitions, then exercises a two-member minority agreement. It
 checks incomplete/asymmetric view refusal, refusal of partial certificates,
 fencing of the preceding singleton origin at ACK, reopen and exact commit
 replay, coordinator-only branch opening, superseded-certificate refusal,
-global-term invalidation, and retention of original certificate/branch facts.
+explicit retirement and fresh agreement, global-term invalidation, and retention
+of original certificate/branch facts.
 It uses real SQLite Node state. It does not emulate a successful remote model
 or claim a production SSH journey.
 
@@ -81,7 +107,10 @@ All changed Rust files parsed through `rustfmt`; the three new Rust files
 passed its formatting check, and `git diff --check` passed. The initial
 `python3 scripts/check_docs.py` run could not finish its symbol/CSS checks
 because that interpreter lacked `scripts/requirements-ci.txt` parser packages.
-These results do not substitute for compiling or executing the protocol.
+The subsequent run using
+`/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python` passed with
+`errors: []` and `product_tested: false`. These results do not substitute for
+compiling or executing the protocol.
 
 ## Remaining acceptance and implementation boundaries
 

@@ -8,12 +8,11 @@ use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use shenko_wasm::{
-    MemoryOutputPipe, MountMode, MountSpec, NetworkAdmission, WasiCommand, WasiRunOutcome,
-    WasmRuntime,
+    MemoryInputPipe, MemoryOutputPipe, MountMode, MountSpec, NetworkAdmission, WasiCommand,
+    WasiRunOutcome, WasmRuntime,
 };
 use std::{
     fs,
-    io::Cursor,
     net::{TcpListener, TcpStream},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
@@ -41,10 +40,10 @@ impl Drop for Fixture {
             }
             for name in ["sshd.log", "guest-records.jsonl"] {
                 let source = self.root.join(name);
-                if source.is_file() {
-                    if let Err(error) = fs::copy(source, evidence.with_extension(name)) {
-                        eprintln!("could not retain {name}: {error}");
-                    }
+                if source.is_file()
+                    && let Err(error) = fs::copy(source, evidence.with_extension(name))
+                {
+                    eprintln!("could not retain {name}: {error}");
                 }
             }
         }
@@ -64,7 +63,7 @@ fn guest(module: &[u8], home: &Path, port: Option<u16>, request: Value) -> Resul
     let stdout = MemoryOutputPipe::new(256 * 1024);
     let stderr = MemoryOutputPipe::new(64 * 1024);
     let mut command = WasiCommand::new(
-        Cursor::new(serde_json::to_vec(&request)?),
+        MemoryInputPipe::new(serde_json::to_vec(&request)?),
         stdout.clone(),
         stderr.clone(),
     );

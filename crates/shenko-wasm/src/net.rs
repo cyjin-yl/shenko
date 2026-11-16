@@ -35,7 +35,7 @@ use crate::runtime::{RunStop, WasiRunOutcome};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
 /// Maximum number of targets one admission may name.
@@ -186,32 +186,6 @@ impl AdmittedTarget {
     /// Whether this target permits `operation` for the run.
     pub fn permits(&self, operation: NetworkOperation) -> bool {
         self.operations.contains(&operation)
-    }
-
-    /// The addresses this target admits. Name resolution happens here, on the
-    /// host, for a target that granted it; an IP literal is used as written.
-    fn addresses(&self) -> Result<Vec<SocketAddr>> {
-        if self.resolve {
-            let addrs: Vec<SocketAddr> = (self.host.as_str(), self.port)
-                .to_socket_addrs()
-                .with_context(|| {
-                    format!("NETWORK_RESOLVE_FAILED: {}:{}", self.host, self.port)
-                })?
-                .collect();
-            ensure!(
-                !addrs.is_empty(),
-                "NETWORK_RESOLVE_FAILED: {}:{} resolved to no address",
-                self.host,
-                self.port
-            );
-            Ok(addrs)
-        } else {
-            // Validation already refused `resolve: false` for a name.
-            let ip: IpAddr = self.host.parse().map_err(|_| {
-                anyhow::anyhow!("NETWORK_TARGET_INVALID: {} is not an IP literal", self.host)
-            })?;
-            Ok(vec![SocketAddr::new(ip, self.port)])
-        }
     }
 
     /// The guest descriptor published for this target: `fd,host,port,ops`.
@@ -401,8 +375,8 @@ impl From<io::Error> for NetIoError {
 
 /// Open every socket the admission demands, in admission order.
 ///
-/// Connect attempts are bounded by the admission timeout *and* the live run
-/// deadline, and every attempt re-observes cancellation first. Binding a
+/// DNS resolution and connect attempts are bounded by the admission timeout
+/// *and* the live run deadline, and every attempt observes cancellation first. Binding a
 /// listener is a host-side effect, so it happens only for a target that
 /// explicitly granted `listen`.
 pub(crate) fn open_admitted(
@@ -414,7 +388,11 @@ pub(crate) fn open_admitted(
         if let Some(outcome) = stop.observe() {
             return Ok(OpenOutcome::Stopped(outcome));
         }
-        let addresses = target.addresses()?;
+        let addresses = match resolve_bounded(target, admission.connect_timeout(), stop) {
+            Ok(addresses) => addresses,
+            Err(StartStop::Stopped(outcome)) => return Ok(OpenOutcome::Stopped(outcome)),
+            Err(StartStop::Failed(error)) => return Err(error),
+        };
         let socket = if target.permits(NetworkOperation::Connect) {
             match connect_bounded(target, &addresses, admission.connect_timeout(), stop) {
                 Ok(stream) => AdmittedSocket::Stream(stream),
@@ -435,8 +413,9 @@ pub(crate) fn open_admitted(
     Ok(OpenOutcome::Opened(opened))
 }
 
-/// Why a connect attempt ended: a committed stop is a run outcome, not a
+/// Why resolution or a connect attempt ended: a committed stop is a run outcome, not a
 /// transport failure.
+#[derive(Debug)]
 enum StartStop {
     Stopped(WasiRunOutcome),
     Failed(anyhow::Error),
@@ -454,59 +433,203 @@ impl From<std::io::Error> for StartStop {
     }
 }
 
+/// Resolve only a granted name, with no uninterruptible OS `getaddrinfo`
+/// call. Literal addresses never consult DNS or the system resolver config.
+fn resolve_bounded(
+    target: &AdmittedTarget,
+    resolve_timeout: Duration,
+    stop: &RunStop,
+) -> std::result::Result<Vec<SocketAddr>, StartStop> {
+    if let Some(outcome) = stop.observe() {
+        return Err(StartStop::Stopped(outcome));
+    }
+    if let Ok(ip) = target.host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(ip, target.port)]);
+    }
+    if !target.resolve {
+        return Err(anyhow::anyhow!(
+            "NETWORK_TARGET_INVALID: {} is not an IP literal",
+            target.host
+        )
+        .into());
+    }
+    #[cfg(any(unix, windows))]
+    {
+        resolve_with(target, resolve_timeout, stop, || {
+            hickory_resolver::TokioResolver::builder_tokio()
+                .context("read system DNS configuration")?
+                .build()
+                .context("build bounded DNS resolver")
+        })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = resolve_timeout;
+        Err(anyhow::anyhow!(
+            "NETWORK_RESOLVE_UNSUPPORTED: bounded system DNS is unavailable on this platform"
+        )
+        .into())
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn resolve_with(
+    target: &AdmittedTarget,
+    resolve_timeout: Duration,
+    stop: &RunStop,
+    build_resolver: impl FnOnce() -> Result<hickory_resolver::TokioResolver> + Send,
+) -> std::result::Result<Vec<SocketAddr>, StartStop> {
+    with_network_executor("dns", |runtime| {
+        runtime.block_on(async {
+            if let Some(outcome) = stop.observe() {
+                return Err(StartStop::Stopped(outcome));
+            }
+            let resolver = build_resolver().with_context(|| {
+                format!("NETWORK_RESOLVE_FAILED: {}:{}", target.host, target.port)
+            })?;
+            let lookup = wait_bounded(
+                async {
+                    resolver
+                        .lookup_ip(target.host.as_str())
+                        .await
+                        .with_context(|| {
+                            format!("NETWORK_RESOLVE_FAILED: {}:{}", target.host, target.port)
+                        })
+                },
+                resolve_timeout,
+                stop,
+                format!("NETWORK_RESOLVE_TIMEOUT: {}:{}", target.host, target.port),
+            )
+            .await?;
+            let addresses: Vec<_> = lookup
+                .iter()
+                .map(|ip| SocketAddr::new(ip, target.port))
+                .collect();
+            if addresses.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "NETWORK_RESOLVE_FAILED: {}:{} resolved to no address",
+                    target.host,
+                    target.port
+                )
+                .into());
+            }
+            Ok(addresses)
+        })
+    })
+}
+
+/// A synchronous WASI host call may itself be invoked from a Tokio task.
+/// Give network startup an owned current-thread executor instead of nesting
+/// block_on on that executor. Join the scoped thread before returning; runtime
+/// drop cancels remaining DNS work, including retransmission. No detached
+/// blocking resolver or pending connect is left behind after a stop.
+fn with_network_executor<T: Send>(
+    operation: &str,
+    run: impl FnOnce(&tokio::runtime::Runtime) -> std::result::Result<T, StartStop> + Send,
+) -> std::result::Result<T, StartStop> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name(format!("shenko-wasi-{operation}"))
+            .spawn_scoped(scope, move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("NETWORK_EXECUTOR_FAILED: create bounded network executor")?;
+                run(&runtime)
+            })?
+            .join()
+            .map_err(|_| {
+                anyhow::anyhow!("NETWORK_EXECUTOR_FAILED: {operation} executor panicked")
+            })?
+    })
+}
+
+/// Poll one future throughout the wait. In particular a connection is never
+/// restarted at each stop-observation slice: dropping this one future closes
+/// its pending socket when cancellation or either deadline wins.
+async fn wait_bounded<T>(
+    future: impl std::future::Future<Output = Result<T>>,
+    timeout: Duration,
+    stop: &RunStop,
+    timeout_message: String,
+) -> std::result::Result<T, StartStop> {
+    tokio::pin!(future);
+    let budget = tokio::time::sleep(timeout);
+    tokio::pin!(budget);
+    let mut poll = tokio::time::interval(IO_POLL_INTERVAL);
+    loop {
+        if let Some(outcome) = stop.observe() {
+            return Err(StartStop::Stopped(outcome));
+        }
+        tokio::select! {
+            biased;
+            _ = poll.tick() => {}
+            _ = &mut budget => {
+                if let Some(outcome) = stop.observe() {
+                    return Err(StartStop::Stopped(outcome));
+                }
+                return Err(anyhow::anyhow!(timeout_message).into());
+            }
+            completed = &mut future => {
+                if let Some(outcome) = stop.observe() {
+                    return Err(StartStop::Stopped(outcome));
+                }
+                return completed.map_err(StartStop::Failed);
+            }
+        }
+    }
+}
+
 fn connect_bounded(
     target: &AdmittedTarget,
     addresses: &[SocketAddr],
     connect_timeout: Duration,
     stop: &RunStop,
 ) -> std::result::Result<TcpStream, StartStop> {
-    let mut last_error: Option<anyhow::Error> = None;
-    for address in addresses {
-        if let Some(outcome) = stop.observe() {
-            return Err(StartStop::Stopped(outcome));
-        }
-        let budget = match stop.remaining() {
-            Some(remaining) => remaining.min(connect_timeout),
-            None if stop.has_deadline() => match stop.observe() {
-                Some(outcome) => return Err(StartStop::Stopped(outcome)),
-                None => continue,
-            },
-            None => connect_timeout,
-        };
-        // `connect_timeout` rejects a zero duration; a deadline that is about
-        // to elapse still gets one attempt slice so the stop observation (not
-        // a fabricated timeout) decides the outcome.
-        let budget = budget.max(Duration::from_millis(1));
-        match TcpStream::connect_timeout(address, budget) {
-            Ok(stream) => {
-                stream.set_nonblocking(true).with_context(|| {
+    with_network_executor("connect", |runtime| {
+        runtime.block_on(async {
+            let mut last_error: Option<anyhow::Error> = None;
+            for address in addresses {
+                let connecting = async {
+                    let stream = tokio::net::TcpStream::connect(*address)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "NETWORK_CONNECT_FAILED: {}:{} ({address})",
+                                target.host, target.port
+                            )
+                        })?;
+                    // Tokio's conversion preserves the connected socket and its
+                    // non-blocking mode; the guest's host I/O owns it from here.
+                    stream
+                        .into_std()
+                        .context("NETWORK_START_INVALID: retain connected socket")
+                };
+                match wait_bounded(
+                    connecting,
+                    connect_timeout,
+                    stop,
                     format!(
-                        "NETWORK_START_INVALID: {}:{} accepted a connection but cannot \
-                         be put in host-driven non-blocking mode",
+                        "NETWORK_CONNECT_TIMEOUT: {}:{} ({address})",
                         target.host, target.port
-                    )
-                })?;
-                return Ok(stream);
-            }
-            Err(error) => {
-                if let Some(outcome) = stop.observe() {
-                    return Err(StartStop::Stopped(outcome));
+                    ),
+                )
+                .await
+                {
+                    Ok(stream) => return Ok(stream),
+                    Err(StartStop::Stopped(outcome)) => return Err(StartStop::Stopped(outcome)),
+                    Err(StartStop::Failed(error)) => last_error = Some(error),
                 }
-                last_error = Some(anyhow::anyhow!(
-                    "NETWORK_CONNECT_FAILED: {}:{} ({address}): {error}",
+            }
+            Err(StartStop::Failed(last_error.unwrap_or_else(|| {
+                anyhow::anyhow!(
+                    "NETWORK_CONNECT_FAILED: {}:{} has no address to try",
                     target.host,
                     target.port
-                ));
-            }
-        }
-    }
-    Err(StartStop::Failed(last_error.unwrap_or_else(|| {
-        anyhow::anyhow!(
-            "NETWORK_CONNECT_FAILED: {}:{} has no address to try",
-            target.host,
-            target.port
-        )
-    })))
+                )
+            })))
+        })
+    })
 }
 
 fn listen_bounded(addresses: &[SocketAddr]) -> Result<TcpListener> {
@@ -796,4 +919,128 @@ pub(crate) fn shutdown_stream(
     how: Shutdown,
 ) -> std::result::Result<(), NetIoError> {
     stream.shutdown(how).map_err(NetIoError::Io)
+}
+
+#[cfg(all(test, any(unix, windows)))]
+mod stop_tests {
+    use super::*;
+    use crate::{
+        HOME_GUEST_PATH, MemoryOutputPipe, MountMode, MountSpec, WasiCancellation, WasiCommand,
+        WasmRuntime,
+    };
+    use hickory_resolver::TokioResolver;
+    use hickory_resolver::config::{
+        ConnectionConfig, LookupIpStrategy, NameServerConfig, ResolverConfig,
+    };
+    use hickory_resolver::net::runtime::TokioRuntimeProvider;
+    use std::net::UdpSocket;
+    use std::time::Instant;
+
+    fn blackhole_lookup(
+        server: SocketAddr,
+        target: &AdmittedTarget,
+        budget: Duration,
+        stop: &RunStop,
+    ) -> std::result::Result<Vec<SocketAddr>, StartStop> {
+        resolve_with(target, budget, stop, move || {
+            let mut connection = ConnectionConfig::udp();
+            connection.port = server.port();
+            let config = ResolverConfig::from_name_servers(vec![NameServerConfig::new(
+                server.ip(),
+                true,
+                vec![connection],
+            )]);
+            let mut builder =
+                TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
+            builder.options_mut().timeout = Duration::from_secs(30);
+            builder.options_mut().ip_strategy = LookupIpStrategy::Ipv4Only;
+            Ok(builder.build()?)
+        })
+    }
+
+    /// Emit a marker, then make a real preview1 clock subscription for 30s.
+    /// The marker distinguishes an interrupted host wait from a stop that
+    /// only happened during compilation. No network admission is installed.
+    const CLOCK_WAT: &str = r#"
+    (module
+      (import "wasi_snapshot_preview1" "fd_write"
+        (func $write (param i32 i32 i32 i32) (result i32)))
+      (import "wasi_snapshot_preview1" "poll_oneoff"
+        (func $poll (param i32 i32 i32 i32) (result i32)))
+      (memory (export "memory") 1)
+      (data (i32.const 128) "clock")
+      (func (export "_start")
+        ;; subscription: userdata, clock tag, monotonic id, relative timeout.
+        (i64.store (i32.const 0) (i64.const 42))
+        (i32.store (i32.const 8) (i32.const 0))
+        (i32.store (i32.const 16) (i32.const 1))
+        (i64.store (i32.const 24) (i64.const 30000000000))
+        (i32.store (i32.const 112) (i32.const 128))
+        (i32.store (i32.const 116) (i32.const 5))
+        (drop (call $write (i32.const 1) (i32.const 112) (i32.const 1) (i32.const 120)))
+        (drop (call $poll (i32.const 0) (i32.const 48) (i32.const 1) (i32.const 96)))))
+    "#;
+
+    #[test]
+    fn dns_and_guest_clock_waits_obey_run_stop() -> Result<()> {
+        let target = AdmittedTarget::new(
+            "bounded-dns.example.",
+            443,
+            true,
+            vec![NetworkOperation::Connect],
+        )?;
+
+        // Cancellation is issued only after the DNS peer receives the query.
+        // Calling the synchronous host boundary inside another Tokio runtime
+        // also guards against nested-executor panics or a deadlocked resolver.
+        let dns = UdpSocket::bind("127.0.0.1:0")?;
+        dns.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let server = dns.local_addr()?;
+        let cancel = WasiCancellation::default();
+        let request_cancel = cancel.clone();
+        let peer = std::thread::spawn(move || -> io::Result<usize> {
+            let result = dns.recv_from(&mut [0u8; 512]).map(|(size, _)| size);
+            request_cancel.cancel();
+            result
+        });
+        let stop = RunStop::new(Some(cancel), Some(Instant::now() + Duration::from_secs(5)));
+        let outer = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let result = outer
+            .block_on(async { blackhole_lookup(server, &target, Duration::from_secs(10), &stop) });
+        let query_bytes = peer.join().map_err(|_| anyhow::anyhow!("DNS peer panicked"))??;
+        assert!(query_bytes >= 12);
+        assert!(
+            matches!(result, Err(StartStop::Stopped(WasiRunOutcome::Cancelled))),
+            "{result:?}"
+        );
+
+        let home = std::env::temp_dir().join(format!("shenko-clock-stop-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home)?;
+        let result = (|| -> Result<()> {
+            let mut runtime = WasmRuntime::with_mounts(vec![MountSpec::new(
+                home.clone(),
+                HOME_GUEST_PATH,
+                MountMode::ReadOnly,
+                false,
+                false,
+            )])?;
+            let output = MemoryOutputPipe::new(64);
+            let mut command = WasiCommand::new(io::empty(), output.clone(), io::empty());
+            command.control.deadline = Some(Duration::from_secs(3));
+            let started = Instant::now();
+            let outcome = runtime.run_wasi_module(CLOCK_WAT.as_bytes(), command)?;
+            assert_eq!(outcome, WasiRunOutcome::DeadlineExceeded);
+            assert_eq!(output.contents().as_ref(), b"clock");
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "clock wait outlived its run deadline"
+            );
+
+            Ok(())
+        })();
+        std::fs::remove_dir_all(home)?;
+        result
+    }
 }

@@ -1397,6 +1397,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
         .await?;
     let mut active_authority = None;
+    let mut authority_heartbeat = None;
     let result: Result<()> = async {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -1896,16 +1897,16 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _runtime_cancel_on_exit = cancel.clone().drop_guard();
             // Establish the actual branch before constructing any scoped
             // registry or dispatch consumer, including model-free services.
-            let mut primary_fence = match node_sync::establish_runtime(
+            let (primary_fence, authority_runtime) = match node_sync::establish_runtime(
                 &data_dir, &store, &cancel, runtime_instance, &model_profile,
             ).await? {
-                node_sync::RuntimeSelection::Selected(fence) => fence,
+                node_sync::RuntimeSelection::Selected { fence, authority, heartbeat } => {
+                    authority_heartbeat = Some(heartbeat);
+                    (fence, authority)
+                },
                 node_sync::RuntimeSelection::Stopped => return Ok(()),
             };
-            let authority_runtime = runtime_authority::RuntimeAuthority::attach(
-                &data_dir, &store, cancel.clone())?;
             active_authority = Some(authority_runtime.clone());
-            if authority_runtime.recover_before_consumers()? { primary_fence = None; }
             authority_runtime.activate()?;
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
             // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
@@ -2315,7 +2316,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             installed.config_service.register(Arc::new(
                 policy_config::ContextPreferenceNamespace::open(
                     Arc::clone(&store), Arc::clone(&context_registry),
-                ),
+                )?,
             ));
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
             inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(&store));
@@ -3171,6 +3172,24 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
     Ok(())
     }.await;
+    // Start's cancellation guard has stopped observations on every normal or
+    // error exit. Join their last blocking write before runtime/owner teardown.
+    let result = match authority_heartbeat {
+        Some(heartbeat) => match heartbeat.await
+            .map_err(anyhow::Error::from)
+            .and_then(std::convert::identity)
+        {
+            Ok(()) => result,
+            Err(observation) => {
+                let observation = runtime_authority::observation_failure(observation);
+                Err(match result {
+                    Ok(()) => observation,
+                    Err(error) => observation.context(format!("runtime also failed: {error:#}")),
+                })
+            },
+        },
+        None => result,
+    };
     let rebuilding = active_authority.as_ref()
         .is_some_and(|authority| authority.recovery_required().is_some())
         || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);

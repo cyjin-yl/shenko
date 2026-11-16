@@ -26,9 +26,18 @@ fn component_rpc(
 }
 
 pub enum RuntimeSelection {
-    Selected(Option<FencingToken>),
+    Selected {
+        fence: Option<FencingToken>,
+        authority: Arc<crate::runtime_authority::RuntimeAuthority>,
+        heartbeat: tokio::task::JoinHandle<Result<()>>,
+    },
     Stopped,
 }
+
+type SelectedAuthority = (
+    Option<FencingToken>,
+    Arc<crate::runtime_authority::RuntimeAuthority>,
+);
 
 /// The owner lock remains held while this process follows. It admits no
 /// subject or native consumers until a real authority/branch is selected.
@@ -40,105 +49,152 @@ pub async fn establish_runtime(
     profile: &shenko_seed::ModelProfile,
 ) -> Result<RuntimeSelection> {
     let profile_digest = Digest::blake3(&serde_json::to_vec(profile)?);
-    let candidate = profile.configured.then(|| ComponentCandidate {
+    let candidate = profile.configured.then_some(ComponentCandidate {
         runtime_id,
         profile_digest,
         preference: None,
     });
     // This is willingness to start the configured binding, not a successful
     // inference or a claim about comparative model intelligence.
+    tokio::task::spawn_blocking({
+        let data_dir = data_dir.to_owned();
+        let candidate = candidate.clone();
+        move || {
+            Node::open(&data_dir.join("node"))?.advertise_component_runtime(runtime_id, candidate)
+        }
+    })
+    .await??;
     let heartbeat_cancel = cancel.child_token();
     let stop_heartbeat = heartbeat_cancel.clone().drop_guard();
-    let heartbeat = if let Some(candidate) = candidate {
+    let heartbeat = {
         let data_dir = data_dir.to_owned();
         let heartbeat_cancel = heartbeat_cancel.clone();
-        Some(tokio::spawn(async move {
-            loop {
+        // The observation worker is part of this owned runtime. Its durable
+        // authority does not expire with presence, so worker failure must
+        // cancel the runtime explicitly, including an unexpected task drop.
+        let stop_runtime_on_exit = cancel.clone().drop_guard();
+        tokio::spawn(async move {
+            let _stop_runtime_on_exit = stop_runtime_on_exit;
+            while !heartbeat_cancel.is_cancelled() {
                 let path = data_dir.clone();
                 let candidate = candidate.clone();
-                match tokio::task::spawn_blocking(move || {
-                    Node::open(&path.join("node"))?.advertise_component_candidate(candidate)
+                tokio::task::spawn_blocking(move || {
+                    Node::open(&path.join("node"))?.refresh_component_runtime(runtime_id, candidate)
                 })
                 .await
-                {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => {
-                        tracing::error!(%error, "component candidate observation failed");
-                        break;
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "component candidate task failed");
-                        break;
-                    }
-                }
+                .context("runtime observation task failed")?
+                .context("runtime observation could not be renewed")?;
                 tokio::select! {
                     _ = heartbeat_cancel.cancelled() => break,
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {},
                 }
             }
-        }))
-    } else {
-        None
+            Ok(())
+        })
     };
-    let mut last_reason = None;
-    let selected = loop {
+    let selected: Result<Option<SelectedAuthority>> = async {
+      let mut last_reason = None;
+      loop {
         let worker_cancel = cancel.child_token();
         let mut selection = tokio::task::spawn_blocking({
             let data_dir = data_dir.to_owned();
             let store = Arc::clone(store);
-            let cancel = worker_cancel.clone();
-            move || establish_primary(&data_dir, &store, &cancel)
+            let selection_cancel = worker_cancel.clone();
+            let runtime_cancel = cancel.clone();
+            move || -> Result<SelectedAuthority> {
+                let selected = match establish_primary(&data_dir, &store, &selection_cancel) {
+                    Err(error)
+                        if error.downcast_ref::<PrimaryNotSelected>().is_none()
+                            && error.downcast_ref::<ComponentUnavailable>().is_none() =>
+                    {
+                        return Err(error);
+                    }
+                    selected => selected,
+                };
+                let authority = crate::runtime_authority::RuntimeAuthority::attach(
+                    &data_dir,
+                    &store,
+                    runtime_cancel,
+                )?;
+                // Factual learned results may materialize on a follower.
+                // Only a selected runtime may resume unchosen local preparation.
+                let forked = if selected.is_ok() {
+                    authority.recover_before_consumers()?
+                } else {
+                    authority.recover_before_following()?;
+                    false
+                };
+                let mut fence = selected?;
+                if forked {
+                    fence = None;
+                }
+                Ok((fence, authority))
+            }
         });
         let result = tokio::select! {
-            result = &mut selection => result?,
-            result = tokio::signal::ctrl_c() => {
-                result?; cancel.cancel(); worker_cancel.cancel();
+            _completed = &mut selection => _completed?,
+            _stop_signal = tokio::signal::ctrl_c() => {
+                cancel.cancel(); worker_cancel.cancel();
                 let _ = selection.await;
-                break RuntimeSelection::Stopped;
+                _stop_signal?;
+                break Ok(None);
             },
             _ = cancel.cancelled() => {
                 worker_cancel.cancel();
                 let _ = selection.await;
-                break RuntimeSelection::Stopped;
+                break Ok(None);
             },
         };
         match result {
-            Ok(fence) => break RuntimeSelection::Selected(fence),
+            Ok(selected) => break Ok(Some(selected)),
             Err(error)
                 if error.downcast_ref::<PrimaryNotSelected>().is_some()
-                    || error.downcast_ref::<ComponentUnavailable>().is_some() =>
+                    || error.downcast_ref::<ComponentUnavailable>().is_some()
+                    || crate::runtime_authority::requires_reconstruction(&error) =>
             {
                 let reason = error.to_string();
                 if last_reason.as_ref() != Some(&reason) {
                     tracing::info!(%reason, "resident follower retains history and waits for authority");
                     last_reason = Some(reason);
                 }
-                // Learning a global plan and applying its sealed canonical
-                // result are separate from owning the next subject decision.
-                let authority = crate::runtime_authority::RuntimeAuthority::attach(
-                    data_dir,
-                    store,
-                    cancel.clone(),
-                )?;
-                authority.recover_before_consumers()?;
             }
-            Err(error) => return Err(error),
+            Err(error) => break Err(error),
         }
         tokio::select! {
-            result = tokio::signal::ctrl_c() => { result?; cancel.cancel(); break RuntimeSelection::Stopped; },
-            _ = cancel.cancelled() => break RuntimeSelection::Stopped,
+            _stop_signal = tokio::signal::ctrl_c() => { _stop_signal?; cancel.cancel(); break Ok(None); },
+            _ = cancel.cancelled() => break Ok(None),
             _ = tokio::time::sleep(Duration::from_secs(2)) => {},
         }
-    };
-    if matches!(selected, RuntimeSelection::Selected(_)) {
+      }
+    }.await;
+    if !cancel.is_cancelled()
+        && let Ok(Some((fence, authority))) = selected
+    {
         stop_heartbeat.disarm();
-    } else {
-        heartbeat_cancel.cancel();
-        if let Some(heartbeat) = heartbeat {
-            heartbeat.await?;
+        return Ok(RuntimeSelection::Selected {
+            fence,
+            authority,
+            heartbeat,
+        });
+    }
+    heartbeat_cancel.cancel();
+    let joined = heartbeat
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(std::convert::identity)
+        .map_err(crate::runtime_authority::observation_failure);
+    match selected {
+        Err(error) => Err(match joined {
+            Ok(()) => error,
+            Err(observation) => {
+                observation.context(format!("runtime selection also failed: {error:#}"))
+            }
+        }),
+        Ok(_) => {
+            joined?;
+            Ok(RuntimeSelection::Stopped)
         }
     }
-    Ok(selected)
 }
 
 pub(super) fn observe_component(
@@ -186,6 +242,37 @@ pub(super) fn observe_component(
     })
 }
 
+/// SSH command reachability does not mean the fenced subject process is still
+/// resident. An expired process observation permits a fresh quorum election;
+/// it never proves the previous process or its physical effects have stopped.
+pub(super) fn primary_is_resident(
+    node: &Node,
+    fence: &FencingToken,
+    cancel: &CancellationToken,
+) -> Result<bool> {
+    let Some(peer) = peer_route(node, fence.leader_id)? else {
+        return Ok(false);
+    };
+    let Ok(value) = rpc(&peer, &shenko_node::Request::ComponentPresence, cancel) else {
+        return Ok(false);
+    };
+    let Ok(presence) = serde_json::from_value::<ComponentPresence>(value) else {
+        return Ok(false);
+    };
+    let config = node
+        .member_configuration()?
+        .context("missing member configuration")?;
+    let identity = node.local_identity()?.context("missing local identity")?;
+    Ok(presence.node_id == fence.leader_id
+        && presence.runtime_id.is_some()
+        && presence.term == fence.term
+        && presence.configuration_revision == fence.config_revision
+        && presence.identity.agent_id == identity.agent_id
+        && presence.identity.origin_proof == identity.origin_proof
+        && presence.configuration_revision == config.revision
+        && presence.configuration_digest == config.digest)
+}
+
 fn confirm(
     node: &mut Node,
     certificate: &ComponentCertificate,
@@ -218,7 +305,8 @@ fn confirm(
             "component member no longer confirms the same coordinator",
         )?;
         available(
-            presence.candidate == agreed.presence.candidate,
+            presence.runtime_id == agreed.presence.runtime_id
+                && presence.candidate == agreed.presence.candidate,
             "component runtime candidacy expired or changed",
         )?;
     }

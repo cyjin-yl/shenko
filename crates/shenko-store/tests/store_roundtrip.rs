@@ -2578,6 +2578,8 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     let follower = Store::open(dir.join("canonical-follower.db"),dir.join("follower-cas"))?;
     follower.import_cognition_archive(&archive[..],&CognitionImportOptions::default())?;
     assert_ne!(follower.ledger.ledger_id(),source.ledger.ledger_id());
+    assert_eq!(follower.get_existing_agent_id()?,None,"plain imported history is not a local subject");
+    assert!(follower.installation_binding()?.subject.is_none());
     canonical_follower(&follower,Arc::clone(&chosen))?;
     let parked = follower.get_task(head.subject_root_task_id)?.context("imported root")?;
     assert!(matches!(parked.dispatch_eligibility,shenko_types::task::DispatchEligibility::Parked { .. }));
@@ -2597,11 +2599,15 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     follower.commit(batch)?;
     assert!(follower.control_admission_applied(&grant.admission)?);
     assert!(!follower.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(follower.get_existing_agent_id()?,None,"an imported source receipt supplies no local installation binding");
     assert_eq!(follower.recover_control_admission(&grant,&objects,false)?,ControlRecoveryOutcome::RecoveredCanonical);
     let source_head = source.load_subject(agent)?.0;
     let follower_head = follower.load_subject(agent)?.0;
     assert_eq!(serde_json::to_value(&follower_head)?,serde_json::to_value(&source_head)?);
     assert_eq!(follower_head.committed_at.ledger_id,source.ledger.ledger_id());
+    assert_eq!(follower.get_existing_agent_id()?,Some(agent));
+    assert_eq!(follower.installation_binding()?.subject,source.installation_binding()?.subject,
+        "local materialization keeps the original subject and origin proof without renaming its source commit");
     assert_eq!(serde_json::to_value(follower.get_task(publication_id)?)?,serde_json::to_value(source.get_task(publication_id)?)?);
     assert_eq!(serde_json::to_value(follower.get_task(head.subject_root_task_id)?)?,serde_json::to_value(Some(parked))?);
     let source_events = source.session_events_range(EntityId(head.branch_id.0),0,100)?;
@@ -2617,9 +2623,14 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     drop(follower_conn); drop(follower);
     let reopened = Store::open(dir.join("canonical-follower.db"),dir.join("follower-cas"))?;
     assert!(reopened.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(reopened.get_existing_agent_id()?,Some(agent));
     let watermark = reopened.current_commit_seq()?;
     assert_eq!(reopened.recover_control_admission(&grant,&objects,false)?,ControlRecoveryOutcome::Applied);
     assert_eq!(watermark,reopened.current_commit_seq()?);
+    let other = initialize_subject_in(&reopened,b"{\"other_local_genesis\":true}");
+    assert_ne!(other,agent);
+    assert!(reopened.get_existing_agent_id().unwrap_err().to_string().contains("more than one local subject"));
+    assert!(reopened.installation_binding().is_err(),"multiple real local subjects never choose an arbitrary identity");
     Ok(())
 }
 

@@ -32,6 +32,14 @@ position. `resume_prepared_step_commits` permits the source runtime to resume
 preparation after a crash, before revising its epoch. The original control
 predecessor remains preserved evidence.
 
+Startup recovery distinguishes applied preparations, unresolved chosen grants
+and unresolved local preparations with no quorum proof. A changed required
+readset becomes durable reconciliation evidence and a typed recovery result;
+authority unavailability remains a retryable authority error. A malformed
+transition or corrupt storage is fatal instead of being hidden by a new branch.
+Local preparation debts retain an explicit absent chosen grant and remain
+visible through the same reconciliation listing as chosen-plan debts.
+
 Application holds the verified Node grant reservation across one local Store
 transaction. It checks table/column/primary-key/index/trigger layout and the
 frozen preimages, applies explicit INSERT/UPDATE/DELETE operations, verifies
@@ -48,6 +56,14 @@ logical result and agrees across Stores; its imported bytes are checked but
 never treated as a local receipt. The nonreplicated materialization table
 contains the receiving ledger's physical commit reference. Restart/retry reads
 that table and performs no second application.
+
+Installation identity recognizes a verified local materialization receipt even
+though the head retains its original source-ledger coordinate. It checks the
+indexed admission, original applied event and actual physical commit-log row.
+Plain imported history and imported source receipts establish no such binding;
+more than one locally established subject remains an explicit integrity error.
+This lets a real synchronized installation identify the adopted self without
+renaming provenance or granting a follower primary authority.
 
 The evaluator may observe the semantic clock once, and its in-memory monotonic
 high-water observation remains conservative after SQL rollback. The observed
@@ -68,7 +84,9 @@ focused journeys were added to `crates/shenko-store/tests/store_roundtrip.rs`:
   source applied event into an independently identified Store, then materialize
   the same frozen S1 there without a primary stamp. Check original head/task/raw
   event identities, unchanged parked preexisting work, no operations/attempts,
-  a distinct local receipt, and an idempotent reopened Store.
+  a distinct local receipt, an idempotent reopened Store, and an installation
+  identity established only by local application (with ambiguous local subjects
+  refused).
 - Change a captured read condition and inject a malformed late row change.
   Check reconciliation, transaction rollback, absence of a local application
   marker, and subsequent recovery of the original frozen transition.
@@ -91,8 +109,11 @@ observed effects are not undone to force a match. Missing or divergent required
 state remains durable reconciliation debt. Prepared values on superseded
 heads remain preserved facts, not executable work.
 
-Read-table images currently cover the full table range and the sealed image
-is bounded at 64 MiB. This intentionally rejects some otherwise independent
+Read-table images currently cover the full table range. Row capture charges
+owned cells/keys against 128 MiB before copying more SQLite values, and the
+sealed JSON image is bounded at 64 MiB. The source pre-capture shares one budget
+across all keyed tables; it does not first retain an unbounded database before
+checking the final payload. This intentionally rejects some otherwise independent
 concurrent updates and is not a performance claim for a large long-lived
 ledger. Matching schema is required. Canonical migration across schema changes,
 generic automatic predecessor installation, physical external-effect

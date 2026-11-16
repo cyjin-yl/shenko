@@ -244,12 +244,41 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
         a.fencing_token()?.is_none() && b.fencing_token()?.is_none(),
         "component never creates a global fence"
     );
+    let coordinator_node = if coordinator == a_id { &mut a } else { &mut b };
+    coordinator_node.relinquish_component_if_current(
+        &next,
+        "original prepared transition cannot materialize on this branch",
+    )?;
+    assert!(coordinator_node.component_presence()?.committed.is_none());
+    assert!(coordinator_node.commit_component(&next).is_err());
+    let retirement = coordinator_node.handle(Request::Status {
+        operation_id: Some(EntityId::derived(
+            "component-retirement-v1",
+            format!("{}:{coordinator}", next.proposal.decision_id).as_bytes(),
+        )),
+    })?;
+    assert_eq!(
+        retirement["operation"]["certificate"],
+        serde_json::to_value(&next)?
+    );
+    let third = proposal(&a, &b, coordinator)?;
+    let mut acknowledgements = vec![
+        a.prepare_component(&third, &observed(&a, &third)?)?,
+        b.prepare_component(&third, &observed(&b, &third)?)?,
+    ];
+    acknowledgements.sort_by_key(|ack| ack.node_id);
+    let renewed = ComponentCertificate {
+        proposal: Box::new(third),
+        acknowledgements,
+    };
+    a.commit_component(&renewed)?;
+    b.commit_component(&renewed)?;
     a.campaign()?;
     assert!(
         a.component_presence()?.committed.is_none(),
         "new global term invalidates old component selection"
     );
-    assert!(a.commit_component(&next).is_err());
+    assert!(a.commit_component(&renewed).is_err());
     let retained = a.handle(Request::Status {
         operation_id: Some(EntityId::derived(
             "component-commit-v1",
@@ -271,6 +300,21 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
             .iter()
             .any(|branch| branch.branch_id == first.branch_id && !branch.global_quorum),
         "superseded branch experience remains retained"
+    );
+    let old_runtime = a
+        .component_presence()?
+        .runtime_id
+        .context("observed runtime missing")?;
+    let replacement_runtime = EntityId::new();
+    a.advertise_component_runtime(replacement_runtime, None)?;
+    assert!(a.refresh_component_runtime(old_runtime, None).is_err());
+    assert_eq!(
+        a.component_presence()?.runtime_id,
+        Some(replacement_runtime)
+    );
+    assert!(
+        a.component_presence()?.candidate.is_none(),
+        "process presence is not model readiness"
     );
     Ok(())
 }

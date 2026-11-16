@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import sqlite3
@@ -67,6 +68,10 @@ def snapshot(data_dir):
     connection.row_factory = sqlite3.Row
     result = {}
     try:
+        # All tables describe one durable point while the real runtime keeps
+        # advancing. A sequence of independent SELECT snapshots can combine
+        # facts that were never present together.
+        connection.execute("BEGIN")
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         for table in TABLES:
             if table not in tables:
@@ -98,11 +103,16 @@ def outcome_succeeded(result):
     return outcome == "succeeded" or isinstance(outcome, dict) and outcome.get("status") == "succeeded"
 
 
+def contains_expected_product(text):
+    return isinstance(text, str) and re.search(r"(?<!\d)437(?!\d)", text) is not None
+
+
 def evaluate_first(facts, marker):
     tasks = {row["task_id"]: row["data"] for row in facts.get("tasks", [])}
     results = [row["data"] for row in facts.get("task_results", [])]
     model = [row for row in results if tasks.get(row["task_id"], {}).get("kind") == "model.child"
-             and outcome_succeeded(row) and "437" in json.dumps(row.get("result"))]
+             and outcome_succeeded(row) and row.get("result", {}).get("termination") == "completed"
+             and contains_expected_product(row.get("result", {}).get("answer"))]
     native = [row for row in results if tasks.get(row["task_id"], {}).get("kind") == "host.printf"
               and outcome_succeeded(row) and row.get("result", {}).get("stdout_utf8") == marker
               and row.get("result", {}).get("exact_postcondition") is True]
@@ -114,7 +124,7 @@ def evaluate_first(facts, marker):
     outputs = [row for row in facts.get("decisions", [])
                if row["step"].get("commit_ref", {}).get("seq", 0) > receipt_seq
                and marker in row["decision"]["output"]["text"]
-               and "437" in row["decision"]["output"]["text"]]
+               and contains_expected_product(row["decision"]["output"]["text"])]
     checks = {
         "finite_model_child_succeeded": bool(model),
         "native_host_process_exact_result": bool(native),
@@ -197,10 +207,10 @@ async def run(args):
         "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim",
     }
     save(args.evidence_dir / "manifest.json", manifest)
-    save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/models"))
     summary = {"passed": False, "checks": {}, "errors": []}
     process = log = None
     try:
+        save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/models"))
         process, log, subject = await start(args, "first", data_dir)
         submission = {
             "schema_version": 2, "type": "submit", "submission_id": str(uuid.uuid4()),
@@ -231,7 +241,8 @@ async def run(args):
             await ws.send(json.dumps(resumed_input, ensure_ascii=False))
             def continued(facts, messages):
                 return any(row["step"]["step_no"] > head["committed_step_no"]
-                    and all(text in row["decision"]["output"]["text"] for text in (marker, "437", resume_marker))
+                    and all(text in row["decision"]["output"]["text"] for text in (marker, resume_marker))
+                    and contains_expected_product(row["decision"]["output"]["text"])
                     for row in facts.get("decisions", []))
             after, messages = await collect(ws, process, data_dir, args.evidence_dir / "restart.websocket.jsonl", args.timeout, continued)
         save(args.evidence_dir / "restart.ledger.json", after)
@@ -257,7 +268,11 @@ async def run(args):
         # The private installation stays local. Published evidence is the
         # explicit ledger/CAS subset, never owner claim/control secrets.
         if (data_dir / "cas").exists():
-            shutil.copytree(data_dir / "cas", args.evidence_dir / "cas")
+            try:
+                shutil.copytree(data_dir / "cas", args.evidence_dir / "cas")
+            except Exception as error:
+                summary["passed"] = False
+                summary["errors"].append(f"CAS evidence retention: {type(error).__name__}: {error}")
         save(args.evidence_dir / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["passed"] else 1

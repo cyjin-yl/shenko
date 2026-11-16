@@ -289,6 +289,9 @@ impl SocketHandle {
 /// The complete preview1 host state for one run.
 pub struct P1Host {
     replay_io: Option<crate::replay_io::ReplayIo>,
+    /// Shared with the execution epoch callback for every invocation,
+    /// including guests with clock waits but no network admission.
+    stop: RunStop,
     /// Shared live write-withdrawal request. `None` when the caller did not
     /// ask for one; otherwise the guest's already-open writable descriptors
     /// are gated at every mutation boundary.
@@ -301,14 +304,12 @@ pub struct P1Host {
     /// Required by the generated integration: hostcall fuel bookkeeping. We
     /// record it (upstream parity) but do not meter operations on it.
     hostcall_fuel: usize,
-    /// The run's admitted transport: its stop cell bounds every socket call,
-    /// and its admission bounds how many sockets may exist.
+    /// The run's admitted transport bounds how many sockets may exist.
     net: Option<NetworkState>,
 }
 
 struct NetworkState {
     admission: NetworkAdmission,
-    stop: RunStop,
 }
 
 /// Bounds for guest-supplied buffers and symlink chasing.
@@ -355,6 +356,7 @@ impl P1Host {
         }
         Ok(Self {
             replay_io: None,
+            stop: RunStop::default(),
             revocation: None,
             args: args.into_iter().map(String::into_bytes).collect(),
             env: env
@@ -377,6 +379,10 @@ impl P1Host {
 
     pub fn set_replay_io(&mut self, io: Option<crate::replay_io::ReplayIo>) {
         self.replay_io = io;
+    }
+
+    pub fn set_run_stop(&mut self, stop: RunStop) {
+        self.stop = stop;
     }
 
     /// Bind the run's shared write-withdrawal request. The handle is not a
@@ -416,9 +422,8 @@ impl P1Host {
     pub fn install_network(
         &mut self,
         admission: NetworkAdmission,
-        stop: RunStop,
     ) -> Result<NetworkStart> {
-        let opened = match crate::net::open_admitted(&admission, &stop)? {
+        let opened = match crate::net::open_admitted(&admission, &self.stop)? {
             crate::net::OpenOutcome::Opened(opened) => opened,
             crate::net::OpenOutcome::Stopped(outcome) => {
                 return Ok(NetworkStart::Stopped(outcome));
@@ -434,7 +439,7 @@ impl P1Host {
         for (key, value) in admission.guest_environment(&fds)? {
             self.env.push((key.into_bytes(), value.into_bytes()));
         }
-        self.net = Some(NetworkState { admission, stop });
+        self.net = Some(NetworkState { admission });
         Ok(NetworkStart::Installed)
     }
 
@@ -448,7 +453,7 @@ impl P1Host {
             return Err(types::Errno::Notsup.into());
         }
         let stop = match &self.net {
-            Some(net) => net.stop.clone(),
+            Some(_) => self.stop.clone(),
             None => return Err(types::Errno::Notsock.into()),
         };
         match self.fd(fd)? {
@@ -465,7 +470,7 @@ impl P1Host {
     /// The run stop cell that bounds every socket call.
     fn socket_stop(&self) -> Result<RunStop, types::Error> {
         match &self.net {
-            Some(net) => Ok(net.stop.clone()),
+            Some(_) => Ok(self.stop.clone()),
             None => Err(types::Errno::Notsock.into()),
         }
     }
@@ -2943,8 +2948,18 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                     } else {
                         now.saturating_add(clock.timeout)
                     };
-                    if deadline > now {
-                        std::thread::sleep(std::time::Duration::from_nanos(deadline - now));
+                    let mut now = now;
+                    loop {
+                        if let Some(outcome) = self.stop.observe() {
+                            return Err(socket_error(NetIoError::Stopped(outcome)));
+                        }
+                        if now >= deadline {
+                            break;
+                        }
+                        let wait = std::time::Duration::from_nanos(deadline - now)
+                            .min(crate::net::IO_POLL_INTERVAL);
+                        std::thread::sleep(wait);
+                        now = self.clock_time_get(memory, clock.id, 0)?;
                     }
                     (types::Errno::Success, types::Eventtype::Clock, 0u64)
                 }
@@ -2997,11 +3012,14 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         _memory: &mut GuestMemory<'_>,
         status: types::Exitcode,
     ) -> wasmtime::Error {
-        // Preview1 reserves the top of the status range for the host.
-        if status >= 126 {
-            return wasmtime::Error::msg("exit with invalid exit status outside of [0..126)");
+        // A guest's nonzero result is an observed exit, including the SSH
+        // convention 255; it must not turn into a host transport error.
+        // Keep the signed representation of WasiRunOutcome explicit instead
+        // of wrapping an unrepresentable u32 into a negative status.
+        match i32::try_from(status) {
+            Ok(status) => wasmtime::Error::from(wasmtime_wasi::I32Exit(status)),
+            Err(_) => wasmtime::Error::msg("guest exit status exceeds the runtime's signed status range"),
         }
-        wasmtime::Error::from(wasmtime_wasi::I32Exit(status as i32))
     }
 
     fn proc_raise(

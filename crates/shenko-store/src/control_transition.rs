@@ -35,6 +35,9 @@ use crate::{
 
 const CODEC: &str = "store-s1-transition";
 const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+// Account while copying rows, before the eventual sealed JSON size is known.
+// This bounds the retained pre-capture even when most tables prove untouched.
+const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -145,6 +148,16 @@ impl StepTransition {
         head: &SubjectBranchHead,
         next: EntityId,
     ) -> Result<(), ShenkoError> {
+        if step.state != shenko_types::subject::SubjectStepState::Committed
+            || step.step_id != head.next_step_id
+            || step.branch_id != head.branch_id
+            || step.expected_parent_commit != head.committed_at
+            || step.controller_epoch != head.controller_epoch
+            || step.software_generation != head.software_generation
+            || next == step.step_id
+        {
+            return Err(invalid("result is not the original committed S1 position"));
+        }
         let mut committed = step.clone();
         committed.commit_ref = Some(self.result_commit);
         let mut advanced = head.clone();
@@ -156,7 +169,7 @@ impl StepTransition {
             head.record_revision
                 .0
                 .checked_add(1)
-                .ok_or_else(|| conflict("head revision exhausted"))?,
+                .ok_or_else(|| invalid("head revision exhausted"))?,
         );
         let successor = SubjectStep {
             step_id: next,
@@ -164,7 +177,7 @@ impl StepTransition {
             step_no: step
                 .step_no
                 .checked_add(1)
-                .ok_or_else(|| conflict("step number exhausted"))?,
+                .ok_or_else(|| invalid("step number exhausted"))?,
             expected_parent_commit: self.result_commit,
             controller_epoch: head.controller_epoch,
             software_generation: head.software_generation.clone(),
@@ -208,9 +221,9 @@ impl StepTransition {
                 .tables
                 .iter()
                 .find(|table| table.before.table.name == table_name)
-                .ok_or_else(|| conflict("missing S1 result table"))?;
+                .ok_or_else(|| invalid("missing S1 result table"))?;
             if !table.complete_read {
-                return Err(conflict("S1 predecessor is not a complete read"));
+                return Err(invalid("S1 predecessor is not a complete read"));
             }
             let column = table
                 .before
@@ -218,14 +231,14 @@ impl StepTransition {
                 .columns
                 .iter()
                 .position(|name| name == id_column)
-                .ok_or_else(|| conflict("missing identity column"))?;
+                .ok_or_else(|| invalid("missing identity column"))?;
             let data = table
                 .before
                 .table
                 .columns
                 .iter()
                 .position(|name| name == "data")
-                .ok_or_else(|| conflict("missing result data"))?;
+                .ok_or_else(|| invalid("missing result data"))?;
             let change = table
                 .changes
                 .iter()
@@ -233,14 +246,14 @@ impl StepTransition {
                     change.after.as_ref().and_then(|row| row.get(column))
                         == Some(&Cell::Text(id.to_string()))
                 })
-                .ok_or_else(|| conflict("missing original S1 result identity"))?;
+                .ok_or_else(|| invalid("missing original S1 result identity"))?;
             let Some(Cell::Text(json)) = change.after.as_ref().and_then(|row| row.get(data)) else {
-                return Err(conflict("missing frozen result bytes"));
+                return Err(invalid("missing frozen result bytes"));
             };
             if change.before.is_none() != inserts
                 || serde_json::from_str::<serde_json::Value>(json)? != expected
             {
-                return Err(conflict(
+                return Err(invalid(
                     "S1 result rows differ from their admitted identities",
                 ));
             }
@@ -257,10 +270,14 @@ impl StepTransition {
                 (next, successor.record_revision),
             ]
         {
-            return Err(conflict("S1 receipt identities differ"));
+            return Err(invalid("S1 receipt identities differ"));
         }
         Ok(())
     }
+}
+
+fn invalid(reason: impl std::fmt::Display) -> ShenkoError {
+    ShenkoError::other(format!("invalid canonical S1 transition: {reason}"))
 }
 
 fn conflict(reason: impl std::fmt::Display) -> ShenkoError {
@@ -347,7 +364,7 @@ fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
 
 fn key(table: &Table, values: &[Cell]) -> Result<String, ShenkoError> {
     if values.len() != table.columns.len() || table.key.is_empty() {
-        return Err(conflict(format!(
+        return Err(invalid(format!(
             "{} has no complete stable primary key",
             table.name
         )));
@@ -358,19 +375,36 @@ fn key(table: &Table, values: &[Cell]) -> Result<String, ShenkoError> {
         .map(|&index| {
             values
                 .get(index)
-                .ok_or_else(|| conflict("key index outside row"))
+                .ok_or_else(|| invalid("key index outside row"))
         })
         .collect::<Result<Vec<_>, _>>()?;
     if cells
         .iter()
         .any(|cell| matches!(cell, Cell::Null | Cell::LocalSequence))
     {
-        return Err(conflict("null or local primary key"));
+        return Err(invalid("null or local primary key"));
     }
     Ok(serde_json::to_string(&cells)?)
 }
 
 fn image(conn: &Connection, table: &Table) -> Result<Image, ShenkoError> {
+    let mut remaining = MAX_CAPTURE_BYTES;
+    image_with_budget(conn, table, &mut remaining)
+}
+
+fn charge_image(remaining: &mut usize, bytes: usize) -> Result<(), ShenkoError> {
+    *remaining = remaining
+        .checked_sub(bytes)
+        .ok_or_else(|| conflict("row capture exceeds 128 MiB memory budget"))?;
+    Ok(())
+}
+
+fn image_with_budget(
+    conn: &Connection,
+    table: &Table,
+    remaining: &mut usize,
+) -> Result<Image, ShenkoError> {
+    charge_image(remaining, serde_json::to_vec(table)?.len())?;
     let mut stmt = conn
         .prepare(&format!(
             "SELECT {} FROM {}",
@@ -386,17 +420,30 @@ fn image(conn: &Connection, table: &Table) -> Result<Image, ShenkoError> {
     let mut query = stmt.query([]).map_err(storage_error)?;
     let mut rows = BTreeMap::new();
     while let Some(row) = query.next().map_err(storage_error)? {
+        // Row containers and the BTree node have overhead even for empty
+        // values. Check variable-size SQLite values before making owned copies.
+        charge_image(remaining, 128)?;
         let values = (0..table.columns.len())
             .map(|index| {
+                charge_image(remaining, std::mem::size_of::<Cell>())?;
                 if Some(index) == table.local_sequence {
                     Ok(Cell::LocalSequence)
                 } else {
-                    Cell::read(row.get_ref(index).map_err(storage_error)?)
+                    let value = row.get_ref(index).map_err(storage_error)?;
+                    let bytes = match value {
+                        ValueRef::Text(text) => text.len(),
+                        ValueRef::Blob(bytes) => bytes.len(),
+                        _ => 0,
+                    };
+                    charge_image(remaining, bytes)?;
+                    Cell::read(value)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if rows.insert(key(table, &values)?, values).is_some() {
-            return Err(conflict("duplicate primary key"));
+        let key = key(table, &values)?;
+        charge_image(remaining, key.len())?;
+        if rows.insert(key, values).is_some() {
+            return Err(invalid("duplicate primary key"));
         }
     }
     Ok(Image {
@@ -484,11 +531,12 @@ impl Store {
             if let Some(prepared) = prepared_step(&tx, action_id, &input_digest)? { return Ok(prepared); }
             let tables = layouts(&tx)?;
             let mut before = BTreeMap::new();
+            let mut capture_remaining = MAX_CAPTURE_BYTES;
             for (name, table) in &tables {
                 // A table without PK can only be a read projection outside
                 // this transition. If S1 touches one, the authorizer below
                 // refuses preparation rather than inventing rowid identity.
-                if !table.key.is_empty() { before.insert(name.clone(), image(&tx, table)?); }
+                if !table.key.is_empty() { before.insert(name.clone(), image_with_budget(&tx, table, &mut capture_remaining)?); }
             }
             let result_commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
             tx.execute_batch("SAVEPOINT canonical_s1_evaluation").map_err(storage_error)?;
@@ -576,11 +624,15 @@ impl Store {
     /// epoch. Only exact source predecessors qualify; stale plans stay facts.
     /// Preparing the original descriptor either learns its old grant or orders
     /// that same descriptor. It never regenerates a decision or sends an effect.
-    pub fn resume_prepared_step_commits(&self, subject: EntityId) -> Result<usize, ShenkoError> {
+    pub fn resume_prepared_step_commits(
+        &self,
+        subject: EntityId,
+    ) -> anyhow::Result<crate::PreparedStepRecovery> {
         if self.ledger.authority.activated() {
             return Err(shenko_types::authority::authority_fenced(
                 "prepared recovery requires a new Store incarnation before runtime activation",
-            ));
+            )
+            .into());
         }
         let descriptors: Vec<String> = {
             let conn = self.ledger.conn.lock();
@@ -593,7 +645,7 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(storage_error)?
         };
-        let mut applied = 0;
+        let mut recovery = crate::PreparedStepRecovery::default();
         for raw in descriptors {
             let admission: CommitAdmission = serde_json::from_str(&raw)?;
             if admission.subject_id != subject || self.control_admission_applied_here(&admission)? {
@@ -603,7 +655,7 @@ impl Store {
                 serde_json::from_slice(&self.cas.read_object(&admission.payload_ref.digest)?)?;
             let head: SubjectBranchHead = serde_json::from_value(envelope["head"].clone())?;
             if envelope["source_ledger_id"] != serde_json::to_value(self.ledger.ledger_id())?
-                || serde_json::to_value(self.load_subject(subject).map_err(storage_error)?.0)?
+                || serde_json::to_value(self.load_subject(subject)?.0)?
                     != serde_json::to_value(&head)?
             {
                 continue;
@@ -613,23 +665,41 @@ impl Store {
                 serde_json::from_value(envelope["action"]["next_step_id"].clone())?;
             let reference: ObjectRef =
                 serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-            self.admission_objects(&admission.payload_ref)
-                .map_err(storage_error)?;
+            self.admission_objects(&admission.payload_ref)?;
             let reservation = self
                 .reserve_sealed_admission(admission.clone(), Vec::new(), Vec::new())?
                 .prepared_recovery();
-            self.apply_step_transition(
-                &admission,
+            let grant = reservation.grant().cloned();
+            let result = self.apply_step_transition(
                 &reference,
                 &step,
                 &head,
                 next,
                 &reservation,
                 false,
-            )?;
-            applied += 1;
+            );
+            drop(reservation);
+            match result {
+                Ok(_) => recovery.applied += 1,
+                Err(error)
+                    if !shenko_types::authority::is_authority_fenced(&error)
+                        && matches!(
+                            error,
+                            ShenkoError::Conflict(_)
+                                | ShenkoError::NotFound(_)
+                                | ShenkoError::ResnapshotRequired { .. }
+                        ) =>
+                {
+                    self.retain_prepared_step_debt(&admission, grant.as_ref(), &error.to_string())?;
+                    recovery.unresolved.push(crate::PreparedStepDebt {
+                        action_id: admission.action_id,
+                        grant_id: grant.map(|grant| grant.grant_id),
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
-        Ok(applied)
+        Ok(recovery)
     }
 
     fn transition_object_roots(&self, tables: &[TableTransition]) -> Vec<ObjectRef> {
@@ -669,11 +739,11 @@ impl Store {
             || reference.media_type != "application/json"
             || reference.bytes > MAX_IMAGE_BYTES as u64
         {
-            return Err(conflict("unsupported transition type or size"));
+            return Err(invalid("unsupported transition type or size"));
         }
         let bytes = self.cas.read_object(&reference.digest)?;
         if bytes.len() as u64 != reference.bytes || Digest::blake3(&bytes) != reference.digest {
-            return Err(conflict("transition bytes differ"));
+            return Err(invalid("transition bytes differ"));
         }
         let transition: StepTransition = serde_json::from_slice(&bytes)?;
         let roots = self.transition_object_roots(&transition.tables);
@@ -688,7 +758,6 @@ impl Store {
 
     pub(crate) fn apply_step_transition(
         &self,
-        admission: &CommitAdmission,
         reference: &ObjectRef,
         step: &SubjectStep,
         head: &SubjectBranchHead,
@@ -696,6 +765,9 @@ impl Store {
         authority: &AuthorityReservation,
         learned: bool,
     ) -> Result<CommitReceipt, ShenkoError> {
+        let admission = authority
+            .admission()
+            .ok_or_else(|| invalid("materialization has no reserved admission"))?;
         let transition = self.read_step_transition(reference)?;
         if transition.schema_version != 1
             || transition.action_id != admission.action_id
@@ -711,9 +783,7 @@ impl Store {
             || admission.operation_id.is_some()
             || admission.attempt_id.is_some()
         {
-            return Err(conflict(
-                "transition is not the admitted S1/result identity",
-            ));
+            return Err(invalid("transition is not the admitted S1/result identity"));
         }
         transition.validate_result(step, head, next)?;
         self.ledger.with_mutation(
@@ -734,8 +804,10 @@ impl Store {
                 let mut seen = BTreeSet::new();
                 for table in &transition.tables {
                     let expected = &table.before;
-                    if !seen.insert(expected.table.name.clone())
-                        || actual_layouts.get(&expected.table.name) != Some(&expected.table)
+                    if !seen.insert(expected.table.name.clone()) {
+                        return Err(invalid("duplicate transition table"));
+                    }
+                    if actual_layouts.get(&expected.table.name) != Some(&expected.table)
                         || current_image(&tx, table)? != *expected
                     {
                         return Err(conflict(format!(
@@ -761,7 +833,7 @@ impl Store {
                         }
                     }
                     if current_image(&tx, table)? != expected {
-                        return Err(conflict("applied writes differ from frozen result"));
+                        return Err(invalid("applied writes differ from frozen result"));
                     }
                 }
                 authority.record_canonical_admission(
@@ -790,15 +862,7 @@ impl Store {
     ) -> Result<CommitReceipt, ShenkoError> {
         let reservation =
             self.reserve_recovered_admission(grant.clone(), Vec::new(), Vec::new())?;
-        self.apply_step_transition(
-            &grant.admission,
-            reference,
-            step,
-            head,
-            next,
-            &reservation,
-            true,
-        )
+        self.apply_step_transition(reference, step, head, next, &reservation, true)
     }
 }
 
@@ -850,19 +914,21 @@ fn apply_table(
         .map(|column| quoted(column))
         .collect::<Vec<_>>()
         .join(",");
+    let mut changed_keys = BTreeSet::new();
     for change in &transition.changes {
-        if change.before == change.after
+        if !changed_keys.insert(&change.key)
+            || change.before == change.after
             || transition.before.rows.get(&change.key) != change.before.as_ref()
         {
-            return Err(conflict("invalid row change preimage"));
+            return Err(invalid("invalid row change preimage"));
         }
         for values in [&change.before, &change.after].into_iter().flatten() {
-            if key(table, values)? != change.key
+            if key(table, values).map_err(invalid)? != change.key
                 || values.iter().enumerate().any(|(index, value)| {
                     matches!(value, Cell::LocalSequence) != (Some(index) == table.local_sequence)
                 })
             {
-                return Err(conflict("row change key or sequence projection differs"));
+                return Err(invalid("row change key or sequence projection differs"));
             }
         }
         let changed = if let Some(after) = &change.after {
@@ -910,7 +976,7 @@ fn apply_table(
             let before = change
                 .before
                 .as_ref()
-                .ok_or_else(|| conflict("delete without preimage"))?;
+                .ok_or_else(|| invalid("delete without preimage"))?;
             let values = table
                 .key
                 .iter()
@@ -932,7 +998,7 @@ fn apply_table(
             .map_err(storage_error)?
         };
         if changed != 1 {
-            return Err(conflict("row mutation did not affect exactly one identity"));
+            return Err(invalid("row mutation did not affect exactly one identity"));
         }
     }
     Ok(())

@@ -40,9 +40,13 @@ logs, input, WebSocket frames, read-only ledger snapshots and CAS. The
 `installation` subdirectory contains private bootstrap/control material and is
 excluded from the hosted artifact; publish only the explicit evidence subset.
 
-The manual `Real single-node journey` GitHub Actions workflow builds the exact
-selected repository revision, verifies pinned model and llama.cpp archive
-SHA-256 values, and runs the same script. It retains failed observations too.
+The `Real single-node journey` GitHub Actions workflow is explicitly selected
+with workflow dispatch or the PR label `run-real-model`. The label also works
+while the workflow is first being reviewed, before its file reaches main. It
+builds the exact selected repository revision, verifies pinned model and
+llama.cpp archive SHA-256 values, and runs the same script. It retains failed
+observations too. Unlabelled PRs do not run this model experiment, and a skipped
+job is never evidence that the journey passed.
 The fixed 0.6B model is a low-resource mechanical experiment. Its outcomes do
 not satisfy the Qwen3.8-27B quality baseline, the NapCat/coding-seat S2 journey,
 physical fault requirements, or 7/30-day observation periods.

@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS control_materializations (
  conflict_key TEXT PRIMARY KEY, action_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL,
  updated_commit_seq INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS control_materializations_subject_seq ON control_materializations(
+ json_extract(data,'$.admission.subject_id'), updated_commit_seq DESC
+);
 "#;
 
 #[derive(Default)]
@@ -123,6 +126,14 @@ impl AuthorityRuntime {
 }
 
 impl AuthorityReservation {
+    pub(crate) fn admission(&self) -> Option<&CommitAdmission> {
+        self.admission.as_ref()
+    }
+
+    pub(crate) fn grant(&self) -> Option<&CommitAuthorityGrant> {
+        self.grant.as_ref()
+    }
+
     pub(crate) fn with_read_conditions(mut self, tasks: Vec<TaskRecord>, steps: Vec<SubjectStep>) -> Self {
         self.expected_tasks = tasks;
         self.expected_steps = steps;

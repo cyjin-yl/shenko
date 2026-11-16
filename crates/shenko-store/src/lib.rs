@@ -6,7 +6,7 @@ pub mod store;
 pub mod authority;
 mod control_recovery;
 mod control_transition;
-pub use control_recovery::{ControlRecoveryOutcome, CONTROL_RECONCILIATION_SOURCE};
+pub use control_recovery::{ControlRecoveryOutcome, PreparedStepDebt, PreparedStepRecovery, CONTROL_RECONCILIATION_SOURCE};
 mod control_predecessor;
 pub use control_predecessor::ControlPredecessorEvidence;
 pub mod activation;

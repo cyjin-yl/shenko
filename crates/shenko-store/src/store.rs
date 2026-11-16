@@ -71,6 +71,15 @@ impl Store {
     /// Inspect an existing database only. Failure (including a missing or old
     /// database) leaves its original bytes and installation state untouched.
     pub fn inspect_installation_binding(db_path: &Path) -> Result<InstallationBinding> {
+        Self::inspect_database(db_path, read_installation_binding)
+    }
+
+    /// Run a read against the same private, stable tuple used for identity
+    /// inspection. Domain readers never open or migrate the live database.
+    pub(crate) fn inspect_database<T>(
+        db_path: &Path,
+        read: impl Fn(&Connection) -> Result<T>,
+    ) -> Result<T> {
         let metadata = std::fs::symlink_metadata(db_path)?;
         ensure!(metadata.is_file(), "installation database must be a regular file");
         // A read-only open on the live tuple is not side-effect free: when a
@@ -90,7 +99,7 @@ impl Store {
         const ATTEMPTS: usize = 4;
         let mut last_error: Option<anyhow::Error> = None;
         for _ in 0..ATTEMPTS {
-            match inspect_installation_binding_once(db_path) {
+            match inspect_database_once(db_path, &read) {
                 Ok(binding) => return Ok(binding),
                 Err(error) => last_error = Some(error),
             }
@@ -814,7 +823,7 @@ impl Store {
             let steps = position.expected_steps.clone();
             let prepared = self.prepare_step_transition(step, expected_head, next_step_id, position)?;
             let authority = self.reserve_sealed_admission(prepared.admission.clone(), tasks, steps)?;
-            return self.apply_step_transition(&prepared.admission, &prepared.transition_ref,
+            return self.apply_step_transition(&prepared.transition_ref,
                 step, expected_head, next_step_id, &authority, false);
         }
         let authority = self.reserve_admission(expected_head, position,
@@ -1715,11 +1724,14 @@ fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     Ok(InstallationBinding { ledger_id, subject })
 }
 
-/// One staging attempt for `inspect_installation_binding`: copy the tuple,
-/// validate the staged copy, read the binding, then confirm the live tuple
+/// One staging attempt: copy the tuple,
+/// validate the staged copy, read the requested facts, then confirm the live tuple
 /// did not move during the read.
 #[cfg(target_os = "linux")]
-fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBinding> {
+fn inspect_database_once<T>(
+    db_path: &Path,
+    read: &impl Fn(&Connection) -> Result<T>,
+) -> Result<T> {
     let staging = tempfile::Builder::new()
         .prefix("shenko-inspect-")
         .tempdir()?;
@@ -1735,7 +1747,7 @@ fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBindi
     }
     let binding = {
         let tx = conn.transaction()?;
-        let binding = read_installation_binding(&tx)?;
+        let binding = read(&tx)?;
         tx.commit()?;
         binding
     };
@@ -1752,7 +1764,10 @@ fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBindi
 /// there is no equivalent that keeps the POSIX-lock and identity guarantees,
 /// so inspection is refused outright instead of degrading to an unsafe copy.
 #[cfg(not(target_os = "linux"))]
-fn inspect_installation_binding_once(_db_path: &Path) -> Result<InstallationBinding> {
+fn inspect_database_once<T>(
+    _db_path: &Path,
+    _read: &impl Fn(&Connection) -> Result<T>,
+) -> Result<T> {
     anyhow::bail!(
         "staged installation inspection is not supported on this platform (requires Linux)"
     )
@@ -1763,7 +1778,10 @@ fn inspect_installation_binding_once(_db_path: &Path) -> Result<InstallationBind
 /// A replicated genesis keeps the ledger that created it, so a subject counts
 /// as local when its genesis was committed here or its head has committed
 /// local work (a takeover writes this installation's commits onto the adopted
-/// branch head). Imported replicas satisfy neither and stay parked history.
+/// branch head). A canonical S1 keeps the source head coordinate, so its
+/// validated nonreplicated physical materialization receipt also establishes
+/// this installation's subject. Imported source receipts satisfy none of
+/// these conditions. Identity here grants no primary or dispatch authority.
 /// More than one qualifying subject is an integrity error, never a coin flip.
 pub(crate) fn read_local_subject_id(
     conn: &Connection,
@@ -1781,6 +1799,12 @@ pub(crate) fn read_local_subject_id(
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(storage_error)?;
     let mut local: Vec<EntityId> = Vec::new();
+    // Read-only installation inspection also admits pre-authority schemas;
+    // absence of the local receipt table cannot manufacture a new binding.
+    let has_materializations: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='control_materializations')",
+        [], |row| row.get(0),
+    ).map_err(storage_error)?;
     for (id, json) in rows {
         let agent_id: EntityId = id
             .parse()
@@ -1804,7 +1828,10 @@ pub(crate) fn read_local_subject_id(
             }
             None => false,
         };
-        if genesis.created_commit.ledger_id == ledger_id || committed_here {
+        let applied_here = if has_materializations {
+            locally_materialized_subject(conn, agent_id, ledger_id)?
+        } else { false };
+        if genesis.created_commit.ledger_id == ledger_id || committed_here || applied_here {
             local.push(agent_id);
         }
     }
@@ -1815,6 +1842,29 @@ pub(crate) fn read_local_subject_id(
             "installation has more than one local subject",
         )),
     }
+}
+
+fn locally_materialized_subject(conn: &Connection, subject: EntityId, ledger: EntityId) -> Result<bool, ShenkoError> {
+    let raw: Option<String> = conn.query_row(
+        "SELECT data FROM control_materializations WHERE json_extract(data,'$.admission.subject_id')=?1
+         ORDER BY updated_commit_seq DESC LIMIT 1", [subject.to_string()], |row| row.get(0),
+    ).optional().map_err(storage_error)?;
+    let Some(raw) = raw else { return Ok(false); };
+    let receipt: serde_json::Value = serde_json::from_str(&raw)?;
+    let admission: shenko_types::authority::CommitAdmission = serde_json::from_value(receipt["admission"].clone())?;
+    let physical: CommitRef = serde_json::from_value(receipt["committed_at"].clone())?;
+    let committed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM commit_log WHERE ledger_id=?1 AND seq=?2)",
+        params![physical.ledger_id.to_string(), i64::try_from(physical.seq.0).map_err(storage_error)?],
+        |row| row.get(0),
+    ).map_err(storage_error)?;
+    if admission.subject_id != subject || physical.ledger_id != ledger || !committed
+        || !crate::authority::admission_materialized(conn, &admission)?
+        || !crate::authority::admission_applied(conn, &admission)?
+    {
+        return Err(ShenkoError::conflict("installation subject lacks its exact local control application receipt"));
+    }
+    Ok(true)
 }
 
 #[cfg(target_os = "linux")]

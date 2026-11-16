@@ -56,6 +56,7 @@ pub struct ComponentPresence {
     pub configuration_revision: u64,
     pub configuration_digest: Digest,
     pub revision: u64,
+    pub runtime_id: Option<EntityId>,
     pub candidate: Option<ComponentCandidate>,
     pub committed: Option<ComponentCertificate>,
 }
@@ -104,7 +105,8 @@ struct ComponentState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CandidateObservation {
-    candidate: ComponentCandidate,
+    runtime_id: EntityId,
+    candidate: Option<ComponentCandidate>,
     observed_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -157,6 +159,13 @@ impl ComponentProposal {
             ensure!(
                 presence.committed.is_none(),
                 "proposal observations must omit historical certificates"
+            );
+            ensure!(
+                presence
+                    .candidate
+                    .as_ref()
+                    .is_none_or(|candidate| { presence.runtime_id == Some(candidate.runtime_id) }),
+                "component candidate is not bound to its observed runtime"
             );
         }
         let selected = self
@@ -225,13 +234,58 @@ impl ComponentCertificate {
 
 impl Node {
     pub fn advertise_component_candidate(&mut self, candidate: ComponentCandidate) -> Result<()> {
+        self.advertise_component_runtime(candidate.runtime_id, Some(candidate))
+    }
+
+    pub fn advertise_component_runtime(
+        &mut self,
+        runtime_id: EntityId,
+        candidate: Option<ComponentCandidate>,
+    ) -> Result<()> {
+        self.observe_component_runtime(runtime_id, candidate, true)
+    }
+
+    /// Renewal cannot replace a newer owned runtime's observation. A delayed
+    /// blocking task from a superseded process therefore cannot revive it.
+    pub fn refresh_component_runtime(
+        &mut self,
+        runtime_id: EntityId,
+        candidate: Option<ComponentCandidate>,
+    ) -> Result<()> {
+        self.observe_component_runtime(runtime_id, candidate, false)
+    }
+
+    fn observe_component_runtime(
+        &mut self,
+        runtime_id: EntityId,
+        candidate: Option<ComponentCandidate>,
+        register: bool,
+    ) -> Result<()> {
+        ensure!(
+            candidate
+                .as_ref()
+                .is_none_or(|candidate| candidate.runtime_id == runtime_id),
+            "candidate differs from its resident runtime"
+        );
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if !register {
+            let original: Option<CandidateObservation> = meta(&tx, "component_candidate")?
+                .map(|raw| serde_json::from_str(&raw))
+                .transpose()?;
+            available(
+                original
+                    .as_ref()
+                    .is_some_and(|original| original.runtime_id == runtime_id),
+                "runtime observation was superseded",
+            )?;
+        }
         set(
             &tx,
             "component_candidate",
             &CandidateObservation {
+                runtime_id,
                 candidate,
                 observed_at: chrono::Utc::now(),
             },
@@ -251,14 +305,12 @@ impl Node {
         let candidate: Option<CandidateObservation> = meta(&tx, "component_candidate")?
             .map(|raw| serde_json::from_str(&raw))
             .transpose()?;
-        let candidate = candidate
-            .filter(|candidate| {
-                let age = chrono::Utc::now()
-                    .signed_duration_since(candidate.observed_at)
-                    .num_seconds();
-                (0..=30).contains(&age)
-            })
-            .map(|observation| observation.candidate);
+        let candidate = candidate.filter(|candidate| {
+            let age = chrono::Utc::now()
+                .signed_duration_since(candidate.observed_at)
+                .num_seconds();
+            (0..=30).contains(&age)
+        });
         let presence = ComponentPresence {
             node_id: snapshot.node_id,
             identity: snapshot.identity,
@@ -266,7 +318,8 @@ impl Node {
             configuration_revision: configuration.revision,
             configuration_digest: configuration.digest,
             revision: snapshot.component_revision,
-            candidate,
+            runtime_id: candidate.as_ref().map(|observation| observation.runtime_id),
+            candidate: candidate.and_then(|observation| observation.candidate),
             committed: snapshot.component,
         };
         tx.commit()?;
@@ -298,6 +351,9 @@ impl Node {
                 && identity.as_ref().is_some_and(|identity| {
                     identity.agent_id == observation.presence.identity.agent_id
                         && identity.origin_proof == observation.presence.identity.origin_proof
+                        && (identity.branch_id == observation.presence.identity.branch_id
+                            || (Some(certificate.proposal.coordinator) == node_id
+                                && identity.branch_id == certificate.proposal.branch_id))
                 })
                 && configuration.as_ref().is_some_and(|config| {
                     config.revision == observation.presence.configuration_revision
@@ -450,6 +506,9 @@ impl Node {
                 && snapshot.term == observation.presence.term
                 && snapshot.identity.agent_id == observation.presence.identity.agent_id
                 && snapshot.identity.origin_proof == observation.presence.identity.origin_proof
+                && (snapshot.identity.branch_id == observation.presence.identity.branch_id
+                    || (certificate.proposal.coordinator == snapshot.node_id
+                        && snapshot.identity.branch_id == certificate.proposal.branch_id))
                 && snapshot.fence.is_none()
                 && snapshot.configuration.as_ref().is_some_and(|config| {
                     config.revision == observation.presence.configuration_revision
@@ -489,5 +548,54 @@ impl Node {
         set(&tx, "component_state", &state)?;
         tx.commit()?;
         Ok(certificate.clone())
+    }
+
+    /// A coordinator with a blocked original transition must negotiate a new
+    /// branch instead of silently changing the branch named by its certificate.
+    /// Retiring only this exact local promise makes later confirmation fail;
+    /// original physical effects and all agreement evidence remain retained.
+    pub fn relinquish_component_if_current(
+        &mut self,
+        certificate: &ComponentCertificate,
+        reason: &str,
+    ) -> Result<()> {
+        ensure!(
+            !reason.trim().is_empty(),
+            "component retirement needs a reason"
+        );
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let snapshot = Self::authority_snapshot_conn(&tx)?;
+        available(
+            snapshot.component.as_ref() == Some(certificate)
+                && certificate.proposal.coordinator == snapshot.node_id,
+            "component changed before coordinator retirement",
+        )?;
+        let mut state = state(&tx)?;
+        state.revision = state
+            .revision
+            .checked_add(1)
+            .context("component revision exhausted")?;
+        state.pending = None;
+        state.committed = None;
+        let fact = serde_json::json!({
+            "kind": "component.retired",
+            "node_id": snapshot.node_id,
+            "revision": state.revision,
+            "certificate": certificate,
+            "reason": reason,
+        });
+        let command_id = EntityId::derived(
+            "component-retirement-v1",
+            format!("{}:{}", certificate.proposal.decision_id, snapshot.node_id).as_bytes(),
+        );
+        tx.execute(
+            "INSERT INTO commands VALUES(?1,?2,?3)",
+            params![command_id.to_string(), digest(&fact)?.0, text(&fact)?],
+        )?;
+        set(&tx, "component_state", &state)?;
+        tx.commit()?;
+        Ok(())
     }
 }

@@ -19,11 +19,11 @@ fn request(namespace: &str, key: &str, desired: Value, base: u64) -> ConfigApply
     }
 }
 
-fn fixture() -> (std::path::PathBuf, Arc<Store>) {
+fn fixture() -> Result<(std::path::PathBuf, Arc<Store>)> {
     let root = std::env::temp_dir().join(format!("shenko-policy-config-{}", EntityId::new()));
-    std::fs::create_dir_all(&root).unwrap();
-    let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas")).unwrap());
-    (root, store)
+    std::fs::create_dir_all(&root)?;
+    let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    Ok((root, store))
 }
 
 fn quota_policy() -> shenko_quota::QuotaPolicy {
@@ -57,7 +57,7 @@ fn quota_policy() -> shenko_quota::QuotaPolicy {
 
 #[test]
 fn quota_config_changes_the_admission_policy_and_reopens_without_replaying_history() -> Result<()> {
-    let (root, store) = fixture();
+    let (root, store) = fixture()?;
     let service = ConfigService::new(Arc::clone(&store));
     service.register(Arc::new(QuotaNamespace(Arc::clone(&store))));
     let first = quota_policy();
@@ -121,7 +121,7 @@ fn quota_config_changes_the_admission_policy_and_reopens_without_replaying_histo
 
 #[test]
 fn context_preference_is_live_and_restart_retains_unknown_strategy_requests() -> Result<()> {
-    let (root, store) = fixture();
+    let (root, store) = fixture()?;
     let registry = Arc::new(PolicyRegistry::new());
     registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         Default::default(),
@@ -133,7 +133,7 @@ fn context_preference_is_live_and_restart_retains_unknown_strategy_requests() ->
     service.register(Arc::new(ContextPreferenceNamespace::open(
         Arc::clone(&store),
         Arc::clone(&registry),
-    )));
+    )?));
     let desired = json!([
         shenko_compact_snap::POLICY_ID,
         "future.compactor",
@@ -147,6 +147,13 @@ fn context_preference_is_live_and_restart_retains_unknown_strategy_requests() ->
     ))?;
     ensure!(result.change.state == "applied" && result.change.adopted.len() == 1);
     ensure!(json!(registry.preference()) == desired);
+    let inspected = inspect_context_preference(&root, &[])?;
+    ensure!(inspected["preference"] == desired);
+    ensure!(inspected["preference_source"] == "last recorded adoption");
+    ensure!(
+        inspected["desired_revision"] == 1 && inspected["adoptions"][0]["adopted_revision"] == 1
+    );
+    ensure!(inspected["runtime_observed"] == false);
     let receipt = result
         .change
         .receipt
@@ -162,19 +169,21 @@ fn context_preference_is_live_and_restart_retains_unknown_strategy_requests() ->
                 shenko_compact_budget::POLICY_ID
             ])
     );
-    drop(service);
-    drop(registry);
-    drop(store);
-    let reopened = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
-    let registry = Arc::new(PolicyRegistry::new());
-    let service = ConfigService::new(Arc::clone(&reopened));
-    service.register(Arc::new(ContextPreferenceNamespace::open(
-        Arc::clone(&reopened),
-        Arc::clone(&registry),
-    )));
-    ensure!(json!(registry.preference()) == desired);
     let rejected = service.apply(request(CONTEXT_NAMESPACE, PREFERENCE_KEY, json!([""]), 1))?;
     ensure!(rejected.change.state == "failed" && rejected.change.adopted.is_empty());
+    let inspected = inspect_context_preference(&root, &[])?;
+    ensure!(inspected["preference"] == desired && inspected["adopted_value"] == desired);
+    ensure!(inspected["preference_source"] == "last recorded adoption");
+    ensure!(inspected["adopted_revision"] == 1 && inspected["adopted_value_error"].is_null());
+    ensure!(inspected["desired_value"] == json!([""]) && inspected["desired_revision"] == 2);
+    ensure!(
+        inspected["desired_change_state"] == "failed"
+            && inspected["desired_value_error"].is_string()
+    );
+    ensure!(
+        inspected["runtime_observed"] == false,
+        "offline durable adoption is not a live registry observation"
+    );
     ensure!(
         service
             .read(CONTEXT_NAMESPACE, PREFERENCE_KEY)?
@@ -184,6 +193,30 @@ fn context_preference_is_live_and_restart_retains_unknown_strategy_requests() ->
     ensure!(
         json!(registry.preference()) == desired,
         "invalid preference mutated live selection"
+    );
+    drop(service);
+    drop(registry);
+    drop(store);
+    let reopened = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    let registry = Arc::new(PolicyRegistry::new());
+    let service = ConfigService::new(Arc::clone(&reopened));
+    service.register(Arc::new(ContextPreferenceNamespace::open(
+        Arc::clone(&reopened),
+        Arc::clone(&registry),
+    )?));
+    let restored = service.read(CONTEXT_NAMESPACE, PREFERENCE_KEY)?;
+    ensure!(restored.desired_value == Some(json!([""])));
+    ensure!(restored.current_value == Some(desired.clone()));
+    ensure!(restored.current_value_error.is_none());
+    ensure!(restored.adoptions.len() == 1 && restored.adoptions[0].adopted_revision == 1);
+    ensure!(
+        json!(registry.preference()) == desired,
+        "restart must retain the actual adoption after a newer desired value failed"
+    );
+    ensure!(
+        reopened
+            .config_change(rejected.change.change_id)?
+            .is_some_and(|change| change.state == "failed" && change.adopted.is_empty())
     );
     drop(service);
     drop(registry);

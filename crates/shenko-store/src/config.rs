@@ -145,6 +145,19 @@ pub struct ConfigAdoption {
     pub detail: String,
 }
 
+/// Saved desired configuration and the last recorded consumer adoptions.
+/// Inspection does not claim that an in-process consumer is alive or still
+/// running the last adopted value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigInspection {
+    pub entry: Option<ConfigEntry>,
+    pub adoptions: Vec<ConfigAdoption>,
+    /// The desired change and adopted history come from the same staged
+    /// database as the entry/adoptions, never a later read of the live tuple.
+    pub desired_change: Option<ConfigChange>,
+    pub adopted_changes: Vec<ConfigChange>,
+}
+
 /// The durable receipt of one configuration change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -280,6 +293,43 @@ impl ConfigChange {
             updated_commit: commit,
         }
     }
+}
+
+fn read_config_entry(conn: &Connection, namespace: &str, key: &str) -> Result<Option<ConfigEntry>> {
+    let raw: Option<String> = conn.query_row(
+        "SELECT data FROM config_entries WHERE namespace=?1 AND logical_key=?2",
+        params![namespace, key], |row| row.get(0),
+    ).optional()?;
+    raw.map(|raw| serde_json::from_str(&raw).map_err(anyhow::Error::from)).transpose()
+}
+
+fn read_config_adoptions(conn: &Connection, namespace: &str, key: &str) -> Result<Vec<ConfigAdoption>> {
+    let mut stmt = conn.prepare(
+        "SELECT data FROM config_adoptions WHERE namespace=?1 AND logical_key=?2 ORDER BY consumer_id",
+    )?;
+    let rows = stmt.query_map(params![namespace, key], |row| row.get::<_, String>(0))?;
+    rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+}
+
+fn read_config_change_at_revision(
+    conn: &Connection,
+    namespace: &str,
+    logical_key: &str,
+    desired_revision: u64,
+) -> Result<Option<ConfigChange>> {
+    let mut stmt = conn.prepare(
+        "SELECT data FROM config_changes WHERE namespace=?1 AND logical_key=?2",
+    )?;
+    let rows = stmt.query_map(params![namespace, logical_key], |row| row.get::<_, String>(0))?;
+    let mut selected = None;
+    for row in rows {
+        let change: ConfigChange = serde_json::from_str(&row?)?;
+        if change.desired_revision == desired_revision {
+            ensure!(selected.is_none(), "configuration revision has multiple change records");
+            selected = Some(change);
+        }
+    }
+    Ok(selected)
 }
 
 impl Store {
@@ -429,17 +479,36 @@ impl Store {
     /// The saved desired value of one configuration key.
     pub fn config_entry(&self, namespace: &str, logical_key: &str) -> Result<Option<ConfigEntry>> {
         let conn = self.ledger.conn.lock();
-        let raw: Option<String> = conn
-            .query_row(
-                "SELECT data FROM config_entries WHERE namespace=?1 AND logical_key=?2",
-                params![namespace, logical_key],
-                |row| row.get(0),
-            )
-            .optional()?;
-        match raw {
-            None => Ok(None),
-            Some(raw) => Ok(Some(serde_json::from_str(&raw)?)),
-        }
+        read_config_entry(&conn, namespace, logical_key)
+    }
+
+    /// Inspect one existing configuration without creating/migrating a Store
+    /// or opening the live SQLite/WAL tuple. Uses the identity inspector's
+    /// same bounded, stable staging mechanism and schema-owned readers.
+    pub fn inspect_config(
+        db_path: &std::path::Path,
+        namespace: &str,
+        logical_key: &str,
+    ) -> Result<ConfigInspection> {
+        Self::inspect_database(db_path, |conn| {
+            let entry = read_config_entry(conn, namespace, logical_key)?;
+            let adoptions = read_config_adoptions(conn, namespace, logical_key)?;
+            let desired_change = entry.as_ref().map(|entry| {
+                read_config_change_at_revision(conn, namespace, logical_key, entry.desired_revision)
+            }).transpose()?.flatten();
+            let mut adopted_changes: Vec<ConfigChange> = Vec::new();
+            for adoption in &adoptions {
+                if adopted_changes.iter().any(|change| change.desired_revision == adoption.adopted_revision) {
+                    continue;
+                }
+                if let Some(change) = read_config_change_at_revision(
+                    conn, namespace, logical_key, adoption.adopted_revision,
+                )? {
+                    adopted_changes.push(change);
+                }
+            }
+            Ok(ConfigInspection { entry, adoptions, desired_change, adopted_changes })
+        })
     }
 
     /// Every saved configuration key of this installation.
@@ -459,16 +528,7 @@ impl Store {
     /// The consumers that actually adopted a desired revision.
     pub fn config_adoptions(&self, namespace: &str, logical_key: &str) -> Result<Vec<ConfigAdoption>> {
         let conn = self.ledger.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT data FROM config_adoptions WHERE namespace=?1 AND logical_key=?2
-             ORDER BY consumer_id",
-        )?;
-        let rows = stmt.query_map(params![namespace, logical_key], |row| row.get::<_, String>(0))?;
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(serde_json::from_str::<ConfigAdoption>(&row?)?);
-        }
-        Ok(out)
+        read_config_adoptions(&conn, namespace, logical_key)
     }
 
     /// One durable configuration change.
@@ -485,6 +545,20 @@ impl Store {
             None => Ok(None),
             Some(raw) => Ok(Some(serde_json::from_str(&raw)?)),
         }
+    }
+
+    /// The immutable desired value associated with one key revision remains
+    /// in its change record even after a newer, unsuccessful intent is saved.
+    /// Consumer restoration resolves its recorded adoption through this
+    /// history, never through the key's latest desired value.
+    pub fn config_change_at_revision(
+        &self,
+        namespace: &str,
+        logical_key: &str,
+        desired_revision: u64,
+    ) -> Result<Option<ConfigChange>> {
+        let conn = self.ledger.conn.lock();
+        read_config_change_at_revision(&conn, namespace, logical_key, desired_revision)
     }
 
     /// The change already recorded for an origin identity and logical key.

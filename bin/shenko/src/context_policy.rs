@@ -423,6 +423,12 @@ fn policy_command(data_dir: &Path, command: ContextPolicyCommand) -> Result<()> 
                 return Ok(());
             };
             let installed = installed_policies(&node)?;
+            let preference = crate::policy_config::inspect_context_preference(
+                data_dir, &preference_order(&installed),
+            ).unwrap_or_else(|error| json!({
+                "preference": null, "preference_source": "configuration inspection unavailable",
+                "error": format!("{error:#}"), "runtime_observed": false,
+            }));
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
@@ -433,8 +439,9 @@ fn policy_command(data_dir: &Path, command: ContextPolicyCommand) -> Result<()> 
                         .iter()
                         .map(|policy| policy.id.clone())
                         .collect::<Vec<_>>(),
-                    "preference": preference_order(&installed),
-                    "preference_source": "installation order (the configuration service has no value yet)",
+                    "preference": preference["preference"],
+                    "preference_source": preference["preference_source"],
+                    "preference_configuration": preference,
                 }))?
             );
             Ok(())

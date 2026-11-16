@@ -312,73 +312,6 @@ loop {
     }
 } }
 
-#[cfg(test)]
-mod policy_change_tests {
-    use super::*;
-    use std::{sync::Arc, time::Duration};
-    use shenko_quota::*;
-
-    /// A saved resource-policy change must affect a send still waiting for
-    /// admission, without resealing its provider or minting a second send.
-    #[tokio::test]
-    async fn waiting_admission_observes_replacement_policy() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!("shenko-quota-wait-{}", EntityId::new()));
-        std::fs::create_dir_all(&root)?;
-        let store = Arc::new(shenko_store::Store::open(root.join("shenko.db"), root.join("cas"))?);
-        let mut policy = QuotaPolicy {
-            policy_id: EntityId::new(), revision: 1,
-            profiles: vec![ModelProfile { profile_id: "cloud".into(), model_ref: "bound-model".into(),
-                local: false, cost_per_request: vec![WindowCost {
-                    window: WindowRef { provider_id: "synthetic".into(),
-                        account_scope_ref: "policy-wait-fixture".into(), window_key: "requests".into() },
-                    unit: "requests".into(), amount: Range::point(1.0).unwrap(),
-                }], effort_levels: Vec::new() }],
-            assumptions: Vec::new(), min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
-            on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
-            decision_ttl: chrono::Duration::minutes(5), observation_sources: Vec::new(),
-            objective: PolicyObjective::Balanced, target_utilization_range: None, planning_horizon: None,
-            emergency_reserve_by_window: Vec::new(), uncertainty_margin: None,
-            admission_pacing: AdmissionPacing::default(),
-        };
-        store.record_quota_policy(&policy, chrono::Utc::now())?;
-        // Only the frozen binding is used by admission; no provider request
-        // is sent and this fixture makes no claim about real cloud quota.
-        let provider = shenko_broker::provider::AnthropicProvider::with_endpoint(
-            "synthetic-not-a-credential".into(), "http://127.0.0.1:1".into(), "bound-model");
-        let binding = provider.binding();
-        let request_id = EntityId::new();
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let run_store = Arc::clone(&store);
-        let run_cancel = cancel.clone();
-        let run = tokio::spawn(async move {
-            quota_dispatch_gate(&run_store, &binding, request_id, &run_cancel,
-                &QuotaStrategies::baseline(), None, None).await
-        });
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while store.quota_send_ids(request_id).unwrap().is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }).await?;
-        let waiting = store.quota_send_ids(request_id)?;
-        anyhow::ensure!(waiting.len() == 1 && waiting[0].1 == 0);
-        policy.revision = 2;
-        policy.on_unknown = UnknownQuota::Admit;
-        store.record_quota_policy(&policy, chrono::Utc::now())?;
-        // Uses the production bounded wait; the test does not change policy
-        // timings or substitute a decision/dispatcher implementation.
-        let outcome = tokio::time::timeout(Duration::from_secs(35), run).await;
-        cancel.cancel();
-        let result = outcome???;
-        anyhow::ensure!(matches!(result, QuotaGate::Ready(Some(send)) if send == waiting[0].0));
-        anyhow::ensure!(store.quota_send_ids(request_id)? == waiting);
-        let (_, decision) = store.latest_quota_decision()?.unwrap();
-        anyhow::ensure!(decision.policy_revision == 2);
-        drop(store);
-        std::fs::remove_dir_all(root)?;
-        Ok(())
-    }
-}
-
 /// The armed reservation of the exact wire send `send_id` this step
 /// dispatched, verified against durable lineage: the send must be bound to
 /// this request and durably claimed. A result for a request with no such
@@ -507,3 +440,107 @@ for bound in &reservation.attempts {
         warn!(%error, "quota attempt settle rejected");
     }
 } }
+
+#[cfg(test)]
+mod policy_change_tests {
+    use super::*;
+    use anyhow::Context;
+    use shenko_quota::*;
+    use std::{sync::Arc, time::Duration};
+
+    /// A saved resource-policy change must affect a send still waiting for
+    /// admission, without resealing its provider or minting a second send.
+    #[tokio::test]
+    async fn waiting_admission_observes_replacement_policy() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-quota-wait-{}", EntityId::new()));
+        std::fs::create_dir_all(&root)?;
+        let store = Arc::new(shenko_store::Store::open(
+            root.join("shenko.db"),
+            root.join("cas"),
+        )?);
+        let mut policy = QuotaPolicy {
+            policy_id: EntityId::new(),
+            revision: 1,
+            profiles: vec![ModelProfile {
+                profile_id: "cloud".into(),
+                model_ref: "bound-model".into(),
+                local: false,
+                cost_per_request: vec![WindowCost {
+                    window: WindowRef {
+                        provider_id: "synthetic".into(),
+                        account_scope_ref: "policy-wait-fixture".into(),
+                        window_key: "requests".into(),
+                    },
+                    unit: "requests".into(),
+                    amount: Range::point(1.0).context("fixture cost must be finite")?,
+                }],
+                effort_levels: Vec::new(),
+            }],
+            assumptions: Vec::new(),
+            min_progress_per_hour: 0.0,
+            switching_hysteresis: 0.0,
+            on_unknown: UnknownQuota::Block,
+            allow_overage: false,
+            spending_authority_ref: None,
+            decision_ttl: chrono::Duration::minutes(5),
+            observation_sources: Vec::new(),
+            objective: PolicyObjective::Balanced,
+            target_utilization_range: None,
+            planning_horizon: None,
+            emergency_reserve_by_window: Vec::new(),
+            uncertainty_margin: None,
+            admission_pacing: AdmissionPacing::default(),
+        };
+        store.record_quota_policy(&policy, chrono::Utc::now())?;
+        // Only the frozen binding is used by admission; no provider request
+        // is sent and this fixture makes no claim about real cloud quota.
+        let provider = shenko_broker::provider::AnthropicProvider::with_endpoint(
+            "synthetic-not-a-credential".into(),
+            "http://127.0.0.1:1".into(),
+            "bound-model",
+        );
+        let binding = provider.binding();
+        let request_id = EntityId::new();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let run_store = Arc::clone(&store);
+        let run_cancel = cancel.clone();
+        let run = tokio::spawn(async move {
+            quota_dispatch_gate(
+                &run_store,
+                &binding,
+                request_id,
+                &run_cancel,
+                &QuotaStrategies::baseline(),
+                None,
+                None,
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.quota_send_ids(request_id)?.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<(), anyhow::Error>(())
+        })
+        .await??;
+        let waiting = store.quota_send_ids(request_id)?;
+        anyhow::ensure!(waiting.len() == 1 && waiting[0].1 == 0);
+        policy.revision = 2;
+        policy.on_unknown = UnknownQuota::Admit;
+        store.record_quota_policy(&policy, chrono::Utc::now())?;
+        // Uses the production bounded wait; the test does not change policy
+        // timings or substitute a decision/dispatcher implementation.
+        let outcome = tokio::time::timeout(Duration::from_secs(35), run).await;
+        cancel.cancel();
+        let result = outcome???;
+        anyhow::ensure!(matches!(result, QuotaGate::Ready(Some(send)) if send == waiting[0].0));
+        anyhow::ensure!(store.quota_send_ids(request_id)? == waiting);
+        let (_, decision) = store
+            .latest_quota_decision()?
+            .context("missing quota admission decision")?;
+        anyhow::ensure!(decision.policy_revision == 2);
+        drop(store);
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+}
