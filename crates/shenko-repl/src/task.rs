@@ -1627,7 +1627,7 @@ mod tests {
         /// registered `NativeTaskHandler::execute` path.
         async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
             invoke(&self.store, &self.handler.core, &self.handler, "repl.session",
-                "repl-session-request", input).await
+                "repl-session-request", input, true).await
         }
 
         /// The sealed bounded result of exactly one settled observation.
@@ -1646,6 +1646,7 @@ mod tests {
         kind: &str,
         schema: &str,
         input: serde_json::Value,
+        commit_task: bool,
     ) -> Result<OperationRecord> {
         let (task_id, invocation_id) = (EntityId::new(), EntityId::new());
         let epoch = ControllerEpoch(1);
@@ -1681,9 +1682,11 @@ mod tests {
             created_commit: zero,
             updated_commit: zero,
         };
-        let mut batch = WriteBatch::new();
-        batch.task_upserts.push(task.clone());
-        store.commit(batch)?;
+        if commit_task {
+            let mut batch = WriteBatch::new();
+            batch.task_upserts.push(task.clone());
+            store.commit(batch)?;
+        }
         let task_invocation = TaskInvocation {
             task_id,
             task_revision: TaskRevision(0),
@@ -1736,7 +1739,7 @@ mod tests {
 
         async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
             invoke(&self.store, &self.handler.core, &self.handler, "repl.cell",
-                "repl-cell-request", input).await
+                "repl-cell-request", input, true).await
         }
 
         fn normalized(&self, operation: &OperationRecord) -> Result<serde_json::Value> {
@@ -2162,4 +2165,54 @@ mod tests {
         fs::remove_dir_all(root).ok();
         Ok(())
     }
+    /// Admission is the only permission to run real interpreter work. Without
+    /// a committed task T1 refuses; neither a session create nor a cell may
+    /// touch the external session journal. Before the T1-order fix the first
+    /// create happened and the cell ran before the late arm was rejected.
+    #[tokio::test]
+    async fn refused_t1_does_not_create_a_session_or_execute_a_cell() -> Result<()> {
+        let (harness, root) = Harness::new("repl-before-t1")?;
+        let module = harness.data_dir.join("kernels").join("python.wat");
+        fs::write(&module, RESIDENT_GUEST)?;
+        let create = serde_json::json!({
+            "op": "create", "kernel_id": "python-wasi", "module": module,
+            "limits": {"max_wall_clock_ms": 500}
+        });
+
+        // The uncommitted task exists only in this invocation's memory, not
+        // in the authoritative Store. The attempted create must stop at T1.
+        let refused = invoke(&harness.store, &harness.handler.core, &harness.handler,
+            "repl.session", "repl-session-request", create.clone(), false).await;
+        assert!(refused.is_err(), "uncommitted task must not acquire T1");
+        assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), 0,
+            "T1 refusal cannot create even one durable session");
+
+        let created = harness.run(create).await?;
+        assert_eq!(created.outcome, Some(OperationOutcome::Succeeded));
+        let session_id = session_id_of(&harness.normalized(&created)?);
+        let sessions = harness.handler.sessions();
+        let cells_before = sessions.open(session_id)?.lock()
+            .map_err(|_| anyhow::anyhow!("test session lock poisoned"))?.inspect()?.cells_executed;
+
+        let cell = CellHarness::new(harness.store.clone(), Arc::clone(&sessions));
+        let input = serde_json::json!({
+            "op": "execute", "session_id": session_id,
+            "source_b64": B64.encode(b"print(7)"),
+            "cell_kind": "declared_effect"
+        });
+        let refused = invoke(&cell.store, &cell.handler.core, &cell.handler,
+            "repl.cell", "repl-cell-request", input, false).await;
+        assert!(refused.is_err(), "uncommitted cell must not acquire T1");
+        let cells_after = sessions.open(session_id)?.lock()
+            .map_err(|_| anyhow::anyhow!("test session lock poisoned"))?.inspect()?.cells_executed;
+        assert_eq!(cells_after, cells_before,
+            "a rejected cell must not mutate the original session journal");
+
+        drop(cell);
+        drop(sessions);
+        drop(harness);
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+
 }
