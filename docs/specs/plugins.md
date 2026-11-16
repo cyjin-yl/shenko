@@ -194,9 +194,15 @@ handler（在册者以 `PointMajorMismatch` 拒绝，必须先撤销），而已
 
 - `PluginRegistry::uninstall(&FiberHandle)` → Cordis 的 `FiberHandle::dispose()`：插件自己的
   generation cleanup 先跑（服务被撤回、注册被注销、worker 被 join），之后才返回。
+  关闭 admission 后仍可用已有的精确 FiberHandle 完成这条退出屏障；shutdown token
+  不会把正常退休误报成失败。原来的同 settle context 自等待拒绝、dispose 结果和
+  lifecycle unknown 锁存继续有效；spawn、restart、update 仍在关闭后拒绝。
 - `PluginRegistry::update::<P>(&FiberHandle, P::Input)` → Cordis 的 `FiberHandle::update`：
   同一个 Fiber 身份、依赖与在途工作不变，新的 input 成为权威代际；被 veto 的更新保留旧 input。
 - 两者都是上游合同的薄封装，没有第二套生命周期。
+
+生命周期失败的最终错误携带 Cordis 已收容、保存的首条真实诊断；读取或重复清理
+不会清除 unknown，也不会把未确认的外部结果变成成功。
 
 ## 错误与恢复
 

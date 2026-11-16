@@ -337,15 +337,14 @@ pub fn installation_report(node: &Node) -> Result<Value> {
 }
 
 /// The committed window chain of the subject scope, as metadata only:
-/// derivative payloads are never read.
-pub fn window_report(store: &std::sync::Arc<shenko_store::Store>, limit: u64) -> Result<Value> {
-    let Some(agent_id) = store.get_existing_agent_id()? else {
+/// derivative payloads are never read and the live database is never opened.
+pub fn window_report(db_path: &Path, data_dir: &Path, limit: u64) -> Result<Value> {
+    let Some(observed) = Store::inspect_active_subject_context_windows(
+        db_path, data_dir, &data_dir.join("cas"), None, limit.clamp(1, 200) as i64,
+    )? else {
         return Ok(json!({"available": false, "note": "subject is not initialized"}));
     };
-    let (head, _) = store.load_subject(agent_id)?;
-    let scope = EntityId(head.branch_id.0);
-    let log = shenko_context_policy::StoreWindowLog::new(std::sync::Arc::clone(store), scope);
-    let page = log.meta_page(None, limit.clamp(1, 200))?;
+    let page = shenko_context_policy::WindowMetaPage::from_stored(observed.page)?;
     let windows: Vec<Value> = page
         .windows
         .iter()
@@ -388,9 +387,9 @@ pub fn window_report(store: &std::sync::Arc<shenko_store::Store>, limit: u64) ->
         .collect();
     Ok(json!({
         "available": true,
-        "scope": scope.to_string(),
-        "model_generation": store.context_model_generation(scope)?,
-        "profile_digest": store.context_profile(scope)?.map(|(_, digest)| digest),
+        "scope": observed.scope_id.to_string(),
+        "model_generation": observed.model_generation,
+        "profile_digest": observed.profile_digest,
         "window_total": page.total,
         "has_older": page.has_older,
         "windows": windows,
@@ -517,15 +516,15 @@ fn set_policy_enabled(data_dir: &Path, id: &str, enabled: bool) -> Result<()> {
 
 /// The committed window chain of the subject scope.
 fn windows_command(data_dir: &Path, limit: u64) -> Result<()> {
-    let db_path = data_dir.join("shenko.db");
+    let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
+        .unwrap_or_else(|| data_dir.to_owned());
+    let db_path = live_slot.join(shenko_update::SLOT_DB_FILENAME);
     anyhow::ensure!(
         db_path.is_file(),
         "no managed installation at {}; run `shenko start` once",
         data_dir.display()
     );
-    let store =
-        std::sync::Arc::new(shenko_store::store::Store::open(db_path, data_dir.join("cas"))?);
-    println!("{}", serde_json::to_string_pretty(&window_report(&store, limit)?)?);
+    println!("{}", serde_json::to_string_pretty(&window_report(&db_path, data_dir, limit)?)?);
     Ok(())
 }
 

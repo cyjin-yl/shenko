@@ -269,6 +269,27 @@ impl Store {
                 "native_dispatch": native_dispatch})).map_err(Into::into)
     }
 
+    fn arm_canonical_native_operation(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+        native_dispatch: bool,
+    ) -> Result<Option<OperationRecord>> {
+        match self.canonical_native_arm(ctx, op, att, native_dispatch) {
+            Ok(result) => Ok(result),
+            Err(error) if matches!(error, shenko_types::error::ShenkoError::Conflict(_))
+                || shenko_types::authority::is_authority_fenced(&error) => {
+                // Another caller can commit the matching original between
+                // the public fast read and this source's final CAS. A factual
+                // duplicate still precedes stale-invocation refusal, and can
+                // only return Some. Storage/corrupt-seal errors remain fatal.
+                if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? {
+                    return Ok(Some(old));
+                }
+                Err(error.into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub fn arm_external_operation(
         &self,
         ctx: &TaskInvocation,
@@ -276,6 +297,9 @@ impl Store {
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        if self.canonical_native_arm_applicable(ctx.task_id)? {
+            return self.arm_canonical_native_operation(ctx, op, att, false);
+        }
         let authority = self.prepare_external_authority(ctx, op, att, None, false)?;
         self.ledger.with_mutation(
             || self.try_arm_external_operation(ctx, op, att, None, false, &authority),
@@ -292,6 +316,9 @@ impl Store {
         &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        if self.canonical_native_arm_applicable(ctx.task_id)? {
+            return self.arm_canonical_native_operation(ctx, op, att, true);
+        }
         let authority = self.prepare_external_authority(ctx, op, att, None, true)?;
         self.ledger.with_mutation(
             || self.try_arm_external_operation(ctx, op, att, None, true, &authority),

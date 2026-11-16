@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "source_head": "a3739f2e581b25e3ca841c8402b3cc118fdeb222",
+  "workflow_run": 43875531605,
+  "url": "https://github.com/cyjin-yl/shenko/actions/runs/43875531605",
+  "jobs": {
+    "docs": "success",
+    "docs-migration": "success",
+    "kernel-boundary": "success",
+    "web": "success",
+    "clippy-ratchet": "success",
+    "rust": "failure"
+  },
+  "rust_artifact": {
+    "id": 14231365781,
+    "bytes": 7824193,
+    "sha256": "b360ab5f5046f90f3feaf17e917fafde079cc5c335a8c59034cbade74a281e52"
+  },
+  "workspace_all_targets_check": "success",
+  "ssh_guest_build": "success",
+  "actually_passed": [
+    "complete native REPL T1/effect/original-identity/recovery journey",
+    "REPL T1 refusal has no session or cell effects",
+    "canonical native dispatch original permit and recovery journey"
+  ],
+  "actual_failures": [
+    {
+      "target": "ssh_wasi_client",
+      "observed": "Actual bootstrap, install, unit pointer/module identities and activated environment checks passed. The first named CLI keygen then returned 124 with DeadlineExceeded. It produced no guest output; later protocol cases were not reached.",
+      "scope": "This is not an installed-tool SSH protocol success; investigation of the CLI execution budget and cold compilation is pending."
+    },
+    {
+      "target": "start_boundary",
+      "observed": "Actual public startup reached paused state with ordered original commits and no inference. Its first SIGINT stop returned exit 1 with Cordis lifecycle failure; reopen/resume assertions were not reached.",
+      "scope": "This is not a successful restart journey; clean-stop assertion remains unchanged."
+    }
+  ],
+  "original_files": [
+    {
+      "path": "install.stdout",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/install.stdout",
+      "bytes": 4540,
+      "sha256": "b44d9e550f353c7e1acea0bb13f8a15f5e7fc065f4033147f9dbf712ca0430f4"
+    },
+    {
+      "path": "inventory.stdout",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/inventory.stdout",
+      "bytes": 7440,
+      "sha256": "24c32990b91f0ee239cf1cd7a263d641159b5bdb1f9f9f18dfa7d39975b62dc5"
+    },
+    {
+      "path": "processes.jsonl",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/processes.jsonl",
+      "bytes": 784,
+      "sha256": "298e065fd8f45cbaf869cba3b6495f7aba84f6903da7142c0db7672942945b6c"
+    },
+    {
+      "path": "guest-records.jsonl",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/guest-records.jsonl",
+      "bytes": 1146,
+      "sha256": "c78123ccf1f6b9fb21107571757c3acd989181461b6767157e9d43c5167bcb11"
+    },
+    {
+      "path": "guest-0.stderr",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/guest-0.stderr",
+      "bytes": 825,
+      "sha256": "c4d2ce17cdbc2ec74bc30f096f0a952fa566d761c92fbbe9d3ad54bfa5323e55"
+    },
+    {
+      "path": "guest-0.stdout",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/guest-0.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "guest-0.guest-stdout",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/guest-0.guest-stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "guest-0.guest-stderr",
+      "original_path": "ssh-wasi/openssh-journey.diagnostics/guest-0.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "workspace_excerpts": "workspace-excerpts.txt",
+  "full_ship_work_complete": false
+}

@@ -828,12 +828,10 @@ impl Store {
                         step, expected_head, next_step_id, &authority, false);
                 }
                 Err(error) if crate::control_transition::capture_budget_refusal(&error) => {
-                    // The frozen pre-capture exceeded its memory ceiling for
-                    // this installation, so this transition cannot be frozen.
-                    // The decision is neither dropped nor silently refused:
-                    // the degradation becomes a durable fact of the owning
-                    // subject, and the ordinary original-plan path commits
-                    // the same decision locally.
+                    // Capture exceeded its ceiling before durable preparation
+                    // or choose. Report that observation, then attempt the
+                    // original-plan admission below. Neither the report nor
+                    // this branch proves that admission/COMMIT will succeed.
                     self.journal_capture_budget_refusal(expected_head, step, &error);
                 }
                 Err(error) => return Err(error),
@@ -850,12 +848,10 @@ impl Store {
 
     /// Record that the canonical S1 path could not freeze this transition.
     ///
-    /// The frozen pre-capture exceeded its memory ceiling, so this step used
-    /// the original-plan path. The note is a durable runtime-error fact of
-    /// the owning subject (docs/specs/cognition-units.md#spec-45-14): the
-    /// degradation is visible to the subject instead of being a silent
-    /// refusal. The journal write is fail-soft and never replaces the
-    /// decision this step still commits.
+    /// The separate fail-soft journal reports only the observed capacity
+    /// refusal and intended fallback (SPEC 45.14). Admission or the later
+    /// transaction may still fail; its receipt determines whether the step
+    /// actually committed. A journal failure retains the normal dropped count.
     fn journal_capture_budget_refusal(
         &self,
         head: &SubjectBranchHead,
@@ -866,7 +862,7 @@ impl Store {
             kind: "store_capture_budget".into(),
             source_module: module_path!().into(),
             message: format!(
-                "the canonical S1 transition was not frozen and this step used the original-plan path: {error}"
+                "canonical S1 capture refused before durable preparation; an original-plan admission will be attempted, with no commit yet confirmed: {error}"
             ),
             step_no: Some(step.step_no),
             task_id: None,
@@ -1740,17 +1736,16 @@ pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
 
 /// Classify one commit failure.
 ///
-/// Foreign-key checks are deferred to COMMIT so a transition can order its
-/// own writes. A deferred violation is therefore not storage damage: the
-/// applied rows reference a predecessor this ledger does not hold, which is
-/// typed reconciliation debt. The receiving ledger has to catch up before the
-/// transition can be applied, so the writer must stay open
-/// (docs/specs/nodes.md#connected-store-admission-and-materialization).
-/// Every other commit failure remains storage damage and keeps its own
-/// consequence.
+/// A foreign-key violation alone does not distinguish a missing predecessor
+/// from an invalid frozen delta. Preserve the actual SQLite diagnostic and
+/// return an invalid-materialization error; recovery must not label it ordinary
+/// catch-up debt. Missing predecessors established by read-condition checks
+/// already have their own Conflict path. Other COMMIT errors remain Storage.
 pub(crate) fn commit_error(error: rusqlite::Error) -> ShenkoError {
     if foreign_key_violation(&error) {
-        ShenkoError::conflict("materialization lacks a required predecessor row")
+        ShenkoError::other(format!(
+            "canonical materialization COMMIT failed foreign-key validation; predecessor absence or invalid delta is not classified: {error}"
+        ))
     } else {
         storage_error(error)
     }
@@ -1766,7 +1761,7 @@ pub(crate) fn foreign_key_violation(error: &rusqlite::Error) -> bool {
     }
 }
 
-fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
+pub(crate) fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     let ledger_id: String = conn.query_row(
         "SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |r| r.get(0),
     )?;

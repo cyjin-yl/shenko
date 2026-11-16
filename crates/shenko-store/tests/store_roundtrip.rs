@@ -86,8 +86,18 @@ fn initialized_subject_with_bootstrap_event(
 }
 
 fn initialize_subject_in(store: &Store, bootstrap_event: &[u8]) -> shenko_types::ids::EntityId {
+    initialize_subject_in_with_route(store, bootstrap_event, None).unwrap()
+}
+
+fn initialize_subject_in_with_route(
+    store: &Store,
+    bootstrap_event: &[u8],
+    route_dir: Option<&std::path::Path>,
+) -> Result<shenko_types::ids::EntityId> {
+    use shenko_types::activation::{ActivationOrigin, ActivationSelector, RouteAuthority};
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
+    use shenko_types::object::Digest;
     use shenko_types::subject::{
         GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
     };
@@ -102,8 +112,7 @@ fn initialize_subject_in(store: &Store, bootstrap_event: &[u8]) -> shenko_types:
 
     let dummy_ref = store
         .cas
-        .seal_object(bootstrap_event, "application/json", "test", "raw", 1)
-        .unwrap()
+        .seal_object(bootstrap_event, "application/json", "test", "raw", 1)?
         .object;
     let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
 
@@ -159,41 +168,190 @@ fn initialize_subject_in(store: &Store, bootstrap_event: &[u8]) -> shenko_types:
         created_by_step_id: None,
     };
 
-    // Initialize genesis atomically
+    let selector = if let Some(dir) = route_dir {
+        let artifact = dir.join("route-fixture-artifact");
+        let artifact_bytes = b"context metadata route fixture; never executed";
+        std::fs::write(&artifact, artifact_bytes)?;
+        let route = RouteAuthority {
+            schema_version: RouteAuthority::SCHEMA_VERSION,
+            agent_id, generation: head.software_generation.clone(), active_epoch: 1,
+            selector_revision: 0, data_dir: dir.to_string_lossy().into_owned(),
+            slot_dir: dir.to_string_lossy().into_owned(),
+            artifact_path: artifact.to_string_lossy().into_owned(),
+            artifact_digest: Digest::blake3(artifact_bytes),
+            launch_command: Vec::new(), primary_claim: None, activation_id: None,
+        };
+        let route_ref = store.cas.seal_object(&serde_json::to_vec(&route)?,
+            "application/json", "activation", "route-authority", 1)?.object;
+        Some(ActivationSelector {
+            agent_id, selector_revision: 0, active_epoch: 1,
+            generation: head.software_generation.clone(), state_ref: dummy_ref.clone(),
+            origin: ActivationOrigin::Genesis { genesis_ref: head.genesis_ref.clone() },
+            route_authority_ref: route_ref,
+        })
+    } else { None };
+    // Initialize genesis and its optional real selector in one transaction.
     let root_task = shenko_types::task::TaskRecord::subject_root(
         head.subject_root_task_id,
         agent_id,
         dummy_ref,
         genesis_commit,
     );
-    store
-        .initialize_genesis(&genesis, &head, &first_step, &root_task)
-        .unwrap();
+    store.initialize_genesis_with(&genesis, &head, &first_step, &root_task,
+        selector.as_ref().map(|selector| selector as &dyn shenko_store::GenesisExtension))?;
 
-    agent_id
+    Ok(agent_id)
 }
 
 #[test]
-fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() {
+fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() -> Result<()> {
     use shenko_types::{error::ShenkoError, ids::EntityId};
     let installation = EntityId::new();
-    let event = serde_json::to_vec(&serde_json::json!({"installation_id": installation})).unwrap();
-    let (dir, store, agent) = initialized_subject_with_bootstrap_event(&event);
+    let event = serde_json::to_vec(&serde_json::json!({"installation_id": installation}))?;
+    let dir = tmp_dir();
+    let store = Arc::new(Store::open(dir.join("head.db"), dir.join("cas"))?);
+    let agent = initialize_subject_in_with_route(&store, &event, Some(&dir))?;
+    let initial_route = store.activation_selector(agent)?.context("genesis selector missing")?.route_authority_ref;
+    canonical_source(&store, agent, false)?;
+    let taken_over = store.activation_selector(agent)?.context("takeover selector missing")?;
+    assert!(taken_over.selector_revision > 0 && taken_over.active_epoch > 1);
+    assert_eq!(taken_over.route_authority_ref, initial_route);
     assert_ne!(installation, store.ledger.ledger_id());
     drop(store);
-    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
-    assert_eq!(reopened.installation_id_for_subject(agent).unwrap(), installation);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert_eq!(reopened.installation_id_for_subject(agent)?, installation);
 
-    let genesis = reopened.get_subject_genesis(agent).unwrap().unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        use shenko_store::{ContextWindowAppend, StoredContextWindow, StoredDerivative};
+        let scope = EntityId(reopened.load_subject(agent)?.0.branch_id.0);
+        let genesis = StoredContextWindow {
+            window_id: EntityId::new(), generation: 0,
+            body: "opaque policy-owned genesis metadata".into(), derivatives: Vec::new(),
+        };
+        assert_eq!(reopened.append_context_window(scope, None, None, &genesis)?, ContextWindowAppend::Appended);
+        let payload = b"retained derivative payload".to_vec();
+        let window = StoredContextWindow {
+            window_id: EntityId::new(), generation: 1,
+            body: "opaque policy-owned current metadata".into(),
+            derivatives: vec![StoredDerivative {
+                media_type: "application/octet-stream".into(),
+                blake3: blake3::hash(&payload).to_hex().to_string(), bytes: payload.clone(),
+            }],
+        };
+        assert_eq!(reopened.rebind_context_model_generation(scope, genesis.window_id, 0, 7,
+            "snapshot-profile", &window)?, ContextWindowAppend::Appended);
+        // The newly committed metadata exists only in WAL. A main-only
+        // immutable reader would miss it, even though it appears read-only.
+        let main_only = rusqlite::Connection::open_with_flags(
+            format!("file:{}?immutable=1", dir.join("head.db").display()),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )?;
+        let stale: i64 = main_only.query_row("SELECT count(*) FROM context_windows", [], |row| row.get(0))?;
+        assert_eq!(stale, 0);
+        drop(main_only);
+        // Raw slot metadata needs no CAS. The installation query must reject
+        // this missing route source instead of recreating it or trusting a path.
+        std::fs::rename(dir.join("cas"), dir.join("retained-cas"))?;
+        let read_tuple = || -> Result<Vec<Vec<u8>>> {
+            ["head.db", "head.db-wal", "head.db-shm"].into_iter()
+                .map(|name| std::fs::read(dir.join(name)).map_err(Into::into)).collect()
+        };
+        let before = read_tuple()?;
+        let observed = Store::inspect_subject_context_windows(&dir.join("head.db"), None, 1)?
+            .context("the existing subject's window inspection is missing")?;
+        assert_eq!(observed.scope_id, scope);
+        assert_eq!(observed.model_generation, 7);
+        assert_eq!(observed.profile_digest.as_deref(), Some("snapshot-profile"));
+        assert_eq!(observed.page.total, 2);
+        assert!(observed.page.has_older);
+        let [metadata] = observed.page.windows.as_slice() else { anyhow::bail!("one bounded window expected") };
+        assert_eq!(metadata.window_id, window.window_id);
+        assert_eq!(metadata.body, window.body);
+        let [derivative] = metadata.derivatives.as_slice() else { anyhow::bail!("one derivative identity expected") };
+        assert_eq!(derivative.blake3, window.derivatives[0].blake3);
+        assert_eq!(derivative.bytes, payload.len() as u64);
+        let Err(missing_route) = Store::inspect_active_subject_context_windows(
+            &dir.join("head.db"), &dir, &dir.join("cas"), None, 1,
+        ) else { anyhow::bail!("a current-slot claim requires the sealed route") };
+        assert!(missing_route.to_string().contains("CAS directory does not exist"), "{missing_route:#}");
+        assert_eq!(read_tuple()?, before, "inspection changed the live SQLite tuple");
+        assert!(!dir.join("cas").exists(), "inspection created a live CAS directory");
+        std::fs::rename(dir.join("retained-cas"), dir.join("cas"))?;
+        let route = reopened.activation_selector(agent)?.context("genesis selector missing")?.route_authority_ref;
+        let route_bytes = reopened.cas.read_object(&route.digest)?;
+        let selected = Store::inspect_active_subject_context_windows(
+            &dir.join("head.db"), &dir, &dir.join("cas"), None, 1,
+        )?.context("selected window metadata missing")?;
+        assert_eq!(selected, observed);
+        // A copied inactive slot retains its source's selector. That sealed
+        // route must refuse a launcher pointer to the copy, even if every
+        // database fact and window in the copy is otherwise valid.
+        let copied_slot = dir.join("versions").join("inactive-copy");
+        std::fs::create_dir_all(&copied_slot)?;
+        for name in ["head.db", "head.db-wal"] {
+            std::fs::copy(dir.join(name), copied_slot.join(name))?;
+        }
+        let copied_before = ["head.db", "head.db-wal"].map(|name| std::fs::read(copied_slot.join(name)))
+            .into_iter().collect::<std::io::Result<Vec<_>>>()?;
+        let Err(mismatched) = Store::inspect_active_subject_context_windows(
+            &copied_slot.join("head.db"), &dir, &dir.join("cas"), None, 1,
+        ) else { anyhow::bail!("a copied slot cannot acquire its source's route authority") };
+        assert!(mismatched.to_string().contains("launcher slot disagrees"), "{mismatched:#}");
+        let copied_after = ["head.db", "head.db-wal"].map(|name| std::fs::read(copied_slot.join(name)))
+            .into_iter().collect::<std::io::Result<Vec<_>>>()?;
+        assert_eq!(copied_after, copied_before);
+        assert!(!copied_slot.join("head.db-shm").exists());
+        assert_eq!(read_tuple()?, before, "route inspection changed the live SQLite tuple");
+        assert_eq!(reopened.cas.read_object(&route.digest)?, route_bytes);
+
+        // Before a candidate's selector is mirrored, the source still has
+        // its original selector and route. Its real paused boundary and
+        // durable, source-bound Handoff record must make the query refuse
+        // that ambiguous selection; this does not claim a candidate ran.
+        use shenko_types::activation::{ActivationPhase, ActivationRecord};
+        use shenko_types::object::{ArtifactRef, VersionRef};
+        let current = reopened.activation_selector(agent)?.context("selected authority missing")?;
+        reopened.request_subject_quiesce(agent, EntityId::new())?;
+        reopened.pause_subject_at_boundary(&reopened.load_subject(agent)?.0)?
+            .context("handoff source did not reach its paused boundary")?;
+        reopened.create_activation_record(&ActivationRecord {
+            activation_id: EntityId::new(), agent_id: agent,
+            from_generation: current.generation.clone(),
+            to_generation: shenko_types::ids::RuntimeGeneration("unstarted-route-candidate".into()),
+            from_state_ref: current.state_ref.clone(), to_state_ref: current.state_ref.clone(),
+            migrator_ref: VersionRef {
+                artifact: ArtifactRef { digest: route.digest.clone(), locator: route.locator.clone() },
+                symbol: "unexecuted-context-inspection-fixture".into(), schema: route.codec.clone(),
+            },
+            recovery_closure_ref: route.clone(), contract_revision: "context-route-inspection".into(),
+            phase: ActivationPhase::Handoff, w0: None, w1: None, imported_through: None,
+            ingress_cursors_ref: None, evidence_cursors_ref: None, pending_operations_ref: None,
+            inference_allocations_ref: None, expected_selector_revision: current.selector_revision,
+            target_epoch: current.active_epoch + 1, smoke_evidence_ref: None,
+            rollback_plan_ref: route.clone(), last_error_ref: None, record_revision: 0,
+            expected_primary_claim: None,
+        })?;
+        let handoff_before = read_tuple()?;
+        let Err(pending) = Store::inspect_active_subject_context_windows(
+            &dir.join("head.db"), &dir, &dir.join("cas"), None, 1,
+        ) else { anyhow::bail!("an unresolved source handoff cannot prove the current route") };
+        assert!(pending.to_string().contains("selection requires reconciliation"), "{pending:#}");
+        assert_eq!(read_tuple()?, handoff_before);
+        assert_eq!(reopened.cas.read_object(&route.digest)?, route_bytes);
+    }
+
+    let genesis = reopened.get_subject_genesis(agent)?.context("subject genesis missing")?;
     let foreign = EntityId::new();
-    let conn = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    let conn = rusqlite::Connection::open(dir.join("head.db"))?;
     conn.execute(
         "INSERT INTO bootstrap_records(bootstrap_id,installation_id,subject_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4,?5)",
         rusqlite::params![genesis.bootstrap_id.to_string(), foreign.to_string(), agent.to_string(),
             serde_json::json!({"installation_id": foreign}).to_string(), genesis.created_commit.seq.0 as i64],
-    ).unwrap();
+    )?;
     assert!(matches!(reopened.installation_id_for_subject(agent), Err(ShenkoError::Conflict(_))));
-    assert_eq!(reopened.cas.read_object(&genesis.bootstrap_event_ref.digest).unwrap(), event);
+    assert_eq!(reopened.cas.read_object(&genesis.bootstrap_event_ref.digest)?, event);
+    Ok(())
 }
 
 #[test]
@@ -1227,8 +1385,17 @@ fn arm_dispatch_operation(
     store: &Store, invocation: &shenko_types::task::TaskInvocation, key: &str,
     operation_id: shenko_types::ids::EntityId,
 ) -> (shenko_types::ids::EntityId, shenko_types::ids::EntityId) {
+    let (current, mut operation, mut attempt) = draft_dispatch_operation(store, invocation, key, operation_id).unwrap();
+    assert!(store.arm_external_operation(&current, &mut operation, &mut attempt).unwrap().is_none());
+    (operation.operation_id, attempt.attempt_id)
+}
+
+fn draft_dispatch_operation(
+    store: &Store, invocation: &shenko_types::task::TaskInvocation, key: &str,
+    operation_id: shenko_types::ids::EntityId,
+) -> Result<(shenko_types::task::TaskInvocation, shenko_types::operation::OperationRecord, shenko_types::operation::AttemptRecord)> {
     use shenko_types::{ids::*, object::*, operation::*};
-    let task = store.external_task(invocation.task_id).unwrap();
+    let task = store.external_task(invocation.task_id)?;
     let mut current = invocation.clone();
     current.record_revision = task.record_revision;
     let object = task.input_ref;
@@ -1236,7 +1403,7 @@ fn arm_dispatch_operation(
         artifact: ArtifactRef { digest: object.digest.clone(), locator: object.locator.clone() },
         symbol: "dispatch-probe".into(), schema: object.codec.clone(),
     };
-    let mut operation = OperationRecord {
+    let operation = OperationRecord {
         record_schema_version: 1, operation_id, record_revision: RecordRevision(0),
         task_id: task.task_id, logical_key: key.into(), operation_name: "dispatch.probe".into(),
         input_schema_version: 1, output_schema_version: 1,
@@ -1257,7 +1424,7 @@ fn arm_dispatch_operation(
         compensates: None, possible_duplicate_of: vec![], prepared_commit: task.updated_commit,
         evidence_through: None,
     };
-    let mut attempt = AttemptRecord {
+    let attempt = AttemptRecord {
         record_schema_version: 1, attempt_id: EntityId::new(), operation_id: operation.operation_id,
         attempt_no: 1, invocation_id: current.invocation_id, worker_id: current.worker_id,
         node_id: current.node_id, epoch: current.epoch, implementation_ref: reader,
@@ -1265,8 +1432,7 @@ fn arm_dispatch_operation(
         provider_handle: None, provider_idempotency: None, transport_ref: None,
         started_at: None, last_observed_at: None, final_receipt_id: None,
     };
-    assert!(store.arm_external_operation(&current, &mut operation, &mut attempt).unwrap().is_none());
-    (operation.operation_id, attempt.attempt_id)
+    Ok((current, operation, attempt))
 }
 
 #[test]
@@ -2824,6 +2990,156 @@ fn native_t2_evidence(store: &Store, claim: &shenko_store::NativeTaskClaim)
     let receipt_id = receipt.receipt_id;
     let operation = store.record_external_evidence(operation_id, attempt_id, receipt, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
     Ok((operation, store.external_evidence(receipt_id)?))
+}
+
+#[test]
+fn canonical_native_arming_keeps_original_intent_without_reissuing_execution() -> Result<()> {
+    use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_DISPATCH, NativeDispatchTransition::AlreadyCommitted}, cognition::CognitionImportOptions};
+    use shenko_types::{commit::CommitRef, ids::EntityId, object::ObjectRef, operation::*, task::DispatchEligibility};
+    let fixture = NativeT2Fixture::new(false)?;
+    let connection = rusqlite::Connection::open(fixture.dir.join("head.db"))?;
+    let initial = &fixture.parent.invocation;
+    let (ctx, mut operation, mut attempt) = draft_dispatch_operation(&fixture.store, initial, "fresh-native-arm", EntityId::new())?;
+    let request = operation.clone();
+    let original_attempt = attempt.clone();
+    assert!(fixture.store.arm_external_operation(&ctx, &mut operation, &mut attempt)?.is_none());
+    let grant = fixture.chosen()?;
+    let envelope: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    assert_eq!(envelope["action"]["kind"], "native.arm");
+    let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let transition: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&reference.digest)?)?;
+    assert_eq!(transition["plan"]["operation"], serde_json::to_value(&request)?);
+    assert_eq!(transition["plan"]["attempt"], serde_json::to_value(original_attempt)?);
+    assert_eq!(transition["plan"]["invocation"], serde_json::to_value(&ctx)?);
+    assert_eq!(operation.prepared_commit, attempt.armed_commit);
+    assert_eq!(operation.prepared_commit, fixture.store.external_task(ctx.task_id)?.updated_commit);
+    assert_eq!(serde_json::to_value(operation.prepared_commit)?, transition["rows"]["result_commit"]);
+    let timestamp: chrono::DateTime<chrono::Utc> = serde_json::from_value(transition["rows"]["created_at"].clone())?;
+    for (sql, id) in [
+        ("SELECT created_at FROM operations WHERE operation_id=?1", operation.operation_id),
+        ("SELECT created_at FROM attempts WHERE attempt_id=?1", attempt.attempt_id),
+    ] {
+        let actual: String = connection.query_row(sql, [id.to_string()], |row| row.get(0))?;
+        assert_eq!(actual.parse::<chrono::DateTime<chrono::Utc>>()?, timestamp);
+    }
+    let after_fresh = fixture.store.current_commit_seq()?;
+    let mut stale = ctx.clone();
+    stale.invocation_id = EntityId::new();
+    let replay = fixture.store.arm_external_operation(&stale, &mut operation, &mut attempt)?.context("factual duplicate")?;
+    assert_eq!(serde_json::to_value(&replay)?, serde_json::to_value(&operation)?);
+    assert_eq!(fixture.store.current_commit_seq()?, after_fresh);
+    assert!(fixture.store.external_operation_evidence(operation.operation_id)?.is_empty());
+
+    // The paired entry point commits the original marker with T1. Neither a
+    // duplicate arm nor the later dispatch API obtains another live permit.
+    let (ctx, mut paired, mut paired_attempt) = draft_dispatch_operation(&fixture.store, initial, "paired-native-arm", EntityId::new())?;
+    assert!(fixture.store.arm_native_operation_for_dispatch(&ctx, &mut paired, &mut paired_attempt)?.is_none());
+    assert_eq!(fixture.store.external_task(ctx.task_id)?.memos[NATIVE_DISPATCH]["attempts"][paired_attempt.attempt_id.to_string()]["commit"],
+        serde_json::to_value(paired.prepared_commit)?);
+    assert_eq!(paired.prepared_commit, paired_attempt.armed_commit);
+    assert!(fixture.store.arm_native_operation_for_dispatch(&ctx, &mut paired, &mut paired_attempt)?.is_some());
+    assert_eq!(fixture.store.commit_native_dispatch(&ctx, paired.operation_id, paired_attempt.attempt_id)?, AlreadyCommitted);
+
+    let (ctx, mut queued, mut queued_attempt) = draft_dispatch_operation(&fixture.store, initial, "arm-before-choose", EntityId::new())?;
+    let before = fixture.store.external_task(ctx.task_id)?;
+    let original = serde_json::to_value((&queued, &queued_attempt))?;
+    fixture.state.lock().fail_before_choose = true;
+    let refused = fixture.store.arm_external_operation(&ctx, &mut queued, &mut queued_attempt);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("fixture failed before choosing dispatch")), "{refused:#?}");
+    assert_eq!(serde_json::to_value((&queued, &queued_attempt))?, original);
+    assert_eq!(serde_json::to_value(fixture.store.external_task(ctx.task_id)?)?, serde_json::to_value(&before)?);
+    assert_eq!(connection.query_row("SELECT count(*) FROM operations WHERE operation_id=?1", [queued.operation_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    let replay = fixture.store.arm_external_operation(&ctx, &mut queued, &mut queued_attempt)?.context("old preparation must not send")?;
+    let chosen = fixture.chosen()?;
+    assert!(!chosen.replayed, "first actual choose is still recovery of an older preparation");
+    assert_eq!(replay.operation_id, queued.operation_id);
+    assert_eq!(queued.prepared_commit, queued_attempt.armed_commit);
+    assert_eq!(queued.effect_status, EffectStatus::Unknown);
+    assert!(fixture.store.external_operation_evidence(queued.operation_id)?.is_empty());
+
+    // Preserve a foreign imported task's parking. The retained source grant
+    // cannot install an executable predecessor on the receiving ledger.
+    let (ctx, mut lost, mut lost_attempt) = draft_dispatch_operation(&fixture.store, initial, "arm-chosen-reply-lost", EntityId::new())?;
+    let before = fixture.store.external_task(ctx.task_id)?;
+    let mut archive = Vec::new();
+    fixture.store.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    let follower = Store::open(fixture.dir.join("arm-follower.db"), fixture.dir.join("arm-follower-cas"))?;
+    follower.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+    follower.attach_commit_authority(Arc::new(NativeT2Authority { source: "arm-follower", stamp: None, state: Arc::clone(&fixture.state) }))?;
+    let parked = follower.external_task(ctx.task_id)?;
+    assert!(matches!(parked.dispatch_eligibility, DispatchEligibility::Parked { .. }));
+    fixture.state.lock().lose_reply = true;
+    let refused = fixture.store.arm_native_operation_for_dispatch(&ctx, &mut lost, &mut lost_attempt);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("fixture lost chosen T2 reply")), "{refused:#?}");
+    let chosen = fixture.chosen()?;
+    let objects = fixture.store.admission_objects(&chosen.admission.payload_ref)?;
+    assert_eq!(follower.recover_control_admission(&chosen, &objects, false)?, ControlRecoveryOutcome::ReconciliationRequired);
+    assert_eq!(serde_json::to_value(follower.external_task(ctx.task_id)?)?, serde_json::to_value(&parked)?);
+    assert!(!follower.control_admission_applied_here(&chosen.admission)?);
+    assert_eq!(follower.pending_control_reconciliations(fixture.agent)?.len(), 1);
+
+    // Even a retained grant cannot smuggle a different invocation into the
+    // delta. Malformation is fatal and leaves all three T1 rows unapplied.
+    let mut envelope: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&chosen.admission.payload_ref.digest)?)?;
+    let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    let mut transition: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&reference.digest)?)?;
+    let logical: CommitRef = serde_json::from_value(transition["rows"]["result_commit"].clone())?;
+    let table = transition["rows"]["tables"].as_array_mut().context("arm tables")?.iter_mut()
+        .find(|table| table["before"]["table"]["name"] == "attempts").context("attempt write")?;
+    let data_column = table["before"]["table"]["columns"].as_array().context("attempt columns")?.iter()
+        .position(|column| column == "data").context("attempt JSON column")?;
+    let data = &mut table["changes"][0]["after"][data_column]["value"];
+    let mut substituted: serde_json::Value = serde_json::from_str(data.as_str().context("attempt JSON")?)?;
+    substituted["invocation_id"] = serde_json::to_value(EntityId::new())?;
+    *data = serde_json::to_value(serde_json::to_string(&substituted)?)?;
+    let bad_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json", "commit-authority", "store-native-arm-transition", 1)?.object;
+    envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
+    let mut fault = chosen.clone();
+    fault.admission.payload_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
+    fixture.state.lock().grants.insert(fault.admission.conflict_key.clone(), fault.clone());
+    let malformed = fixture.store.recover_control_admission(&fault, &fixture.store.admission_objects(&fault.admission.payload_ref)?, true);
+    assert!(matches!(&malformed, Err(error) if error.to_string().contains("T1 write differs from its frozen request")), "{malformed:#?}");
+    assert_eq!(serde_json::to_value(fixture.store.external_task(ctx.task_id)?)?, serde_json::to_value(&before)?);
+    assert_eq!(connection.query_row("SELECT count(*) FROM operations WHERE operation_id=?1", [lost.operation_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    assert_eq!(connection.query_row("SELECT count(*) FROM attempts WHERE attempt_id=?1", [lost_attempt.attempt_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    assert!(!fixture.store.control_admission_applied_here(&fault.admission)?);
+    fixture.state.lock().grants.insert(chosen.admission.conflict_key.clone(), chosen.clone());
+    assert_eq!(fixture.store.recover_control_admission(&chosen, &objects, true)?, ControlRecoveryOutcome::RecoveredCanonical);
+    let recovered = fixture.store.external_attempt(lost_attempt.attempt_id)?;
+    let mut expected_attempt = lost_attempt.clone();
+    expected_attempt.armed_commit = logical;
+    assert_eq!(serde_json::to_value(&recovered)?, serde_json::to_value(expected_attempt)?);
+    let mut expected_operation = lost.clone();
+    expected_operation.prepared_commit = logical;
+    assert_eq!(serde_json::to_value(fixture.store.external_operation(lost.operation_id)?)?, serde_json::to_value(expected_operation)?);
+    assert!(fixture.store.arm_native_operation_for_dispatch(&ctx, &mut lost, &mut lost_attempt)?.is_some());
+    assert_eq!(fixture.store.commit_native_dispatch(&ctx, lost.operation_id, lost_attempt.attempt_id)?, AlreadyCommitted);
+    assert!(fixture.store.external_operation_evidence(lost.operation_id)?.is_empty());
+
+    // A new Store incarnation can order an unchosen source preparation before
+    // activation, but the original worker still receives only a factual read.
+    let (ctx, mut restart, mut restart_attempt) = draft_dispatch_operation(&fixture.store, initial, "arm-preactivation-recovery", EntityId::new())?;
+    fixture.state.lock().fail_before_choose = true;
+    let refused = fixture.store.arm_external_operation(&ctx, &mut restart, &mut restart_attempt);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("fixture failed before choosing dispatch")), "{refused:#?}");
+    let reopened = fixture.reopen()?;
+    let recovered = reopened.resume_prepared_step_commits(fixture.agent)?;
+    assert_eq!(recovered.applied, 1);
+    assert!(recovered.unresolved.is_empty());
+    assert!(!fixture.chosen()?.replayed);
+    assert!(reopened.arm_external_operation(&ctx, &mut restart, &mut restart_attempt)?.is_some());
+    assert_eq!(reopened.external_operation_attempts(restart.operation_id)?.len(), 1);
+    assert_eq!(reopened.external_operation(restart.operation_id)?.effect_status, EffectStatus::Unknown);
+    assert_eq!(reopened.resume_prepared_step_commits(fixture.agent)?.applied, 0);
+    let head = reopened.load_subject(fixture.agent)?.0;
+    reopened.activate_runtime_authority(&head)?;
+    let (stale, mut fenced, mut fenced_attempt) = draft_dispatch_operation(&reopened, &ctx, "stale-worker-after-reopen", EntityId::new())?;
+    let before = reopened.external_task(ctx.task_id)?;
+    let refused = reopened.arm_external_operation(&stale, &mut fenced, &mut fenced_attempt);
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("source precondition changed")), "{refused:#?}");
+    assert_eq!(serde_json::to_value(reopened.external_task(ctx.task_id)?)?, serde_json::to_value(before)?);
+    assert_eq!(connection.query_row("SELECT count(*) FROM operations WHERE operation_id=?1", [fenced.operation_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    Ok(())
 }
 
 #[test]

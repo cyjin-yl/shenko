@@ -3,7 +3,7 @@ name: Real single-node journey
 on:
   workflow_dispatch:
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -14,9 +14,10 @@ concurrency:
 
 jobs:
   real-model-journey:
-    # Explicit opt-in also works before a new workflow reaches main. A
-    # workflow_dispatch-only file cannot be dispatched from a first PR.
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-real-model')
+    # One explicit label event requests one exact-candidate experiment. Do
+    # not repeat it on pushes or unrelated labels while opt-in is present.
+    # Label opt-in also works before this workflow reaches main.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-real-model'
     runs-on: ubuntu-24.04
     container: rust:1.98.1-bookworm
     timeout-minutes: 75
@@ -60,23 +61,26 @@ jobs:
           sha256sum .ci/model/model.gguf .ci/model/llama.tar.gz > .ci/evidence/model.sha256
           tar -xf .ci/model/llama.tar.gz -C .ci/model
           .ci/model/llama-b12359/llama-server --version > .ci/evidence/model-runtime-version.txt 2>&1
+          .ci/model/llama-b12359/llama-server --help > .ci/evidence/model-runtime-help.txt 2>&1
       - name: Observe live browser input, children, results, output and restart
         shell: bash
         run: |
           set -euo pipefail
-          # Use the pinned runtime's normal batch and repacking settings on
-          # this runner; retain the exact host limits and argv for comparison.
+          # b12359's CPU tiled/split-KV attention paths require F16/F32 K/V.
+          # This model's F16 cache body is 1.75 GiB at 16K, before other buffers.
+          # Keep weights, prompt, sampling and request limits unchanged; the
+          # next real observation must establish any throughput improvement.
           model_threads="$(nproc)"
           model_command=(.ci/model/llama-b12359/llama-server
             --model .ci/model/model.gguf --alias Qwen3-0.6B-Q4_K_M
             --host 127.0.0.1 --port 18832 --offline --no-webui
             --threads "$model_threads" --threads-batch "$model_threads" --threads-http 2
             --ctx-size 16384 --parallel 1 --batch-size 2048 --ubatch-size 512
-            --n-gpu-layers 0 --cache-type-k q8_0 --cache-type-v q8_0
+            --n-gpu-layers 0 --flash-attn on --cache-type-k f16 --cache-type-v f16
             --cache-ram 64 --load-mode none --repack --jinja --reasoning off
             --n-predict 1024 --no-context-shift
             --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5
-            --timeout 600 --log-timestamps --log-colors off)
+            --timeout 600 --verbosity 4 --log-timestamps --log-colors off)
           python3 - "${model_command[@]}" <<'PY_RUNTIME'
           import json, os, pathlib, platform, sys
           def observed_file(path):
@@ -90,9 +94,15 @@ jobs:
               "cpu_affinity": sorted(os.sched_getaffinity(0)),
               "cpuinfo": observed_file("/proc/cpuinfo"),
               "meminfo": observed_file("/proc/meminfo"),
+              "proc_self_cgroup": observed_file("/proc/self/cgroup"),
+              "cgroup_mounts": [line for line in pathlib.Path("/proc/self/mountinfo").read_text().splitlines()
+                                 if " - cgroup2 " in line],
+              "cgroup_cpuset_cpus_effective": observed_file("/sys/fs/cgroup/cpuset.cpus.effective"),
               "cgroup_cpu_max": observed_file("/sys/fs/cgroup/cpu.max"),
+              "cgroup_cpu_stat": observed_file("/sys/fs/cgroup/cpu.stat"),
               "cgroup_memory_max": observed_file("/sys/fs/cgroup/memory.max"),
               "cgroup_memory_current": observed_file("/sys/fs/cgroup/memory.current"),
+              "cgroup_scope": "visible cgroup mount; unexposed ancestor limits are not observed",
           }
           pathlib.Path(".ci/evidence/model-runtime-invocation.json").write_text(
               json.dumps(observation, indent=2) + "\n")
@@ -106,6 +116,25 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://127.0.0.1:18832/health > .ci/evidence/model-health.json
+          python3 - "$model_pid" <<'PY_LOADED_RUNTIME'
+          import json, os, pathlib, sys
+          pid = int(sys.argv[1])
+          proc = pathlib.Path("/proc") / str(pid)
+          mapped_files = [line.split(maxsplit=5)[-1] for line in (proc / "maps").read_text().splitlines()
+                          if len(line.split(maxsplit=5)) == 6]
+          loaded = {
+              "phase": "model_ready",
+              "pid": pid,
+              "executable": os.readlink(proc / "exe"),
+              "argv": (proc / "cmdline").read_bytes().decode().rstrip("\0").split("\0"),
+              "cpu_affinity": sorted(os.sched_getaffinity(pid)),
+              "process_cgroup": (proc / "cgroup").read_text(),
+              "process_status": (proc / "status").read_text(),
+              "mapped_ggml_libraries": sorted({path for path in mapped_files if "libggml" in pathlib.Path(path).name}),
+              "scope": "mapped libraries and process state at readiness; actual backend selection and attention configuration are retained in model-server.log at verbosity 4",
+          }
+          pathlib.Path(".ci/evidence/model-runtime-loaded.json").write_text(json.dumps(loaded, indent=2) + "\n")
+          PY_LOADED_RUNTIME
           .ci/python/bin/python scripts/real_single_node_journey.py \
             --binary .ci/target/real-single-node/debug/shenko \
             --source-revision "$GITHUB_SHA" \

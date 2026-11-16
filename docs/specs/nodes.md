@@ -197,7 +197,7 @@ retained across at most three prefix/term recovery rounds.
 | --- | --- |
 | A fresh quorum chose the local primary and the final local fence still names this campaign | Start with the exact current authority; each global mutation still needs its own admission. |
 | Another primary is learned through an authenticated route | Return `PrimaryNotSelected` to the resident follower loop; retain the owner lock, catch up and recover learned canonical results before trying selection again. |
-| No global fence is available and several reachable configured voters form a minority | Independently observe every participant's authenticated routes. Only an exact reciprocal view, the same committed configuration, and every participant's durable acknowledgement can choose a component coordinator and its new availability branch. |
+| No global fence is available and several reachable configured voters form a minority | Independently observe every participant's authenticated routes. A closed reciprocal neighbourhood graph, a preferred coordinator with direct routes to every member, the same committed configuration, and every participant's durable acknowledgement can choose the component's new availability branch. |
 | A connected view is incomplete, asymmetric, changed or lacks a resident candidate | Remain a follower and repeat bounded observation; a subset of responses does not create component authority. |
 | No authenticated response from another configured voter during this attempt | A branch fallback is eligible only while the failed campaign's term/configuration and absence of a fence still match a fresh reservation; materialize the actual Store branch before consumers. |
 | A newer prefix/term keeps changing or the authority snapshot changed before fallback | Bound recovery to three rounds and report not-selected or the actual authority conflict; never convert that conflict into isolated authority. |
@@ -221,7 +221,14 @@ Component agreement is separate from the global control log. Its proposal
 binds the full sorted participant set, each participant's identity, term,
 configuration, local component revision and observed candidate, plus a new
 decision/branch identity. Every participant probes its own configured SSH
-routes before acknowledging. An acknowledgement advances a durable local
+routes before acknowledging. Each observation retains that node's complete
+direct neighbourhood, including itself; all observed neighbours must appear
+in the proposal and each reported edge must have its reverse. Followers need
+not contact one another, but the candidate selected by the unchanged preference
+and tie-break rules must have direct reciprocal routes to every member. A
+preferred candidate that needs a relay remains an unavailable view; the
+mechanism does not replace it with a less-preferred network hub. An
+acknowledgement advances a durable local
 component revision and invalidates its preceding availability origin before
 the reply. The exact original proposal, acknowledgements and full committed
 certificate remain in immutable command history after supersession. Replaying
@@ -231,7 +238,13 @@ and quorum thresholds never change to accommodate the smaller component.
 The selected coordinator publishes the complete certificate to every follower,
 confirms their retained selection, then materializes an actual Store fork.
 Only that coordinator may open the agreed branch. Before new Store admissions,
-it confirms the same reachable view and candidate observations; the final local
+it obtains every member's new `ComponentObserve` and confirms that member's
+original complete neighbourhood, retained certificate and runtime/candidate
+observations. A follower checks its own neighbourhood and its reachable
+neighbours, including the coordinator, to remain resident; that local check
+grants no execution authority and does not confirm unreachable remote state.
+An added neighbour, asymmetric edge, missing response or changed selection
+refuses the old view. The final local
 Node reservation also checks the exact component revision/certificate. Learning
 a newer local promise, term, configuration or identity prevents fresh work under
 the old origin. This does not retract a previously granted physical send or
@@ -256,7 +269,8 @@ model binding and uses Node identity as a deterministic tie break when no
 comparison exists. The typed candidate can retain supplied rank and model
 evidence, but configuration is not a successful inference and no automatic
 strongest-usable-model assessment is supplied here. That product requirement,
-transitive/asymmetric route handling, real multi-device/provider journeys and
+coordinators requiring transitive-only routes, asymmetric route handling,
+real multi-device/provider journeys and
 the full [§5.4.1](#spec-5-4-1) contract still require further work.
 
 ## Connected Store admission and materialization
@@ -298,7 +312,7 @@ task may enter `Completing`; after convergence its terminal task, original
 result and inbox entry are one atomic application. Their validator permits
 only those exact task/result/inbox writes. It cannot rewrite E1 or grant a new
 physical send. Prepared startup recovery uses the same existing entry point.
-Implementation and unexecuted journey limits are recorded in
+Implementation, actual candidate results and remaining journey limits are recorded in
 [canonical native T2 materialization](../development/canonical-native-t2-materialization.md).
 
 The separate `native.dispatch` send-boundary marker also carries a typed
@@ -311,6 +325,18 @@ recovery or learned application always returns factual `AlreadyCommitted`.
 In particular, the first consensus choice of an older preparation can have
 `replayed=false` and still grants no new send. See
 [canonical native dispatch](../development/canonical-native-dispatch.md).
+
+For already claimed, non-model native tasks, `native.arm` now freezes the
+original complete task/request/operation/attempt/invocation. The ordinary and
+paired-dispatch T1 APIs insert only the original operation and attempt and
+update their task, retaining one source result commit and creation timestamp.
+Only the current call that first prepared this action can receive the fresh
+execution result after its final authority, invocation and dispatcher checks.
+Existing preparations, preactivation recovery and learned materialization
+never return a new permit, including when consensus first chooses that old
+preparation with `replayed=false`. The typed projection excludes model-child
+quota and subject publication T1, and cannot overwrite imported parking.
+See [canonical native arming](../development/canonical-native-arming.md).
 
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
@@ -335,11 +361,11 @@ The live Store provider and runtime reconstruction path retain local markers
 only after Store COMMIT. A live authority failure cancels and drains the owned
 runtime before rebuilding its branch-scoped consumers. Storage failure retains
 its actual error instead of being disguised as an election retry. A follower
-may materialize a verified chosen S1, native dispatch marker or native T2 without becoming a primary, but this
+may materialize a verified chosen S1, non-model native T1, native dispatch marker or native T2 without becoming a primary, but this
 factual projection supplies no new physical send permit.
 
 The other admission boundaries, including S0 request arming, native claims,
-external-operation T1 arming and publication T2, still
+model-child/quota and publication T1, other trusted-executor T1 and publication T2, still
 carry original plans rather than this canonical transition. Calling their
 ordinary code on another ledger is not deterministic replication. When a
 chosen plan cannot be materialized, the selected local primary retains its
@@ -459,13 +485,15 @@ Connected-minority agreement and a resident follower now have runtime paths;
 their focused Node journey executed and passed in the Nightly scope recorded by
 the [component continuation evidence](../evidence/component-coordination-20261116.md),
 while real multi-device, model-readiness and all-topology acceptance remain
-open. Canonical cross-ledger transition replay is implemented for S1, and the
-paired native T2 boundaries carry frozen transitions at source level; those
-two native T2 journeys did not exist at the candidate that has runtime
-evidence, so they are not yet execution evidence. The remaining replay work is
-the other control boundaries — S0 request arming, native claims, T1/dispatch
-and publication T2 — which still carry original plans rather than a canonical
-transition. The
+open. The later reciprocal-star extension, including a model-free resident,
+still requires its own actual protocol and real-process results. Canonical S1,
+the paired native T2 boundaries and native dispatch have actual focused journey
+results with exact candidate scope in their linked evidence. Non-model native
+T1 now also has a typed frozen transition; its new journey awaits candidate CI.
+The remaining replay work includes S0 request arming, native claims,
+model-child/quota and publication T1, other trusted-executor T1 and publication
+T2. They still carry original plans rather than canonical transitions, and
+authoritative task predecessors remain a separate gap. The
 [runtime authority evidence](../evidence/runtime-authority-bridge-20261115.md)
 records the passing integrated journeys without claiming those remaining goals.
 

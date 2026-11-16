@@ -61,6 +61,26 @@ shenko context policy disable <id>         # 保留记录，停止运行
 shenko context windows [--limit N]         # 已提交窗口链的元数据（不读派生物载荷）
 ```
 
+`context windows` 读取 launcher 指针选中的槽，经 `Store::inspect_active_subject_context_windows`
+使用身份检查相同的私有稳定副本：主库、journal 和 WAL 必须在复制前后保持一致，
+主体/分支、activation selector、模型 generation/profile 和窗口页在同一副本事务内读取。
+该 selector 引用的不可变 route 从已有 CAS 只读取得，核验 digest/bytes、schema、
+主体、软件 generation、activation 来源以及安装/槽路径；指针本身不是当前槽的证明。
+正常进程接续会递增 selector 的 revision/epoch 而保留原 route，因此 route 的这两个
+字段不得来自未来，但不要求等于接续后的值。缺少 selector、必要 CAS 或 route，
+以及交接中 selector/route 与所选槽不一致，均明确拒绝，不回退为指针已生效。
+若本槽仍保存绑定当前来源 generation 和 expected selector revision 的未决 Handoff，
+也明确要求对账：candidate CAS 已提交、旧槽尚未 mirror 的窗口不能由旧槽内部一致性
+证明当前选路。旧 revision 的历史 Handoff 不会阻断后来已核验的激活或回滚。
+查询不会扫描候选或自行完成交接。它不打开活库做
+迁移、初始化或恢复，不创建原路径的 WAL/SHM 或 CAS，也不会用忽略 WAL 的
+`immutable` 读取掩盖尚未 checkpoint 的窗口。派生物仍只读其已保存身份和长度；
+窗口正文继续经过原来的版本、身份和 entry 校验。缺失/不兼容的已用 schema、
+损坏或持续变化的数据库均明确报错。该稳定副本实现目前依赖 Linux 原语；非 Linux
+明确报告 unsupported，不降级为会改动活库的读取。
+底层 `Store::inspect_subject_context_windows` 仍可在没有 CAS 时观察指定槽的元数据，
+但不声称该槽已激活；命令入口不使用这个未核验当前选路的结果。
+
 ### 生命周期是普通 Cordis 生命周期
 
 每个策略是一个 `Plugin`，`apply` 时向 `PolicyRegistry` 注册，`dispose` 时注销自己那一次注册。注销按 `(manifest id, epoch)` 精确匹配，因此被替换掉的旧 generation 迟到清理不会误删继任者。更新配置是同一 Fiber 的更新，会产生新的安装 epoch。

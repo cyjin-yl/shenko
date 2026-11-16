@@ -150,6 +150,21 @@ owner-control files and the installation tree are never copied there.
 Temporary private keys are removed after process cleanup; a cleanup failure
 retains its private temporary tree and records the unresolved process.
 
+Each named SSH execution explicitly requests a 120-second run budget and a
+180-second outer CLI observation budget, followed by the existing bounded
+process cleanup. Both budgets and the measured CLI duration are recorded;
+the start record also survives failures before a final output can be read.
+The run's original clock includes controlled-engine compilation, mount setup,
+instantiation and guest execution. CLI startup and artifact verification,
+which itself compiles the module to inspect its real ABI/imports, precede that
+clock and are covered by the outer budget. Targeted debug logs record artifact
+verification, the original run-budget start, compilation, pre-instantiation
+stops, instantiation and `_start` duration without logging guest input or
+credentials. Production defaults and timeout/cancellation/clock semantics are
+unchanged. A deadline or incomplete result still fails the original protocol
+assertions; the larger bounded fixture budget does not declare execution safe
+to retry or completed.
+
 Missing inputs fail the journey. Compilation alone is not evidence that
 this installation path ran; an earlier direct-module result remains scoped
 to that earlier path and candidate. This journey does not prove native
@@ -178,3 +193,18 @@ Those receipts record the activated 2,552,689-byte module and both distinct
 identities. This failure occurred before the first SSH request, so that run
 does not prove the installed-tool protocol journey. The follow-up assertion
 repair keeps the original protocol checks and still requires a complete run.
+
+Candidate `a3739f2e581b25e3ca841c8402b3cc118fdeb222` passed the installation,
+pointer, module and environment identity checks in
+[CI run 43875531605](https://github.com/cyjin-yl/shenko/actions/runs/43875531605),
+then the first named `keygen` returned `DeadlineExceeded`/exit 124 under its
+30-second run budget. The original `rust-evidence` artifact `14231365781`
+(ZIP SHA-256
+`b360ab5f5046f90f3feaf17e917fafde079cc5c335a8c59034cbade74a281e52`)
+retains the empty guest output, runtime stderr and process receipts. That
+log has no compile/instantiation boundary, so it does not establish that cold
+compilation was the only cause. The earlier direct-module source also used
+30 seconds; 120 seconds is a new explicit fixture budget, not a restored old
+setting. The phase observations above let the next complete run distinguish
+preparation cost from a guest wait. This follow-up still needs its own actual
+CLI/OpenSSH result.

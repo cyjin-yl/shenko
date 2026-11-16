@@ -7,6 +7,7 @@ pub mod authority;
 mod control_recovery;
 mod control_transition;
 mod dispatch_transition;
+mod arming_transition;
 mod native_transition;
 pub use control_recovery::{ControlRecoveryOutcome, PreparedStepDebt, PreparedStepRecovery, CONTROL_RECONCILIATION_SOURCE};
 mod control_predecessor;

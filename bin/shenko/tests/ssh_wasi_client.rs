@@ -19,6 +19,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+// A named execution cold-verifies its installed artifact and compiles it on
+// the controlled engine. The run budget still includes compile/setup; the
+// outer budget additionally bounds CLI startup, verification and cleanup.
+const SSH_RUN_TIMEOUT_SECS: u64 = 120;
+const SSH_CLI_TIMEOUT_SECS: u64 = 180;
+
 /// Each command owns a process group that receives timeout/failure signals.
 /// Waiting for the owned child is bounded, and every observed join is retained
 /// beside its output. A leader join is not proof of every descendant's exit.
@@ -234,10 +240,10 @@ impl Fixture {
 
     fn cli(&self) -> Command {
         let mut command = self.command(env!("CARGO_BIN_EXE_shenko"));
-        command
-            .arg("--data-dir")
-            .arg(self.data())
-            .args(["--log", "info"]);
+        command.arg("--data-dir").arg(self.data()).args([
+            "--log",
+            "info,shenko_wasm::runtime=debug,shenko::tool_exec=debug",
+        ]);
         command
     }
 
@@ -444,15 +450,9 @@ impl Fixture {
         fs::write(&input, serde_json::to_vec(&request)?)?;
         let mut command = self.cli();
         command
-            .args([
-                "tool",
-                "exec",
-                "--tool",
-                "ssh",
-                "--timeout-secs",
-                "30",
-                "--stdin-file",
-            ])
+            .args(["tool", "exec", "--tool", "ssh", "--timeout-secs"])
+            .arg(SSH_RUN_TIMEOUT_SECS.to_string())
+            .arg("--stdin-file")
             .arg(&input)
             .arg("--stdout-file")
             .arg(&stdout)
@@ -461,13 +461,30 @@ impl Fixture {
         if let Some(port) = port {
             command.arg("--network").arg(format!("127.0.0.1:{port}"));
         }
-        let status = self.run(&mut command, &label, Duration::from_secs(60))?;
+        append_json(
+            &self.logs().join("guest-records.jsonl"),
+            &json!({
+                "event":"command_started", "label":label, "action":request["action"],
+                "run_timeout_secs":SSH_RUN_TIMEOUT_SECS, "cli_timeout_secs":SSH_CLI_TIMEOUT_SECS,
+            }),
+        )?;
+        let cli_started = Instant::now();
+        let status = self.run(
+            &mut command,
+            &label,
+            Duration::from_secs(SSH_CLI_TIMEOUT_SECS),
+        );
         let record = json!({
-            "action":request["action"], "exit_code":status.code(), "outcome":status.to_string(),
+            "event":"command_observed", "label":label, "action":request["action"],
+            "run_timeout_secs":SSH_RUN_TIMEOUT_SECS, "cli_timeout_secs":SSH_CLI_TIMEOUT_SECS,
+            "cli_elapsed_secs":cli_started.elapsed().as_secs_f64(),
+            "exit_code":status.as_ref().ok().and_then(ExitStatus::code),
+            "outcome":match &status { Ok(status) => status.to_string(), Err(error) => format!("{error:#}") },
             "stdout":read_output(&stdout, 256 * 1024)?, "stderr":read_output(&stderr, 64 * 1024)?,
             "cli_stderr":read_output(&self.logs().join(format!("{label}.stderr")), 256 * 1024)?,
         });
         append_json(&self.logs().join("guest-records.jsonl"), &record)?;
+        let status = status?;
         ensure!(
             status.code().is_some(),
             "guest CLI did not exit normally: {record}"

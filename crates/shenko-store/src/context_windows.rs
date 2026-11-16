@@ -6,6 +6,8 @@
 //! the same transaction as their window, so a window never commits without
 //! the frames it references. Appends ride the ledger's single mutation line.
 use rusqlite::{OptionalExtension, params};
+use anyhow::{Context as _, ensure};
+use std::path::Path;
 
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
@@ -82,6 +84,16 @@ pub struct StoredWindowPage {
     pub windows: Vec<StoredWindowMeta>,
 }
 
+/// Subject binding, model binding and committed window metadata observed in
+/// one stable private database snapshot. No live Store is opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubjectContextWindowInspection {
+    pub scope_id: EntityId,
+    pub model_generation: i64,
+    pub profile_digest: Option<String>,
+    pub page: StoredWindowPage,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextWindowAppend {
     Appended,
@@ -122,6 +134,166 @@ fn read_window(
 
         }
     Ok(StoredContextWindow { window_id, generation, body, derivatives })
+}
+
+/// Read metadata through the caller's transaction; never fetch derivative BLOBs.
+fn read_window_meta_page(
+    conn: &rusqlite::Connection,
+    scope_id: EntityId,
+    before: Option<i64>,
+    limit: i64,
+) -> Result<StoredWindowPage, ShenkoError> {
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM context_windows WHERE scope_id = ?1",
+            params![scope_id.to_string()],
+            |r| r.get(0),
+        )
+        .map_err(storage)?;
+    let limit = limit.max(0);
+    // One extra row proves whether older windows remain without a second
+    // scan or another round-trip.
+    let rows = conn
+        .prepare_cached(
+            "SELECT window_id, generation, body FROM context_windows
+             WHERE scope_id = ?1 AND generation < ?2
+             ORDER BY generation DESC LIMIT ?3",
+        )
+        .map_err(storage)?
+        .query_map(
+            params![scope_id.to_string(), before.unwrap_or(i64::MAX), limit.saturating_add(1)],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(storage)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(storage)?;
+    let has_older = rows.len() as i64 > limit;
+    let mut windows = Vec::with_capacity(rows.len().min(limit as usize));
+    for (id, generation, body) in rows.into_iter().take(limit as usize) {
+        let window_id = id.parse::<EntityId>().map_err(storage)?;
+        let derivatives = conn
+            .prepare_cached(
+                "SELECT media_type, blake3, length(bytes) FROM context_window_derivatives
+                 WHERE window_id = ?1 ORDER BY idx",
+            )
+            .map_err(storage)?
+            .query_map(params![window_id.to_string()], |r| {
+                Ok(StoredDerivativeMeta {
+                    media_type: r.get(0)?,
+                    blake3: r.get(1)?,
+                    bytes: u64::try_from(r.get::<_, i64>(2)?)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                })
+            })
+            .map_err(storage)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(storage)?;
+        windows.push(StoredWindowMeta { window_id, generation, body, derivatives });
+    }
+    Ok(StoredWindowPage { total, has_older, windows })
+}
+
+fn inspect_window_page(
+    conn: &rusqlite::Connection,
+    before: Option<i64>,
+    limit: i64,
+    check_subject: impl FnOnce(&crate::SubjectBinding) -> anyhow::Result<()>,
+) -> anyhow::Result<Option<SubjectContextWindowInspection>> {
+    let binding = crate::store::read_installation_binding(conn)?;
+    let Some(subject) = binding.subject else { return Ok(None) };
+    check_subject(&subject)?;
+    let scope_id = subject.branch_id;
+    let profile = conn.query_row(
+        "SELECT model_generation,profile_digest FROM context_window_scopes WHERE scope_id=?1",
+        params![scope_id.to_string()],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+    ).optional()?;
+    let (model_generation, profile_digest) = profile.unwrap_or((0, None));
+    let page = read_window_meta_page(conn, scope_id, before, limit)?;
+    Ok(Some(SubjectContextWindowInspection { scope_id, model_generation, profile_digest, page }))
+}
+
+fn verify_selected_context_slot(
+    conn: &rusqlite::Connection,
+    agent_id: EntityId,
+    db_path: &Path,
+    data_dir: &Path,
+    cas_dir: &Path,
+) -> anyhow::Result<()> {
+    use shenko_types::activation::{ActivationOrigin, ActivationPhase, ActivationRecord, RouteAuthority};
+    use shenko_types::object::Digest;
+
+    let selector = crate::activation::read_selector(conn, agent_id)?
+        .context("context windows requires the selected slot's activation selector")?;
+    let (revision, epoch): (u64, u64) = conn.query_row(
+        "SELECT selector_revision,active_epoch FROM activation_selectors WHERE agent_id=?1",
+        [agent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let (head, _) = crate::store::read_subject(conn, agent_id)?;
+    ensure!(selector.agent_id == agent_id
+        && selector.selector_revision == revision && selector.active_epoch == epoch
+        && selector.generation == head.software_generation
+        && selector.active_epoch == head.controller_epoch.0,
+        "context windows activation selector does not own the observed subject head");
+
+    // A candidate commits its selector before the source mirrors it. During
+    // that interval the source's old head/selector/route are still mutually
+    // consistent. Its durable handoff record, written before the candidate
+    // CAS, makes the original selector expectation explicitly unresolved.
+    // Do not let historical records for another revision (including a later
+    // rollback to the same named generation) veto a verified selection.
+    let mut handoffs = conn.prepare(
+        "SELECT data FROM activation_records WHERE agent_id=?1 AND phase='handoff'",
+    )?;
+    for raw in handoffs.query_map([agent_id.to_string()], |row| row.get::<_, String>(0))? {
+        let pending: ActivationRecord = serde_json::from_str(&raw?)?;
+        ensure!(pending.agent_id == agent_id && pending.phase == ActivationPhase::Handoff,
+            "context windows activation handoff projection is inconsistent");
+        ensure!(pending.from_generation != selector.generation
+            || pending.expected_selector_revision != selector.selector_revision,
+            "context windows handoff {} selection requires reconciliation at selector revision {}",
+            pending.activation_id, selector.selector_revision);
+    }
+
+    // The route is immutable content named by THIS snapshot's selector.
+    // Attach read-only: a missing CAS is an error, never an initialization.
+    let cas = crate::ContentStore::open_existing(cas_dir.to_owned())?;
+    let bytes = cas.read_object(&selector.route_authority_ref.digest)?;
+    ensure!(bytes.len() as u64 == selector.route_authority_ref.bytes
+        && Digest::blake3(&bytes) == selector.route_authority_ref.digest,
+        "context windows activation route content identity mismatch");
+    let route: RouteAuthority = serde_json::from_slice(&bytes)?;
+    ensure!(route.schema_version == RouteAuthority::SCHEMA_VERSION,
+        "context windows activation route schema is unsupported");
+    // A process takeover advances the selector's revision and epoch while
+    // retaining this generation's original sealed route. It never changes
+    // the route's identity, software generation or activation origin.
+    let origin_matches = match &selector.origin {
+        ActivationOrigin::Genesis { genesis_ref } => {
+            route.activation_id.is_none() && *genesis_ref == head.genesis_ref
+        }
+        ActivationOrigin::Activation { activation_id } => {
+            route.activation_id == Some(*activation_id)
+        }
+    };
+    ensure!(route.agent_id == selector.agent_id && route.generation == selector.generation
+        && route.active_epoch > 0 && route.active_epoch <= selector.active_epoch
+        && route.selector_revision <= selector.selector_revision && origin_matches,
+        "context windows activation route does not bind the observed selector");
+    let root = data_dir.canonicalize()?;
+    let slot = db_path.parent().context("context database has no slot directory")?.canonicalize()?;
+    ensure!(slot == root || slot.parent() == Some(root.join("versions").as_path()),
+        "context windows selected slot is outside this installation");
+    ensure!(Path::new(&route.data_dir).canonicalize()? == root
+        && Path::new(&route.slot_dir).canonicalize()? == slot,
+        "context windows launcher slot disagrees with the committed activation route");
+    Ok(())
 }
 
 impl Store {
@@ -179,60 +351,42 @@ impl Store {
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
             .map_err(storage)?;
-        let total: i64 = tx
-            .query_row(
-                "SELECT COUNT(*) FROM context_windows WHERE scope_id = ?1",
-                params![scope_id.to_string()],
-                |r| r.get(0),
-            )
-            .map_err(storage)?;
-        let limit = limit.max(0);
-        // One extra row proves whether older windows remain without a second
-        // scan or another round-trip.
-        let rows = tx
-            .prepare_cached(
-                "SELECT window_id, generation, body FROM context_windows
-                 WHERE scope_id = ?1 AND generation < ?2
-                 ORDER BY generation DESC LIMIT ?3",
-            )
-            .map_err(storage)?
-            .query_map(
-                params![scope_id.to_string(), before.unwrap_or(i64::MAX), limit.saturating_add(1)],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .map_err(storage)?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(storage)?;
-        let has_older = rows.len() as i64 > limit;
-        let mut windows = Vec::with_capacity(rows.len().min(limit as usize));
-        for (id, generation, body) in rows.into_iter().take(limit as usize) {
-            let window_id = id.parse::<EntityId>().map_err(storage)?;
-            let derivatives = tx
-                .prepare_cached(
-                    "SELECT media_type, blake3, length(bytes) FROM context_window_derivatives
-                     WHERE window_id = ?1 ORDER BY idx",
-                )
-                .map_err(storage)?
-                .query_map(params![window_id.to_string()], |r| {
-                    Ok(StoredDerivativeMeta {
-                        media_type: r.get(0)?,
-                        blake3: r.get(1)?,
-                        bytes: u64::try_from(r.get::<_, i64>(2)?)
-                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                    })
-                })
-                .map_err(storage)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(storage)?;
-            windows.push(StoredWindowMeta { window_id, generation, body, derivatives });
-        }
-        Ok(StoredWindowPage { total, has_older, windows })
+        read_window_meta_page(&tx, scope_id, before, limit)
+    }
+
+    /// Inspect one slot's locally owned subject branch using the same
+    /// zero-touch, WAL-aware staging as installation identity inspection.
+    /// This raw metadata reader does not claim that the slot is activated;
+    /// it needs no CAS. Installation CLI queries use the active reader below.
+    /// Missing/old schemas and unstable snapshots are errors, never an excuse
+    /// to initialize the live installation or fall back to stale main bytes.
+    pub fn inspect_subject_context_windows(
+        db_path: &Path,
+        before: Option<i64>,
+        limit: i64,
+    ) -> anyhow::Result<Option<SubjectContextWindowInspection>> {
+        Self::inspect_database(db_path, |conn| {
+            inspect_window_page(conn, before, limit, |_| Ok(()))
+        })
+    }
+
+    /// Inspect the installation's selected slot, refusing stale launcher
+    /// pointers. Selector, head, profile and windows share one stable staged
+    /// transaction; only the selector's sealed route is read from existing
+    /// CAS, with its digest and length verified. Nothing in the installation
+    /// is created or written, including when route verification fails.
+    pub fn inspect_active_subject_context_windows(
+        db_path: &Path,
+        data_dir: &Path,
+        cas_dir: &Path,
+        before: Option<i64>,
+        limit: i64,
+    ) -> anyhow::Result<Option<SubjectContextWindowInspection>> {
+        Self::inspect_database(db_path, |conn| {
+            inspect_window_page(conn, before, limit, |subject| {
+                verify_selected_context_slot(conn, subject.agent_id, db_path, data_dir, cas_dir)
+            })
+        })
     }
 
     /// Append `window` as generation `head + 1` only if the current head is

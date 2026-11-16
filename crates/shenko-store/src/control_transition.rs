@@ -758,7 +758,7 @@ impl Store {
         prepared_transition_at(&self.ledger.conn.lock(), action, input)
     }
 
-    /// Resume after a source sealed S1/native dispatch/T2 but before it learned
+    /// Resume after a source sealed S1/native T1/dispatch/T2 but before it learned
     /// whether consensus chose it. Call before activating the new runtime
     /// epoch. Only exact source predecessors qualify; stale plans stay facts.
     /// Preparing the original descriptor either learns its old grant or orders
@@ -820,6 +820,13 @@ impl Store {
                         &reference,
                         &reservation,
                         crate::native_transition::NativeApplyMode::Prepared,
+                    )
+                    .map(|_| ()),
+                Some("native.arm") => self
+                    .apply_arm_transition(
+                        &reference,
+                        &reservation,
+                        crate::arming_transition::ArmApplyMode::Prepared,
                     )
                     .map(|_| ()),
                 Some("native.dispatch") => self

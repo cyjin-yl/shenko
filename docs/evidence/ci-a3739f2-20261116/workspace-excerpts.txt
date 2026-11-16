@@ -1,0 +1,57 @@
+test ssh_wasi_auth_exec_sftp_and_refusal_journey ... FAILED
+
+failures:
+
+---- ssh_wasi_auth_exec_sftp_and_refusal_journey stdout ----
+
+thread 'ssh_wasi_auth_exec_sftp_and_refusal_journey' (13216) panicked at bin/shenko/tests/ssh_wasi_client.rs:568:5:
+assertion `left == right` failed: {"action":"keygen","cli_stderr":"\u001b[2m2026-11-16T13:33:31.234151Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T13:33:31.264813Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T13:33:40.582730Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\nwasi exec stopped: DeadlineExceeded\n","exit_code":124,"outcome":"exit status: 124","stderr":"","stdout":""}
+  left: Number(124)
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ssh_wasi_auth_exec_sftp_and_refusal_journey
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 50.81s
+
+error: test failed, to rerun pass `-p shenko --test ssh_wasi_client`
+     Running tests/start_boundary.rs (.ci/target/rust/debug/deps/start_boundary-5d32b5ba7678e62e)
+
+running 1 test
+test public_start_pause_survives_process_reopen_and_resume_alone_admits_inference ... FAILED
+
+failures:
+
+---- public_start_pause_survives_process_reopen_and_resume_alone_admits_inference stdout ----
+Error: /tmp/shenko-start-boundary-3e35b202-b181-4fa4-adff-5f579e9946c3/first.log:
+[2m2026-11-16T13:34:13.317280Z[0m [33m WARN[0m [2mshenko::node_sync[0m[2m:[0m cognition report not published; peers keep the last real report [3merror[0m[2m=[0mcognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting
+[2m2026-11-16T13:34:13.376674Z[0m [33m WARN[0m [2mshenko[0m[2m:[0m model metadata unavailable; automatic context compaction disabled [3merror[0m[2m=[0mbound model metadata not found
+Shenko UI: http://127.0.0.1:34947
+  Subject task: supervised (durable boundary pause may be active)
+  Inference: dispatch-observer (configured; probe/capability evidence separate)
+Error: Cordis reported a lifecycle failure; reconcile external outcomes before reusing this host (see diagnostics)
+
+
+Caused by:
+    paused runtime did not stop cleanly: exit status: 1
+
+
+failures:
+    public_start_pause_survives_process_reopen_and_resume_alone_admits_inference
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+error: test failed, to rerun pass `-p shenko --test start_boundary`
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_android-7b3a8c792737ff14)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_awareness_core-135d7d77905cb8c3)
+
+test task::tests::refused_t1_does_not_create_a_session_or_execute_a_cell ... ok
+test task::tests::native_repl_t1_precedes_effect_and_recovery_never_reexecutes ... ok
+test canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart ... ok

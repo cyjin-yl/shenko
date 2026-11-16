@@ -591,8 +591,9 @@ struct CompletedRequest {
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
     guard: AdmissionGuard,
-    /// Whether the execution already recorded a typed cause for this request.
-    typed_cause: bool,
+    /// Whether execution submitted a specific cause to the fail-soft reporter.
+    /// This does not acknowledge a durable journal write.
+    cause_report_attempted: bool,
 }
 
 pub struct Broker {
@@ -813,7 +814,7 @@ impl Broker {
     }
 
     fn finish(&self, completed: CompletedRequest) {
-        let CompletedRequest { request, receipt_sink, result, guard, typed_cause } = completed;
+        let CompletedRequest { request, receipt_sink, result, guard, cause_report_attempted } = completed;
         let request_id = request.request_id;
         if let Some(sink) = receipt_sink {
             if let Err(error) = sink.record(&result) {
@@ -848,14 +849,13 @@ impl Broker {
             }
             TerminationKind::Unknown => {
                 accounting.insert(request_id, Some(guard));
-                // One failure is one durable error. When the execution already
-                // recorded the typed cause — a sealed HTTP deadline, a
-                // provider rejection, a wire violation, an unchecked dispatch
-                // fence — that record names the cause and states that the
-                // remote outcome is unconfirmed, so this request is not
-                // restated a second time as a generic unknown outcome
-                // (docs/specs/cognition-units.md#spec-45-14).
-                if !typed_cause {
+                // Report a cause once through the fail-soft error journal.
+                // An attempted report does not prove persistence: the Store
+                // still counts dropped entries under SPEC 45.14. The original
+                // E1 and retained guard, not this diagnostic flag, establish
+                // Unknown and prevent redispatch. An outcome with no specific
+                // cause still gets its own generic observation.
+                if !cause_report_attempted {
                     crate::error_sink::journal_runtime_error(
                         &self.error_sink,
                         &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
@@ -920,7 +920,7 @@ impl Broker {
                         request,
                         receipt_sink,
                         result: executed.result,
-                        typed_cause: executed.typed_cause,
+                        cause_report_attempted: executed.cause_report_attempted,
                         guard,
                     });
                 });

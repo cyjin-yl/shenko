@@ -130,10 +130,12 @@ owned cells/keys against 128 MiB before copying more SQLite values, and the
 sealed JSON image is bounded at 64 MiB. The source pre-capture shares one budget
 across all keyed tables; it does not first retain an unbounded database before
 checking the final payload. When that ceiling is reached the canonical path
-cannot freeze the transition, and this S1 uses the ordinary original-plan path
-instead: the decision is still committed and the degradation is recorded as a
-durable runtime-error fact of the owning subject (`store_capture_budget`), so
-the limitation is explicit instead of a silent refusal. This intentionally
+cannot freeze the transition, and this S1 attempts the ordinary original-plan
+admission instead. A separate fail-soft `store_capture_budget` report records
+the observed refusal and intended fallback; only the later actual receipt can
+prove a commit. The report is not an admission or a persistence acknowledgement.
+Existing prepared values, bad seals and ordinary conflicts never take this
+capacity path. This intentionally
 rejects some otherwise independent concurrent updates and is not a performance
 claim for a large long-lived ledger. Matching schema is required. Canonical
 migration across schema changes,

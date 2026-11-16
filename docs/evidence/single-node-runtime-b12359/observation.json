@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "kind": "pinned_runtime_source_and_model_header_inspection",
+  "product_tested": false,
+  "model_run_performed": false,
+  "runtime_tag": "b12359",
+  "runtime_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+  "runtime_archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+  "model_checkpoint_sha256_from_prior_verified_full_download": "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a",
+  "tag_resolution_url": "https://api.github.com/repos/ggml-org/llama.cpp/git/ref/tags/b12359",
+  "findings": [
+    "The fixed runtime defaults Flash Attention to auto. Quantized V with auto is explicitly changed to enabled; q8 V is not evidence that Flash Attention was disabled.",
+    "CPU tiled prefill and split-KV decode fast paths require K/V with equal types, either F16 or F32, plus their other shape/reference-path conditions. Q8_0 does not meet these predicates; its one-chunk fallback still calls vector dot products and must not be labelled no-SIMD.",
+    "The model header has 28 layers, 8 KV heads and 128 dimensions each for K and V. One 16384-token cache body at two bytes per element requires 1879048192 bytes. This excludes model weights, graph/work buffers, process overhead and allocator effects.",
+    "Common application info is verbosity 3, but the callback maps GGML/llama INFO to trace level 4. Explicit verbosity 4 permits the backend loader and attention-configuration INFO records suppressed by the earlier threshold."
+  ],
+  "cache_body_estimate": {
+    "layers": 28,
+    "tokens": 16384,
+    "parallel_slots": 1,
+    "kv_heads": 8,
+    "key_dimensions": 128,
+    "value_dimensions": 128,
+    "f16_bytes_per_element": 2,
+    "formula": "28 * 16384 * 8 * (128 + 128) * 2",
+    "f16_bytes": 1879048192,
+    "f16_gib": 1.75,
+    "q8_0_bytes_per_32_elements": 34,
+    "q8_0_bytes": 998244352,
+    "q8_0_gib": 0.9296875,
+    "measured_runtime_peak": false
+  },
+  "next_experiment": {
+    "flash_attention": "on",
+    "cache_type_k": "f16",
+    "cache_type_v": "f16",
+    "verbosity": 4,
+    "unchanged": [
+      "pinned model weights and runtime archive",
+      "complete shipped product prompt and parser",
+      "sampling settings",
+      "16384 context and one parallel slot",
+      "2048/512 batch and microbatch",
+      "request timeout 1200000 ms",
+      "phase observation 1800 seconds",
+      "all original input/model/child/E1/output/restart success predicates"
+    ],
+    "observations": [
+      "exact process argv and affinity",
+      "visible cgroup cpuset/limits/stat and mount identity",
+      "mapped ggml libraries at real readiness",
+      "process status at readiness",
+      "full verbosity-4 model log"
+    ],
+    "claim": "specific runtime-configuration experiment; no claim that prior slowdown was fully profiled or that this change succeeds"
+  },
+  "upstream_sources": [
+    {
+      "path": "common/arg.cpp",
+      "bytes": 226516,
+      "sha256": "010823f370c875a8685ee06b8ce4994408e091aab4bfff9e5b6a2d73646bd1e0",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/common/arg.cpp",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          1726,
+          1740
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/common/arg.cpp"
+    },
+    {
+      "path": "common/common.h",
+      "bytes": 59898,
+      "sha256": "f3be7677b8d76981a0b773360c192516b5cc1c112a52f7b5876e27b1daf19773",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/common/common.h",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          520,
+          520
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/common/common.h"
+    },
+    {
+      "path": "src/llama-context.cpp",
+      "bytes": 188356,
+      "sha256": "6b2a143eee8d53cdb559eb18b5612028bdf8545ab832cfdca2c2fd87c9c00309",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/src/llama-context.cpp",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          322,
+          323
+        ],
+        [
+          613,
+          618
+        ],
+        [
+          4541,
+          4549
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/src/llama-context.cpp"
+    },
+    {
+      "path": "ggml/src/ggml-cpu/ops.cpp",
+      "bytes": 426859,
+      "sha256": "289be21fbf5736b0deb282652b89078cb5833ec081ebd368ebaa1d9a5d503684",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/ggml/src/ggml-cpu/ops.cpp",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          8812,
+          8822
+        ],
+        [
+          8891,
+          8905
+        ],
+        [
+          9366,
+          9368
+        ],
+        [
+          9423,
+          9431
+        ],
+        [
+          9441,
+          9447
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/ggml/src/ggml-cpu/ops.cpp"
+    },
+    {
+      "path": "ggml/src/ggml-backend-reg.cpp",
+      "bytes": 18239,
+      "sha256": "0a23a627cec97926fb1fbb2b1bf4fa7fed4900aa21b0215302eced797231578b",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/ggml/src/ggml-backend-reg.cpp",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          259,
+          261
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/ggml/src/ggml-backend-reg.cpp"
+    },
+    {
+      "path": "common/log.cpp",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/common/log.cpp",
+      "bytes": 15295,
+      "sha256": "f345a4af8c06177313437693657f7493ff197ad99e70a45f18f12aa7d261e671",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          548,
+          565
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/common/log.cpp"
+    },
+    {
+      "path": "common/log.h",
+      "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b12359/common/log.h",
+      "bytes": 6400,
+      "sha256": "e99f07f5b64288aaece28955ed9f97c2ed8dc9c0375af3e253fc5c682637a014",
+      "resolved_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+      "reviewed_lines": [
+        [
+          24,
+          32
+        ]
+      ],
+      "permalink": "https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/common/log.h"
+    }
+  ],
+  "retained_local_inspection_files": [
+    {
+      "path": "model-header-observation.json",
+      "bytes": 987,
+      "sha256": "ee14d88d6c9b277aa5f6b99d608f8af73c1a4be178de854147cfbee3affae8ba"
+    },
+    {
+      "path": "model-header.bin",
+      "bytes": 65536,
+      "sha256": "e7024e3925bc859009fa3ee6804c0c93704176f8953f913ee8ba81617be94a1f"
+    },
+    {
+      "path": "runtime-help.txt.gz",
+      "bytes": 13418,
+      "sha256": "3d3347d5f39fab1eda7262abc30c877c3a4bd2e8e4b704a44a74c0810670bc46",
+      "encoding": "gzip; original output whitespace and terminal bytes retained",
+      "original_path": "runtime-help.txt",
+      "original_bytes": 62823,
+      "original_sha256": "368031c632ea0678df10211d4a9230608ca5d95cde4fd05cda33f16a838b2aef"
+    },
+    {
+      "path": "runtime-version.txt",
+      "bytes": 90,
+      "sha256": "84b24d587b02c1860940e1d4ff82193bc84df1334c75e96435e78e313f9e3f5f"
+    }
+  ]
+}

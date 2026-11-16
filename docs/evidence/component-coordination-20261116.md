@@ -160,9 +160,12 @@ fixes require their own candidate result. No all-CI-green claim is made here.
 
 ## Remaining acceptance and implementation boundaries
 
-- The protocol currently requires reciprocal configured authenticated routes.
-  Transitive-only and asymmetric network components remain waiting views;
-  this is not complete discovery/routing support for every connected topology.
+- The original protocol required every participant to contact every other
+  participant. The star-topology continuation below allows followers without
+  a direct route to each other. The preferred coordinator still needs direct
+  reciprocal configured authenticated routes to every participant. A preferred
+  leaf requiring relay, longer chains and asymmetric routes remain waiting
+  views; this is not complete discovery/routing support for every topology.
 - Configuration and a live process observation do not prove a usable model.
   Autonomous measured model readiness, comparison and recursive best-model
   takeover remain separate product work.
@@ -175,3 +178,57 @@ fixes require their own candidate result. No all-CI-green claim is made here.
 - Physical partitions, delayed external results, multi-device service failures
   and long-run observation remain unverified. No physical exactly-once effect
   or global single activity is claimed under network partition.
+
+## Star-topology continuation
+
+The isolated `feat/component-star-topology-20261116` increment starts from
+`a3739f2e581b25e3ca841c8402b3cc118fdeb222`. It addresses a concrete unsupported
+minority: among seven configured voters, three residents form a reciprocal
+star, the preferred candidate reaches both followers, and the followers cannot
+directly reach one another. The old equality between each direct neighbour
+set and the entire component rejected that connected view.
+
+`ComponentProposal::validate` now preserves each sorted complete neighbour
+set, requires the member set to be closed over every observation, checks
+reciprocal edges, and requires the existing selected candidate to directly
+cover the full component. Candidate rank and the stable identity tie break are
+unchanged. `prepare_component` still compares the endpoint's independently
+probed view with its exact proposal observation before the durable ACK; the
+global quorum and all-member certificate requirements do not change.
+
+The production confirmation adapter uses `ComponentObserve` to recheck each
+contacted member's complete local view, certificate and runtime observation.
+The coordinator contacts every member before new Store admission. A follower
+contacts its own neighbours, including the coordinator, only to keep following;
+it cannot turn this local confirmation into branch or execution authority.
+Unknown responses remain refusals. A new outside neighbour or a changed local
+view prevents using the old agreement, while original certificates, branches
+and external results stay retained. Final local reservations remain in force.
+
+The existing Node agreement journey is extended to a real seven-voter
+Joint/Final configuration and a three-member star, with one model-free resident.
+It retains incomplete-view/partial-certificate refusal, ACK fencing, reopening,
+exact replay, coordinator-only branch opening, supersession, retirement and
+history checks. The same proposal also checks closure and refusal when a
+supplied preference chooses a leaf that cannot directly confirm all members.
+No new test function, ignored path or topology matrix is added. These are
+SQLite Node protocol observations; they do not manufacture an SSH transport
+or successful model response.
+
+Local verification for this increment used the same locked offline toolchain,
+shared Cargo target and `/tmp/shenko-cargo.lock` described above:
+
+- `cargo check -p shenko-node --test component_agreement --offline --locked -j1`
+  completed successfully in 14.71 seconds, including the changed journey's
+  compilation metadata.
+- `cargo check -p shenko --lib --offline --locked -j1` completed successfully
+  in 57.33 seconds, covering the production confirmation adapter.
+- The documentation checker returned `errors: []` and
+  `product_tested: false`. `git diff --check` and formatting checks on the
+  changed Node source and journey passed.
+
+These are compilation and structural checks, not an executed star journey.
+The changed test was not run locally. Earlier passing two-member Node and
+archive-exchange journeys do not prove this changed view validation or the
+real Start/SSH adapter. A real multi-node route/startup journey, relay support
+and asymmetric topology handling remain outstanding.

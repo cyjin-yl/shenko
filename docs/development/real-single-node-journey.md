@@ -69,7 +69,10 @@ each explicit resume. The
 excluded from the hosted artifact; publish only the explicit evidence subset.
 
 The `Real single-node journey` GitHub Actions workflow is explicitly selected
-with workflow dispatch or the PR label `run-real-model`. The label also works
+with workflow dispatch or by adding the PR label `run-real-model`. Adding that
+specific label requests one experiment; later pushes and unrelated labels do
+not request another. To deliberately observe a new candidate, remove and add
+the label again after publishing that candidate. The label also works
 while the workflow is first being reviewed, before its file reaches main. It
 builds the exact selected repository revision, verifies pinned model and
 llama.cpp archive SHA-256 values, and runs the same script. It retains failed
@@ -86,6 +89,47 @@ below; they are not evidence that the journey passes. The model, full product
 prompt, sampling parameters and all success predicates are unchanged. Outside
 this workflow an unset local request limit still means 180 seconds; a configured
 limit is sealed in every new request and cannot reinterpret an earlier one.
+
+### Hosted CPU attention configuration
+
+The next hosted experiment explicitly uses `--flash-attn on`, F16 K/V caches
+and `--verbosity 4`. It keeps the pinned weights and runtime, complete product
+prompt, parser, sampling, context, batch sizes, sealed request limit and every
+success predicate. Cache precision can change numerical results; the same
+behavior assertions still apply. No improvement is claimed until a new exact
+candidate completes the real journey.
+
+This choice follows inspection of fixed llama.cpp b12359, commit
+`b1b770d90d94cad9e9ea5b993bdbc383a522fb28`:
+
+- The default is `auto`, and [quantized V explicitly enables Flash Attention](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/src/llama-context.cpp#L4541-L4549).
+  The preceding Q8 experiment therefore cannot be described as having omitted
+  Flash Attention merely because it did not pass `--flash-attn`.
+- The CPU's [split-KV and tiled paths require equal F16/F32 K/V types](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/ggml/src/ggml-cpu/ops.cpp#L9366-L9447).
+  Q8 does not satisfy those predicates. The alternative path still calls vector
+  dot products; its presence does not prove a generic or SIMD-free backend.
+- The [logging callback maps library INFO to verbosity 4](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/common/log.cpp#L548-L565),
+  while application INFO defaults to 3. Raising this observation setting retains
+  [the selected backend's library path](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/ggml/src/ggml-backend-reg.cpp#L259)
+  and attention-configuration records that the earlier log lacked.
+
+The first 65,536 bytes of the exact pinned GGUF were read without loading the
+model. They report 28 layers, eight KV heads, and 128 dimensions each for K and
+V. At 16,384 tokens and one slot, an F16 cache body is
+`28 × 16384 × 8 × (128 + 128) × 2 = 1,879,048,192` bytes (1.75 GiB).
+This estimate excludes weights, graph/work buffers and process overhead. The
+previous runner recorded 14.258 GiB available before model startup; neither
+that earlier snapshot nor this calculation proves the next run's peak memory
+fits. The actual startup log and process status remain the observations.
+
+The workflow now retains the pinned runtime's help, complete invocation,
+visible cgroup cpuset/limits/counters and mount identity, then the real model
+process's command, affinity, status and mapped ggml libraries at readiness.
+Unexposed ancestor limits remain unknown. The source review, original header
+range and hashes are in [the runtime inspection](../evidence/single-node-runtime-b12359/observation.json).
+These are configuration and source facts. They do not retrospectively profile
+the earlier slowdown, repair its unknown outcome, or provide a successful model
+run.
 
 ## 2026-11-16 local attempt
 
@@ -190,3 +234,103 @@ the frozen input CAS and terminal CAS, and the complete runtime error records.
 The startup/input boundary correction responds to the observed race. The slow
 prefill remains a separate runtime observation; increasing the limit again is
 not an acceptance result.
+
+## 2026-11-16 hosted attempt with startup pause and a real browser
+
+[Run 43875531168](https://github.com/cyjin-yl/shenko/actions/runs/43875531168)
+built and ran merge source `e40ec5102b0ce7c34b07663eedcf3f197f82ab4b`
+(PR head `a3739f2e581b25e3ca841c8402b3cc118fdeb222`). The real model
+loaded, and the live browser composer received a durable submission receipt.
+This time the optional startup pause prevented the idle-generation race:
+
+| Fact in ledger `1358b9e6-4b71-464e-b1ee-a0b9650e703a` | Sequence |
+| --- | ---: |
+| Startup pause request and confirmed boundary | 6, 7 |
+| Browser submission accepted | 9 |
+| Public runtime resume | 10 |
+| First main request created | 15 |
+| Seven original provider text chunks | 18–23, 25 |
+| Provider stream terminal observation, `kind=unknown` | 26 |
+| Main request's failed/unknown terminal result recorded | 28 |
+
+Both paused and accepted snapshots contain zero main request attempts. The
+actual frozen input then associates the same subject, branch, step and request
+with the accepted UI event. Its `payload.messages` user text contains the
+complete submitted finite-child task and marker, not only an event copy outside
+the model payload. The 56,953-byte frozen input is retained in full.
+
+The attempt still **failed at the sealed 1,200,000 ms request limit**. The last
+server progress sample reported 12,288 prompt tokens, 97% progress and 1,116.48
+seconds. The final observed 2,048-token interval took 339.01 seconds, about 6.04
+tokens/second. Generation subsequently began: the original journal contains
+seven chunks whose concatenation is:
+
+```text
+[delegate:claude.seat:1] {"command":[
+```
+
+This is incomplete generated text, not a completed delegation or a real coding
+seat call. The chunk count is not a generated-token count. The exact prefill
+completion time was not recorded. The main terminal CAS and provider stream
+both retain `unknown`; the subject preserves the original `awaiting_model`
+step. There are no child results, child E1 receipts, committed decisions or
+final output, and the restart phase was not reached. The browser observed no
+public streaming parts, so raw provider chunks do not establish UI streaming
+quality. Its composer and receipt observations passed; screen-reader and
+restart/reconnect acceptance remain untested.
+
+The original session journal also records three separate cleanup failures:
+`policy.budget-compact` and `policy.snapcompact` installation observers each
+failed with `plugin host is shut down`; the `policy.notes-rollover-compact`
+observer additionally reports native-definition retirement failing with the
+same error. A subsequent Cordis lifecycle event reports that an effect cleanup
+returned this error. All three original policy events, the Cordis event, the
+transport-timeout and outcome-unknown events remain intact. The tested candidate
+predates the correction that lets an existing resident's exact disposal/join
+complete after shutdown closes new admission. That secondary cleanup defect is
+distinct from the model request's unresolved outcome; repairing cleanup does
+not turn this model attempt into success.
+
+The recorded runtime used four generation/batch workers on affinity CPUs
+`[0,1,2,3]`; `/proc/cpuinfo` reports two physical cores and four logical
+processors on a Xeon Platinum 8573C. The recorded current cgroup `cpu.max` is
+`max 100000`, and `MemAvailable` is 14,950,548 KiB (about 14.258 GiB). The
+CPU flags include AVX2 and AVX-512, but the selected ggml CPU backend and actual
+ISA dispatch were not logged. Neither effective cpuset/ancestor limits nor
+utilization and throttling counters were collected. These facts do not justify
+claiming an exceeded CPU quota or a generic backend. The growing prefill cost
+motivates checking the pinned attention implementation; it is not a measured
+profile of that implementation or a reason to extend the deadline again.
+
+The [complete retained observation](../evidence/single-node-hosted-43875531168/observation.json)
+contains all 87 original artifact files, their SHA-256 values, and the original
+ZIP with verified SHA-256
+`e5065be8491a82c130fa674c42ea6d66bac2df35491b4141cabb321ce147ccda`.
+Every copied file was compared byte-for-byte with its ZIP entry. This remains a
+failed 0.6B mechanical experiment, with narrower startup/input evidence, not a
+complete S1, 27B quality-baseline, NapCat/coding-seat S2, physical-failure or
+long-run acceptance.
+
+
+## Diagnostic reporting after the concurrent ship follow-up
+
+The concurrent `37ddbf7` follow-up changes how the broker reports a cause:
+execution submits the specific transport/fence failure once to the fail-soft
+runtime-error reporter, and completion emits the generic
+`INFERENCE_OUTCOME_UNKNOWN` diagnostic only when execution did not attempt a
+specific report. `cause_report_attempted` describes that attempt; it is not a
+receipt that the journal persisted. A missing or failed sink keeps the existing
+fail-soft behavior, including the Store's dropped count in later successful
+entries (SPEC 45.14).
+
+This diagnostic change does not settle a timed-out request. Its original stream
+terminal and E1 still say Unknown, the admission guard remains quarantined, and
+reconciliation without terminal evidence cannot release a slot or authorize a
+new send. The existing live HTTP deadline journey retains those assertions and
+the exact stream/E1 equality check, while requiring one specific timeout report
+that identifies the original request/agent, sealed limit and unconfirmed remote
+termination. The two-report observations from earlier candidates remain
+unchanged historical evidence.
+
+Integration restores a terminal assertion damaged by literal merge text in
+`37ddbf7`; the reconciled candidate still needs its own actual test result.

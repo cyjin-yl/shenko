@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use tracing::info;
+use tracing::{debug, info};
 use wasmtime::{
     Config, Engine, Error as WasmtimeError, Instance, Linker, Module, Store, UpdateDeadline,
     Val,
@@ -545,16 +545,23 @@ impl WasmRuntime {
         // Resolve the caller-relative duration into one absolute deadline
         // now: a duration that cannot be represented is rejected instead of
         // silently downgraded to a different bound.
+        let run_started = Instant::now();
         let deadline_at = control
             .deadline
             .map(|d| {
-                Instant::now().checked_add(d).ok_or_else(|| {
+                run_started.checked_add(d).ok_or_else(|| {
                     anyhow!(
                         "WASI_RUN_CONTROL_INVALID: deadline duration exceeds representable clock range"
                     )
                 })
             })
             .transpose()?;
+        debug!(
+            stage = "budget_started",
+            deadline_secs = ?control.deadline.map(|duration| duration.as_secs_f64()),
+            module_bytes = wasm_or_wat.len(),
+            "WASI run timing"
+        );
 
         let controlled = control.deadline.is_some() || control.cancel.is_some();
         let engine = if controlled {
@@ -614,7 +621,7 @@ impl WasmRuntime {
             let worker = std::thread::Builder::new()
                 .name("shenko-wasi".into())
                 .spawn_scoped(scope, move || {
-                    run_wasi_blocking(engine_ref, home, mounts, wasm_or_wat, command, deadline_at)
+                    run_wasi_blocking(engine_ref, home, mounts, wasm_or_wat, command, deadline_at, run_started)
                 })
                 .context("spawn wasi execution thread")?;
 
@@ -680,6 +687,7 @@ fn run_wasi_blocking<I, O, E>(
     wasm_or_wat: &[u8],
     command: WasiCommand<I, O, E>,
     deadline_at: Option<Instant>,
+    run_started: Instant,
 ) -> Result<WasiRunOutcome>
 where
     I: StdinStream + 'static,
@@ -696,8 +704,12 @@ where
         io.verify_execution(wasm_or_wat, &invocation)?;
     }
     validate_mounts(mounts, home)?;
+    let compilation_started = Instant::now();
+    debug!(stage = "compile_started", run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
     let module =
         Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
+    debug!(stage = "compile_finished", compile_secs = compilation_started.elapsed().as_secs_f64(),
+        run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
 
     let bindings = admit_mounts(mounts, home)?;
     let stdio = StdioStreams::from_async(command.stdin.async_stream(),
@@ -712,7 +724,11 @@ where
     if let Some(admission) = command.network {
         match host.install_network(admission)? {
             crate::net::NetworkStart::Installed => {}
-            crate::net::NetworkStart::Stopped(outcome) => return Ok(outcome),
+            crate::net::NetworkStart::Stopped(outcome) => {
+                debug!(stage = "network_stopped", ?outcome,
+                    run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
+                return Ok(outcome);
+            }
         }
     }
 
@@ -782,11 +798,18 @@ where
     // observed after compilation/setup but before instantiation means no
     // guest code (including `start` sections) ever runs for this call.
     if let Some(outcome) = store.data().stop.observe() {
+        debug!(stage = "stopped_before_instantiation", ?outcome,
+            run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
         return Ok(outcome);
     }
 
     let stopped = |store: &Store<ControlledCtx>| store.data().stop.committed();
-    let instance = match linker.instantiate(&mut store, &module) {
+    let instantiation_started = Instant::now();
+    debug!(stage = "instantiate_started", run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
+    let instantiated = linker.instantiate(&mut store, &module);
+    debug!(stage = "instantiate_finished", instantiate_secs = instantiation_started.elapsed().as_secs_f64(),
+        returned_with_trap = instantiated.is_err(), run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
+    let instance = match instantiated {
         Ok(instance) => instance,
         // A stop committed by the epoch callback outranks the trap it raised.
         Err(e) => match stopped(&store) {
@@ -798,7 +821,11 @@ where
         .get_typed_func::<(), ()>(&mut store, "_start")
         .map_err(|e| anyhow!("WASI command must export `_start`: {e}"))?;
 
+    let execution_started = Instant::now();
+    debug!(stage = "start_entered", run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
     let result = start.call(&mut store, ());
+    debug!(stage = "start_returned", execution_secs = execution_started.elapsed().as_secs_f64(),
+        returned_with_trap = result.is_err(), run_elapsed_secs = run_started.elapsed().as_secs_f64(), "WASI run timing");
     match stopped(&store) {
         Some(outcome) => Ok(outcome),
         None => wasi_exit(result),

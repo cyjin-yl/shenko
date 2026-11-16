@@ -745,7 +745,7 @@ pub enum ToolCommand {
         /// IPv6 literals use [address]:port; an omitted grant opens no sockets.
         #[arg(long = "network")]
         network: Vec<String>,
-        /// Guest deadline in seconds (1..=300), including admitted socket waits.
+        /// Run deadline in seconds (1..=300), including compilation, mount setup and admitted socket waits.
         #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=300))]
         timeout_secs: u64,
         /// Host file whose bytes become guest stdin (default: empty).
@@ -3995,6 +3995,8 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // the materialized copy is never trusted. A tool whose bytes live
             // in the installation's content store is reassembled from its
             // chunk objects there; only then is it compiled.
+            let verification_started = std::time::Instant::now();
+            tracing::debug!(target: "shenko::tool_exec", stage = "artifact_verification_started", "tool exec timing");
             let (module, _inspection) = match record.artifact.kind {
                 shenko_wasm::ToolArtifactKind::NodeInline => {
                     shenko_wasm::tool_module(&node, &record)?
@@ -4008,6 +4010,8 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                     shenko_wasm::tool_module_with_store(&node, &record, &content)?
                 }
             };
+            tracing::debug!(target: "shenko::tool_exec", stage = "artifact_verification_finished",
+                verification_secs = verification_started.elapsed().as_secs_f64(), module_bytes = module.len(), "tool exec timing");
             let stdin_bytes = match &stdin_file {
                 Some(path) => std::fs::read(path)
                     .with_context(|| format!("read stdin file {}", path.display()))?,

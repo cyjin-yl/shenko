@@ -1,5 +1,5 @@
 //! Preserve a chosen control action without inventing a foreign Store commit.
-//! Frozen S1, native dispatch and native T2 may materialize their exact predecessor.
+//! Frozen S1, native T1/dispatch and native T2 may materialize their exact predecessor.
 //! Other unapplied actions remain evidence for reconciliation; no replay here
 //! grants permission to execute an external attempt.
 use anyhow::{Context as _, Result, ensure};
@@ -149,6 +149,18 @@ impl Store {
         // The real Node provider correctly refuses such a reservation; keep
         // the original debt instead of turning that refusal into startup loss.
         if current.branch_id != grant.admission.branch_id {
+            self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
+            return Ok(ControlRecoveryOutcome::ReconciliationRequired);
+        }
+        if envelope.action["kind"] == "native.arm"
+            && let Some(reference) = envelope.action.get("transition_ref")
+        {
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            match self.recover_arm_transition(grant, &reference) {
+                Ok(_) => return Ok(ControlRecoveryOutcome::RecoveredCanonical),
+                Err(ShenkoError::Conflict(_) | ShenkoError::NotFound(_) | ShenkoError::ResnapshotRequired { .. }) => {}
+                Err(error) => return Err(error.into()),
+            }
             self.retain_control_reconciliation(grant, &envelope, &evidence.fingerprint)?;
             return Ok(ControlRecoveryOutcome::ReconciliationRequired);
         }
