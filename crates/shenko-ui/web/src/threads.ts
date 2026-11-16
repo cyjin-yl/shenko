@@ -1,3 +1,4 @@
+import { text as t } from './messages';
 import type { Submission, TaskSummary, TimelinePart, UiNode, UiProjection } from './projection';
 
 /**
@@ -75,10 +76,16 @@ export interface Thread {
   state?: string;
 }
 
+export interface DemoThreadData {
+  conversations: ConversationRow[];
+  trajectory(taskId: string): TrajectoryResponse;
+}
+
 export interface ThreadInputs {
   projection: UiProjection;
   tasks: TaskSummary[];
   conversations: ConversationRow[];
+  demo?: DemoThreadData;
 }
 
 export interface ThreadSource {
@@ -95,6 +102,7 @@ export function registerThreadSource(source: ThreadSource): () => void {
 }
 
 export function collectThreads(inputs: ThreadInputs): Thread[] {
+  if (inputs.projection.source === 'demo' && !inputs.demo) throw new Error('Demo thread data is missing');
   const all = [...sources.values()].sort((a, b) => a.order - b.order).flatMap((source) => source.threads(inputs));
   const direct = all.filter((thread) => thread.kind === 'direct');
   const rest = all.filter((thread) => thread.kind !== 'direct')
@@ -102,22 +110,22 @@ export function collectThreads(inputs: ThreadInputs): Thread[] {
   return [...direct, ...rest];
 }
 
-export const OWNER: Participant = { id: 'owner', name: '你', role: 'owner' };
+export const OWNER: Participant = { id: 'owner', name: t('im.owner'), role: 'owner' };
 export function subjectParticipant(projection: UiProjection): Participant {
-  return { id: 'subject', name: projection.identity?.display_name || '主体', role: 'subject' };
+  return { id: 'subject', name: projection.identity?.display_name || t('subject.name'), role: 'subject' };
 }
 
 // Durable admission stages, in IM words; each is a distinct fact
 // (docs/specs/web-interface.md#spec-41-18), never a progress bar.
 const RECEIPT_WORDS: Record<string, string> = {
-  sending: '发送中…',
-  sent: '已发送',
-  accepted: '已送达',
-  selected: '已选入',
-  committed: '已处理',
-  conflict: 'ID 冲突',
-  rejected: '未送达',
-  unknown: '送达未知',
+  sending: t('im.sending'),
+  sent: t('im.sent'),
+  accepted: t('im.accepted'),
+  selected: t('receipt.selected'),
+  committed: t('im.committed'),
+  conflict: t('receipt.conflict'),
+  rejected: t('im.rejected'),
+  unknown: t('im.unknown'),
 };
 
 /// The owner's direct chat with the subject. A subject message here is the
@@ -145,8 +153,8 @@ registerThreadSource({
       if (quiet === 0) return;
       messages.push({
         key: `quiet-${quietKey}`, from: subject, kind: 'system',
-        text: historyIncomplete ? `其他 ${quiet} 轮（输入历史尚未全部读取）` : `${subject.name} 独自思考了 ${quiet} 轮`,
-        link: { label: '在 Inspect 查看', target: 'inspect' },
+        text: historyIncomplete ? t('delegation.quietIncomplete', { count: quiet }) : t('delegation.quiet', { name: subject.name, count: quiet }),
+        link: { label: t('delegation.inspect'), target: 'inspect' },
       });
       quiet = 0;
     };
@@ -158,9 +166,9 @@ registerThreadSource({
           key: entry.node_id, from: OWNER, kind: 'message', at: submission.created_at,
           text: submission.payload.content,
           tone: submission.payload.mode === 'steer' ? 'steer' : 'plain',
-          tag: submission.payload.mode === 'steer' ? '引导' : undefined,
+          tag: submission.payload.mode === 'steer' ? t('composer.steer') : undefined,
           meta: submission.withdrawal
-            ? (submission.withdrawal.result === 'withdrawal_queued' ? '撤回已排队' : '已撤回')
+            ? (submission.withdrawal.result === 'withdrawal_queued' ? t('receipt.withdrawalQueued') : t('receipt.withdrawn'))
             : RECEIPT_WORDS[submission.receipt] ?? submission.receipt,
           node: entry,
         });
@@ -191,9 +199,9 @@ registerThreadSource({
       if (!updatedAt && message.at) updatedAt = message.at;
     }
     return [{
-      id: 'direct', kind: 'direct', audience: 'one_to_one', title: subject.name, subtitle: '直接对话',
+      id: 'direct', kind: 'direct', audience: 'one_to_one', title: subject.name, subtitle: t('delegation.direct'),
       participants: [OWNER, subject], viewer: OWNER.id,
-      preview: last ? last.text : '还没有消息',
+      preview: last ? last.text : t('im.previewEmpty'),
       updated_at: updatedAt, messages, composer: true,
     }];
   },
@@ -225,13 +233,13 @@ export function shortId(id: string): string {
 }
 
 export function childParticipant(taskId: string): Participant {
-  return { id: `child:${taskId}`, name: `子代理 ${shortId(taskId)}`, role: 'child' };
+  return { id: `child:${taskId}`, name: t('delegation.child', { id: shortId(taskId) }), role: 'child' };
 }
 
 function briefOf(trajectory: TrajectoryResponse): string {
   return isDelegation(trajectory.task) && typeof trajectory.brief === 'string' && trajectory.brief.trim()
     ? trajectory.brief
-    : '（委派内容不可用）';
+    : t('delegation.briefUnavailable');
 }
 
 /// Turn one sealed trajectory into a delegation thread's messages.
@@ -239,7 +247,7 @@ export function trajectoryMessages(trajectory: TrajectoryResponse, subject: Part
   const child = childParticipant(trajectory.task.task_id);
   const messages: ThreadMessage[] = [{
     key: `brief-${trajectory.task.task_id}`, from: subject, kind: 'message', text: briefOf(trajectory),
-    at: trajectory.task.created_at, tag: '委派',
+    at: trajectory.task.created_at, tag: t('delegation.label'),
   }];
   const tools = trajectory.children.filter((task) => task.role === 'tool');
   for (const operation of trajectory.operations) {
@@ -259,7 +267,7 @@ export function trajectoryMessages(trajectory: TrajectoryResponse, subject: Part
   for (const task of trajectory.children.filter((task) => task.role !== 'tool')) {
     messages.push({
       key: `task-${task.task_id}`, from: task.role === 'delegation' ? childParticipant(task.task_id) : subject,
-      kind: 'system', text: `${task.kind} · ${task.state}${task.role === 'unknown' ? ' · 角色资料不可用' : ''}`,
+      kind: 'system', text: task.role === 'unknown' ? t('delegation.unknownRole', { kind: task.kind, state: task.state }) : `${task.kind} · ${task.state}`,
     });
   }
   return messages;
@@ -292,13 +300,13 @@ export function registerRecordView(operationName: string, view: RecordView): () 
 registerRecordView('model.child.generate.v1', ({ operation, subject, child, tools }) => {
   const record = operation.record;
   if (!record) {
-    return [{ key: operation.operation_id, from: child, kind: 'message', tone: 'pending', text: '', meta: operation.record_status === 'unsettled' ? '这一步还在进行' : `记录不可读：${operation.record_status}` }];
+    return [{ key: operation.operation_id, from: child, kind: 'message', tone: 'pending', text: '', meta: operation.record_status === 'unsettled' ? t('delegation.stepPending') : t('delegation.recordError', { status: operation.record_status }) }];
   }
   // Version 1 records already store the canonical parser's public text
   // separately from tool/reply/question controls. Other historical formats
   // stay inspectable through the API; raw output is never a display fallback.
   if (record.schema_version !== 1 || typeof record.text !== 'string') {
-    return [{ key: `${operation.operation_id}-unavailable`, from: child, kind: 'system', text: '这一步的公开正文不可用，原始记录仍保留' }];
+    return [{ key: `${operation.operation_id}-unavailable`, from: child, kind: 'system', text: t('delegation.textUnavailable') }];
   }
   const out: ThreadMessage[] = [];
   for (const [index, turn] of ((record.dialogue as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
@@ -306,23 +314,23 @@ registerRecordView('model.child.generate.v1', ({ operation, subject, child, tool
   }
   const text = record.text;
   const usage = record.usage as Record<string, unknown> | undefined;
-  const meta = [`第 ${Number(record.step_index ?? 0) + 1} 步`, usage?.output_tokens != null ? `${usage.output_tokens} tokens` : null, record.text_truncated ? '正文截断' : null]
+  const meta = [t('delegation.step', { step: Number(record.step_index ?? 0) + 1 }), usage?.output_tokens != null ? `${usage.output_tokens} tokens` : null, record.text_truncated ? t('delegation.truncated') : null]
     .filter(Boolean).join(' · ');
   if (text) out.push({ key: `${operation.operation_id}-text`, from: child, kind: 'message', text, meta });
   if (typeof record.question === 'string' && record.question) {
-    out.push({ key: `${operation.operation_id}-question`, from: child, kind: 'message', text: record.question, tag: '提问' });
+    out.push({ key: `${operation.operation_id}-question`, from: child, kind: 'message', text: record.question, tag: t('delegation.question') });
   }
   const calls = (record.tool_calls as Array<Record<string, unknown>> | undefined) ?? [];
   for (const [index, call] of calls.entries()) {
     const tool = tools.shift();
-    const name = String(call.kind ?? call.tool ?? tool?.kind ?? '工具');
+    const name = String(call.kind ?? call.tool ?? tool?.kind ?? t('delegation.tool'));
     out.push({
       key: `${operation.operation_id}-tool-${index}`, from: toolParticipant(name), kind: 'system',
-      text: `${child.name} 调用 ${name}${tool ? ` · ${tool.state}` : ''}`,
+      text: t('delegation.call', { child: child.name, tool: name, state: tool ? ` · ${tool.state}` : '' }),
     });
   }
   if (!text && calls.length === 0 && !record.question) {
-    out.push({ key: `${operation.operation_id}-empty`, from: child, kind: 'system', text: `${meta} · 没有文字输出` });
+    out.push({ key: `${operation.operation_id}-empty`, from: child, kind: 'system', text: t('delegation.noOutput', { meta }) });
   }
   return out;
 });
@@ -332,7 +340,7 @@ registerRecordView('model.child.result.v1', ({ operation, child }) => {
   const termination = record ? String(record.termination ?? record.outcome ?? '') : '';
   return [{
     key: operation.operation_id, from: child, kind: 'system',
-    text: record ? `${child.name} 结束${termination ? ` · ${termination}` : ''}` : `${child.name} 的结果尚未封存`,
+    text: record ? t('delegation.ended', { child: child.name, termination: termination ? ` · ${termination}` : '' }) : t('delegation.unsealedResult', { child: child.name }),
   }];
 });
 
@@ -340,18 +348,18 @@ registerRecordView('model.child.result.v1', ({ operation, child }) => {
 registerThreadSource({
   id: 'delegations',
   order: 10,
-  threads({ projection, tasks }) {
+  threads({ projection, tasks, demo }) {
     const subject = subjectParticipant(projection);
     return tasks.filter(isDelegation).map((task) => {
       const id = String(task.task_id);
       const child = childParticipant(id);
       return {
-        id: `delegation:${id}`, kind: 'delegation', audience: 'group', title: `${subject.name} 与 ${child.name}`,
-        subtitle: '委派', participants: [subject, child], viewer: subject.id,
-        preview: `委派 · ${String(task.state)}`, updated_at: String(task.created_at ?? ''),
-        messages: projection.source === 'demo' ? trajectoryMessages(demoTrajectory(id), subject) : [],
+        id: `delegation:${id}`, kind: 'delegation', audience: 'group', title: t('delegation.groupTitle', { subject: subject.name, child: child.name }),
+        subtitle: t('delegation.label'), participants: [subject, child], viewer: subject.id,
+        preview: t('delegation.preview', { state: String(task.state) }), updated_at: String(task.created_at ?? ''),
+        messages: demo ? trajectoryMessages(demo.trajectory(id), subject) : [],
         composer: false, state: String(task.state),
-        note: '旁观中 · 这是主体和它委派的子代理之间的对话',
+        note: t('delegation.readonly'),
         load: projection.source === 'demo' ? undefined : async () => {
           const response = await fetch(`/api/tasks/${encodeURIComponent(id)}/trajectory`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`trajectory ${response.status}`);
@@ -382,8 +390,8 @@ export interface ConversationRow {
 }
 
 const PUBLICATION_WORDS: Record<string, string> = {
-  ready: '待发送', claimed: '发送中', acknowledged: '已确认', settled: '已结束',
-  blocked: '未发送', unknown: '发送结果未知',
+  ready: t('publication.ready'), claimed: t('receipt.sending'), acknowledged: t('publication.acknowledged'), settled: t('publication.settled'),
+  blocked: t('publication.blocked'), unknown: t('publication.unknown'),
 };
 
 /// Every conversation the subject has with the outside, over any channel
@@ -406,7 +414,7 @@ registerThreadSource({
       const people = new Map<string, Participant>();
       const messages: ThreadMessage[] = rows.map((row) => {
         const grant = row.sender_admin === true
-          ? `此消息当时记录有管理授权 · ${row.at || '消息时间未知'}`
+          ? t('channel.grant', { time: row.at || t('channel.timeUnknown') })
           : undefined;
         if (row.direction === 'outbound') {
           return {
@@ -418,18 +426,18 @@ registerThreadSource({
           // The platform identified this account, not which client sent it.
           return {
             key: row.message_id, from: subject, kind: 'message', text: row.text, at: row.at ?? undefined,
-            meta: ['本账号发出', grant].filter(Boolean).join(' · '),
+            meta: [t('channel.own'), grant].filter(Boolean).join(' · '),
           } satisfies ThreadMessage;
         }
         const unknown = row.direction === 'unknown';
         const id = `${unknown ? 'source' : 'person'}:${row.sender_id ?? 'unknown'}`;
         const person: Participant = {
-          id, name: row.sender_name || row.sender_id || '发言者未知', role: 'person',
+          id, name: row.sender_name || row.sender_id || t('channel.senderUnknown'), role: 'person',
         };
         if (!unknown) people.set(id, person);
         return {
           key: row.message_id, from: person, kind: 'message', text: row.text, at: row.at ?? undefined,
-          meta: [unknown ? '账号归属未知' : undefined, grant].filter(Boolean).join(' · ') || undefined,
+          meta: [unknown ? t('channel.originUnknown') : undefined, grant].filter(Boolean).join(' · ') || undefined,
         } satisfies ThreadMessage;
       });
       const label = rows.find((row) => row.thread_label)?.thread_label;
@@ -443,35 +451,14 @@ registerThreadSource({
         id: `channel:${key}`, kind: 'channel', audience,
         title: (audience === 'one_to_one' && counterpart?.name) || label || `${channel} ${rows[0].thread_kind} ${key.split('|').pop()}`,
         subtitle: audience === 'one_to_one'
-          ? `${channel} · 私聊`
-          : `${channel} · ${shape === 'group' ? '群聊' : '会话类型未知'} · 成员人数未知`,
+          ? t('channel.private', { channel })
+          : t('channel.groupSubtitle', { channel, shape: t(shape === 'group' ? 'channel.group' : 'channel.shapeUnknown') }),
         participants: [subject, ...people.values()], viewer: subject.id,
         preview: last ? `${last.from.role === 'subject' || audience === 'one_to_one' ? '' : `${last.from.name}：`}${last.text}` : '',
         updated_at: [...messages].reverse().find((message) => message.at)?.at,
         messages, composer: false,
-        note: `旁观中 · ${subject.name} 在 ${channel} 的会话；网页暂不能代它发言`,
+        note: t('channel.observe', { subject: subject.name, channel }),
       } satisfies Thread;
     });
   },
 });
-
-/// The simulated projection's one delegation, so `?demo=1` can show a group
-/// thread; it is never used for a live subject.
-export function demoTrajectory(taskId: string): TrajectoryResponse {
-  const at = new Date(Date.now() - 60_000).toISOString();
-  const goal = '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。';
-  const step = (index: number, record: Record<string, unknown>) => ({
-    operation_id: `${taskId}-step-${index}`, operation_name: 'model.child.generate.v1', logical_key: `step/${index}`,
-    state: 'resolved', outcome: 'succeeded', attempts: 1, record_status: 'sealed',
-    record: { schema_version: 1, step_index: index, ...record },
-  });
-  return {
-    task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at },
-    input: { goal }, brief: goal,
-    children: [{ task_id: `${taskId}-tool`, kind: 'memory.recall', role: 'tool', state: 'succeeded', created_at: at }],
-    operations: [
-      step(0, { text: '先找出两条观察的原文和来源。', tool_calls: [{ kind: 'memory.recall' }], usage: { output_tokens: 42 } }),
-      step(1, { text: '两条都来自 11 月 12 日的部署日志。合并后保留两个来源引用；冷缓存那条仍标为暂定。', question: '要把“暂定”这条也并进去吗？', usage: { output_tokens: 88 } }),
-    ],
-  };
-}

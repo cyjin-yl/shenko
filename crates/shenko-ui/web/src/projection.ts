@@ -1,3 +1,5 @@
+import { message as m, preferredLocale, type LocalizedText, type UiLocale } from './messages';
+
 /**
  * Shenko's stable application-semantic UI boundary (docs/specs/web-interface.md#spec-21-2).
  *
@@ -6,7 +8,7 @@
  * compiles Shenko's own Prototype *source* into React DOM source, while server
  * projections keep their own schema. Pages and service DTOs never expose IR.
  */
-export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v1' as const;
+export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v2' as const;
 export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
 
 export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config' | 'playground';
@@ -117,7 +119,7 @@ export interface TimelinePart {
   /** A committed message bound this part to an S1 step (either it carried the
    *  full committed text, or a streamed prefix was absorbed by it). A part
    *  without this binding is durable ledger content but not a committed step:
-   *  the view never prints a step number or "已提交" for it (docs/specs/web-interface.md#spec-21-11). */
+   *  the view never prints a step number or m('timeline.committed') for it (docs/specs/web-interface.md#spec-21-11). */
   committed: boolean;
   step: number;
   step_id: string;
@@ -175,7 +177,7 @@ export interface ActionReceiptView {
     | 'rejected'
     | 'unavailable'
     | 'conflict';
-  detail?: string;
+  detail?: LocalizedText;
   /** Durable admission facts once the Store has reported them. */
   event_id?: string;
   accepted_commit?: string;
@@ -212,7 +214,7 @@ export interface Submission {
   created_at: string;
   accepted_seq?: number;
   receipt: ReceiptState;
-  detail?: string;
+  detail?: LocalizedText;
   event_id?: string;
   accepted_commit?: string;
   selected_step_id?: string;
@@ -253,7 +255,7 @@ export interface SubmissionHistoryState {
   has_older: boolean;
   next_before?: SubmissionCursor;
   newest_cursor?: SubmissionCursor;
-  error?: string;
+  error?: LocalizedText;
 }
 
 // docs/specs/web-interface.md#spec-21-8: numbered options preserve action identity across degradation.
@@ -405,7 +407,7 @@ export interface DisplayState {
   anchor?: ReadingAnchor;
   /** Restored text selection, replayed only while the entry text matches. */
   selection?: ReadingSelection;
-  notice?: string;
+  notice?: LocalizedText;
 }
 
 export interface UiState {
@@ -473,7 +475,7 @@ export interface UiNode {
   node_id: string;
   kind: string;
   props: Record<string, any>;
-  a11y: Record<string, string | number | boolean>;
+  a11y: Record<string, LocalizedText | number | boolean>;
   layout: Record<string, string | number | boolean>;
   action_refs: string[];
   fallback?: string;
@@ -493,6 +495,7 @@ export interface UiCapabilities {
 }
 
 export interface UiProjection {
+  locale: UiLocale;
   schema_version: typeof UI_PROJECTION_SCHEMA;
   surface_id: string;
   revision: number;
@@ -609,7 +612,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
     );
     return node(`part.${identity}`, 'subject_part', { part }, [], {
       action_refs: [copyAction],
-      a11y: { label: `第 ${part.step} 轮已提交内容` },
+      a11y: { label: part.committed ? m('timeline.committedAnnouncement', { step: part.step }) : m('timeline.streamAnnouncement') },
       fallback: 'raw_text',
     });
   });
@@ -846,7 +849,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         addAction(actions, 'timeline.code_wrap', 'timeline.code_wrap', 'display-v1'),
         addAction(actions, 'timeline.selection', 'timeline.selection', 'display-v1'),
       ],
-      a11y: { label: '主体时间线' },
+      a11y: { label: m('timeline.label') },
       layout: { hidden: false },
       fallback: 'committed_text',
     },
@@ -895,7 +898,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     [],
     {
       action_refs: [draftAction, appendAction, steerAction],
-      a11y: { label: '向同一主体追加输入' },
+      a11y: { label: m('composer.appendLabel') },
       layout: { hidden: false },
     },
   );
@@ -950,7 +953,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     owner_claim_draft_ref: claimDraftRef,
   }, sectionNodes, {
     action_refs: [panelAction],
-    a11y: { label: '主体详情', modal: state.display.panel_open },
+    a11y: { label: m('subject.details'), modal: state.display.panel_open },
     layout: { open: state.display.panel_open },
   });
 
@@ -972,6 +975,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   const configDraftAction = addAction(actions, 'config.draft', 'config.draft', 'config-draft-v1', state.source === 'live');
   const projection: UiProjection = {
     schema_version: UI_PROJECTION_SCHEMA,
+    locale: preferredLocale(),
     surface_id: state.source === 'demo' ? 'shenko.main.demo' : 'shenko.main.live',
     revision,
     source: state.source,

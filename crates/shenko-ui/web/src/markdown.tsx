@@ -1,3 +1,4 @@
+import { text as t } from './messages';
 import * as React from 'react';
 import { Icon } from './icons';
 
@@ -160,17 +161,17 @@ export function CodeBlock({ code, language, open = false }: { code: string; lang
     <figure className="code" data-open={open ? 'true' : 'false'}>
       <figcaption className="code-head">
         <span className="code-lang">{language || 'text'}</span>
-        {open && <span className="code-open">未闭合 · 内容可能未完</span>}
+        {open && <span className="code-open">{t('markdown.partial')}</span>}
         <button
           type="button"
           className="code-copy"
           onClick={() => {
             void navigator.clipboard?.writeText(code).then(() => setCopied(true), () => setCopied(false));
           }}
-          aria-label={open ? '复制当前可见的部分代码' : '复制代码'}
+          aria-label={open ? t('markdown.copyPartial') : t('markdown.copy')}
         >
           <Icon name={copied ? 'check' : 'copy'} size={15} />
-          <span>{copied ? '已复制' : '复制'}</span>
+          <span>{copied ? t('common.copied') : t('common.copy')}</span>
         </button>
       </figcaption>
       <pre tabIndex={0}><code>{code}</code></pre>

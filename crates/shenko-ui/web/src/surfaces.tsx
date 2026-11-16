@@ -1,3 +1,4 @@
+import { text as t } from './messages';
 import * as React from 'react';
 import type {
   BuildManifest,
@@ -74,20 +75,20 @@ export function TasksSurface({ node }: { node?: UiNode }) {
   const data = node.props.data;
   const items = Array.isArray(data?.items) ? data.items : [];
   return (
-    <Page title="任务" lead="当前节点的任务记录。" hidden={node.props.hidden}>
+    <Page title={t('config.tasks')} lead={t('config.tasksLead')} hidden={node.props.hidden}>
       {node.props.error
-        ? <Note tone="error" text="任务接口不可用。" />
+        ? <Note tone="error" text={t('config.tasksUnavailable')} />
         : data?.available === false
-          ? <Note text={data?.note || '任务源尚未接入。'} />
+          ? <Note text={data?.note || t('config.tasksMissing')} />
           : items.length === 0
-            ? <Note text={data?.note || '暂无任务。'} />
+            ? <Note text={data?.note || t('config.tasksEmpty')} />
             : <ul className="rows">{items.map((task: Record<string, unknown>, index: number) => (
               <li className="row" key={String(task.task_id ?? index)}>
                 <span className="row-main">
                   <span className="row-title">{String(task.kind ?? '—')}</span>
                   <code className="row-sub">{String(task.task_id ?? '—')}</code>
                 </span>
-                <span className="row-state" data-state={String(task.state ?? 'unknown')}>{String(task.state ?? '未知')}</span>
+                <span className="row-state" data-state={String(task.state ?? 'unknown')}>{String(task.state ?? t('common.unknown'))}</span>
                 <time className="row-time">{formatStamp(task.created_at)}</time>
               </li>
             ))}</ul>}
@@ -99,11 +100,11 @@ export function MemorySurface({ node }: { node?: UiNode }) {
   if (!node) return null;
   const items = Array.isArray(node.props.data?.items) ? node.props.data.items : [];
   return (
-    <Page title="记忆" lead="接口实际返回的记忆条目；未持久化的内容不会出现在这里。" hidden={node.props.hidden}>
+    <Page title={t('config.memory')} lead={t('config.memoryLead')} hidden={node.props.hidden}>
       {node.props.error
-        ? <Note tone="error" text="记忆接口不可用。" />
+        ? <Note tone="error" text={t('config.memoryUnavailable')} />
         : items.length === 0
-          ? <Note text={node.props.data?.note || '暂无记忆条目。'} />
+          ? <Note text={node.props.data?.note || t('config.memoryEmpty')} />
           : <ul className="rows">{items.map((memory: Record<string, unknown>, index: number) => (
             <li className="row is-stacked" key={String(memory.id ?? index)}>
               <span className="row-main">
@@ -130,21 +131,21 @@ export function MemorySurface({ node }: { node?: UiNode }) {
 function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure | null }) {
   if (!disclosure) return null;
   const facts: string[] = [];
-  if (disclosure.older_versions !== null) facts.push(`旧版本 ${disclosure.older_versions} 版`);
-  if (disclosure.latest_modified_at_ms !== null) facts.push(`最新修改 ${formatStampMs(disclosure.latest_modified_at_ms)}`);
-  if (disclosure.selected !== null) facts.push(`当前读第 ${disclosure.selected} 版`);
-  if (disclosure.written_at_ms !== null) facts.push(`写于 ${formatStampMs(disclosure.written_at_ms)}`);
+  if (disclosure.older_versions !== null) facts.push(t('revision.older', { count: disclosure.older_versions }));
+  if (disclosure.latest_modified_at_ms !== null) facts.push(t('revision.modified', { time: formatStampMs(disclosure.latest_modified_at_ms) }));
+  if (disclosure.selected !== null) facts.push(t('revision.selected', { revision: disclosure.selected }));
+  if (disclosure.written_at_ms !== null) facts.push(t('revision.written', { time: formatStampMs(disclosure.written_at_ms) }));
   if (facts.length === 0 && !disclosure.full_text) return null;
   return <div className="revision" data-revision-family={disclosure.family}>
     {facts.length ? <span>{facts.join(' · ')}</span> : null}
     {disclosure.content_digest ? <code>{disclosure.content_digest.slice(0, 12)}</code> : null}
     {disclosure.full_text ? <div className="revision-full">
-      <h4>第 {disclosure.full_text.revision} 版全文{disclosure.full_text.written_at_ms !== null ? ` · 写于 ${formatStampMs(disclosure.full_text.written_at_ms)}` : ''}</h4>
+      <h4>{t('revision.full', { revision: disclosure.full_text.revision, written: disclosure.full_text.written_at_ms !== null ? ` · ${t('revision.written', { time: formatStampMs(disclosure.full_text.written_at_ms) })}` : '' })}</h4>
       {disclosure.full_text.text !== null
         ? <p>{disclosure.full_text.text}</p>
-        : <small>请求的版本全文未解析</small>}
+        : <small>{t('revision.unparsed')}</small>}
     </div> : null}
-    {disclosure.full_text_unreadable ? <small>请求的版本全文不可读</small> : null}
+    {disclosure.full_text_unreadable ? <small>{t('revision.unreadable')}</small> : null}
   </div>;
 }
 
@@ -152,20 +153,20 @@ function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure
 function ContentRevisionDisclosureView({ revision }: { revision: ContentRevisionDisclosure | null }) {
   if (!revision) return null;
   return <div className="revision">
-    <span>旧版本 {revision.old_version_count} 版 · 最新修改 {formatStampMs(revision.latest_modified_at_ms)}</span>
+    <span>{t('revision.summary', { count: revision.old_version_count, time: formatStampMs(revision.latest_modified_at_ms) })}</span>
     <code>{revision.latest_digest.slice(0, 12)}</code>
   </div>;
 }
 
 /** Compiler facts exactly as the build recorded them; nothing is inferred. */
 function compilerLabel(compiler: BuildManifest['compiler'] | undefined): string {
-  if (!compiler) return '构建 manifest 未记录 compiler。';
-  const runtime = compiler.runtime_imported === true ? '浏览器运行期导入编译器' : '浏览器未导入编译器';
-  if (compiler.status !== 'build_time_compiled') return `${compiler.status}；${runtime}。`;
+  if (!compiler) return t('compiler.missing');
+  const runtime = compiler.runtime_imported === true ? t('compiler.imported') : t('compiler.notImported');
+  if (compiler.status !== 'build_time_compiled') return t('compiler.status', { status: compiler.status, runtime });
   const names = (compiler.prototypes ?? []).map((prototype) => prototype.name);
-  const profile = compiler.profile ?? 'profile 未记录';
-  if (names.length === 0) return `构建期编译，未记录已编译 prototype（${profile}）；${runtime}。`;
-  return `构建期编译 ${names.length} 个 Shenko prototype（${names.join('、')}，${profile}）；${runtime}。`;
+  const profile = compiler.profile ?? t('compiler.profileUnknown');
+  if (names.length === 0) return t('compiler.noPrototypes', { profile, runtime });
+  return t('compiler.prototypes', { count: names.length, names: names.join('、'), profile, runtime });
 }
 
 function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -173,7 +174,7 @@ function Fact({ label, value, mono = false }: { label: string; value: string; mo
 }
 
 function wsUrl(): string {
-  if (!location.host) return '不可用';
+  if (!location.host) return t('common.unavailable');
   return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
 }
 
@@ -182,47 +183,47 @@ export function ConfigSurface({ node, projection, emit }: { node?: UiNode; proje
   const config = node.props.config;
   const self = node.props.self;
   const manifest = node.props.manifest as BuildManifest | undefined;
-  const unknown = (value: unknown) => value === undefined || value === null || value === '' || value === 'unknown' ? '未知' : String(value);
+  const unknown = (value: unknown) => value === undefined || value === null || value === '' || value === 'unknown' ? t('common.unknown') : String(value);
   const caps = projection.capabilities;
   return (
-    <Page title="配置" lead="来自当前服务接口与本地构建记录的运行事实。未知就显示未知。" hidden={node.props.hidden} className="config">
-      <Group title="运行">
+    <Page title={t('config.title')} lead={t('config.lead')} hidden={node.props.hidden} className="config">
+      <Group title={t('config.runtime')}>
         <dl className="facts">
-          <Fact label="模型绑定" value={node.props.config_error ? '接口不可用' : unknown(config?.model)} />
-          <Fact label="主体状态" value={unknown(self?.status)} />
-          <Fact label="传输" value={connectionAnnouncement(node.props.connection)} />
-          <Fact label="最近已见提交" value={node.props.step ? `第 ${node.props.step} 次` : '尚无'} />
+          <Fact label={t('config.model')} value={node.props.config_error ? t('config.apiUnavailable') : unknown(config?.model)} />
+          <Fact label={t('config.subjectState')} value={unknown(self?.status)} />
+          <Fact label={t('config.transport')} value={connectionAnnouncement(node.props.connection)} />
+          <Fact label={t('config.latestCommit')} value={node.props.step ? t('config.commit', { step: node.props.step }) : t('config.noCommit')} />
           <Fact label="Runtime generation" value={unknown(config?.generation)} mono />
-          <Fact label="API key" value={typeof config?.api_key_configured === 'boolean' ? config.api_key_configured ? '已配置（未读取值）' : '未配置' : '未知'} />
-          <Fact label="服务版本" value={unknown(node.props.server_version)} mono />
-          <Fact label="数据目录" value={unknown(config?.data_dir)} mono />
+          <Fact label="API key" value={typeof config?.api_key_configured === 'boolean' ? config.api_key_configured ? t('config.keyConfigured') : t('config.keyMissing') : t('common.unknown')} />
+          <Fact label={t('config.serverVersion')} value={unknown(node.props.server_version)} mono />
+          <Fact label={t('config.dataDirectory')} value={unknown(config?.data_dir)} mono />
           <Fact label="WebSocket" value={wsUrl()} mono />
-          <Fact label="Subject ID" value={projection.subject_id ?? '未知'} mono />
+          <Fact label="Subject ID" value={projection.subject_id ?? t('common.unknown')} mono />
         </dl>
       </Group>
-      <Group title="配置项">
+      <Group title={t('config.entries')}>
         <ConfigEntries node={node} emit={emit} />
       </Group>
-      <Group title="输入与时间线能力">
+      <Group title={t('config.inputCapabilities')}>
         <dl className="facts">
-          <Fact label="追加" value={caps.append ? caps.durable_input_receipts ? '可用 · 持久回执' : '可用 · 传输回执' : '不可用'} />
-          <Fact label="引导（steer）" value={caps.steer ? '可用 · 下一边界处置' : '未提供'} />
-          <Fact label="接纳 / 选入回执" value={caps.durable_input_receipts ? '由 Store 回执' : '不可用'} />
-          <Fact label="流式输出" value={caps.streaming ? '生产者已接线 · 仅已持久 chunk' : '无生产者 · 只显示已提交内容'} />
-          <Fact label="已提交回放" value={caps.committed_replay ? '已接入' : '未知'} />
+          <Fact label={t('composer.append')} value={caps.append ? caps.durable_input_receipts ? t('config.durableAvailable') : t('config.transportAvailable') : t('common.unavailable')} />
+          <Fact label={t('config.steer')} value={caps.steer ? t('config.boundaryAvailable') : t('config.notOffered')} />
+          <Fact label={t('config.selectionReceipt')} value={caps.durable_input_receipts ? t('config.storeReceipt') : t('common.unavailable')} />
+          <Fact label={t('config.streaming')} value={caps.streaming ? t('config.streamingAvailable') : t('config.committedOnly')} />
+          <Fact label={t('config.replay')} value={caps.committed_replay ? t('config.connected') : t('common.unknown')} />
         </dl>
       </Group>
-      <Group title="前端构建">
+      <Group title={t('config.frontendBuild')}>
         {manifest ? <dl className="facts">
           <Fact label="Proto-UI" value={manifest.upstream.commit} mono />
-          <Fact label="包" value={manifest.packages.join(' · ')} mono />
-          <Fact label="采用的 family" value={manifest.adopted_families.join('、')} />
+          <Fact label={t('config.packages')} value={manifest.packages.join(' · ')} mono />
+          <Fact label={t('config.families')} value={manifest.adopted_families.join('、')} />
           <Fact label="Compiler" value={compilerLabel(manifest.compiler)} />
-        </dl> : <Note text="构建 manifest 未读取。" />}
+        </dl> : <Note text={t('config.manifestMissing')} />}
         <p className="links">
-          <a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">Proto-UI 许可</a>
-          <a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">shadcn 来源与许可</a>
-          <a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">React 许可</a>
+          <a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">{t('config.protoLicense')}</a>
+          <a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">{t('config.shadcnLicense')}</a>
+          <a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">{t('config.reactLicense')}</a>
         </p>
       </Group>
     </Page>
@@ -236,21 +237,21 @@ export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenW
   const artifacts = Array.isArray(playground?.artifacts) ? playground.artifacts : [];
   const namespaces = Array.isArray(playground?.namespaces) ? playground.namespaces : [];
   return (
-    <Page title="Playground" lead="主体长期保留的作品。带页面的作品可以在时间线旁打开，也可以固定成镜头。" hidden={node.props.hidden}>
+    <Page title="Playground" lead={t('work.playgroundLead')} hidden={node.props.hidden}>
       {node.props.error
-        ? <Note tone="error" text="Playground 接口不可用。" />
+        ? <Note tone="error" text={t('work.apiUnavailable')} />
         : playground?.available === false
-          ? <Note text="Playground 需要持久 Store 与主体。" />
+          ? <Note text={t('work.storeRequired')} />
           : <>
-            <Group title="作品">
-              {artifacts.length === 0 ? <Note text="还没有作品。" /> : (
+            <Group title={t('work.title')}>
+              {artifacts.length === 0 ? <Note text={t('work.empty')} /> : (
                 <ul className="rows">{artifacts.map((artifact) => (
                   <li className="row" key={String(artifact.artifact_id)}>
                     <Icon name="file" />
                     <span className="row-main">
                       <span className="row-title">{String(artifact.title ?? artifact.artifact_id)}</span>
                       <span className="row-sub">
-                        r{String(artifact.revision ?? '—')} · {String(artifact.mime ?? '—')} · {artifact.backend ? '含后端' : '内容'}
+                        r{String(artifact.revision ?? '—')} · {String(artifact.mime ?? '—')} · {artifact.backend ? t('work.backend') : t('work.content')}
                       </span>
                     </span>
                     <span className="row-state">{String(artifact.lifecycle ?? 'draft')}</span>
@@ -263,8 +264,8 @@ export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenW
                 ))}</ul>
               )}
             </Group>
-            <Group title="可选根">
-              {roots.length === 0 ? <Note text="尚无已选根。" /> : (
+            <Group title={t('work.rootTitle')}>
+              {roots.length === 0 ? <Note text={t('work.rootsEmpty')} /> : (
                 <ul className="rows">{roots.map((root) => (
                   <li className="row" key={String(root.artifact_id)}>
                     <span className="row-main">
@@ -275,8 +276,8 @@ export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenW
                 ))}</ul>
               )}
             </Group>
-            <Group title="配置命名空间">
-              {namespaces.length === 0 ? <Note text="尚未注册配置命名空间。" /> : (
+            <Group title={t('work.namespaces')}>
+              {namespaces.length === 0 ? <Note text={t('work.namespacesEmpty')} /> : (
                 <ul className="rows">{namespaces.map((entry) => (
                   <li className="row" key={String(entry.namespace)}>
                     <span className="row-main">
@@ -292,7 +293,7 @@ export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenW
   );
 }
 
-const SECTION_LABELS: Record<string, string> = { status: '当前状态', activity: '近期提交', artifacts: '产物', devices: '设备' };
+const SECTION_LABELS: Record<string, string> = { status: t('config.currentStatus'), activity: t('config.recentCommits'), artifacts: t('config.artifacts'), devices: t('config.devices') };
 
 /**
  * The subject's details, as an on-demand drawer (the upstream shadcn drawer
@@ -305,7 +306,7 @@ export function ContextPanel({ node, projection, emit }: { node: UiNode; project
     <DrawerRoot
       className="sheet-root"
       open={open}
-      a11yLabel="主体详情"
+      a11yLabel={t('subject.details')}
       onOpenChange={(detail: { open: boolean }) => {
         if (detail.open !== open) emit('context', 'panel.toggle');
       }}
@@ -314,12 +315,12 @@ export function ContextPanel({ node, projection, emit }: { node: UiNode; project
       <DrawerContent side="right" className="sheet">
         <DrawerHeader className="sheet-head">
           <div className="sheet-title">
-            <DrawerTitle className="sheet-name">{name || '未命名主体'}</DrawerTitle>
+            <DrawerTitle className="sheet-name">{name || t('subject.unnamed')}</DrawerTitle>
             <DrawerDescription className="sheet-sub">
-              {projection.identity?.revision ? `身份第 ${projection.identity.revision} 版` : '身份版本未知'}
+              {projection.identity?.revision ? t('identity.revision', { revision: projection.identity.revision }) : t('identity.unknownRevision')}
             </DrawerDescription>
           </div>
-          <Button variant="ghost" size="icon" label="关闭详情" onClick={() => emit('context', 'panel.toggle')}>
+          <Button variant="ghost" size="icon" label={t('identity.close')} onClick={() => emit('context', 'panel.toggle')}>
             <Icon name="close" />
           </Button>
         </DrawerHeader>
@@ -348,26 +349,26 @@ function IdentityPanel({ node, emit }: { node: UiNode; emit: Emit }) {
   const claimRef = node.props.owner_claim_ref as string | undefined;
   return (
     <section className="sheet-section">
-      <h3>这个实例</h3>
+      <h3>{t('identity.instance')}</h3>
       <div className="field">
-        <label className="field-label" id="identity-name-label">名字</label>
+        <label className="field-label" id="identity-name-label">{t('identity.name')}</label>
         <div className="field-row">
           <ProtoInput
             className="input"
             labelledBy="identity-name-label"
             value={nameDraft}
-            placeholder="留空则让它自己取名"
+            placeholder={t('identity.namePlaceholder')}
             onValueChange={(detail: { value: string }) => emit(node.node_id, node.props.identity_name_draft_ref ?? '', { value: detail.value })}
           />
-          <Button variant="outline" size="sm" onClick={() => nameRef && emit(node.node_id, nameRef)}>取名</Button>
+          <Button variant="outline" size="sm" onClick={() => nameRef && emit(node.node_id, nameRef)}>{t('identity.setName')}</Button>
         </div>
       </div>
       {owner?.available === false ? (
-        <Note text="这台安装还没有装上归属机制。" />
+        <Note text={t('owner.unavailable')} />
       ) : (
         <div className="field">
           <span className="field-label" id="owner-claim-label">
-            归属 · {owner?.claimed === true ? '已归你' : owner?.claim_pending === true ? '认领待完成' : '尚未认领'}
+            {t('owner.status', { state: owner?.claimed === true ? t('owner.claimed') : owner?.claim_pending === true ? t('owner.pending') : t('owner.unclaimed') })}
           </span>
           {!owner?.claimed && (
             <div className="field-row">
@@ -375,10 +376,10 @@ function IdentityPanel({ node, emit }: { node: UiNode; emit: Emit }) {
                 className="input"
                 labelledBy="owner-claim-label"
                 value={claimDraft}
-                placeholder="这台安装给出的认领凭据"
+                placeholder={t('owner.credential')}
                 onValueChange={(detail: { value: string }) => emit(node.node_id, node.props.owner_claim_draft_ref ?? '', { value: detail.value })}
               />
-              <Button variant="outline" size="sm" onClick={() => claimRef && emit(node.node_id, claimRef)}>认领</Button>
+              <Button variant="outline" size="sm" onClick={() => claimRef && emit(node.node_id, claimRef)}>{t('owner.claim')}</Button>
             </div>
           )}
         </div>
@@ -395,7 +396,7 @@ function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {
   const work = node.props.work as OpenedWork | undefined;
   const refs = (node.props.work_action_refs ?? []) as string[];
   if (node.props.work_error === true) {
-    return <section className="sheet-section"><Note tone="error" text="这件作品现在读不到。" /></section>;
+    return <section className="sheet-section"><Note tone="error" text={t('work.unreadable')} /></section>;
   }
   if (!work) return null;
   return (
@@ -404,9 +405,9 @@ function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {
       <p className="sheet-sub">r{String(work.revision ?? '—')} · {String(work.lifecycle ?? 'draft')} · {String(work.mime ?? '—')}</p>
       {work.content !== undefined && <pre className="work-content" tabIndex={0}><code>{work.content}</code></pre>}
       <div className="button-row">
-        <Button variant="outline" size="sm" onClick={() => refs[0] && emit(node.node_id, refs[0])}>暂存为候选</Button>
-        <Button variant="outline" size="sm" onClick={() => refs[1] && emit(node.node_id, refs[1])}>采纳候选</Button>
-        <Button variant="ghost" size="sm" onClick={() => refs[2] && emit(node.node_id, refs[2])}>回到旧修订</Button>
+        <Button variant="outline" size="sm" onClick={() => refs[0] && emit(node.node_id, refs[0])}>{t('work.stage')}</Button>
+        <Button variant="outline" size="sm" onClick={() => refs[1] && emit(node.node_id, refs[1])}>{t('work.adopt')}</Button>
+        <Button variant="ghost" size="sm" onClick={() => refs[2] && emit(node.node_id, refs[2])}>{t('work.rollback')}</Button>
       </div>
     </section>
   );
@@ -436,38 +437,38 @@ function PanelSectionBody({ name, node }: { name: string; node: UiNode }) {
   const self = node.props.self;
   const config = node.props.config;
   if (name === 'status') return <dl className="facts is-compact">
-    <Fact label="主体状态" value={self?.status && self.status !== 'unknown' ? self.status : '未知'} />
-    <Fact label="传输" value={connectionAnnouncement(node.props.connection)} />
-    <Fact label="最近已见提交" value={node.props.step ? `第 ${node.props.step} 次` : '尚无'} />
-    <Fact label="已连接客户端" value={typeof self?.connected_clients === 'number' ? String(self.connected_clients) : '未知'} />
-    <Fact label="模型绑定" value={config?.model && config.model !== 'unknown' ? config.model : '未知'} />
+    <Fact label={t('config.subjectState')} value={self?.status && self.status !== 'unknown' ? self.status : t('common.unknown')} />
+    <Fact label={t('config.transport')} value={connectionAnnouncement(node.props.connection)} />
+    <Fact label={t('config.latestCommit')} value={node.props.step ? t('config.commit', { step: node.props.step }) : t('config.noCommit')} />
+    <Fact label={t('config.clients')} value={typeof self?.connected_clients === 'number' ? String(self.connected_clients) : t('common.unknown')} />
+    <Fact label={t('config.model')} value={config?.model && config.model !== 'unknown' ? config.model : t('common.unknown')} />
   </dl>;
   if (name === 'activity') {
     const parts = (node.props.timeline as TimelinePart[]).filter((part) => part.content).slice(-3).reverse();
     return parts.length
       ? <ul className="mini-rows">{parts.map((part) => <li key={part.part_id}>
-        <span className="mini-meta">第 {part.step} 轮 · {formatTime(part.observed_at)}</span>
+        <span className="mini-meta">{t('timeline.round', { step: part.step })} · {formatTime(part.observed_at)}</span>
         <span className="mini-text">{firstLine(part.content)}</span>
       </li>)}</ul>
-      : <p className="muted">尚无已提交内容。</p>;
+      : <p className="muted">{t('config.noCommittedContent')}</p>;
   }
   if (name === 'artifacts') {
     if (typeof self?.artifacts_error === 'string' && self.artifacts_error) {
-      return <p className="muted" role="status">产物暂时无法读取。</p>;
+      return <p className="muted" role="status">{t('config.artifactsUnavailable')}</p>;
     }
     const artifacts = Array.isArray(self?.artifacts) ? self.artifacts : [];
     return artifacts.length
       ? <ul className="mini-rows">{artifacts.map((artifact: { id: string; title?: string; kind?: string }) => <li key={artifact.id}>
         <span className="mini-text">{artifact.title || artifact.id}</span>
-        <span className="mini-meta">{artifact.kind || '未知类型'}</span>
+        <span className="mini-meta">{artifact.kind || t('config.unknownType')}</span>
       </li>)}</ul>
-      : <p className="muted">暂无产物。</p>;
+      : <p className="muted">{t('config.artifactsEmpty')}</p>;
   }
   const devices = Array.isArray(self?.devices) ? self.devices : [];
   return devices.length
     ? <ul className="mini-rows">{devices.map((device: { id: string; name?: string; label?: string; kind?: string; online?: boolean }) => <li key={device.id}>
       <span className="mini-text">{device.name || device.label || device.id}</span>
-      <span className="mini-meta">{device.online === true ? '在线' : device.online === false ? '离线' : '状态未知'}{device.kind ? ` · ${device.kind}` : ''}</span>
+      <span className="mini-meta">{device.online === true ? t('config.online') : device.online === false ? t('transport.offline') : t('config.stateUnknown')}{device.kind ? ` · ${device.kind}` : ''}</span>
     </li>)}</ul>
-    : <p className="muted">设备发现尚未接入。</p>;
+    : <p className="muted">{t('config.devicesUnavailable')}</p>;
 }

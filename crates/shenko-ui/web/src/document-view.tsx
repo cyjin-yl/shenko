@@ -1,3 +1,4 @@
+import { text as t } from './messages';
 /**
  * The rich layer of a semantic document: real components, not a debug view.
  *
@@ -353,7 +354,7 @@ function DocumentNode({
             </label>
           ))}
           {actionRef && (
-            <button type="button" className="document-submit" onClick={() => onAction(actionRef)}>提交</button>
+            <button type="button" className="document-submit" onClick={() => onAction(actionRef)}>{t('common.submit')}</button>
           )}
         </div>,
       );
@@ -381,7 +382,7 @@ function DocumentNode({
             ? <img src={props.src} alt={props.alt} />
             : props.src
               ? <a href={props.src} target="_blank" rel="noreferrer">{props.alt || props.src}</a>
-              : <span className="document-media-missing">{props.alt || '媒体'}</span>}
+              : <span className="document-media-missing">{props.alt || t('document.media')}</span>}
           {props.caption ? <figcaption>{props.caption}</figcaption> : null}
         </figure>,
       );
@@ -407,7 +408,7 @@ function DocumentNode({
       // committed text beside it stays the record.
       return withChildren(
         <div className="document-unknown" data-node-kind={node.kind}>
-          <p className="document-unknown-label">这段界面内容（{node.kind}）当前界面还不能呈现。</p>
+          <p className="document-unknown-label">{t('document.unknownKind', { kind: node.kind })}</p>
           {props.text ? <p className="document-unknown-text">{props.text}</p> : null}
         </div>,
       );
