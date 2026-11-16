@@ -3,7 +3,7 @@
 //! All returned capabilities and metadata remain external declarations. A report
 //! is neither an authenticated session nor evidence of protocol negotiation.
 
-mod http;
+pub(crate) mod http;
 
 use std::{collections::BTreeMap, future::Future, time::Duration};
 

@@ -26,6 +26,7 @@
 //!   (a NEW run identity) and reconciles the original operation as unknown
 //!   unless the live session can still prove the outcome.
 mod actions;
+pub mod private_form;
 pub mod engine;
 pub mod handlers;
 pub mod protocol;

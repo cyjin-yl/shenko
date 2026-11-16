@@ -15,7 +15,7 @@
 mod node_cognition_report {
     use super::*;
     use serde_json::json;
-    use shenko_node::{CognitionComparison, CognitionSnapshotReport, PeerExperience};
+    use shenko_node::{CognitionComparison, PeerExperience};
     use shenko_types::ids::EntityId;
 
     fn cognition_report_fixture(name: &str) -> (std::path::PathBuf, shenko_store::store::Store) {

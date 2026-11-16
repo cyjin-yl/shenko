@@ -90,6 +90,7 @@ pub(crate) async fn install(
         supervisor,
         Arc::clone(store),
         Arc::clone(&cognition_node),
+        data_dir,
     )
     .await?;
     let _obelisk_plugin = obelisk::spawn(supervisor, Arc::clone(store), Arc::clone(&cognition_node), data_dir).await?;
