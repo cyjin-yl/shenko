@@ -4,7 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from doc_refs import ContractDocument, ReferenceError, ReferenceResolver
+from doc_refs import (ContractDocument, ReferenceError, ReferenceResolver,
+                      citation_fingerprint, contract_citation_counts,
+                      contract_citation_ranges, contract_citation_references)
 
 
 class StableReferenceTests(unittest.TestCase):
@@ -98,6 +100,64 @@ const TEXT: &str = "fn absent() {}";
         resolver.resolve('owner.py#Owner::dispatch')
         with self.assertRaisesRegex(ReferenceError, 'missing or unsupported'):
             resolver.resolve('owner.py#absent')
+
+    def test_source_comments_preserve_citations_without_treating_strings_as_comments(self):
+        self.put('owner.rs', '''//! module contract
+pub struct Owner;
+impl Owner {
+    /// method contract
+    pub fn dispatch(&self) {
+        let _quoted = "// quoted contract";
+        let _raw = r#"/* quoted raw contract */"#;
+        /* local reason */
+    }
+}
+''')
+        self.put('owner.ts', '''/** module contract */
+export function dispatch() {
+  const quoted = '// quoted contract';
+  // local reason
+  return quoted;
+}
+''')
+        self.put('owner.py', '''"""module contract"""
+# local reason
+def dispatch():
+    """method contract"""
+    return "# quoted contract"
+''')
+        resolver = ReferenceResolver(self.root)
+        resolver.resolve('owner.rs#Owner::dispatch')
+        rust_comments = resolver.source_comments('owner.rs')
+        self.assertEqual([comment.strip() for comment in rust_comments],
+                         ['//! module contract', '/// method contract', '/* local reason */'])
+        self.assertEqual([comment.strip() for comment in resolver.source_comments('owner.ts')],
+                         ['/** module contract */', '// local reason'])
+        self.assertCountEqual(resolver.source_comments('owner.py'),
+                              ['"""module contract"""', '# local reason', '"""method contract"""'])
+        self.assertEqual(resolver.source_comments('owner.rs'), rust_comments)
+        self.put('broken-comment.rs', 'pub fn broken( { // local reason')
+        with self.assertRaisesRegex(ReferenceError, 'unsupported'):
+            resolver.source_comments('broken-comment.rs')
+
+    def test_citation_inventory_keeps_multiplicity_and_allows_removal_after_migration(self):
+        comment = '// docs/specs/contract.md#rule'
+        original = contract_citation_counts([comment + '\n', comment, '// local reason'])
+        self.assertEqual(original[citation_fingerprint(comment)], 2)
+        remaining = contract_citation_counts([comment])
+        self.assertFalse(remaining - original)
+        self.assertFalse(contract_citation_counts(['// local reason']) - original)
+        self.assertTrue(contract_citation_counts([comment] * 3) - original)
+        self.assertTrue(contract_citation_counts(['// docs/specs/contract.md#other']) - original)
+
+    def test_citation_membership_retains_semantic_suffixes_and_complete_range_identity(self):
+        first = 'docs/specs/contract.md#spec-51-1/.3'
+        second = 'docs/specs/contract.md#spec-11/R016'
+        start = 'docs/specs/contract.md#spec-41-8'
+        end = 'docs/specs/other.md#spec-41-10'
+        comment = f'// {first}, {second}. {start}–{end}; {first}.'
+        self.assertEqual(contract_citation_references(comment), [first, second, start, end, first])
+        self.assertEqual(contract_citation_ranges(comment), [start + '–' + end])
 
     def test_structured_references_resolve_unique_targets(self):
         self.put('data.json', '{"contract":{"a/b":{"~key":true}}}')
