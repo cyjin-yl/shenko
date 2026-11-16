@@ -621,13 +621,25 @@ impl Drop for Authorizer<'_> {
     }
 }
 
-fn observe(conn: &Connection, accesses: Arc<Mutex<Accesses>>) -> Authorizer<'_> {
+fn observe(
+    conn: &Connection,
+    accesses: Arc<Mutex<Accesses>>,
+    main_objects: BTreeSet<String>,
+) -> Authorizer<'_> {
     conn.flush_prepared_statement_cache();
     conn.authorizer(Some(move |context: AuthContext<'_>| {
         let mut accesses = accesses.lock();
         match context.action {
-            AuthAction::Read { table_name, .. } => {
-                if context.database_name != Some("main") {
+            AuthAction::Read { table_name, column_name } => {
+                // SQLite's no-column read (for example unqualified count(*))
+                // reports the FROM item's optional database qualifier, not
+                // its resolved database. None is main only because the
+                // same-transaction preflight excluded every other schema's
+                // objects before this observer was installed. Never infer
+                // main merely from a matching table name in the main schema.
+                let unqualified_main = context.database_name.is_none()
+                    && column_name.is_empty() && main_objects.contains(table_name);
+                if context.database_name != Some("main") && !unqualified_main {
                     accesses.refusal = Some("transition accessed a non-main database");
                     return Authorization::Deny;
                 }
@@ -750,6 +762,29 @@ fn projection_tables(conn: &Connection) -> Result<BTreeSet<String>, ShenkoError>
     Ok(names)
 }
 
+/// A no-column SQLITE_READ can omit its resolved database name. Freeze an
+/// unambiguous namespace before observation: main may contain facts, while
+/// temp/attached databases must have no schema objects at all. ATTACH/DDL stay
+/// denied during evaluation, and the independent schema fingerprint checks
+/// the same boundary again before and after rollback.
+fn require_main_factual_schema(conn: &Connection) -> Result<(), ShenkoError> {
+    let mut stmt = conn.prepare("SELECT name FROM pragma_database_list WHERE name!='main'")
+        .map_err(storage_error)?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(storage_error)?;
+    drop(stmt);
+    for name in names {
+        let has_objects: bool = conn.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM {}.sqlite_schema)", quoted(&name)),
+            [], |row| row.get(0),
+        ).map_err(storage_error)?;
+        if has_objects {
+            return Err(conflict("capture requires no non-main schema objects"));
+        }
+    }
+    Ok(())
+}
+
 fn charge_row_copy(remaining: &mut usize, values: &[Cell]) -> Result<(), ShenkoError> {
     for value in values {
         charge_image(remaining, std::mem::size_of::<Cell>())?;
@@ -828,8 +863,10 @@ impl Store {
         if tx.is_busy() {
             return Err(conflict("capture began with an active SQLite statement"));
         }
+        require_main_factual_schema(tx)?;
         let tables = layouts(tx)?;
         let projections = projection_tables(tx)?;
+        let main_objects = tables.keys().chain(projections.iter()).cloned().collect();
         let schema = schema_fingerprint(tx)?;
         let before_fingerprints = tables.iter().map(|(name, table)| {
             Ok((name.clone(), table_fingerprint(tx, table)?))
@@ -839,7 +876,7 @@ impl Store {
         tx.execute_batch("SAVEPOINT canonical_row_evaluation")
             .map_err(storage_error)?;
         let accesses = Arc::new(Mutex::new(Accesses::default()));
-        let observation = observe(tx, Arc::clone(&accesses));
+        let observation = observe(tx, Arc::clone(&accesses), main_objects);
         let evaluated = evaluate(result_commit, created_at);
         drop(observation);
         let accesses = std::mem::take(&mut *accesses.lock());
@@ -848,9 +885,6 @@ impl Store {
                 return Err(conflict(refusal));
             }
             let (updated, result) = evaluated?;
-            if tx.is_busy() {
-                return Err(conflict("capture ended with an active SQLite statement"));
-            }
             if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
                 return Err(conflict("transition changed a schema or table layout"));
             }
@@ -889,6 +923,14 @@ impl Store {
         tx.execute_batch("ROLLBACK TO canonical_row_evaluation; RELEASE canonical_row_evaluation")
             .map_err(storage_error)?;
         let (updated, result, after, accesses, mut capture_remaining) = captured?;
+        // FTS5 may retain its own incremental-blob VDBE after a completed
+        // statement. Its xRollbackTo closes that reader. Check only after
+        // rolling back; do not exempt NULL-SQL statements, which may also be
+        // application-owned incremental blobs. Escaped application cursors
+        // still cannot outlive this captured evaluation.
+        if tx.is_busy() {
+            return Err(conflict("capture ended with an active SQLite statement"));
+        }
         if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
             return Err(invalid("rollback did not restore the captured schema"));
         }

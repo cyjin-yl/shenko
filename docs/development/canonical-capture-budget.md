@@ -64,9 +64,28 @@ The SQLite authorizer is a prepare/reprepare hook; it is not a callback on every
 row step. The implementation therefore keeps the hook installed through the
 whole evaluation, flushes rusqlite's statement cache, and rejects a connection
 with an already active statement before installing the hook. It also refuses
-an evaluation that leaves a statement active when observation ends. The public
+an evaluation that leaves a statement active after the savepoint has been
+rolled back and released. The public
 `Connection::is_busy` implementation walks SQLite statements and checks whether
 they were stepped without being reset or completed.
+
+The timing of that second check matters: FTS5 can retain an internal,
+read-only incremental-blob statement after the application's SQL statement
+has completed. Its rollback callback closes that reader. The check therefore
+runs after rollback, without exempting NULL-SQL statements: application-owned
+cursors or incremental blobs are not automatically trusted because SQLite
+does not give them a SQL string.
+
+SQLite also sends a no-column read callback for queries such as unqualified
+`count(*)`, with an empty column and no database qualifier. Before installing
+the observer, capture requires every non-main database to have an empty schema
+and freezes the main table/projection names in the same IMMEDIATE transaction.
+Only that no-column callback naming a known main object may omit the database.
+An existing temp or attached schema object refuses capture, even if the
+callback would otherwise report a name also present in main. Explicit non-main
+reads/writes, ATTACH and DDL remain refused; the independent schema and physical
+write guards remain in place. This conservative namespace restriction avoids
+mistaking an unqualified temp/attached dependency for a main-table read.
 
 The pinned bundled implementation is rusqlite 0.32.1 / SQLite 3.46.0.
 [`sqlite3_set_authorizer` in SQLite 3.46.0](https://github.com/sqlite/sqlite/blob/version-3.46.0/src/auth.c)
@@ -138,7 +157,7 @@ lowered for the fixtures. The new unit journey is
 journey is
 `canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision`.
 
-At this source checkpoint the restored environment has no Rust/Cargo toolchain.
+At the initial implementation checkpoint the restored environment had no Rust/Cargo toolchain.
 `git diff --check` is a whitespace check only. No new Rust compile, Clippy,
 Store journey, distributed deployment or long-running trial has executed here;
 the next candidate's real CI must determine those results. A small local
@@ -151,3 +170,37 @@ exited 1: the restored environment lacks the configured symbol and CSS parsers
 (1,945 symbol-parser reports and three CSS-parser reports). The complete output
 was retained for handoff. This is an unavailable documentation check, not a
 passing gate or a demonstrated product failure.
+
+## CI 83bf failure and the narrow source repair
+
+[CI run 43944367545](https://github.com/cyjin-yl/shenko/actions/runs/43944367545)
+tested public head `83bf391440adbe3e153b036ba8fd1ecfe5867202` through its actual
+merge checkout `2d275430b103fb0e13316ba51cc5b5c5fdafa262`. The original workspace log records six failures:
+the new cached-read/FTS journey refused a read whose database name was absent;
+the existing native E1, canonical first-claim and direct native-chain journeys
+refused a still-busy SQLite statement; and two existing S1 journeys stopped
+without the chosen grant their later assertions require. The separate public
+S1 capacity journey passed. The unit journey stopped at its first refusal, so
+that run does not prove its later windows executed.
+
+The source repair changes only the namespace preflight and the timing of the
+post-evaluation busy check described above. It preserves all nine windows,
+their assertions, both capacity ceilings, the one evaluation, unconditional
+rollback, complete-read/absence conditions, schema checks and physical-write
+fingerprints. No new fallback or execution permission is introduced.
+
+The cause was checked against the pinned SQLite 3.46.0 primary source:
+[`select.c`](https://github.com/sqlite/sqlite/blob/bebe2d8be8acfd02592c4972f4ba32c3b4e4a33f/src/select.c)
+passes the FROM item's optional database qualifier for a no-column read;
+[`fts5RollbackToMethod`](https://github.com/sqlite/sqlite/blob/bebe2d8be8acfd02592c4972f4ba32c3b4e4a33f/ext/fts5/fts5_main.c)
+calls storage rollback, and
+[`sqlite3Fts5IndexRollback`](https://github.com/sqlite/sqlite/blob/bebe2d8be8acfd02592c4972f4ba32c3b4e4a33f/ext/fts5/fts5_index.c)
+closes the cached blob reader. Finite C-API diagnostics on the available
+SQLite 3.46.1 library observed the same FTS reader closing at savepoint rollback
+and the ambiguity between main and temp unqualified no-column reads. A held
+application SELECT cursor and read Blob remained busy after rollback/release;
+a held write Blob prevented RELEASE with SQLITE_BUSY, which remains a storage
+failure in capture. A completed read-only FTS query had no remaining busy
+statement. These diagnostics are not the pinned Rust journey. The repaired
+source still requires the next real CI run; the six original failures remain
+part of the evidence.
