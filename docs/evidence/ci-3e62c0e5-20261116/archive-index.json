@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 9507,
-      "sha256": "9b2020214201095afd5540bf2c740cf6b34cee204a75386a6137ffb92df2f93e"
+      "bytes": 9637,
+      "sha256": "ab8eaaa3a27c7291597e93740f5a9a41e7b637e1a2cfb41f8e4ba974630e17da"
     },
     {
       "path": "actual-checkout.api.json",

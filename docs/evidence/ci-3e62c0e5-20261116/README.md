@@ -6,7 +6,7 @@
 
 The requested head was `3e62c0e517a246872101cd1e61a694b2156bc919`. The Rust checkout log records merge commit `1c01c95a4915856312746b5c7ef404c1d7a84cec`, with parents baseline `84ae19404f2a17d259362c99091db408b7262e14` and the requested head. Independent Git Data responses bind both checkout and head to the same tree, `1ccf8f0bee35915c9f6c4d886b5a7bf54050d694`.
 
-The [run](run.api.json), [jobs and step timestamps](jobs.api.json), [actual checkout](actual-checkout.api.json), [requested head](requested-head.api.json), [artifact metadata](artifacts.api.json), and complete decoded job logs retain the original source and execution context. The workflow used the project's declared devcontainer on a hosted Ubuntu runner. No local Rust execution is claimed. Later local source changes are outside this run's evidence.
+The [run](run.api.json), [jobs and step timestamps](jobs.api.json), [actual checkout](actual-checkout.api.json), [requested head](requested-head.api.json), [artifact metadata](artifacts.api.json), and complete decoded job logs retain the original source and execution context. The Rust job used the workflow's declared `rust:1.98.1-bookworm` container on an `ubuntu-24.04` hosted runner. This does not imply a tracked repository devcontainer definition or additional tracing permissions. No local Rust execution is claimed. Later local source changes are outside this run's evidence.
 
 | Job | Observed result |
 | --- | --- |
