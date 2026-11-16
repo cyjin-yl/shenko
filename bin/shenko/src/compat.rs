@@ -22,8 +22,6 @@ use shenko_node::{Node, UnitRequest};
 use crate::cli::CompatCommand;
 #[cfg(feature = "compat-mcp")]
 use crate::cli::CompatMcpCommand;
-#[cfg(feature = "compat-poppy")]
-use crate::cli::CompatPoppyCommand;
 #[cfg(feature = "compat-skill")]
 use crate::cli::CompatSkillCommand;
 
