@@ -21,6 +21,7 @@ required-features = ["compat-mcp"]
 [features]
 default = ["compat-mcp", "compat-skill"]
 compat-mcp = ["dep:shenko-compat-mcp"]
+compat-poppy = ["dep:shenko-compat-poppy"]
 compat-skill = ["dep:shenko-compat-skill", "dep:cap-std", "dep:cap-fs-ext"]
 
 [dependencies]
@@ -41,6 +42,7 @@ shenko-quota = { path = "../../crates/shenko-quota" }
 shenko-awareness-core = { path = "../../crates/shenko-awareness-core" }
 shenko-compat = { path = "../../crates/shenko-compat" }
 shenko-compat-mcp = { path = "../../crates/shenko-compat-mcp", optional = true }
+shenko-compat-poppy = { path = "../../crates/shenko-compat-poppy", optional = true }
 shenko-compat-skill = { path = "../../crates/shenko-compat-skill", optional = true }
 cap-std = { version = "3.4.6", optional = true }
 cap-fs-ext = { version = "3.4.6", optional = true }

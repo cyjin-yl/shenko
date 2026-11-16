@@ -31,6 +31,7 @@ members = [
     "crates/shenko-awareness-core",
     "crates/shenko-compat",
     "crates/shenko-compat-mcp",
+    "crates/shenko-compat-poppy",
     "crates/shenko-compat-skill",
     "crates/shenko-document",
     "crates/shenko-ui",

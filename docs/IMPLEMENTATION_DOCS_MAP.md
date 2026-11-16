@@ -102,6 +102,11 @@
 
 ## 能力与插件
 
+- **Poppy 公开发现（shenko-compat-poppy）** — 已接线，但必须显式编译 `compat-poppy` 并启用 `compat.poppy` 才向主体提供 `compat.poppy.discover:1`。装配根 `bin/shenko/src/poppy.rs` 复用安装观察、native handler 和持久回执；协议 crate 不依赖 Store 或 Subject。
+  - [Poppy：发现与签名基础](specs/ecosystem-adapters.md#poppy-foundation)
+  - `shenko compat poppy discover <https-origin>` 是独立的公开诊断命令，不创建主体任务。
+  - 委托 ES256 Session 签名和公钥 metadata/JWKS 生成**仅源码**；商家请求尚不携带这些签名。平台托管、持久凭据、OAuth/DPoP、浏览器 join、UCP 协商、购物与订单接续**未实现**。跟踪 [Issue #297](https://github.com/cyjin-yl/shenko/issues/297)。
+
 - **Cordis 内核（shenko-kernel：Plugin/Service 生命周期、capability、hooks、effect contract）** — 已接线（`Supervisor` 是运行时装配根）
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md

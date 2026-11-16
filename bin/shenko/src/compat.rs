@@ -1,5 +1,5 @@
 //! `shenko compat` — install, inspect and switch the optional ecosystem
-//! adapters. MCP and Agent Skills are separate units with separate plugins, so
+//! adapters. Each protocol is a separate unit with its own plugin, so
 //! one can be installed, enabled, upgraded or removed without the other.
 //!
 //! Nothing here bundles a vendor server, ships a vendor Skill, authorizes an
@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 use shenko_compat::installation::{plugin_export, plugin_package};
 #[cfg(feature = "compat-mcp")]
 use shenko_compat_mcp::{McpConnection, UNIT_ID as MCP_UNIT};
+#[cfg(feature = "compat-poppy")]
+use shenko_compat_poppy::UNIT_ID as POPPY_UNIT;
 #[cfg(feature = "compat-skill")]
 use shenko_compat_skill::{InstalledSource, SkillSource, SourceInput, SourceQuery, MAX_READ_BYTES, UNIT_ID as SKILL_UNIT, metadata};
 use shenko_node::{Node, UnitRequest};
@@ -23,12 +25,13 @@ use crate::CompatMcpCommand;
 #[cfg(feature = "compat-skill")]
 use crate::CompatSkillCommand;
 
-/// One compatibility plugin the product can offer. Both are optional: the
-/// product ships as neither, and installing one never installs the other.
+/// Independently installed compatibility plugins the build can offer.
 fn plugins() -> impl Iterator<Item = (&'static str, &'static str)> {
     const PLUGINS: &[(&str, &str)] = &[
         #[cfg(feature = "compat-mcp")]
         (MCP_UNIT, "external MCP protocol client; no bundled server"),
+        #[cfg(feature = "compat-poppy")]
+        (POPPY_UNIT, "public Poppy/UCP discovery; no account or commerce authorization"),
         #[cfg(feature = "compat-skill")]
         (SKILL_UNIT, "Agent Skills source reader; no bundled Skill, no execution"),
     ];
@@ -113,6 +116,14 @@ pub async fn command(data_dir: &Path, command: CompatCommand) -> Result<()> {
         CompatCommand::Disable { unit_id } => set_enabled(data_dir, &unit_id, false),
         #[cfg(feature = "compat-mcp")]
         CompatCommand::Mcp { command } => mcp(data_dir, command).await,
+        #[cfg(feature = "compat-poppy")]
+        CompatCommand::Poppy { command } => match command {
+            crate::CompatPoppyCommand::Discover { origin } => {
+                let report = shenko_compat_poppy::discovery::discover(&origin).await?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                Ok(())
+            }
+        },
         #[cfg(feature = "compat-skill")]
         CompatCommand::Skill { command } => skill(data_dir, command),
     }
@@ -168,7 +179,7 @@ fn status(data_dir: &Path) -> Result<()> {
                     "plugins": plugins_value,
                     "installed_external": externals,
                     "external_services_bundled": false,
-                    "note": "Both adapters are optional and independent. Installing a connection or Skill never installs a third-party service, account or dependency.",
+                    "note": "Adapters are optional and independent. Installing an adapter or importing its material never installs a third-party service, account or dependency.",
                 }))?
             );
             Ok(())
@@ -506,13 +517,25 @@ pub async fn spawn_adapters(
     node: std::sync::Arc<parking_lot::Mutex<shenko_node::Node>>,
 ) -> Result<Vec<cordis_core::FiberHandle>> {
     let mut handles = Vec::new();
+    #[cfg(feature = "compat-poppy")]
+    handles.push(supervisor.spawn(
+        crate::poppy::SharedArtifactPlugin,
+        shenko_compat::runtime::AdapterHost::new(supervisor, store.clone(), node.clone()),
+    ).await?);
     for (unit_id, purpose) in plugins() {
         match unit_id {
             #[cfg(feature = "compat-mcp")]
-            MCP_UNIT => handles.push(
+            MCP_UNIT => {
+                let host = shenko_compat::runtime::AdapterHost::new(supervisor, store.clone(), node.clone());
+                #[cfg(feature = "compat-poppy")]
+                let host = host.with_shared_artifact_reader();
+                handles.push(supervisor.spawn(shenko_compat_mcp::McpPlugin, host).await?);
+            }
+            #[cfg(feature = "compat-poppy")]
+            POPPY_UNIT => handles.push(
                 supervisor
                     .spawn(
-                        shenko_compat_mcp::McpPlugin,
+                        crate::poppy::PoppyPlugin,
                         shenko_compat::runtime::AdapterHost::new(supervisor, store.clone(), node.clone()),
                     )
                     .await?,

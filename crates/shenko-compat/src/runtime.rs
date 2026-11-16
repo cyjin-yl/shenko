@@ -17,13 +17,22 @@ use crate::installation::plugin_package;
 pub struct AdapterHost {
     pub store: Arc<Store>,
     pub node: Arc<Mutex<Node>>,
+    /// The assembly owns one artifact reader for the adapters that need it.
+    /// Its installation watcher must outlive each resident adapter generation.
+    pub shared_artifact_reader: bool,
     registry: Arc<PluginRegistry>,
     shutdown: CancellationToken,
 }
 
 impl AdapterHost {
     pub fn new(supervisor: &Supervisor, store: Arc<Store>, node: Arc<Mutex<Node>>) -> Self {
-        Self { store, node, registry: supervisor.plugins.clone(), shutdown: supervisor.lifecycle.shutdown_token() }
+        Self { store, node, shared_artifact_reader: false, registry: supervisor.plugins.clone(), shutdown: supervisor.lifecycle.shutdown_token() }
+    }
+
+    /// Opt in only when the assembly supplies the reader's shared lifecycle.
+    pub fn with_shared_artifact_reader(mut self) -> Self {
+        self.shared_artifact_reader = true;
+        self
     }
 }
 
@@ -37,7 +46,22 @@ where
     F: Fn(Context) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<()>> + Send,
 {
-    let expected = plugin_package(unit_id)?.unit;
+    watch_any_installed(ctx, host, &[unit_id], plugin, maintain).await
+}
+
+/// Own one generation while any listed exact adapter installation is enabled.
+/// The IDs are copied before the watcher starts; the caller's slice need not
+/// outlive this startup call. Each fact is checked even if another is enabled.
+pub async fn watch_any_installed<P, F, Fut>(ctx: Context, host: AdapterHost, unit_ids: &[&'static str], plugin: P, maintain: F) -> Result<()>
+where
+    P: Plugin<Config = (Arc<Store>, Arc<Mutex<Node>>)> + Clone + Sync,
+    F: Fn(Context) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<()>> + Send,
+{
+    anyhow::ensure!(!unit_ids.is_empty(), "compatibility watcher needs at least one installation");
+    let unit_ids = unit_ids.to_vec();
+    let expected = unit_ids.iter().map(|unit_id| plugin_package(unit_id).map(|package| package.unit))
+        .collect::<Result<Vec<_>>>()?;
     let agent_id = host.store.get_existing_agent_id()?;
     let stop = CancellationToken::new();
     let worker_stop = stop.clone();
@@ -56,8 +80,16 @@ where
                     _ = host.shutdown.cancelled() => return Ok(()),
                     _ = tick.tick() => {},
                 }
-                let enabled = host.node.lock().installed_unit_fact(unit_id)?.is_some_and(|fact|
-                    fact.enabled && fact.revision == expected.revision && fact.artifact_digest == expected.artifact_digest);
+                let enabled = {
+                    let node = host.node.lock();
+                    let mut enabled = false;
+                    for expected in &expected {
+                        let matching = node.installed_unit_fact(&expected.unit_id)?.is_some_and(|fact|
+                            fact.enabled && fact.revision == expected.revision && fact.artifact_digest == expected.artifact_digest);
+                        enabled |= matching;
+                    }
+                    enabled
+                };
                 if !enabled {
                     if let Some(fiber) = resident.take() {
                         host.registry.uninstall(&fiber).await?;
@@ -86,11 +118,11 @@ where
             if let Some(agent_id) = agent_id {
                 host.store.journal_runtime_error(agent_id, shenko_store::RuntimeErrorContext {
                     kind: "compatibility_lifecycle".into(), source_module: module_path!().into(),
-                    message: format!("{unit_id} installation observer failed: {error:#}"), step_no: None, task_id: None,
-                    extra: serde_json::json!({"unit_id":unit_id}),
+                    message: format!("{} installation observer failed: {error:#}", unit_ids.join(", ")), step_no: None, task_id: None,
+                    extra: serde_json::json!({"unit_ids":unit_ids}),
                 });
             } else {
-                tracing::error!(unit_id, %error, "adapter lifecycle failed before subject initialization");
+                tracing::error!(unit_ids = ?unit_ids, %error, "adapter lifecycle failed before subject initialization");
             }
         }
         if let Some(ready) = ready {
