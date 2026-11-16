@@ -43,6 +43,10 @@ CAS 定位符跨节点比较使用内容寻址尾段（`<ab>/<cd>/<64hex>`，`po
 
 主体自存路径（`settle_subject_memory`）是刻意的不带 sidecar 表示，不算损坏；认知对账（cognition.rs）将其排除在绑定缺口之外。
 
+Store 的持久操作协议由 `MEMORY_OP_*` 定义；未知操作在接纳前以 typed conflict 拒绝，不限制知识的开放 `kind`。库侧 pending 枚举仍包含旧数据中已接纳的未知操作，worker 将其结为 `failed` 并保留原操作和原因，不能把它默认为 save。`recall` 走只读查询；送进写入 worker 的 recall 请求明确结为 failed，不生成记忆条目。reflect 明确走产生条目的路径，保留自己的操作及知识标签。
+
+主体自存 settler 只兑现 `shenko.memory/sqlite-save/1` 的 save。它直接枚举有界的 ready 主体队列，核对请求身份、owner、scope 与封存内容；不通过 inner join 隐去缺失的 memory 行。某项 payload、操作或请求绑定不可兑现时，该项原文不变、主体 intent 置 blocked，并将仍 accepted 的 memory 行置 failed；同一事务写入原因和原始 memory receipt，继续结算批内其他项。终态 memory 行不被覆盖。数据库及提交失败仍使事务失败，不能被伪装成单项已处理；返回数只计算实际 committed 的记忆。
+
 ## 4. 接口
 
 Rust（`shenko-memory`）：

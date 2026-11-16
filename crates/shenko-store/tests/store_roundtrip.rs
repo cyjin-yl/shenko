@@ -776,6 +776,143 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() -> Result<()> {
     Ok(())
 }
 
+/// One unusable subject memory intent does not wedge the whole batch.
+///
+/// The subject's memory settler owns the `save` operation. A ready intent
+/// that names another operation (the shape a legacy database carries, or
+/// one written before the commit-time block) is isolated with an honest
+/// outcome, while the subject's other memory intents still settle.
+#[test]
+fn one_unusable_subject_memory_intent_does_not_wedge_the_batch() -> Result<()> {
+    use shenko_types::{ids::*, subject::*};
+    let (dir, store, agent) = initialized_subject();
+    let (head, planned) = store.load_subject(agent).unwrap();
+    let result = recorded_result(&store, &head, planned)?;
+    let next = EntityId::new();
+    let mut step = committed_candidate(&store, result, next);
+    let mut decision: StepDecision = serde_json::from_slice(
+        &store.cas.read_object(&step.decision_ref.as_ref().unwrap().digest).unwrap(),
+    ).unwrap();
+    let intent_id = EntityId::new();
+    let content = store.cas.seal_object(b"remember the actual receipt", "text/plain",
+        "memory", "text", 1).unwrap().object;
+    decision.memory_intents = vec![MemoryIntent {
+        intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
+    }];
+    step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
+        "application/json", "decisions", "StepDecision", 8).unwrap().object);
+    store.commit_step_and_advance_head(&step, &head, next).unwrap();
+
+    // A ready subject memory intent that names an operation the subject's
+    // settler does not own, with the library-side row beside it. It is
+    // written directly so it sorts BEFORE the freshly committed intent:
+    // the batch must meet the unusable intent first and still settle the
+    // rest.
+    let unusable = EntityId::new();
+    let malformed = EntityId::new();
+    let missing = EntityId::new();
+    let terminal = EntityId::new();
+    let payload = serde_json::to_string(&MemoryIntent {
+        intent_id: unusable, kind: MemoryIntentKind::Correct, scope: "subject".into(), content_ref: None,
+    })?;
+    let decision_ref = serde_json::to_string(step.decision_ref.as_ref().unwrap())?;
+    let seq = store.current_commit_seq().unwrap() as i64;
+    {
+        let connection = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,owner,revision,created_seq,updated_seq,result_ref)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1',?4,?5,'ready',NULL,0,0,?6,NULL)",
+            rusqlite::params![unusable.to_string(), step.step_id.to_string(), agent.to_string(),
+                payload, decision_ref, seq],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO memory_intents
+                (intent_id,agent_id,kind,knowledge_kind,scope,content,content_ref,entry_id,state,created_at_ms,updated_at_ms)
+             VALUES(?1,?2,'save','note','subject','',NULL,?1,'accepted',?3,?3)",
+            rusqlite::params![unusable.to_string(), agent.to_string(), seq],
+        ).unwrap();
+        // A syntactically valid JSON value with no memory contract must be
+        // isolated too, while retaining the payload for the normal reader.
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,revision,created_seq,updated_seq)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1','{}',?4,'ready',0,0,?5)",
+            rusqlite::params![malformed.to_string(), step.step_id.to_string(), agent.to_string(), decision_ref, seq],
+        ).unwrap();
+        // An absent memory row must not disappear behind a JOIN filter.
+        let missing_payload = serde_json::to_string(&MemoryIntent {
+            intent_id: missing, kind: MemoryIntentKind::Save, scope: "subject".into(),
+            content_ref: decision.memory_intents[0].content_ref.clone(),
+        })?;
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,revision,created_seq,updated_seq)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1',?4,?5,'ready',0,0,?6)",
+            rusqlite::params![missing.to_string(), step.step_id.to_string(), agent.to_string(), missing_payload, decision_ref, seq],
+        ).unwrap();
+        let terminal_payload = serde_json::to_string(&MemoryIntent {
+            intent_id: terminal, kind: MemoryIntentKind::Save, scope: "subject".into(),
+            content_ref: decision.memory_intents[0].content_ref.clone(),
+        })?;
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,revision,created_seq,updated_seq)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1',?4,?5,'ready',0,0,?6)",
+            rusqlite::params![terminal.to_string(), step.step_id.to_string(), agent.to_string(), terminal_payload, decision_ref, seq],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO memory_intents
+                (intent_id,agent_id,kind,knowledge_kind,scope,content,entry_id,state,reason,created_at_ms,updated_at_ms)
+             VALUES(?1,?2,'save','note','subject','retained terminal input',?1,'failed','original failure',?3,?3)",
+            rusqlite::params![terminal.to_string(), agent.to_string(), seq],
+        ).unwrap();
+    }
+
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(store.settle_subject_memory().unwrap(), 1,
+        "the usable intent settles even though the batch holds an unusable one");
+
+    // The usable intent really settled: it owns its entry.
+    let entry = store.memory_entry(intent_id).unwrap()
+        .expect("the settled intent owns the entry it produced");
+    assert_eq!(entry.content, "remember the actual receipt");
+    let committed = store.committed_intents(Some("memory"), None, 10).unwrap();
+    let settled = committed.iter().find(|intent| intent.intent_id == intent_id).unwrap();
+    assert_eq!(settled.state, "settled");
+
+    // The unusable intent is isolated with an honest outcome: it is not
+    // ready any more, it says which operation the settler owns, and its
+    // library row is failed instead of accepted forever.
+    let isolated = committed.iter().find(|intent| intent.intent_id == unusable).unwrap();
+    assert_eq!(isolated.state, "blocked");
+    assert!(isolated.result_ref.as_deref().unwrap_or_default().contains("save"),
+        "the isolated intent says what the settler owns: {:?}", isolated.result_ref);
+    assert_eq!(store.memory_intent_state(unusable).unwrap().as_deref(), Some("failed"));
+    assert_eq!(store.committed_intent(malformed)?.unwrap().state, "blocked");
+    assert_eq!(store.committed_intent(malformed)?.unwrap().payload, serde_json::json!({}));
+    assert!(store.committed_intent(missing)?.unwrap().result_ref.unwrap().contains("request binding"));
+    assert!(store.memory_intent(missing)?.is_none());
+    let retained = store.memory_intent(terminal)?.unwrap().record;
+    assert_eq!(retained.state, "failed");
+    assert_eq!(retained.reason.as_deref(), Some("original failure"));
+    assert_eq!(retained.content, "retained terminal input");
+    assert!(store.memory_entry(unusable)?.is_none());
+    assert!(store.memory_entry(malformed)?.is_none());
+    assert!(store.memory_entry(terminal)?.is_none());
+
+    // The batch is not wedged: the next pass has nothing left to settle.
+    assert_eq!(store.settle_subject_memory().unwrap(), 0);
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert_eq!(reopened.committed_intent(unusable)?.unwrap().state, "blocked");
+    assert_eq!(reopened.committed_intent(missing)?.unwrap().state, "blocked");
+    assert_eq!(reopened.memory_intent_state(intent_id)?.as_deref(), Some("committed"));
+    let history = reopened.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?;
+    assert!(history.iter().any(|row| row.data.contains(&unusable.to_string()) && row.data.contains("failed")));
+    Ok(())
+}
+
 #[test]
 fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
     use shenko_types::{error::ShenkoError, ids::*};
