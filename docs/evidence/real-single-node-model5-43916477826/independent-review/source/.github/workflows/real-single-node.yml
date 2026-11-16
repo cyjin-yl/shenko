@@ -1,0 +1,156 @@
+name: Real single-node journey
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-single-node-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-model-journey:
+    # One explicit label event requests one exact-candidate experiment. Do
+    # not repeat it on pushes or unrelated labels while opt-in is present.
+    # Label opt-in also works before this workflow reaches main.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-real-model'
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 75
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_TARGET_DIR: .ci/target/real-single-node
+      SHENKO_SOURCE_REVISION: ${{ github.sha }}
+      # The first hosted run reached only 46% of the complete prompt at the
+      # old 180s transport limit. This explicit diagnostic limit is sealed in
+      # each request; it changes neither the model nor its sampling/answer checks.
+      SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS: "1200000"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install build and observation prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3 python3-venv cmake clang pkg-config libssl-dev libgomp1 curl ca-certificates
+          python3 -m venv .ci/python
+          .ci/python/bin/pip install websockets==16.0 playwright==1.62.0
+          .ci/python/bin/python -m playwright install --with-deps --no-shell chromium
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> .ci/target/real-single-node
+          shared-key: rust-1.98.1-real-single-node
+      - name: Build the exact candidate CLI
+        run: cargo build --locked -p shenko -j2
+      - name: Obtain pinned real model and inference runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/model .ci/evidence
+          curl --fail --location --retry 3 'https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/f2d6f9ca53a254cc379437c49e4b2eb447f779df/Qwen3-0.6B-Q4_K_M.gguf' -o .ci/model/model.gguf
+          curl --fail --location --retry 3 'https://github.com/ggml-org/llama.cpp/releases/download/b12359/llama-b12359-bin-ubuntu-x64.tar.gz' -o .ci/model/llama.tar.gz
+          echo 'ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a  .ci/model/model.gguf' | sha256sum --check
+          echo '0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e  .ci/model/llama.tar.gz' | sha256sum --check
+          sha256sum .ci/model/model.gguf .ci/model/llama.tar.gz > .ci/evidence/model.sha256
+          tar -xf .ci/model/llama.tar.gz -C .ci/model
+          .ci/model/llama-b12359/llama-server --version > .ci/evidence/model-runtime-version.txt 2>&1
+          .ci/model/llama-b12359/llama-server --help > .ci/evidence/model-runtime-help.txt 2>&1
+      - name: Observe live browser input, children, results, output and restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          # b12359's CPU tiled/split-KV attention paths require F16/F32 K/V.
+          # Run 4 observed a 1.75 GiB F16 cache at 16K. At 32K its cache body
+          # is expected to require 3.5 GiB, before other buffers; readiness and
+          # actual slot capacity/resource limits still require observation.
+          # Keep weights, complete prompt, output reservation, sampling and
+          # deadlines unchanged. This is a lower-tier capacity diagnostic.
+          model_threads="$(nproc)"
+          model_command=(.ci/model/llama-b12359/llama-server
+            --model .ci/model/model.gguf --alias Qwen3-0.6B-Q4_K_M
+            --host 127.0.0.1 --port 18832 --offline --no-webui
+            --threads "$model_threads" --threads-batch "$model_threads" --threads-http 2
+            --ctx-size 32768 --parallel 1 --batch-size 2048 --ubatch-size 512
+            --n-gpu-layers 0 --flash-attn on --cache-type-k f16 --cache-type-v f16
+            --cache-ram 64 --load-mode none --repack --jinja --reasoning off
+            --n-predict 1024 --no-context-shift
+            --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5
+            --timeout 600 --verbosity 4 --log-timestamps --log-colors off)
+          python3 - "${model_command[@]}" <<'PY_RUNTIME'
+          import json, os, pathlib, platform, sys
+          def observed_file(path):
+              source = pathlib.Path(path)
+              return source.read_text() if source.is_file() else None
+          observation = {
+              "argv": sys.argv[1:],
+              "source_revision": os.environ["GITHUB_SHA"],
+              "platform": platform.platform(),
+              "cpu_count": os.cpu_count(),
+              "cpu_affinity": sorted(os.sched_getaffinity(0)),
+              "cpuinfo": observed_file("/proc/cpuinfo"),
+              "meminfo": observed_file("/proc/meminfo"),
+              "proc_self_cgroup": observed_file("/proc/self/cgroup"),
+              "cgroup_mounts": [line for line in pathlib.Path("/proc/self/mountinfo").read_text().splitlines()
+                                 if " - cgroup2 " in line],
+              "cgroup_cpuset_cpus_effective": observed_file("/sys/fs/cgroup/cpuset.cpus.effective"),
+              "cgroup_cpu_max": observed_file("/sys/fs/cgroup/cpu.max"),
+              "cgroup_cpu_stat": observed_file("/sys/fs/cgroup/cpu.stat"),
+              "cgroup_memory_max": observed_file("/sys/fs/cgroup/memory.max"),
+              "cgroup_memory_current": observed_file("/sys/fs/cgroup/memory.current"),
+              "cgroup_scope": "visible cgroup mount; unexposed ancestor limits are not observed",
+          }
+          pathlib.Path(".ci/evidence/model-runtime-invocation.json").write_text(
+              json.dumps(observation, indent=2) + "\n")
+          PY_RUNTIME
+          "${model_command[@]}" > .ci/evidence/model-server.log 2>&1 &
+          model_pid=$!
+          trap 'kill -INT "$model_pid" 2>/dev/null || true; wait "$model_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18832/health > .ci/evidence/model-health.json; then break; fi
+            kill -0 "$model_pid"
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18832/health > .ci/evidence/model-health.json
+          python3 - "$model_pid" <<'PY_LOADED_RUNTIME'
+          import json, os, pathlib, sys
+          pid = int(sys.argv[1])
+          proc = pathlib.Path("/proc") / str(pid)
+          mapped_files = [line.split(maxsplit=5)[-1] for line in (proc / "maps").read_text().splitlines()
+                          if len(line.split(maxsplit=5)) == 6]
+          loaded = {
+              "phase": "model_ready",
+              "pid": pid,
+              "executable": os.readlink(proc / "exe"),
+              "argv": (proc / "cmdline").read_bytes().decode().rstrip("\0").split("\0"),
+              "cpu_affinity": sorted(os.sched_getaffinity(pid)),
+              "process_cgroup": (proc / "cgroup").read_text(),
+              "process_status": (proc / "status").read_text(),
+              "mapped_ggml_libraries": sorted({path for path in mapped_files if "libggml" in pathlib.Path(path).name}),
+              "scope": "mapped libraries and process state at readiness; actual backend selection and attention configuration are retained in model-server.log at verbosity 4",
+          }
+          pathlib.Path(".ci/evidence/model-runtime-loaded.json").write_text(json.dumps(loaded, indent=2) + "\n")
+          PY_LOADED_RUNTIME
+          .ci/python/bin/python scripts/real_single_node_journey.py \
+            --binary .ci/target/real-single-node/debug/shenko \
+            --source-revision "$GITHUB_SHA" \
+            --model-url http://127.0.0.1:18832 --model Qwen3-0.6B-Q4_K_M \
+            --browser --timeout 1800 --evidence-dir .ci/evidence/real-single-node
+      - name: Retain actual outcomes, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-single-node-${{ github.sha }}
+          path: |
+            .ci/evidence/
+            !.ci/evidence/real-single-node/installation/**
+          if-no-files-found: warn
+
+# This explicit lower-tier mechanical experiment is not the Qwen3.8-27B
+# quality gate, NapCat/coding-seat S2, physical fault proof, or 7/30-day test.

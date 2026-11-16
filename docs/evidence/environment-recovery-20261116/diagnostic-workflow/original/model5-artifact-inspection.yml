@@ -1,0 +1,64 @@
+name: Inspect fixed model 5 evidence
+
+on:
+  push:
+    branches: [diagnostics/model5-artifact-43916477826-20261116]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: model5-artifact-43916477826-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect-original-evidence:
+    if: github.repository == 'cyjin-yl/shenko' && github.ref == 'refs/heads/diagnostics/model5-artifact-43916477826-20261116'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash --noprofile --norc -e -o pipefail {0}
+    env:
+      PYTHONUNBUFFERED: '1'
+      PYTHONPYCACHEPREFIX: ${{ runner.temp }}/model5-inspector-pycache
+    steps:
+      - name: Check out only the diagnostic candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Compile the standard-library inspector before reading evidence
+        run: |
+          mkdir -p .ci/evidence/model5-inspection
+          python3 --version > .ci/evidence/model5-inspection/python-version.txt 2>&1
+          git rev-parse HEAD > .ci/evidence/model5-inspection/diagnostic-source.txt
+          python3 -m py_compile scripts/inspect_model5_artifact.py > .ci/evidence/model5-inspection/py-compile.log 2>&1
+      - name: Verify and inspect the one historical ZIP without execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/inspect_model5_artifact.py --output .ci/evidence/model5-inspection \
+            > .ci/evidence/model5-inspection/inspector.stdout \
+            2> .ci/evidence/model5-inspection/inspector.stderr
+      - name: Show bounded derived observations, including a diagnostic failure
+        if: always()
+        run: |
+          if test -f .ci/evidence/model5-inspection/inspector.stdout; then
+            cat .ci/evidence/model5-inspection/inspector.stdout
+          fi
+          if test -f .ci/evidence/model5-inspection/inspection-state.json; then
+            cat .ci/evidence/model5-inspection/inspection-state.json
+          fi
+      - name: Retain original ZIP, all member hashes and complete derivatives
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: model5-readonly-inspection-${{ github.sha }}
+          path: .ci/evidence/model5-inspection/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 90
+
+# This branch-only job neither runs Cargo nor starts a model, CLI or browser.
+# Diagnostic success preserves the original run's failure; it is not a product gate.

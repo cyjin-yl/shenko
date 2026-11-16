@@ -24,3 +24,8 @@
 - [CI be46：启动取消通过、组件身份取证失败](ci-be46be34-20261116/README.md)：完整保留原失败、五份 job 日志、全部 Clippy 流及 artifact 成员摘要；悬挂 GET 的实际 EOF、暂停重开与真实 SSH 通过。组件误把 `/health` 当身份端点，后续改读同端口 `/api/self` 并严格核对主体与安装；完整进程后半仍待新运行。此前 pin 宏诊断漏判及独立修复检查也保留原件和更正。
 
 大日志、录屏和敏感环境信息可以保存在合适的私有工件存储；仓库保留非秘密的内容摘要、hash、位置与复现方法。最终completion.json与报告按COMPLETION合同生成。不能提前生成一个success示例让goal误判产品完成。
+
+- [7905 CI 六门通过与首次 E1 九窗口原件](ci-7905e841-20261116/README.md)：实际 419ca5c6 checkout；原 ZIP／完整日志与范围限制。
+- [第五次 32K 真实模型失败与独立复核](real-single-node-model5-43916477826/README.md)：完整原 ZIP、40 次协议拒绝、最后 Unknown、能力说明缺口，未冒称闭环。
+- [环境中断与固定源码恢复](environment-recovery-20261116/README.md)：原失败、只读诊断、原身份 shallow 恢复与 main 整合边界。
+- [51a 原失败 ZIP 的恢复后补证](ci-51a1ce43-20261116/archive-recovered/README.md)：完整字节与成员校验追加，不覆盖当时记录。

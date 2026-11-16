@@ -1,0 +1,99 @@
+{
+  "diagnostic_source": "local-restoration-probe-not-a-product-run",
+  "source_commit": "151efe5008be5891dff94772c481289b4b3d622a",
+  "source_tree": "465d85027f5d7139977d0e852906b3bad9eeef10",
+  "complete_source_archive_verified": true,
+  "verified_git_blobs": 4,
+  "source_objects_verified_in_empty_repository": true,
+  "history_complete": false,
+  "shallow_boundary": [
+    "151efe5008be5891dff94772c481289b4b3d622a"
+  ],
+  "original_parent_commits": [
+    "459b84eaf85be3888dd5673286205a0a42ef7cdb"
+  ],
+  "object_scope": "Exact HEAD commit, trees and blobs through the recorded shallow boundary; no checkout config or credentials",
+  "product_code_executed": false,
+  "files": [
+    {
+      "path": "git-version.txt",
+      "bytes": 19,
+      "sha256": "1b5be440c77a69dc59d5bf55542e2e2f71cb2c6f721bd6b2ad216897fd59283c"
+    },
+    {
+      "path": "imported.commit",
+      "bytes": 41,
+      "sha256": "252a87398c1e78429d4d1330dd02a8a0ab41d690710769d9210a4b4c4255e3c5"
+    },
+    {
+      "path": "imported.tree",
+      "bytes": 41,
+      "sha256": "d9f5534d5403af828eaa4cdfb5c45a7737e226a6e4a5ca7e86dc2209d82de49e"
+    },
+    {
+      "path": "pack-create.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pack-fsck.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pack-import.log",
+      "bytes": 46,
+      "sha256": "a47e05935364a721cc97dcb1c63a7d443ff18145086404f622ae7adb628d7d0d"
+    },
+    {
+      "path": "pack-init.log",
+      "bytes": 709,
+      "sha256": "242dfac5152593cd1cfd3aa64ea966697be2462bd7ba87ef03cc69994242fed5"
+    },
+    {
+      "path": "shenko-7905e841.source-objects.pack",
+      "bytes": 686,
+      "sha256": "06d92db66b3ddc2a046737bf5c048dc2537d540ca90295bcee988ea4ff91159f"
+    },
+    {
+      "path": "shenko-7905e841.source.tar.gz",
+      "bytes": 669,
+      "sha256": "c5bcf3a893880a31bf30a97981b28bfac3e6aa3f8d537bf1c5efdcdf88dc0184"
+    },
+    {
+      "path": "source.commit",
+      "bytes": 41,
+      "sha256": "252a87398c1e78429d4d1330dd02a8a0ab41d690710769d9210a4b4c4255e3c5"
+    },
+    {
+      "path": "source.commit-object.txt",
+      "bytes": 232,
+      "sha256": "202286998f3bc4e54357ef55fc7b06f1f5bc9df859b773c256cfcc46fdfaa483"
+    },
+    {
+      "path": "source.is-shallow",
+      "bytes": 5,
+      "sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+    },
+    {
+      "path": "source.object-ids",
+      "bytes": 246,
+      "sha256": "a91d635f27be6a6e591fde5e91407c22b64f082e9686192a58154dee3aae4090"
+    },
+    {
+      "path": "source.shallow",
+      "bytes": 41,
+      "sha256": "252a87398c1e78429d4d1330dd02a8a0ab41d690710769d9210a4b4c4255e3c5"
+    },
+    {
+      "path": "source.tree",
+      "bytes": 41,
+      "sha256": "d9f5534d5403af828eaa4cdfb5c45a7737e226a6e4a5ca7e86dc2209d82de49e"
+    },
+    {
+      "path": "source.tree.entries.z",
+      "bytes": 255,
+      "sha256": "f573ac3528523533b4ba717213a779e6c3271f77d5401ef6d26deb9e38e4f201"
+    }
+  ]
+}
