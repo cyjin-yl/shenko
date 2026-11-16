@@ -26,8 +26,9 @@ use crate::memory_store::{AcceptedRef, MemoryStore, ProcessOutcome};
 #[derive(Debug, Clone)]
 pub struct MemoryRequest {
     pub intent_id: EntityId,
-    /// The operation: "save" | "reflect" | "correct" | "forget" | "recall" or
-    /// another verb the caller owns. Never the knowledge kind.
+    /// The operation: "save" | "reflect" | "correct" | "forget" | "recall".
+    /// The store settles exactly these operations and refuses another verb
+    /// at admission. Never the knowledge kind.
     pub operation: String,
     /// The open knowledge kind of the produced entry ("note", "commitment",
     /// "insight", "reflection", ...).

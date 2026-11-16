@@ -198,6 +198,11 @@ impl MemoryStore {
         &self,
         request: &MemoryRequest,
     ) -> Result<AcceptedRef, anyhow::Error> {
+        if !shenko_store::is_supported_memory_op_kind(&request.operation) {
+            return Err(shenko_types::error::ShenkoError::conflict(format!(
+                "unsupported memory intent kind: {}", request.operation,
+            )).into());
+        }
         if request.operation == MEMORY_OP_FORGET {
             return Err(anyhow::anyhow!(
                 "forget intents bind the retired entry id; use accept_forget()"
@@ -242,8 +247,10 @@ impl MemoryStore {
             intent: MemoryIntent {
                 intent_id,
                 kind: match request.operation.as_str() {
+                    shenko_store::MEMORY_OP_SAVE | shenko_store::MEMORY_OP_REFLECT => MemoryIntentKind::Save,
                     shenko_store::MEMORY_OP_CORRECT => MemoryIntentKind::Correct,
-                    _ => MemoryIntentKind::Save,
+                    MEMORY_OP_RECALL => MemoryIntentKind::Recall,
+                    _ => unreachable!("the operation was validated before admission"),
                 },
                 scope: request.scope.clone(),
                 content_ref: store_request.content_ref.clone(),
@@ -380,6 +387,10 @@ impl MemoryStore {
             return Ok(ProcessOutcome::AlreadyProcessed(stored.record.state));
         }
         if stored.record.state != "accepted" { return Err(anyhow::anyhow!("unsupported durable memory intent state")); }
+        if !shenko_store::is_supported_memory_op_kind(&stored.record.kind) {
+            let reason = format!("unsupported memory intent kind: {}", stored.record.kind);
+            return self.fail_intent(&store, intent_id, &reason);
+        }
 
         let queued = self
             .queue
@@ -392,11 +403,11 @@ impl MemoryStore {
             Some(queued) => queued,
             None => {
                 let kind = match stored.record.kind.as_str() {
-                    shenko_store::MEMORY_OP_SAVE => MemoryIntentKind::Save,
+                    shenko_store::MEMORY_OP_SAVE | shenko_store::MEMORY_OP_REFLECT => MemoryIntentKind::Save,
                     shenko_store::MEMORY_OP_CORRECT => MemoryIntentKind::Correct,
                     shenko_store::MEMORY_OP_FORGET => MemoryIntentKind::Forget,
                     shenko_store::MEMORY_OP_RECALL => MemoryIntentKind::Recall,
-                    _ => MemoryIntentKind::Save,
+                    _ => unreachable!("the durable operation was validated before processing"),
                 };
                 let content_ref = match stored.content_ref {
                     Some(reference) => reference,
@@ -451,19 +462,19 @@ impl MemoryStore {
                     return Err(e);
                 }
                 let reason = e.to_string();
-                match store.fail_memory_intent(intent_id, &reason)? {
-                    MemoryIntentFailure::Failed => {
-                        self.remove_queued(intent_id);
-                        Ok(ProcessOutcome::Failed(reason))
-                    }
-                    MemoryIntentFailure::AlreadyTerminal(state) => {
-                        self.remove_queued(intent_id);
-                        Ok(ProcessOutcome::AlreadyProcessed(state))
-                    }
-                    MemoryIntentFailure::NotFound => Ok(ProcessOutcome::NotFound),
-                }
+                self.fail_intent(&store, intent_id, &reason)
             }
         }
+    }
+
+    fn fail_intent(&self, store: &Store, intent_id: EntityId, reason: &str) -> Result<ProcessOutcome, anyhow::Error> {
+        let outcome = match store.fail_memory_intent(intent_id, reason)? {
+            MemoryIntentFailure::Failed => ProcessOutcome::Failed(reason.to_string()),
+            MemoryIntentFailure::AlreadyTerminal(state) => ProcessOutcome::AlreadyProcessed(state),
+            MemoryIntentFailure::NotFound => ProcessOutcome::NotFound,
+        };
+        self.remove_queued(intent_id);
+        Ok(outcome)
     }
 
     /// Process every queued intent; returns how many were committed.

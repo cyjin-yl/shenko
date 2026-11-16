@@ -109,8 +109,10 @@ impl MemoryEntry {
 pub struct MemoryIntentRecord {
     pub intent_id: EntityId,
     pub agent_id: EntityId,
-    /// The operation this request performs. This vocabulary is open and is
-    /// distinct from the knowledge kind of the produced entry.
+    /// The operation this request performs. It is one of the operations the
+    /// store settles (`save` | `correct` | `forget` | `recall` | `reflect`)
+    /// and is distinct from the knowledge kind of the produced entry, which
+    /// stays the open vocabulary.
     pub kind: String,
     /// The open knowledge kind requested for the produced entry.
     #[serde(default = "default_knowledge_kind")]
@@ -152,13 +154,32 @@ pub fn default_knowledge_kind() -> String {
 }
 
 /// Operation kinds of the durable memory request chain (docs/specs/memory.md#spec-12-2).
-/// The vocabulary is open: a caller may use another verb, and the store
-/// treats it as an operation, never as a knowledge kind.
+/// The store treats the operation as an operation, never as a knowledge
+/// kind: the knowledge kind of the produced entry remains an open vocabulary.
 pub const MEMORY_OP_SAVE: &str = "save";
 pub const MEMORY_OP_CORRECT: &str = "correct";
 pub const MEMORY_OP_FORGET: &str = "forget";
 pub const MEMORY_OP_RECALL: &str = "recall";
 pub const MEMORY_OP_REFLECT: &str = "reflect";
+
+/// The operations this store admits as durable memory requests.
+///
+/// An operation outside this list has no settlement path, so admitting it
+/// would leave the request `accepted` forever: no entry, no failure, no
+/// owner. Pending enumeration also includes older unsupported requests so
+/// the worker can record their failure instead of abandoning them.
+pub const SUPPORTED_MEMORY_OP_KINDS: [&str; 5] = [
+    MEMORY_OP_SAVE,
+    MEMORY_OP_CORRECT,
+    MEMORY_OP_FORGET,
+    MEMORY_OP_RECALL,
+    MEMORY_OP_REFLECT,
+];
+
+/// Is this operation part of the durable memory request protocol?
+pub fn is_supported_memory_op_kind(kind: &str) -> bool {
+    SUPPORTED_MEMORY_OP_KINDS.contains(&kind)
+}
 
 /// A memory request as the caller states it. The store admits it once and
 /// keeps its identity, so a replay resolves to the same durable request.
@@ -166,7 +187,7 @@ pub const MEMORY_OP_REFLECT: &str = "reflect";
 pub struct MemoryIntentRequest {
     pub intent_id: EntityId,
     pub agent_id: EntityId,
-    /// The operation: save | correct | forget | recall | reflect | ...
+    /// The operation: save | correct | forget | recall | reflect.
     pub operation: String,
     /// The open knowledge kind of the produced entry.
     pub knowledge_kind: String,
@@ -405,7 +426,7 @@ impl Default for MemoryRequestDetail {
     }
 }
 
-fn read_memory_intent(
+pub(crate) fn read_memory_intent(
     conn: &rusqlite::Connection,
     intent_id: EntityId,
 ) -> Result<Option<StoredMemoryIntent>, ShenkoError> {
@@ -746,6 +767,9 @@ impl Store {
             let stored = read_memory_intent(tx, intent_id)?
                 .ok_or_else(|| ShenkoError::not_found("memory intent"))?;
             let request = &stored.record;
+            if !matches!(request.kind.as_str(), MEMORY_OP_SAVE | MEMORY_OP_CORRECT | MEMORY_OP_REFLECT) {
+                return Err(ShenkoError::conflict("memory operation does not produce an entry"));
+            }
             if request.state != "accepted" || request.agent_id != entry.agent_id
                 || request.entry_id != Some(entry.entry_id)
                 || request.knowledge_kind != entry.kind
@@ -882,6 +906,15 @@ impl Store {
         rec: &MemoryIntentRecord,
         content_ref: Option<&ObjectRef>,
     ) -> Result<MemoryIntentAdmission, ShenkoError> {
+        // An operation no worker can settle is refused HERE, before any
+        // durable state exists: an admitted request that nothing owns would
+        // stay `accepted` forever, with no entry, no failure and no owner.
+        if !is_supported_memory_op_kind(&rec.kind) {
+            return Err(ShenkoError::conflict(format!(
+                "unsupported memory intent kind: {}",
+                rec.kind
+            )));
+        }
         if rec.state != "accepted" || rec.reason.is_some() || rec.entry_id.is_none()
             || !same_locator(content_ref, rec.content_ref.as_deref())
         {
@@ -987,13 +1020,13 @@ impl Store {
         read_memory_intent(&conn, id)
     }
 
-    /// Enumerate only this consumer's accepted library intents. Subject-owned
-    /// intents use a distinct kind and are settled by their own dispatcher.
+    /// Enumerate this consumer's accepted library intents, including older
+    /// unsupported operations whose failure still needs settlement.
+    /// Subject-owned intents are settled by their own dispatcher.
     pub fn pending_library_memory_intents(&self, agent_id: EntityId, limit: usize) -> Result<Vec<EntityId>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT intent_id FROM memory_intents m WHERE m.agent_id=?1 AND m.state='accepted'
-             AND m.kind IN ('save','correct','forget','recall','reflect')
              AND NOT EXISTS (SELECT 1 FROM subject_intents s WHERE s.intent_id=m.intent_id AND s.kind='memory')
              ORDER BY m.created_at_ms,m.intent_id LIMIT ?2",
         ).map_err(|e| ShenkoError::storage(e.to_string()))?;

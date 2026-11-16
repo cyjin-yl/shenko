@@ -4209,6 +4209,7 @@ dependencies = [
  "chrono",
  "cordis-core",
  "parking_lot",
+ "rusqlite",
  "serde",
  "serde_json",
  "shenko-context-policy",
