@@ -1,0 +1,47 @@
+{
+  "pr": 314,
+  "inputs": {
+    "pr": 314,
+    "source_head": "c69389f1f1106b9bb15f4157e7f1a0629806a270",
+    "context_commit": "a1d3fa6ed41f9ba233aad5e5b3e7dfeaad281b9f",
+    "exact_consumed_source": [
+      {
+        "path": "scripts/observe_longrun.py",
+        "git_blob": "fff3423dfb6fb999261e690e4f02dc766707b99d",
+        "utf8_characters": 59738
+      },
+      {
+        "path": "scripts/observe_longrun_test.py",
+        "git_blob": "e2ede43c2224803f5d3f733a8c5bff34cd6d0063",
+        "utf8_characters": 19645
+      }
+    ],
+    "context_note": "Only the exact PR recorder and self-test blobs are executed locally; this is not the full PR CI or a main-base checkout."
+  },
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+    "-I",
+    "scripts/observe_longrun_test.py"
+  ],
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "started_at": "2026-11-16T20:56:43.757379+00:00",
+  "finished_at": "2026-11-16T20:56:44.881354+00:00",
+  "elapsed_seconds": 1.1239826199998788,
+  "exit_code": 0,
+  "outer_timeout": false,
+  "own_process_group": 5,
+  "descendants_after_parent": [],
+  "cleanup": [],
+  "remaining_process_group": [],
+  "streams": {
+    "stdout.log": {
+      "bytes": 54,
+      "sha256": "1794ae62aa8ed66f3b1154a421c32ef5a2515d9c3548a655d4a267d7ee066982"
+    },
+    "stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "scope": "Exact recorder/self-test scripts only; not full PR CI, multi-host fencing, 7/30-day runtime, or physical durability."
+}

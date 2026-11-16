@@ -50,6 +50,8 @@ as product evidence for the current candidate.
 
 Layout of the run directory (all writes are fsync'd):
 
+  directory inode    flock serializes init/sample/checkpoint/stop/report;
+                     no replaceable sidecar lock or fabricated observation.
   manifest.json      frozen at `init`: candidate/environment identity and the
                      *declared* observation windows. Editing it after samples
                      exist is detected as manifest drift at report time.
@@ -78,6 +80,8 @@ prove continuous behaviour between samples and does not detect restarts that
 spawn a *different* PID unless the new PID is supplied (e.g. via --pid-file).
 """
 import argparse
+import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -778,6 +782,27 @@ def subject_binary_state(pid, candidate):
     return state
 
 
+@contextmanager
+def evidence_directory_lock(run_dir, *, shared=False):
+    """Serialize evidence mutations across concurrent real CLI processes.
+
+    Lock the persistent directory inode itself: a replaceable sidecar lock
+    cannot split the lock domain, and read-only archives remain reportable.
+    If the filesystem does not support directory flock, fail closed.
+    """
+    run_dir = Path(run_dir)
+    fd = os.open(run_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        opened = os.fstat(fd)
+        named = os.stat(run_dir, follow_symlinks=False)
+        if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+            raise ValueError("evidence directory was replaced while acquiring its lock")
+        yield
+    finally:
+        os.close(fd)
+
+
 # ------------------------------------------------------------------ commands
 
 def cmd_init(args):
@@ -887,6 +912,13 @@ def require_appendable(run_dir, manifest):
 
 
 def _take_sample(run_dir, manifest, fixed_pid, pid_file, epoch=None):
+    # Read/check/append the header, restart boundary and sample atomically
+    # against all other CLI appenders. A long run releases between samples.
+    with evidence_directory_lock(run_dir):
+        return _take_sample_locked(run_dir, manifest, fixed_pid, pid_file, epoch)
+
+
+def _take_sample_locked(run_dir, manifest, fixed_pid, pid_file, epoch=None):
     """Append one fsync'd sample record; return the record."""
     state, manifest_sha256, recorder, log = require_appendable(run_dir, manifest)
     run_id = manifest["run_id"]
@@ -1398,6 +1430,15 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "init":
+            # Establish the shared inode before concurrent init checks.
+            # cmd_init also fsyncs the path before publishing its manifest.
+            create_run_dir_durable(Path(args.dir))
+        if args.command in ("init", "checkpoint", "stop", "report"):
+            with evidence_directory_lock(
+                    Path(args.dir),
+                    shared=args.command == "report" and not args.write):
+                return args.func(args)
         return args.func(args)
     except (OSError, ValueError) as err:
         parser.exit(2, f"error: {err}\n")

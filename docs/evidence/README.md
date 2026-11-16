@@ -2,6 +2,7 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [C19 directory-lock integration and actual local checks](c19-directory-lock-integration-20261116/README.md): adopts PR #314 on this integration branch, preserves both source revisions/authors and the alternative PR #313 review. The integrated 15 existing + 2 concurrency scenarios passed locally; the existing subprocesses are now bounded. Read-only report support and local serialization do not prove a 7/30-day run or physical durability.
 - [CI a1d3：E1 fixture 编译失败与精确修复](ci-a1d3fa6e-20261116/README.md)：保留实际 merge checkout、独立 baseline、四个完整原 ZIP 和五份完整解码 job 日志；四门通过，Rust/Clippy 因同一 moved-value 错误失败，另有真实 production `large_enum_variant` 增量。Guest 与 workspace tests 全部跳过；两个零新增场景的最小源码修复仍待下一候选 CI，原失败不改写。
 - [83bf CI 的六处 capture 失败与原件](ci-83bf3914-20261116/README.md)：实际 checkout `2d275430`／tree `d695242e`、独立 baseline `84ae1940`；五门成功、Rust 六失败，四份完整 ZIP 和可取得的完整日志均保留。E1 导出明确部分失败；非 pinned SQLite 诊断与其两次初始失败也保留。随后源码修复仍需新 CI。
 - [GC 根声明的一致性边界](../development/cas-root-declarations.md)：校验实际 producer／namespace／root report 的一致性，原旅程增加五拒绝与一恢复窗口；源码已审，尚未运行，不等同 Store GC 或共享 CAS 排他完成。
