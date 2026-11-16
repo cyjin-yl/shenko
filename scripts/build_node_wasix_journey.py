@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one pinned Node/V8 WASIX source, then run the original finite journey."""
+"""Build pinned Node/V8 WASIX plus its recorded patch, then the original journey."""
 
 import argparse
 import fcntl
@@ -25,6 +25,14 @@ MIB, GIB = journey.MIB, journey.GIB
 SOURCE_URL = "https://github.com/Multi-V-VM/node-wasix32.git"
 SOURCE_COMMIT = "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f"
 SOURCE_TREE = "1f91f029db924986b371c4b848fb65ffd080613d"
+SOURCE_PATCH = {
+    "path": "crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch",
+    "sha256": "93970b459d28ad3ac6af9c6446bc175220b4ea3b2f9ab29f5330710454d5fee9",
+    "source_path": "tools/gyp/pylib/gyp/generator/make.py",
+    "before_sha256": "29092beb6082ee2170676449f74204f73a9843486e2468f073bca75468ce2245",
+    "after_sha256": "da8c30caf420fcbd795a8ed9d06b1bb730aec1d138c555d558f5b8f6b0ba3b02",
+    "purpose": "use the existing per-object response-file archive recipes for wasi/wasm instead of one oversized command argument",
+}
 BUILD_SECONDS = 7200
 ASSETS = (
     {"name": "wasixcc", "version": "0.4.7", "source_commit": "d59389f68277c60b65cb1cc1524de641d845d336",
@@ -43,6 +51,7 @@ ASSETS = (
 CRITICAL_SOURCE = (
     "configure.py", "common.gypi", "node.gyp", "node.gypi",
     "tools/v8_gypfiles/features.gypi", "tools/v8_gypfiles/toolchain.gypi", "tools/v8_gypfiles/v8.gyp",
+    "tools/gyp/pylib/gyp/generator/make.py",
     "deps/v8/src/builtins/wasm32/builtins-wasm32.cc", "lib/internal/buffer.js", "src/node_version.h",
 )
 
@@ -139,7 +148,11 @@ def keep_build_inputs(source, evidence):
 def keep_build_configuration(source, evidence):
     destination = evidence / "build-configuration"
     total = 0
-    for relative in ("config.gypi", "config.mk", "config.status", "out/Makefile", "out/node.target.mk"):
+    for relative in (
+        "config.gypi", "config.mk", "config.status", "out/Makefile", "out/node.target.mk",
+        "out/deps/openssl/openssl.target.mk", "out/deps/openssl/openssl.host.mk",
+        "out/Release/obj.target/deps/openssl/libopenssl.a.ar-file-list",
+    ):
         path = source / relative
         if not path.is_file():
             continue
@@ -148,6 +161,45 @@ def keep_build_configuration(source, evidence):
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, target)
+
+
+def apply_source_patch(source, repository, evidence, run):
+    patch = repository / SOURCE_PATCH["path"]
+    target = source / SOURCE_PATCH["source_path"]
+    journey.require(journey.digest(patch) == SOURCE_PATCH["sha256"], "archive recipe patch identity changed")
+    journey.require(journey.digest(target) == SOURCE_PATCH["before_sha256"], "fixed upstream GYP source differs before patching")
+    shutil.copyfile(patch, evidence / "source.patch")
+    run("source-patch-check", ["git", "apply", "--check", str(patch)])
+    run("source-patch-apply", ["git", "apply", "--whitespace=error-all", str(patch)])
+    journey.require(journey.digest(target) == SOURCE_PATCH["after_sha256"], "patched GYP source differs from the recorded postimage")
+    run("source-patched-paths", ["git", "diff", "--name-only", "HEAD", "--"])
+    journey.require((evidence / "source-patched-paths.stdout").read_text().splitlines() == [SOURCE_PATCH["source_path"]], "source patch changed an unrecorded tracked file")
+    run("source-patched-diff", ["git", "diff", "--binary", "HEAD", "--"])
+    patched = evidence / "effective-source-inputs" / SOURCE_PATCH["source_path"]
+    patched.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(target, patched)
+    record = {**SOURCE_PATCH, "upstream_commit": SOURCE_COMMIT, "upstream_tree": SOURCE_TREE,
+              "effective_diff_sha256": journey.digest(evidence / "source-patched-diff.stdout")}
+    journey.write_json(evidence / "source-patch-record.json", record)
+    return record
+
+
+def verify_archive_response_rule(source, evidence):
+    path = source / "out/deps/openssl/openssl.target.mk"
+    text = path.read_text()
+    # The previous run observed 928 OpenSSL compile outputs and a printf length
+    # failure at this archive target. Refuse before compilation if configure
+    # did not select a response-file recipe, preserving normal/thin archive mode.
+    normal = text.count("$(call create_archive,$@,$^)")
+    thin = text.count("$(call create_thin_archive,$@,$^)")
+    selected = normal + thin == 1 and "$(call do_cmd,alink" not in text
+    journey.write_json(evidence / "openssl-archive-rule.json", {
+        "source_path": str(path.relative_to(source)), "sha256": journey.digest(path),
+        "response_file_rule_selected": selected,
+        "archive_kind": "normal" if normal == 1 else "thin" if thin == 1 else None,
+        "scope": "generated rule check only; not a compiler or guest execution result",
+    })
+    journey.require(selected, "generated OpenSSL target did not select the recorded response-file archive rule")
 
 
 def main():
@@ -193,6 +245,7 @@ def main():
         (work / "guest/env/package.json").write_text('{"name":"node-wasix-probe","private":true}\n')
         journey.write_json(evidence / "manifest.json", {
             "source_revision": head, "upstream_repository": SOURCE_URL, "upstream_commit": SOURCE_COMMIT, "upstream_tree": SOURCE_TREE,
+            "source_patch": SOURCE_PATCH,
             "source_transfer_bytes": None, "source_transfer_size_note": "Git transfer size is not known in advance; the actual object store and worktree are observed after fetch",
             "builder_sha256": journey.digest(Path(__file__)), "runner_sha256": journey.digest(Path(journey.__file__)),
             "driver_sha256": journey.DRIVER_SHA256, "first_input_sha256": journey.FIRST_INPUT_SHA256,
@@ -241,6 +294,7 @@ def main():
                                                           "network_transfer_bytes": None, "note": "on-disk Git objects do not measure bytes transmitted on the network"})
         journey.require(not (source / "out").exists(), "source checkout already contains build output")
         keep_build_inputs(source, evidence)
+        patch_record = apply_source_patch(source, repository, evidence, run)
         summary["stage"] = "download-toolchain"
         roots = fetch_toolchain(work, evidence, resources, deadline)
         installer = unique_file(roots["wasixcc"], "wasixccenv")
@@ -270,9 +324,13 @@ def main():
         configure = ["/usr/bin/python3", "configure.py", "--dest-cpu=wasm32", "--dest-os=wasi", "--cross-compiling", "--openssl-no-asm"]
         run("configure", configure, wall=300)
         keep_build_configuration(source, evidence)
+        verify_archive_response_rule(source, evidence)
         make = ["/usr/bin/make", "-C", "out", "BUILDTYPE=Release", "V=1", "-j1", "node"]
         run("compile", make, wall=BUILD_SECONDS)
-        run("source-pristine-after-build", ["git", "diff", "--exit-code", "--binary", "HEAD", "--"])
+        run("source-patched-diff-after-build", ["git", "diff", "--binary", "HEAD", "--"])
+        journey.require((evidence / "source-patched-diff-after-build.stdout").read_bytes()
+                        == (evidence / "source-patched-diff.stdout").read_bytes(),
+                        "tracked source changed beyond the recorded archive patch during build")
         output = source / "out/Release/node"
         journey.require(output.is_file() and not output.is_symlink() and output.stat().st_size <= 512 * MIB, "fresh Node output is missing, aliased, or exceeds its retained bound")
         with output.open("rb") as module:
@@ -284,7 +342,8 @@ def main():
         shutil.copyfile(output, evidence / "built-node.wasm")
         attestation = {"kind": "observed-local-build-record", "cryptographically_signed": False, "build_succeeded": True,
                        "source_repository": SOURCE_URL, "source_commit": SOURCE_COMMIT, "source_tree": SOURCE_TREE,
-                       "tracked_source_unchanged_after_build": True, "fresh_output_directory": True,
+                       "tracked_source_matches_recorded_patch_after_build": True, "source_patch": patch_record,
+                       "fresh_output_directory": True,
                        "configure_command": configure, "compile_command": make, "toolchain_assets": ASSETS, "build_tools": tool_records,
                        "module_bytes": output.stat().st_size, "module_sha256": module_hash, "module_path": "out/Release/node",
                        "shenko_source_revision": head, "builder_sha256": journey.digest(Path(__file__)), "recorded_at": journey.now()}

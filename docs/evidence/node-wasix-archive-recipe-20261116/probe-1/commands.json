@@ -1,0 +1,120 @@
+[
+  {
+    "label": "make-version",
+    "command": [
+      "/usr/bin/make",
+      "--version"
+    ],
+    "started_at": "2026-11-16T19:30:54.502959+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:30:54.507011+00:00",
+    "elapsed_seconds": 0.004044620999593462,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 300,
+      "sha256": "cb84250d994234272d0a465014ce2931be76e9e0cb114b9bffa078c3c211e8eb"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "ar-version",
+    "command": [
+      "/usr/bin/ar",
+      "--version"
+    ],
+    "started_at": "2026-11-16T19:30:54.507159+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:30:54.510674+00:00",
+    "elapsed_seconds": 0.0035186650002287934,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 283,
+      "sha256": "aef15107335caff84acdf0ee8d6b3be67cfb486a3351fc0056a91c1a9cd5945d"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "gcc-version",
+    "command": [
+      "/usr/bin/gcc",
+      "--version"
+    ],
+    "started_at": "2026-11-16T19:30:54.510767+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:30:54.514321+00:00",
+    "elapsed_seconds": 0.0035582740001700586,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 232,
+      "sha256": "4dc9a4e32fd9e06d42fb307688c59d6d889f0ff90ce034cbefed21b0d451fd81"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "native-object",
+    "command": [
+      "/usr/bin/gcc",
+      "-c",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-1/probe.c",
+      "-o",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-1/probe.o"
+    ],
+    "started_at": "2026-11-16T19:30:54.514571+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:30:54.578739+00:00",
+    "elapsed_seconds": 0.06418890200075111,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "legacy",
+    "command": [
+      "/usr/bin/strace",
+      "-f",
+      "-s",
+      "160",
+      "-e",
+      "trace=execve",
+      "-o",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-evidence-1/legacy.execve.trace",
+      "/usr/bin/make",
+      "--no-print-directory",
+      "-f",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-1/legacy.mk",
+      "V=1",
+      "-j1",
+      "AR.target=/usr/bin/ar",
+      "builddir=/workspace/scratch/faaa3ccca531/node-command-length-probe-1/build",
+      "all"
+    ],
+    "started_at": "2026-11-16T19:30:54.630299+00:00",
+    "exit_code": 1,
+    "finished_at": "2026-11-16T19:30:54.655342+00:00",
+    "elapsed_seconds": 0.025048877000699576,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "bytes": 283,
+      "sha256": "54c4fd1054c5c741ab0218ea148520f87ad3298ea3fac32a7fbfe043550ca21f"
+    }
+  }
+]

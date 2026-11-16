@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/Multi-V-VM/node-wasix32",
+  "commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "path": "tools/gyp/pylib/gyp/generator/make.py",
+  "git_blob": "4f7c22fa0758e13b386d1413e0fe0404e2ff1d7f",
+  "sha256": "29092beb6082ee2170676449f74204f73a9843486e2468f073bca75468ce2245",
+  "method": "primary GitHub file connector; complete UTF-8 bytes independently matched Git blob before use",
+  "source_url": "https://github.com/Multi-V-VM/node-wasix32/blob/20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f/tools/gyp/pylib/gyp/generator/make.py"
+}
