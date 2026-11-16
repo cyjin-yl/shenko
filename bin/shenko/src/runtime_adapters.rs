@@ -1,5 +1,5 @@
 //! Configured channel adapters and their durable ingress-to-subject delivery.
-use std::{path::PathBuf, sync::Arc};
+use std::{path::{Path, PathBuf}, sync::Arc};
 
 use anyhow::Result;
 use tracing::info;
@@ -8,7 +8,7 @@ use crate::runtime_channels::{journal_channel_error, prepare_channel_envelope};
 
 pub(super) async fn install(
     store: &Arc<shenko_store::Store>,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     agent_id: shenko_types::ids::EntityId,
     subject_inbox: &Arc<shenko_subject::inbox::Inbox>,
     channel_registry: &mut shenko_types::channel::ChannelRegistry,
@@ -27,7 +27,7 @@ pub(super) async fn install(
             .map_err(|error| anyhow::anyhow!(error))?;
         let adapters = shenko_channel_adapters::register_adapters(
             channel_registry,
-            file.into_deps(data_dir.clone()),
+            file.into_deps(data_dir.to_path_buf()),
         )
         .map_err(|error| anyhow::anyhow!(error))?;
         for observation in adapters.observations() {
@@ -46,7 +46,7 @@ pub(super) async fn install(
         }
         if let Some(plugin) = &adapters.qq {
             record_owner_set_admins(
-                &store,
+                store,
                 shenko_channel_adapters::qq_official::events::QQ_OFFICIAL_CHANNEL_ID,
                 &plugin.config().account_scope(),
                 &plugin.config().admin_openids,
@@ -56,7 +56,7 @@ pub(super) async fn install(
         }
         if let Some(plugin) = &adapters.ilink {
             record_owner_set_admins(
-                &store,
+                store,
                 shenko_channel_adapters::ilink::events::ILINK_CHANNEL_ID,
                 &plugin.config().account_scope(),
                 &plugin.config().admin_user_ids,
@@ -66,7 +66,7 @@ pub(super) async fn install(
         }
         if let Some(plugin) = &adapters.feishu {
             record_owner_set_admins(
-                &store,
+                store,
                 shenko_channel_adapters::feishu::events::FEISHU_CHANNEL_ID,
                 &plugin.config().account_scope(),
                 &plugin.config().admin_open_ids,

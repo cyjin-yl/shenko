@@ -16,16 +16,25 @@ pub(crate) struct ChannelServices {
     _contacts_plugin: Option<cordis_core::FiberHandle>,
 }
 
-pub(crate) async fn install(
-    supervisor: &shenko_kernel::Supervisor,
-    store: &Arc<shenko_store::Store>,
-    data_dir: &PathBuf,
-    agent_id: shenko_types::ids::EntityId,
-    subject_inbox: &Arc<shenko_subject::inbox::Inbox>,
-    self_knowledge: &Arc<shenko_awareness_core::SelfKnowledgeProvider>,
-    consumer_cancel: &tokio_util::sync::CancellationToken,
-    config: ChannelConfig,
-) -> Result<ChannelServices> {
+/// The composed channel installation inputs. Grouping them keeps the
+/// installer's own signature about what it does rather than how many
+/// services the composition root happens to own.
+pub(crate) struct ChannelInstall<'a> {
+    pub(crate) supervisor: &'a shenko_kernel::Supervisor,
+    pub(crate) store: &'a Arc<shenko_store::Store>,
+    pub(crate) data_dir: &'a PathBuf,
+    pub(crate) agent_id: shenko_types::ids::EntityId,
+    pub(crate) subject_inbox: &'a Arc<shenko_subject::inbox::Inbox>,
+    pub(crate) self_knowledge: &'a Arc<shenko_awareness_core::SelfKnowledgeProvider>,
+    pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
+    pub(crate) config: ChannelConfig,
+}
+
+pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices> {
+    let ChannelInstall {
+        supervisor, store, data_dir, agent_id, subject_inbox,
+        self_knowledge, consumer_cancel, config,
+    } = input;
     // The IM reply boundary ships as channel plugins: the live prompt
     // and parser advertise exactly the channels whose transport is
     // configured. With no NapCat endpoint no reply channel exists, so
@@ -33,10 +42,10 @@ pub(crate) async fn install(
     // register into this registry once their connector exists.
     let mut channel_registry = shenko_types::channel::ChannelRegistry::new();
 
-    let contacts_plugin = runtime_napcat::install(
+    let contacts_plugin = runtime_napcat::install(runtime_napcat::NapCatInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
-        &mut channel_registry, consumer_cancel, config.napcat,
-    ).await?;
+        channel_registry: &mut channel_registry, consumer_cancel, options: config.napcat,
+    }).await?;
     runtime_adapters::install(
         store, data_dir, agent_id, subject_inbox,
         &mut channel_registry, consumer_cancel, config.channels_config,

@@ -204,7 +204,7 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
                     println!("{}", serde_json::to_string_pretty(&status)?);
                 }
                 ToolEnvironmentCommand::Prepare { root } => {
-                    let store = open_installation_store(&data_dir)?;
+                    let store = open_installation_store(data_dir)?;
                     let mut node = node_sync::open_node(data_dir, &store)?;
                     let roots = tool_install::environment_roots(&node, &root)?;
                     let prepared =
@@ -215,7 +215,7 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
                     generation,
                     expected_revision,
                 } => {
-                    let store = open_installation_store(&data_dir)?;
+                    let store = open_installation_store(data_dir)?;
                     let mut node = node_sync::open_node(data_dir, &store)?;
                     let activated = node.handle_unit_request(UnitRequest::ActivateEnvironment {
                         generation,
@@ -224,7 +224,7 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
                     println!("{}", serde_json::to_string_pretty(&activated)?);
                 }
                 ToolEnvironmentCommand::Rollback { expected_revision } => {
-                    let store = open_installation_store(&data_dir)?;
+                    let store = open_installation_store(data_dir)?;
                     let mut node = node_sync::open_node(data_dir, &store)?;
                     let rolled = node.handle_unit_request(UnitRequest::RollbackEnvironment {
                         expected_revision,
@@ -235,21 +235,21 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
         }
         ToolCommand::Metapackage { unit_id } => {
             use shenko_node::UnitRequest;
-            let store = open_installation_store(&data_dir)?;
+            let store = open_installation_store(data_dir)?;
             let mut node = node_sync::open_node(data_dir, &store)?;
             let result = node.handle_unit_request(UnitRequest::QueryMetapackage { unit_id })?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         ToolCommand::Distribution { unit_id } => {
             use shenko_node::UnitRequest;
-            let store = open_installation_store(&data_dir)?;
+            let store = open_installation_store(data_dir)?;
             let mut node = node_sync::open_node(data_dir, &store)?;
             let result = node.handle_unit_request(UnitRequest::QueryDistribution { unit_id })?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         ToolCommand::Slot { macro_id, contract } => {
             use shenko_node::UnitRequest;
-            let store = open_installation_store(&data_dir)?;
+            let store = open_installation_store(data_dir)?;
             let mut node = node_sync::open_node(data_dir, &store)?;
             let result = node.handle_unit_request(UnitRequest::QuerySlot { macro_id, contract })?;
             println!("{}", serde_json::to_string_pretty(&result)?);
@@ -302,7 +302,7 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
 
             // Install requires an existing managed installation: the record
             // is this installation's own unit inventory entry.
-            let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
+            let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
                 .unwrap_or_else(|| data_dir.clone());
             anyhow::ensure!(
                 live_slot.join(shenko_update::SLOT_DB_FILENAME).is_file(),
@@ -328,7 +328,7 @@ pub(crate) fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<(
                     tools_dir.display()
                 );
             }
-            let store = open_installation_store(&data_dir)?;
+            let store = open_installation_store(data_dir)?;
             let mut node = node_sync::open_node(data_dir, &store)?;
             let request = tool_install::InstallRequest {
                 name: name.clone(),

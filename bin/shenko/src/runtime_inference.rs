@@ -13,17 +13,25 @@ pub(crate) struct InferenceServices {
     pub(crate) capabilities: Option<shenko_broker::request::ProviderCapabilities>,
 }
 
-pub(crate) async fn install(
-    supervisor: &shenko_kernel::Supervisor,
-    store: &Arc<shenko_store::Store>,
-    data_dir: &Path,
-    agent_id: shenko_types::ids::EntityId,
-    subject_inbox: &Arc<shenko_subject::inbox::Inbox>,
-    cognition: &Arc<shenko_awareness_core::CognitionCatalog>,
-    installed: &InstalledDefinitions,
-    cancel: &tokio_util::sync::CancellationToken,
-    consumer_cancel: &tokio_util::sync::CancellationToken,
-) -> Result<InferenceServices> {
+/// The composed inference installation inputs, grouped so the installer
+/// signature states its work rather than the composition root's arity.
+pub(crate) struct InferenceInstall<'a> {
+    pub(crate) supervisor: &'a shenko_kernel::Supervisor,
+    pub(crate) store: &'a Arc<shenko_store::Store>,
+    pub(crate) data_dir: &'a Path,
+    pub(crate) agent_id: shenko_types::ids::EntityId,
+    pub(crate) subject_inbox: &'a Arc<shenko_subject::inbox::Inbox>,
+    pub(crate) cognition: &'a Arc<shenko_awareness_core::CognitionCatalog>,
+    pub(crate) installed: &'a InstalledDefinitions,
+    pub(crate) cancel: &'a tokio_util::sync::CancellationToken,
+    pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
+}
+
+pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<InferenceServices> {
+    let InferenceInstall {
+        supervisor, store, data_dir, agent_id, subject_inbox,
+        cognition, installed, cancel, consumer_cancel,
+    } = input;
     let handoff_participants = &installed.handoff_participants;
     let self_knowledge = &installed.self_knowledge;
     // Start inference only after the model-independent recovery services.
@@ -96,7 +104,7 @@ pub(crate) async fn install(
     context_registry
         .attach_reminder_journal(reminder_journal)
         .map_err(anyhow::Error::msg)?;
-    let mut policy_node = node_sync::open_node(&data_dir, &store)?;
+    let mut policy_node = node_sync::open_node(data_dir, store)?;
     let installed_policies = context_policy::reconcile_units(
         &mut policy_node,
         &data_dir.join("policy-units"),

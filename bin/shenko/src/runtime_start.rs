@@ -260,10 +260,11 @@ pub(crate) async fn start(
     }
 
     let runtime_inference::InferenceServices { context_registry, broker_handle, capabilities } =
-        runtime_inference::install(
-            supervisor, &store, &data_dir, agent_id, &subject_inbox,
-            &cognition, &installed, &cancel, consumer_cancel,
-        ).await?;
+        runtime_inference::install(runtime_inference::InferenceInstall {
+            supervisor, store: &store, data_dir: &data_dir, agent_id,
+            subject_inbox: &subject_inbox, cognition: &cognition,
+            installed: &installed, cancel: &cancel, consumer_cancel,
+        }).await?;
     // The hook graph is the runtime's own service: the subject and
     // every plugin resolve the same live registry, so a handler a
     // plugin registered is visible to the subject's next step.
@@ -271,10 +272,11 @@ pub(crate) async fn start(
     // Outbound path: subject model output → UI timeline.
     let (outbox_tx, _outbox_rx) =
         tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
-    let channel_services = runtime_channels::install(
-        supervisor, &store, &data_dir, agent_id, &subject_inbox,
-        &self_knowledge, consumer_cancel, channels,
-    ).await?;
+    let channel_services = runtime_channels::install(runtime_channels::ChannelInstall {
+        supervisor, store: &store, data_dir: &data_dir, agent_id,
+        subject_inbox: &subject_inbox, self_knowledge: &self_knowledge,
+        consumer_cancel, config: channels,
+    }).await?;
     runtime_publications::spawn(
         &channel_services.registry, &store, agent_id, consumer_cancel, &cancel,
     );

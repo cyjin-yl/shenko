@@ -22,13 +22,13 @@ pub(crate) async fn install(
     // short card travels as bounded advisory text and the model reads
     // the body it actually wants at an exact version.
     let cognition_node = Arc::new(parking_lot::Mutex::new(node_sync::open_node(
-        &data_dir,
-        &store,
+        data_dir,
+        store,
     )?));
     let cognition = Arc::new(shenko_awareness_core::CognitionCatalog::new(
         Arc::clone(&cognition_node),
     ));
-    let cognition_root = shenko_awareness_core::cognition_package_root(&data_dir);
+    let cognition_root = shenko_awareness_core::cognition_package_root(data_dir);
     // A shipped seed is bootstrap material, not authority over this
     // installation. A unit that is already installed keeps its own
     // version, its enable state and its observations.
@@ -92,7 +92,7 @@ pub(crate) async fn install(
         Arc::clone(&cognition_node),
     )
     .await?;
-    let _obelisk_plugin = obelisk::spawn(supervisor, Arc::clone(store), Arc::clone(&cognition_node), &data_dir).await?;
+    let _obelisk_plugin = obelisk::spawn(supervisor, Arc::clone(store), Arc::clone(&cognition_node), data_dir).await?;
     // Exact-version unit reads and authored unit writes are native
     // children on the same Cordis root: the subject can inspect what
     // it has and write down what it actually learned, with the

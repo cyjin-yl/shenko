@@ -1,5 +1,5 @@
 //! Ownership and settlement of durable dispatch and replication consumers.
-use std::{path::PathBuf, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
 
@@ -18,7 +18,7 @@ impl RuntimeConsumers {
         native_child: &Arc<shenko_subject::NativeChildService>,
         agent_id: shenko_types::ids::EntityId,
         dispatch_results: Option<tokio::sync::mpsc::Sender<shenko_types::inbox::InboxEvent>>,
-        data_dir: &PathBuf,
+        data_dir: &Path,
         cancel: &tokio_util::sync::CancellationToken,
     ) -> Self {
         let consumer_cancel = tokio_util::sync::CancellationToken::new();
@@ -41,7 +41,7 @@ impl RuntimeConsumers {
         });
         let _consumer_stop_on_exit = consumer_cancel.clone().drop_guard();
         let replication_task = node_sync::spawn_runtime(
-            Arc::clone(store), data_dir.clone(), consumer_cancel.clone(),
+            Arc::clone(store), data_dir.to_path_buf(), consumer_cancel.clone(),
         );
         Self { cancel: consumer_cancel, dispatcher_task, replication_task, _stop_on_exit: _consumer_stop_on_exit }
     }

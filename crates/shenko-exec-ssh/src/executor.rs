@@ -519,10 +519,8 @@ impl ProcessGroupGuard {
 
 impl Drop for ProcessGroupGuard {
     fn drop(&mut self) {
-        if self.armed {
-            if let Err(error) = self.terminate() {
-                tracing::warn!(%error, pid = ?self.pid, "process-group cleanup failed while dropping execution");
-            }
+        if self.armed && let Err(error) = self.terminate() {
+            tracing::warn!(%error, pid = ?self.pid, "process-group cleanup failed while dropping execution");
         }
     }
 }

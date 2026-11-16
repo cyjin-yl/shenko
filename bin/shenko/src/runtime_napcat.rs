@@ -16,16 +16,24 @@ pub(crate) struct NapCatOptions {
     pub(crate) napcat_cli_url: Option<String>,
 }
 
-pub(super) async fn install(
-    supervisor: &shenko_kernel::Supervisor,
-    store: &Arc<shenko_store::Store>,
-    data_dir: &Path,
-    agent_id: shenko_types::ids::EntityId,
-    subject_inbox: &Arc<shenko_subject::inbox::Inbox>,
-    channel_registry: &mut shenko_types::channel::ChannelRegistry,
-    consumer_cancel: &tokio_util::sync::CancellationToken,
-    options: NapCatOptions,
-) -> Result<Option<cordis_core::FiberHandle>> {
+/// The composed NapCat installation inputs, grouped so the installer
+/// signature states its work rather than the composition root's arity.
+pub(super) struct NapCatInstall<'a> {
+    pub(super) supervisor: &'a shenko_kernel::Supervisor,
+    pub(super) store: &'a Arc<shenko_store::Store>,
+    pub(super) data_dir: &'a Path,
+    pub(super) agent_id: shenko_types::ids::EntityId,
+    pub(super) subject_inbox: &'a Arc<shenko_subject::inbox::Inbox>,
+    pub(super) channel_registry: &'a mut shenko_types::channel::ChannelRegistry,
+    pub(super) consumer_cancel: &'a tokio_util::sync::CancellationToken,
+    pub(super) options: NapCatOptions,
+}
+
+pub(super) async fn install(input: NapCatInstall<'_>) -> Result<Option<cordis_core::FiberHandle>> {
+    let NapCatInstall {
+        supervisor, store, data_dir, agent_id, subject_inbox,
+        channel_registry, consumer_cancel, options,
+    } = input;
     let NapCatOptions { napcat, napcat_account, napcat_access_token, napcat_admin_qq, napcat_file_root, napcat_file_host, napcat_cli_url } = options;
     // The connector-scoped definition stays owned by the composed channel services.
     let mut _native_contacts_plugin = None;
