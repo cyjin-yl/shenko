@@ -124,7 +124,12 @@ managed home; the fixture does not initialize those records itself.
 The CLI then installs the actual SSH artifact under the name `ssh`. The
 journey verifies its SHA-256 provenance, BLAKE3 identity, out-of-line CAS
 storage, recovery-closure binding and activated environment, and reads the
-selected tool back through `tool list`. It deletes its private copy of the
+selected tool back through `tool list`. For an out-of-line artifact,
+`tools[].digest` identifies the unit's small pointer document, while
+`tools[].artifact.digest` identifies the WASM module. The journey checks the
+pointer's actual bytes and module reference, the installed module's BLAKE3,
+SHA-256 and byte count, and the exact unit/version/environment member and
+selector that name lookup resolves. It deletes its private copy of the
 installation input before any client request. Every subsequent request
 uses a new `tool exec --tool ssh` process against that same installation,
 so execution must resolve the selected unit and reconstruct verified CAS
@@ -160,3 +165,16 @@ each recorded input independently matches the candidate's Git blob. The
 workspace job still failed on an unrelated broker test assertion, and this
 module journey does not prove the CLI installation path or a real remote
 deployment.
+
+Candidate `bb27f6542e3c37c693a973b5cc26ca8d2ec8fccf` reached the actual CLI
+bootstrap, installation and inventory in
+[CI run 43872078834](https://github.com/cyjin-yl/shenko/actions/runs/43872078834),
+then failed because the journey compared the unit pointer digest with the
+module digest. The original `rust-evidence` artifact `14227924196` retains
+`ssh-wasi/openssh-journey.diagnostics/install.stdout` and `inventory.stdout`;
+its ZIP SHA-256 is
+`74055c8b74bb5e0fce2c18f80d3a5d934690abcb6600c7d1506d496802659b02`.
+Those receipts record the activated 2,552,689-byte module and both distinct
+identities. This failure occurred before the first SSH request, so that run
+does not prove the installed-tool protocol journey. The follow-up assertion
+repair keeps the original protocol checks and still requires a complete run.

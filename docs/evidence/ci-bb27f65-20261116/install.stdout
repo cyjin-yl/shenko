@@ -1,0 +1,156 @@
+{
+  "environment": {
+    "activated": true,
+    "activation": {
+      "activated": true,
+      "generation": {
+        "closure_version": 2,
+        "created_at": "2026-11-16T13:09:56.308674447+00:00",
+        "digest": "blake3:0e3382d9145f87b28f52ad35d2c3d9bfbd3649bc044b1a23ac882414229982ea",
+        "generation": 1,
+        "members": [
+          {
+            "artifact_digest": "blake3:0e97e92376774708f44444623d1ce12dac17e017ce85d0abbb0e18fe7e078892",
+            "declarations": {
+              "declared": {
+                "atoms": [],
+                "environment": [],
+                "filesystem": [
+                  {
+                    "guest_path": "/home",
+                    "write": true
+                  }
+                ],
+                "host": [
+                  {
+                    "facility": "clock"
+                  },
+                  {
+                    "facility": "random"
+                  }
+                ]
+              }
+            },
+            "edges": [],
+            "revision": "0.1.0",
+            "role": "root",
+            "unit_id": "tool.ssh"
+          }
+        ],
+        "roots": [
+          "tool.ssh"
+        ],
+        "schema": 1
+      },
+      "schema": 3,
+      "selector": {
+        "generation": 1,
+        "generation_digest": "blake3:0e3382d9145f87b28f52ad35d2c3d9bfbd3649bc044b1a23ac882414229982ea",
+        "previous_generation": null,
+        "revision": 1,
+        "schema": 1,
+        "updated_at": "2026-11-16T13:09:56.309730629+00:00"
+      }
+    },
+    "first_generation": true,
+    "pinned": true,
+    "prepared": {
+      "generation": {
+        "closure_version": 2,
+        "created_at": "2026-11-16T13:09:56.308674447+00:00",
+        "digest": "blake3:0e3382d9145f87b28f52ad35d2c3d9bfbd3649bc044b1a23ac882414229982ea",
+        "generation": 1,
+        "members": [
+          {
+            "artifact_digest": "blake3:0e97e92376774708f44444623d1ce12dac17e017ce85d0abbb0e18fe7e078892",
+            "declarations": {
+              "declared": {
+                "atoms": [],
+                "environment": [],
+                "filesystem": [
+                  {
+                    "guest_path": "/home",
+                    "write": true
+                  }
+                ],
+                "host": [
+                  {
+                    "facility": "clock"
+                  },
+                  {
+                    "facility": "random"
+                  }
+                ]
+              }
+            },
+            "edges": [],
+            "revision": "0.1.0",
+            "role": "root",
+            "unit_id": "tool.ssh"
+          }
+        ],
+        "roots": [
+          "tool.ssh"
+        ],
+        "schema": 1
+      },
+      "note": "prepared only; nothing becomes current until the selector is advanced",
+      "schema": 3,
+      "unchanged": false
+    }
+  },
+  "installed": {
+    "abi": "wasi_preview1",
+    "already_present": false,
+    "bytes": 2552689,
+    "capabilities": {
+      "declared": {
+        "atoms": [],
+        "environment": [],
+        "filesystem": [
+          {
+            "guest_path": "/home",
+            "write": true
+          }
+        ],
+        "host": [
+          {
+            "facility": "clock"
+          },
+          {
+            "facility": "random"
+          }
+        ]
+      }
+    },
+    "digest": "blake3:8b3c60ee5cd2fce619eb17a0585c7f8bd9dbd0a48a231cd0187c919d240dcc24",
+    "imports": [
+      "wasi_snapshot_preview1.clock_time_get",
+      "wasi_snapshot_preview1.environ_get",
+      "wasi_snapshot_preview1.environ_sizes_get",
+      "wasi_snapshot_preview1.fd_close",
+      "wasi_snapshot_preview1.fd_fdstat_get",
+      "wasi_snapshot_preview1.fd_fdstat_set_flags",
+      "wasi_snapshot_preview1.fd_filestat_get",
+      "wasi_snapshot_preview1.fd_prestat_dir_name",
+      "wasi_snapshot_preview1.fd_prestat_get",
+      "wasi_snapshot_preview1.fd_read",
+      "wasi_snapshot_preview1.fd_seek",
+      "wasi_snapshot_preview1.fd_sync",
+      "wasi_snapshot_preview1.fd_write",
+      "wasi_snapshot_preview1.path_filestat_get",
+      "wasi_snapshot_preview1.path_open",
+      "wasi_snapshot_preview1.poll_oneoff",
+      "wasi_snapshot_preview1.proc_exit",
+      "wasi_snapshot_preview1.random_get",
+      "wasi_snapshot_preview1.sock_shutdown"
+    ],
+    "license": "Apache-2.0",
+    "name": "ssh",
+    "recovery_bound": true,
+    "sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+    "storage": "content_store",
+    "unit_id": "tool.ssh",
+    "version": "0.1.0"
+  }
+}

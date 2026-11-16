@@ -55,6 +55,11 @@ pub enum Command {
     Start {
         #[arg(long, default_value = "7860")]
         port: u16,
+        /// Pause at a durable clean boundary before starting consumers.
+        /// Receive input through the UI, then continue with `runtime resume`
+        /// and this stable request UUID. An unresolved step cannot be skipped.
+        #[arg(long)]
+        pause_at_start: Option<shenko_types::ids::EntityId>,
         /// Instance name given by the user. Omit it to let the agent name
         /// itself. Existing instances are edited with an explicit revision CAS.
         #[arg(long)]
@@ -1352,9 +1357,18 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     };
     let mut command = command;
     let result = loop {
-        let restart = runtime_authority::restart_command(&command);
+        let mut restart = runtime_authority::restart_command(&command);
+        let mut startup_pause_applied = false;
         let runtime = tokio::runtime::Runtime::new()?;
-        let result = runtime.block_on(run(command, data_dir.clone()));
+        let result = runtime.block_on(run(command, data_dir.clone(), &mut startup_pause_applied));
+        if startup_pause_applied {
+            // The original request is now durable. Reconstruction reads its
+            // current state, including a later explicit resume, instead of
+            // replaying a one-time startup action after authority recovery.
+            if let Some(Command::Start { pause_at_start, .. }) = &mut restart {
+                *pause_at_start = None;
+            }
+        }
         let recovery = result.as_ref().err()
             .is_some_and(runtime_authority::requires_reconstruction);
         if recovery {
@@ -1382,7 +1396,7 @@ fn configured_ssh_public_identity_output(command: &Command) -> Result<Option<Str
     Ok(Some(serde_json::to_string_pretty(&observed)?))
 }
 
-async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
+async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bool) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
         shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
@@ -1784,6 +1798,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
         Command::Start {
             port,
+            pause_at_start,
             name,
             napcat,
             napcat_account,
@@ -1924,6 +1939,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             };
             active_authority = Some(authority_runtime.clone());
             authority_runtime.activate()?;
+            if let Some(request_id) = pause_at_start {
+                let boundary = store.pause_subject_at_start(agent_id, request_id)?;
+                *startup_pause_applied = true;
+                info!(%request_id, boundary=?boundary.boundary_at,
+                    "startup paused at a durable subject boundary; use runtime resume to continue");
+            }
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
             // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
             store.start_subject_dispatcher()?;

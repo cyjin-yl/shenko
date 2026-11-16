@@ -4,22 +4,42 @@
 real Shenko CLI and a real configured OpenAI-compatible model. It is not run
 as a substitute for the normal Rust checks or the completion contract.
 
-The script starts a fresh installation, submits a user message through `/ws`,
-and asks the actual subject to delegate a finite model child that computes
+The script starts a fresh installation with an explicit durable startup pause,
+submits a user message through `/ws`, and waits for its actual accepted receipt
+before issuing the public `runtime resume` command. It asks the actual subject
+to delegate a finite model child that computes
 19 × 23 and a native `host.printf` child that executes a host process. It reads
 the task, operation, attempt, E1, result, and committed decision ledgers without
 writing them. A matching piece of model text alone cannot pass: both real child
 results and their evidence must exist, and the reported output must commit
-after those results.
+after those results. The first new main request must be created after the input's
+accepted commit. Its sealed input plan must bind the same subject, branch, step,
+request and accepted event, and its actual user-message payload must include
+the complete submitted text.
 Main-model request attempts, their sealed terminal results, and content stream
 units are also collected. The child `evidence_receipts` table alone cannot show
 whether the subject's own generation recorded terminal evidence.
 
-It then stops the owned process, starts the same installation, resubmits the
+It then requests the public `runtime pause` boundary, checks `runtime status`
+and the clean planned successor, stops the owned process, starts the same
+installation with that same still-paused request, and resubmits the
 same input identity, and asks the model to continue the preceding task from its
 existing context. The result checks the original input event/commit identity,
 subject and branch identity, retained task results, and a newly committed answer.
-No model output, successful task, or receipt is supplied by the driver.
+The continued input is likewise durably accepted before releasing that pause,
+and must enter the first new frozen model request. No model output, successful
+task, or receipt is supplied by the driver.
+
+`start --pause-at-start <request-UUID>` is an optional startup control. The
+default start still enters continuous thought immediately. The explicit option
+uses the existing subject-only quiesce record before consumers start; two
+ordered request/boundary CommitRefs are published in one SQLite transaction.
+An unresolved step refuses the startup pause instead of being skipped. An
+existing paused request can survive process restart; a resumed or cancelled
+request cannot be reused to pause again. An internal authority reconstruction
+honours the durable pause/resume state after the initial startup action has
+completed. This boundary does not fence already-admitted external operations
+or claim a complete software handoff.
 
 ## Run
 
@@ -42,6 +62,9 @@ python scripts/real_single_node_journey.py \
 The evidence directory must not already exist. Each phase has a bounded
 observation interval. A failure exits nonzero and keeps its original runtime
 logs, input, WebSocket frames, read-only ledger snapshots and CAS. The
+public control commands and responses are retained in `runtime-controls.jsonl`;
+the paused and accepted snapshots show whether any request was admitted before
+each explicit resume. The
 `installation` subdirectory contains private bootstrap/control material and is
 excluded from the hosted artifact; publish only the explicit evidence subset.
 
@@ -120,3 +143,50 @@ The [retained observation](../evidence/single-node-hosted-20261116/observation.j
 identifies the original artifact and hashes the copied raw runtime, model, input,
 WebSocket, ledger and CAS evidence. The new configurable bound and diagnostics
 are a product correction motivated by this failure, not a successful rerun.
+
+## 2026-11-16 hosted attempt with the sealed 1,200-second limit
+
+[Run 43864453629](https://github.com/cyjin-yl/shenko/actions/runs/43864453629)
+built and ran exact merge source `afa186615fdfefedaa1569a09353957dbc47c293`
+(PR head `6782627ea89e17774bc65ba54d459ad85804fef1`). The real CLI built,
+both downloaded hashes verified, and the model endpoint loaded. The attempt
+**failed during prefill, before any generated token**. The last server progress
+report recorded 11,520 prompt tokens, 91% progress and 1,171.54 seconds. Its last
+256-token batch took 52.56 seconds, about 4.87 tokens/second. These are measured
+partial progress, not evidence that prefill or the requested work completed.
+
+This run also exposed an input-admission race. The continuously running subject
+created its first request at commit 10; the WebSocket submission was durably
+accepted at commit 13. The actual sealed input plan has an empty `events` array
+and only the runtime's idle-continuation text in its user-message payload. The
+submitted marker and arithmetic request are absent. Therefore this attempt
+cannot be described as having delivered that user input to the model, regardless
+of its later timeout.
+
+The retained facts share ledger `45c385db-f060-482a-85cb-8c4b47298a41`:
+
+| Fact | Original sequence |
+| --- | ---: |
+| Main request `07fe7e44-2f2b-4c83-a9a4-83cbf61eb435` created | 10 |
+| User submission accepted, event `c55763e4-72b9-4e77-84a8-62c512125aca` | 13 |
+| Provider stream terminal observation, `kind=unknown` | 15 |
+| Main request's sealed failed/unknown terminal result recorded | 17 |
+
+At its sealed 1,200,000 ms limit, the provider recorded
+`INFERENCE_TRANSPORT_TIMEOUT`; the broker then recorded
+`INFERENCE_OUTCOME_UNKNOWN` for the same original request. The attempt's
+`terminal` state means its local observation was recorded. It does not assert
+that the remote generation terminated. The subject retained `awaiting_model`,
+the CLI exited 1, and the observing WebSocket closed without a close frame.
+There were zero finite child results and zero child E1 rows, but the main request
+and stream **did** retain the unknown terminal evidence above. No restart phase
+or browser journey ran, and no model-quality claim follows from this run.
+
+The [complete retained observation](../evidence/single-node-hosted-43864453629/observation.json)
+contains all 65 original artifact files, their SHA-256 values, the original ZIP
+with verified SHA-256
+`1fa5b7c6e47a23aa53fe50bdd1bd560d1bafa48ec460971dbb560d1d76559cdf`,
+the frozen input CAS and terminal CAS, and the complete runtime error records.
+The startup/input boundary correction responds to the observed race. The slow
+prefill remains a separate runtime observation; increasing the limit again is
+not an acceptance result.

@@ -336,7 +336,10 @@ impl Fixture {
             "this real SSH artifact must exercise the existing out-of-line install path"
         );
         ensure!(
-            installed["installed"]["bytes"] == module.len()
+            installed["installed"]["name"] == "ssh"
+                && installed["installed"]["unit_id"] == "tool.ssh"
+                && installed["installed"]["version"] == "0.1.0"
+                && installed["installed"]["bytes"] == module.len()
                 && installed["installed"]["digest"] == digest
                 && installed["installed"]["sha256"] == sha256
                 && installed["installed"]["abi"] == "wasi_preview1"
@@ -356,12 +359,72 @@ impl Fixture {
             .find(|tool| tool["name"] == "ssh" && tool["selected"] == true)
             .context("installed SSH was not selected by name")?;
         ensure!(
-            selected["version"] == "0.1.0"
-                && selected["digest"] == digest
+            selected["unit_id"] == installed["installed"]["unit_id"]
+                && selected["version"] == installed["installed"]["version"]
+                && selected["abi"] == installed["installed"]["abi"]
+                && selected["current"] == true
+                && selected["enabled"] == true
+                && selected["artifact"]["digest"] == digest
+                && selected["artifact"]["sha256"] == sha256
+                && selected["artifact"]["bytes"] == module.len()
                 && selected["artifact"]["kind"] == "content_store"
-                && selected["artifact"]["chunk_manifest"].is_object()
-                && selected["environment"].is_object(),
-            "selected SSH binding differs: {selected}"
+                && selected["artifact"]["chunk_manifest"].is_object(),
+            "selected SSH artifact differs from the exact installed module: {selected}"
+        );
+        // The unit digest identifies the small pointer document for an
+        // out-of-line artifact, not the WASM module. Bind both identities to
+        // real stored bytes and to the environment that name lookup uses.
+        let package_path = Path::new(
+            selected["materialized_path"]
+                .as_str()
+                .context("selected SSH unit has no materialized pointer")?,
+        );
+        ensure!(package_path.starts_with(self.data().join("tools")));
+        let package_bytes = fs::read(package_path)?;
+        let package_digest = shenko_types::object::Digest::blake3(&package_bytes).to_string();
+        let artifact_ref = serde_json::from_value(selected["artifact"].clone())?;
+        shenko_wasm::artifact::ArtifactPointer::parse(&package_bytes, &artifact_ref)?;
+        let activation = &installed["environment"]["activation"];
+        let generation = &activation["generation"];
+        let generation_number = generation["generation"]
+            .as_u64()
+            .context("installed SSH environment has no generation")?;
+        let generation_digest = generation["digest"]
+            .as_str()
+            .context("installed SSH environment has no digest")?;
+        let selector_revision = activation["selector"]["revision"]
+            .as_u64()
+            .context("installed SSH environment has no selector revision")?;
+        let member = generation["members"]
+            .as_array()
+            .context("installed SSH environment members")?
+            .iter()
+            .find(|member| member["unit_id"] == selected["unit_id"])
+            .context("installed SSH unit is absent from its active environment")?;
+        let listed_generation = inventory["environment"]["generations"]
+            .as_array()
+            .context("listed environment generations")?
+            .iter()
+            .find(|item| item["generation"] == generation_number)
+            .context("activated SSH environment is absent from the inventory")?;
+        ensure!(
+            selected["digest"] == package_digest
+                && member["artifact_digest"] == package_digest
+                && member["revision"] == selected["version"]
+                && member["declarations"] == selected["capabilities"]
+                && member["role"] == "root"
+                && selected["environment"]["role"] == member["role"]
+                && selected["environment"]["generation"] == generation_number
+                && selected["environment"]["digest"] == generation_digest
+                && selected["environment"]["selector_revision"] == selector_revision
+                && activation["activated"] == true
+                && activation["selector"]["generation"] == generation_number
+                && activation["selector"]["generation_digest"] == generation_digest
+                && installed["environment"]["prepared"]["generation"] == *generation
+                && inventory["environment"]["pinned"] == true
+                && inventory["environment"]["selector"] == activation["selector"]
+                && listed_generation == generation,
+            "selected SSH unit or active environment differs: {selected}; {activation}"
         );
         // Execution has no path to the fixture's original install input. Each
         // CLI process resolves the selected unit and reassembles verified CAS

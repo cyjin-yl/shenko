@@ -94,6 +94,20 @@ must supply that evidence rather than treating process startup as full success.
 
 ## Live control and the final writer boundary
 
+The optional CLI `start --pause-at-start <request-UUID>` applies the existing
+subject-only boundary after runtime authority activation and before consumers
+start. `Store::pause_subject_at_start` holds a source reservation across one
+Immediate transaction, validates the current head and clean planned successor,
+and publishes the ordinary request and paused head with the original two ordered
+CommitRefs. There is no visible intermediate Requested state for a new startup
+request. Reopening a still-paused request validates and retains its identity;
+closed requests and unresolved steps are explicit refusals. Once the startup
+action is durable, internal runtime reconstruction reads its current state
+instead of repeating the one-time action. Default startup remains continuously
+active. This optional control permits real ingress before inference admission;
+it does not fence already-admitted operations or substitute for the complete
+handoff below.
+
 The binary's `update_control` module binds a loopback ephemeral listener and
 publishes an installation-private capability descriptor. Requests are bounded
 JSON and authenticated with that local capability. The CLI first attempts the

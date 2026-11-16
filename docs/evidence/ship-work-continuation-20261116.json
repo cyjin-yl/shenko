@@ -131,8 +131,13 @@
     "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
     "run_id": 43865128676,
     "url": "https://github.com/cyjin-yl/shenko/actions/runs/43865128676",
-    "observed_status": "in_progress",
-    "scope": "Both jobs started: pinned compiler suite and all-features Rust were running at the last observation; no completed new candidate result claimed."
+    "observed_status": "completed",
+    "scope": "Actual old-candidate all-features/partition/helper/compiler observations. The failed Rust job remains failed. These do not validate the later REPL, CLI SSH, native dispatch or startup source and are not physical fault or long-run acceptance.",
+    "jobs": {
+      "nightly-compiler-full": "success",
+      "nightly-rust-long": "failure"
+    },
+    "observation": "nightly-6782627-20261116/observation.json"
   },
   "concurrent_followup_ci": {
     "head_sha": "659109b62bc9897fe22827c4a24bd53c604cfa7c",
@@ -188,5 +193,67 @@
       "actual_execution": "pending",
       "model_prompt_sampling_context_deadline_unchanged": true
     }
+  },
+  "second_real_model_failure": {
+    "run_id": 43864453629,
+    "head_sha": "6782627ea89e17774bc65ba54d459ad85804fef1",
+    "conclusion": "failure",
+    "observation": "single-node-hosted-43864453629/observation.json",
+    "artifact_zip_sha256": "1fa5b7c6e47a23aa53fe50bdd1bd560d1bafa48ec460971dbb560d1d76559cdf",
+    "all_original_files_retained": 65
+  },
+  "startup_boundary_followup": {
+    "source_commit": "ac09f7db4d2796f44829303c07cd34072cd21027",
+    "metadata_check_exit_code": 0,
+    "target": "shenko --test start_boundary",
+    "actual_cli_journey": "pending",
+    "actual_model_journey": "pending",
+    "scope": "Explicit optional atomic startup pause, original ordered CommitRefs, genuine accepted input before public resume, exact first frozen request association; original model success assertions unchanged."
+  },
+  "integrated_followup_ci": {
+    "head_sha": "bb27f6542e3c37c693a973b5cc26ca8d2ec8fccf",
+    "run_id": 43872078834,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43872078834",
+    "jobs": {
+      "docs": "success",
+      "docs-migration": "success",
+      "kernel-boundary": "success",
+      "web": "success",
+      "clippy-ratchet": "success",
+      "rust": "failure"
+    },
+    "workspace_all_targets_check": "success",
+    "actually_passed": [
+      "canonical native dispatch original permit and recovery journey",
+      "both canonical native T2 journeys",
+      "broker exact timeout and Unknown pair",
+      "REPL refused T1 creates neither session nor cell"
+    ],
+    "actual_failures": [
+      "CLI SSH journey successfully bootstrapped and installed the real chunked module, then incorrectly compared the selected package digest with its module digest; no SSH request was reached in this new CLI journey.",
+      "Strong REPL effect/recovery journey stopped at its first stale-invocation error-name assertion; its later effects/recovery assertions were not reached."
+    ],
+    "observation": "ci-bb27f65-20261116/observation.json"
+  },
+  "followup_assertion_repairs": {
+    "prior_failed_candidate": "bb27f6542e3c37c693a973b5cc26ca8d2ec8fccf",
+    "repl": {
+      "source_commit": "2123139573a8a971dd98fa349941744d4b3ef1a2",
+      "cause": "prepare_external_authority rejects the deliberately stale revision before the later transaction guard",
+      "change": "match exact stale or inadmissible T1 invocation and operation_conflict: original REPL request differs; retain all no-effect, original identity and recovery checks",
+      "metadata_check_exit_code": 0,
+      "metadata_check_seconds": 37.78,
+      "actual_journey": "pending"
+    },
+    "ssh_cli": {
+      "source_commit": "2760be947847d1e8517e4ff13f29bf9927997893",
+      "cause": "selected unit digest identifies ArtifactPointer bytes, while selected artifact digest identifies WASM module",
+      "change": "check both original identities against materialized pointer and full installed/selected/environment binding",
+      "original_protocol_assertions_preserved": 14,
+      "metadata_check_exit_code": 0,
+      "metadata_check_seconds": 85,
+      "actual_journey": "pending"
+    },
+    "scope": "Assertion repairs preserve the original failed artifacts and require actual complete reruns; metadata is not execution evidence."
   }
 }

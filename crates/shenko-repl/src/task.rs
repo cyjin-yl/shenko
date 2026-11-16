@@ -2071,8 +2071,12 @@ mod tests {
                 }))?;
             let mut fenced = repeat(&create);
             fenced.task_invocation.task_revision = TaskRevision(1);
-            assert!(matches!(harness.handler.execute(fenced).await,
-                Err(error) if error.to_string().contains("stale_task")));
+            let rejected = harness.handler.execute(fenced).await;
+            // The original invocation is rejected by the Store's authority
+            // preparation, before its final-transaction stale_task check.
+            assert!(matches!(&rejected,
+                Err(error) if error.to_string() == "stale or inadmissible T1 invocation"),
+                "session T1 must fence the stale task revision, got {rejected:#?}");
             assert!(harness.store.find_external_operation(create.operation_id)?.is_none());
             assert_eq!(fs::read_dir(harness.data_dir.join("sessions"))?.count(), 0);
             let created = harness.handler.execute(repeat(&create)).await?;
@@ -2112,8 +2116,10 @@ mod tests {
             let effects = session_dir.join("home/effects");
             let mut fenced = repeat(&cell);
             fenced.task_invocation.task_revision = TaskRevision(1);
-            assert!(matches!(cell_handler.execute(fenced).await,
-                Err(error) if error.to_string().contains("stale_task")));
+            let rejected = cell_handler.execute(fenced).await;
+            assert!(matches!(&rejected,
+                Err(error) if error.to_string() == "stale or inadmissible T1 invocation"),
+                "cell T1 must fence the stale task revision, got {rejected:#?}");
             assert!(!effects.exists());
             assert!(harness.store.find_external_operation(cell.operation_id)?.is_none());
             let completed = cell_handler.execute(repeat(&cell)).await?;
@@ -2138,8 +2144,10 @@ mod tests {
             assert_eq!(cell_handler.execute(repeat(&cell)).await?.prepared_commit, completed.prepared_commit);
             let mut different = repeat(&cell);
             different.input["source_b64"] = serde_json::json!(B64.encode(b"another effect"));
-            assert!(matches!(cell_handler.execute(different).await,
-                Err(error) if error.to_string().contains("operation_conflict")));
+            let rejected = cell_handler.execute(different).await;
+            assert!(matches!(&rejected,
+                Err(error) if error.to_string() == "operation_conflict: original REPL request differs"),
+                "a changed source must conflict with its original operation, got {rejected:#?}");
             assert_eq!(fs::metadata(&effects)?.len(), 1);
 
             // Stop exactly after production preparation and durable T1, before

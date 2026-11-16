@@ -1,0 +1,12 @@
+3  |  import { compilePrototype } from '../src/compile';
+4  |  
+[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36m/__w/shenko/shenko/.ci/web/proto-ui/packages/compiler/test/rule-compile.test.ts[39m
+ [32m✓[39m packages/compiler/test/rule-compile.test.ts [2m([22m[2m1 test[22m[2m)[22m[90m 23[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m76 passed[39m[22m[90m (76)[39m
+[2m      Tests [22m [1m[32m1514 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (1515)[39m
+[2m   Start at [22m 12:50:24
+[2m   Duration [22m 319.75s[2m (transform 6.19s, setup 0ms, collect 34.07s, tests 262.21s, environment 8.44s, prepare 4.25s)[22m
+
