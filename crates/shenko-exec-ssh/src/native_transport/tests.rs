@@ -60,6 +60,14 @@ impl server::Handler for Peer {
         reply.accept().await;
         Ok(())
     }
+    async fn pty_request(&mut self, channel: ChannelId, _term: &str,
+        _cols: u32, _rows: u32, _pixels_x: u32, _pixels_y: u32,
+        _modes: &[(russh::Pty, u32)], session: &mut server::Session)
+        -> Result<(), Self::Error>
+    {
+        session.channel_success(channel)?;
+        Ok(())
+    }
     async fn exec_request(&mut self, channel: ChannelId, command: &[u8], session: &mut server::Session)
         -> Result<(), Self::Error>
     {
@@ -202,6 +210,50 @@ async fn native_protocol_deadline_preserves_unknown_and_observes_local_session_e
     assert_eq!(observation.interruption, Some(NativeInterruption::Deadline));
     assert!(observation.session_end_observed); // local protocol end only
     running.finish().await;
+}
+
+#[test]
+fn pty_closer_cancellation_keeps_the_original_pump_join_owned() -> anyhow::Result<()> {
+    use crate::seat::{SeatHandle, SeatAdapterId, ssh_pty::SshPtySeat};
+    use std::{future::Future, task::Poll};
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let (connection, running) = connect(target(key(11).public_key(), false), Mode::Silent).await;
+        let checked: anyhow::Result<()> = async {
+            let session = connection?.authenticate_private_key(
+                PrivateKeyWithHashAlg::new(Arc::new(key(22)), None),
+            ).await?;
+            let session = session.open_pty(NativePtyRequest {
+                term: "xterm".into(), cols: 80, rows: 24,
+                program: NativePtyProgram::Exec { command: b"fixture-command".to_vec() },
+            }, Duration::from_secs(2)).await?;
+            let seat = SshPtySeat::spawn(session, SeatHandle {
+                location_id: "fixture-pty".into(), adapter: SeatAdapterId::SshPty,
+                adapter_version: crate::seat::ssh_pty::SSH_PTY_ADAPTER_VERSION.into(),
+                host: "fixture.invalid".into(), cwd: None, remote_session_id: None,
+                current_command: None, process_identity: None,
+            }, 80, 24);
+            let mut first_close = Box::pin(seat.close());
+            // Poll once on this current-thread runtime: the pump cannot run
+            // until this poll returns. Drop the closer at its actual Pending
+            // boundary, rather than guessing the race from a timed sleep.
+            let pending = std::future::poll_fn(|cx| {
+                Poll::Ready(matches!(first_close.as_mut().poll(cx), Poll::Pending))
+            }).await;
+            drop(first_close);
+            let observation = timeout(Duration::from_secs(12), seat.close()).await??;
+            anyhow::ensure!(pending, "first close had no cancellation boundary");
+            anyhow::ensure!(observation.pty_accepted && observation.program_accepted);
+            anyhow::ensure!(observation.session_end_observed, "local SSH session did not finish");
+            anyhow::ensure!(observation.exit.is_none(), "silent fixture has no remote process exit evidence");
+            anyhow::ensure!(!seat.is_stream_open());
+            let repeated = seat.close().await?;
+            anyhow::ensure!(serde_json::to_value(&repeated)? == serde_json::to_value(&observation)?);
+            eprintln!("PTY cancellation/owned-close observation: {}", serde_json::to_string(&observation)?);
+            Ok(())
+        }.await;
+        running.finish().await;
+        checked
+    })
 }
 
 #[tokio::test]

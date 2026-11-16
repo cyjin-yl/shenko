@@ -54,6 +54,7 @@ use shenko_types::commit::CommitRef;
 use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 /// Durable bindings of one attached seat.
@@ -80,6 +81,9 @@ struct LiveSeat {
 pub struct SeatRuntime {
     store: Arc<Store>,
     seats: Mutex<BTreeMap<String, LiveSeat>>,
+    closed: AtomicBool,
+    close_gate: Mutex<()>,
+    close_error: Mutex<Option<String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -147,7 +151,10 @@ pub struct SeatReattachReport {
 
 impl SeatRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self { store, seats: Mutex::new(BTreeMap::new()) }
+        Self {
+            store, seats: Mutex::new(BTreeMap::new()), closed: AtomicBool::new(false),
+            close_gate: Mutex::new(()), close_error: Mutex::new(None),
+        }
     }
 
     pub fn store(&self) -> Arc<Store> {
@@ -161,6 +168,7 @@ impl SeatRuntime {
         adapter: Arc<dyn SeatAdapter>,
         attachment: SeatAttachment,
     ) -> Result<SeatHandle> {
+        ensure!(!self.closed.load(Ordering::Acquire), "seat runtime is closed");
         let mut discovered = adapter.discover().await.context("seat adapter discover 失败")?;
         ensure!(
             !discovered.is_empty(),
@@ -174,7 +182,10 @@ impl SeatRuntime {
             handle: handle.clone(),
             durable_questions: Mutex::new(BTreeMap::new()),
         };
-        self.seats.lock().await.insert(key, seat);
+        let mut seats = self.seats.lock().await;
+        ensure!(!self.closed.load(Ordering::Acquire), "seat runtime closed during attach");
+        ensure!(!seats.contains_key(&key), "a live seat already owns this location");
+        seats.insert(key, seat);
         Ok(handle)
     }
 
@@ -253,6 +264,7 @@ impl SeatRuntime {
     /// Startup rebuild: reattach every active seat record in the store,
     /// regardless of which task owns it (R070).
     pub async fn reattach_active_seats(&self) -> Result<SeatReattachReport> {
+        ensure!(!self.closed.load(Ordering::Acquire), "seat runtime is closed");
         let mut report = SeatReattachReport::default();
         for record in self.store.active_seat_records()? {
             self.reattach_record(record, &mut report).await;
@@ -318,6 +330,9 @@ impl SeatRuntime {
         };
         self.rebind_durable_questions(&record, &handle, &mut live_seat).await;
         let mut seats = self.seats.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return skip(report, "seat runtime closed during reattach".into());
+        }
         if seats.contains_key(&handle.location_id) {
             return skip(report, format!("location {} already attached", handle.location_id));
         }
@@ -368,6 +383,7 @@ impl SeatRuntime {
         location_id: &str,
     ) -> Result<(Arc<dyn SeatAdapter>, SeatHandle, SeatAttachment)> {
         let seats = self.seats.lock().await;
+        ensure!(!self.closed.load(Ordering::Acquire), "seat runtime is closed");
         let seat = seats
             .get(location_id)
             .with_context(|| format!("seat 未挂接到运行时：{location_id}"))?;
@@ -831,21 +847,49 @@ impl SeatRuntime {
     /// facts and stop their child process; other adapters simply stop being
     /// reachable through the runtime.
     pub async fn detach(&self, location_id: &str) -> Result<()> {
-        let seat = self.seats.lock().await.remove(location_id);
-        if let Some(seat) = seat {
-            let any = seat.adapter.as_ref() as &dyn std::any::Any;
-            if let Some(pty) = any.downcast_ref::<crate::seat::ssh_pty::SshPtySeat>() {
-                pty.close().await;
-            } else if let Some(omp) = any.downcast_ref::<crate::seat::omp_rpc::OmpRpcSeat>() {
-                omp.close().await;
-            } else if let Some(claude) =
-                any.downcast_ref::<crate::seat::claude_sdk::ClaudeSdkSeat>()
-            {
-                claude.close().await;
-            }
+        let _gate = self.close_gate.lock().await;
+        let mut seats = self.seats.lock().await;
+        if let Some(seat) = seats.get(location_id) {
+            close_adapter(seat.adapter.as_ref()).await?;
         }
+        seats.remove(location_id);
         Ok(())
     }
+
+    /// Close generation admission, stop each owned transport and await its
+    /// reader/process barrier. Durable questions and unknown effects remain.
+    pub async fn close(&self) -> Result<()> {
+        self.closed.store(true, Ordering::Release);
+        let _gate = self.close_gate.lock().await;
+        let mut seats = self.seats.lock().await;
+        let mut errors = self.close_error.lock().await.iter().cloned().collect::<Vec<_>>();
+        // Keep the owners in the runtime until their barriers finish. If this
+        // close future is cancelled, the next closer still owns every handle.
+        for seat in seats.values() {
+            if let Err(error) = close_adapter(seat.adapter.as_ref()).await {
+                errors.push(format!("seat {}: {error:#}", seat.attachment.seat_record_id));
+            }
+        }
+        if !errors.is_empty() {
+            let error = errors.join("; ");
+            *self.close_error.lock().await = Some(error.clone());
+            anyhow::bail!("seat teardown did not complete: {error}");
+        }
+        seats.clear();
+        Ok(())
+    }
+}
+
+async fn close_adapter(adapter: &dyn SeatAdapter) -> Result<()> {
+    let any = adapter as &dyn std::any::Any;
+    if let Some(pty) = any.downcast_ref::<crate::seat::ssh_pty::SshPtySeat>() {
+        pty.close().await?;
+    } else if let Some(omp) = any.downcast_ref::<crate::seat::omp_rpc::OmpRpcSeat>() {
+        omp.close().await?;
+    } else if let Some(claude) = any.downcast_ref::<crate::seat::claude_sdk::ClaudeSdkSeat>() {
+        claude.close().await?;
+    }
+    Ok(())
 }
 
 fn fact_from_candidate(question: &SeatQuestionCandidate) -> Result<SeatQuestionFact> {
@@ -1111,7 +1155,8 @@ mod tests {
         assert_eq!(published["capability"], serde_json::to_value(&declared).unwrap());
         assert!(store.seat_current_lease(record.seat_id).unwrap().is_none());
 
-        adapter.close().await;
+        let closed = adapter.close().await;
+        assert!(closed.is_ok(), "actual managed process teardown: {closed:?}");
         let (ended, _) = runtime.fleet_view(Some(task_id)).await.unwrap();
         assert_eq!(ended[0].transport_live, Some(false), "a retained handle is not a live process");
         assert!(ended[0].durable_only);
@@ -1119,6 +1164,12 @@ mod tests {
             "adapter capability and transport liveness remain distinct facts");
         assert_eq!(store.seat(record.seat_id).unwrap().unwrap().record_revision, record.record_revision);
         assert!(store.seat_current_lease(record.seat_id).unwrap().is_none());
+        let generation_closed = runtime.close().await;
+        assert!(generation_closed.is_ok(), "seat generation teardown: {generation_closed:?}");
+        let retained = runtime.attach(adapter.clone(), SeatAttachment {
+            task_id, seat_record_id: record.seat_id, lease_id: EntityId::nil(),
+        }).await;
+        assert!(retained.is_err(), "closed generation accepted a retained adapter");
         drop(runtime);
         drop(adapter);
         drop(store);

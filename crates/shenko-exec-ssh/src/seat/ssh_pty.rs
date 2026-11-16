@@ -29,13 +29,14 @@ use shenko_store::SeatCapability;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 
 /// Adapter version bound into durable seat records.
 pub const SSH_PTY_ADAPTER_VERSION: &str = "ssh-pty-v1";
 
 const CLOSE_GRACE: Duration = Duration::from_millis(500);
+const PUMP_JOIN_WAIT: Duration = Duration::from_secs(5);
 
 /// Writer-originated commands handled by the single-owner pump.
 enum PtyCommand {
@@ -43,7 +44,6 @@ enum PtyCommand {
     Resize(u32, u32),
     Signal(Sig),
     Eof,
-    Close(Duration, oneshot::Sender<NativePtyObservation>),
 }
 
 /// One live remote seat: a screen everyone reads, and a command channel
@@ -53,8 +53,31 @@ pub struct SshPtySeat {
     screen: Arc<Mutex<TerminalScreen>>,
     commands: mpsc::Sender<PtyCommand>,
     stream_open: Arc<AtomicBool>,
-    close_observation: Arc<Mutex<Option<NativePtyObservation>>>,
-    pump: Mutex<Option<JoinHandle<()>>>,
+    closing: watch::Sender<bool>,
+    pump: Mutex<PumpOwner>,
+}
+
+struct PumpOwner {
+    handle: Option<JoinHandle<NativePtyObservation>>,
+    observation: Option<NativePtyObservation>,
+    failure: Option<String>,
+}
+
+impl Drop for PumpOwner {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            // Abrupt owner loss never attests a successful protocol join.
+            handle.abort();
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("PTY close failed: {reason}; remote input/outcome remains unknown")]
+pub struct PtyCloseError {
+    pub reason: String,
+    pub pump_joined: bool,
+    pub observation: Option<NativePtyObservation>,
 }
 
 impl SshPtySeat {
@@ -72,14 +95,15 @@ impl SshPtySeat {
         let pump_screen = Arc::clone(&screen);
         let stream_open = Arc::new(AtomicBool::new(true));
         let pump_open = Arc::clone(&stream_open);
-        let close_observation: Arc<Mutex<Option<NativePtyObservation>>> = Arc::new(Mutex::new(None));
-        let pump_observation = Arc::clone(&close_observation);
+        let (closing, mut close_rx) = watch::channel(false);
         let pump = tokio::spawn(async move {
             let mut session = session;
             loop {
                 tokio::select! {
-                    event = session.recv() => {
-                        match event {
+                    biased;
+                    _ = close_rx.changed() => break,
+                    _event = session.recv() => {
+                        match _event {
                             Some(NativePtyEvent::Output(bytes)) |
                             Some(NativePtyEvent::Error(bytes)) => {
                                 pump_screen.lock().await.feed(&bytes);
@@ -90,44 +114,40 @@ impl SshPtySeat {
                             | None => break,
                         }
                     }
-                    command = command_rx.recv() => {
-                        let Some(command) = command else { break; };
-                        match command {
-                            PtyCommand::Send(bytes) => {
-                                let _ = session.send(&bytes).await;
-                            }
-                            PtyCommand::Resize(cols, rows) => {
-                                let _ = session.resize(cols, rows).await;
-                            }
-                            PtyCommand::Signal(signal) => {
-                                let _ = session.signal(signal).await;
-                            }
-                            PtyCommand::Eof => {
-                                let _ = session.eof().await;
-                            }
-                            PtyCommand::Close(grace, reply) => {
-                                let observation = session.close(grace).await;
-                                let _ = reply.send(observation);
-                                return;
+                    _command = command_rx.recv() => {
+                        let Some(command) = _command else { break; };
+                        // Shutdown must also interrupt a writer blocked on
+                        // SSH backpressure. Dropping this original write does
+                        // not turn its queued/partial input into acceptance.
+                        tokio::select! {
+                            biased;
+                            _ = close_rx.changed() => break,
+                            _result = async {
+                                match command {
+                                    PtyCommand::Send(bytes) => session.send(&bytes).await,
+                                    PtyCommand::Resize(cols, rows) => session.resize(cols, rows).await,
+                                    PtyCommand::Signal(signal) => session.signal(signal).await,
+                                    PtyCommand::Eof => session.eof().await,
+                                }
+                            } => {
+                                if _result.is_err() { break; }
                             }
                         }
                     }
                 }
             }
-            // The channel ended on the remote side. Still close our side and
-            // record what the session end looked like, so a later explicit
-            // close returns real facts instead of nothing.
-            let observation = session.close(CLOSE_GRACE).await;
             pump_open.store(false, Ordering::SeqCst);
-            *pump_observation.lock().await = Some(observation);
+            session.close(CLOSE_GRACE).await
         });
         Self {
             handle,
             screen,
             commands,
             stream_open,
-            close_observation,
-            pump: Mutex::new(Some(pump)),
+            closing,
+            pump: Mutex::new(PumpOwner {
+                handle: Some(pump), observation: None, failure: None,
+            }),
         }
     }
 
@@ -139,32 +159,66 @@ impl SshPtySeat {
         self.stream_open.load(Ordering::SeqCst)
     }
 
-    /// Close the PTY and observe the session end. If the remote already
-    /// ended the stream, returns the observation the pump recorded at that
-    /// moment; if this seat was already closed, returns `None`.
-    pub async fn close(&self) -> Option<NativePtyObservation> {
-        let Some(pump) = self.pump.lock().await.take() else {
-            return None;
-        };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        let close_sent = self
-            .commands
-            .send(PtyCommand::Close(CLOSE_GRACE, reply_tx))
-            .await
-            .is_ok();
-        let reply = if close_sent {
-            reply_rx.await.ok()
-        } else {
-            // The pump exited before the command arrived; join it and read
-            // the observation it recorded when the stream ended.
-            None
-        };
-        let _ = pump.await;
-        match reply {
-            Some(observation) => Some(observation),
-            None => self.close_observation.lock().await.take(),
+    /// Stop admission, interrupt the original pump and retain its handle
+    /// until its join is observed. A cancelled closer leaves this owner intact.
+    /// Remote process exit and application effects remain separate observations.
+    pub async fn close(&self) -> Result<NativePtyObservation> {
+        self.closing.send_replace(true);
+        self.stream_open.store(false, Ordering::SeqCst);
+        let mut owner = self.pump.lock().await;
+        if owner.handle.is_some() {
+            let first_join = {
+                let handle = owner.handle.as_mut().context("PTY pump owner disappeared")?;
+                tokio::time::timeout(PUMP_JOIN_WAIT, &mut *handle).await
+            };
+            let joined = match first_join {
+                Ok(result) => Some(result),
+                Err(_) => {
+                    // Retain the failed stop barrier before abort/join can
+                    // suspend again. Cancelling this closer cannot erase it.
+                    owner.failure = Some(match owner.failure.take() {
+                        Some(previous) => format!("{previous}; PTY pump exceeded its stop budget"),
+                        None => "PTY pump exceeded its stop budget".into(),
+                    });
+                    let handle = owner.handle.as_mut().context("PTY pump owner disappeared")?;
+                    handle.abort();
+                    tokio::time::timeout(PUMP_JOIN_WAIT, &mut *handle).await.ok()
+                }
+            };
+            if let Some(result) = joined {
+                // The completed handle is removed only after its result is
+                // retained, never before an await that a caller can cancel.
+                match result {
+                    Ok(observation) => owner.observation = Some(observation),
+                    Err(error) => {
+                        let detail = format!("PTY pump join: {error}");
+                        owner.failure = Some(match owner.failure.take() {
+                            Some(previous) => format!("{previous}; {detail}"),
+                            None => detail,
+                        });
+                    }
+                }
+                drop(owner.handle.take());
+            }
         }
+        let reason = owner.failure.clone().or_else(|| {
+            match owner.observation.as_ref() {
+                Some(observation) if observation.session_end_observed => None,
+                Some(_) => Some("local SSH session end was not observed".into()),
+                None => Some("PTY pump has no close observation".into()),
+            }
+        });
+        if let Some(reason) = reason {
+            owner.failure = Some(reason.clone());
+            return Err(PtyCloseError {
+                reason,
+                pump_joined: owner.handle.is_none(),
+                observation: owner.observation.clone(),
+            }.into());
+        }
+        owner.observation.clone().context("PTY close observation disappeared")
     }
+
 }
 
 #[async_trait]
@@ -272,6 +326,7 @@ impl SeatAdapter for SshPtySeat {
         plan: &SeatEffectPlan,
         fence: &SeatWriteFence,
     ) -> Result<SeatResponse> {
+        anyhow::ensure!(!*self.closing.borrow(), "PTY owner is closing; no new input admitted");
         self.commands
             .send(PtyCommand::Send(plan.payload.as_bytes().to_vec()))
             .await
@@ -281,7 +336,7 @@ impl SeatAdapter for SshPtySeat {
             transport: AnswerTransport::TerminalInput,
             confirmation: AnswerConfirmation::Unconfirmed,
             detail: Some(format!(
-                "已键入 {} 字节（writer epoch {}）",
+                "已排队 {} 字节（writer epoch {}）；实际传输和远端接收尚未确认",
                 plan.payload.len(),
                 fence.lease_epoch
             )),
@@ -294,6 +349,7 @@ impl SeatAdapter for SshPtySeat {
         text: &str,
         fence: &SeatWriteFence,
     ) -> Result<SeatResponse> {
+        anyhow::ensure!(!*self.closing.borrow(), "PTY owner is closing; no new input admitted");
         let mut bytes = text.as_bytes().to_vec();
         bytes.push(b'\r');
         self.commands
@@ -305,13 +361,14 @@ impl SeatAdapter for SshPtySeat {
             transport: AnswerTransport::TerminalInput,
             confirmation: AnswerConfirmation::Unconfirmed,
             detail: Some(format!(
-                "输入已键入并回车（writer epoch {}）",
+                "输入及回车已排队（writer epoch {}）；实际传输和远端接收尚未确认",
                 fence.lease_epoch
             )),
         })
     }
 
     async fn interrupt(&self, _seat: &SeatHandle, fence: &SeatWriteFence) -> Result<SeatResponse> {
+        anyhow::ensure!(!*self.closing.borrow(), "PTY owner is closing; no new signal admitted");
         self.commands
             .send(PtyCommand::Signal(Sig::INT))
             .await

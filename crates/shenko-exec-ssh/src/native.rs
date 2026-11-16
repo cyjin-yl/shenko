@@ -381,18 +381,27 @@ impl SshPtyHandler {
             }),
             process_identity: None,
         };
-        let seat = crate::seat::ssh_pty::SshPtySeat::spawn(
+        let seat = Arc::new(crate::seat::ssh_pty::SshPtySeat::spawn(
             pty_session,
             handle.clone(),
             frozen.cols as u16,
             frozen.rows as u16,
-        );
-        self.runtime
+        ));
+        let result = self.runtime
             .attach(
-                Arc::new(seat),
+                seat.clone(),
                 SeatAttachment { task_id, seat_record_id: frozen.seat_id, lease_id: frozen.lease_id },
             )
-            .await
+            .await;
+        if let Err(error) = result {
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!(
+                    "PTY attach teardown also failed: {close_error:#}"
+                ))),
+            };
+        }
+        result
     }
 }
 
@@ -1321,10 +1330,13 @@ impl OmpSeatHandler {
             task_id,
         )
         .await;
-        if result.is_err() {
-            // Binding failed after the process started: stop our side so a
-            // refused operation never leaves a live agent behind.
-            seat.close().await;
+        if let Err(error) = result {
+            // The original binding failure and a failed close are separate
+            // facts. A failed join must not disappear behind the first error.
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!("managed seat teardown also failed: {close_error:#}"))),
+            };
         }
         result
     }
@@ -1383,10 +1395,13 @@ impl ClaudeSeatHandler {
             task_id,
         )
         .await;
-        if result.is_err() {
-            // Binding failed after the process started: stop our side so a
-            // refused operation never leaves a live agent behind.
-            seat.close().await;
+        if let Err(error) = result {
+            // The original binding failure and a failed close are separate
+            // facts. A failed join must not disappear behind the first error.
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!("managed seat teardown also failed: {close_error:#}"))),
+            };
         }
         result
     }

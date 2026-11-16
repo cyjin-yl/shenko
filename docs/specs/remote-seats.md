@@ -29,6 +29,54 @@ arm the exact operation id (`arm_external_operation`), effect once, observe
 with evidence. Reconcile is query-only; a crash after T1 never re-sends a
 command, re-opens a PTY or re-answers a question.
 
+### Managed transport lifecycle implementation
+
+The seven installed handlers compose their existing registration directly
+into one Cordis generation journal, rather than spawning independent resident
+Fibers. Its teardown
+closes `SeatRuntime` admission and awaits the owned transports; a failed join
+is reported through the existing lifecycle diagnostics, never converted into
+a clean Start shutdown. A replacement generation constructs a fresh runtime.
+Retained handles from the closed generation cannot attach new seats, and a
+second attach cannot silently replace a live transport at the same location.
+
+OMP and Claude stdout/stderr readers retain protocol state only. Their shared
+process owner retains the child, stdin and both reader handles, so an EOF
+reader no longer keeps the child alive through an `Arc` cycle. Explicit close
+wakes a blocked original write, stops and reaps the child and joins both
+readers with finite waits. An observed close error is retained in the owner
+before another wait or removal of the original handle, so cancelling a
+closer cannot let its retry misreport a failed barrier as clean.
+A cancelled or failed write keeps its original
+native request id, when present, and complete wire digest as `Unknown`;
+subsequent frames cannot append to a possibly partial JSON line. A refusal
+before writer admission is `NotSent`. Neither write/flush nor local process
+cleanup proves remote acceptance, completed coding or a settled session.
+Decoded OMP response frames, including their original ids, remain in the
+bounded in-memory event tail after close; this tail is not a durable response
+ledger or automatic recovery mechanism.
+
+The PTY owner also retains its pump handle until join is observed. Closing
+uses a separate notification that can interrupt SSH write backpressure,
+instead of waiting behind the same command queue. Cancelling a close caller
+does not discard the pump owner. The channel-close send, drain and local
+session-end observation have finite waits. A failed pump or unobserved local
+session end remains an explicit close error with the available observation;
+queued input stays unconfirmed. Local session termination does not prove the
+remote process stopped or an answer took effect.
+
+These are implementation changes, with five new lifecycle checks awaiting
+Rust execution at this checkpoint: three real child/pipe checks using a small
+Python protocol fixture, plus a cancelled-closer check using the existing real
+SSH packet fixture and one actual Cordis owner restart/dispose/reinstall check
+for all seven native registrations. The existing fleet journey also checks
+closed-generation admission, making six new or extended scenarios in this increment. These are
+not actual OMP/Claude coding evidence, a new
+`seat.submit` capability, a companion that survives controller restart, or
+proof that a coding agent's internal inference shares the Broker budget.
+The direct-child owner does not claim to terminate arbitrary descendant process
+trees. Original seat/operation facts and query-only recovery remain unchanged.
+
 ### Fleet observations
 
 `seat.fleet` takes `{}` to discover the registered seats, or

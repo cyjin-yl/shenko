@@ -136,57 +136,102 @@ pub(super) async fn install_seat_sessions(
     supervisor: &shenko_kernel::Supervisor,
     store: &Arc<shenko_store::Store>,
 ) -> Result<()> {
-    // SSH PTY, managed OMP/Claude seats and seat question/answer operations
-    // share one live seat owner.
-    let seat_runtime = Arc::new(shenko_exec_ssh::seat::runtime::SeatRuntime::new(Arc::clone(store)));
-    let seat_ssh_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 7] = [
-        Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
-        Arc::new(shenko_exec_ssh::SshPtyHandler::new(
-            Arc::clone(store),
-            Arc::clone(&seat_runtime),
-        )),
-        Arc::new(shenko_exec_ssh::OmpSeatHandler::new(
-            Arc::clone(store),
-            Arc::clone(&seat_runtime),
-        )),
-        Arc::new(shenko_exec_ssh::ClaudeSeatHandler::new(
-            Arc::clone(store),
-            Arc::clone(&seat_runtime),
-        )),
-        Arc::new(shenko_exec_ssh::SeatObserveHandler::new(
-            Arc::clone(store),
-            Arc::clone(&seat_runtime),
-        )),
-        Arc::new(shenko_exec_ssh::SeatRespondHandler::new(
-            Arc::clone(store),
-            Arc::clone(&seat_runtime),
-        )),
-        Arc::new(shenko_exec_ssh::SeatFleetHandler::new(
-            Arc::clone(store),
-            Arc::clone(&seat_runtime),
-        )),
-    ];
-    for handler in seat_ssh_handlers {
-        let _seat_ssh_plugin = supervisor
-            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
-            .await?;
-    }
-    // R070: durable seat records outlive this process. Rebind every active
-    // record whose transport survives a restart (a local tmux pane) so the
-    // subject can observe and answer questions recorded before the restart;
-    // managed processes and PTYs stay durable-only. A record the runtime
-    // cannot reach is reported, never fabricated or retired here.
-    match seat_runtime.reattach_active_seats().await {
-        Ok(report) => tracing::info!(
-            reattached = report.reattached.len(),
-            incarnation_bumped = report.incarnation_bumped.len(),
-            skipped = report.skipped.len(),
-            "seat runtime reattached durable seat records"
-        ),
-        Err(error) => tracing::warn!(
-            error = format!("{error:#}"),
-            "seat runtime reattach scan failed; durable seat records remain the authority"
-        ),
-    }
+    let _seat_owner = supervisor.spawn(SeatSessionsPlugin, Arc::clone(store)).await?;
     Ok(())
 }
+
+/// The handler catalog and its shared transports have one Cordis generation.
+/// A restart constructs a new runtime; retained old handles remain closed.
+struct SeatSessionsPlugin;
+
+impl shenko_kernel::Plugin for SeatSessionsPlugin {
+    type Config = Arc<shenko_store::Store>;
+    type Input = Arc<shenko_store::Store>;
+    type PrepareError = std::convert::Infallible;
+    type ApplyError = std::io::Error;
+
+    fn name(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Borrowed("shenko-seat-sessions")
+    }
+
+    fn inject(&self) -> shenko_kernel::InjectSpec {
+        use shenko_kernel::Service;
+        shenko_kernel::InjectSpec::none().require(shenko_subject::NativeChildService::NAME)
+    }
+
+    fn prepare(&self, store: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        Ok(store)
+    }
+
+    async fn apply(&self, ctx: shenko_kernel::Context, store: &Self::Input) -> Result<(), Self::ApplyError> {
+        // SSH PTY, managed OMP/Claude seats and seat question/answer operations
+        // share one live seat owner.
+        let seat_runtime = Arc::new(shenko_exec_ssh::seat::runtime::SeatRuntime::new(Arc::clone(store)));
+        let teardown = Arc::clone(&seat_runtime);
+        ctx.effect(move || async move {
+            if let Err(error) = teardown.close().await {
+                // Cordis observes this failed owned barrier. Swallowing it would
+                // let normal Start report success with unjoined processes/readers.
+                panic!("seat generation teardown failed: {error:#}");
+            }
+        }).map_err(std::io::Error::other)?;
+        let seat_ssh_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 7] = [
+            Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
+            Arc::new(shenko_exec_ssh::SshPtyHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
+            Arc::new(shenko_exec_ssh::OmpSeatHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
+            Arc::new(shenko_exec_ssh::ClaudeSeatHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
+            Arc::new(shenko_exec_ssh::SeatObserveHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
+            Arc::new(shenko_exec_ssh::SeatRespondHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
+            Arc::new(shenko_exec_ssh::SeatFleetHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
+        ];
+        for handler in seat_ssh_handlers {
+            // A nested spawn is a separately resident Fiber, not an owned
+            // child. Compose the existing registration into this generation's
+            // journal so restart withdraws all handlers before the shared
+            // runtime's earlier-registered close barrier.
+            shenko_kernel::Plugin::apply(
+                &shenko_subject::NativeTaskHandlerPlugin, ctx.clone(), &handler,
+            ).await?;
+        }
+        // R070: durable seat records outlive this process. Rebind every active
+        // record whose transport survives a restart (a local tmux pane) so the
+        // subject can observe and answer questions recorded before the restart;
+        // managed processes and PTYs stay durable-only. A record the runtime
+        // cannot reach is reported, never fabricated or retired here.
+        match seat_runtime.reattach_active_seats().await {
+            Ok(report) => tracing::info!(
+                reattached = report.reattached.len(),
+                incarnation_bumped = report.incarnation_bumped.len(),
+                skipped = report.skipped.len(),
+                "seat runtime reattached durable seat records"
+            ),
+            Err(error) => tracing::warn!(
+                error = format!("{error:#}"),
+                "seat runtime reattach scan failed; durable seat records remain the authority"
+            ),
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "runtime_sessions_tests.rs"]
+mod tests;

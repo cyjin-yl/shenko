@@ -135,7 +135,7 @@ pub struct NativeCommandLimits {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NativeExit { Status { code: u32 }, Signal { name: String, core_dumped: bool } }
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeInterruption { Deadline, Transport, Rejected, Protocol, OutputLimit, MissingExit }
 

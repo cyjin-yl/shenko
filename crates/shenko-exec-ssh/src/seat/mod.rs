@@ -33,6 +33,8 @@ use shenko_types::Digest;
 use std::hash::Hash;
 
 pub mod claude_sdk;
+mod managed_process;
+pub use managed_process::{ManagedCloseReceipt, ManagedWriteError, ManagedWriteIdentity, ManagedWriteState};
 pub mod omp_rpc;
 pub mod runtime;
 pub mod ssh_pty;

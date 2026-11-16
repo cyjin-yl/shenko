@@ -52,7 +52,7 @@ pub enum NativePtyEvent {
 
 /// Close-time observation for one PTY session. Not a proof of application
 /// postconditions; the exit status is what the remote reported.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NativePtyObservation {
     pub schema: &'static str,
     pub pty_accepted: bool,
@@ -223,7 +223,9 @@ impl NativePtySession {
     /// then close the owned stream and observe the session end. Frames that
     /// arrive after `Close` are counted, never dropped silently.
     pub async fn close(&mut self, grace: Duration) -> NativePtyObservation {
-        let _ = self.write.close().await;
+        // Channel backpressure must not prevent the owned stream from being
+        // closed and its local protocol session from being observed below.
+        let close_written = matches!(timeout(grace, self.write.close()).await, Ok(Ok(())));
         let drain_deadline = Instant::now() + grace;
         while Instant::now() < drain_deadline {
             match timeout(drain_deadline - Instant::now(), self.read.wait()).await {
@@ -253,7 +255,7 @@ impl NativePtySession {
         let session_end_observed = timeout(grace, &mut self.connection.handle).await.is_ok();
         let interruption = if self.post_close_frames > 0 {
             Some(NativeInterruption::Protocol)
-        } else if !self.closed {
+        } else if !self.closed || !close_written {
             Some(NativeInterruption::Transport)
         } else {
             None
