@@ -28,7 +28,7 @@ use shenko_types::subject::{
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
 use crate::store::{Store, checked_head, read_step, storage_error, validate_step_binding};
 
-/// One structured runtime-error journal entry — docs/specs/cognition-units.md#spec-45-14.
+/// One structured runtime-error journal entry.
 ///
 /// A runtime error is a fact of the subject's own history, not a diagnostic
 /// lost to stderr: it commits as a `runtime_error` raw session event of the
@@ -583,7 +583,7 @@ fn stage_input(
     // staged but still queued for recovery delivery. This does not claim a
     // sealed presentation; selected receipts require sealed InputPlan membership.
     // Web/Playground/media persist complete input originals, and the subject's
-    // own "subject" self-wake source shares this lane (docs/specs/subject-runtime.md#spec-13-8). Native
+    // own "subject" self-wake source shares this lane. Native
     // observations and native child T2 use committed S1 dispositions for
     // recovery readiness; staging must leave a Deferred observation eligible
     // for the next step.
@@ -888,8 +888,8 @@ impl Store {
     /// act on an input; it does not keep that input in the queue forever.
     /// The queue advances so the subject can reach newer input, and the
     /// disposition index keeps saying which inputs were left undecided
-    /// (docs/specs/subject-runtime.md#spec-57-3). An input the subject's own attention decision holds
-    /// stays out of the window until the pause ends (docs/specs/subject-runtime.md#spec-57-3, AW14).
+    /// An input the subject's own attention decision holds
+    /// stays out of the window until the pause ends (AW14).
     pub fn pending_inbox_events(
         &self,
         agent_id: EntityId,
@@ -1057,7 +1057,7 @@ impl Store {
     }
 
     /// Commit one runtime-error fact to the agent's current raw session —
-    /// docs/specs/cognition-units.md#spec-45-14. The session is resolved inside the write transaction from
+    /// The session is resolved inside the write transaction from
     /// the durable head row, so a caller holding a stale head or running on a
     /// broken path still appends to the same committed history the subject
     /// reads. The entry is bounded and credential-looking spans are redacted

@@ -1,4 +1,4 @@
-//! Continuous subject loop — docs/specs/subject-runtime.md#spec-5-1
+//! Continuous subject loop
 //! "没有外部消息也继续下一步" — subject never stops for empty queue.
 pub mod child;
 pub mod dispatch;
@@ -30,7 +30,7 @@ pub mod output;
 pub use context_projection::{IDLE_CONTINUATION_PROMPT, input_model_caps, staged_message_text};
 
 /// The stable system-prompt prefix every subject step ships: the subject
-/// contract followed by the output protocol, in the order docs/specs/subject-runtime.md#spec-5-1, docs/specs/subject-runtime.md#spec-6
+/// contract followed by the output protocol, in the order
 /// defines. Behavior evaluation binds to this exact text instead of a copy, so
 /// a prompt change cannot silently pass a stale harness.
 pub fn canonical_system_prompt(channels: &shenko_types::channel::ChannelRegistry) -> String {
@@ -40,7 +40,7 @@ pub fn canonical_system_prompt(channels: &shenko_types::channel::ChannelRegistry
     prompt
 }
 
-/// The stable prefix with the subject's own role frame — docs/specs/subject-runtime.md#spec-57-1.
+/// The stable prefix with the subject's own role frame.
 ///
 /// The frame replaces only the role text; the output protocol stays the
 /// kernel's, because it is the ABI the control-line parser and the channel

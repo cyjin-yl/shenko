@@ -106,7 +106,7 @@ enum Admission {
     Closed,
 }
 
-// The handler contract itself is kernel interface (docs/specs/kernel.md#kernel-7)
+// The handler contract itself is kernel interface
 // and it has exactly one owner: `shenko_kernel::task`. This module owns the
 // registry that runs the contract, not the contract itself.
 use shenko_kernel::task::{
@@ -566,7 +566,7 @@ impl NativeChildService {
         }
     }
 
-    /// Upgrade handoff quiesce — docs/specs/cognition-units.md#spec-45 upgrade seam: close admission and
+    /// Upgrade handoff quiesce — upgrade seam: close admission and
     /// drain every managed execution EXCEPT the excluded orchestration
     /// workers (the caller runs inside one of them and must not join
     /// itself). Admission stays closed until `resume_after_handoff_abort`
@@ -661,7 +661,7 @@ impl NativeChildService {
 
     /// The registered `(kind, definition_version)` pairs, ordered. This is the
     /// same registry the prompt sections come from, surfaced so self-knowledge
-    /// can report what this instance can actually execute — docs/specs/cognition-units.md#spec-38.
+    /// can report what this instance can actually execute.
     pub fn installed_definitions(&self) -> Vec<(String, u32)> {
         self.registry
             .read()
@@ -1242,7 +1242,7 @@ async fn drive_execution(
             let operation = match registered.handler.execute(invocation).await {
                 Ok(operation) => operation,
                 Err(error) => {
-                    // docs/specs/cognition-units.md#spec-45-14: the handler failure is also a runtime fact
+                    // the handler failure is also a runtime fact
                     // the owning subject can read; journaling is fail-soft.
                     store.journal_runtime_error(
                         agent_id,
@@ -1552,9 +1552,9 @@ impl Plugin for NativeTaskHandlerPlugin {
 
 /// Publish one installed native definition in the live runtime registry.
 ///
-/// The provider view names the exact implementation, the docs/specs/durable-state.md#spec-36 effect
+/// The provider view names the exact implementation, the effect
 /// contracts of the definition's operations, the capabilities it offers and
-/// the docs/specs/plugins.md#spec-18-2 usability package of every capability. Everything registered
+/// the usability package of every capability. Everything registered
 /// here is withdrawn in the same generation teardown, so an uninstall cannot
 /// leave a stale provider, capability or help document behind.
 fn register_native_definition(
@@ -1618,7 +1618,7 @@ fn register_native_definition(
             })
             .map_err(std::io::Error::other)?;
         capability_handles.push(handle);
-        // docs/specs/plugins.md#spec-18-2 usability package: what the capability is for, when it
+        // usability package: what the capability is for, when it
         // applies and where its own limits are. The text comes from the
         // installed implementation, not from a product feature list.
         let help = runtime

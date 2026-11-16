@@ -1,4 +1,4 @@
-//! SSH and tmux seat execution — docs/specs/remote-seats.md#spec-11, docs/specs/remote-seats.md#spec-17, docs/specs/remote-seats.md#spec-35-5
+//! SSH and tmux seat execution
 mod executor;
 pub mod ssh_exec;
 pub use ssh_exec::*;
@@ -27,7 +27,7 @@ pub use native_installation::*;
 mod identity;
 pub use identity::*;
 
-/// Terminal screen state machine for seat observation (docs/specs/remote-seats.md#spec-17-5).
+/// Terminal screen state machine for seat observation.
 pub mod terminal;
 pub use terminal::*;
 

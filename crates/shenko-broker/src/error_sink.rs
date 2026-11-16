@@ -1,4 +1,4 @@
-//! The runtime error sink of the broker — docs/specs/durable-state.md#spec-41-14, docs/specs/cognition-units.md#spec-45-14.
+//! The runtime error sink of the broker.
 //!
 //! A broker failure that cannot continue, or that forces a degradation, is a
 //! fact about the owning subject. It belongs in the same durable runtime
@@ -76,7 +76,14 @@ pub fn report_for(
 pub fn journal_runtime_error(cell: &ErrorSinkCell, report: &RuntimeErrorReport) {
     let sink = match cell.lock() {
         Ok(guard) => guard.clone(),
-        Err(_) => None,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                request_id=%report.request_id,
+                "runtime error journal unavailable because its sink lock is poisoned"
+            );
+            return;
+        }
     };
     let Some(sink) = sink else { return };
     if let Err(error) = sink.journal_runtime_error(report) {

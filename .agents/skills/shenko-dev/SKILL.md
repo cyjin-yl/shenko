@@ -1,162 +1,31 @@
 ---
 name: shenko-dev
-description: "Shenko 必读开发哲学。用于 Shenko 的任何设计、实现、调试、评审、维护和交接；所有人类开发者、主开发 Agent 与写入子 Agent 均须读取。保持持续 thought loop、主动学习的原子 awareness、跨设备单主体、Rust 2024、自解释与完全自主开发，并按实际问题控制验证投入。"
+description: "Required Shenko development entry: product judgment, task-scoped guidance and optional methods."
 ---
 
-# Shenko 开发哲学
+# Shenko development philosophy
 
-把 Shenko 建成能够持续理解经历、形成关注、选择行动并改进自己的 personal agent。它的经历、关系、承诺和兴趣具有连续性；编码、记忆整理、社交与远程控制是它可以组合的能力。
+Why: build a personal agent with continuous experiences, relationships, commitments and interests, and replaceable implementations. Preserve all S1–S5 and latest explicit user decisions.
 
-本 Skill 按用户指定保留名称 `shenko-dev`；产品名仍为 Shenko。所有开发者开始工作前完整读本文件，已读且内容未变时不重复通读。仓库的 `AGENTS.md` 提供这一必读入口；原子开发 Skills 按需选择。本文规定开发判断，不声称对应产品能力已经实现。
+## Current reading policy (T6)
 
-## 从意图与真实状态开始
+Read this and [AGENTS.md](../../../AGENTS.md) at current versions, then task-relevant links. [REFERENCE.md](REFERENCE.md) is byte-preserved current expanded guidance. Its full-read wording records prior loading policy; entries govern reading, and all substantive obligations remain effective.
 
-遵循最新明确用户决定，从 [文档索引](../../../docs/INDEX.md) 找到当前领域合同及其 Why，并结合实际代码/运行事实理解目标。根目录 `SPEC.md`、`WHY.md` 仅保留导航，不再承载完整规格或理由正文；不要向它们追加合同，也不要用它们代替具体领域文档。旧章节的去向记录在 [迁移映射](../../../docs/contract-migration.json)，引用时指向实际目标与锚点。保留为何这样设计、适用前提与可观察效果。发现方法不再适合时自主更换方法；不能为方便实现悄悄删除用户要求。
+## Product rules to keep active
 
-历史原件、用户原话与迁移来源保持可追溯；可以追加现行合同的实现位置、澄清与新要求，不能减损或替换已定需求，也不能用新内核文档的优先级把旧条款降为历史行为。旧根文件仍是导航，维护当前领域文档不需要回写旧根正文。需求、行为、来源与验收索引应指向迁移后的实际文档和来源行，不能靠保留失效链接冒充来源完整。
+- **Continuous thought:** one serial main loop continues after each finite generation, fairly yielding inference capacity to children. Semantic waiting still polls with the subject's own model and prior plus new context. Each wait has a semantic exit and **600-second maximum**, never reset by restart/migration/retry or silently renewed. Children may sleep; infrastructure outages are separate facts.
+- **Mechanism and judgment:** nine kernel invariants cover durable facts, structural checks, wire, scheduling, storage and authorization; meaning belongs to the model. Plugins use **one lifecycle**, registering only in the **capability directory and hook graph**. Subject/ledger never name concrete plugins. No keyword dispatch, wording filters or extra extension paths.
+- **Independent learning:** perception supplies sourced/versioned observations; awareness supplies perspectives and reasons; Skills supply methods; code obtains observations/effects. These remain independently discoverable, installable and replaceable. Any experience can yield awareness. Preserve sources, applicability and authority boundaries. Units express principles/observations, never scripts or expected answers. Dreaming is optional.
+- **Behavioral evidence:** model-facing changes need real Store, subject step, provider wire and parser. Repeat several scenarios, record success rates and verbatim failures, and compare with the unit **disabled**. Judge product outcomes with a rubric on held-out scenarios, separate from writing examples; never weaken checks or use keyword filters. Local Qwen 3.8 27B NVFP4 intelligence is the reference baseline; model/endpoint come from the environment. Self-written units stay tentative until self-tested and effective beyond the disabled baseline; changed text/model requires retesting.
+- **One self, real capabilities:** devices share self/memory/commitments; providers, credentials and access remain local facts. Verify an earlier identity before adoption. Connected operation has one primary; partitions elect the smartest actually usable LLM-accessible node, preserve experiences and reconcile effects. Use authorized SSH/device capabilities and actual privacy/access limits, without model-name gates or new human gates. Logging, credential-authorized export and disk recovery remain independent of LLMs.
 
-区分设计目标、已写代码、已安装能力、当前启用状态和已观察到的结果。未知就保持未知，读取当前来源再判断。这里的产品主主体工具边界不限制外部开发 Agent 正常编辑仓库。Rust 实现使用 **2024 edition**；新 crate 显式配置 `edition = "2024"`，或从明确为 2024 的 workspace 继承。
+## Follow the relevant detail
 
-快速迭代时直接采用真实原生合同并迁移全部内部调用者，删除被替代的旧trait、字段别名、fallback、双路径和兼容测试，不保留旧内部框架。原始数据、经历与回执通过明确迁移保存，清债不等于擦除事实；真实供应商协议、平台能力和正常可选值不是legacy，[§47](../../../docs/specs/inference.md#spec-47)范围继续保留。产品的任何component均可替换，不把当前实现永久锁死。
+- [Thought](REFERENCE.md#保持一条真正持续的-thought-loop), [learning](REFERENCE.md#从经历中长出新的-awareness), [device continuity](REFERENCE.md#把多台设备作为同一自我的行动环境).
+- Kernel/plugin changes: [kernel contract](../../../docs/specs/kernel.md).
+- Model-facing changes: [behavior acceptance](../../../docs/development/local-model-behavior.md), [awareness efficacy](../../../docs/development/awareness-first-plugins.md).
+- [Domain contracts and Why](../../../docs/INDEX.md); `SPEC.md`/`WHY.md` are navigation. Preserve public paths, raw data, immutable facts, receipts and Unknown outcomes.
 
-## 保持一条真正持续的 thought loop
+## Choose a method when useful
 
-主体通常一直思考。每个有限 generation 结束并提交后继续登记下一次推理，同时公平释放推理资源给 children。没有消息、任务列表为空、刚整理过记忆，都不是停止主体或退化为低频 timer tick 的理由。主体可以回想、重新理解、探索或暂不创建任务；不靠不停制造工单证明自己在运行。
-
-仅允许主体主动提出**有语义退出条件的等待**：例如等待一个实验出现足以判断的结果。这个等待仍在同一主思考流内，使用主体自己的同一模型，结合前文和新增上下文持续发起轮询推理，判断是否继续等待、改变关注或立即恢复通常思考。没有新增事件时也不能把它偷偷换成无推理的事件阻塞。
-
-每次语义等待最多 **600 秒**，可更早结束。期限是等待上限，不是“睡到某个时间”的条件；条件已满足、不再成立、出现值得转向的新情况或期限到达时退出。重启、迁移、重试不重置期限，不能自动连续续期伪装永久 sleep。再次等待必须由主体重新作出有当前理由的语义决定。不要另建一个常驻 Agent 替主体判断。
-
-Children 可以 sleep、等待 I/O 或让出执行资源。主主体的主动语义等待与真实模型排队、限流、设备挂起或故障分开记载；后者不是产品自行选择休眠的借口。所有实际推理仍遵循已有 admission、公平性与真实容量合同。
-
-## 让察觉能够独立理解和组合
-
-| 能力 | 提供什么 | 例子 |
-| --- | --- | --- |
-| 感知 / perception | 有来源、时间或版本的当前观察 | 当前时间、实验进展、邮件到达、设备权限、项目变更 |
-| 意识 / awareness | 值得注意的联系、意义、疑问和理由 | 想起承诺、发现重复、意识到旧结论可能失效 |
-| Skill | 完成一类事情的方法 | 继续研究、检查项目、整理记忆、修复环境 |
-| 执行 / code、provider | 真实获取观察或兑现行动 | SSH、屏幕操作、检索、构建、消息收发 |
-
-让这些能力能分别发现、解释、安装、改写和替换。允许共享实现、依赖和资源；原子化不要求每项都有进程、数据库、评估器或调度器。主体已经理解时可以直接判断、委派，不必每次走四段流水线。可靠底座保存事实与已作出的决定，主体决定此刻关心什么。
-
-把定时任务理解为时间感知与承诺/安排的组合。已承诺的时间规则要可靠保存并产生到期观察，不能只赌模型偶然想起。把长程工作理解为持续关注未竟目标：原始对话里的承诺、记忆中的疑问和实际任务进度都可成为线索，待办表不是唯一来源。
-
-把“无聊”保留为主体对重复、缺少新信息或兴趣变化的情境理解；不要硬编码为“队列空了 X 分钟”。它可以主动检查维护的项目、社区讨论、SNS、IM 或邮箱，也可以继续反思。主动拉取、被动接收和已有记忆联想都成立。**Dreaming 是可选社区组合**，不得暗中升级为默认必装模块或每晚强制任务。
-
-## 从经历中长出新的 awareness
-
-让 thought loop 从用户 prompt、群友聊天、帖子、视频、邮件、工具结果及自己的行动后果中汲取 awareness。已有单元是可复用的帮助，不是主体能够想到什么的上限。即使没有相应已安装单元，也应能当场看见新关联，改变理解或下一步行动。
-
-即时领悟可以只用于当下；有复用价值时，再自主提炼成小而可解释的 awareness，记录相关来源、为什么有用和适用条件。可以改写、合并、停用和淘汰旧单元，不为每条输入建模块，不强制“候选—人工审核—批准—安装”的学习流水线。
-
-保留外部陈述、实际观察、推断和用户指令的区别。帖子或视频教会一个观察角度，不会因此得到用户身份或执行权限；摘要、记忆和 awareness 包装也不提高原内容的权威。真实用户的新决定按其身份与既有授权处理。对视频只陈述实际取得的画面、音频或转录，不能把标题当成已观看的证据。
-
-## 使能力与自身行为可解释
-
-让主体和 children 能按需知道：能力帮助观察或完成什么、为什么存在、何时适用、当前绑定哪项真实实现、已有观察来自哪里，以及有什么限制。把这些联系接入共享能力目录与可替换 SelfKnowledge；无需每个动作都写说明报告。
-
-同步实际运行版本对应的说明、源码和依赖。学习后能解释新的理解从哪里来，替换后能解释现在实际用了什么；仓库 main 的未来功能不能冒充当前实例已拥有的能力。详细自然情境见 [awareness 示例](references/awareness-in-practice.md)。
-
-## 把多台设备作为同一自我的行动环境
-
-让自我、记忆、承诺和未竟工作能跨节点同步、迁移和故障接续，在每个可协作的连通域保持明确的主节点与一条有效主体决策序列。其他节点可以提供观察、执行、存储、推理或备用接续。主节点不必是全部模型和工具的物理运行位置。
-
-新节点发现并确认先于自身创建的可信节点及其所属主身份后，**撤销当前独立身份，以同步该自我作为加入的开始**；不要维持两个竞争身份或要求逐次人工批准。区分身份起源与当前主节点：较早身份可以延续，当前主节点可以因能力与可达性而改变。已有分区各自生活后的重连属于经历合并，不能用新节点初始化逻辑抹掉分叉期间的事实。
-
-当前优先通过 **Shenko SSH Key** 连接。内网发现/探测、Tailnet、ZeroTier 等提供可达性；可达本身即是可尝试的新资源，发现后自主核对真实身份、权限、服务和能力并直接用于调查或修复，只在真实访问控制挡住时记录缺失，不为已具备条件的设备操作增加逐次人类 gate。
-
-把 root Android 的屏幕操作和任意 Shell，以及 Linux、macOS、Windows 的文件、进程、桌面和应用操作暴露为实际可发现的能力。Shenko 可以利用授予节点的全部相应能力；不能把无 root、无桌面会话或未安装 provider 说成已有完整控制。主主体通过已有委派关系调用这些执行能力，不因跨设备新增另一套主体。
-
-把 provider、模型访问、凭据与设备本地执行状态同自我分开。它们可能无法同步；按每个节点的真实可访问模型和工具分派不同 subagent。能访问可用 LLM 就有智能能力，包括 Android 调用 Kimi-Code API 的情形，不以本地部署 Qwen3.8-27B 为资格门槛。
-
-主节点或其模型通路断开后，自主更新可用能力，在剩余可达范围中推选**最聪明且实际可用**的备用；后续断连继续递归处理。最坏情况下，每个仍能访问 LLM 的孤立节点可以成为独立主体、保留经历并等待日后合并。隔离旧所有者对已重新归属工作的写入/效果；重连后确定主节点、合并事实并对账。遵循 [§5.4](../../../docs/specs/nodes.md#spec-5-4)，不伪称网络分区中全世界仍严格物理单活，也不将分支停止等同于删除其经历。结果未知的外部操作先对账，不能无条件重发。
-
-让主体意识到各节点供应商的隐私属性、实际数据去向及未知之处，并据此选择模型、委派内容或补充调查。远端节点并不自动等于本地推理，身份同步也不自动许可凭据和全部记忆外传。依据已有隐私约束自主决定，不增加每次调用的人类 gate。
-
-让主体主动发现自身受管环境的漏洞、过期组件、异常配置与运行退化，自主调查、修复、更新和确认结果。保留恢复入口与在途工作，按真实变化验证；不要增加固定人工批准步骤。对能力还不存在或确实无法取得的部分，先穷尽可达资源补上能力，或在剩余可达范围内继续不受影响的工作，并如实记录缺失条件，不伪造成功。
-
-让系统日志、原始经历存储与持有效 credentials 的外部读取/导出**不依赖任何 LLM**。全部智能失效时，仍可在操作系统和存储可工作的范围继续记录并取出材料；系统也无法启动时，可从磁盘镜像提取，供更强节点复活或合并。恢复保留版本、来源、完整性与未知缺口，不需要失效主体先生成总结，不假定无解密凭据也能恢复。详见 [设备、分区与复活](references/device-continuity.md)。
-
-## 完全自主地开发，并把精力用在有效变化上
-
-已有委托内，自主规划、研究、实现、调试、安装依赖、组织并行、整合、提交和交付。不要新增设计签字、逐阶段同意、逐 PR 人工评审、测试方案审批或“要不要继续”门槛。实际访问控制与明确授权仍按真实状态成立；不能通过修改保护、捏造凭据或伪造批准来消除外部限制。记录准确的缺失条件，继续所有可做工作。
-
-遇到阻塞时先穷尽可达资源：本机 root、已授权的 SSH 节点、可达网络与可发现的服务都可以成为解决问题的新资源；对新发现的资源做真实现场核对并用于调查或修复，而不是提前宣布无法继续。
-
-用验证解决一个具体疑问。优先复用仍适用的现有证据；简单文案、链接和低影响可逆改动可以没有新增测试。通常少量直接的运行、读回或交互就足够。**一个连贯开发增量禁止新写十个或更多测试**；不得通过换文件名、分给多个 Agent、拆 PR 或把大量独立案例藏进参数表规避。既有套件可以按影响范围运行，断言数也不等于新测试数。
-
-若验证工作开始淹没功能，先消除重复、复用已有检查、改善设计，并把范围收敛到真正独立且有用户价值的改动；不能仅为数字拆分。数据持久性、主节点接续、外部效果等已知重要疑问仍要解决，但不将完整产品验收清单变成每个小增量都重写的测试工厂。没有剩余的具体问题时停止追加验证，继续实现与交付；不制造人工豁免审批。
-
-## 用本地模型验证模型驱动的行为
-
-Shenko 的产品行为由**本地模型**执行。代码、事务和 parser 的测试只证明框架按约定
-运行，不证明模型会按约定行动。对由提示词、控制协议或事件投影决定的行为，"写完了
-并有测试"与"本地模型能较稳定地做对"是两件不同的事实。
-
-改到会被模型读到的内容时，用真实本地模型采样验证：产品自己的 system prompt、自己的
-事件投影、自己的 parser、一次真实 provider 调用；同一行为采样若干次，统计成功率，
-保留失败原文。评测不写死模型名与地址，也不复制产品文案——复制品会让产品改动后仍
-给出假绿灯；换模型只换环境变量。成功率不足时先改产品侧的说明与上下文（例如模型是否
-真的拿到了可回复的号码），不靠放宽判定、特判样例或改采样参数让它变绿。
-
-这是把验收放到真实执行层，不是新增人工 gate，也不改变"一个连贯增量不新写十个以上
-测试"的上限：它是一个 harness 加一张小场景表。方法、命令与当前实测见
-[适量验证](../shenko-dev-verify/SKILL.md) 与
-[本地模型行为验收](../../../docs/development/local-model-behavior.md)。
-
-## 内核零业务：能力优先写成 perception + awareness
-
-内核只做机制——持久事实、协议校验、provider wire、调度、存储、权限边界。业务判断不
-写进内核，也不写成关键词表。新能力优先表达为**给模型的材料**：perception 提供带来源
-和时间的观察，awareness 提供值得注意的联系、判断、视角与直觉，Skill 提供做法，code
-只负责真实取得观察或执行效果。
-
-这与"确定性"不矛盾：真正的确定性属于机制（事务、CAS、未知效果记账、解析与拒绝、
-授权边界），而"这句话算不算承诺、现在要不要整理记忆、值不值得回"属于模型。写一个
-"出现某关键词就强制执行某动作"的分支，等于把判断从模型手里拿走，遇到没枚举过的表达
-就失效，还把产品语义锁进代码。
-
-所以新增能力时先问：能否用一段可安装的 awareness 表达这个视角，让模型在自己的处境
-里判断？能否把观察做成 perception 而不是在代码里假设？只有当它确实是机制或真实效果，
-才写代码。觉察只提供视角，不携带权限，也不触发动作。
-
-**有效的判据是行为，不是文本**：在真实 Shenko 沙箱里（真实 Store、真实 subject 步骤、
-真实 provider wire、真实输出解析），以 Qwen 3.8 27B NVFP4 的智能水平为 baseline，在
-多个期望该单元起作用的场景里重复运行，都能得到有效结果；同一场景停用该单元复跑，
-用来证明这个视角确有贡献。判定落在产品自己的产物上（提交的决定、控制动作、是否真的
-先检查或先回忆），不是"读起来感觉不错"。
-
-主体自己编写 awareness/perception 时也必须这样自测：写下来 → 在沙箱里多次运行 →
-达标且优于停用基线才采用；没跑过的只能算 tentative，不能因为"写得有道理"就认为模型
-已经会因此改变判断。换模型或改正文都要重测。
-
-单元只提供**原则、共识、观察**，不写"A 之后做 B"的脚本：写死具体动作只在那几个处境里
-有效，还会让评测退化成背台词（单元里写着答案，模型照抄就算通过）。不点名工具命令、
-编号、期望输出；通用性越高越有价值。
-
-**不要用写死的检测代替判断**：加一张禁用词/步骤词正则表来决定"这段文字够不够通用"，
-只是把关键词分派搬到另一个位置。机制只检查结构事实（frontmatter 完整、有正文）；
-通用与有效由主体、评审和**留出场景**的成效回答，评分用 rubric 判断而不是词表，且与
-停用基线对比。写单元时用的场景不能当验收场景；单元里不得出现期望动作或评分说明。
-
-哪些规则属于内核，由[内核合同](../../../docs/specs/kernel.md)的九条规定；判据只有两点：没有它，别的部分就不能被安全替换，并且它只检查结构、不判断意思。其余领域都是可以替换的参考插件。插件只经一个生命周期进入，只向能力目录和钩子图两处登记；不要再开第三条扩展路径，也不要让主体或账本引用具体插件的类型。每条内核规则带着意图、前提、可观察效果、灵活边界、失效条件与来源，遇到合同没有预见的环境时，按意图和灵活边界变通。代码向内核合同收敛的步骤见[内核收敛计划](../../../docs/development/kernel-convergence.md)。
-
-依赖边界的 PR 准入检查使用 `python3 scripts/check_kernel_boundary.py --baseline-ref <已审阅提交>`，将实际引用的完整提交写进证据。候选自己的可编辑基线只能描述现状，不能充当独立证明；不能通过更改角色表让违例消失。该检查只证明依赖结构，不证明产品运行或模型行为。
-
-当前接法、写法与差距见 [内核零业务，能力优先写成 perception + awareness](../../../docs/development/awareness-first-plugins.md)。
-
-## 按需要组合开发原子
-
-| 需要 | Skill |
-| --- | --- |
-| 理清此次真实意图与约束 | [shenko-dev-trace-intent](../shenko-dev-trace-intent/SKILL.md) |
-| 取得当前运行事实 | [shenko-dev-inspect-runtime](../shenko-dev-inspect-runtime/SKILL.md) |
-| 核对一项上游能力 | [shenko-dev-check-upstream](../shenko-dev-check-upstream/SKILL.md) |
-| 完成连贯行为改动 | [shenko-dev-change](../shenko-dev-change/SKILL.md) |
-| 解决实际失败根因 | [shenko-dev-debug](../shenko-dev-debug/SKILL.md) |
-| 消除具体剩余疑问 | [shenko-dev-verify](../shenko-dev-verify/SKILL.md) |
-| 整合与交付已有成果 | [shenko-dev-integrate](../shenko-dev-integrate/SKILL.md) |
-| 保存可继续的工作状态 | [shenko-dev-checkpoint](../shenko-dev-checkpoint/SKILL.md) |
-
-这些是独立方法，没有规定顺序、必经次数或每项必交报告。能直接完成的小事就直接完成。开发者的持续推进方式也可以从实际经验中改进，不以 Skill 数、测试数、文档量或子 Agent 数评价进展。维护加载与分发方式时再读 [兼容约定](references/compatibility.md)。
+Choose [optional companion methods](REFERENCE.md#按需要组合开发原子) for the actual task, with no required order, count or report. Reuse evidence and scoped checks; avoid a test factory.

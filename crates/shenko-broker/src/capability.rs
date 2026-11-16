@@ -1,4 +1,4 @@
-//! Backend capability snapshots — docs/specs/inference.md#spec-13-6, docs/specs/inference.md#spec-13-7, docs/specs/inference.md#spec-41-10.
+//! Backend capability snapshots.
 //!
 //! A snapshot records what one backend binding actually showed. Four facts
 //! stay apart: the implementation exists, an entry point can be called, the
@@ -418,7 +418,7 @@ pub struct ResidencyWireOption {
 }
 
 /// The sealed native options that ask a backend to keep, isolate or move a
-/// context (docs/specs/inference.md#spec-13-6, docs/specs/inference.md#spec-13-7).
+/// context.
 ///
 /// Naming one is a residency request. A backend that accepted the field and
 /// ignored it has not demonstrated the operation, so a lease must never become
@@ -472,7 +472,7 @@ impl ObservedKvCapacity {
 
 /// Discover the context-residency pool from what the backend reported itself.
 ///
-/// Three boundaries decide what may be read (docs/specs/quota-resources.md#spec-13-3, docs/specs/inference.md#spec-13-7-3):
+/// Three boundaries decide what may be read
 ///
 /// - A model's advertised context window (`max_model_len`, `context_length`,
 ///   `max_input_tokens`) is the per-request ceiling. It is never used as a

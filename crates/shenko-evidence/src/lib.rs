@@ -1,10 +1,10 @@
-//! SPEC obligation, acceptance-case and evidence mapping — docs/specs/verification.md#spec-23, docs/specs/verification.md#spec-29,
-//! docs/governance/development-contract.md#spec-40 and docs/governance/COMPLETION.md#spec-46; C19.
+//! SPEC obligation, acceptance-case and evidence mapping —
+//! C19.
 //!
 //! This crate answers one question honestly: *what is still owed, and what
 //! evidence would discharge it?* It is deliberately not a judge.
 //!
-//! * [`spec_index`] parses the SPEC's own requirement (docs/requirements/traceability.md#spec-32), behavior (docs/requirements/design-provenance.md#spec-39)
+//! * [`spec_index`] parses the SPEC's own requirement, behavior
 //!   and acceptance tables. The denominator therefore comes from the SPEC,
 //!   not from the hand-maintained coverage ledger, whose IDs may be stale.
 //! * [`coverage`] turns that index plus the retained evidence into a

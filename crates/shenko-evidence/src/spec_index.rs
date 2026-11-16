@@ -1,4 +1,4 @@
-//! docs/requirements/traceability.md#spec-32, docs/requirements/design-provenance.md#spec-39 index parsing — the real requirement and acceptance-case
+//! index parsing — the real requirement and acceptance-case
 //! universe, read from the actual SPEC table rows.
 //!
 //! The coverage ledger in `docs/state/coverage.json` is *not* the authority
@@ -31,12 +31,12 @@ pub struct AcceptanceCase {
     pub source_row: String,
 }
 
-/// One requirement row from docs/requirements/traceability.md#spec-32.
+/// One requirement row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirement {
     pub id: String,
     pub summary: String,
-    /// `§`-references from the SPEC row, e.g. "docs/specs/architecture.md#spec-1, docs/specs/subject-runtime.md#spec-4, docs/specs/channels.md#spec-15–docs/specs/channel-adapters.md#spec-16".
+    /// `§`-references from the SPEC row.
     pub spec_locations: String,
     /// The `U`/`B` reference cell, e.g. "U01；B01/B22".
     pub user_source: String,
@@ -49,7 +49,7 @@ pub struct Requirement {
     pub source_row: String,
 }
 
-/// One behavior row from docs/requirements/design-provenance.md#spec-39.
+/// One behavior row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Behavior {
     pub id: String,
@@ -555,7 +555,7 @@ fn behavior_refs(cell: &str) -> Vec<String> {
 
 /// Acceptance case IDs named in a behavior's verification cell.
 ///
-/// The cell mixes section references (`docs/specs/verification.md#spec-29, docs/requirements/design-provenance.md#spec-39–docs/governance/development-contract.md#spec-40, docs/specs/architecture.md#spec-41`), explicit case IDs
+/// The cell mixes section references, explicit case IDs
 /// (`A24`), ID lists (`A01/A02/A03/A31/A36/A37`) and ranges (`E01–E10`,
 /// `UI-S01–10/UI01–04`, `V1-01–V1-15`, `AW01–09`). Ranges are expanded
 /// against the universe of case IDs the SPEC actually defines, so a range
