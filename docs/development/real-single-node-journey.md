@@ -29,11 +29,13 @@ SHENKO_SOURCE_REVISION=$(git rev-parse HEAD) cargo build --locked -p shenko -j2
 python scripts/real_single_node_journey.py \
   --binary target/debug/shenko \
   --source-revision "$(git rev-parse HEAD)" \
-  --model-url http://127.0.0.1:18832/v1 \
+  --model-url http://127.0.0.1:18832 \
   --model Qwen3-0.6B-Q4_K_M \
   --timeout 300 --evidence-dir /tmp/shenko-real-single-node
 ```
 
+`--model-url` is the provider's base URL without `/v1`: the real
+`LocalModelProvider` appends `/v1/models` and `/v1/chat/completions` itself.
 The evidence directory must not already exist. Each phase has a bounded
 observation interval. A failure exits nonzero and keeps its original runtime
 logs, input, WebSocket frames, read-only ledger snapshots and CAS. The

@@ -210,7 +210,7 @@ async def run(args):
     summary = {"passed": False, "checks": {}, "errors": []}
     process = log = None
     try:
-        save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/models"))
+        save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/v1/models"))
         process, log, subject = await start(args, "first", data_dir)
         submission = {
             "schema_version": 2, "type": "submit", "submission_id": str(uuid.uuid4()),
@@ -282,7 +282,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--source-revision", default="unverified")
-    parser.add_argument("--model-url", required=True)
+    parser.add_argument("--model-url", required=True,
+                        help="LocalModelProvider base URL without /v1; the provider appends its versioned API paths")
     parser.add_argument("--model", required=True)
     parser.add_argument("--evidence-dir", required=True, type=Path)
     parser.add_argument("--port", type=int, default=17860)
