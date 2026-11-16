@@ -6,6 +6,15 @@ use serde_json::{Map, Value};
 use super::{Reader, RetentionOrigin, RetentionReference, RetentionStorage};
 use super::closure::{digest, is_json, object_reference, short_text};
 
+pub(super) fn chunk_manifest_reference(object: &shenko_types::object::ObjectRef) -> bool {
+    // Exact current CasToolContentStore::seal_bytes contract. Other storage
+    // adapters need a reader of their own; a JSON MIME type is insufficient.
+    is_json(&object.media_type)
+        && object.store_namespace == "wasm-tool-artifact"
+        && object.codec.name == "wasm-tool-artifact" && object.codec.major == 1
+        && object.codec.digest == shenko_types::object::Digest::blake3(b"wasm-tool-artifact")
+}
+
 /// The exact portable suffix produced by ContentStore, without allocating
 /// path components or opening any part of the historical path.
 fn cas_locator(locator: &str) -> Option<(&str, &str, &str)> {
@@ -84,7 +93,7 @@ impl Reader<'_> {
         let storage = match map.get("kind").and_then(Value::as_str) {
             Some("content_store") => {
                 let manifest = map.get("chunk_manifest").and_then(Value::as_object).and_then(object_reference);
-                if manifest.as_ref().is_none_or(|object| !is_json(&object.media_type)) {
+                if manifest.as_ref().is_none_or(|object| !chunk_manifest_reference(object)) {
                     self.gap("invalid_tool_chunk_manifest_reference", origin.clone(), Some(identity.clone()));
                 }
                 RetentionStorage::ManifestAssembledArtifact

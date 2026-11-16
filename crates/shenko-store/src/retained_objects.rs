@@ -136,7 +136,7 @@ struct Reader<'a> {
     cas: &'a ContentStore,
     report: RetainedObjectSnapshot,
     queue: VecDeque<RetentionReference>,
-    expanded: BTreeSet<Digest>,
+    expanded: BTreeSet<(Digest, closure::JsonReading)>,
     measured: BTreeMap<Digest, u64>,
     exhausted: bool,
 }

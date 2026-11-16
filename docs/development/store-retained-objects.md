@@ -76,6 +76,11 @@ not a promise of a whole-module CAS file. Its `node_inline` form identifies
 Node's independent object database. Unsupported kinds, malformed descriptors
 or unsupported chunk manifests make the inventory incomplete. These storage
 readings do not invoke a tool or verify an installation's selection authority.
+The manifest edge must name the current Store adapter's namespace and codec.
+Generic JSON and tool-manifest expansion are cached as different readings of
+the same digest; seeing bytes through the former never bypasses the latter's
+shape check. Each additional read/parse consumes the same byte/JSON budgets,
+and every manifest edge still checks its own codec and declared size.
 
 Other canonical bare digests may name external executable files, Git content,
 schema identities or optional aliases; an absent bare digest is listed
@@ -117,6 +122,8 @@ these limits. It does not resolve a pending delivery, validate a malformed E1
 proof, acknowledge Unknown, authorize a worker, make an effect conclusive or
 prove a candidate executable. A report can retain the bytes of such unresolved
 facts without declaring their business outcome successful.
+Generic JSON discovery enumerates visible reference shapes; it does not
+establish that every application codec was semantically decoded or validated.
 
 ## Verification scope
 

@@ -8,6 +8,14 @@ use shenko_types::object::{Digest, ObjectRef, SchemaRef};
 
 use super::{Reader, RetentionOrigin, RetentionReference, RetentionStorage};
 
+/// Equal bytes do not establish equal interpretations. In particular, a
+/// generic JSON walk must not satisfy the later tool-manifest shape reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum JsonReading {
+    Generic,
+    ToolChunkManifest,
+}
+
 pub(super) fn is_json(media_type: &str) -> bool {
     media_type == "application/json" || media_type.ends_with("+json")
 }
@@ -82,8 +90,9 @@ impl Reader<'_> {
                 if depth == 0 && !super::carriers::readable_row(&value, origin) {
                     self.gap("invalid_column_carrier", origin.clone(), None);
                 }
-                if object.is_some_and(|object| object.store_namespace == "wasm-tool-artifact")
-                    && !super::artifacts::readable_chunk_manifest(&value)
+                if object.is_some_and(|object| object.store_namespace == "wasm-tool-artifact"
+                    && (!super::artifacts::chunk_manifest_reference(object)
+                        || !super::artifacts::readable_chunk_manifest(&value)))
                 {
                     self.gap("unsupported_tool_chunk_manifest", origin.clone(), None);
                 }
@@ -170,14 +179,27 @@ impl Reader<'_> {
                 break;
             }
             let expected = reference.object.as_ref().map(|object| object.bytes);
-            let json = reference.object.as_ref().is_some_and(|object| is_json(&object.media_type));
+            let reading = reference.object.as_ref().filter(|object| is_json(&object.media_type))
+                .map(|object| if object.store_namespace == "wasm-tool-artifact" {
+                    JsonReading::ToolChunkManifest
+                } else { JsonReading::Generic });
+            let json = reading.is_some();
             let origin = RetentionOrigin::Object { digest: reference.digest.clone() };
+            // Check every manifest edge, even when these bytes and this reading
+            // were seen before through a different (possibly valid) codec.
+            if reading == Some(JsonReading::ToolChunkManifest)
+                && reference.object.as_ref().is_none_or(|object| !super::artifacts::chunk_manifest_reference(object))
+            {
+                self.gap("unsupported_tool_manifest_codec", reference.origin.clone(), Some(reference.digest.clone()));
+            }
             if let Some(&bytes) = self.measured.get(&reference.digest) {
                 if expected.is_some_and(|expected| expected != bytes) {
                     self.gap("object_length_disagrees", reference.origin, Some(reference.digest));
                     continue;
                 }
-                if !json || self.expanded.contains(&reference.digest) { continue; }
+                if !json || reading.is_some_and(|reading| self.expanded.contains(&(reference.digest.clone(), reading))) {
+                    continue;
+                }
             }
             let mut file = match self.cas.open_retained_object(&reference.digest) {
                 Ok(file) => file,
@@ -235,8 +257,8 @@ impl Reader<'_> {
             self.measured.insert(reference.digest.clone(), bytes);
             self.report.verified_objects.insert(reference.digest.clone());
             self.report.external_or_absent_digests.remove(&reference.digest);
-            if json {
-                self.expanded.insert(reference.digest);
+            if let Some(reading) = reading {
+                self.expanded.insert((reference.digest, reading));
                 self.json(&body, &origin, true, 0, reference.object.as_ref());
             }
         }
