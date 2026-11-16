@@ -22,8 +22,6 @@ use shenko_node::{Node, UnitRequest};
 use crate::cli::CompatCommand;
 #[cfg(feature = "compat-mcp")]
 use crate::cli::CompatMcpCommand;
-#[cfg(feature = "compat-poppy")]
-use crate::cli::CompatPoppyCommand;
 #[cfg(feature = "compat-skill")]
 use crate::cli::CompatSkillCommand;
 
@@ -33,14 +31,14 @@ fn plugins() -> impl Iterator<Item = (&'static str, &'static str)> {
         #[cfg(feature = "compat-mcp")]
         (MCP_UNIT, "external MCP protocol client; no bundled server"),
         #[cfg(feature = "compat-poppy")]
-        (POPPY_UNIT, "public Poppy/UCP discovery; no account or commerce authorization"),
+        (POPPY_UNIT, "Poppy identity, accounts and UCP; merchant permissions and node-local credentials remain explicit"),
         #[cfg(feature = "compat-skill")]
         (SKILL_UNIT, "Agent Skills source reader; no bundled Skill, no execution"),
     ];
     PLUGINS.iter().copied()
 }
 
-fn store_of(data_dir: &Path) -> Result<std::sync::Arc<shenko_store::store::Store>> {
+pub(crate) fn store_of(data_dir: &Path) -> Result<std::sync::Arc<shenko_store::store::Store>> {
     let db_path = data_dir.join("shenko.db");
     ensure!(
         db_path.is_file(),
@@ -119,13 +117,7 @@ pub async fn command(data_dir: &Path, command: CompatCommand) -> Result<()> {
         #[cfg(feature = "compat-mcp")]
         CompatCommand::Mcp { command } => mcp(data_dir, command).await,
         #[cfg(feature = "compat-poppy")]
-        CompatCommand::Poppy { command } => match command {
-            CompatPoppyCommand::Discover { origin } => {
-                let report = shenko_compat_poppy::discovery::discover(&origin).await?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                Ok(())
-            }
-        },
+        CompatCommand::Poppy { command } => crate::poppy::command(data_dir, command).await,
         #[cfg(feature = "compat-skill")]
         CompatCommand::Skill { command } => skill(data_dir, command),
     }
@@ -159,7 +151,7 @@ fn status(data_dir: &Path) -> Result<()> {
                     continue;
                 }
                 let format = fact.descriptor.config["compat"]["format"].as_str();
-                if !matches!(format, Some("mcp-connection") | Some("agent-skill")) {
+                if !matches!(format, Some("mcp-connection") | Some("agent-skill") | Some("poppy-connection")) {
                     continue;
                 }
                 externals.push(json!({
@@ -517,6 +509,7 @@ pub async fn spawn_adapters(
     supervisor: &shenko_kernel::Supervisor,
     store: std::sync::Arc<shenko_store::store::Store>,
     node: std::sync::Arc<parking_lot::Mutex<shenko_node::Node>>,
+    _data_dir: &Path,
 ) -> Result<Vec<cordis_core::FiberHandle>> {
     let mut handles = Vec::new();
     #[cfg(feature = "compat-poppy")]
@@ -537,7 +530,7 @@ pub async fn spawn_adapters(
             POPPY_UNIT => handles.push(
                 supervisor
                     .spawn(
-                        crate::poppy::PoppyPlugin,
+                        crate::poppy::PoppyPlugin { data_dir: _data_dir.to_owned() },
                         shenko_compat::runtime::AdapterHost::new(supervisor, store.clone(), node.clone()),
                     )
                     .await?,

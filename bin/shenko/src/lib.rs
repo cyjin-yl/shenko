@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod node_sync;
 pub mod obelisk;
@@ -208,11 +208,16 @@ pub enum Command {
 pub fn run_cli() -> Result<()> {
     let cli = cli::Cli::parse();
 
-    fmt()
-        .with_env_filter(EnvFilter::new(&cli.log))
-        .with_writer(std::io::stderr)
-        .with_target(true)
-        .compact()
+    // The SDK logs full protocol messages, including private payment payloads,
+    // at INFO/TRACE. Keep these events out even when a more specific --log
+    // directive enables them. Our own bounded operation receipts remain the
+    // source of protocol observations; filtering after formatting is too late.
+    tracing_subscriber::registry()
+        .with(EnvFilter::new(&cli.log))
+        .with(tracing_subscriber::filter::filter_fn(|metadata| {
+            metadata.target() != "rmcp" && !metadata.target().starts_with("rmcp::")
+        }))
+        .with(fmt::layer().with_writer(std::io::stderr).with_target(true).compact())
         .init();
 
     let data_dir = cli.data_dir.unwrap_or_else(|| {
