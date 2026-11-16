@@ -152,7 +152,16 @@ pub struct NativeCommandObservation {
     pub exec_accepted: bool,
     pub channel_closed: bool,
     pub interruption: Option<NativeInterruption>,
+    /// The original owned stream was synchronously closed before cleanup
+    /// waited for the session. This is not a remote process-stop fact.
+    pub local_stream_closed: bool,
+    /// A completed session error still proves an observed local end, not a
+    /// successful shutdown. False means the bounded join was not observed.
     pub session_end_observed: bool,
+    /// Exact Debug rendering of the error returned by the original session
+    /// handle, if observed. Do not erase the command's earlier interruption,
+    /// remote exit or output when cleanup itself ends with an error.
+    pub session_error: Option<String>,
 }
 
 impl NativeSshSession {
@@ -182,7 +191,8 @@ impl NativeSshSession {
         let mut observation = NativeCommandObservation {
             schema: "ssh.native-transport.v1", stdout: vec![], stderr: vec![], exit: None,
             exec_request_queued: false, exec_accepted: false, channel_closed: false,
-            interruption: None, session_end_observed: false,
+            interruption: None, local_stream_closed: false, session_end_observed: false,
+            session_error: None,
         };
         match timeout_at(deadline, exchange(&self.0.handle, command, input, limits, &mut observation)).await {
             Err(_) => observation.interruption = Some(NativeInterruption::Deadline),
@@ -192,7 +202,15 @@ impl NativeSshSession {
         // Do not rely on Handle::drop. Close the owned stream and explicitly
         // observe the session's end within a separate finite cleanup allowance.
         self.0.close.close();
-        observation.session_end_observed = timeout(limits.shutdown_grace, &mut self.0.handle).await.is_ok();
+        observation.local_stream_closed = true;
+        match timeout(limits.shutdown_grace, &mut self.0.handle).await {
+            Ok(Ok(())) => observation.session_end_observed = true,
+            Ok(Err(error)) => {
+                observation.session_end_observed = true;
+                observation.session_error = Some(format!("{error:?}"));
+            }
+            Err(_) => {}
+        }
         Ok(observation)
     }
 }

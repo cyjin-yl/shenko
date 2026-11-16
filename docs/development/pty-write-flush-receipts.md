@@ -4,6 +4,10 @@ This increment connects the existing SSH PTY seat to an actual local transport
 boundary. It grants no Store authority and does not close the installation-wide
 writer exclusion gap.
 
+The separate [native command cleanup observation](native-command-cleanup-receipts.md)
+retains local session errors for the already installed command consumers; it
+does not change this PTY protocol or its five scenarios.
+
 ## Production path
 
 `SshPtySeat` admits each original input into its existing single-owner pump.

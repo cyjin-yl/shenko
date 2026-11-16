@@ -165,7 +165,10 @@ async fn native_protocol_duplex_and_unambiguous_exit_255() {
     assert_eq!(observation.stderr, b"stderr-after-input");
     assert_eq!(observation.exit, Some(NativeExit::Status { code: 255 }));
     assert!(observation.exec_request_queued && observation.exec_accepted && observation.channel_closed);
+    assert!(observation.local_stream_closed);
     assert!(observation.session_end_observed);
+    assert!(observation.session_error.as_ref().is_some_and(|error|
+        error.contains("native SSH stream closed")));
     assert_eq!(observation.interruption, None);
     running.finish().await;
 }
@@ -209,7 +212,10 @@ async fn native_protocol_deadline_preserves_unknown_and_observes_local_session_e
     assert_eq!(observation.exit, None);
     assert!(!observation.channel_closed);
     assert_eq!(observation.interruption, Some(NativeInterruption::Deadline));
+    assert!(observation.local_stream_closed);
     assert!(observation.session_end_observed); // local protocol end only
+    assert!(observation.session_error.as_ref().is_some_and(|error|
+        error.contains("native SSH stream closed")));
     running.finish().await;
 }
 
