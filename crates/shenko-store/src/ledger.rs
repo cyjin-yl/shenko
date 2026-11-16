@@ -93,9 +93,9 @@ impl Ledger {
     }
 
     #[instrument(skip(self, batch))]
-    pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
+    pub fn commit(&self, mut batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
         self.with_mutation(
-            || match self.try_commit(&batch) {
+            || match self.try_commit(&mut batch) {
                 // The batch is refused whole, so nothing it carried is
                 // durable. The receipt it contradicted is preserved on its
                 // own committed line before the caller learns of the
@@ -152,7 +152,7 @@ impl Ledger {
         Ok(())
     }
 
-    fn try_commit(&self, batch: &WriteBatch) -> Result<CommitReceipt, ShenkoError> {
+    fn try_commit(&self, batch: &mut WriteBatch) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.conn.lock();
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -367,9 +367,7 @@ impl Ledger {
             }
         }
 
-        for ev in &batch.evidence_upserts {
-            let json =
-                serde_json::to_string(ev).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        for ev in &mut batch.evidence_upserts {
             // Receipt admission (SPEC X04): one fact per receipt
             // identity and per producer-declared source event scope. An
             // identical replay binds to the first durable receipt, never a
@@ -392,7 +390,12 @@ impl Ledger {
                 }
             }
             // Receipts are append-only; the admission above already refused a
-            // different fact under an existing identity.
+            // different fact under an existing identity. The admission commit
+            // belongs to this Store, never to the caller. Replay continued
+            // above, preserving the first receipt's coordinate unchanged.
+            ev.received_commit = commit_ref;
+            let json =
+                serde_json::to_string(ev).map_err(|e| ShenkoError::storage(e.to_string()))?;
             tx.execute(
                 "INSERT INTO evidence_receipts (receipt_id, operation_id, data, updated_commit_seq)
                  VALUES (?1, ?2, ?3, ?4)",

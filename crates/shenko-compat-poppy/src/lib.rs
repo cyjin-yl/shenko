@@ -7,3 +7,8 @@ pub mod discovery;
 pub mod session;
 
 pub const UNIT_ID: &str = "compat.poppy";
+
+pub mod transport;
+
+pub mod ucp;
+pub mod auth;

@@ -44,6 +44,8 @@ pub(super) async fn install_device_sessions(
         data_dir.join("browser"),
     ));
     computer_use_backend.register_human_input_observer(browser_provider.clone());
+    #[cfg(feature = "compat-poppy")]
+    let _poppy_browser = supervisor.spawn(crate::poppy::BrowserAccessPlugin, browser_provider.clone()).await?;
     let browser_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 5] = [
         Arc::new(shenko_exec_host::browser::handlers::BrowserSessionHandler::new(
             Arc::clone(&browser_provider),
