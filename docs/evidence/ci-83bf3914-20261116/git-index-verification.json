@@ -1,0 +1,72 @@
+{
+  "kind": "git_archive_integrity_verification",
+  "source_parent": "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+  "indexed_files_checked": 78,
+  "indexed_sizes_sha256_and_git_blob_sha1_match": true,
+  "all_archive_files_staged_and_byte_identical": true,
+  "staged_files_before_this_report": 83,
+  "prior_diagnostic_inventory_entries_verified": 21,
+  "ignored_file_patterns_bypassed_by_explicit_force_add": true,
+  "full_original_diff_check": {
+    "exit_code": 2,
+    "stdout_bytes": 93868,
+    "stdout_sha256": "dc52a099fbab8d256ab5f69af1177f6c5646eb90e9ebe0cf54dfb3ec9bef4fef",
+    "stderr_bytes": 0,
+    "warning_count": 575,
+    "warning_files": {
+      "capture-readonly-review/sources/sqlite-3.46.0-auth.c": {
+        "count": 3,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-build.c": {
+        "count": 12,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-fts5_index.c": {
+        "count": 303,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-fts5_main.c": {
+        "count": 141,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-fts5_storage.c": {
+        "count": 51,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-select.c": {
+        "count": 35,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-vdbeapi.c": {
+        "count": 4,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      },
+      "capture-readonly-review/sources/sqlite-3.46.0-vdbeblob.c": {
+        "count": 26,
+        "kinds": [
+          "trailing whitespace."
+        ]
+      }
+    },
+    "original_bytes_modified_to_remove_whitespace": false
+  },
+  "authored_archive_metadata_diff_check_exit": 0,
+  "product_tests_executed": false,
+  "docs_check_executed": false,
+  "remote_modified": false
+}

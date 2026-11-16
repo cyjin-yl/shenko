@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/faaa3ccca531/ci-83bf3914-43944367545/capture-readonly-review/observe_rollback_handles.py", line 144, in <module>
+    checked(lib.sqlite3_blob_close(blob))
+  File "/workspace/scratch/faaa3ccca531/ci-83bf3914-43944367545/capture-readonly-review/observe_rollback_handles.py", line 51, in checked
+    raise RuntimeError(f"{phase}: SQLite {rc}: {text(lib.sqlite3_errmsg(db))}")
+RuntimeError: escaped_public_write_blob: SQLite 4: abort due to ROLLBACK

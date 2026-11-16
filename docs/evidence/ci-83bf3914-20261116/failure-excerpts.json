@@ -1,0 +1,58 @@
+{
+  "kind": "verbatim_failure_excerpt_derivation",
+  "source": "workspace-test.log.gz",
+  "excerpts": [
+    {
+      "first_line_1_based": 1507,
+      "lines": [
+        "---- original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution stdout ----",
+        "native E1 original observations retained in /tmp/shenko-native-e1-169e4ab7-3ed0-459a-ba4e-206eb4723de7/logs",
+        "Error: conflict: canonical Store transition: capture ended with an active SQLite statement",
+        "",
+        ""
+      ]
+    },
+    {
+      "first_line_1_based": 2671,
+      "lines": [
+        "---- control_transition::tests::capture_observes_cached_sql_and_refuses_unrepresented_state stdout ----",
+        "Error: conflict: canonical Store transition: transition accessed a non-main database",
+        "",
+        ""
+      ]
+    },
+    {
+      "first_line_1_based": 2895,
+      "lines": [
+        "---- canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker stdout ----",
+        "Error: conflict: canonical Store transition: capture ended with an active SQLite statement",
+        ""
+      ]
+    },
+    {
+      "first_line_1_based": 2898,
+      "lines": [
+        "---- canonical_direct_native_chain_retains_original_e1_and_only_one_effect stdout ----",
+        "Error: conflict: canonical Store transition: capture ended with an active SQLite statement",
+        ""
+      ]
+    },
+    {
+      "first_line_1_based": 2901,
+      "lines": [
+        "---- canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt stdout ----",
+        "Error: chosen S1",
+        ""
+      ]
+    },
+    {
+      "first_line_1_based": 2904,
+      "lines": [
+        "---- canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch stdout ----",
+        "Error: retained chosen grant",
+        "",
+        ""
+      ]
+    }
+  ]
+}

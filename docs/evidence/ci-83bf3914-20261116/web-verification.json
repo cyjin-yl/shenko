@@ -1,0 +1,302 @@
+{
+  "artifact_id": 14263343510,
+  "artifact_bytes": 2287324,
+  "sha256": "a8cdf6f88139ebe0e9df25f33e51d0760d89a11f8a7e5528df4d9ad61f98c209",
+  "all_member_crc_read_ok": true,
+  "members": [
+    {
+      "name": "committed/app.js",
+      "bytes": 1102956,
+      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693",
+      "crc32": 2319919498
+    },
+    {
+      "name": "committed/app.css",
+      "bytes": 48531,
+      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f",
+      "crc32": 2314027809
+    },
+    {
+      "name": "committed/build-manifest.json",
+      "bytes": 7825,
+      "sha256": "f2e3e44bdb4e51ec69aec79364632d2027ea898b2dc3421993a5d2eba38361a9",
+      "crc32": 3705638182
+    },
+    {
+      "name": "committed/chunks/chunk-TJPYHGM5.js",
+      "bytes": 58903,
+      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d",
+      "crc32": 488397571
+    },
+    {
+      "name": "committed/chunks/demo-controller-3CZCHCX4.js",
+      "bytes": 11495,
+      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0",
+      "crc32": 4185217563
+    },
+    {
+      "name": "committed/licenses/PROTO-UI-LICENSE",
+      "bytes": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66",
+      "crc32": 2442673065
+    },
+    {
+      "name": "committed/licenses/REACT-DOM-LICENSE",
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "crc32": 1798124048
+    },
+    {
+      "name": "committed/licenses/REACT-LICENSE",
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "crc32": 1798124048
+    },
+    {
+      "name": "committed/licenses/SHADCN-NOTICES.md",
+      "bytes": 8656,
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5",
+      "crc32": 662084020
+    },
+    {
+      "name": "committed/proto-ui-style.css",
+      "bytes": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88",
+      "crc32": 511757528
+    },
+    {
+      "name": "committed/proto-ui-tokens.generated.css",
+      "bytes": 166450,
+      "sha256": "4b5a817b46b1742607f6bcae326c2f8e2a60ee42a529a1a01aede2bfedc9dcc9",
+      "crc32": 3546390693
+    },
+    {
+      "name": "committed/shadcn-theme.css",
+      "bytes": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96",
+      "crc32": 1491189184
+    },
+    {
+      "name": "committed/theme-bootstrap.js",
+      "bytes": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d",
+      "crc32": 113627206
+    },
+    {
+      "name": "comparison.json",
+      "bytes": 10545,
+      "sha256": "f87f24b59666941e474ba68d595e90dbc202f664ae6c35c444068b352c8ad122",
+      "crc32": 3311656517
+    },
+    {
+      "name": "inputs.json",
+      "bytes": 3749285,
+      "sha256": "90181172302b6dd44a4c30d160ab3c0e96993542a2641f88ea5b6259a574eced",
+      "crc32": 2938335224
+    },
+    {
+      "name": "source/src/static/app.css",
+      "bytes": 48531,
+      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f",
+      "crc32": 2314027809
+    },
+    {
+      "name": "source/src/static/app.js",
+      "bytes": 1102956,
+      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693",
+      "crc32": 2319919498
+    },
+    {
+      "name": "source/src/static/build-manifest.json",
+      "bytes": 7747,
+      "sha256": "4439afb82133b0f506cda0f53206b53193924b19f1f16173c3fbf3e77ac7f668",
+      "crc32": 4157186328
+    },
+    {
+      "name": "source/src/static/chunks/chunk-TJPYHGM5.js",
+      "bytes": 58903,
+      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d",
+      "crc32": 488397571
+    },
+    {
+      "name": "source/src/static/licenses/PROTO-UI-LICENSE",
+      "bytes": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66",
+      "crc32": 2442673065
+    },
+    {
+      "name": "source/src/static/licenses/REACT-DOM-LICENSE",
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "crc32": 1798124048
+    },
+    {
+      "name": "source/src/static/chunks/demo-controller-3CZCHCX4.js",
+      "bytes": 11495,
+      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0",
+      "crc32": 4185217563
+    },
+    {
+      "name": "source/src/static/licenses/REACT-LICENSE",
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "crc32": 1798124048
+    },
+    {
+      "name": "source/src/static/licenses/SHADCN-NOTICES.md",
+      "bytes": 8656,
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5",
+      "crc32": 662084020
+    },
+    {
+      "name": "source/src/static/proto-ui-style.css",
+      "bytes": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88",
+      "crc32": 511757528
+    },
+    {
+      "name": "source/src/static/proto-ui-tokens.generated.css",
+      "bytes": 166450,
+      "sha256": "4b5a817b46b1742607f6bcae326c2f8e2a60ee42a529a1a01aede2bfedc9dcc9",
+      "crc32": 3546390693
+    },
+    {
+      "name": "source/src/static/shadcn-theme.css",
+      "bytes": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96",
+      "crc32": 1491189184
+    },
+    {
+      "name": "source/src/static/theme-bootstrap.js",
+      "bytes": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d",
+      "crc32": 113627206
+    },
+    {
+      "name": "source/web/generated/compiler/proto-ui-compiler.mjs",
+      "bytes": 2278557,
+      "sha256": "c915bf31223a1f951b99dd23d69907638c81291583a195ddd141e0201dfb15e6",
+      "crc32": 3881493081
+    },
+    {
+      "name": "source/web/generated/prototypes/manifest.json",
+      "bytes": 3067,
+      "sha256": "3fc76b13124f2513ec7fdaa83cfdf525c19a1056df1a8b03443f89a47c8b73b3",
+      "crc32": 903602544
+    },
+    {
+      "name": "source/web/generated/prototypes/message-bubble/Component.tsx",
+      "bytes": 38956,
+      "sha256": "22e0215ad9f2b8dfd9d526ec73bbb578e4725004e8ea5e379ac37e8e50005968",
+      "crc32": 2074612281
+    },
+    {
+      "name": "source/web/generated/prototypes/message-bubble/Component.tsx.map",
+      "bytes": 2328,
+      "sha256": "acc95063314469cfe87520996ab4731b5a451f111af5c8ef82620d4944db8783",
+      "crc32": 4148608630
+    },
+    {
+      "name": "source/web/generated/prototypes/message-bubble/provenance.json",
+      "bytes": 1541,
+      "sha256": "23878e572c25b280e1e73c6b89660963139ba0cec7cc8162a62d26b2a5c720ba",
+      "crc32": 2271399934
+    },
+    {
+      "name": "source/web/generated/prototypes/transport-badge/Component.tsx",
+      "bytes": 39242,
+      "sha256": "56b5bb54f2dda879d4086752c93c7261c68c4f76d11a638d8a75faf00674e107",
+      "crc32": 1734800789
+    },
+    {
+      "name": "source/web/generated/prototypes/transport-badge/Component.tsx.map",
+      "bytes": 2788,
+      "sha256": "819055de63e9c7047d0a622bbf6b049b7e1df921c325d6584dc3f398bbb396b0",
+      "crc32": 2265779786
+    },
+    {
+      "name": "source/web/generated/prototypes/transport-badge/provenance.json",
+      "bytes": 1543,
+      "sha256": "6ad1fba338c29fac6b29e39f939066e4f3a0e1ff2fadad53d48a8283d8ceaf43",
+      "crc32": 1810181968
+    },
+    {
+      "name": "upstream-build.json",
+      "bytes": 5183,
+      "sha256": "64b7e11f19b9639f5b4280573d5b750d629eeebc99b5b9fe6d91f42e59849f31",
+      "crc32": 2556080791
+    },
+    {
+      "name": "upstream-build.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "crc32": 0
+    },
+    {
+      "name": "upstream-fetch.log",
+      "bytes": 118,
+      "sha256": "7be7df4457b76e89ca83ca4954fd0a579b7619d22dfd8edd7bc6b567cc60e92c",
+      "crc32": 2023147458
+    },
+    {
+      "name": "upstream-checkout.log",
+      "bytes": 93,
+      "sha256": "dbe882480cd58abec4af54c6706f9abe1824bbc69f1b28b17f2259649cd22dd1",
+      "crc32": 1019540041
+    },
+    {
+      "name": "upstream-init.log",
+      "bytes": 563,
+      "sha256": "a25f72097af1c41f1a3c50e058abdbade391723e85d1b4330a57f8cb7e20c1d8",
+      "crc32": 1882732792
+    },
+    {
+      "name": "upstream-install.log",
+      "bytes": 1154,
+      "sha256": "d24401374e6e80ee539192b952ad1d9a8ba5195cffa2ddf1231b370b47841350",
+      "crc32": 2283187235
+    },
+    {
+      "name": "upstream-plan.json",
+      "bytes": 1458,
+      "sha256": "da89d0a13a4f9f49d145f1b3406828c9bd8d18c518676b5ac79ce28239a09114",
+      "crc32": 3770588774
+    },
+    {
+      "name": "upstream-plan.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "crc32": 0
+    },
+    {
+      "name": "upstream-remote.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "crc32": 0
+    },
+    {
+      "name": "web-build.log",
+      "bytes": 619,
+      "sha256": "5496a89329eb6f5082eaf8ff7ad405b729b0719d89bf88e5ec3df403d8c3e376",
+      "crc32": 1143490143
+    },
+    {
+      "name": "web-install.log",
+      "bytes": 1264,
+      "sha256": "55ea0905e61519be6ce27e89547390fda64b76bda04c9d68e5e6a7975c1f1fe3",
+      "crc32": 1600222759
+    },
+    {
+      "name": "web-tests.log",
+      "bytes": 3572,
+      "sha256": "7cdafffcf6c1d0f3c85d04a8ae2d2d7987905435916ac8e266d371ac2333a202",
+      "crc32": 2529038001
+    },
+    {
+      "name": "web-types.log",
+      "bytes": 323,
+      "sha256": "386138cbc5ec2c450683421db92d9067aa344517833f319a46696dc662d9881d",
+      "crc32": 4160458996
+    }
+  ]
+}

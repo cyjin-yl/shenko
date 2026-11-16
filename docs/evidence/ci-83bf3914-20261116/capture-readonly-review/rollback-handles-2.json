@@ -1,0 +1,1573 @@
+{
+  "scope": "non-pinned existing SQLite library, owned memory DB only",
+  "library": "libsqlite3.so.0",
+  "version": "3.46.1",
+  "source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69aalt1",
+  "events": [
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 2,
+      "arg1": "payloads",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "payloads",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 29,
+      "arg1": "search",
+      "arg2": "fts5",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 2,
+      "arg1": "search_data",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 2,
+      "arg1": "search_idx",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 1,
+      "arg1": "sqlite_autoindex_search_idx_1",
+      "arg2": "search_idx",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "search_idx",
+      "arg2": "segid",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "search_idx",
+      "arg2": "term",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search_data",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 2,
+      "arg1": "search_content",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 2,
+      "arg1": "search_docsize",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 2,
+      "arg1": "search_config",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 1,
+      "arg1": "sqlite_autoindex_search_config_1",
+      "arg2": "search_config",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "search_config",
+      "arg2": "k",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "sqlite_master",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "type",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "tbl_name",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "rootpage",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 23,
+      "arg1": "sqlite_master",
+      "arg2": "sql",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "sqlite_master",
+      "arg2": "ROWID",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search_config",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 19,
+      "arg1": "data_version",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "search_config",
+      "arg2": "k",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 20,
+      "arg1": "search_config",
+      "arg2": "v",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search_content",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search_docsize",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search_data",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "setup",
+      "action": 18,
+      "arg1": "search_idx",
+      "arg2": null,
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 22,
+      "arg1": "BEGIN",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 32,
+      "arg1": "BEGIN",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 20,
+      "arg1": "payloads",
+      "arg2": "id",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 20,
+      "arg1": "payloads",
+      "arg2": "id",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 20,
+      "arg1": "payloads",
+      "arg2": "",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 32,
+      "arg1": "ROLLBACK",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 32,
+      "arg1": "RELEASE",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "action": 22,
+      "arg1": "ROLLBACK",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "action": 22,
+      "arg1": "BEGIN",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "action": 32,
+      "arg1": "BEGIN",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "action": 32,
+      "arg1": "ROLLBACK",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "action": 32,
+      "arg1": "RELEASE",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "action": 22,
+      "arg1": "ROLLBACK",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 22,
+      "arg1": "BEGIN",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 32,
+      "arg1": "BEGIN",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 31,
+      "arg1": null,
+      "arg2": "count",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 31,
+      "arg1": null,
+      "arg2": "match",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 20,
+      "arg1": "search",
+      "arg2": "search",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 20,
+      "arg1": "search_idx",
+      "arg2": "pgno",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 20,
+      "arg1": "search_idx",
+      "arg2": "segid",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 20,
+      "arg1": "search_idx",
+      "arg2": "term",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 20,
+      "arg1": "search_idx",
+      "arg2": "term",
+      "database": "main",
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 32,
+      "arg1": "ROLLBACK",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 32,
+      "arg1": "RELEASE",
+      "arg2": "captured",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "action": 22,
+      "arg1": "ROLLBACK",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 18,
+      "arg1": "sqlite_temp_master",
+      "arg2": null,
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 4,
+      "arg1": "transient",
+      "arg2": null,
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 23,
+      "arg1": "sqlite_temp_master",
+      "arg2": "type",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 23,
+      "arg1": "sqlite_temp_master",
+      "arg2": "name",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 23,
+      "arg1": "sqlite_temp_master",
+      "arg2": "tbl_name",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 23,
+      "arg1": "sqlite_temp_master",
+      "arg2": "rootpage",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 23,
+      "arg1": "sqlite_temp_master",
+      "arg2": "sql",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_temp_master",
+      "arg2": "ROWID",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 9,
+      "arg1": "sqlite_temp_master",
+      "arg2": null,
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 13,
+      "arg1": "transient",
+      "arg2": null,
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 9,
+      "arg1": "transient",
+      "arg2": null,
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 9,
+      "arg1": "sqlite_temp_master",
+      "arg2": null,
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_temp_master",
+      "arg2": "tbl_name",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_temp_master",
+      "arg2": "type",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 23,
+      "arg1": "sqlite_temp_master",
+      "arg2": "rootpage",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_temp_master",
+      "arg2": "rootpage",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 24,
+      "arg1": ":memory:",
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 31,
+      "arg1": null,
+      "arg2": "count",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_temp_master",
+      "arg2": "",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 31,
+      "arg1": null,
+      "arg2": "count",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_temp_schema",
+      "arg2": "",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 31,
+      "arg1": null,
+      "arg2": "count",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_schema",
+      "arg2": "",
+      "database": "temp",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 31,
+      "arg1": null,
+      "arg2": "count",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_schema",
+      "arg2": "",
+      "database": "auxiliary",
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 21,
+      "arg1": null,
+      "arg2": null,
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 31,
+      "arg1": null,
+      "arg2": "count",
+      "database": null,
+      "trigger": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "action": 20,
+      "arg1": "sqlite_schema",
+      "arg2": "",
+      "database": null,
+      "trigger": null
+    }
+  ],
+  "snapshots": [
+    {
+      "label": "read_handles_before_rollback",
+      "statements": [
+        {
+          "sql": null,
+          "busy": true,
+          "readonly": true
+        },
+        {
+          "sql": "SELECT id FROM payloads ORDER BY id",
+          "busy": true,
+          "readonly": true
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": true
+    },
+    {
+      "label": "read_handles_after_rollback_before_any_resume",
+      "statements": [
+        {
+          "sql": null,
+          "busy": true,
+          "readonly": true
+        },
+        {
+          "sql": "SELECT id FROM payloads ORDER BY id",
+          "busy": true,
+          "readonly": true
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": true
+    },
+    {
+      "label": "read_handles_closed",
+      "statements": [
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": false
+    },
+    {
+      "label": "write_blob_before_rollback",
+      "statements": [
+        {
+          "sql": null,
+          "busy": true,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": true
+    },
+    {
+      "label": "write_blob_after_rollback_before_any_resume",
+      "statements": [
+        {
+          "sql": null,
+          "busy": true,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": true
+    },
+    {
+      "label": "write_blob_closed",
+      "statements": [
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": false
+    },
+    {
+      "label": "fts_read_complete_before_rollback",
+      "statements": [
+        {
+          "sql": "SELECT pgno FROM 'main'.'search_idx' WHERE segid=? AND term<=? ORDER BY term DESC LIMIT 1",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": false
+    },
+    {
+      "label": "fts_read_complete_after_rollback",
+      "statements": [
+        {
+          "sql": "SELECT pgno FROM 'main'.'search_idx' WHERE segid=? AND term<=? ORDER BY term DESC LIMIT 1",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_idx'(segid,term,pgno) VALUES(?,?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_docsize' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "INSERT INTO 'main'.'search_content' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "PRAGMA 'main'.data_version",
+          "busy": false,
+          "readonly": true
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_config' VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        },
+        {
+          "sql": "REPLACE INTO 'main'.'search_data'(id, block) VALUES(?,?)",
+          "busy": false,
+          "readonly": false
+        }
+      ],
+      "busy": false
+    }
+  ],
+  "operations": [
+    {
+      "phase": "setup",
+      "sql": "CREATE TABLE payloads(id INTEGER PRIMARY KEY, data BLOB); INSERT INTO payloads VALUES(1,X'01020304'),(2,X'05060708'); CREATE VIRTUAL TABLE search USING fts5(body); INSERT INTO search VALUES('first observation');",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "sql": "BEGIN IMMEDIATE; SAVEPOINT captured;",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "sql": "ROLLBACK TO captured; RELEASE captured;",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "first_row_step": 100,
+      "resume_row_step": 100,
+      "blob_read_after_rollback": 0,
+      "blob_data": "01020304"
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "blob_close": 0
+    },
+    {
+      "phase": "escaped_read_cursor_and_public_read_blob",
+      "sql": "ROLLBACK",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "sql": "BEGIN IMMEDIATE; SAVEPOINT captured;",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "sql": "ROLLBACK TO captured; RELEASE captured;",
+      "returncode": 5,
+      "error": "cannot release savepoint - SQL statements in progress"
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "blob_write_after_rollback": 4
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "blob_close": 4
+    },
+    {
+      "phase": "escaped_public_write_blob",
+      "sql": "ROLLBACK",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "sql": "BEGIN IMMEDIATE; SAVEPOINT captured;",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "sql": "SELECT count(*) FROM search WHERE search MATCH 'observation'",
+      "values": [
+        1
+      ]
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "sql": "ROLLBACK TO captured; RELEASE captured;",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "completed_read_only_fts_query",
+      "sql": "ROLLBACK",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "sql": "CREATE TEMP TABLE transient(id); DROP TABLE transient; ATTACH ':memory:' AS auxiliary;",
+      "returncode": 0,
+      "error": null
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "sql": "SELECT count(*) FROM sqlite_temp_master",
+      "values": [
+        0
+      ]
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "sql": "SELECT count(*) FROM sqlite_temp_schema",
+      "values": [
+        0
+      ]
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "sql": "SELECT count(*) FROM temp.sqlite_schema",
+      "values": [
+        0
+      ]
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "sql": "SELECT count(*) FROM auxiliary.sqlite_schema",
+      "values": [
+        0
+      ]
+    },
+    {
+      "phase": "empty_temp_and_attached_schema_aliases",
+      "sql": "SELECT count(*) FROM sqlite_schema",
+      "values": [
+        7
+      ]
+    }
+  ],
+  "close_returncode": 0,
+  "project_pinned_execution": false
+}

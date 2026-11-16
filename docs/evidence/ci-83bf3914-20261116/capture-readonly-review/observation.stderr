@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/faaa3ccca531/ci-83bf3914-43944367545/capture-readonly-review/observe_sqlite.py", line 15, in <module>
+    lib = c.CDLL(_sqlite3.__file__)
+                 ^^^^^^^^^^^^^^^^^
+AttributeError: module '_sqlite3' has no attribute '__file__'. Did you mean: '__name__'?

@@ -1,0 +1,99 @@
+{
+  "kind": "nested_original_export_verification",
+  "archive": "native-e1/000-native-e1-originals.zip",
+  "bytes": 23432,
+  "sha256": "9235e9696c0063626e2b1edb246041c793a3a6ecfeb1db2775cb81d4c692bfe4",
+  "all_member_crc_read_ok": true,
+  "members": [
+    {
+      "name": "exporter.py",
+      "bytes": 13142,
+      "sha256": "a2f20872ff438234842ef0f64e77b67ad9c6d6a68ebc21798215836ef510fea4",
+      "crc32": 484427356
+    },
+    {
+      "name": "source/ledger-rows.json",
+      "bytes": 23868,
+      "sha256": "9378346df2f80c0945d4c544df6ad16466ba7bca4d5384efa45917ac6931371d",
+      "crc32": 3027548001
+    },
+    {
+      "name": "source/cas-references.json",
+      "bytes": 3603,
+      "sha256": "fe06dfe31863883a0e87733e534414f6e996593ca42a2cbeaa10c0ac21b36c0a",
+      "crc32": 2262700848
+    },
+    {
+      "name": "source/cas/6e/46/6e46dd10defc9b56c29a6ec56b508c21f54c08192194e4df25bf36f0c9c3c279",
+      "bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "crc32": 2745614147
+    },
+    {
+      "name": "source/cas/bd/7c/bd7cbebd173e5dab84812717607fae2bf39982908611085d293ec46e1ae98947",
+      "bytes": 1346,
+      "sha256": "d35fdaf1f8e8ee618e4054c1caedd833f25b71951b3845e62a15fb3981ff4699",
+      "crc32": 3767622674
+    },
+    {
+      "name": "source/cas/8d/cb/8dcb32f5f7644da0ad2c7f0dc805e863957cfbea09df04efa0ce4507342c905c",
+      "bytes": 18,
+      "sha256": "35bfc1c54f73440d058e281819ee81e61088baf60c9258cd24242a2b703591a5",
+      "crc32": 2546175671
+    },
+    {
+      "name": "source/cas/11/f3/11f3e8018faa243b6caa363adee7f628d4dd5ca80c5eefb2a9d80f1fef7e16fa",
+      "bytes": 619,
+      "sha256": "21f75bf7a3bafae552072a1a50663ae966bd72eb061cfb10802f2930bfe7454b",
+      "crc32": 4067786347
+    },
+    {
+      "name": "receiver/ledger-rows.json",
+      "bytes": 22666,
+      "sha256": "b8b96e565c4699c1636f87ef9df1ab8093c133aebefa6289e26eeac893bfe292",
+      "crc32": 2621165612
+    },
+    {
+      "name": "receiver/cas-references.json",
+      "bytes": 3603,
+      "sha256": "fe06dfe31863883a0e87733e534414f6e996593ca42a2cbeaa10c0ac21b36c0a",
+      "crc32": 2262700848
+    },
+    {
+      "name": "receiver/cas/6e/46/6e46dd10defc9b56c29a6ec56b508c21f54c08192194e4df25bf36f0c9c3c279",
+      "bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "crc32": 2745614147
+    },
+    {
+      "name": "receiver/cas/bd/7c/bd7cbebd173e5dab84812717607fae2bf39982908611085d293ec46e1ae98947",
+      "bytes": 1346,
+      "sha256": "d35fdaf1f8e8ee618e4054c1caedd833f25b71951b3845e62a15fb3981ff4699",
+      "crc32": 3767622674
+    },
+    {
+      "name": "receiver/cas/8d/cb/8dcb32f5f7644da0ad2c7f0dc805e863957cfbea09df04efa0ce4507342c905c",
+      "bytes": 18,
+      "sha256": "35bfc1c54f73440d058e281819ee81e61088baf60c9258cd24242a2b703591a5",
+      "crc32": 2546175671
+    },
+    {
+      "name": "receiver/cas/11/f3/11f3e8018faa243b6caa363adee7f628d4dd5ca80c5eefb2a9d80f1fef7e16fa",
+      "bytes": 619,
+      "sha256": "21f75bf7a3bafae552072a1a50663ae966bd72eb061cfb10802f2930bfe7454b",
+      "crc32": 4067786347
+    },
+    {
+      "name": "inventory.json",
+      "bytes": 2414,
+      "sha256": "0aa48009b51a6e3bd67ca1ff3e93f0f946e0febf904c03edd732edf13138a116",
+      "crc32": 1993636186
+    },
+    {
+      "name": "manifest.json",
+      "bytes": 3252,
+      "sha256": "fa514d1901d131689b17f844f683e030eb55751f806ab971f84508633c77d6d8",
+      "crc32": 2751888458
+    }
+  ]
+}

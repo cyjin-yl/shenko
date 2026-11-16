@@ -1,0 +1,77 @@
+{
+  "kind": "archive_validation_only",
+  "source_head": "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+  "actual_checkout": "2d275430b103fb0e13316ba51cc5b5c5fdafa262",
+  "tree": "d695242eb0005a1d06256aab91e9e649f1cb8a86",
+  "baseline": "84ae19404f2a17d259362c99091db408b7262e14",
+  "archives": [
+    {
+      "artifact": "rust-original.zip",
+      "bytes": 8101078,
+      "sha256": "31a81cdb7e40d83b2aab95108c75abf79047bb0df5f7f8d859c362270607fea0",
+      "members": 1785,
+      "all_crc_and_member_sha256_match_prior_manifest": true
+    },
+    {
+      "artifact": "clippy-original.zip",
+      "bytes": 2731848,
+      "sha256": "8c2a1274e3ad11a8dc83041d21add7c140831d06a1f78044d7dd3c71604b9533",
+      "members": 18,
+      "all_crc_and_member_sha256_match_prior_manifest": true
+    },
+    {
+      "artifact": "kernel-original.zip",
+      "bytes": 232,
+      "sha256": "0f52504475f18fac7036e73009574aefce392982f804144c99fa551eff01dfde",
+      "members": 1,
+      "all_crc_and_member_sha256_match_prior_manifest": true
+    },
+    {
+      "artifact": "web-original.zip",
+      "bytes": 2287324,
+      "sha256": "a8cdf6f88139ebe0e9df25f33e51d0760d89a11f8a7e5528df4d9ad61f98c209",
+      "members": 49,
+      "all_crc_and_member_sha256_match_prior_manifest": true
+    }
+  ],
+  "indexed_files": 78,
+  "retained_native_e1_members": 7,
+  "nested_native_export_members": 15,
+  "original_native_files_match_rust_zip": true,
+  "clippy_base_ratchet_match_zip": true,
+  "workspace_counts_recomputed": {
+    "summary_count": 152,
+    "totals": {
+      "passed": 1075,
+      "failed": 6,
+      "ignored": 11,
+      "measured": 0,
+      "filtered": 88
+    }
+  },
+  "available_log_gzip_roundtrip_exact": true,
+  "line_endings_normalized": false,
+  "complete_clippy_job_wrapper_log_available": false,
+  "complete_clippy_compiler_streams_available_in_original_zip": true,
+  "workflow_or_test_rerun": false,
+  "docs_check_rerun": false,
+  "source_modified": false,
+  "read_only_investigation": {
+    "files": 36,
+    "all_original_bytes_match_frozen_directory": true,
+    "final_inventory_sha256": "a6077ec1ec2373157e64c9d66157c0b00934c127e459240c9a68c3fb658565d2",
+    "final_inventory_members": 35,
+    "final_inventory_all_sizes_and_hashes_verified": true,
+    "initial_inventory_sha256": "f2ac7069d92b866f70b82bc578d718a2aade194b5d3bec56102f9398dbd9efbe",
+    "initial_inventory_preserved_byte_for_byte": true,
+    "prior_file_copies": {
+      "README.md": "README-initial.md"
+    },
+    "local_observation_sqlite_version": "3.46.1",
+    "project_pinned_sqlite_version": "3.46.0",
+    "local_rust_execution": false,
+    "local_project_pinned_sqlite_execution": false,
+    "first_diagnostic_failures_retained": true,
+    "later_repair_source_review_is_not_ci_of_repair": true
+  }
+}
