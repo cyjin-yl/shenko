@@ -1,6 +1,6 @@
 //! Partition, rejoin and fact merge across independent node processes.
 //!
-//! docs/specs/nodes.md#spec-5-4-1–docs/specs/nodes.md#spec-5-4-3, docs/specs/nodes.md#spec-5-4-3, C17. Every node in the journey below is a real
+//! C17. Every node in the journey below is a real
 //! `shenko-node` child process with its own private SQLite installation: node
 //! identity, membership, votes, partition branches and merged facts are always
 //! read back by a *later* process, never from in-memory state. The test is the

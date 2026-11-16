@@ -35,6 +35,10 @@ bytes = { workspace = true }
 pulldown-cmark = { version = "0.13", default-features = false }
 libc = "0.2"
 
+[build-dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
 [dev-dependencies]
 rusqlite = { workspace = true }
 

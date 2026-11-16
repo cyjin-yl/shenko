@@ -193,11 +193,11 @@ pub async fn complete_handoff(path: PathBuf, digest: String, data_dir: PathBuf) 
         "helper executable differs from frozen source artifact");
     let owner = wait_owner(&data_dir)?;
     owner.verify_path(&data_dir)?;
-    let store = Arc::new(crate::open_installation_store(&data_dir)?);
+    let store = Arc::new(crate::runtime_bootstrap::open_installation_store(&data_dir)?);
     ensure!(store.installation_id_for_subject(request.agent_id)? == request.installation_id, "handoff request belongs to another installation");
     let (service, agent) = service(&data_dir, Arc::clone(&store), Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()))?;
     service.finish_committed_handoff(agent)?;
-    let selected_store = Arc::new(crate::open_installation_store(&data_dir)?);
+    let selected_store = Arc::new(crate::runtime_bootstrap::open_installation_store(&data_dir)?);
     let selected = selected_store.activation_selector(agent)?.context("selector missing after retirement")?;
     let (_, expected) = command_activation(&request.command).context("invalid handoff continuation command")?;
     let result = if selected.selector_revision == expected {
@@ -211,7 +211,7 @@ pub async fn complete_handoff(path: PathBuf, digest: String, data_dir: PathBuf) 
                 // Complete any committed publication before choosing whom
                 // to restart, and never restore an old selector/epoch.
                 service.finish_committed_handoff(agent)?;
-                let current_store = crate::open_installation_store(&data_dir)?;
+                let current_store = crate::runtime_bootstrap::open_installation_store(&data_dir)?;
                 let current = current_store.activation_selector(agent)?.context("recovery selector missing")?;
                 private_write(&data_dir.join(format!("update-handoff-{}-error-{}.json", request.request_id, EntityId::new())),
                     &serde_json::to_vec(&serde_json::json!({"request_digest":digest,"error":format!("{error:#}"),"selector":current}))?)?;
@@ -242,7 +242,7 @@ pub async fn complete_handoff(path: PathBuf, digest: String, data_dir: PathBuf) 
         }
         serde_json::json!({"selector": selected, "recovered_existing_selection": true})
     };
-    let selected_store = crate::open_installation_store(&data_dir)?;
+    let selected_store = crate::runtime_bootstrap::open_installation_store(&data_dir)?;
     let selected = selected_store.activation_selector(agent)?.context("selected successor missing")?;
     let result_path = data_dir.join(format!("update-handoff-{}-selected-{}.json", request.request_id, EntityId::new()));
     private_write(&result_path, &serde_json::to_vec(&serde_json::json!({"request_digest":digest,
@@ -251,7 +251,7 @@ pub async fn complete_handoff(path: PathBuf, digest: String, data_dir: PathBuf) 
 }
 
 fn exec_selected(data_dir: &Path, selector: &shenko_types::activation::ActivationSelector, owner: crate::runtime_owner::RuntimeOwner) -> Result<()> {
-    let store = crate::open_installation_store(data_dir)?;
+    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let route: shenko_types::activation::RouteAuthority = serde_json::from_slice(&store.cas.read_object(&selector.route_authority_ref.digest)?)?;
     ensure!(route.generation == selector.generation && route.selector_revision == selector.selector_revision && route.active_epoch == selector.active_epoch, "selected route mismatch");
     ensure!(Digest::blake3(&std::fs::read(&route.artifact_path)?) == route.artifact_digest, "selected executable digest changed");
@@ -279,7 +279,7 @@ pub fn acquire_launch_owner(data_dir: &Path) -> Result<crate::runtime_owner::Run
     let owner = crate::runtime_owner::RuntimeOwner::try_acquire(data_dir)?;
     let slot = shenko_update::slots::resolve_live_slot(data_dir)?.unwrap_or_else(|| data_dir.to_owned());
     if slot.join(shenko_update::SLOT_DB_FILENAME).is_file() {
-        let store = Arc::new(crate::open_installation_store(data_dir)?);
+        let store = Arc::new(crate::runtime_bootstrap::open_installation_store(data_dir)?);
         if let Some(agent) = store.get_existing_agent_id()? {
             let (recovery, _) = service(data_dir, store, Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()))?;
             recovery.finish_committed_handoff(agent)?;
@@ -303,7 +303,7 @@ pub fn acquire_launch_owner(data_dir: &Path) -> Result<crate::runtime_owner::Run
         }
     }
     if let Ok(expected) = std::env::var("SHENKO_SELECTED_LAUNCH_REVISION") {
-        let store = crate::open_installation_store(data_dir)?;
+        let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
         let agent = store.get_existing_agent_id()?.context("selected subject missing")?;
         let selected = store.activation_selector(agent)?.context("selected authority missing")?;
         ensure!(selected.selector_revision == expected.parse::<u64>()?, "selected launch superseded");
@@ -317,13 +317,13 @@ pub async fn run_cli(command: UpdateCommand, data_dir: PathBuf) -> Result<()> {
     if matches!(command, UpdateCommand::Smoke { .. }) { return shenko_update::cli::run(command, data_dir).await; }
     match crate::runtime_owner::RuntimeOwner::try_acquire(&data_dir) {
         Ok(owner) => {
-            let store = Arc::new(crate::open_installation_store(&data_dir)?);
+            let store = Arc::new(crate::runtime_bootstrap::open_installation_store(&data_dir)?);
             let (service, agent) = service(&data_dir, store, Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()))?;
             let handoff = command_activation(&command).is_some();
             let result = shenko_update::cli::execute(command, &service, agent).await?;
             println!("{}", serde_json::to_string_pretty(&result)?);
             if handoff {
-                let store = crate::open_installation_store(&data_dir)?;
+                let store = crate::runtime_bootstrap::open_installation_store(&data_dir)?;
                 let selected = store.activation_selector(agent)?.context("offline selection missing")?;
                 return exec_selected(&data_dir, &selected, owner);
             }

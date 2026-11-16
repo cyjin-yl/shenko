@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 
 const compiled = await build({
   stdin: {
-    contents: "export * from './src/threads.ts';",
+    contents: "export * from './src/threads.ts'; export { text } from './src/messages.ts';",
     resolveDir: fileURLToPath(new URL('../', import.meta.url)),
     sourcefile: 'task-projection-consumer.mjs',
   },
@@ -15,7 +15,7 @@ const compiled = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { collectThreads, isAttentionTask, isDelegation, trajectoryMessages } = await import(
+const { collectThreads, isAttentionTask, isDelegation, trajectoryMessages, text } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`
 );
 const subject = { id: 'subject', name: 'Subject', role: 'subject' };
@@ -98,7 +98,7 @@ test('missing or unknown historical display schemas expose unavailability withou
   const raw = '[tool:private.action:1] {"private":"original"}';
   for (const record of [{ text: raw }, { schema_version: 99, text: raw }]) {
     const messages = trajectoryMessages(trajectory(record), subject);
-    assert.ok(messages.some((message) => message.text.includes('公开正文不可用')));
+    assert.ok(messages.some((message) => message.text === text('delegation.textUnavailable')));
     assert.ok(!messages.some((message) => message.text.includes(raw)));
     assert.ok(!messages.some((message) => message.key === 'step-one-text'));
   }
