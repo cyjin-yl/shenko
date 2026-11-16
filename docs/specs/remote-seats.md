@@ -150,13 +150,14 @@ identity is `seat_lease_identity_conflict`. Existing historical leases are
 retained; write admission also checks their holder against the durable
 seat owner, so an older foreign-holder row cannot acquire write authority.
 
-The writer authority travels *with* the effect: `SeatWriteFence { lease_id,
+The decision's authority snapshot travels with the effect: `SeatWriteFence { lease_id,
 lease_epoch, fence_capability, seat_id, seat_incarnation, task_id,
 task_revision, question_id, question_revision, question_record_revision }` is
-handed to the adapter that performs the write. The runtime does not
-check-then-act: the durable claim and the arm happen before the transport
-runs, and the epoch the decision was made under is the epoch the write
-carries.
+handed to the adapter that performs the write. The durable claim and arm
+compare the current Store bindings before transport runs. Neither check holds
+an exclusion against a concurrent Store change through the actual write;
+carrying the epoch is not a continuous writer fence. Managed pipe writes,
+PTY queue admission and native tmux input retain that implementation gap.
 
 ## The respond contract ([§41.11](remote-seats.md#spec-41-11))
 
@@ -170,6 +171,24 @@ decider actually read:
 | `seat_incarnation` + `seat_revision` | `seat_location_changed` / `stale_task` |
 | `task_revision` | `stale_task` |
 | `lease_epoch` | `stale_authority` / `seat_lease_ended` |
+
+The stored decision must carry the same expectation and fence capability that
+the claim validated. `arm_seat_answer_decision` rechecks that committed scope
+inside its IMMEDIATE transaction: the exact question revision produced by
+the claim, the active seat's identity/incarnation/revision, current task
+revision, and the original current lease's epoch, capability and acquisition
+incarnation. A change between claim and arm refuses before recording an
+operation or effect digest; it leaves the committed decision and question
+facts unchanged. An unchanged arm still records the exact operation/digest,
+and an already armed decision is never armed again after reopen.
+
+The Store-only journey
+`answer_arm_rechecks_the_committed_scope_after_another_store_handle_changes_it`
+adds five windows: unchanged arm/reopen, another handle changing incarnation,
+another handle changing task revision, lease termination, and contradictory
+claim expectations. This source checkpoint has not executed that journey;
+it needs the integrated candidate's Rust CI. It does not establish actual
+seat I/O, native task admission or the continuous transport fence above.
 
 On success the question becomes `decision_committed`, so a second decision for
 the same question is refused (`seat_question_not_open`). The only exception is

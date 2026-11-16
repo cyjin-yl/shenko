@@ -26,9 +26,11 @@
 //!    unconfirmed one ends `answer_unknown`, a refusal before the write ends
 //!    `not_sent` and a remote rejection ends `withdrawn`.
 //!
-//! The writer authority travels *with* the effect ([`SeatWriteFence`]): the
-//! adapters do not re-check a lease and then write, they carry the epoch the
-//! decision was made under.
+//! The decision's authority snapshot travels with the effect
+//! ([`SeatWriteFence`]). Claim and arm compare the durable bindings, but the
+//! transport does not yet hold an exclusion against concurrent Store
+//! revocation through the actual write. Carrying an epoch alone is not that
+//! continuous fence.
 //!
 //! After a process restart, [`SeatRuntime::reattach_active_seats`] rebuilds
 //! this registry from the durable records (R070): transports that outlive
@@ -692,26 +694,18 @@ impl SeatRuntime {
             Ok(response) => response,
             Err(error) => {
                 // The write may or may not have reached the remote side: the
-                // outcome is unknown, and it is never replayed.
-                let reason = format!("传输结果未知：{error:#}");
-                let (decision, question) = self.store.complete_seat_answer_decision(
-                    armed.decision_id,
-                    SeatAnswerOutcome::AnswerUnknown { reason: reason.clone() },
-                )?;
-                return Ok(SeatRespondOutcome {
-                    response: SeatResponse {
-                        adapter: adapter.adapter_id(),
-                        transport: plan.transport,
-                        confirmation: AnswerConfirmation::Unknown { reason: reason.clone() },
-                        detail: None,
+                // outcome is unknown, and it is never replayed. Use the same
+                // durable close-out path as a returned Unknown response, so
+                // a close failure retains Armed rather than escaping as a
+                // pre-send error to the native handler.
+                SeatResponse {
+                    adapter: adapter.adapter_id(),
+                    transport: plan.transport,
+                    confirmation: AnswerConfirmation::Unknown {
+                        reason: format!("传输结果未知：{error:#}"),
                     },
-                    decision_id: decision.decision_id,
-                    question_id: question.question_id,
-                    decision_state: decision.state,
-                    question_state: question.state,
-                    effect_input_digest: plan.digest,
-                    refusal: Some(reason),
-                });
+                    detail: None,
+                }
             }
         };
 
@@ -730,7 +724,10 @@ impl SeatRuntime {
                     .unwrap_or_else(|| "写入完成但没有观察到远端确认".into()),
             },
             AnswerConfirmation::Unknown { reason } => {
-                SeatAnswerOutcome::AnswerUnknown { reason: reason.clone() }
+                SeatAnswerOutcome::AnswerUnknown {
+                    reason: response.detail.as_ref()
+                        .map_or_else(|| reason.clone(), |detail| format!("{reason}\n{detail}")),
+                }
             }
             AnswerConfirmation::Rejected { reason } => {
                 SeatAnswerOutcome::Rejected { reason: reason.clone() }
@@ -745,10 +742,10 @@ impl SeatRuntime {
         {
             Ok(closed) => closed,
             Err(error) => {
-                // The effect was already sent; the durable close-out failed.
+                // The effect was armed; the durable close-out failed.
                 // The decision stays `armed`, which is the honest fact: the
                 // effect may have been applied and is never replayed.
-                let reason = format!("效果已送出，但持久化收尾失败：{error:#}");
+                let reason = format!("效果已 armed，但持久化收尾失败：{error:#}");
                 return Ok(SeatRespondOutcome {
                     response,
                     decision_id: armed.decision_id,
@@ -1050,6 +1047,148 @@ mod tests {
             expires_at_ms: None,
             fingerprint: String::new(),
         }
+    }
+
+    /// This adapter is only a Store/error-boundary fixture. Its finite effect
+    /// is a local append, not an OMP, tmux, SSH or model acceptance claim.
+    struct LostReply {
+        database: std::path::PathBuf,
+        output: std::path::PathBuf,
+        original_arm: Mutex<Option<SeatAnswerDecisionRecord>>,
+    }
+
+    #[async_trait::async_trait]
+    impl SeatAdapter for LostReply {
+        fn adapter_id(&self) -> SeatAdapterId { SeatAdapterId::Tmux }
+        fn adapter_version(&self) -> &str { "lost-reply-fixture" }
+        fn capability(&self) -> shenko_store::SeatCapability {
+            shenko_store::SeatCapability {
+                structured_questions: false, structured_answers: false, screen_observation: false,
+                steer: false, interrupt: false, resume: false,
+                notes: vec!["Store close-out fault fixture only".into()],
+            }
+        }
+        async fn discover(&self) -> Result<Vec<SeatHandle>> { Ok(vec![handle()]) }
+        async fn transport_live(&self, _seat: &SeatHandle) -> Result<bool> { Ok(true) }
+        async fn observe(&self, seat: &SeatHandle) -> Result<SeatObservation> {
+            Ok(SeatObservation {
+                seat: seat.clone(), observation_revision: 1, observed_at: chrono::Utc::now(),
+                screen: None, screen_text: String::new(),
+                questions: vec![candidate_from_fact("original-question", &fact("terminal_inference"))?],
+                unknown: Vec::new(), raw_evidence: b"controlled original question".to_vec(),
+            })
+        }
+        async fn plan_effect(&self, _seat: &SeatHandle, question: &SeatQuestionCandidate,
+            answer: &SeatAnswer) -> Result<Option<crate::seat::SeatEffectPlan>> {
+            Ok(Some(crate::seat::SeatEffectPlan::new(crate::seat::AnswerTransport::TerminalInput,
+                answer.text.as_deref().context("fixture answer text")?, "one original append")
+                .with_question_key(question.question_id.clone())))
+        }
+        async fn preflight(&self, _seat: &SeatHandle, _question: &SeatQuestionCandidate,
+            _plan: &crate::seat::SeatEffectPlan) -> Result<SeatPreflight> {
+            Ok(SeatPreflight::Ready { detail: "controlled original question".into() })
+        }
+        async fn execute_effect(&self, _seat: &SeatHandle, plan: &crate::seat::SeatEffectPlan,
+            fence: &SeatWriteFence) -> Result<SeatResponse> {
+            use std::io::Write;
+            let connection = rusqlite::Connection::open(&self.database)?;
+            let raw: String = connection.query_row(
+                "SELECT data FROM seat_answer_decisions WHERE question_id=?1 ORDER BY updated_commit_seq DESC LIMIT 1",
+                [fence.question_id.to_string()], |row| row.get(0),
+            )?;
+            let armed: SeatAnswerDecisionRecord = serde_json::from_str(&raw)?;
+            ensure!(armed.state == SeatAnswerDecisionState::Armed
+                && armed.exact_effect_input_digest == plan.digest, "effect preceded the original arm");
+            *self.original_arm.lock().await = Some(armed);
+            let mut output = std::fs::OpenOptions::new().create(true).append(true).open(&self.output)?;
+            output.write_all(plan.payload.as_bytes())?;
+            output.sync_all()?;
+            connection.execute_batch("CREATE TRIGGER reject_unknown_close
+                BEFORE UPDATE ON seat_answer_decisions
+                WHEN json_extract(NEW.data,'$.state')='answer_unknown'
+                BEGIN SELECT RAISE(ABORT,'injected durable close failure'); END;")?;
+            anyhow::bail!("original transport reply was lost after append")
+        }
+        async fn submit(&self, _seat: &SeatHandle, _text: &str, _fence: &SeatWriteFence)
+            -> Result<SeatResponse> { anyhow::bail!("fixture has no submit path") }
+        async fn interrupt(&self, _seat: &SeatHandle, _fence: &SeatWriteFence)
+            -> Result<SeatResponse> { anyhow::bail!("fixture has no interrupt path") }
+    }
+
+    #[test]
+    fn post_arm_transport_error_and_failed_close_keep_the_original_unknown_after_reopen() -> Result<()> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let dir = std::env::temp_dir().join(format!("shenko-seat-close-failure-{}", EntityId::new()));
+            std::fs::create_dir_all(&dir)?;
+            eprintln!("seat close-out evidence directory: {}", dir.display());
+            let database = dir.join("store.db");
+            let cas = dir.join("cas");
+            let output = dir.join("original-effect.bin");
+            let store = Arc::new(Store::open(database.clone(), cas.clone())?);
+            let task = EntityId::new();
+            let input = store.cas.seal_object(b"seat owner", "text/plain", "fixture", "raw", 1)?.object;
+            let mut batch = shenko_types::store::WriteBatch::new();
+            batch.task_upserts.push(shenko_types::task::TaskRecord::subject_root(task, EntityId::new(),
+                input, CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO)));
+            store.commit(batch)?;
+            let seat = store.register_seat(EntityId::new(), task, "tmux", "lost-reply-fixture",
+                SeatLocation::Tmux { host: "local".into(), session: "fixture".into(), window: 0,
+                    pane: 0, pane_id: "%3".into(), cwd: "/project".into(), current_command: "omp".into() })?;
+            let lease = store.acquire_seat_lease(shenko_store::SeatLeaseRequest {
+                lease_id: EntityId::new(), seat_id: seat.seat_id, holder_task_id: task,
+                lease_epoch: 1, fence_capability: "fixture-original-input".into(),
+            })?;
+            let adapter = Arc::new(LostReply { database: database.clone(), output: output.clone(),
+                original_arm: Mutex::new(None) });
+            let runtime = SeatRuntime::new(Arc::clone(&store));
+            let attachment = SeatAttachment { task_id: task, seat_record_id: seat.seat_id,
+                lease_id: lease.lease_id };
+            runtime.attach(adapter.clone(), attachment).await?;
+            let observation = runtime.observe("%3").await?;
+            assert!(observation.unknown.is_empty());
+            assert_eq!(observation.questions.len(), 1);
+            let request = SeatRespondRequest {
+                location_id: "%3".into(), semantic_question_id: "original-question".into(),
+                answer: SeatAnswer { option_id: Some("yes".into()), text: Some("original answer\n".into()),
+                    allow: None, reason: "controlled answer".into() },
+                deciding_actor: "subject".into(), delegation_grant_ref: None,
+                authority_revision: None, operation_id: EntityId::new(),
+            };
+            let result = runtime.respond(request.clone()).await?;
+            assert_eq!(result.decision_state, SeatAnswerDecisionState::Armed);
+            assert_eq!(result.question_state, SeatQuestionState::Responding);
+            assert!(matches!(&result.response.confirmation, AnswerConfirmation::Unknown { reason }
+                if reason.contains("original transport reply was lost after append")));
+            assert!(result.refusal.as_deref().is_some_and(|reason|
+                reason.contains("injected durable close failure")));
+            let original = adapter.original_arm.lock().await.clone().context("original arm")?;
+            assert_eq!(original.operation_id, Some(request.operation_id));
+            assert_eq!(result.decision_id, original.decision_id);
+            assert_eq!(result.effect_input_digest, original.exact_effect_input_digest);
+            assert_eq!(serde_json::to_value(store.seat_answer_decision(original.decision_id)?)?,
+                serde_json::to_value(Some(&original))?);
+            assert!(!store.ledger.writer_is_open(), "storage failure keeps the original writer fenced");
+            assert!(runtime.respond(request.clone()).await.is_err());
+            assert_eq!(std::fs::read(&output)?, b"original answer\n");
+            runtime.close().await?;
+            drop(runtime);
+            drop(store);
+            let connection = rusqlite::Connection::open(&database)?;
+            connection.execute_batch("DROP TRIGGER reject_unknown_close")?;
+            drop(connection);
+            let reopened = Arc::new(Store::open(database.clone(), cas)?);
+            assert_eq!(serde_json::to_value(reopened.seat_answer_decision(original.decision_id)?)?,
+                serde_json::to_value(Some(&original))?);
+            let restarted = SeatRuntime::new(reopened);
+            restarted.attach(adapter, attachment).await?;
+            assert!(restarted.observe("%3").await?.unknown.is_empty());
+            assert!(restarted.respond(request).await.is_err(), "an armed answer cannot be sent again");
+            assert_eq!(std::fs::read(&output)?, b"original answer\n");
+            restarted.close().await?;
+            drop(restarted);
+            std::fs::remove_dir_all(dir)?;
+            Ok(())
+        })
     }
 
     /// The reattach map key must be the same deterministic identity the
