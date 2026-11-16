@@ -1,7 +1,6 @@
 //! The tool-artifact CAS root producer: an installed tool's chunk manifest
 //! and chunk objects are roots of this installation's content store, an
-//! unrelated object in the same namespace is not
-//! (docs/specs/wasm-tools.md#spec-8-2).
+//! unrelated object in the same namespace is not.
 //!
 //! Everything here is real: a real node installation, a real WASI preview1
 //! module whose bytes exceed the artifact chunk size, a real content store
