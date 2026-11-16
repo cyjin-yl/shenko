@@ -2,6 +2,7 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [CI 51a1：三进程通过、首次 E1 准备失败](ci-51a1ce43-20261116/README.md)：保存完整 Rust job 原文、API 源码与实际 merge checkout/tree 绑定、取消记录和两次 Clippy 日志读取失败；三进程 SSH star 85.61 秒通过，五门通过。E1 因 schema 8 acknowledgement 在 SSH 前失败，九窗口未到达；713 只修 fixture，仍待运行，原 ZIP 尚待独立字节归档与核验。
 - [CI bf49：新原生闭环与纠错容量旅程](ci-bf49f387-20261116/README.md)：Store 40/40 与 subject 新容量旅程实际通过；全 CI 仍因 metadata readiness 和精确 Clippy 增量失败。全部原始日志、manifest 和单独源码绑定的后续编译结果保留，未将修后检查改称该轮通过。
 - [Node-WASIX 固定源码构建候选](node-wasix-source-build-20261116/README.md)：从具有 BigInt handler 的精确上游源码及固定官方工具链进行独立 opt-in 构建，再复用原三 cell／reopen；仅静态检查，尚无该源码构建或运行结果，不改变能力与完成声明。
 - [首次 hosted Node-WASIX](node-wasix-hosted-43916483602/README.md)：保留真实 run 的完整 26 个 artifact 原件与源码/资源绑定；普通 exit 1，guest 明确报告 `BigIntConstructor` 未实现，未产生 cell/checkpoint/reopen。新 main 源码有对应处理，但没有已验证的匹配构建产物。

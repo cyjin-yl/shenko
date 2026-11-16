@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "scope": "Actual CI evidence for published first-native-E1 delivery; not a complete ship/work claim.",
+  "repository": "cyjin-yl/shenko",
+  "run": {
+    "id": 43922860026,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43922860026",
+    "event": "pull_request",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "failure",
+    "started_at": "2026-11-16T17:52:09Z",
+    "completed_metadata_at": "2026-11-16T18:06:11Z"
+  },
+  "source": {
+    "published_head": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+    "actual_rust_checkout": "61a813576b19b3aea0403ef6dd4fc3d64238ad0b",
+    "checkout_evidence": "rust-job-133494449011.log lines 457-460; checkout-commit-61a81357.json",
+    "tree": "f7c39079c0788091c311c3f01264fa2846e398f3",
+    "head_and_checkout_have_identical_tree": true,
+    "event_baseline": "e5fbf732124ee035f235a5a9f1a20308dad5d062",
+    "baseline_evidence": "run-43922860026.json pull_requests[0].base.sha and checkout parent; Clippy baseline-resolution step succeeded, artifact internals not expanded",
+    "checkout_parents": [
+      "e5fbf732124ee035f235a5a9f1a20308dad5d062",
+      "51a1ce435b3f83c52dcad11f19c522acb77cb59b"
+    ],
+    "pr": 305
+  },
+  "jobs": [
+    {
+      "id": 133494448460,
+      "name": "docs",
+      "conclusion": "success",
+      "started_at": "2026-11-16T17:52:14Z",
+      "completed_at": "2026-11-16T17:52:51Z"
+    },
+    {
+      "id": 133494448974,
+      "name": "web",
+      "conclusion": "success",
+      "started_at": "2026-11-16T17:52:15Z",
+      "completed_at": "2026-11-16T17:53:58Z"
+    },
+    {
+      "id": 133494449011,
+      "name": "rust",
+      "conclusion": "failure",
+      "started_at": "2026-11-16T17:52:15Z",
+      "completed_at": "2026-11-16T18:06:10Z"
+    },
+    {
+      "id": 133494449268,
+      "name": "docs-migration",
+      "conclusion": "success",
+      "started_at": "2026-11-16T17:52:14Z",
+      "completed_at": "2026-11-16T17:52:53Z"
+    },
+    {
+      "id": 133494449291,
+      "name": "clippy-ratchet",
+      "conclusion": "success",
+      "started_at": "2026-11-16T17:52:14Z",
+      "completed_at": "2026-11-16T18:03:42Z"
+    },
+    {
+      "id": 133494449354,
+      "name": "kernel-boundary",
+      "conclusion": "success",
+      "started_at": "2026-11-16T17:52:14Z",
+      "completed_at": "2026-11-16T17:52:52Z"
+    }
+  ],
+  "rust": {
+    "job_id": 133494449011,
+    "complete_decoded_log": "rust-job-133494449011.log",
+    "log_git_blob": "2e38b3729710e86c5cee1df814063583f338ba35",
+    "log_characters": 481505,
+    "log_split_newline_entries": 5933,
+    "all_targets_check": "success",
+    "pinned_ssh_guest_build": "success",
+    "workspace_test_exit_code": 101,
+    "failed_target": "-p shenko --test native_evidence_delivery",
+    "failure_summary_lines": [
+      5876,
+      5878
+    ],
+    "component": {
+      "test": "three_real_start_processes_agree_over_a_pinned_ssh_star",
+      "result": "passed",
+      "duration_seconds": 85.61,
+      "log_lines": [
+        3924,
+        3930
+      ]
+    },
+    "first_e1": {
+      "test": "original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution",
+      "result": "failed",
+      "duration_seconds": 0.9,
+      "log_lines": [
+        3932,
+        3949
+      ],
+      "phase": "source acknowledgement S1 setup, before fixture.prepare_ssh()",
+      "error": "conflict: an older decision schema cannot carry reconciliation acknowledgements",
+      "nine_delivery_windows_reached": false,
+      "final_effect_count_and_zero_t2_assertions_reached": false
+    }
+  },
+  "cancelled_run": {
+    "id": 43922858938,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43922858938",
+    "head_sha": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+    "conclusion": "cancelled",
+    "created_at": "2026-11-16T17:52:09Z",
+    "updated_at": "2026-11-16T17:52:11Z",
+    "result_claim": "none; cancelled run is not a pass"
+  },
+  "artifact_references": [
+    {
+      "id": 14256045836,
+      "name": "rust-evidence",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14256045836",
+      "zip_source_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14256045836/zip",
+      "github_reported_size_bytes": 8305765,
+      "github_reported_sha256": "2a8609e899f1858a4d27ab4fc4c63d5f8dda90c909b0fb31804f4ddd42e762b6",
+      "tool_file_id": "file_000000001e8c820e84b5b96d3e62e99f",
+      "independently_hashed": false,
+      "expanded": false,
+      "zip_bytes_in_this_commit": false
+    },
+    {
+      "id": 14254808026,
+      "name": "clippy-ratchet-evidence",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14254808026",
+      "zip_source_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14254808026/zip",
+      "github_reported_size_bytes": 2768629,
+      "github_reported_sha256": "f7292c315d1aa5bfe400c8a4ecabe922a4630823e25efe9855a82902d6c76523",
+      "tool_file_id": "file_00000000f6fc8230a2e15cac910a9e6d",
+      "independently_hashed": false,
+      "expanded": false,
+      "zip_bytes_in_this_commit": false
+    }
+  ],
+  "unavailable_evidence": {
+    "local_execution_environment": "Unavailable during log collection and fixture-only candidate creation. No local build or test was run.",
+    "clippy_decoded_job_log": "Two connector calls returned Transport closed; both complete failure responses retained. Actual job status is success and the original ZIP was returned as a tool file reference.",
+    "zip_archive_followup": "ZIP bytes still need durable byte archival, independent hashing and member inspection after environment recovery; no byte-verification claim is made here."
+  },
+  "correction": {
+    "commit": "713190cfafe1c1b1c7c06b9aecb4aab2f361c894",
+    "parent": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+    "tree": "75d49b26ee3b94c3d5cdd3f41ba1172a0d242bfa",
+    "path": "bin/shenko/tests/native_evidence_delivery.rs",
+    "changes": "Set the acknowledgement decision body to the existing reconciliation schema constant (9) and seal its codec with the same value; add two comment lines.",
+    "production_changes": false,
+    "all_existing_assertions_preserved": true,
+    "nine_delivery_windows_preserved": true,
+    "effects_two_and_t2_zero_assertions_preserved": true,
+    "validation": "Exact-source/contract review and GitHub one-file compare only; not compiled or executed after correction.",
+    "offline_codec3_draft_included": false
+  },
+  "limits": [
+    "The passing component journey is the bounded three-process SSH-star fixture, not a physical multi-device or long-run acceptance.",
+    "The first-E1 journey still has no complete runtime pass; its nine delivery windows were not reached in this run.",
+    "Control grants in the E1 fixture remain retained-value fixtures; real SSH transport would not by itself prove quorum election.",
+    "Store-aware GC root producers and exclusion remain unfinished. A complete namespace registry can refuse reclamation, but omitted namespaces are not automatically protected; runtime GC assembly is not claimed.",
+    "No 7/30-day, official reference-model or complete S1-S5 acceptance is inferred."
+  ]
+}
