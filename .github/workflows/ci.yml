@@ -157,6 +157,8 @@ jobs:
           fi
       - name: Validate current documents, anchors, cases and symbols
         run: .ci/python/bin/python scripts/check_docs.py
+      - name: Run C19 recorder integrity and real-process concurrency cases
+        run: .ci/python/bin/python -I scripts/observe_longrun_test.py
 
   docs-migration:
     name: docs-migration

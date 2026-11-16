@@ -415,6 +415,9 @@ def scenario_concurrent_stop_is_terminal_barrier(tmp):
         samples = [f.result() for f in futures]
         stopped = seal.result()
     assert stopped.returncode == 0, stopped.stderr
+    # The terminal barrier also applies to a writer started *after* stop.
+    late = _external_observe(tmp, "sample")
+    assert late.returncode == 2 and "sealed" in late.stderr, late.stderr
     assert all(p.returncode in (0, 2) for p in samples)
     assert all("sealed" in p.stderr for p in samples if p.returncode == 2)
     runs, issues = ol.scan_log(ol.log_path(tmp))
