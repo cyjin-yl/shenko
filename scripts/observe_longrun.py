@@ -70,6 +70,10 @@ Commands:
   report  fold records into a per-run summary; declared windows the samples
           do not cover stay `unobserved` forever
 
+Mutating commands and report snapshots share one durable local-file lock. This
+prevents concurrent sampler/stop/report races but cannot coordinate hosts or
+older recorder versions. No sample proves behavior between observations.
+
 The sampler is Linux /proc based. It observes RSS/uptime/FDs of the subject
 PID (or the PID listed in --pid-file each tick, for supervised services),
 host load/memory/filesystem headroom, and segment boundaries whenever the
@@ -78,12 +82,16 @@ prove continuous behaviour between samples and does not detect restarts that
 spawn a *different* PID unless the new PID is supplied (e.g. via --pid-file).
 """
 import argparse
+import contextlib
+import fcntl
+import functools
 import hashlib
 import json
 import math
 import os
 import platform
 import re
+import stat
 import sys
 import time
 from pathlib import Path
@@ -180,6 +188,49 @@ def append_record(log_path, record):
 
 def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# The run directory is the local evidence authority. Every mutation and
+# report must observe one ordered manifest/JSONL state. Keep this lock inode
+# for the lifetime of the run; unlinking would split competing writers.
+# Linux flock coordinates local processes, never remote hosts or old scripts.
+_OBSERVATION_LOCK_FILE = ".observation.lock"
+
+
+@contextlib.contextmanager
+def observation_lock(run_dir):
+    run_dir = Path(run_dir)
+    lock_path = run_dir / _OBSERVATION_LOCK_FILE
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC |
+                 os.O_NOFOLLOW, 0o600)
+    try:
+        opened = os.fstat(fd)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                or opened.st_uid != os.getuid()
+                or stat.S_IMODE(opened.st_mode) & 0o077):
+            raise ValueError("unsafe observation lock file; evidence untouched")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        visible = os.stat(lock_path, follow_symlinks=False)
+        if (opened.st_dev, opened.st_ino) != (visible.st_dev, visible.st_ino):
+            raise ValueError("observation lock identity changed; evidence untouched")
+        # Persist first creation before another invocation may rely on it.
+        fsync_dir(run_dir)
+        yield
+    finally:
+        os.close(fd)
+
+
+def serialized_command(*, create_dir=False):
+    def decorate(command):
+        @functools.wraps(command)
+        def guarded(args):
+            run_dir = Path(args.dir)
+            if create_dir:
+                create_run_dir_durable(run_dir)
+            with observation_lock(run_dir):
+                return command(args)
+        return guarded
+    return decorate
 
 
 # ---------------------------------------------------------------- /proc reads
@@ -780,6 +831,7 @@ def subject_binary_state(pid, candidate):
 
 # ------------------------------------------------------------------ commands
 
+@serialized_command(create_dir=True)
 def cmd_init(args):
     run_dir = Path(args.dir)
     manifest_file = manifest_path(run_dir)
@@ -787,7 +839,6 @@ def cmd_init(args):
         raise SystemExit(
             f"{manifest_file} already exists; a declared manifest is immutable "
             "— start a new run_id for a changed candidate or window")
-    create_run_dir_durable(run_dir)
     now = utcnow()
     windows = {}
     for item in args.window or []:
@@ -887,6 +938,13 @@ def require_appendable(run_dir, manifest):
 
 
 def _take_sample(run_dir, manifest, fixed_pid, pid_file, epoch=None):
+    """Serialize the full header/segment/sample decision, not just each append."""
+    with observation_lock(run_dir):
+        return _take_sample_serialized(run_dir, manifest, fixed_pid, pid_file,
+                                       epoch=epoch)
+
+
+def _take_sample_serialized(run_dir, manifest, fixed_pid, pid_file, epoch=None):
     """Append one fsync'd sample record; return the record."""
     state, manifest_sha256, recorder, log = require_appendable(run_dir, manifest)
     run_id = manifest["run_id"]
@@ -989,6 +1047,7 @@ def cmd_run(args):
     return 0
 
 
+@serialized_command()
 def cmd_checkpoint(args):
     """Record a durable review point at the last sample the run had written."""
     run_dir = Path(args.dir)
@@ -1028,6 +1087,7 @@ def cmd_checkpoint(args):
     return 0
 
 
+@serialized_command()
 def cmd_stop(args):
     """Seal the run once, with the reason it ended."""
     run_dir = Path(args.dir)
@@ -1065,6 +1125,7 @@ def cmd_stop(args):
 
 # -------------------------------------------------------------------- report
 
+@serialized_command()
 def cmd_report(args):
     run_dir = Path(args.dir)
     legacy = False

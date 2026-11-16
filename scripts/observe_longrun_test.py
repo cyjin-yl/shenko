@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fifteen independent C19 consumer scenarios; no long-run results are asserted.
+"""Twenty independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
@@ -17,6 +17,9 @@ import hashlib
 import io
 import json
 import os
+import select
+import subprocess
+import time
 import sys
 import tempfile
 from pathlib import Path
@@ -375,6 +378,127 @@ def scenario_unknown_executable_stays_unobserved(tmp):
     assert rep["eligible_as_product_evidence"] is False
 
 
+def spawn_locked_command(tmp, argv):
+    # A second *process*, not a reused Python-level lock/file description.
+    module_dir = str(Path(ol.__file__).resolve().parent)
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, {module_dir!r})\n"
+        "import observe_longrun as ol\n"
+        "print('ready', flush=True)\n"
+        f"sys.exit(ol.main({argv!r}))\n"
+    )
+    child = subprocess.Popen([sys.executable, "-I", "-c", code],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True)
+    ready, _, _ = select.select([child.stdout], [], [], 5)
+    if not ready or child.stdout.readline().strip() != "ready":
+        child.kill()
+        stdout, stderr = child.communicate(timeout=5)
+        raise AssertionError(f"child never became ready: {stdout} {stderr}")
+    return child
+
+
+def finish_locked_child(child):
+    try:
+        stdout, stderr = child.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.communicate(timeout=5)
+        raise AssertionError("observation command did not finish after lock release")
+    return child.returncode, stdout + stderr
+
+
+def scenario_competing_local_samplers(tmp):
+    """Two real processes cannot mint two headers or the same sample sequence."""
+    manifest = init_run(tmp)
+    argv = ["sample", "--dir", str(tmp)]
+    with ol.observation_lock(tmp):
+        first = spawn_locked_command(tmp, argv)
+        second = spawn_locked_command(tmp, argv)
+        time.sleep(0.15)
+        assert first.poll() is None and second.poll() is None
+    assert finish_locked_child(first)[0] == 0
+    assert finish_locked_child(second)[0] == 0
+    runs, issues = ol.scan_log(ol.log_path(tmp))
+    state = runs["run-a"]
+    assert len(state["headers"]) == 1
+    assert [item["seq"] for item in state["samples"]] == [1, 2]
+    assert ol.run_integrity(manifest, ol.sha256_file(ol.manifest_path(tmp)),
+                            runs, issues)["intact"] is True
+
+
+def scenario_stop_and_sample_are_ordered(tmp):
+    """A concurrent final sample cannot appear after a committed run_end."""
+    manifest = init_run(tmp)
+    take(tmp, manifest, 1000.0)
+    with ol.observation_lock(tmp):
+        stopping = spawn_locked_command(
+            tmp, ["stop", "--dir", str(tmp), "--reason", "completed"])
+        sampling = spawn_locked_command(tmp, ["sample", "--dir", str(tmp)])
+        time.sleep(0.15)
+        assert stopping.poll() is None and sampling.poll() is None
+    stopped, error = finish_locked_child(stopping)
+    assert stopped == 0, error
+    sampled, error = finish_locked_child(sampling)
+    assert sampled in (0, 2), error
+    runs, issues = ol.scan_log(ol.log_path(tmp))
+    state = runs["run-a"]
+    assert state["run_end_count"] == 1
+    assert state["records_after_end"] == 0
+    assert state["run_end"]["sample_seq"] == len(state["samples"])
+    assert ol.run_integrity(manifest, ol.sha256_file(ol.manifest_path(tmp)),
+                            runs, issues)["intact"] is True
+
+
+def scenario_simultaneous_init_does_not_replace_manifest(tmp):
+    """Only one of two independent initializers owns the original run."""
+    tmp.mkdir()
+    args = ["init", "--dir", str(tmp), "--run-id", "race",
+            "--workload", "synthetic", "--window", "demo=60", "--pid", "7"]
+    with ol.observation_lock(tmp):
+        first = spawn_locked_command(tmp, args)
+        second = spawn_locked_command(tmp, args)
+        time.sleep(0.15)
+        assert first.poll() is None and second.poll() is None
+    results = [finish_locked_child(first), finish_locked_child(second)]
+    assert sorted(code == 0 for code, _ in results) == [False, True], results
+    manifest = ol.load_manifest(tmp)
+    assert manifest["run_id"] == "race"
+    assert manifest["declared_windows_seconds"] == {"demo": 60}
+
+
+def scenario_lock_symlink_is_not_followed(tmp):
+    """Refuse a substituted lock inode without touching either evidence log."""
+    init_run(tmp)
+    original = ol.manifest_path(tmp).read_bytes()
+    log = ol.log_path(tmp)
+    before = log.read_bytes() if log.exists() else None
+    target = tmp.parent / "outside-lock-target"
+    target.write_bytes(b"must remain unchanged")
+    lock = tmp / ol._OBSERVATION_LOCK_FILE
+    lock.unlink()
+    lock.symlink_to(target)
+    code, output = cli(["sample", "--dir", str(tmp)])
+    assert code == 2, output
+    assert target.read_bytes() == b"must remain unchanged"
+    assert ol.manifest_path(tmp).read_bytes() == original
+    assert (log.read_bytes() if log.exists() else None) == before
+
+
+def scenario_report_reads_a_single_locked_snapshot(tmp):
+    """A report cannot read a half-written sample while another writer owns it."""
+    init_run(tmp)
+    with ol.observation_lock(tmp):
+        reporting = spawn_locked_command(tmp, ["report", "--dir", str(tmp)])
+        time.sleep(0.15)
+        assert reporting.poll() is None
+    code, output = finish_locked_child(reporting)
+    assert code == 1 or code == 0, output
+    # No sample was written. The report must not claim evidence.
+    assert "no records for run" in output
+
+
 def main():
     build = Path(__file__).resolve().parents[1] / "build"
     build.mkdir(exist_ok=True)
@@ -394,6 +518,11 @@ def main():
         ("equal-stat-binary", scenario_equal_stat_different_binary),
         ("reported-path", scenario_reported_path_is_not_executed_file),
         ("unknown-executable", scenario_unknown_executable_stays_unobserved),
+        ("competing-samplers", scenario_competing_local_samplers),
+        ("stop-sample", scenario_stop_and_sample_are_ordered),
+        ("simultaneous-init", scenario_simultaneous_init_does_not_replace_manifest),
+        ("lock-symlink", scenario_lock_symlink_is_not_followed),
+        ("report-snapshot", scenario_report_reads_a_single_locked_snapshot),
     )
     with tempfile.TemporaryDirectory(prefix="c19-observe-", dir=build) as directory:
         base = Path(directory)
