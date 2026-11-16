@@ -392,6 +392,7 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
             "state_copy",
         ),
     ];
+    let mut refused_generations = Vec::new();
     for (name, script, detail) in cases {
         let candidate = write_executable(&fixture.data_dir, name, &script);
         let error = fixture
@@ -420,8 +421,10 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
             "a refused candidate must never create an activation record"
         );
         assert_working_runtime_intact(&fixture);
+        refused_generations.push(format!("gen-{name}"));
     }
-    fixture.cleanup();
+    let retained = verify_refused_build_observations_after_reopen(fixture, &refused_generations);
+    assert!(retained.is_ok(), "refused build observation was not retained: {retained:?}");
 }
 
 /// An activation record that reaches `activate` with a saved smoke report
@@ -1301,4 +1304,99 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         "no launch receipt exists before a process actually starts the selection"
     );
     fixture.cleanup();
+}
+
+
+#[cfg(unix)]
+fn read_build_json(store: &Store, reference: &ObjectRef) -> Result<serde_json::Value> {
+    let bytes = store.cas.read_object(&reference.digest)?;
+    anyhow::ensure!(Digest::blake3(&bytes) == reference.digest && bytes.len() as u64 == reference.bytes);
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+#[cfg(unix)]
+fn verify_refused_build_observations_after_reopen(
+    fixture: Installation,
+    generations: &[String],
+) -> Result<()> {
+    let db = fixture.live_slot.join(SLOT_DB_FILENAME);
+    let dir = fixture.data_dir.clone();
+    let agent = fixture.agent_id;
+    drop(fixture);
+    let reopened = Store::open(db, dir.join("cas"))?;
+    let head = reopened.load_subject(agent)?.0;
+    let events = reopened.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?;
+    let mut observed = Vec::new();
+    for event in &events {
+        if event.event_type != "runtime_error" { continue; }
+        let data: serde_json::Value = serde_json::from_str(&event.data)?;
+        if data["kind"] != "update_prepare" { continue; }
+        let reference: ObjectRef = serde_json::from_value(data["extra"]["build_receipt_ref"].clone())?;
+        let receipt = read_build_json(&reopened, &reference)?;
+        let generation = receipt["prepare_request"]["generation"].as_str()
+            .context("original candidate generation missing")?;
+        anyhow::ensure!(generations.iter().any(|expected| expected == generation));
+        anyhow::ensure!(receipt["original_branch_head"]["agent_id"] == serde_json::to_value(agent)?);
+        let outcome_ref: ObjectRef = serde_json::from_value(receipt["build_outcome_ref"].clone())?;
+        let outcome = read_build_json(&reopened, &outcome_ref)?;
+        anyhow::ensure!(outcome["artifact"]["generation"] == generation);
+        anyhow::ensure!(outcome["invocation"].is_null(), "prebuilt input cannot claim a compiler invocation");
+        anyhow::ensure!(outcome["validation_tests_executed_by_builder"] == false);
+        let rooted = events.iter().filter(|event| event.event_type == "update_build_observation")
+            .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let expected_digest = serde_json::to_value(&reference.digest)?;
+        anyhow::ensure!(rooted.iter().any(|fact| fact["build_id"] == outcome["build_id"]
+            && fact["build_receipt_ref"]["digest"] == expected_digest));
+        observed.push(generation.to_owned());
+    }
+    anyhow::ensure!(observed.len() == generations.len());
+    anyhow::ensure!(reopened.activation_records(agent)?.is_empty());
+    drop(reopened);
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let fixture = installation();
+        let generation = RuntimeGeneration::new("receipt-qualified");
+        let original_head = fixture.store.load_subject(fixture.agent_id)?.0;
+        let candidate = write_executable(&fixture.data_dir, "candidate-with-receipt", &smoke_script(&generation.0));
+        let record = fixture.service.prepare(PrepareRequest {
+            agent_id: fixture.agent_id, generation: generation.clone(),
+            source: CandidateSource::Prebuilt { path: candidate.clone() }, primary_claim: None,
+        }).await?;
+        anyhow::ensure!(record.phase == ActivationPhase::Smoke);
+        let closure = read_build_json(&fixture.store, &record.recovery_closure_ref)?;
+        let receipt_ref: ObjectRef = serde_json::from_value(closure["build_receipt_ref"].clone())?;
+        let receipt = read_build_json(&fixture.store, &receipt_ref)?;
+        anyhow::ensure!(receipt["original_branch_head"] == serde_json::to_value(&original_head)?);
+        anyhow::ensure!(receipt["prepare_request"]["generation"] == generation.0);
+        let outcome_ref: ObjectRef = serde_json::from_value(receipt["build_outcome_ref"].clone())?;
+        let outcome = read_build_json(&fixture.store, &outcome_ref)?;
+        anyhow::ensure!(outcome["artifact"]["path"] == serde_json::to_value(&candidate)?);
+        anyhow::ensure!(outcome["invocation"].is_null() && outcome["source_snapshot_frozen"] == false);
+        let db = fixture.live_slot.join(SLOT_DB_FILENAME);
+        let dir = fixture.data_dir.clone();
+        let agent = fixture.agent_id;
+        drop(fixture);
+        let reopened = Store::open(db, dir.join("cas"))?;
+        let restored = reopened.activation_record(record.activation_id)?.context("activation was lost")?;
+        anyhow::ensure!(restored.recovery_closure_ref == record.recovery_closure_ref);
+        let events = reopened.session_events_range(EntityId(original_head.branch_id.0), 0, i64::MAX)?;
+        let rooted = events.iter().filter(|event| event.event_type == "update_build_observation")
+            .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        anyhow::ensure!(rooted.len() == 1 && rooted[0]["build_id"] == outcome["build_id"]);
+        anyhow::ensure!(rooted[0]["build_receipt_ref"] == serde_json::to_value(&receipt_ref)?);
+        anyhow::ensure!(rooted[0]["native_operation_settled"] == false);
+        anyhow::ensure!(reopened.activation_selector(agent)?.context("working selector lost")?.selector_revision == 0);
+        anyhow::ensure!(read_build_json(&reopened, &receipt_ref)? == receipt);
+        drop(reopened);
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    })
 }

@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "kind": "source_checkpoint_not_runtime_acceptance",
+  "base_commit": "da6799d57cc3145758ce3117c51ad381659c2087",
+  "base_tree": "ec709b7607cc1ff56b74ef02c5d0e289b5e52c30",
+  "source_files": [
+    {
+      "path": "crates/shenko-update/src/build.rs",
+      "bytes": 36452,
+      "sha256": "e60ea854e4b6cf2e79486612b3d14dd29ae0e1eb8e16d4f7ed9efef1b5f5ee58",
+      "git_blob_sha1": "62965af9ae618689fff5298c391f59b21f65013a"
+    },
+    {
+      "path": "crates/shenko-update/src/build_tests.rs",
+      "bytes": 11381,
+      "sha256": "fa1859efde85be2beafa6bf2c6d45396adb06ae7ec5543c410084fbad21278e0",
+      "git_blob_sha1": "0cd77113d25618e440e44b8811ec47d341ba2659"
+    },
+    {
+      "path": "crates/shenko-update/src/handoff.rs",
+      "bytes": 92515,
+      "sha256": "8ad52dec26e498ec34c5adc2b36908f6b073beb40f428b97efa43399a5d62345",
+      "git_blob_sha1": "4e7d89bb8384eec9bfc38fa813f1f18ec3556dc5"
+    },
+    {
+      "path": "crates/shenko-update/src/handoff_tests.rs",
+      "bytes": 53432,
+      "sha256": "b5e5cd67a17c09d8a673415831855790c07e4d058dacc050e949a327499a6fac",
+      "git_blob_sha1": "c0fb298bed162a575714a5d2a928f858d89a7756"
+    },
+    {
+      "path": "crates/shenko-update/src/smoke.rs",
+      "bytes": 39571,
+      "sha256": "26ebf6abd47c2cb36cc85ad766403f5581ebc7585ae5cbea642d76f7149e639f",
+      "git_blob_sha1": "eb1f0165bd17b7ebea39b8b15d96972ece1a1e19"
+    },
+    {
+      "path": "docs/specs/self-update.md",
+      "bytes": 58434,
+      "sha256": "0b50b179e29dac5c8db99fce801676d639d8006855fc3e9c9971a6a745fa1ef6",
+      "git_blob_sha1": "f823cd7afd45be7a2908e31fd89c1f740b9bc939"
+    },
+    {
+      "path": "docs/evidence/s2-build-receipt-20261116/README.md",
+      "bytes": 4736,
+      "sha256": "7950e42c38ebbb27404fb43a03148c8b0c98fec215a3ae26f71b6ced58e6d9cd",
+      "git_blob_sha1": "9151c6635080f543e3d6df6c88f558c60152f92b"
+    }
+  ],
+  "checks": [
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "tool_returned_output": ""
+    },
+    {
+      "command": "python scripts/check_kernel_boundary.py",
+      "exit_code": 1,
+      "stage": "workspace_graph -> member_manifests -> subprocess cargo metadata",
+      "result": "blocked_before_graph_evaluation",
+      "tool_returned_exception": "FileNotFoundError: [Errno 2] No such file or directory: 'cargo'"
+    }
+  ],
+  "not_run": [
+    "Rust compilation",
+    "Rust tests",
+    "rustfmt",
+    "Clippy",
+    "documentation integrity parser",
+    "model experiment",
+    "workflow dispatch"
+  ],
+  "distinct_windows": [
+    {
+      "id": 1,
+      "new": true,
+      "test": "redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt",
+      "window": "real Cargo A -> B in unique requested output; old default A and first owned A preserved; raw CAS reopen"
+    },
+    {
+      "id": 2,
+      "new": true,
+      "test": "redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt",
+      "window": "actual later compiler failure retains original command/streams and refuses stale artifacts"
+    },
+    {
+      "id": 3,
+      "new": true,
+      "test": "two_real_matching_cargo_targets_are_refused_as_ambiguous",
+      "window": "two actual workspace binaries produce ambiguous compiler evidence"
+    },
+    {
+      "id": 4,
+      "new": true,
+      "test": "overflowing_real_compiler_output_is_stopped_and_never_an_artifact",
+      "window": "bounded real compiler stream overflow, owned stop/reap/readers and no artifact"
+    },
+    {
+      "id": 5,
+      "new": true,
+      "test": "prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure",
+      "window": "existing prebuilt smoke mechanism plus real Store raw root/activation closure/reopen"
+    },
+    {
+      "id": 6,
+      "new": false,
+      "test": "prepare_refuses_a_candidate_whose_smoke_did_not_pass",
+      "window": "existing nonzero-exit-no-report refusal plus receipt reopen"
+    },
+    {
+      "id": 7,
+      "new": false,
+      "test": "prepare_refuses_a_candidate_whose_smoke_did_not_pass",
+      "window": "existing unreadable-report refusal plus receipt reopen"
+    },
+    {
+      "id": 8,
+      "new": false,
+      "test": "prepare_refuses_a_candidate_whose_smoke_did_not_pass",
+      "window": "existing failed-report refusal plus receipt reopen"
+    }
+  ],
+  "executed_windows": null,
+  "execution_status": "not_run_no_local_rust_toolchain",
+  "acceptance_claims": []
+}
