@@ -1211,22 +1211,19 @@ mod tests {
             anyhow::ensure!(result.request_id == request_id && result.effective.provider_binding == binding);
             anyhow::ensure!(result.status == InferenceStatus::Failed && result.termination.kind == TerminationKind::Unknown);
             anyhow::ensure!(receipt.recorded().len() == 1 && receipt.recorded()[0].termination.kind == TerminationKind::Unknown);
-11: @ours
             {
                 let errors = observations.errors.lock();
-                // The transport diagnostic precedes the broker's existing
-                // durable unknown-outcome accounting. Both facts belong to
-                // the original request; neither may suppress the other.
-                let [timeout, unknown] = errors.as_slice() else {
-                    anyhow::bail!("expected the timeout and unknown-outcome reports, got {errors:?}");
+                // One failure is one durable error. The execution path records
+                // the typed transport cause; the broker's completion path adds
+                // its generic unknown-outcome record only when no typed cause
+                // was recorded, so the same failure is never journalled twice.
+                let [timeout] = errors.as_slice() else {
+                    anyhow::bail!("expected exactly one typed timeout report, got {errors:?}");
                 };
                 anyhow::ensure!(timeout.code == "INFERENCE_TRANSPORT_TIMEOUT"
                     && timeout.request_id == request_id && timeout.agent_id == agent_id
                     && timeout.message.contains("500 ms"),
                     "unexpected timeout report: {timeout:?}");
-                anyhow::ensure!(unknown.code == "INFERENCE_OUTCOME_UNKNOWN"
-                    && unknown.request_id == request_id && unknown.agent_id == agent_id,
-                    "unexpected unknown-outcome report: {unknown:?}");
             }
             anyhow::ensure!(handle.active_count() == 1);
             handle.reconcile_recorded(request_id)?;
