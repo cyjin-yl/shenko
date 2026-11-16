@@ -1,0 +1,52 @@
+[
+  {
+    "path": "configure.py",
+    "bytes": 86729,
+    "sha256": "14fc54f0c562b15c37aa7498fc62aafca9c01f4d7f2a6bf2cae48a256fe246a0"
+  },
+  {
+    "path": "common.gypi",
+    "bytes": 26719,
+    "sha256": "d266927c4e7f8344bf7a214be3b8c9013a9d12bf8a176bb670b63248d0828b8d"
+  },
+  {
+    "path": "node.gyp",
+    "bytes": 50306,
+    "sha256": "9fee3421a8c5c5257da6d4dd382c7c2ca5a587fe72c7327f3271259419491f65"
+  },
+  {
+    "path": "node.gypi",
+    "bytes": 12707,
+    "sha256": "7ff1d527831e009dff964d4ca9914b6f8680a4903020b3ab1a6e271a5c8e2cb2"
+  },
+  {
+    "path": "tools/v8_gypfiles/features.gypi",
+    "bytes": 19533,
+    "sha256": "e16f24d53baa7ad1eedb1248924898ee71c5ba662e751618f6647a2e05b26f42"
+  },
+  {
+    "path": "tools/v8_gypfiles/toolchain.gypi",
+    "bytes": 28146,
+    "sha256": "f30c47a171fcad4491c2421f80fda1aaf4f72c098859268fad1668fb28ec2a64"
+  },
+  {
+    "path": "tools/v8_gypfiles/v8.gyp",
+    "bytes": 98192,
+    "sha256": "c1f3c8001a2872b0bc8d2138d6cdd8f5d0151f27c4315d86c2fe343ee715a4f4"
+  },
+  {
+    "path": "deps/v8/src/builtins/wasm32/builtins-wasm32.cc",
+    "bytes": 1150461,
+    "sha256": "c6ea0965a969bb03c614f42c588afbcec3b1e3924ee43ff64a3aa40324bfa649"
+  },
+  {
+    "path": "lib/internal/buffer.js",
+    "bytes": 32422,
+    "sha256": "91cb9bc7d7aed4f55982b3ba995c8081a46eee81719e102135df5b27428d020a"
+  },
+  {
+    "path": "src/node_version.h",
+    "bytes": 4239,
+    "sha256": "0a896fe19a9480dcfbbcdb96ab046df8b0f519d41cbaf07aa9a2332495346eb4"
+  }
+]

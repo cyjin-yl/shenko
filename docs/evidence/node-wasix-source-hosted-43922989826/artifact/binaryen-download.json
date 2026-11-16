@@ -1,0 +1,143 @@
+{
+  "name": "binaryen",
+  "version": "128",
+  "source_commit": "06cc1d9b452df3e7f4d80bb9314a863c69d4aad6",
+  "url": "https://github.com/WebAssembly/binaryen/releases/download/version_128/binaryen-version_128-x86_64-linux.tar.gz",
+  "bytes": 114606053,
+  "sha256": "4ce79586d1c4762502eebe9a1db071fa5e446ef8897f2f766eb1cce5ec6dee9e",
+  "expanded_byte_limit": 1073741824,
+  "started_at": "2026-11-16T17:53:30.853934+00:00",
+  "verified": true,
+  "expanded_bytes": 358221665,
+  "members": [
+    {
+      "path": "binaryen-version_128",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/lib",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/lib/libbinaryen.a",
+      "bytes": 79104370,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/include",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/include/wasm-delegations.def",
+      "bytes": 2762,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/include/binaryen-c.h",
+      "bytes": 189093,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-dis",
+      "bytes": 19313504,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-ctor-eval",
+      "bytes": 19862432,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-fuzz-types",
+      "bytes": 20144992,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-as",
+      "bytes": 19333984,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm2js",
+      "bytes": 19800992,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/binaryen-unittests",
+      "bytes": 22197152,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-opt",
+      "bytes": 20636576,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-merge",
+      "bytes": 19436384,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-reduce",
+      "bytes": 19460960,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-shell",
+      "bytes": 19792800,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-metadce",
+      "bytes": 19452768,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-emscripten-finalize",
+      "bytes": 19329888,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-split",
+      "bytes": 19805024,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "binaryen-version_128/bin/wasm-fuzz-lattices",
+      "bytes": 20357984,
+      "type": "0",
+      "link": ""
+    }
+  ],
+  "actual_bytes": 114606053,
+  "actual_sha256": "4ce79586d1c4762502eebe9a1db071fa5e446ef8897f2f766eb1cce5ec6dee9e",
+  "finished_at": "2026-11-16T17:53:33.248022+00:00"
+}

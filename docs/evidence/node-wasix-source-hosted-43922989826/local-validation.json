@@ -1,0 +1,23 @@
+{
+  "kind": "evidence_integrity_only",
+  "product_tested": false,
+  "archive_sha256_matches_github": true,
+  "zip_crc_all_entries_valid": true,
+  "archive_entries_hashed": 98,
+  "internal_manifest_entries_verified": 97,
+  "builder_runner_driver_input_hashes_match_original_manifest": true,
+  "git_diff_check_exit": 0,
+  "documentation_check": {
+    "command": "python3 scripts/check_docs.py",
+    "exit_code": 1,
+    "environment_missing_symbol_parser": true,
+    "error_count": 1948,
+    "non_parser_errors": [
+      "R160: crates/shenko-ui/src/static/app.css#selector::root[data-theme=\"dark\"]::property:--canvas: CSS parser unavailable; install scripts/requirements-ci.txt",
+      "R160: crates/shenko-ui/src/static/app.css#selector::root, :root[data-theme=\"dark\"]::property:--accent-color: CSS parser unavailable; install scripts/requirements-ci.txt",
+      "UI-S12: crates/shenko-ui/src/static/app.css#selector::root::property:--radius: CSS parser unavailable; install scripts/requirements-ci.txt"
+    ]
+  },
+  "rust_compile_or_tests": false,
+  "node_rerun": false
+}
