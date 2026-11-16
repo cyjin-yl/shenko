@@ -167,6 +167,57 @@ async fn unknown_dispatch_recovery_keeps_capacity_and_original_evidence() {
     }
 }
 
+/// The live loop must STOP on unreconciled dispatch debt instead of arming a
+/// second request for the same sealed step. The single-step recovery above
+/// proves the durable conversion; this case proves the next live iteration
+/// cannot turn that conversion into a second send.
+#[tokio::test]
+async fn the_live_loop_stops_on_unknown_dispatch_debt_without_a_second_request() {
+    for terminal_unknown in [false, true] {
+        let (dir, store, agent) = fixture();
+        let (_old_broker, handle) = broker();
+        let mut subject = state(store.clone(), agent).unwrap().with_broker(handle);
+        let attempt = arm(&mut subject).await;
+        store.mark_subject_request_dispatched(attempt.request_id).unwrap();
+        if terminal_unknown {
+            receipt(&subject, &attempt, InferenceStatus::Failed, TerminationKind::Unknown);
+        }
+        let prior = store.subject_request_attempt(attempt.request_id).unwrap().unwrap();
+        drop(subject);
+        drop(store);
+
+        let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+        let (_new_broker, handle) = broker();
+        let subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+        let error = tokio::time::timeout(
+            Duration::from_secs(10),
+            super::super::run_subject_loop(subject, CancellationToken::new()),
+        )
+        .await
+        .expect("the live loop stops instead of pacing against unknown debt")
+        .expect_err("unknown dispatch debt must stop the live loop");
+        assert!(
+            error.to_string().contains("unreconciled dispatch debt"),
+            "wrong stop cause: {error}"
+        );
+
+        let attempts = store.subject_request_attempts_for_step(agent, attempt.step_id).unwrap();
+        assert_eq!(attempts.len(), 1, "the live loop armed a second request");
+        assert_eq!(attempts[0].request_id, attempt.request_id);
+        let retained = store.subject_request_attempt(attempt.request_id).unwrap().unwrap();
+        assert_eq!(retained.state, prior.state);
+        assert_eq!(retained.attempt_id, prior.attempt_id);
+        assert_eq!(
+            retained.terminal.as_ref().and_then(|t| t.result_ref.as_ref()),
+            prior.terminal.as_ref().and_then(|t| t.result_ref.as_ref())
+        );
+        assert_eq!(handle.active_count(), 1, "the original unknown charge was released");
+        let (head, step) = store.load_subject(agent).unwrap();
+        assert_eq!(head.committed_step_no, 0, "the head advanced past unknown debt");
+        assert_eq!(step.state, SubjectStepState::RetryPending);
+    }
+}
+
 #[tokio::test]
 async fn broker_admission_rejection_stops_with_durable_primary_cause() {
     use shenko_types::error::{ErrorScope, RetryStrategy, ShenkoError};

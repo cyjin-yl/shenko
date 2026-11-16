@@ -349,10 +349,22 @@ fn retry_pacing(attempts: usize) -> std::time::Duration {
 /// generation — is not a continuation and is left to the caller's
 /// reconciliation. Unknown outcomes are not retry-permitted, so they can
 /// never enter this path.
+///
+/// `Stopped` is distinct from "no pacing": the durable step holds a fault or
+/// unreconciled debt, so the live loop must stop instead of arming another
+/// request for the same sealed step.
+enum RetryDecision {
+    /// The step is not retry-pending, or a real resource wait may be paced.
+    Continue(Option<(std::time::Duration, usize)>),
+    /// A durable retry fact forbids another attempt here; stop for explicit
+    /// reconciliation and keep the original request and its debt.
+    Stopped(ShenkoError),
+}
+
 fn retry_continuation(
     state: &mut SubjectLoopState,
     seal_at_entry: Option<&ObjectRef>,
-) -> Result<Option<(std::time::Duration, usize)>, ShenkoError> {
+) -> Result<RetryDecision, ShenkoError> {
     let (head, step) = state.store.load_subject(state.agent_id)?;
     if step.state != SubjectStepState::RetryPending
         || step.step_id != state.step.step_id
@@ -361,7 +373,7 @@ fn retry_continuation(
         || head.software_generation != state.head.software_generation
         || head.next_step_id != state.head.next_step_id
     {
-        return Ok(None);
+        return Ok(RetryDecision::Continue(None));
     }
     // A step that was ALREADY retry-pending entered this invocation and came
     // back with the same evidence did not record a new conclusive failure: the
@@ -369,7 +381,9 @@ fn retry_continuation(
     // resource wait, and it must stop for reconciliation instead of pacing
     // against a wall that will not move.
     if seal_at_entry.is_some_and(|seal| step.retry_reason_ref.as_ref() == Some(seal)) {
-        return Ok(None);
+        return Ok(RetryDecision::Stopped(ShenkoError::conflict(
+            "the sealed request cannot be resumed; reconcile the original attempt explicitly",
+        )));
     }
     // A human pause is a real control fact. A retry boundary is the safest
     // place to honour it: no model request is in flight and the retry evidence
@@ -379,7 +393,7 @@ fn retry_continuation(
             step_no = step.step_no,
             "requested pause met a retry boundary; stopping instead of re-attempting"
         );
-        return Ok(None);
+        return Ok(RetryDecision::Continue(None));
     }
     let object = step
         .retry_reason_ref
@@ -396,11 +410,19 @@ fn retry_continuation(
         InferenceRetryFact::NeverDispatched
             | InferenceRetryFact::ProviderRejected { http_status: 429 }
     );
-    if !provider_resource_wait
-        || step.active_attempt_id.is_some()
-        || !evidence.permits_retry(step.active_request_id)
-    {
-        return Ok(None);
+    if !provider_resource_wait {
+        // A lost dispatch or a refused admission is unknown debt, not a
+        // resource wait. Arming another request here would send the same
+        // external effect twice while the first outcome is still unknown.
+        return Ok(RetryDecision::Stopped(ShenkoError::conflict(format!(
+            "subject step {} holds unreconciled dispatch debt; reconcile the original request before another attempt",
+            step.step_no
+        ))));
+    }
+    if step.active_attempt_id.is_some() || !evidence.permits_retry(step.active_request_id) {
+        return Ok(RetryDecision::Stopped(ShenkoError::conflict(
+            "the sealed retry evidence does not permit another attempt for this request",
+        )));
     }
     let attempts = state
         .store
@@ -409,7 +431,7 @@ fn retry_continuation(
     let pacing = retry_pacing(attempts);
     state.head = head;
     state.step = step;
-    Ok(Some((pacing, attempts)))
+    Ok(RetryDecision::Continue(Some((pacing, attempts))))
 }
 
 pub struct SubjectLoopState {
@@ -945,6 +967,21 @@ pub async fn run_subject_loop(
                         primary
                     }
                     Ok(_) => unreadable,
+                });
+            }
+        };
+        let retry = match retry {
+            RetryDecision::Continue(pacing) => pacing,
+            // The durable retry fact forbids another attempt. Stopping here
+            // keeps the original request and its unknown debt; falling
+            // through would arm a second request for the same sealed step.
+            RetryDecision::Stopped(fault) => {
+                break Err(match outcome {
+                    Err(primary) => {
+                        retry_state_error = Some(fault);
+                        primary
+                    }
+                    Ok(_) => fault,
                 });
             }
         };
