@@ -1110,6 +1110,24 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
     )?;
     let transition: shenko_types::object::ObjectRef =
         serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+    // This source is still complete before the existing proof-loss fault.
+    // Bind the later Object-origin expectation to the actual arm envelope.
+    let before_proof_loss = source.current_commit_seq()?;
+    let objects_before_proof_loss = source.cas.object_digests()?;
+    let intact = source.retained_object_snapshot(RetentionLimits::default())?;
+    assert!(intact.complete, "retention gaps before proof loss: {:?}", intact.gaps);
+    assert_eq!(intact.ledger_id, source.ledger.ledger_id());
+    assert_eq!(intact.source_through.0, before_proof_loss);
+    assert!(intact.verified_objects.contains(&transition.digest));
+    assert!(intact.references.iter().any(|reference|
+        reference.required && reference.digest == transition.digest
+            && matches!(&reference.origin,
+                shenko_store::retained_objects::RetentionOrigin::Object { digest }
+                    if digest == &third_arm.admission.payload_ref.digest)));
+    append_json(&fixture.logs().join("retained-object-observations.jsonl"),
+        &json!({"stage":"retained_before_proof_loss","store":"source","snapshot":intact}))?;
+    assert_eq!(source.current_commit_seq()?, before_proof_loss);
+    assert_eq!(source.cas.object_digests()?, objects_before_proof_loss);
     fs::remove_file(source.cas.verified_object_path(&transition)?)?;
     let mut gap_receipt = receipts[1].clone();
     gap_receipt.receipt_id = EntityId::new();
@@ -1228,14 +1246,40 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
         }
     }
     assert_eq!(fs::read(fixture.private().join("effects"))?, b"effect\neffect\n");
-    // The same real first/successor/ack/late-fact history now has all its
-    // declared bytes. Audit both the source and the physical receiver; this
-    // does not validate malformed delivery semantics or grant a GC permit.
+    // Preserve the full first/successor/ack/late-fact audit. The source must
+    // report the deliberately removed third-arm proof; the receiver remains
+    // complete. These reads do not validate delivery semantics or grant a GC permit.
     for (name, store) in [("source", source.as_ref()), ("receiver", &receiver)] {
         let before = store.current_commit_seq()?;
         let objects = store.cas.object_digests()?;
         let snapshot = store.retained_object_snapshot(RetentionLimits::default())?;
-        assert!(snapshot.complete, "retention gaps for {name}: {:?}", snapshot.gaps);
+        if name == "source" {
+            assert!(!snapshot.complete, "the removed arm proof must remain visible");
+            assert_eq!(snapshot.omitted_gap_count, 0);
+            assert_eq!(snapshot.gaps.len(), 4, "{:?}", snapshot.gaps);
+            for gap in &snapshot.gaps {
+                assert_eq!(gap.kind, "referenced_object_unreadable");
+                assert_eq!(gap.digest.as_ref(), Some(&transition.digest));
+            }
+            for (table, column) in [
+                ("control_materializations", "data"),
+                ("control_prepared_transitions", "transition_ref"),
+                ("inbox_events", "data"),
+            ] {
+                assert_eq!(snapshot.gaps.iter().filter(|gap| matches!(&gap.origin,
+                    shenko_store::retained_objects::RetentionOrigin::Row {
+                        table: found_table, column: found_column, ..
+                    } if found_table == table && found_column == column)).count(),
+                    1, "missing proof origin {table}.{column}: {:?}", snapshot.gaps);
+            }
+            assert_eq!(snapshot.gaps.iter().filter(|gap| matches!(&gap.origin,
+                shenko_store::retained_objects::RetentionOrigin::Object { digest }
+                    if digest == &third_arm.admission.payload_ref.digest)).count(),
+                1, "missing original arm envelope origin: {:?}", snapshot.gaps);
+            assert!(!snapshot.verified_objects.contains(&transition.digest));
+        } else {
+            assert!(snapshot.complete, "retention gaps for {name}: {:?}", snapshot.gaps);
+        }
         assert_eq!(snapshot.ledger_id, store.ledger.ledger_id());
         assert_eq!(snapshot.source_through.0, before);
         for receipt in receipts.iter().chain(std::iter::once(&later)) {

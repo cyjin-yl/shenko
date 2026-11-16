@@ -1,0 +1,5 @@
+{
+  "step": "decode GitData blob content from generic fetch",
+  "error": "TypeError: Cannot read properties of undefined (reading 'replace')",
+  "mutation_performed": false
+}

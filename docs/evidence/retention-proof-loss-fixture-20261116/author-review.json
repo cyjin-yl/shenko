@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "file": "bin/shenko/tests/native_evidence_delivery.rs",
+  "base_head": "41d785ae8f968a3e81cd632223cadb356c44a224",
+  "original_blob": "c1bfbdfe7489a052af6db16b822158430a49f70c",
+  "candidate_blob": "829d8fe5169241d686b55a858d63e4e3c7793d86",
+  "changes": [
+    {
+      "purpose": "Audit the actual complete source immediately before the unchanged proof-loss injection.",
+      "old": "    fs::remove_file(source.cas.verified_object_path(&transition)?)?;\n",
+      "new": "    // This source is still complete before the existing proof-loss fault.\n    // Bind the later Object-origin expectation to the actual arm envelope.\n    let before_proof_loss = source.current_commit_seq()?;\n    let objects_before_proof_loss = source.cas.object_digests()?;\n    let intact = source.retained_object_snapshot(RetentionLimits::default())?;\n    assert!(intact.complete, \"retention gaps before proof loss: {:?}\", intact.gaps);\n    assert_eq!(intact.ledger_id, source.ledger.ledger_id());\n    assert_eq!(intact.source_through.0, before_proof_loss);\n    assert!(intact.verified_objects.contains(&transition.digest));\n    assert!(intact.references.iter().any(|reference|\n        reference.required && reference.digest == transition.digest\n            && matches!(&reference.origin,\n                shenko_store::retained_objects::RetentionOrigin::Object { digest }\n                    if digest == &third_arm.admission.payload_ref.digest)));\n    append_json(&fixture.logs().join(\"retained-object-observations.jsonl\"),\n        &json!({\"stage\":\"retained_before_proof_loss\",\"store\":\"source\",\"snapshot\":intact}))?;\n    assert_eq!(source.current_commit_seq()?, before_proof_loss);\n    assert_eq!(source.cas.object_digests()?, objects_before_proof_loss);\n    fs::remove_file(source.cas.verified_object_path(&transition)?)?;\n"
+    },
+    {
+      "purpose": "Correct the late audit description without moving the original late-fact assertions.",
+      "old": "    // The same real first/successor/ack/late-fact history now has all its\n    // declared bytes. Audit both the source and the physical receiver; this\n    // does not validate malformed delivery semantics or grant a GC permit.\n",
+      "new": "    // Preserve the full first/successor/ack/late-fact audit. The source must\n    // report the deliberately removed third-arm proof; the receiver remains\n    // complete. These reads do not validate delivery semantics or grant a GC permit.\n"
+    },
+    {
+      "purpose": "Require the precise injected source loss while preserving receiver completeness.",
+      "old": "        assert!(snapshot.complete, \"retention gaps for {name}: {:?}\", snapshot.gaps);\n",
+      "new": "        if name == \"source\" {\n            assert!(!snapshot.complete, \"the removed arm proof must remain visible\");\n            assert_eq!(snapshot.omitted_gap_count, 0);\n            assert_eq!(snapshot.gaps.len(), 4, \"{:?}\", snapshot.gaps);\n            for gap in &snapshot.gaps {\n                assert_eq!(gap.kind, \"referenced_object_unreadable\");\n                assert_eq!(gap.digest.as_ref(), Some(&transition.digest));\n            }\n            for (table, column) in [\n                (\"control_materializations\", \"data\"),\n                (\"control_prepared_transitions\", \"transition_ref\"),\n                (\"inbox_events\", \"data\"),\n            ] {\n                assert_eq!(snapshot.gaps.iter().filter(|gap| matches!(&gap.origin,\n                    shenko_store::retained_objects::RetentionOrigin::Row {\n                        table: found_table, column: found_column, ..\n                    } if found_table == table && found_column == column)).count(),\n                    1, \"missing proof origin {table}.{column}: {:?}\", snapshot.gaps);\n            }\n            assert_eq!(snapshot.gaps.iter().filter(|gap| matches!(&gap.origin,\n                shenko_store::retained_objects::RetentionOrigin::Object { digest }\n                    if digest == &third_arm.admission.payload_ref.digest)).count(),\n                1, \"missing original arm envelope origin: {:?}\", snapshot.gaps);\n            assert!(!snapshot.verified_objects.contains(&transition.digest));\n        } else {\n            assert!(snapshot.complete, \"retention gaps for {name}: {:?}\", snapshot.gaps);\n        }\n"
+    }
+  ],
+  "static_checks": {
+    "source_head": "41d785ae8f968a3e81cd632223cadb356c44a224",
+    "source_blob": "c1bfbdfe7489a052af6db16b822158430a49f70c",
+    "source_characters": 57829,
+    "candidate_characters": 60604,
+    "exact_inverse_replacements_restore_original": true,
+    "replacements": 3,
+    "original_remove_file_count": 1,
+    "candidate_remove_file_count": 1,
+    "complete_audit_precedes_original_delete": true,
+    "original_tail_from_ledger_assertion_unchanged": true,
+    "new_behavioral_scenarios": 0,
+    "production_files_changed": 0,
+    "rust_executed": false,
+    "fourth_object_origin_proof": {
+      "fixture": "third_arm.admission.payload_ref is read at original lines 1106-1110; its action.transition_ref is the deleted ObjectRef at 1111-1113.",
+      "reader": "expand_closure sets Object origin to the parent reference digest (closure.rs:187), then json(&body,&origin,...) at 262; nested typed references retain origin.clone() at 138-141.",
+      "candidate": "The intact pre-deletion snapshot must contain that required transition reference with the actual third_arm payload Object origin."
+    }
+  },
+  "source_reads": [
+    "https://raw.githubusercontent.com/cyjin-yl/shenko/41d785ae8f968a3e81cd632223cadb356c44a224/bin/shenko/tests/native_evidence_delivery.rs",
+    "https://api.github.com/repos/cyjin-yl/shenko/contents/bin/shenko/tests?ref=41d785ae8f968a3e81cd632223cadb356c44a224",
+    "https://raw.githubusercontent.com/cyjin-yl/shenko/41d785ae8f968a3e81cd632223cadb356c44a224/crates/shenko-store/src/retained_objects/closure.rs"
+  ],
+  "limitations": [
+    "No Rust compiler, Cargo, or local execution was available or attempted.",
+    "Only immutable candidate blobs are uploaded; no tree, commit, branch, PR, or workflow has been changed."
+  ]
+}
