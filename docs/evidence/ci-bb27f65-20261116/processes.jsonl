@@ -1,0 +1,7 @@
+{"label":"bootstrap","observation":{"event":"spawned"},"pid":13191}
+{"label":"bootstrap","observation":{"event":"signal_requested","signal":2},"pid":13191}
+{"label":"bootstrap","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13191}
+{"label":"install","observation":{"event":"spawned"},"pid":13206}
+{"label":"install","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13206}
+{"label":"inventory","observation":{"event":"spawned"},"pid":13215}
+{"label":"inventory","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13215}

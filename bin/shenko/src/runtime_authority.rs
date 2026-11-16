@@ -482,6 +482,7 @@ impl CommitAuthorityProvider for RuntimeAuthority {
 pub fn restart_command(command: &crate::Command) -> Option<crate::Command> {
     let crate::Command::Start {
         port,
+        pause_at_start,
         name,
         napcat,
         napcat_account,
@@ -498,6 +499,7 @@ pub fn restart_command(command: &crate::Command) -> Option<crate::Command> {
     };
     Some(crate::Command::Start {
         port: *port,
+        pause_at_start: *pause_at_start,
         name: name.clone(),
         napcat: napcat.clone(),
         napcat_account: *napcat_account,

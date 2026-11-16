@@ -1,0 +1,48 @@
+{
+  "artifact_sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+  "client": "WASI module",
+  "kind": "real_ssh_wasi_openssh_journey",
+  "payload_bytes": 100003,
+  "payload_sha256": "635e9a7d2f64ce04a46b1503cbe287b8721795f215f4b8cf24b256908acaab1a",
+  "records": [
+    {
+      "action": "keygen",
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": "{\"fingerprint\":\"SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34\",\"generated\":\"ed25519\"}\n"
+    },
+    {
+      "action": "exec",
+      "exit_code": 7,
+      "stderr": "ssh-wasi-stderr\n",
+      "stdout": "ssh-wasi-exec\n"
+    },
+    {
+      "action": "put",
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": "{\"direction\":\"put\",\"transferred_bytes\":100003}\n"
+    },
+    {
+      "action": "get",
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": "{\"direction\":\"get\",\"transferred_bytes\":100003}\n"
+    },
+    {
+      "action": "exec",
+      "exit_code": 255,
+      "stderr": "ssh-wasi: Unknown server key\n",
+      "stdout": ""
+    },
+    {
+      "action": "exec",
+      "exit_code": 255,
+      "stderr": "ssh-wasi: no host-admitted TCP stream matches 127.0.0.1:34777\n",
+      "stdout": ""
+    }
+  ],
+  "scope": "keygen, pinned public-key authentication, exec status/streams, SFTP put/get, key and grant refusal; no long-run claim",
+  "server": "local OpenSSH",
+  "server_log": "Server listening on 127.0.0.1 port 34777.\r\nConnection from 127.0.0.1 port 38938 on 127.0.0.1 port 34777 rdomain \"\"\r\nkex_exchange_identification: Connection closed by remote host\r\nConnection closed by 127.0.0.1 port 38938\r\nConnection from 127.0.0.1 port 45576 on 127.0.0.1 port 34777 rdomain \"\"\r\nAccepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1\r\nPostponed publickey for root from 127.0.0.1 port 45576 ssh2 [preauth]\r\nAccepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1\r\nAccepted publickey for root from 127.0.0.1 port 45576 ssh2: ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34\r\nStarting session: command for root from 127.0.0.1 port 45576 id 0\r\nClose session: user root from 127.0.0.1 port 45576 id 0\r\nConnection closed by 127.0.0.1 port 45576\r\nTransferred: sent 2388, received 1400 bytes\r\nClosing connection to 127.0.0.1 port 45576\r\nConnection from 127.0.0.1 port 54046 on 127.0.0.1 port 34777 rdomain \"\"\r\nAccepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1\r\nPostponed publickey for root from 127.0.0.1 port 54046 ssh2 [preauth]\r\nAccepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1\r\nAccepted publickey for root from 127.0.0.1 port 54046 ssh2: ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34\r\nStarting session: subsystem 'sftp' for root from 127.0.0.1 port 54046 id 0\r\nConnection closed by 127.0.0.1 port 54046\r\nClose session: user root from 127.0.0.1 port 54046 id 0\r\nTransferred: sent 2888, received 101936 bytes\r\nClosing connection to 127.0.0.1 port 54046\r\nConnection from 127.0.0.1 port 53782 on 127.0.0.1 port 34777 rdomain \"\"\r\nAccepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1\r\nPostponed publickey for root from 127.0.0.1 port 53782 ssh2 [preauth]\r\nAccepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1\r\nAccepted publickey for root from 127.0.0.1 port 53782 ssh2: ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34\r\nStarting session: subsystem 'sftp' for root from 127.0.0.1 port 53782 id 0\r\nConnection closed by 127.0.0.1 port 53782\r\nClose session: user root from 127.0.0.1 port 53782 id 0\r\nTransferred: sent 102916, received 1940 bytes\r\nClosing connection to 127.0.0.1 port 53782\r\nConnection from 127.0.0.1 port 52472 on 127.0.0.1 port 34777 rdomain \"\"\r\nConnection closed by 127.0.0.1 port 52472 [preauth]\r\n"
+}

@@ -301,6 +301,17 @@ physical send. Prepared startup recovery uses the same existing entry point.
 Implementation and unexecuted journey limits are recorded in
 [canonical native T2 materialization](../development/canonical-native-t2-materialization.md).
 
+The separate `native.dispatch` send-boundary marker also carries a typed
+canonical transition. Its only task change is the original attempt's marker,
+the next record revision and the original source `CommitRef`; operation,
+attempt and E1 rows are never rewritten. Only the live source call that
+created this preparation can return `Won`, after a nonreplayed admission and
+a final current invocation/dispatcher check. An existing preparation, startup
+recovery or learned application always returns factual `AlreadyCommitted`.
+In particular, the first consensus choice of an older preparation can have
+`replayed=false` and still grants no new send. See
+[canonical native dispatch](../development/canonical-native-dispatch.md).
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,
@@ -324,11 +335,11 @@ The live Store provider and runtime reconstruction path retain local markers
 only after Store COMMIT. A live authority failure cancels and drains the owned
 runtime before rebuilding its branch-scoped consumers. Storage failure retains
 its actual error instead of being disguised as an election retry. A follower
-may materialize a verified chosen S1 or native T2 without becoming a primary, but this
+may materialize a verified chosen S1, native dispatch marker or native T2 without becoming a primary, but this
 factual projection supplies no new physical send permit.
 
 The other admission boundaries, including S0 request arming, native claims,
-T1/dispatch and publication T2, still
+external-operation T1 arming and publication T2, still
 carry original plans rather than this canonical transition. Calling their
 ordinary code on another ledger is not deterministic replication. When a
 chosen plan cannot be materialized, the selected local primary retains its

@@ -109,10 +109,16 @@ After integration, `cargo check --offline --locked -p shenko-store --tests -j1`
 found a fixture ownership mismatch (`Store` instead of `Arc<Store>`). Commit
 `f2272b4` corrects that return value; the complete Store test-target metadata
 check then passed in 1.86 seconds. This type check did not execute either
-journey. The combined candidate still needs its CI runtime result.
+journey.
 
-These are authored checks, not passing runtime acceptance claims. In
-particular, the foreign-ledger journey checks honest predecessor refusal; it
+Candidate `6782627ea89e17774bc65ba54d459ad85804fef1` subsequently executed both
+journeys successfully in [CI job 133289317901](https://github.com/cyjin-yl/shenko/actions/runs/43864453626/job/133289317901),
+after the workspace all-target check passed. The original test excerpt and
+artifact digest are retained in the [candidate observation](../evidence/ssh-wasi-ci-6782627-20261116/observation.json).
+The complete job still failed on the separate broker deadline report assertion;
+passing these two journeys does not make that job green.
+
+In particular, the foreign-ledger journey checks honest predecessor refusal; it
 does not demonstrate a foreign native execution takeover. The read sets remain
 conservative full-table snapshots and can conflict on unrelated factual
 progress. Canonical claim/T1 integration, authoritative predecessor handling,

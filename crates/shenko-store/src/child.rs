@@ -1028,6 +1028,9 @@ impl Store {
                 || attempt.final_receipt_id.is_some() { return Ok(NativeDispatchTransition::Fenced); }
             (operation, attempt)
         };
+        if self.has_commit_authority() {
+            return self.canonical_native_dispatch(ctx, operation, attempt).map_err(Into::into);
+        }
         let authority = self.reserve_task_admission(ctx.task_id,
             format!("attempt/{attempt_id}/dispatch"), operation_id, attempt_id,
             &serde_json::json!({"kind": "native.dispatch", "invocation": ctx,
@@ -1784,7 +1787,7 @@ fn storage_failure(error: &anyhow::Error) -> bool {
     error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
 }
 
-fn has_native_dispatch(
+pub(crate) fn has_native_dispatch(
     task: &TaskRecord, ctx: &TaskInvocation, operation_id: EntityId, attempt_id: EntityId,
 ) -> Result<bool> {
     let attempt_key = attempt_id.to_string();

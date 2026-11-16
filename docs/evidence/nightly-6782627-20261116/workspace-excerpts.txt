@@ -1,0 +1,22 @@
+---- execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt stdout ----
+Error: Condition failed: `errors.len() == 1 && errors[0].code == "INFERENCE_TRANSPORT_TIMEOUT" &&
+errors[0].request_id == request_id && errors[0].agent_id == agent_id &&
+errors[0].message.contains("500 ms")`
+
+
+failures:
+    execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt
+
+test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+error: test failed, to rerun pass `-p shenko-broker --lib`
+     Running tests/kv_capability.rs (.ci/target/nightly/debug/deps/kv_capability-9651ab6d3132fd5a)
+test taste::tests::the_canonical_counters_are_carried_and_never_recomputed ... ok
+test noncanonical_sealed_audio_identity_is_rejected ... ok
+test canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt ... ok
+test canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results ... ok
+test canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch ... ok
+test canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt ... ok
+test loop_runner::recovery_tests::canonical_root_json_text_survives_reopen_and_archive ... ok
+test parse_node_digest_accepts_canonical_blake3 ... ok
+test ssh_wasi_auth_exec_sftp_and_refusal_journey ... ok

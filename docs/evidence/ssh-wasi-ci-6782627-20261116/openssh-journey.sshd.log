@@ -1,0 +1,36 @@
+Server listening on 127.0.0.1 port 34777.
+Connection from 127.0.0.1 port 38938 on 127.0.0.1 port 34777 rdomain ""
+kex_exchange_identification: Connection closed by remote host
+Connection closed by 127.0.0.1 port 38938
+Connection from 127.0.0.1 port 45576 on 127.0.0.1 port 34777 rdomain ""
+Accepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1
+Postponed publickey for root from 127.0.0.1 port 45576 ssh2 [preauth]
+Accepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1
+Accepted publickey for root from 127.0.0.1 port 45576 ssh2: ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34
+Starting session: command for root from 127.0.0.1 port 45576 id 0
+Close session: user root from 127.0.0.1 port 45576 id 0
+Connection closed by 127.0.0.1 port 45576
+Transferred: sent 2388, received 1400 bytes
+Closing connection to 127.0.0.1 port 45576
+Connection from 127.0.0.1 port 54046 on 127.0.0.1 port 34777 rdomain ""
+Accepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1
+Postponed publickey for root from 127.0.0.1 port 54046 ssh2 [preauth]
+Accepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1
+Accepted publickey for root from 127.0.0.1 port 54046 ssh2: ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34
+Starting session: subsystem 'sftp' for root from 127.0.0.1 port 54046 id 0
+Connection closed by 127.0.0.1 port 54046
+Close session: user root from 127.0.0.1 port 54046 id 0
+Transferred: sent 2888, received 101936 bytes
+Closing connection to 127.0.0.1 port 54046
+Connection from 127.0.0.1 port 53782 on 127.0.0.1 port 34777 rdomain ""
+Accepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1
+Postponed publickey for root from 127.0.0.1 port 53782 ssh2 [preauth]
+Accepted key ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34 found at /tmp/shenko-ssh-client-23070a0d-5d0f-403a-92f5-d2b5edac338a/authorized_keys:1
+Accepted publickey for root from 127.0.0.1 port 53782 ssh2: ED25519 SHA256:5wWQiHOOX6Lwqo2nryGEkLwLs0twNS07C3iDcIYLz34
+Starting session: subsystem 'sftp' for root from 127.0.0.1 port 53782 id 0
+Connection closed by 127.0.0.1 port 53782
+Close session: user root from 127.0.0.1 port 53782 id 0
+Transferred: sent 102916, received 1940 bytes
+Closing connection to 127.0.0.1 port 53782
+Connection from 127.0.0.1 port 52472 on 127.0.0.1 port 34777 rdomain ""
+Connection closed by 127.0.0.1 port 52472 [preauth]
