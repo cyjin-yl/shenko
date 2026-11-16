@@ -639,7 +639,10 @@ pub enum OutputAction {
         definition: Option<crate::task::NativeTaskDefinition>,
     },
     DelegateModel {
-        spec: ModelChildSpec,
+        /// The child's authored contract. It is boxed so one large variant
+        /// does not inflate every parsed output; the serialized shape is the
+        /// same object, so a stored or replayed output keeps its bytes.
+        spec: Box<ModelChildSpec>,
     },
     Identity {
         change: IdentityChange,

@@ -62,7 +62,7 @@ pub struct SubjectAuthorityBinding {
 
 /// Generic decision positions and factual read dependencies. Concrete Store
 /// boundaries supply them; the authority source only orders these identities.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct AdmissionPosition {
     pub key: String,
     pub aliases: Vec<String>,

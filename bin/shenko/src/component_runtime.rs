@@ -155,6 +155,22 @@ pub async fn establish_runtime(
                 let reason = error.to_string();
                 if last_reason.as_ref() != Some(&reason) {
                     tracing::info!(%reason, "resident follower retains history and waits for authority");
+                    // The resident follower is a queryable runtime fact. It
+                    // holds the durable history and waits for authority; it
+                    // starts no subject task, no native recovery consumer and
+                    // no replica worker, so it never claims those duties.
+                    if let Err(error) = crate::node_sync::observe_follower(
+                        data_dir,
+                        store.as_ref(),
+                        runtime_id,
+                        &reason,
+                    ) {
+                        // The observation is a queryable fact, not the
+                        // follower's reason to exist. A journal that cannot
+                        // be written is reported, never a reason to stop
+                        // following.
+                        tracing::warn!(%error, "resident follower role observation could not be recorded");
+                    }
                     last_reason = Some(reason);
                 }
             }
@@ -356,6 +372,17 @@ pub(super) fn resume_component(
         Err(error) => return Err(error),
     }
     if certificate.proposal.coordinator != presence.node_id {
+        // A component follower still learns the global control prefix. It
+        // holds the same durable history, and it must not keep waiting on a
+        // stale control fact while its coordinator holds the component.
+        match super::catch_up_global_control(node, cancel) {
+            Ok(outcomes) => {
+                tracing::debug!(?outcomes, "component follower caught up the global control prefix")
+            }
+            Err(error) => {
+                tracing::warn!(%error, "component follower could not refresh the global control prefix")
+            }
+        }
         return Err(PrimaryNotSelected(format!(
             "component {} follows coordinator {}",
             certificate.proposal.decision_id, certificate.proposal.coordinator

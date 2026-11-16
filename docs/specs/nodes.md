@@ -445,10 +445,16 @@ their evidence boundaries and remaining work are distinct.
 | Node branch fact without a real subject fork | Store fork receipt, immutable parent/head history, frozen prefix and staged-input selections, new task/step, origin/branch CAS and crash-recoverable Node projection. | Integrated fork/rebuild, input-inheritance, rejoin/refusal and authority-change journeys passed; physical partition and long-run acceptance remains. |
 
 Connected-minority agreement and a resident follower now have runtime paths;
-their new journey has not yet executed successfully, and real multi-device,
-model-readiness and all-topology acceptance remain open. See the
-[component continuation evidence](../evidence/component-coordination-20261116.md).
-Canonical cross-ledger transition replay remains a separate work item. The
+their focused Node journey executed and passed in the Nightly scope recorded by
+the [component continuation evidence](../evidence/component-coordination-20261116.md),
+while real multi-device, model-readiness and all-topology acceptance remain
+open. Canonical cross-ledger transition replay is implemented for S1, and the
+paired native T2 boundaries carry frozen transitions at source level; those
+two native T2 journeys did not exist at the candidate that has runtime
+evidence, so they are not yet execution evidence. The remaining replay work is
+the other control boundaries — S0 request arming, native claims, T1/dispatch
+and publication T2 — which still carry original plans rather than a canonical
+transition. The
 [runtime authority evidence](../evidence/runtime-authority-bridge-20261115.md)
 records the passing integrated journeys without claiming those remaining goals.
 

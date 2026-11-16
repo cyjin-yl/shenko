@@ -33,7 +33,7 @@ use crate::{
         Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
         TableTransition,
     },
-    store::storage_error,
+    store::{commit_error, storage_error},
 };
 
 const CODEC: &str = "store-native-t2-transition";
@@ -629,7 +629,7 @@ impl Store {
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?])
                 .map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(storage_error)?;
+            tx.commit().map_err(commit_error)?;
             Ok(PreparedTransition { admission, transition_ref })
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -790,7 +790,7 @@ impl Store {
                     local_commit,
                     if transition.result.is_some() { 3 } else { 1 },
                 )?;
-                tx.commit().map_err(storage_error)?;
+                tx.commit().map_err(commit_error)?;
                 authority.materialized();
                 Ok(transition.result.clone())
             },

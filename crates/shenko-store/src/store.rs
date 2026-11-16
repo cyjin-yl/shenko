@@ -821,10 +821,23 @@ impl Store {
         if self.has_commit_authority() {
             let tasks = position.expected_tasks.clone();
             let steps = position.expected_steps.clone();
-            let prepared = self.prepare_step_transition(step, expected_head, next_step_id, position)?;
-            let authority = self.reserve_sealed_admission(prepared.admission.clone(), tasks, steps)?;
-            return self.apply_step_transition(&prepared.transition_ref,
-                step, expected_head, next_step_id, &authority, false);
+            match self.prepare_step_transition(step, expected_head, next_step_id, position.clone()) {
+                Ok(prepared) => {
+                    let authority = self.reserve_sealed_admission(prepared.admission.clone(), tasks, steps)?;
+                    return self.apply_step_transition(&prepared.transition_ref,
+                        step, expected_head, next_step_id, &authority, false);
+                }
+                Err(error) if crate::control_transition::capture_budget_refusal(&error) => {
+                    // The frozen pre-capture exceeded its memory ceiling for
+                    // this installation, so this transition cannot be frozen.
+                    // The decision is neither dropped nor silently refused:
+                    // the degradation becomes a durable fact of the owning
+                    // subject, and the ordinary original-plan path commits
+                    // the same decision locally.
+                    self.journal_capture_budget_refusal(expected_head, step, &error);
+                }
+                Err(error) => return Err(error),
+            }
         }
         let authority = self.reserve_admission(expected_head, position,
             &serde_json::json!({"kind": "subject.step_commit", "step": step,
@@ -833,6 +846,36 @@ impl Store {
             || self.try_commit_step_and_advance_head(step, expected_head, next_step_id, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
+    }
+
+    /// Record that the canonical S1 path could not freeze this transition.
+    ///
+    /// The frozen pre-capture exceeded its memory ceiling, so this step used
+    /// the original-plan path. The note is a durable runtime-error fact of
+    /// the owning subject (docs/specs/cognition-units.md#spec-45-14): the
+    /// degradation is visible to the subject instead of being a silent
+    /// refusal. The journal write is fail-soft and never replaces the
+    /// decision this step still commits.
+    fn journal_capture_budget_refusal(
+        &self,
+        head: &SubjectBranchHead,
+        step: &SubjectStep,
+        error: &ShenkoError,
+    ) {
+        self.journal_runtime_error(head.agent_id, crate::raw_session::RuntimeErrorContext {
+            kind: "store_capture_budget".into(),
+            source_module: module_path!().into(),
+            message: format!(
+                "the canonical S1 transition was not frozen and this step used the original-plan path: {error}"
+            ),
+            step_no: Some(step.step_no),
+            task_id: None,
+            extra: serde_json::json!({
+                "branch_id": head.branch_id.clone(),
+                "capture_budget_bytes": crate::control_transition::MAX_CAPTURE_BYTES,
+                "image_budget_bytes": crate::control_transition::MAX_IMAGE_BYTES,
+            }),
+        });
     }
 
     fn validate_step_commit(
@@ -1693,6 +1736,34 @@ pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
 
 pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(error.to_string())
+}
+
+/// Classify one commit failure.
+///
+/// Foreign-key checks are deferred to COMMIT so a transition can order its
+/// own writes. A deferred violation is therefore not storage damage: the
+/// applied rows reference a predecessor this ledger does not hold, which is
+/// typed reconciliation debt. The receiving ledger has to catch up before the
+/// transition can be applied, so the writer must stay open
+/// (docs/specs/nodes.md#connected-store-admission-and-materialization).
+/// Every other commit failure remains storage damage and keeps its own
+/// consequence.
+pub(crate) fn commit_error(error: rusqlite::Error) -> ShenkoError {
+    if foreign_key_violation(&error) {
+        ShenkoError::conflict("materialization lacks a required predecessor row")
+    } else {
+        storage_error(error)
+    }
+}
+
+/// Whether a SQLite failure is a deferred foreign-key violation.
+pub(crate) fn foreign_key_violation(error: &rusqlite::Error) -> bool {
+    match error {
+        rusqlite::Error::SqliteFailure(failure, _) => {
+            failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY
+        }
+        _ => false,
+    }
 }
 
 fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {

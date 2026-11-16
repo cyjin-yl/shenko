@@ -1141,6 +1141,26 @@ pub fn establish_primary(
     Err(PrimaryNotSelected("bounded primary recovery exhausted".into()).into())
 }
 
+/// Refresh the global control prefix from the configured members.
+///
+/// The global control prefix is also what a follower needs while it waits for
+/// authority: it holds the same durable history, and a stale prefix is not a
+/// reason to keep waiting on an old head.
+fn catch_up_global_control(
+    node: &mut Node,
+    cancel: &CancellationToken,
+) -> Result<Vec<Value>> {
+    let config = node.member_configuration()?
+        .context("missing member configuration")?;
+    let mut contacted = BTreeSet::new();
+    catch_up_members(
+        node,
+        &config.voters().into_iter().collect::<Vec<_>>(),
+        cancel,
+        &mut contacted,
+    )
+}
+
 /// Give voters the committed prefix they need before an election or a
 /// membership vote. During recovery this includes old members that voted for
 /// a joint transition but never received its committed entry. Divergent
@@ -2004,6 +2024,34 @@ pub fn observe(
         store.get_existing_agent_id()?,
         details.into(),
         fence,
+    )?;
+    Ok(())
+}
+
+/// Record that this runtime is a resident follower.
+///
+/// A follower holds the installation's durable history and catches up
+/// committed control facts. It starts no subject task, no native recovery
+/// consumer and no replica worker, and it claims no domain-primary
+/// authority. The observation is the queryable fact that tells a resident
+/// follower apart from a runtime that never started: it never claims the
+/// executor, recovery or replica duties of a selected runtime
+/// (docs/specs/nodes.md#spec-5-4-3).
+pub fn observe_follower(
+    data_dir: &Path,
+    store: &Store,
+    runtime: EntityId,
+    reason: &str,
+) -> Result<()> {
+    let mut node = open_node(data_dir, store)?;
+    node.observe_runtime_roles(
+        runtime,
+        vec![NodeRole::Follower],
+        None,
+        format!(
+            "resident follower retains durable history and waits for authority: {reason}"
+        ),
+        None,
     )?;
     Ok(())
 }

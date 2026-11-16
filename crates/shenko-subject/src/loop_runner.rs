@@ -1869,7 +1869,7 @@ async fn execute_step(
                     let prepared = input.provider_binding.as_ref()
                         .ok_or_else(|| anyhow::anyhow!("model child requires a sealed provider transport"))
                         .and_then(|binding| crate::model_child::prepare_model_delegation(
-                            control.action_id, step_id, spec, binding,
+                            control.action_id, step_id, spec.as_ref(), binding,
                             &step.software_generation,
                         ));
                     Some(prepared.map_err(|error| ShenkoError::Protocol(

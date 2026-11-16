@@ -30,6 +30,14 @@ fn residency_context(request: &InferenceRequest) -> String {
 }
 
 /// Execute one admitted request and produce its terminal result.
+///
+/// The result carries the cause this execution already recorded. A typed
+/// cause is the specific fact the transport reported — a sealed HTTP
+/// deadline, a provider rejection, a wire violation — while an unknown
+/// outcome without a typed cause stays a plain observation. The broker's
+/// completion path uses this to write one durable error per failure: a
+/// request that already produced a typed cause is not restated a second
+/// time as a generic "outcome unknown" record (docs/specs/cognition-units.md#spec-45-14).
 pub(crate) async fn execute_request(
     request: &InferenceRequest,
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
@@ -39,7 +47,7 @@ pub(crate) async fn execute_request(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
-) -> InferenceResult {
+) -> ExecutedRequest {
     // A running request is a real reader of its context's residency. While it
     // runs the context is not an eviction candidate, and a release requested in
     // the meantime stays pending until this read ends (docs/specs/quota-resources.md#spec-13-3 step 6). A first
@@ -49,7 +57,7 @@ pub(crate) async fn execute_request(
         let mut pool = domain.kv_mut();
         kv.begin_read(&mut pool, &context_id).is_ok()
     };
-    let result = execute_admitted(
+    let (result, typed_cause) = execute_admitted(
         request,
         receipt_sink,
         purpose,
@@ -73,7 +81,15 @@ pub(crate) async fn execute_request(
             let _ = kv.end_read(&mut pool, &context_id);
         }
     }
-    result
+    ExecutedRequest { result, typed_cause }
+}
+
+/// One executed request: its terminal result and the cause it recorded.
+pub(crate) struct ExecutedRequest {
+    /// The terminal result of this request.
+    pub result: InferenceResult,
+    /// Whether a typed cause for this request was already journalled.
+    pub typed_cause: bool,
 }
 
 /// Dispatch one admitted request and settle its terminal result.
@@ -86,7 +102,7 @@ async fn execute_admitted(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
-) -> InferenceResult {
+) -> (InferenceResult, bool) {
     let admitted = receipt_sink.map_or(Ok(DispatchFence::Send), |sink| sink.may_dispatch());
     match admitted {
         Ok(DispatchFence::Send) => {
@@ -100,24 +116,30 @@ async fn execute_admitted(
                         "no installed provider runtime can serve this binding",
                     ),
                 );
-                return failure_result(
-                    request,
-                    purpose,
-                    &anyhow::Error::new(LocalDispatchError::NoProviderRuntime),
-                    None,
+                return (
+                    failure_result(
+                        request,
+                        purpose,
+                        &anyhow::Error::new(LocalDispatchError::NoProviderRuntime),
+                        None,
+                    ),
+                    true,
                 );
             };
             if !runtime.available() {
-                return InferenceResult {
-                    request_id: request.request_id,
-                    status: InferenceStatus::Unavailable,
-                    response: None,
-                    effective: EffectiveInference::for_request(request),
-                    termination: TerminationEvidence::never_dispatched(),
-                    purpose,
-                    stream: None,
-                    quota_headers: Vec::new(),
-                };
+                return (
+                    InferenceResult {
+                        request_id: request.request_id,
+                        status: InferenceStatus::Unavailable,
+                        response: None,
+                        effective: EffectiveInference::for_request(request),
+                        termination: TerminationEvidence::never_dispatched(),
+                        purpose,
+                        stream: None,
+                        quota_headers: Vec::new(),
+                    },
+                    false,
+                );
             }
             match stream {
                 Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink).await,
@@ -125,6 +147,7 @@ async fn execute_admitted(
             }
         }
         otherwise => {
+            let mut typed_cause = false;
             let status = match otherwise {
                 Ok(DispatchFence::Fenced) => InferenceStatus::Cancelled,
                 Err(error) => {
@@ -138,6 +161,10 @@ async fn execute_admitted(
                             "the dispatch fence could not be checked; the request stays recoverable",
                         ),
                     );
+                    // The unchecked fence is already recorded. The completion
+                    // path must not restate this request as a second,
+                    // less specific unknown outcome.
+                    typed_cause = true;
                     InferenceStatus::Failed
                 }
                 Ok(DispatchFence::Unknown) => InferenceStatus::Failed,
@@ -151,16 +178,19 @@ async fn execute_admitted(
             } else {
                 TerminationEvidence::unknown()
             };
-            InferenceResult {
-                request_id: request.request_id,
-                status,
-                response: None,
-                effective: EffectiveInference::for_request(request),
-                termination,
-                purpose,
-                stream: None,
-                quota_headers: Vec::new(),
-            }
+            (
+                InferenceResult {
+                    request_id: request.request_id,
+                    status,
+                    response: None,
+                    effective: EffectiveInference::for_request(request),
+                    termination,
+                    purpose,
+                    stream: None,
+                    quota_headers: Vec::new(),
+                },
+                typed_cause,
+            )
         }
     }
 }
@@ -173,7 +203,7 @@ async fn execute_complete(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
-) -> InferenceResult {
+) -> (InferenceResult, bool) {
     match runtime.complete(request).await {
         Ok(response) => {
             let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
@@ -181,20 +211,31 @@ async fn execute_complete(
                 request.payload.max_tokens.unwrap_or_else(|| request.provider_binding.default_max_tokens()));
             observe_kv(domain, kv, request, purpose, response.usage.as_ref());
             let quota_headers = response.ratelimit_headers.clone();
-            InferenceResult {
-                request_id: request.request_id,
-                status: if terminal { InferenceStatus::Success } else { InferenceStatus::Failed },
-                response: Some(response),
-                effective: EffectiveInference::for_request(request),
-                termination,
-                purpose,
-                stream: None,
-                quota_headers,
-            }
+            (
+                InferenceResult {
+                    request_id: request.request_id,
+                    status: if terminal { InferenceStatus::Success } else { InferenceStatus::Failed },
+                    response: Some(response),
+                    effective: EffectiveInference::for_request(request),
+                    termination,
+                    purpose,
+                    stream: None,
+                    quota_headers,
+                },
+                // The provider answered. Nothing failed, so no cause was
+                // recorded; a non-terminal answer leaves the unknown outcome
+                // for the broker's completion path to state.
+                false,
+            )
         }
         Err(error) => {
-            journal_provider_error(request, purpose, &error, error_sink);
-            failure_result(request, purpose, &error, None)
+            let typed_cause = journal_provider_error(request, purpose, &error, error_sink);
+            (
+                failure_result(request, purpose, &error, None),
+                // The transport cause is recorded, so this request already has
+                // its one durable error.
+                typed_cause,
+            )
         }
     }
 }
@@ -213,7 +254,7 @@ async fn execute_stream(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
-) -> InferenceResult {
+) -> (InferenceResult, bool) {
     let publisher = BoundedStreamPublisher::new(
         request.request_id,
         stream.identity,
@@ -222,15 +263,18 @@ async fn execute_stream(
     );
     let journaled = publisher.has_journal();
     if let Err(error) = publisher.open(&request.provider_binding, now_ms()) {
-        return failure_result(
-            request,
-            purpose,
-            &anyhow::Error::new(LocalDispatchError::JournalOpenFailed(error)),
-            None,
+        return (
+            failure_result(
+                request,
+                purpose,
+                &anyhow::Error::new(LocalDispatchError::JournalOpenFailed(error)),
+                None,
+            ),
+            false,
         );
     }
     let outcome = runtime.stream(request, &publisher).await;
-    let (response, termination, status, events, batches, quota_headers) = match outcome {
+    let (response, termination, status, events, batches, quota_headers, typed_cause) = match outcome {
         Ok(outcome) => {
             let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
             let termination = termination_evidence(&outcome.response, terminal,
@@ -244,15 +288,18 @@ async fn execute_stream(
                 outcome.events,
                 outcome.batches,
                 quota_headers,
+                false,
             )
         }
         Err(error) => {
-            journal_provider_error(request, purpose, &error, error_sink);
+            let typed_cause = journal_provider_error(request, purpose, &error, error_sink);
             // Streaming and complete calls classify the same transport facts.
             // In particular a deadline is still unknown, while an explicit
             // provider rejection is not lost behind a generic stream error.
             let failed = failure_result(request, purpose, &error, None);
-            (None, failed.termination, failed.status, 0, 0, failed.quota_headers)
+            // The transport cause is recorded, so this request already has its
+            // one durable error.
+            (None, failed.termination, failed.status, 0, 0, failed.quota_headers, typed_cause)
         }
     };
     // The terminal receipt is written here, independently of the caller.
@@ -261,27 +308,35 @@ async fn execute_stream(
     if let Some(response) = &response {
         observe_kv(domain, kv, request, purpose, response.usage.as_ref());
     }
-    InferenceResult {
-        request_id: request.request_id,
-        status,
-        response,
-        effective: EffectiveInference::for_request(request),
-        termination,
-        purpose,
-        stream: Some(StreamEvidence { events, batches, public_chunks, journaled }),
-        quota_headers,
-    }
+    (
+        InferenceResult {
+            request_id: request.request_id,
+            status,
+            response,
+            effective: EffectiveInference::for_request(request),
+            termination,
+            purpose,
+            stream: Some(StreamEvidence { events, batches, public_chunks, journaled }),
+            quota_headers,
+        },
+        typed_cause,
+    )
 }
 
 /// Report the transport fact without copying credentials, URL query values or
 /// provider response text into the error journal. A timeout explains why the
 /// local reader ended; it is never a provider cancellation acknowledgement.
+///
+/// The report is the one durable error of this request: it names the typed
+/// cause and, for a deadline, the sealed observation limit. The broker's
+/// completion path therefore must not add a second, less specific record for
+/// the same failure (docs/specs/cognition-units.md#spec-45-14).
 fn journal_provider_error(
     request: &InferenceRequest,
     purpose: RequestPurpose,
     error: &anyhow::Error,
     error_sink: &crate::error_sink::ErrorSinkCell,
-) {
+) -> bool {
     let (code, message) = if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
         let limit = request.provider_binding.local_request_timeout_ms()
             .map(|milliseconds| format!(" after the sealed {milliseconds} ms observation limit"))
@@ -301,6 +356,7 @@ fn journal_provider_error(
         error_sink,
         &crate::error_sink::report_for(request, purpose, code, &message),
     );
+    true
 }
 
 /// Whether the provider's stop reason is a real terminal outcome.
@@ -1150,7 +1206,12 @@ mod tests {
             anyhow::ensure!(result.request_id == request_id && result.effective.provider_binding == binding);
             anyhow::ensure!(result.status == InferenceStatus::Failed && result.termination.kind == TerminationKind::Unknown);
             anyhow::ensure!(receipt.recorded().len() == 1 && receipt.recorded()[0].termination.kind == TerminationKind::Unknown);
-            anyhow::ensure!(observations.terminals.lock().as_slice() == [result.termination.clone()]);
+            // The journal holds exactly the terminal evidence of this result.
+            // The one-element slice is borrowed from the result instead of
+            // built from a clone, so the comparison stays the same fact
+            // without copying the evidence into a temporary.
+            anyhow::ensure!(observations.terminals.lock().as_slice()
+                == std::slice::from_ref(&result.termination));
             {
                 let errors = observations.errors.lock();
                 anyhow::ensure!(errors.len() == 1 && errors[0].code == "INFERENCE_TRANSPORT_TIMEOUT"

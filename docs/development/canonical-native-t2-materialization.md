@@ -117,3 +117,14 @@ does not demonstrate a foreign native execution takeover. The read sets remain
 conservative full-table snapshots and can conflict on unrelated factual
 progress. Canonical claim/T1 integration, authoritative predecessor handling,
 real Node/provider journeys and physical fault acceptance remain separate work.
+
+The two journeys above are
+`canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt`
+and
+`canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results`.
+They did not exist at the candidate that has runtime evidence, so this
+increment is source-level and evidence-level only: no runtime result is
+claimed for the paired native T2 boundaries, and the Nightly scope recorded
+in the
+[component continuation evidence](../evidence/component-coordination-20261116.md)
+covers the S1 and component journeys, not these two.

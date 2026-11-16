@@ -91,13 +91,27 @@ focused journeys were added to `crates/shenko-store/tests/store_roundtrip.rs`:
   Check reconciliation, transaction rollback, absence of a local application
   marker, and subsequent recovery of the original frozen transition.
 
+Materializing the frozen S1 on a distinct ledger produces the identical
+original result, not an identical ledger. The receiving Store keeps its own
+physical materialization receipt and its own local sequences, and a
+conflicting read set leaves durable reconciliation-debt rows on the receiving
+side (`retain_control_reconciliation`, `retain_prepared_step_debt`). A failed
+materialization leaves no partial rows at all: the malformed/partial-fault
+case rolls the whole transaction back, so no applied row and no local
+materialization marker survive it.
+
 The focused test command was attempted with one Cargo job, incremental/debug
 output disabled and the shared build lock. Rustc was killed by SIGKILL during
 Store code generation; neither journey executed in that attempt. The
 environment reported about 1.7 GiB available memory and no swap afterward.
-These are authored recovery checks, not passing runtime acceptance evidence.
-The integrated candidate must typecheck and execute them when build capacity
-is available. There are no new dependencies.
+That local attempt is not runtime acceptance evidence. The two journeys later
+executed and passed in the Nightly scope recorded by the
+[component continuation evidence](../evidence/component-coordination-20261116.md)
+(`canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch`
+and
+`canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt`);
+that scope is a focused Store journey, not a distributed acceptance claim.
+There are no new dependencies.
 
 ## Deliberate limits
 
@@ -115,9 +129,14 @@ Read-table images currently cover the full table range. Row capture charges
 owned cells/keys against 128 MiB before copying more SQLite values, and the
 sealed JSON image is bounded at 64 MiB. The source pre-capture shares one budget
 across all keyed tables; it does not first retain an unbounded database before
-checking the final payload. This intentionally rejects some otherwise independent
-concurrent updates and is not a performance claim for a large long-lived
-ledger. Matching schema is required. Canonical migration across schema changes,
+checking the final payload. When that ceiling is reached the canonical path
+cannot freeze the transition, and this S1 uses the ordinary original-plan path
+instead: the decision is still committed and the degradation is recorded as a
+durable runtime-error fact of the owning subject (`store_capture_budget`), so
+the limitation is explicit instead of a silent refusal. This intentionally
+rejects some otherwise independent concurrent updates and is not a performance
+claim for a large long-lived ledger. Matching schema is required. Canonical
+migration across schema changes,
 generic automatic predecessor installation, physical external-effect
 acceptance, real multi-device partition/power-loss trials and 7/30-day operation
 remain separate completion requirements.

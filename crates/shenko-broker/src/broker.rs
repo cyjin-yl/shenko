@@ -591,6 +591,8 @@ struct CompletedRequest {
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
     guard: AdmissionGuard,
+    /// Whether the execution already recorded a typed cause for this request.
+    typed_cause: bool,
 }
 
 pub struct Broker {
@@ -811,7 +813,7 @@ impl Broker {
     }
 
     fn finish(&self, completed: CompletedRequest) {
-        let CompletedRequest { request, receipt_sink, result, guard } = completed;
+        let CompletedRequest { request, receipt_sink, result, guard, typed_cause } = completed;
         let request_id = request.request_id;
         if let Some(sink) = receipt_sink {
             if let Err(error) = sink.record(&result) {
@@ -846,10 +848,19 @@ impl Broker {
             }
             TerminationKind::Unknown => {
                 accounting.insert(request_id, Some(guard));
-                crate::error_sink::journal_runtime_error(
-                    &self.error_sink,
-                    &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
-                );
+                // One failure is one durable error. When the execution already
+                // recorded the typed cause — a sealed HTTP deadline, a
+                // provider rejection, a wire violation, an unchecked dispatch
+                // fence — that record names the cause and states that the
+                // remote outcome is unconfirmed, so this request is not
+                // restated a second time as a generic unknown outcome
+                // (docs/specs/cognition-units.md#spec-45-14).
+                if !typed_cause {
+                    crate::error_sink::journal_runtime_error(
+                        &self.error_sink,
+                        &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
+                    );
+                }
                 self.domain.quarantine(
                     request_id,
                     now_ms(),
@@ -894,7 +905,7 @@ impl Broker {
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
                     let Submission { request, receipt_sink, purpose, stream } = submission;
-                    let result = execute_request(
+                    let executed = execute_request(
                         &request,
                         receipt_sink.as_ref(),
                         purpose,
@@ -908,7 +919,8 @@ impl Broker {
                     let _ = completed_tx.send(CompletedRequest {
                         request,
                         receipt_sink,
-                        result,
+                        result: executed.result,
+                        typed_cause: executed.typed_cause,
                         guard,
                     });
                 });

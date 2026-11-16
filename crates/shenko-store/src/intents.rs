@@ -423,7 +423,7 @@ impl Store {
         let invalid = || ShenkoError::conflict("model child is not bound to its authored control and exact S0 transport/budget");
         let spec = decision.output.controls.iter().find_map(|control| {
             if control.action_id != intent.intent_id { return None; }
-            match &control.action { OutputAction::DelegateModel { spec } => Some(spec), _ => None }
+            match &control.action { OutputAction::DelegateModel { spec } => Some(spec.as_ref()), _ => None }
         }).ok_or_else(invalid)?;
         let plan: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
         let mut binding = plan.get("provider_binding").cloned().ok_or_else(invalid)?;

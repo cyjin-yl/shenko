@@ -30,14 +30,20 @@ use shenko_types::{
 use crate::{
     Store,
     authority::{AdmissionPosition, AuthorityReservation, admission_materialized},
-    store::storage_error,
+    store::{commit_error, storage_error},
 };
 
 const CODEC: &str = "store-s1-transition";
 pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 // Account while copying rows, before the eventual sealed JSON size is known.
 // This bounds the retained pre-capture even when most tables prove untouched.
-const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
+pub(crate) const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
+// The stable marker of a capture-budget refusal. The frozen pre-capture
+// refuses to grow without bound; the marker lets the caller recognize that
+// this capacity refusal — and not damage, and not a disagreement about the
+// decision — happened, so the decision is kept instead of being lost with the
+// transition.
+const CAPTURE_BUDGET_MARKER: &str = "capture budget exceeded";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -445,8 +451,21 @@ fn image(conn: &Connection, table: &Table) -> Result<Image, ShenkoError> {
 fn charge_image(remaining: &mut usize, bytes: usize) -> Result<(), ShenkoError> {
     *remaining = remaining
         .checked_sub(bytes)
-        .ok_or_else(|| conflict("row capture exceeds 128 MiB memory budget"))?;
+        .ok_or_else(|| conflict(format!(
+            "{CAPTURE_BUDGET_MARKER}: row capture exceeds {} MiB memory budget",
+            MAX_CAPTURE_BYTES / (1024 * 1024)
+        )))?;
     Ok(())
+}
+
+/// Whether an error is the refusal of the frozen pre-capture budget.
+///
+/// This is a capacity fact about this installation, not damage and not a
+/// disagreement about the decision. The caller keeps the decision and uses
+/// the original-plan path, so an installation whose replicated rows exceed
+/// the ceiling keeps committing its steps instead of failing every S1.
+pub(crate) fn capture_budget_refusal(error: &ShenkoError) -> bool {
+    matches!(error, ShenkoError::Conflict(message) if message.contains(CAPTURE_BUDGET_MARKER))
 }
 
 fn image_with_budget(
@@ -726,7 +745,7 @@ impl Store {
             // not an S1 success. The later physical materialization is another
             // local receipt; foreign ledgers never mint a replacement result.
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(storage_error)?;
+            tx.commit().map_err(commit_error)?;
             Ok(PreparedTransition { admission, transition_ref })
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -946,7 +965,7 @@ impl Store {
                     transition.created_at,
                 )?;
                 self.record_subject_commit(&tx, local_commit, transition.updated.len() as i64)?;
-                tx.commit().map_err(storage_error)?;
+                tx.commit().map_err(commit_error)?;
                 authority.materialized();
                 Ok(self.subject_receipt(local_commit, transition.updated.clone()))
             },
@@ -1104,4 +1123,26 @@ fn apply_table(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The capture-budget refusal is a capacity fact, not damage and not a
+    /// disagreement about the decision. The caller recognizes it and keeps the
+    /// decision through the original-plan path instead of losing it.
+    #[test]
+    fn the_capture_budget_refusal_is_recognizable_and_typed() {
+        let mut remaining = 0usize;
+        let Err(error) = charge_image(&mut remaining, 1) else {
+            panic!("an exhausted capture budget must refuse the capture");
+        };
+        assert!(capture_budget_refusal(&error));
+        assert!(matches!(error, ShenkoError::Conflict(_)));
+        assert!(!capture_budget_refusal(&ShenkoError::conflict("another conflict")));
+        assert!(!capture_budget_refusal(&ShenkoError::storage("disk damage")));
+        let mut remaining = MAX_CAPTURE_BYTES;
+        assert!(charge_image(&mut remaining, 1).is_ok());
+    }
 }
