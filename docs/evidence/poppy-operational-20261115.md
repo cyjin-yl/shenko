@@ -197,3 +197,24 @@ cargo test -p shenko-compat-mcp --test plugin_lifecycle --locked --offline -j2 s
 
 这些选择器分别检验本机封存/恢复与真实 SDK/TCP 发送顺序，不替代商家登录、实际支付、物理
 断电、多节点凭据迁移或模型行为验收。主席取得新运行结果后须单独绑定整合后的源码与输入。
+
+### 同日：最终请求证据的接纳坐标
+
+合并候选 `2b26a8bf62a34cf71e64f7544cbea259ca2acd83` 的独立审阅确认前两项 P2 已在源码中
+关闭，同时发现最终请求事实把 T1 的 `prepared_commit` 当作自己的 `received_commit`。
+该事实实际通过后来的 Store evidence 批次接纳，故不能把其接纳时间回填到 T1。
+
+本次有界修复保留既有 `Store::commit` 非终态 evidence 路径，在唯一 Ledger append 事务中，
+先作 receipt admission，只有 New 才把 `received_commit` 赋为该事务实际分配的 `commit_ref`，
+随后序列化并插入 receipt；operation evidence cursor 使用同一坐标。Replay 仍先返回既有
+身份，不改写首次接纳坐标。Poppy 调用方只提供未赋值占位，不读取或预测 ledger head/sequence。
+没有新增账本权威，也未借用会结算 attempt 的外部响应 API。
+
+既有 checkout 消费者在 Unknown 响应之前取得已持久化的 evidence cursor，断言它晚于 T1、
+与请求事实的 `received_commit` 一致；再以不同占位坐标重接纳同一事实，要求保留原 receipt、
+原 cursor、Armed 状态和空 final receipt。关闭/重开后仍要求该请求事实逐字段不变，坐标等于
+先前真实 append cursor，且不等于 T1。原 service、credential、最终正文认证及禁止重发断言
+全部保留，没有新增测试函数。
+
+此坐标修复尚未运行任何构建、测试、lint 或 formatter；由主席使用上述 checkout 精确选择器
+验证同一持久源码。此前候选和历史 CI 不作为本次修改的通过证据。

@@ -64,6 +64,8 @@ pub struct WriteBatch {
     pub task_upserts: Vec<TaskRecord>,
     pub operation_upserts: Vec<OperationRecord>,
     pub attempt_upserts: Vec<AttemptRecord>,
+    /// New receipts receive the Store's actual append commit inside the
+    /// transaction; replay preserves the first admission coordinate.
     pub evidence_upserts: Vec<EvidenceReceipt>,
     pub raw_objects: Vec<RawObject>,
     pub inbox_event_upserts: Vec<RawInboxEvent>,

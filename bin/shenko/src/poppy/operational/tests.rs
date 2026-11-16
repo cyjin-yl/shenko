@@ -240,11 +240,37 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     // body. No fixture merchant is contacted and no response is invented here.
     authorizer.before_send(&final_request)?;
     let final_reference = client.final_commerce_request().context("final request reference")?;
+    let request_head = store.external_operation(original_id)?;
+    let request_append_commit = request_head.evidence_through.context("final request append cursor")?;
+    let request_attempt = store.external_operation_attempt(original_id)?;
+    let sealed_request_receipt = store.external_operation_evidence(original_id)?.into_iter()
+        .find(|receipt| receipt.source_id == "compat.poppy.commerce.request")
+        .context("pre-send final request receipt")?;
     ensure!(
         final_reference["rpc_id"] == 1 && final_reference["request_id"] == request_id
             && final_reference["idempotency_key"] == idempotency_key
-            && store.external_operation_attempt(original_id)?.final_receipt_id.is_none(),
+            && request_head.state == OperationState::InFlight && request_head.outcome.is_none()
+            && request_attempt.dispatch_stage == AttemptDispatchStage::Armed
+            && request_attempt.final_receipt_id.is_none(),
         "pre-send request identity was lost or was mistaken for a merchant response"
+    );
+    ensure!(
+        sealed_request_receipt.received_commit == request_append_commit
+            && request_append_commit.ledger_id == original_call.operation.prepared_commit.ledger_id
+            && request_append_commit.seq > original_call.operation.prepared_commit.seq,
+        "final request receipt was not assigned its actual append commit after T1"
+    );
+    let mut receipt_replay = sealed_request_receipt.clone();
+    receipt_replay.received_commit = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
+    let mut replay_batch = WriteBatch::new();
+    replay_batch.evidence_upserts.push(receipt_replay);
+    store.commit(replay_batch)?;
+    ensure!(
+        store.external_evidence(sealed_request_receipt.receipt_id)? == sealed_request_receipt
+            && store.external_operation(original_id)?.evidence_through == Some(request_append_commit)
+            && store.external_operation_attempt(original_id)?.dispatch_stage == AttemptDispatchStage::Armed
+            && store.external_operation_attempt(original_id)?.final_receipt_id.is_none(),
+        "receipt replay rewrote its first admission coordinate or changed the armed attempt"
     );
     ensure!(authorizer.before_send(&final_request).is_err(), "sealed mutation was eligible for replay");
     drop(authorizer);
@@ -469,6 +495,12 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     );
     let request_receipt = evidence.iter().find(|receipt| receipt.source_id == "compat.poppy.commerce.request")
         .context("original final request receipt missing")?;
+    ensure!(
+        request_receipt == &sealed_request_receipt
+            && request_receipt.received_commit == request_append_commit
+            && request_receipt.received_commit != original_call.operation.prepared_commit,
+        "reopened final request receipt lost the actual durable append coordinate or was backdated to T1"
+    );
     let request_reference = commerce::read_observation(&reopened, &request_receipt.raw_ref)?;
     ensure!(
         request_reference == final_reference

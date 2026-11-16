@@ -997,7 +997,10 @@ impl CommerceDispatch {
                 producer_schema_version: Some("1".into()), raw_ref,
                 decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()), decode_status: DecodeStatus::Decoded,
                 observation_level: None, normalized_ref: None, observed_at: Some(chrono::Utc::now()),
-                received_commit: operation.prepared_commit,
+                // Assigned by the Store in the append transaction, after T1.
+                received_commit: shenko_types::commit::CommitRef::new(
+                    shenko_types::ids::EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO,
+                ),
             });
             // Append evidence without marking this request as a response or
             // changing Armed/final_receipt_id. A crash still recovers Unknown.
