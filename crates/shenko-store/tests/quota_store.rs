@@ -461,7 +461,7 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, EntityId) {
         created_commit: genesis_commit,
     };
     let first_step_id = EntityId::new();
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id,
         branch_id: branch_id.clone(),
         subject_root_task_id: EntityId::new(),

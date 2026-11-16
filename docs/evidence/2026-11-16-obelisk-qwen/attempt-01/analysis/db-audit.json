@@ -1,0 +1,922 @@
+[
+  {
+    "condition": "baseline",
+    "db_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/shenko.db",
+    "tables": {
+      "subject_request_attempts": [
+        {
+          "request_id": "9a21d93a-6968-46be-9b47-33e704725708",
+          "agent_id": "b8d890f5-eff5-4b6e-89f4-7ec2c28301b4",
+          "step_id": "a9188224-524d-47b8-80af-e9a84da1e7df",
+          "attempt_id": "af967283-25ef-4639-9c21-2ef888cd01b8",
+          "send_id": null,
+          "state": "\"terminal\"",
+          "input_plan_ref": {
+            "digest": "blake3:0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+            "bytes": 11581,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/0e/fc/0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 13,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "payload_digest": "blake3:b15ec4d5d332699844876866b5705f86ff530cc59f256b6cf23b97a08612c116",
+          "provider_binding_digest": "blake3:6590829513670d38435c279a0ecb44afb986b643f9c2273fbd60bda599c76d96",
+          "data": {
+            "schema_version": 1,
+            "request_id": "9a21d93a-6968-46be-9b47-33e704725708",
+            "attempt_id": "af967283-25ef-4639-9c21-2ef888cd01b8",
+            "agent_id": "b8d890f5-eff5-4b6e-89f4-7ec2c28301b4",
+            "step_id": "a9188224-524d-47b8-80af-e9a84da1e7df",
+            "send_id": null,
+            "state": "terminal",
+            "input_plan_ref": {
+              "digest": "blake3:0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+              "bytes": 11581,
+              "media_type": "application/json",
+              "store_namespace": "input_plans",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/0e/fc/0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+              "codec": {
+                "name": "subject_step_input",
+                "major": 13,
+                "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+              }
+            },
+            "payload_digest": "blake3:b15ec4d5d332699844876866b5705f86ff530cc59f256b6cf23b97a08612c116",
+            "provider_binding_digest": "blake3:6590829513670d38435c279a0ecb44afb986b643f9c2273fbd60bda599c76d96",
+            "terminal": {
+              "outcome": {
+                "status": "success",
+                "stop_reason": "stop",
+                "termination": {
+                  "kind": "provider_terminal",
+                  "length": false,
+                  "max_tokens": 4096,
+                  "output_tokens": 167,
+                  "stop_reason": "stop"
+                },
+                "usage": {
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": null,
+                  "input_tokens": 2021,
+                  "output_tokens": 167
+                }
+              },
+              "result_ref": {
+                "digest": "blake3:611ec589444688d030b099d772337c9c16b093c9312967815680df8c19f72409",
+                "bytes": 2788,
+                "media_type": "application/json",
+                "store_namespace": "subject_requests",
+                "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/61/1e/611ec589444688d030b099d772337c9c16b093c9312967815680df8c19f72409",
+                "codec": {
+                  "name": "subject-request-result",
+                  "major": 1,
+                  "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+                }
+              },
+              "recorded_commit": {
+                "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+                "seq": 13
+              }
+            },
+            "created_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 11
+            }
+          },
+          "created_commit_seq": 11,
+          "updated_commit_seq": 13
+        }
+      ],
+      "subject_steps": [
+        {
+          "step_id": "a9188224-524d-47b8-80af-e9a84da1e7df",
+          "branch_id": "dcce5d7b-cbd9-4c9c-903c-1777e1bc99cb",
+          "step_no": 1,
+          "state": "committed",
+          "record_revision": 4,
+          "data": {
+            "step_id": "a9188224-524d-47b8-80af-e9a84da1e7df",
+            "branch_id": "dcce5d7b-cbd9-4c9c-903c-1777e1bc99cb",
+            "step_no": 1,
+            "expected_parent_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 1
+            },
+            "controller_epoch": 1,
+            "software_generation": "cognition-trial",
+            "state": "committed",
+            "input_plan_ref": {
+              "digest": "blake3:0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+              "bytes": 11581,
+              "media_type": "application/json",
+              "store_namespace": "input_plans",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/0e/fc/0efc073e38173e829375c84196e703ddc9e70c0c567c3a116931d1e8ae8e98c1",
+              "codec": {
+                "name": "subject_step_input",
+                "major": 13,
+                "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+              }
+            },
+            "context_revision": 1,
+            "active_request_id": "9a21d93a-6968-46be-9b47-33e704725708",
+            "active_attempt_id": null,
+            "model_result_ref": {
+              "digest": "blake3:722c198bed275bdffba4d1a87a2043eada3dafea0873aa0567816d790eee0877",
+              "bytes": 684,
+              "media_type": "text/plain",
+              "store_namespace": "model_results",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/72/2c/722c198bed275bdffba4d1a87a2043eada3dafea0873aa0567816d790eee0877",
+              "codec": {
+                "name": "text",
+                "major": 1,
+                "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+              }
+            },
+            "model_outcome_ref": {
+              "digest": "blake3:65a59e3300808941d597c53c984dd564e624da431f2a64cb1e9b2a7bbc823408",
+              "bytes": 2158,
+              "media_type": "application/json",
+              "store_namespace": "model_outcomes",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/65/a5/65a59e3300808941d597c53c984dd564e624da431f2a64cb1e9b2a7bbc823408",
+              "codec": {
+                "name": "SubjectModelOutcome",
+                "major": 2,
+                "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+              }
+            },
+            "decision_ref": {
+              "digest": "blake3:9ec44e53e77e4ff34eeecddfdb9c395dea170a091a7db17cf00395c744cee4e8",
+              "bytes": 4979,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/9e/c4/9ec44e53e77e4ff34eeecddfdb9c395dea170a091a7db17cf00395c744cee4e8",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "commit_ref": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 15
+            },
+            "retry_reason_ref": null,
+            "record_revision": 4,
+            "created_by_step_id": null
+          },
+          "updated_commit_seq": 15,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "step_id": "b6f19d26-84c7-480b-b2c7-0cfcfeb7f74f",
+          "branch_id": "dcce5d7b-cbd9-4c9c-903c-1777e1bc99cb",
+          "step_no": 2,
+          "state": "planned",
+          "record_revision": 0,
+          "data": {
+            "step_id": "b6f19d26-84c7-480b-b2c7-0cfcfeb7f74f",
+            "branch_id": "dcce5d7b-cbd9-4c9c-903c-1777e1bc99cb",
+            "step_no": 2,
+            "expected_parent_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 15
+            },
+            "controller_epoch": 1,
+            "software_generation": "cognition-trial",
+            "state": "planned",
+            "input_plan_ref": null,
+            "context_revision": null,
+            "active_request_id": null,
+            "active_attempt_id": null,
+            "model_result_ref": null,
+            "model_outcome_ref": null,
+            "decision_ref": null,
+            "commit_ref": null,
+            "retry_reason_ref": null,
+            "record_revision": 0,
+            "created_by_step_id": "a9188224-524d-47b8-80af-e9a84da1e7df"
+          },
+          "updated_commit_seq": 15,
+          "created_at": "2026-11-15 17:21:29"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "329c2430-a6ad-4fae-834a-98c265ceab55",
+          "record_revision": 0,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "329c2430-a6ad-4fae-834a-98c265ceab55",
+            "task_revision": 0,
+            "record_revision": 0,
+            "agent_id": "b8d890f5-eff5-4b6e-89f4-7ec2c28301b4",
+            "conversation_id": "b8d890f5-eff5-4b6e-89f4-7ec2c28301b4",
+            "owner": {
+              "kind": "task",
+              "id": "329c2430-a6ad-4fae-834a-98c265ceab55"
+            },
+            "background": false,
+            "kind": "subject_root",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "00000000-0000-0000-0000-000000000000",
+              "artifact_digest": "blake3:87bc81b8d1da7fad87ee3aabb7a8e794b38f899d7dfd0b16c1229333eaeddf10",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+              "bytes": 7,
+              "media_type": "text/plain",
+              "store_namespace": "sandbox",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/e0/6c/e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+              "codec": {
+                "name": "raw",
+                "major": 1,
+                "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": null
+            },
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "created_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 0
+            },
+            "updated_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 0
+            }
+          },
+          "updated_commit_seq": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "task_id": "691a4cb4-8e65-4d84-a7dc-dbb92e1a336a",
+          "record_revision": 0,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "691a4cb4-8e65-4d84-a7dc-dbb92e1a336a",
+            "task_revision": 0,
+            "record_revision": 0,
+            "agent_id": "b8d890f5-eff5-4b6e-89f4-7ec2c28301b4",
+            "conversation_id": "b8d890f5-eff5-4b6e-89f4-7ec2c28301b4",
+            "owner": {
+              "kind": "task",
+              "id": "329c2430-a6ad-4fae-834a-98c265ceab55"
+            },
+            "background": false,
+            "kind": "subject_publication",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "00000000-0000-0000-0000-000000000000",
+              "artifact_digest": "blake3:54f56716f8bb6641da725c7491282e0c730811f33ef1bcd5cb08e97037afd269",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:9ec44e53e77e4ff34eeecddfdb9c395dea170a091a7db17cf00395c744cee4e8",
+              "bytes": 4979,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/baseline-75488c33-ecb6-423c-a534-c4a6c420ef41/cas/9e/c4/9ec44e53e77e4ff34eeecddfdb9c395dea170a091a7db17cf00395c744cee4e8",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": null
+            },
+            "memos": {
+              "intent_id": "691a4cb4-8e65-4d84-a7dc-dbb92e1a336a"
+            },
+            "created_by_step_id": "a9188224-524d-47b8-80af-e9a84da1e7df",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "created_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 15
+            },
+            "updated_commit": {
+              "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+              "seq": 15
+            }
+          },
+          "updated_commit_seq": 15,
+          "created_at": "2026-11-15 17:21:29"
+        }
+      ],
+      "task_results": [],
+      "commit_log": [
+        {
+          "id": 1,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 1,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 4,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 2,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 2,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 3,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 3,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 4,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 4,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 5,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 5,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 6,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 6,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 7,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 7,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 8,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 8,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 9,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 9,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 10,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 10,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 11,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 11,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 12,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 12,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:01"
+        },
+        {
+          "id": 13,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 13,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:29"
+        },
+        {
+          "id": 14,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 14,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:29"
+        },
+        {
+          "id": 15,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 15,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 3,
+          "created_at": "2026-11-15 17:21:29"
+        },
+        {
+          "id": 16,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 16,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:29"
+        },
+        {
+          "id": 17,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 17,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:29"
+        },
+        {
+          "id": 18,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 18,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:29"
+        },
+        {
+          "id": 19,
+          "ledger_id": "66d55019-3823-48bc-86b0-630663f0ec3d",
+          "seq": 19,
+          "incarnation": "dc65cb85-52c2-4987-b0f1-bd453a19eb55",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:57"
+        }
+      ]
+    }
+  },
+  {
+    "condition": "candidate",
+    "db_path": "acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/shenko.db",
+    "tables": {
+      "subject_request_attempts": [
+        {
+          "request_id": "2adf78e8-9f36-4ddb-9d06-edd4b84ca2f0",
+          "agent_id": "c115d553-6d73-42da-bdb2-9fa6e98fdd1f",
+          "step_id": "351e7e7b-d7a8-49f6-99cc-aec7343f658d",
+          "attempt_id": "8417fad7-f718-468d-bf19-9187a56510f0",
+          "send_id": null,
+          "state": "\"terminal\"",
+          "input_plan_ref": {
+            "digest": "blake3:14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+            "bytes": 11847,
+            "media_type": "application/json",
+            "store_namespace": "input_plans",
+            "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/14/da/14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+            "codec": {
+              "name": "subject_step_input",
+              "major": 13,
+              "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+            }
+          },
+          "payload_digest": "blake3:4fd923368f2441f36b40959111f4116def08fb35488655d614002bcef60dce2e",
+          "provider_binding_digest": "blake3:6590829513670d38435c279a0ecb44afb986b643f9c2273fbd60bda599c76d96",
+          "data": {
+            "schema_version": 1,
+            "request_id": "2adf78e8-9f36-4ddb-9d06-edd4b84ca2f0",
+            "attempt_id": "8417fad7-f718-468d-bf19-9187a56510f0",
+            "agent_id": "c115d553-6d73-42da-bdb2-9fa6e98fdd1f",
+            "step_id": "351e7e7b-d7a8-49f6-99cc-aec7343f658d",
+            "send_id": null,
+            "state": "terminal",
+            "input_plan_ref": {
+              "digest": "blake3:14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+              "bytes": 11847,
+              "media_type": "application/json",
+              "store_namespace": "input_plans",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/14/da/14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+              "codec": {
+                "name": "subject_step_input",
+                "major": 13,
+                "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+              }
+            },
+            "payload_digest": "blake3:4fd923368f2441f36b40959111f4116def08fb35488655d614002bcef60dce2e",
+            "provider_binding_digest": "blake3:6590829513670d38435c279a0ecb44afb986b643f9c2273fbd60bda599c76d96",
+            "terminal": {
+              "outcome": {
+                "status": "success",
+                "stop_reason": "stop",
+                "termination": {
+                  "kind": "provider_terminal",
+                  "length": false,
+                  "max_tokens": 4096,
+                  "output_tokens": 516,
+                  "stop_reason": "stop"
+                },
+                "usage": {
+                  "cache_read_tokens": 1458,
+                  "cache_write_tokens": null,
+                  "input_tokens": 2080,
+                  "output_tokens": 516
+                }
+              },
+              "result_ref": {
+                "digest": "blake3:417f4dcd78447156a17e505b6ec14f8f186936687f9624a8919139cf37fce8a8",
+                "bytes": 5950,
+                "media_type": "application/json",
+                "store_namespace": "subject_requests",
+                "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/41/7f/417f4dcd78447156a17e505b6ec14f8f186936687f9624a8919139cf37fce8a8",
+                "codec": {
+                  "name": "subject-request-result",
+                  "major": 1,
+                  "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+                }
+              },
+              "recorded_commit": {
+                "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+                "seq": 9
+              }
+            },
+            "created_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 7
+            }
+          },
+          "created_commit_seq": 7,
+          "updated_commit_seq": 9
+        }
+      ],
+      "subject_steps": [
+        {
+          "step_id": "351e7e7b-d7a8-49f6-99cc-aec7343f658d",
+          "branch_id": "9520cdb4-8da0-4e3a-8723-4343679cecba",
+          "step_no": 1,
+          "state": "committed",
+          "record_revision": 4,
+          "data": {
+            "step_id": "351e7e7b-d7a8-49f6-99cc-aec7343f658d",
+            "branch_id": "9520cdb4-8da0-4e3a-8723-4343679cecba",
+            "step_no": 1,
+            "expected_parent_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 1
+            },
+            "controller_epoch": 1,
+            "software_generation": "cognition-trial",
+            "state": "committed",
+            "input_plan_ref": {
+              "digest": "blake3:14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+              "bytes": 11847,
+              "media_type": "application/json",
+              "store_namespace": "input_plans",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/14/da/14da3e7acbadf9b450b693e604000461dd19c2f163557d57508c858498328eb9",
+              "codec": {
+                "name": "subject_step_input",
+                "major": 13,
+                "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+              }
+            },
+            "context_revision": 1,
+            "active_request_id": "2adf78e8-9f36-4ddb-9d06-edd4b84ca2f0",
+            "active_attempt_id": null,
+            "model_result_ref": {
+              "digest": "blake3:30ba86fb4b021fd69181562e45873404dac14df55612667a6b33e96a2086e267",
+              "bytes": 2230,
+              "media_type": "text/plain",
+              "store_namespace": "model_results",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/30/ba/30ba86fb4b021fd69181562e45873404dac14df55612667a6b33e96a2086e267",
+              "codec": {
+                "name": "text",
+                "major": 1,
+                "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+              }
+            },
+            "model_outcome_ref": {
+              "digest": "blake3:7b95edf92e7f4be5bc8bd4ecec153d461724db81d7f48e16b5391af3c64c51e5",
+              "bytes": 3754,
+              "media_type": "application/json",
+              "store_namespace": "model_outcomes",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/7b/95/7b95edf92e7f4be5bc8bd4ecec153d461724db81d7f48e16b5391af3c64c51e5",
+              "codec": {
+                "name": "SubjectModelOutcome",
+                "major": 2,
+                "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+              }
+            },
+            "decision_ref": {
+              "digest": "blake3:3a43853be0fae9eeca2ea5ef3a941683e6849996db9b4879a6cb8b137fca56be",
+              "bytes": 10471,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/3a/43/3a43853be0fae9eeca2ea5ef3a941683e6849996db9b4879a6cb8b137fca56be",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "commit_ref": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 11
+            },
+            "retry_reason_ref": null,
+            "record_revision": 4,
+            "created_by_step_id": null
+          },
+          "updated_commit_seq": 11,
+          "created_at": "2026-11-15 17:21:57"
+        },
+        {
+          "step_id": "62e42b9f-9564-4411-8047-e6f30497658a",
+          "branch_id": "9520cdb4-8da0-4e3a-8723-4343679cecba",
+          "step_no": 2,
+          "state": "planned",
+          "record_revision": 0,
+          "data": {
+            "step_id": "62e42b9f-9564-4411-8047-e6f30497658a",
+            "branch_id": "9520cdb4-8da0-4e3a-8723-4343679cecba",
+            "step_no": 2,
+            "expected_parent_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 11
+            },
+            "controller_epoch": 1,
+            "software_generation": "cognition-trial",
+            "state": "planned",
+            "input_plan_ref": null,
+            "context_revision": null,
+            "active_request_id": null,
+            "active_attempt_id": null,
+            "model_result_ref": null,
+            "model_outcome_ref": null,
+            "decision_ref": null,
+            "commit_ref": null,
+            "retry_reason_ref": null,
+            "record_revision": 0,
+            "created_by_step_id": "351e7e7b-d7a8-49f6-99cc-aec7343f658d"
+          },
+          "updated_commit_seq": 11,
+          "created_at": "2026-11-15 17:22:38"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "29070fac-d1c0-4b94-bc35-86d7ec57e463",
+          "record_revision": 0,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "29070fac-d1c0-4b94-bc35-86d7ec57e463",
+            "task_revision": 0,
+            "record_revision": 0,
+            "agent_id": "c115d553-6d73-42da-bdb2-9fa6e98fdd1f",
+            "conversation_id": "c115d553-6d73-42da-bdb2-9fa6e98fdd1f",
+            "owner": {
+              "kind": "task",
+              "id": "29070fac-d1c0-4b94-bc35-86d7ec57e463"
+            },
+            "background": false,
+            "kind": "subject_root",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "00000000-0000-0000-0000-000000000000",
+              "artifact_digest": "blake3:87bc81b8d1da7fad87ee3aabb7a8e794b38f899d7dfd0b16c1229333eaeddf10",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+              "bytes": 7,
+              "media_type": "text/plain",
+              "store_namespace": "sandbox",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/e0/6c/e06c484722be04f269418b6c04f5f27f6cc8c3041090f2e7b7af83054a660e8c",
+              "codec": {
+                "name": "raw",
+                "major": 1,
+                "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": null
+            },
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "created_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 0
+            },
+            "updated_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 0
+            }
+          },
+          "updated_commit_seq": 1,
+          "created_at": "2026-11-15 17:21:57"
+        },
+        {
+          "task_id": "310a8a4e-7a34-4ca8-ac3b-17a5eef1a258",
+          "record_revision": 0,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "310a8a4e-7a34-4ca8-ac3b-17a5eef1a258",
+            "task_revision": 0,
+            "record_revision": 0,
+            "agent_id": "c115d553-6d73-42da-bdb2-9fa6e98fdd1f",
+            "conversation_id": "c115d553-6d73-42da-bdb2-9fa6e98fdd1f",
+            "owner": {
+              "kind": "task",
+              "id": "29070fac-d1c0-4b94-bc35-86d7ec57e463"
+            },
+            "background": false,
+            "kind": "subject_publication",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "00000000-0000-0000-0000-000000000000",
+              "artifact_digest": "blake3:54f56716f8bb6641da725c7491282e0c730811f33ef1bcd5cb08e97037afd269",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:3a43853be0fae9eeca2ea5ef3a941683e6849996db9b4879a6cb8b137fca56be",
+              "bytes": 10471,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-real-20261116/acceptance/run-50fcf271-e141-48a1-b88d-91e0e23d04d1/candidate-e84b26a9-5c8d-46d0-8c61-0e1f8fe44833/cas/3a/43/3a43853be0fae9eeca2ea5ef3a941683e6849996db9b4879a6cb8b137fca56be",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": null
+            },
+            "memos": {
+              "intent_id": "310a8a4e-7a34-4ca8-ac3b-17a5eef1a258"
+            },
+            "created_by_step_id": "351e7e7b-d7a8-49f6-99cc-aec7343f658d",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "created_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 11
+            },
+            "updated_commit": {
+              "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+              "seq": 11
+            }
+          },
+          "updated_commit_seq": 11,
+          "created_at": "2026-11-15 17:22:38"
+        }
+      ],
+      "task_results": [],
+      "commit_log": [
+        {
+          "id": 1,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 1,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 4,
+          "created_at": "2026-11-15 17:21:57"
+        },
+        {
+          "id": 2,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 2,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 3,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 3,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 4,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 4,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 5,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 5,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 6,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 6,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 7,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 7,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 8,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 8,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:21:58"
+        },
+        {
+          "id": 9,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 9,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:22:38"
+        },
+        {
+          "id": 10,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 10,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:22:38"
+        },
+        {
+          "id": 11,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 11,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 3,
+          "created_at": "2026-11-15 17:22:38"
+        },
+        {
+          "id": 12,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 12,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:22:39"
+        },
+        {
+          "id": 13,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 13,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:22:39"
+        },
+        {
+          "id": 14,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 14,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:22:39"
+        },
+        {
+          "id": 15,
+          "ledger_id": "637b0ed3-732d-41f8-bbf6-2477685c1050",
+          "seq": 15,
+          "incarnation": "dd566980-1512-449f-81d9-51519d824250",
+          "entity_count": 1,
+          "created_at": "2026-11-15 17:23:13"
+        }
+      ]
+    }
+  }
+]

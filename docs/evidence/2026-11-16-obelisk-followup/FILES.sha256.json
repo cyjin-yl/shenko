@@ -1,0 +1,15 @@
+{
+  "INDEX.json": "74f3aeeee6ae8661a58caa87639eac964836fd05f2ae46e8fca756dd2a359eef",
+  "obelisk-path-validation/bound-artifacts.json": "2498d825b37bee8aa92bc8820430d7d76f04a0ed0fcbd02b0c493ebf6b7ec176",
+  "obelisk-path-validation/native-results.json": "273274babe9433947f26c72db153ad1f9bd01a1ae075460ec6cb81e805f6a8c8",
+  "obelisk-path-validation/obelisk_lifecycle.log": "757538741867eec95a453c1fd93ed6cc92f75ca3c77dea43c54206286e4aca64",
+  "obelisk-path-validation/obelisk_native_receipt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "obelisk-path-validation/runtime-tests.log": "60c6fb9440637b4e1eb95e72fd4539078072f2faf46ef298f52d0968ee4cd22b",
+  "obelisk-qwen-candidate-validation/bound-artifacts.json": "af04c95881e7a8813c8f55d69a89845add4cbf1510737eb7cdfa8924573ae068",
+  "obelisk-qwen-candidate-validation/boundary.log": "b0229346a2305ef6bec38d1e70667d0e83698f7bdde86dec05115ae6bf49162b",
+  "obelisk-qwen-candidate-validation/build-identity.json": "55d99c186ff3fa95eeadac0cc33e04f53102d84e3e9c6e1bf5596a3ba4d0b383",
+  "obelisk-qwen-candidate-validation/clippy-result.json": "b8bafbbc9f76fe91f2ce1bd25f2f5ad7cc39df22f3a98ecc24ddb35e2e58a3fe",
+  "obelisk-qwen-candidate-validation/clippy.log": "45366f2e01bcf33064dd48d3072aab978ff85f370d872a14faa3d53dd311bbf5",
+  "obelisk-qwen-candidate-validation/docs.log": "dcd20dcf61ffc61e496905777da3a80ed55d8a9feefe0c9ec443342ca9475ab8",
+  "obelisk-qwen-candidate-validation/migration.log": "dcd20dcf61ffc61e496905777da3a80ed55d8a9feefe0c9ec443342ca9475ab8"
+}

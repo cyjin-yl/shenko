@@ -83,6 +83,20 @@ pub struct SubjectRequestAttempt {
     pub created_commit: CommitRef,
 }
 
+fn request_owns_step(
+    attempt: &SubjectRequestAttempt,
+    step: &shenko_types::subject::SubjectStep,
+) -> bool {
+    // The immutable request row owns the canonical attempt identity. The
+    // ordinary subject loop leaves the step's optional attempt pointer empty;
+    // a retained explicit pointer must still name this exact original attempt.
+    step.state == shenko_types::subject::SubjectStepState::AwaitingModel
+        && step.step_id == attempt.step_id
+        && step.active_request_id == Some(attempt.request_id)
+        && step.active_attempt_id.is_none_or(|id| id == attempt.attempt_id)
+        && step.input_plan_ref.as_ref() == Some(&attempt.input_plan_ref)
+}
+
 impl Store {
     /// Commit the armed attempt before any wire send. Idempotent on
     /// `request_id`: an existing identical row replays its commit; the same
@@ -94,8 +108,9 @@ impl Store {
         &self,
         attempt: &SubjectRequestAttempt,
     ) -> Result<CommitRef, ShenkoError> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
-            || self.try_arm_subject_request(attempt),
+            || self.try_arm_subject_request(attempt, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -103,6 +118,7 @@ impl Store {
     fn try_arm_subject_request(
         &self,
         attempt: &SubjectRequestAttempt,
+        authority: &crate::authority::AuthorityReservation,
     ) -> Result<CommitRef, ShenkoError> {
         if attempt.schema_version != 1
             || attempt.request_id == EntityId::nil()
@@ -133,6 +149,11 @@ impl Store {
                 "subject request identity reused with different facts",
             ));
         }
+        authority.check(&tx, self.capabilities.incarnation, Some(attempt.agent_id))?;
+        let ordered: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM commit_authority_policy)", [], |row| row.get(0))
+            .map_err(storage_error)?;
+        if ordered { return Err(shenko_types::authority::authority_fenced(
+            "new subject requests require the atomic ordered S0 boundary")); }
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         let mut stored = attempt.clone();
@@ -204,12 +225,30 @@ impl Store {
         &self,
         request_id: EntityId,
     ) -> Result<CommitRef, ShenkoError> {
+        let attempt = self.subject_request_attempt(request_id)?
+            .ok_or_else(|| ShenkoError::not_found("subject request attempt"))?;
+        if attempt.state != SubjectRequestState::Armed {
+            return Err(ShenkoError::conflict("subject request already crossed its dispatch boundary"));
+        }
+        let (head, step) = self.load_subject(attempt.agent_id)?;
+        if head.mode != shenko_types::subject::SubjectMode::Active
+            || !request_owns_step(&attempt, &step)
+        {
+            return Err(shenko_types::authority::authority_fenced("request no longer owns the registered step"));
+        }
+        let authority = self.reserve_admission(&head, crate::authority::AdmissionPosition {
+            key: format!("attempt/{}/dispatch", attempt.attempt_id),
+            reads: vec![format!("step/{}/revision/{}", step.step_id, step.record_revision.0)],
+            attempt_id: Some(attempt.attempt_id), expected_steps: vec![step], ..Default::default()
+        },
+            &serde_json::json!({"kind": "subject.request_dispatch", "attempt": attempt}))?;
         self.ledger.with_mutation(
             || self.try_transition_subject_request(
                 request_id,
                 SubjectRequestState::Armed,
                 SubjectRequestState::Dispatched,
                 None,
+                Some(&authority),
             ),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
@@ -230,6 +269,7 @@ impl Store {
                     SubjectRequestState::Dispatched,
                     SubjectRequestState::Terminal,
                     Some(terminal),
+                    None,
                 )
                 .or_else(|error| {
                     // The send boundary and the terminal evidence can race a
@@ -241,6 +281,7 @@ impl Store {
                             SubjectRequestState::Armed,
                             SubjectRequestState::Terminal,
                             Some(terminal),
+                    None,
                         )
                     } else {
                         Err(error)
@@ -257,6 +298,7 @@ impl Store {
         from: SubjectRequestState,
         to: SubjectRequestState,
         terminal: Option<&SubjectRequestTerminal>,
+        authority: Option<&crate::authority::AuthorityReservation>,
     ) -> Result<CommitRef, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn
@@ -269,6 +311,15 @@ impl Store {
             return Err(ShenkoError::conflict(
                 "subject request is not in the expected state",
             ));
+        }
+        if let Some(authority) = authority {
+            authority.check(&tx, self.capabilities.incarnation, Some(attempt.agent_id))?;
+            let (head, step) = crate::store::read_subject(&tx, attempt.agent_id)?;
+            if head.mode != shenko_types::subject::SubjectMode::Active
+                || !request_owns_step(&attempt, &step)
+            {
+                return Err(shenko_types::authority::authority_fenced("request lost its active step before dispatch"));
+            }
         }
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
@@ -294,8 +345,13 @@ impl Store {
         if changed != 1 {
             return Err(ShenkoError::conflict("stale subject request row"));
         }
-        self.record_subject_commit(&tx, commit, 1)?;
+        let replayed = authority.map(|authority| authority.record_admission(&tx, commit)).transpose()?.unwrap_or(false);
+        self.record_subject_commit(&tx, commit, 1 + i64::from(authority.is_some()))?;
         tx.commit().map_err(storage_error)?;
+        if let Some(authority) = authority { authority.materialized(); }
+        if replayed {
+            return Err(shenko_types::authority::authority_fenced("historical dispatch grant remains an original unknown attempt"));
+        }
         Ok(commit)
     }
 

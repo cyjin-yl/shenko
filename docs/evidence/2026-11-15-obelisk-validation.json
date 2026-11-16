@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "observed_date_utc": "2026-11-15",
+  "status": "mechanism_verified_model_blocked",
+  "candidate_head": "8f6dcee81b26e7ba1b533a1d33b2ec0109ef272b",
+  "candidate_head_note": "The three final artifacts were rebuilt together after replacing Tokio attribute macros with fallible explicit current-thread runtime construction, then SHA-256 checked before direct execution. Older component-test and CLI-smoke sources remain identified separately.",
+  "scope": {
+    "new_rust_tests": 6,
+    "new_external_runners": 2,
+    "new_validation_scenarios": 8,
+    "mechanism_scenarios_passed": 7,
+    "existing_store_regressions_passed": 3,
+    "model_runner_status": "blocked_external",
+    "model_arms_scored": 0,
+    "statistical_efficacy_claim": false,
+    "model_accuracy_claim": false,
+    "token_saving_claim": false
+  },
+  "build": {
+    "status": "passed",
+    "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "command": "cargo --config <task-local-profile.toml> build --offline --locked -p shenko --test obelisk_lifecycle --example obelisk_native_receipt --example obelisk_acceptance --message-format=json-render-diagnostics",
+    "coordination": "flock /tmp/shenko-cargo.lock; a shared Cargo build-directory lock was also respected",
+    "environment": {
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "existing shared build cache; no cache deletion or hardlinking"
+    },
+    "task_local_profile": {
+      "dev_workspace_codegen_units": 17,
+      "test_workspace_codegen_units": 17,
+      "workspace_package_count": 33,
+      "selection": "All workspace member package names at candidate_head, each given a profile.dev.package.<name> and profile.test.package.<name> override.",
+      "registry_package_profiles_changed": false,
+      "repository_configuration_changed": false,
+      "configuration_sha256": "afe415b7b79df106316c0466f94535d7ccd2801e629b2165555d4a8cf8128c53",
+      "reason": "Separate local crate artifact hashes after another worktree replaced default-profile metadata in the shared target."
+    },
+    "artifact_binding": "Paths came from Cargo compiler-artifact JSON. Each executable SHA-256 was checked immediately before running it.",
+    "artifacts": {
+      "obelisk_acceptance": {
+        "target_kind": [
+          "example"
+        ],
+        "compiled_fresh": true,
+        "sha256": "e7f37a4a874f2fe012dd2ad51afa21df91fe8bfda571c5e13156a0c1d3d6d5e4"
+      },
+      "obelisk_lifecycle": {
+        "target_kind": [
+          "test"
+        ],
+        "compiled_fresh": true,
+        "sha256": "c60f9e113de01a317b0b25aa7484e9a24fbfc60394b74be672bd39f79b26602e"
+      },
+      "obelisk_native_receipt": {
+        "target_kind": [
+          "example"
+        ],
+        "compiled_fresh": true,
+        "sha256": "ffd9b12908fb3a12b85e9aa98d6bd328ce2c234d53dc4203cb713dd681d13a18"
+      }
+    },
+    "elapsed_seconds": 49.96
+  },
+  "component_tests": [
+    {
+      "component": "external original archive",
+      "status": "passed",
+      "source_head": "13526960696e739842bcbcd95004056af395d8f3",
+      "command": "cargo test --offline --locked -p shenko-exec-host --lib external_history::tests -- --nocapture",
+      "tests": [
+        {
+          "name": "external_history::tests::incomplete_source_and_corrupt_original_are_visible_without_fabricated_evidence",
+          "status": "ok"
+        },
+        {
+          "name": "external_history::tests::independently_imported_sources_replicate_and_old_archives_do_not_revive_retirement",
+          "status": "ok"
+        },
+        {
+          "name": "external_history::tests::complete_history_versions_keep_equal_events_and_search_chinese_tail",
+          "status": "ok"
+        }
+      ],
+      "execution_seconds": 1.02,
+      "coverage": [
+        "complete originals, equal events, bounded long-output search and Chinese tail",
+        "independent-origin replication and irreversible retirement visibility",
+        "incomplete source, parser budgets and corrupted original remain explicit"
+      ]
+    },
+    {
+      "component": "real Obelisk process runtime",
+      "status": "passed",
+      "source_head": "13526960696e739842bcbcd95004056af395d8f3",
+      "actual_command": "<Cargo-built shenko-exec-host lib-test executable> obelisk_runtime::tests --nocapture",
+      "reproduce_with": "cargo test --offline --locked -p shenko-exec-host --lib obelisk_runtime::tests -- --nocapture",
+      "environment": {
+        "SHENKO_OBELISK_EXECUTABLE": "<absolute Node executable>",
+        "SHENKO_OBELISK_SOURCE_CHECKOUT": "<checkout at cc75c2dd1aead4f4374758a7536385307934e177>"
+      },
+      "tests": [
+        {
+          "name": "obelisk_runtime::tests::real_cli_async_script_is_stopped_by_host_deadline_and_readers_join",
+          "status": "ok"
+        },
+        {
+          "name": "obelisk_runtime::tests::real_cli_history_preserves_source_locators_and_reads_beyond_projection",
+          "status": "ok"
+        }
+      ],
+      "execution_seconds": 36.06,
+      "cli_mock_used": false,
+      "coverage": [
+        "Codex, OMP and Pi source locators; literal Chinese fallback; original reads beyond index projection; missing source",
+        "async script host deadline; owned process termination and reader joins"
+      ]
+    },
+    {
+      "component": "existing raw Store writer and search regressions",
+      "status": "passed",
+      "command": "cargo test --offline --locked -p shenko-store --test raw_session_writer --test session_event_search -- --nocapture",
+      "tests": [
+        {
+          "name": "session_and_events_commit_together_replay_is_noop_and_seq_conflict_rolls_back",
+          "status": "ok"
+        },
+        {
+          "name": "raw_history_cjk_mixed_failure_filters_and_refs_survive_reopen",
+          "status": "ok"
+        },
+        {
+          "name": "raw_history_fts_rebuilds_from_committed_events",
+          "status": "ok"
+        }
+      ],
+      "coverage": [
+        "atomic source/events commit, idempotent replay and sequence-conflict rollback",
+        "Chinese/mixed search, failure filters, references after reopen and FTS rebuilding"
+      ]
+    }
+  ],
+  "component_revision_note": "Archive/runtime behavior tests were run at the listed source head. Later edits included lint corrections, Context/Result error propagation, and explicit fallible test-runtime construction. The older component test executables are not relabeled as candidate-head runs. Production components were compiled again into the final native artifacts. The changed lifecycle and two external-runner entrypoints were separately rebuilt and re-executed at candidate_head; their async flows and assertions were retained.",
+  "final_executions": [
+    {
+      "target": "obelisk_lifecycle",
+      "kind": "rust integration test",
+      "status": "passed",
+      "actual_command": "<Cargo JSON-bound obelisk_lifecycle executable> --nocapture",
+      "reproduce_with": "cargo test --offline --locked -p shenko --test obelisk_lifecycle -- --nocapture",
+      "exit_code": 0,
+      "elapsed_ms": 562,
+      "tests": [
+        {
+          "name": "optional_archive_queries_survive_source_loss_disable_and_restart",
+          "status": "ok"
+        }
+      ],
+      "coverage": [
+        "initially disabled capability",
+        "archive and source loss",
+        "bounded original reads",
+        "disable/withdrawal and restart without losing archived evidence"
+      ]
+    },
+    {
+      "target": "obelisk_native_receipt",
+      "kind": "external runner",
+      "status": "passed",
+      "actual_command": "<Cargo JSON-bound obelisk_native_receipt example executable>",
+      "reproduce_with": "cargo run --offline --locked -p shenko --example obelisk_native_receipt",
+      "environment": {
+        "SHENKO_OBELISK_EXECUTABLE": "<absolute Node executable>",
+        "SHENKO_OBELISK_SOURCE_CHECKOUT": "<pinned audited checkout>"
+      },
+      "exit_code": 0,
+      "elapsed_ms": 9068,
+      "cli_mock_used": false,
+      "model_invocation_required": false,
+      "coverage": [
+        "MCP and history native capabilities coexist",
+        "large observed results remain readable through the history artifact operation after MCP retirement",
+        "successful custom JavaScript exit preserves unknown host effects and no fabricated successful T2",
+        "reconciliation reads original evidence without replaying the script"
+      ]
+    },
+    {
+      "target": "obelisk_acceptance",
+      "kind": "external real-model runner",
+      "status": "blocked_external",
+      "actual_command": "<Cargo JSON-bound obelisk_acceptance example executable>, with local-model and CLI-config prerequisite environment unset",
+      "reproduce_with": "cargo run --offline --locked -p shenko --example obelisk_acceptance",
+      "exit_code": 1,
+      "elapsed_ms": 9,
+      "model_mock_used": false,
+      "inference_requests_sent_by_this_invocation": 0,
+      "runner_report": {
+        "complete": false,
+        "corpus_digest": "blake3:3496021d8a26422e06e775109097c88416786335c57c6fb9c583b4b7d84bb6b8",
+        "missing": [
+          "SHENKO_LOCAL_MODEL_URL",
+          "SHENKO_LOCAL_MODEL",
+          "SHENKO_OBELISK_CONFIG"
+        ],
+        "reason": "explicit real local model and CLI configuration are required",
+        "scenario": "auth_history_candidate_and_implemented_change",
+        "schema_version": 1,
+        "scored": 0,
+        "status": "blocked_external"
+      },
+      "interpretation": "The missing-prerequisite guard was executed and its nonzero exit retained. Neither model arm nor the model judge ran. This is not an efficacy pass."
+    }
+  ],
+  "cli_first_configuration_smoke": {
+    "status": "passed",
+    "candidate_head": "8cfc5f1b129d38734d9fcfbdf36a667554c78f68",
+    "commands": [
+      [
+        "shenko",
+        "--data-dir",
+        "<fresh_private_data_dir>",
+        "history",
+        "obelisk",
+        "configure",
+        "--file",
+        "<synthetic_source_config.json>"
+      ],
+      [
+        "shenko",
+        "--data-dir",
+        "<fresh_private_data_dir>",
+        "history",
+        "obelisk",
+        "enable"
+      ],
+      [
+        "shenko",
+        "--data-dir",
+        "<fresh_private_data_dir>",
+        "history",
+        "obelisk",
+        "status"
+      ]
+    ],
+    "exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "configured": true,
+    "configure_started_process": false,
+    "upstream_verified_files": 51,
+    "configured_initially_disabled": true,
+    "enabled_after_explicit_enable": true,
+    "installed": true,
+    "node_readiness": "unverified",
+    "config_path": "<data_dir>/obelisk.json",
+    "configuration_at_data_root": true,
+    "configuration_inside_node": false,
+    "configuration_mode": "0o600",
+    "node_directory_mode": "0o700",
+    "scope": "A fresh private fixture directory; no user installation was configured."
+  },
+  "external_model_blocker": {
+    "status": "blocked_external",
+    "observations": [
+      "Documented authorized local gateways returned HTTP 502/403 from the executor or connected Box.",
+      "The documented Tailnet TLS gateway returned HTTP 503 or CONNECT 403.",
+      "The connected Box reported Tailscale logged out."
+    ],
+    "private_endpoint_addresses_recorded": false,
+    "credentials_or_network_state_modified": false,
+    "search_scope_expanded_after_blocker": false,
+    "remaining_work": "Run the compiled paired same-corpus model runner against a reachable authorized local endpoint, then inspect its committed subject, task, inference and judge receipts."
+  },
+  "upstream": {
+    "repository": "https://github.com/tommy0103/obelisk",
+    "revision": "cc75c2dd1aead4f4374758a7536385307934e177",
+    "manifest_digest": "blake3:b26e9ebf7a5db02b55ac89e005ccd44854a330e3d4168e11cca1fde2c4a1c771",
+    "node_version": "v24.22.1",
+    "compatibility_note": "Published npm CLI 0.3.0 does not honor this source snapshot storage contract. The adapter verifies the audited source before spawning a query.",
+    "direct_cli_probe_evidence": "docs/evidence/2026-11-15-obelisk-cli-validation.json"
+  },
+  "resolved_verification_failures": [
+    "The first lifecycle fixtures exposed configuration placed in Node private storage. Configuration now lives at data_dir/obelisk.json, and the product CLI smoke confirms first configure/enable/status succeed.",
+    "Two concurrent rustc jobs were killed while building another dependency feature graph. Serial jobs=1 completed.",
+    "Shared-target worktree metadata was overwritten between invocations. The final build uses workspace-only codegen-units=17 and JSON-bound executable identities, preserving registry cache profiles.",
+    "The acceptance harness explicitly projects StoredSessionEvent fields instead of adding a production Serialize derive. External acceptance scenarios are standalone examples, preserving the source-policy prohibition on new ignored tests.",
+    "CI expect_used diagnostics also came from Tokio attribute macros implicitly expecting runtime creation to succeed. The lifecycle and external runner entrypoints now explicitly build a current-thread runtime with error propagation and block_on the unchanged async flows. All three were rebuilt and re-executed with new artifact identities."
+  ],
+  "interpretation": "Mechanism assertions and the real external CLI path passed. One synthetic corpus with an unavailable model does not establish better recall, no negative research effect, or token savings. The real-model acceptance remains incomplete.",
+  "previous_final_validation": {
+    "candidate_head": "8cfc5f1b129d38734d9fcfbdf36a667554c78f68",
+    "report_commit": "816c8e4b1611b38df6b629251632f91e06da915e",
+    "artifacts": {
+      "obelisk_lifecycle": {
+        "target_kind": [
+          "test"
+        ],
+        "compiled_fresh": true,
+        "sha256": "e7e53bff88c896d4f6e502b0a69dd3b4ea3bb8cfab1f38c5dfc927654971ef7b"
+      },
+      "obelisk_acceptance": {
+        "target_kind": [
+          "example"
+        ],
+        "compiled_fresh": true,
+        "sha256": "2137b5acc38b453aeec63886c2e40b65690aa314002bf7fa7f9782373736601d"
+      },
+      "obelisk_native_receipt": {
+        "target_kind": [
+          "example"
+        ],
+        "compiled_fresh": true,
+        "sha256": "a5c48781efad6207aae8c2db1551fd9c66b141affa0575b79bba081fce46259c"
+      }
+    },
+    "executions": [
+      {
+        "target": "obelisk_lifecycle",
+        "status": "passed",
+        "exit_code": 0,
+        "elapsed_ms": 565
+      },
+      {
+        "target": "obelisk_native_receipt",
+        "status": "passed",
+        "exit_code": 0,
+        "elapsed_ms": 9582
+      },
+      {
+        "target": "obelisk_acceptance",
+        "status": "blocked_external",
+        "exit_code": 1,
+        "elapsed_ms": 47
+      }
+    ],
+    "note": "Retained as earlier real execution evidence; these older executable hashes are not attributed to the newer wrapper source."
+  }
+}

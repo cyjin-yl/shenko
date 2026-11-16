@@ -1,7 +1,7 @@
 //! Conditional T1 and append-only E1 for native external executors.
 //! No network I/O occurs under these transactions; task completion is separate.
 use crate::{InterventionReminder, Store};
-use anyhow::{Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::evidence::EvidenceReceipt;
@@ -22,6 +22,16 @@ pub const MODEL_CHILD_KIND: &str = "model.child";
 pub enum InboxAdmission {
     Inserted,
     Replay,
+}
+
+/// A decoder's fold over one exact operation/evidence head. Content-level
+/// terminal contradictions are distinct from different outcome enum values.
+/// No provider semantics enter Store; the decoder supplies this conclusion
+/// only after reading the immutable receipts at expected_revision.
+#[derive(Debug, Clone, Copy)]
+pub struct ExternalEvidenceFold {
+    pub expected_revision: RecordRevision,
+    pub terminal_content_conflict: bool,
 }
 
 pub(crate) fn validate_original_event(
@@ -89,6 +99,16 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(serde_json::from_str(&data)?)
+    }
+
+    /// Read-only preflight lookup. Absence is not an armed/unknown attempt.
+    pub fn find_external_operation(&self, id: EntityId) -> Result<Option<OperationRecord>> {
+        let c = self.ledger.conn.lock();
+        let data: Option<String> = c.query_row(
+            "SELECT data FROM operations WHERE operation_id=?1",
+            [id.to_string()], |row| row.get(0),
+        ).optional()?;
+        data.map(|data| serde_json::from_str(&data).map_err(Into::into)).transpose()
     }
 
     pub fn external_operation_attempt(&self, id: EntityId) -> Result<AttemptRecord> {
@@ -189,42 +209,10 @@ impl Store {
 
     /// Returns None for a new armed admission, or the original operation for a
     /// matching repeated logical key. A hit NEVER authorizes another dispatch.
-    pub fn arm_external_operation(
-        &self,
-        ctx: &TaskInvocation,
-        op: &mut OperationRecord,
-        att: &mut AttemptRecord,
+    fn matching_external_operation(
+        &self, conn: &rusqlite::Connection, ctx: &TaskInvocation, op: &OperationRecord,
     ) -> Result<Option<OperationRecord>> {
-        self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, None),
-            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
-        )
-    }
-
-    /// Child model T1 atomically claims the gate's exact R→S reservation with
-    /// the native operation/attempt. Native tools keep the non-inference path.
-    pub fn arm_external_inference_operation(
-        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
-        binding: &InferenceSendBinding,
-    ) -> Result<Option<OperationRecord>> {
-        self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att, Some(binding)),
-            |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
-                || error.downcast_ref::<shenko_types::error::ShenkoError>()
-                    .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
-        )
-    }
-
-    fn try_arm_external_operation(
-        &self,
-        ctx: &TaskInvocation,
-        op: &mut OperationRecord,
-        att: &mut AttemptRecord,
-        inference: Option<&InferenceSendBinding>,
-    ) -> Result<Option<OperationRecord>> {
-        let mut c = self.ledger.conn.lock();
-        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing: Option<String> = tx.query_row(
+        let existing: Option<String> = conn.query_row(
             "SELECT data FROM operations WHERE json_extract(data,'$.task_id')=?1 AND json_extract(data,'$.logical_key')=?2",
             params![ctx.task_id.to_string(), op.logical_key], |r| r.get(0)).optional()?;
         if let Some(data) = existing {
@@ -244,6 +232,102 @@ impl Store {
             );
             return Ok(Some(old));
         }
+        Ok(None)
+    }
+
+    fn prepare_external_authority(
+        &self, ctx: &TaskInvocation, op: &OperationRecord, att: &AttemptRecord,
+        inference: Option<&InferenceSendBinding>, native_dispatch: bool,
+    ) -> Result<crate::authority::AuthorityReservation> {
+        {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            let task = crate::child::read_task(&tx, ctx.task_id)?.context("task missing before T1")?;
+            ensure!(task.task_revision == ctx.task_revision && task.record_revision == ctx.record_revision
+                && task.abort_request.is_none() && matches!(task.dispatch_eligibility, DispatchEligibility::Ready)
+                && !task.memos.contains_key("native_settlement_only")
+                && matches!(task.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
+                    if invocation_id == ctx.invocation_id && epoch == ctx.epoch), "stale or inadmissible T1 invocation");
+            // Generic T1 also serves trusted executors without a Subject
+            // runtime. Native tasks retain their branch/owner checks here;
+            // a bound authority reserves its task ancestry below, and its
+            // durable policy is checked again in the final transaction.
+            if native_dispatch || crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
+                ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale native T1 authority");
+            }
+            ensure!(op.task_id == ctx.task_id && op.state == OperationState::InFlight
+                && att.operation_id == op.operation_id && att.dispatch_stage == AttemptDispatchStage::Armed
+                && att.invocation_id == ctx.invocation_id && att.epoch == ctx.epoch,
+                "invalid armed operation");
+        }
+        self.reserve_task_admission(ctx.task_id,
+            format!("task/{}/operation/{}", ctx.task_id,
+                shenko_types::object::Digest::blake3(op.logical_key.as_bytes())),
+            op.operation_id, att.attempt_id,
+            &serde_json::json!({"kind": "external.arm", "invocation": ctx,
+                "operation": op, "attempt": att, "inference": inference,
+                "native_dispatch": native_dispatch})).map_err(Into::into)
+    }
+
+    pub fn arm_external_operation(
+        &self,
+        ctx: &TaskInvocation,
+        op: &mut OperationRecord,
+        att: &mut AttemptRecord,
+    ) -> Result<Option<OperationRecord>> {
+        if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        let authority = self.prepare_external_authority(ctx, op, att, None, false)?;
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, None, false, &authority),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Native non-inference admission after preflight: T1 and the original
+    /// attempt's one dispatch marker commit atomically. None grants exactly
+    /// this fresh caller its send; Some is read-only replay, never a new send.
+    /// A duplicate cannot observe an armed operation without its dispatch
+    /// decision, then retire that live sender by recording an Unknown result.
+    pub fn arm_native_operation_for_dispatch(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+    ) -> Result<Option<OperationRecord>> {
+        if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        let authority = self.prepare_external_authority(ctx, op, att, None, true)?;
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, None, true, &authority),
+            |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Child model T1 atomically claims the gate's exact R→S reservation with
+    /// the native operation/attempt. Native tools keep the non-inference path.
+    pub fn arm_external_inference_operation(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+        binding: &InferenceSendBinding,
+    ) -> Result<Option<OperationRecord>> {
+        if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        let authority = self.prepare_external_authority(ctx, op, att, Some(binding), false)?;
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, Some(binding), false, &authority),
+            |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+                || error.downcast_ref::<shenko_types::error::ShenkoError>()
+                    .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
+        )
+    }
+
+    fn try_arm_external_operation(
+        &self,
+        ctx: &TaskInvocation,
+        op: &mut OperationRecord,
+        att: &mut AttemptRecord,
+        inference: Option<&InferenceSendBinding>,
+        native_dispatch: bool,
+        authority: &crate::authority::AuthorityReservation,
+    ) -> Result<Option<OperationRecord>> {
+        let mut c = self.ledger.conn.lock();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(old) = self.matching_external_operation(&tx, ctx, op)? { return Ok(Some(old)); }
+        authority.check(&tx, self.capabilities.incarnation, None)?;
         // Subject publications use this same T1, with a revocable dispatcher
         // owner. A stale callback can enter E1 but cannot arm a new send.
         let subject_owner: Option<String> = tx.query_row(
@@ -280,7 +364,7 @@ impl Store {
             !task.memos.contains_key("native_settlement_only"),
             "settlement_invocation_cannot_arm"
         );
-        if crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
+        if native_dispatch || crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
             ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale_native_generation_or_owner");
         }
         ensure!(
@@ -377,6 +461,9 @@ impl Store {
             ensure!(inference.is_none(), "inference T1 requires the registered model-child task contract");
         }
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        if native_dispatch {
+            crate::child::insert_native_dispatch_marker(&mut task, ctx, op.operation_id, att.attempt_id, commit)?;
+        }
         op.prepared_commit = commit;
         att.armed_commit = commit;
         task.record_revision = RecordRevision(task.record_revision.0 + 1);
@@ -406,8 +493,10 @@ impl Store {
                 self.capabilities.incarnation.to_string()
             ],
         )?;
+        let replayed = authority.record_admission(&tx, commit)?;
         tx.commit()?;
-        Ok(None)
+        authority.materialized();
+        Ok(replayed.then(|| op.clone()))
     }
 
     /// Durably admit one subject inbox event from an external producer.
@@ -512,7 +601,29 @@ impl Store {
         effect: EffectStatus,
     ) -> Result<OperationRecord> {
         self.ledger.with_mutation(
-            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect),
+            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, None)
+                .and_then(|operation| operation.ok_or_else(|| anyhow::anyhow!("unconditional evidence write unexpectedly stale"))),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Admit an original receipt and its decoder fold only if the operation
+    /// still has the head the decoder read. None means no write occurred: read
+    /// the new head and all its evidence, then fold the same original again.
+    /// A content conflict preserves the incoming receipt and changes the
+    /// operation to sticky Unknown in the SAME E1 transaction. This may accept
+    /// late facts after cancellation; it grants no dispatch or T2 authority.
+    pub fn record_external_evidence_if_current(
+        &self,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        ev: EvidenceReceipt,
+        outcome: Option<OperationOutcome>,
+        effect: EffectStatus,
+        fold: ExternalEvidenceFold,
+    ) -> Result<Option<OperationRecord>> {
+        self.ledger.with_mutation(
+            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, Some(fold)),
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
     }
@@ -579,11 +690,15 @@ impl Store {
         mut ev: EvidenceReceipt,
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
-    ) -> Result<OperationRecord> {
+        fold: Option<ExternalEvidenceFold>,
+    ) -> Result<Option<OperationRecord>> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        if fold.is_some_and(|fold| fold.expected_revision != op.record_revision) {
+            return Ok(None);
+        }
         match crate::receipt_admission::decide(&tx, &ev)? {
             crate::receipt_admission::Admission::New => {}
             // The same fact is already durable: the ledger's own projection is
@@ -597,7 +712,7 @@ impl Store {
                         "receipt replay carries a different settlement than the durable fact"
                     );
                 }
-                return Ok(op);
+                return Ok(Some(op));
             }
             crate::receipt_admission::Admission::Conflict(conflict) => {
                 let refusal =
@@ -614,7 +729,14 @@ impl Store {
         // Migrate that projection conservatively; repeated facts cannot settle it.
         op.outcome_conflict |=
             att.dispatch_stage == AttemptDispatchStage::Ended && op.outcome.is_none();
-        if let Some(observed) = outcome {
+        if fold.is_some_and(|fold| fold.terminal_content_conflict) {
+            op.outcome_conflict = true;
+            op.state = OperationState::Reconciling;
+            op.outcome = None;
+            op.effect_status = EffectStatus::Unknown;
+            att.dispatch_stage = AttemptDispatchStage::Ended;
+            att.final_receipt_id = Some(ev.receipt_id);
+        } else if let Some(observed) = outcome {
             if op.outcome_conflict || (op.outcome.is_some() && op.outcome != Some(observed)) {
                 op.outcome_conflict = true;
                 op.state = OperationState::Reconciling;
@@ -684,7 +806,7 @@ impl Store {
             ],
         )?;
         tx.commit()?;
-        Ok(op)
+        Ok(Some(op))
     }
     /// The agent one durable task row records, or None when the row is gone.
     fn task_agent(tx: &Transaction<'_>, task_id: EntityId) -> Result<Option<String>> {

@@ -1,0 +1,25 @@
+{
+  "arms": [
+    {
+      "cleanup_failed": false,
+      "condition": "baseline",
+      "error": "sandbox subject: model outcome not conclusive; preserve original awaiting_model for reconciliation: sandbox subject terminated before its continuation was observed",
+      "status": "failed"
+    },
+    {
+      "cleanup_failed": false,
+      "condition": "candidate",
+      "error": "sandbox subject: model outcome not conclusive; preserve original awaiting_model for reconciliation: sandbox subject terminated before its continuation was observed",
+      "status": "failed"
+    }
+  ],
+  "cleanup_ok": true,
+  "complete": false,
+  "corpus_digest": "blake3:3496021d8a26422e06e775109097c88416786335c57c6fb9c583b4b7d84bb6b8",
+  "evaluation_scope": "one bounded production-path comparison; no efficacy or token-saving claim",
+  "planned_arms": 2,
+  "scenario": "auth_history_candidate_and_implemented_change",
+  "schema_version": 1,
+  "shutdown_artifact_error": null,
+  "status": "inconclusive_or_failed"
+}

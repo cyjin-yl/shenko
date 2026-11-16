@@ -31,16 +31,17 @@ pub struct NodeAuthority {
 impl PrimaryClaimSource for NodeAuthority {
     fn committed_primary_claim(&self) -> Result<Option<PrimaryClaim>> {
         let node = crate::node_sync::open_node(&self.data_dir, &self.store)?;
-        if !node.is_primary()? { return Ok(None); }
-        let claim = node.committed_primary_claim()?.context("local primary has no committed claim")?;
+        let Some(token) = node.fencing_token()? else { return Ok(None); };
+        if node.local_node_id()? != Some(token.leader_id) { return Ok(None); }
         // The node's own resource-side validation is authoritative; don't
-        // infer a lease merely from a truthful subject identity binding.
-        node.check_fencing(&node.fencing_token()?.context("primary fencing token missing")?)?;
+        // infer a lease merely from a truthful subject identity binding, or
+        // validate a newer token while returning a separately read old claim.
+        node.check_fencing(&token)?;
         Ok(Some(PrimaryClaim {
-            term: claim.term, epoch: claim.epoch,
-            leader_node_id: claim.leader_node_id,
-            config_revision: claim.config_revision,
-            committed_seq: claim.committed_seq,
+            term: token.term, epoch: token.epoch,
+            leader_node_id: token.leader_id.to_string(),
+            config_revision: token.config_revision,
+            committed_seq: token.committed_seq,
         }))
     }
 
@@ -59,6 +60,7 @@ impl PrimaryClaimSource for NodeAuthority {
         let branch = node.branches()?.into_iter().find(|branch| {
             branch.kind == shenko_node::BranchKind::Availability
                 && !branch.global_quorum
+                && branch.merged.is_none()
                 && branch.subject_id == Some(self.agent_id)
                 && branch.branch_id.to_string() == head.branch_id.0.to_string()
         });

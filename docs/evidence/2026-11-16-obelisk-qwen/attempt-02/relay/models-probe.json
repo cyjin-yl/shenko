@@ -1,0 +1,8 @@
+{
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "body_sha256": "c46e6f1d281ad7940f2cb7df82358cd1f38c6c37b26eb75be7736ac16ea4071a",
+  "body_bytes": 680,
+  "observed_at_utc": "2026-11-15T17:42:35.502307+00:00",
+  "source": "real remote GET through the same relay route"
+}

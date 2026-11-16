@@ -57,6 +57,19 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Subject raw input links (docs/specs/memory.md#spec-12-1): additive index over the raw
     // session events, never a second truth store.
     conn.execute_batch(crate::raw_session::RAW_SESSION_SCHEMA)?;
+    // One raw fact can be selected by a fork's first step while retaining its
+    // original selection. Migrate the old uniqueness index without touching
+    // any row; the fork receipt and archive validator bind every such reuse.
+    let unique_raw_link: bool = conn.query_row(
+        "SELECT \"unique\" FROM pragma_index_list('subject_raw_inputs') WHERE name='idx_subject_raw_inputs_raw'",
+        [], |row| row.get(0),
+    )?;
+    if unique_raw_link {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch("DROP INDEX idx_subject_raw_inputs_raw;
+            CREATE INDEX idx_subject_raw_inputs_raw ON subject_raw_inputs(raw_event_id);")?;
+        tx.commit()?;
+    }
 
     // Raw-session FTS is a rebuildable projection, never another history
     // store. Committed rows remain readable through LIKE when FTS5 is absent.
@@ -115,6 +128,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    conn.execute_batch(crate::subject_branches::SCHEMA)?;
     // Durable reconciliation cases for unknown external effects (docs/specs/durable-state.md#spec-41-4
     // X11). Additive, own table only: it records which immutable receipts a
     // reconciling operation already has and which explicit S1 decision (if

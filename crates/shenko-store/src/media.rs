@@ -1036,8 +1036,11 @@ pub(crate) fn media_recovery_gaps(
                 ensure!(raw_source == Some(source_id), "media staging link has no matching admitted original");
                 let raw = sessions.get(raw_id).context("media staging raw event missing")?;
                 ensure!(link.value("session_id") == raw.value("session_id")
-                    && link.value("seq") == raw.value("seq") && staged_raw.insert(raw_id),
-                    "media staging link disagrees with its unique raw event");
+                    && link.value("seq") == raw.value("seq"),
+                    "media staging link disagrees with its raw event");
+                // A verified fork can select the same immutable original;
+                // validate_branch_rows checks its exact parent and receipt.
+                staged_raw.insert(raw_id);
             }
         }
         ensure!(media_raw_sources.keys().all(|raw_id| staged_raw.contains(*raw_id)),

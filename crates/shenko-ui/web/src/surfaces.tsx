@@ -452,6 +452,9 @@ function PanelSectionBody({ name, node }: { name: string; node: UiNode }) {
       : <p className="muted">尚无已提交内容。</p>;
   }
   if (name === 'artifacts') {
+    if (typeof self?.artifacts_error === 'string' && self.artifacts_error) {
+      return <p className="muted" role="status">产物暂时无法读取。</p>;
+    }
     const artifacts = Array.isArray(self?.artifacts) ? self.artifacts : [];
     return artifacts.length
       ? <ul className="mini-rows">{artifacts.map((artifact: { id: string; title?: string; kind?: string }) => <li key={artifact.id}>

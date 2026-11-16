@@ -23,6 +23,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_store::store::Store;
+use shenko_store::artifacts::ArtifactOperation;
 use shenko_types::commit::CommitRef;
 use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 use shenko_types::ids::*;
@@ -35,7 +36,7 @@ use shenko_kernel::task::NativeTaskInvocation;
 use shenko_types::task::TaskRecord;
 use shenko_types::task::NativeTaskDefinition;
 
-use crate::playground::PlaygroundState;
+use crate::playground::{PlaygroundState, PreparedArtifact, stable_id};
 
 /// The kind of this native child.
 pub const PLAYGROUND_MANAGE_KIND: &str = "playground.manage";
@@ -68,6 +69,22 @@ struct ManageInput {
     /// The revision a rollback returns to.
     #[serde(default)]
     source_revision: Option<u64>,
+}
+
+/// The exact observation committed with the effect, before E1 admission.
+/// Replaying it preserves the original attempt, receipt identity and time.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManageCheckpoint {
+    schema_version: u32,
+    operation_id: EntityId,
+    attempt_id: EntityId,
+    input_digest: Digest,
+    /// Historical effect closure, independent of a peer's current head.
+    artifact_effect_ref: Option<ObjectRef>,
+    evidence: EvidenceReceipt,
+    outcome: OperationOutcome,
+    effect: EffectStatus,
 }
 
 /// The subject's hands on its works.
@@ -137,12 +154,14 @@ impl PlaygroundManageHandler {
                     input.artifact_id.is_some(),
                     "this operation names the work it applies to"
                 );
+                input.artifact_id.as_deref().context("artifact_id is required")?.parse::<EntityId>()
+                    .context("artifact_id must be a UUID")?;
                 if input.op == "put" {
                     ensure!(input.content.is_some(), "put needs the new content");
                 }
                 if input.op == "rollback" {
                     ensure!(
-                        input.source_revision.is_some(),
+                        input.source_revision.is_some_and(|revision| revision > 0),
                         "rollback names the revision it returns to"
                     );
                 }
@@ -248,260 +267,184 @@ impl PlaygroundManageHandler {
         Ok((operation, attempt))
     }
 
-    /// The work itself. Every branch is the artifact store's own durable
-    /// lifecycle; nothing here invents a version, a stage or an adoption.
-    fn observe(&self, input: &ManageInput) -> (Value, OperationOutcome, EffectStatus) {
-        let artifact_id = input
-            .artifact_id
-            .as_deref()
-            .and_then(|id| id.parse::<EntityId>().ok());
-        let outcome = match input.op.as_str() {
-            "create" => {
-                let id = EntityId::new();
-                let title = input.title.clone().unwrap_or_default();
-                let mime = input.mime.clone().unwrap_or_default();
-                let bytes = input.content.clone().unwrap_or_default().into_bytes();
-                match self.playground.put(id, title, mime, &bytes) {
-                    Ok(version) => (
-                        json!({
-                            "schema_version": 1,
-                            "status": "ok",
-                            "op": "create",
-                            "artifact_id": id.to_string(),
-                            "revision": version.revision,
-                        }),
-                        OperationOutcome::Succeeded,
-                        EffectStatus::Complete,
-                    ),
-                    Err(error) => (
-                        json!({
-                            "schema_version": 1,
-                            "status": "failed",
-                            "op": "create",
-                            "error": {"code": "playground_create_failed", "message": error.to_string()},
-                        }),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    ),
-                }
-            }
+    /// Seal a proposal and its observation. No artifact row, version file or
+    /// inbox fact changes until `commit_prepared` commits the operation binding.
+    fn prepare(
+        &self,
+        input: &ManageInput,
+        operation_id: EntityId,
+    ) -> Result<(Value, EffectStatus, Option<PreparedArtifact>)> {
+        let id = || {
+            input
+                .artifact_id
+                .as_deref()
+                .context("operation needs an artifact id")?
+                .parse::<EntityId>()
+                .context("artifact id is not usable")
+        };
+        let prepared = match input.op.as_str() {
+            "create" => Some(
+                self.playground.prepare_put(
+                    stable_id(&format!("playground-create/v1:{operation_id}")),
+                    input.title.clone().context("create needs a title")?,
+                    input.mime.clone().context("create needs a mime type")?,
+                    input
+                        .content
+                        .as_deref()
+                        .context("create needs content")?
+                        .as_bytes(),
+                    true,
+                )?,
+            ),
             "put" => {
-                let Some(id) = artifact_id else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "put",
-                            "error": {"code": "playground_artifact_missing", "message": "the work id is not usable"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                let Some(previous) = self.playground.get(&id) else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "put",
-                            "error": {"code": "playground_artifact_unknown", "message": "no such work"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                // A new version keeps what the subject did not change: the
-                // title and the mime stay the work's own unless the request
-                // says otherwise.
-                let title = input
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| previous.title.clone());
-                let mime = input
-                    .mime
-                    .clone()
-                    .unwrap_or_else(|| previous.mime.clone());
-                let bytes = input.content.clone().unwrap_or_default().into_bytes();
-                match self.playground.put(id, title, mime, &bytes) {
-                    Ok(version) => (
-                        json!({
-                            "schema_version": 1,
-                            "status": "ok",
-                            "op": "put",
-                            "artifact_id": id.to_string(),
-                            "revision": version.revision,
-                        }),
-                        OperationOutcome::Succeeded,
-                        EffectStatus::Complete,
-                    ),
-                    Err(error) => (
-                        json!({"schema_version": 1, "status": "failed", "op": "put",
-                            "error": {"code": "playground_put_failed", "message": error.to_string()}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    ),
-                }
+                let id = id()?;
+                Some(
+                    self.playground.prepare_edit(
+                        id,
+                        input.title.clone(),
+                        input.mime.clone(),
+                        input
+                            .content
+                            .as_deref()
+                            .context("put needs content")?
+                            .as_bytes(),
+                    )?,
+                )
             }
-            "stage" => {
-                let Some(id) = artifact_id else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "stage",
-                            "error": {"code": "playground_artifact_missing", "message": "the work id is not usable"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                match self.playground.stage_artifact(id, None, None) {
-                    Ok(record) => (
-                        json!({
-                            "schema_version": 1,
-                            "status": "ok",
-                            "op": "stage",
-                            "artifact_id": id.to_string(),
-                            "candidate_manifests": record.candidate_manifest_refs.len(),
-                        }),
-                        OperationOutcome::Succeeded,
-                        EffectStatus::Complete,
-                    ),
-                    Err(error) => (
-                        json!({"schema_version": 1, "status": "failed", "op": "stage",
-                            "error": {"code": "playground_stage_failed", "message": error.to_string()}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    ),
+            "stage" => Some(self.playground.prepare_stage(
+                id()?,
+                None,
+                Some(&operation_id.to_string()),
+            )?),
+            "publish" => Some(self.playground.prepare_publish(
+                id()?,
+                None,
+                None,
+                Some(&operation_id.to_string()),
+            )?),
+            "rollback" => Some(
+                self.playground.prepare_rollback(
+                    id()?,
+                    input
+                        .source_revision
+                        .context("rollback needs source_revision")?,
+                )?,
+            ),
+            "list" => None,
+            _ => anyhow::bail!("unknown playground operation"),
+        };
+        let result = match prepared.as_ref() {
+            Some(prepared) => {
+                let mut result = json!({"schema_version": 1, "status": "ok", "op": input.op,
+                    "artifact_id": prepared.record.artifact_id});
+                if let Some(version) = &prepared.version {
+                    result["revision"] = json!(version.revision);
                 }
-            }
-            "publish" => {
-                let Some(id) = artifact_id else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "publish",
-                            "error": {"code": "playground_artifact_missing", "message": "the work id is not usable"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                // Publishing adopts the newest staged candidate. The candidate
-                // set stays readable, so the previous proposals remain facts.
-                let Some(record) = self.playground.durable_record(id).ok().flatten() else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "publish",
-                            "error": {"code": "playground_artifact_unknown", "message": "no such work"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                let Some(candidate) = record.candidate_manifest_refs.last().cloned() else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "publish",
-                            "error": {"code": "playground_no_candidate", "message": "there is no staged candidate to adopt"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                match self.playground.publish_artifact(id, &candidate.digest, None, None) {
-                    Ok(record) => (
-                        json!({
-                            "schema_version": 1,
-                            "status": "ok",
-                            "op": "publish",
-                            "artifact_id": id.to_string(),
-                            "active_manifest": record.active_manifest_ref.map(|r| r.digest.to_string()),
-                        }),
-                        OperationOutcome::Succeeded,
-                        EffectStatus::Complete,
-                    ),
-                    Err(error) => (
-                        json!({"schema_version": 1, "status": "failed", "op": "publish",
-                            "error": {"code": "playground_publish_failed", "message": error.to_string()}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    ),
+                if input.op == "stage" {
+                    result["candidate_manifests"] =
+                        json!(prepared.record.candidate_manifest_refs.len());
                 }
-            }
-            "rollback" => {
-                let Some(id) = artifact_id else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "rollback",
-                            "error": {"code": "playground_artifact_missing", "message": "the work id is not usable"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
+                if input.op == "publish" {
+                    result["active_manifest"] = json!(
+                        prepared
+                            .record
+                            .active_manifest_ref
+                            .as_ref()
+                            .map(|r| r.digest.to_string())
                     );
-                };
-                let Some(revision) = input.source_revision else {
-                    return (
-                        json!({"schema_version": 1, "status": "failed", "op": "rollback",
-                            "error": {"code": "playground_revision_missing", "message": "rollback names the revision"}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    );
-                };
-                match self.playground.rollback(id, revision) {
-                    Ok(version) => (
-                        json!({
-                            "schema_version": 1,
-                            "status": "ok",
-                            "op": "rollback",
-                            "artifact_id": id.to_string(),
-                            "revision": version.revision,
-                        }),
-                        OperationOutcome::Succeeded,
-                        EffectStatus::Complete,
-                    ),
-                    Err(error) => (
-                        json!({"schema_version": 1, "status": "failed", "op": "rollback",
-                            "error": {"code": "playground_rollback_failed", "message": error.to_string()}}),
-                        OperationOutcome::Failed,
-                        EffectStatus::None,
-                    ),
                 }
+                result
             }
-            "list" => {
-                let versions = self.playground.list();
-                let works: Vec<Value> = versions
+            None => {
+                let works: Vec<Value> = self
+                    .playground
+                    .list_current()?
                     .iter()
                     .map(|version| {
                         json!({
-                            "artifact_id": version.artifact_id.to_string(),
-                            "title": version.title,
-                            "mime": version.mime,
-                            "revision": version.revision,
+                            "artifact_id": version.artifact_id, "title": version.title,
+                            "mime": version.mime, "revision": version.revision,
                         })
                     })
                     .collect();
-                (
-                    json!({"schema_version": 1, "status": "ok", "op": "list", "works": works}),
-                    OperationOutcome::Succeeded,
-                    EffectStatus::None,
-                )
+                json!({"schema_version": 1, "status": "ok", "op": "list", "works": works})
             }
-            other => (
-                json!({"schema_version": 1, "status": "failed", "op": other,
-                    "error": {"code": "playground_unknown_op", "message": "unknown operation"}}),
-                OperationOutcome::Failed,
-                EffectStatus::None,
-            ),
         };
-        outcome
+        let effect = if prepared.is_some() {
+            EffectStatus::Complete
+        } else {
+            EffectStatus::None
+        };
+        Ok((result, effect, prepared))
     }
 
-    fn record(
+    fn prepare_observation(
+        &self,
+        input: &ManageInput,
+        operation_id: EntityId,
+    ) -> (
+        Value,
+        OperationOutcome,
+        EffectStatus,
+        Option<PreparedArtifact>,
+    ) {
+        match self.prepare(input, operation_id) {
+            Ok((result, effect, prepared)) => {
+                (result, OperationOutcome::Succeeded, effect, prepared)
+            }
+            Err(error) => (
+                json!({"schema_version": 1, "status": "failed", "op": input.op,
+                "error": {"code": format!("playground_{}_failed", input.op), "message": error.to_string()}}),
+                OperationOutcome::Failed,
+                EffectStatus::None,
+                None,
+            ),
+        }
+    }
+
+    fn checkpoint(
         &self,
         operation: &OperationRecord,
         attempt: &AttemptRecord,
         result: Value,
         outcome: OperationOutcome,
         effect: EffectStatus,
-    ) -> Result<OperationRecord> {
+        artifact: Option<&PreparedArtifact>,
+    ) -> Result<ObjectRef> {
+        let artifact_effect_ref = artifact
+            .map(|prepared| {
+                self.seal(
+                    &json!({
+                        "schema_version": 1,
+                        "artifact_id": prepared.record.artifact_id,
+                        "subject_id": prepared.record.subject_id,
+                        "state_revision": prepared.record.state_revision,
+                        "state_ref": prepared.record.state_ref,
+                        "desired_lifecycle_ref": prepared.record.desired_lifecycle_ref,
+                        "active_manifest_ref": prepared.record.active_manifest_ref,
+                        "candidate_manifest_refs": prepared.record.candidate_manifest_refs,
+                    }),
+                    "playground-artifact-effect",
+                )
+            })
+            .transpose()?;
         let bytes = serde_json::to_vec(&result)?;
         let raw = self.seal_bytes(&bytes, "playground-observation")?;
         let (normalized, outcome) = if bytes.len() <= MAX_NORMALIZED_BYTES {
             (raw.clone(), outcome)
         } else {
-            let oversized = json!({
-                "schema_version": 1,
-                "status": "failed",
-                "error": {
-                    "code": "normalized_result_too_large",
-                    "message": "the exact observation is sealed in raw evidence; list fewer works"
-                }
-            });
-            (self.seal(&oversized, "playground-result")?, OperationOutcome::Failed)
+            let oversized = json!({"schema_version": 1, "status": "failed", "error": {
+                "code": "normalized_result_too_large",
+                "message": "the exact observation is sealed in raw evidence; list fewer works"
+            }});
+            (
+                self.seal(&oversized, "playground-result")?,
+                OperationOutcome::Failed,
+            )
         };
         let evidence = EvidenceReceipt {
             record_schema_version: 1,
-            receipt_id: EntityId::new(),
+            receipt_id: stable_id(&format!("playground-receipt/v1:{}", attempt.attempt_id)),
             operation_id: Some(operation.operation_id),
             attempt_id: Some(attempt.attempt_id),
             source_id: "playground.manage.v1".into(),
@@ -517,12 +460,88 @@ impl PlaygroundManageHandler {
             observed_at: Some(chrono::Utc::now()),
             received_commit: operation.prepared_commit,
         };
+        self.seal(
+            &ManageCheckpoint {
+                schema_version: 1,
+                operation_id: operation.operation_id,
+                attempt_id: attempt.attempt_id,
+                input_digest: operation.input_digest.clone(),
+                artifact_effect_ref,
+                evidence,
+                outcome,
+                effect,
+            },
+            "playground-operation-checkpoint",
+        )
+    }
+
+    fn settle_checkpoint(
+        &self,
+        operation: &OperationRecord,
+        attempt: &AttemptRecord,
+        reference: &ObjectRef,
+    ) -> Result<OperationRecord> {
+        let bytes = self.store.cas.read_object(&reference.digest)?;
+        ensure!(
+            bytes.len() as u64 == reference.bytes && Digest::blake3(&bytes) == reference.digest,
+            "playground checkpoint object mismatch"
+        );
+        let checkpoint: ManageCheckpoint = serde_json::from_slice(&bytes)?;
+        ensure!(
+            checkpoint.schema_version == 1
+                && checkpoint.operation_id == operation.operation_id
+                && checkpoint.attempt_id == attempt.attempt_id
+                && checkpoint.input_digest == operation.input_digest
+                && checkpoint.evidence.operation_id == Some(operation.operation_id)
+                && checkpoint.evidence.attempt_id == Some(attempt.attempt_id),
+            "playground checkpoint identity mismatch"
+        );
+        self.store.record_external_evidence(
+            operation.operation_id,
+            attempt.attempt_id,
+            checkpoint.evidence,
+            Some(checkpoint.outcome),
+            checkpoint.effect,
+        )
+    }
+
+    /// No checkpoint is proof of neither success nor failure for operations
+    /// armed by older binaries. Preserve Unknown and fence any still-running
+    /// pre-commit worker instead of guessing or repeating an effect.
+    fn record_unresolved(
+        &self,
+        operation: &OperationRecord,
+        attempt: &AttemptRecord,
+    ) -> Result<OperationRecord> {
+        let result = json!({"schema_version": 1, "status": "unknown", "error": {
+            "code": "playground_operation_checkpoint_missing",
+            "message": "the original operation has no committed outcome checkpoint; its effect is not repeated"
+        }});
+        let raw = self.seal(&result, "playground-unresolved")?;
+        let evidence = EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: stable_id(&format!("playground-unresolved/v1:{}", attempt.attempt_id)),
+            operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id),
+            source_id: "playground.manage.v1".into(),
+            source_instance_id: attempt.node_id.to_string(),
+            source_event_key: Some(format!("playground-unresolved:{}", attempt.attempt_id)),
+            producer_epoch: Some(attempt.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw.clone(),
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: DecodeStatus::Decoded,
+            observation_level: None,
+            normalized_ref: Some(raw),
+            observed_at: None,
+            received_commit: operation.prepared_commit,
+        };
         self.store.record_external_evidence(
             operation.operation_id,
             attempt.attempt_id,
             evidence,
-            Some(outcome),
-            effect,
+            None,
+            EffectStatus::Unknown,
         )
     }
 
@@ -549,11 +568,51 @@ impl PlaygroundManageHandler {
             &mut operation,
             &mut attempt,
         )? {
+            if let Some(reference) = &existing.checkpoint_scope_ref {
+                let original = self
+                    .store
+                    .external_operation_attempt(existing.operation_id)?;
+                return self.settle_checkpoint(&existing, &original, reference);
+            }
             return Ok(existing);
         }
-        let (result, outcome, effect) = self.observe(&frozen);
-        self.record(&operation, &attempt, result, outcome, effect)
+        let _mutation = self.playground.mutation();
+        let (result, outcome, effect, mut prepared) =
+            self.prepare_observation(&frozen, operation.operation_id);
+        if frozen.op == "create" && let Some(prepared) = &mut prepared {
+            prepared.record.creator_task_id = Some(operation.task_id);
+        }
+        let checkpoint = self.checkpoint(
+            &operation,
+            &attempt,
+            result,
+            outcome,
+            effect,
+            prepared.as_ref(),
+        )?;
+        let committed = self.playground.commit_prepared(
+            prepared.as_ref(),
+            Some(ArtifactOperation {
+                invocation: &invocation.task_invocation,
+                operation_id: operation.operation_id,
+                operation_name: &operation.operation_name,
+                contract_digest: &operation.contract_ref.contract_digest,
+                attempt_id: attempt.attempt_id,
+                input_digest: &operation.input_digest,
+                checkpoint_ref: &checkpoint,
+            }),
+        )?;
+        self.settle_checkpoint(
+            &operation,
+            &attempt,
+            committed
+                .checkpoint_ref
+                .as_ref()
+                .context("artifact commit has no operation checkpoint")?,
+        )
     }
+
+
 }
 
 #[async_trait]
@@ -570,9 +629,11 @@ impl shenko_kernel::task::NativeTaskHandler for PlaygroundManageHandler {
             role_revision: "native-child/1".into(),
             authority_refs: vec!["artifact.subject-owned/1".into()],
             prompt_section: Some(
-                "playground.manage/v1 是你自己的作品：create 建一件新作品，put 写入新内容，\
-stage 把当前版本作为候选，publish 采纳已暂存的候选，rollback 回到某个旧修订，\
-list 看你有哪些作品。每次改动都是耐久事实，并回到你自己的收件箱。"
+                r#"playground.manage/v1 操作你自己的作品。definition 的 kind 是 "playground.manage"、definition_version 是 1；input 是 JSON 对象，每次必须包含 "schema_version":1 和 "op"。
+create：必填 title、mime、content，不传 artifact_id。例如 input={"schema_version":1,"op":"create","title":"笔记","mime":"text/plain","content":"第一版"}。
+put：必填 artifact_id、content；可选 title、mime，省略则保留原值。stage：必填 artifact_id，把当前版本暂存为候选。publish：必填 artifact_id，采纳最后一个已暂存候选。
+rollback：必填 artifact_id、source_revision（整数），把该旧修订追加为一个新版本，保留其后的历史。例如 input={"schema_version":1,"op":"rollback","artifact_id":"<作品 UUID>","source_revision":1}。
+list：input={"schema_version":1,"op":"list"}。不要传未知字段。每次改动都是耐久事实，并回到你自己的收件箱；unknown 表示原操作尚未判明，不应通过新请求盲目重做。"#
                     .into(),
             ),
         }
@@ -592,23 +653,17 @@ list 看你有哪些作品。每次改动都是耐久事实，并回到你自己
             return Ok(operation);
         }
         let attempt = self.store.external_operation_attempt(operation_id)?;
-        if operation.state != OperationState::InFlight
-            || attempt.dispatch_stage != AttemptDispatchStage::Armed
-        {
-            return Ok(operation);
+        if let Some(reference) = &operation.checkpoint_scope_ref {
+            return self.settle_checkpoint(&operation, &attempt, reference);
         }
-        // A managed attempt is re-observed under its original identity: the
-        // lifecycle's own records decide whether the effect happened, so the
-        // same call is never performed twice.
-        let object = &operation.final_input_ref;
-        let bytes = self.store.cas.read_object(&object.digest)?;
-        ensure!(
-            bytes.len() as u64 == object.bytes && Digest::blake3(&bytes) == object.digest,
-            "playground_manage_frozen_input_mismatch"
-        );
-        let frozen: ManageInput = serde_json::from_slice(&bytes)?;
-        let (result, outcome, effect) = self.observe(&frozen);
-        self.record(&operation, &attempt, result, outcome, effect)
+        let unresolved = self.record_unresolved(&operation, &attempt)?;
+        // An original worker may have committed between our read and E1.
+        // Its checkpoint wins; the alternative ordering fences that worker
+        // before it can commit any artifact effect.
+        if let Some(reference) = &unresolved.checkpoint_scope_ref {
+            return self.settle_checkpoint(&unresolved, &attempt, reference);
+        }
+        Ok(unresolved)
     }
 }
 
@@ -627,7 +682,7 @@ pub fn definition() -> NativeTaskDefinition {
                 "title": {"type": "string"},
                 "mime": {"type": "string"},
                 "content": {"type": "string"},
-                "source_revision": {"type": "integer"}
+                "source_revision": {"type": "integer", "minimum": 1}
             },
             "additionalProperties": false
         }),
@@ -645,8 +700,10 @@ impl PlaygroundManageHandler {
     pub(crate) fn observe_for_test(
         &self,
         input: &ManageInput,
-    ) -> (Value, OperationOutcome, EffectStatus) {
-        self.observe(input)
+    ) -> Result<(Value, OperationOutcome, EffectStatus)> {
+        let (result, outcome, effect, prepared) = self.prepare_observation(input, EntityId::new());
+        if let Some(prepared) = &prepared { self.playground.commit_prepared(Some(prepared), None)?; }
+        Ok((result, outcome, effect))
     }
 }
 

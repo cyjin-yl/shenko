@@ -378,7 +378,7 @@ impl Store {
                 && decision.pending_obligations.iter().filter(|item| item.obligation_id == body.obligation_id).count() == 1
                 && decision.pending_obligations.iter().any(|item| item == &body),
                 "obligation creation body is not bound to its decision");
-            let head = rows.iter().find(|head| head.table == "subject_branch_heads"
+            let head = rows.iter().find(|head| matches!(head.table.as_str(), "subject_branch_heads" | "subject_head_history")
                 && head.value("branch_id") == Some(creator.branch_id.0.to_string().as_str()))
                 .context("obligation creator has no subject head")?;
             ensure!(head.value("agent_id") == row.value("agent_id"), "foreign obligation creation");

@@ -1,0 +1,115 @@
+{
+  "first_subject_relay_id": "0002-bf5cba7f694e4f729079ab4f1e0a3fff",
+  "request_sha256": "a683893b9bfb6b9552c94fcbadb08ee5d82cce22a7d654a58d863f6ea9865c13",
+  "request_bytes": 8097,
+  "starting_context": {
+    "capabilities": {
+      "binding": {
+        "allow_invalid_certs": false,
+        "base_url": "http://127.0.0.1:18835",
+        "default_max_tokens": 8192,
+        "kind": "local",
+        "model": "Qwen3-4B-Q4_K_M",
+        "serializer_revision": 3
+      },
+      "max_context_tokens": 16384,
+      "vision": null
+    },
+    "context_limit_basis": "explicit verified deployment input, not inferred from model name",
+    "profile_digest": "blake3:5f2f38b288c098382d14095f2876262537a001626d5f4f416fd08c14aace82a4",
+    "window": {
+      "base": {
+        "leaf_seq": 4,
+        "model_generation": 1,
+        "policy_epoch": 1,
+        "source_window": "5a2054f3-34d9-4369-8af3-50da579d51e3"
+      },
+      "body_version": 4,
+      "call_states": {},
+      "cost": {
+        "frame_pixels": 0,
+        "frames": 0,
+        "image_bytes": 0,
+        "kv_accounting": "input-identity bound prefix reuse estimate (same raw event, derived text and derivative bytes under the same model/template/encoder generation); not a backend cache-hit measurement",
+        "model_calls": 0,
+        "open_calls": 0,
+        "raw_events_covered": 4,
+        "recompute_tokens": 27,
+        "render_micros": 0,
+        "reusable_prefix_tokens": 0,
+        "source_tokens": 183,
+        "truncated_chars": 0,
+        "unrenderable_chars": 0,
+        "vision_tokens_estimate": 0,
+        "window_tokens": 27
+      },
+      "covers_through": 4,
+      "derivatives": [],
+      "entries": [
+        {
+          "Pointer": {
+            "from": 1,
+            "note": "[history seq 1..=4 left this window; the raw events stay readable by seq or event id through history.query]",
+            "to": 4,
+            "tokens": 27
+          }
+        }
+      ],
+      "generation": 2,
+      "id": "ece5fda3-c574-4b69-8963-91d1eee6a7f6",
+      "model_generation": 1,
+      "policy_id": "notes-rollover-compact",
+      "policy_version": "0.1.0"
+    }
+  },
+  "checked_fixture_events": [
+    {
+      "event_id": "ed58f3f8-9734-1f03-35cf-0e0b121883bc",
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "seq": 1,
+      "role": "user",
+      "fixture_text_sha256": "9da0f204a921f811d420c56757002fdf5e5e0c70f487226ecb98ad3ceca049cf",
+      "first_subject_wire_occurrences": 0,
+      "original_retained_in_Store": true
+    },
+    {
+      "event_id": "c92a7768-9135-92c5-6819-0f31c9006bd4",
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "seq": 2,
+      "role": "assistant",
+      "fixture_text_sha256": "626883057896bfb6d04ba0df6ca3a5e44ad434651f1907f1799e00502defbc8b",
+      "first_subject_wire_occurrences": 0,
+      "original_retained_in_Store": true
+    },
+    {
+      "event_id": "f28e864d-1c42-f591-463e-1d3ddbe4f7df",
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "seq": 3,
+      "role": "user",
+      "fixture_text_sha256": "09c97cf5a43e400571b411b282c7be6c2da7a0d971b179676109d0324c3bb636",
+      "first_subject_wire_occurrences": 0,
+      "original_retained_in_Store": true
+    },
+    {
+      "event_id": "59e63e45-4bac-2798-2775-4e7a712372e3",
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "seq": 4,
+      "role": "assistant",
+      "fixture_text_sha256": "62db97f68156bbea86af4ff70d4fc2a62d84d64b5f8c06d081cb90efa141fb6f",
+      "first_subject_wire_occurrences": 0,
+      "original_retained_in_Store": true
+    }
+  ],
+  "first_subject_wire_answer_literal_counts": {
+    "src/auth/refresh.ts": 0,
+    "tests/auth/refresh-race.test.ts": 0,
+    "SameSite": 0,
+    "None": 0,
+    "Lax": 0,
+    "generation": 0,
+    "旧响应": 0,
+    "最新请求": 0
+  },
+  "pointer_marker_occurrences": 1,
+  "scope": "Literal and complete-fixture-message checks on the first subject request only; raw Store events remain available to native history.query"
+}

@@ -42,7 +42,8 @@ jobs:
           workspaces: . -> .ci/target/nightly
           shared-key: rust-1.98.1-nightly
       - name: Run the full workspace feature suite and doctests
-        run: cargo test --workspace --all-features --locked -j2
+        # Continue through later targets and doctests while preserving failure.
+        run: cargo test --workspace --all-features --locked --no-fail-fast -j2
       # Existing ignored OS-process fixtures require explicit fresh roots or
       # fixed local helper execution. Provision them here; never add ignores to
       # make the per-PR gate green. Hardware-only /dev/uinput proofs still need
@@ -51,7 +52,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: >-
           python3 scripts/ci/ignored_test.py --package shenko-subject
-          --name recovery_tests::obligation_partition_tests::partition_orchestrator
+          --name loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator
       # Build outside the filter, then restrict only each actual test executable
       # and its normal CLI/Python descendants. Anonymous AF_UNIX socketpair IPC
       # remains available for subprocess startup; socket endpoints are denied.
@@ -81,6 +82,8 @@ jobs:
     runs-on: ubuntu-24.04
     container: node:24.22.1-bookworm
     timeout-minutes: 45
+    env:
+      CHROME_PATH: /usr/bin/chromium
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +93,8 @@ jobs:
       - name: Install the pinned-source driver prerequisites
         run: |
           apt-get update
-          apt-get install --yes --no-install-recommends python3
+          apt-get install --yes --no-install-recommends python3 chromium
+          "$CHROME_PATH" --version
       - name: Preserve the consumer and obtain its immutable upstream source
         run: python3 scripts/ci/web_assets.py prepare
       - uses: pnpm/action-setup@v4
@@ -109,11 +113,13 @@ jobs:
         run: pnpm install --frozen-lockfile
       # The full compiler's reported failures are debt, not a passing curated
       # subset. No skips, diagnostic repinning or warning allowance is applied.
+      # Serialize the heavyweight file workers on this runner. Keep every file
+      # and the upstream per-test deadline, including real bundle/DOM journeys.
       - name: Run the complete pinned compiler suite
         working-directory: .ci/web/proto-ui
         run: |
           mkdir -p "$GITHUB_WORKSPACE/.ci/evidence"
-          pnpm exec vitest run packages/compiler 2>&1 | tee "$GITHUB_WORKSPACE/.ci/evidence/compiler-vitest.log"
+          pnpm exec vitest run packages/compiler --maxWorkers=1 --minWorkers=1 2>&1 | tee "$GITHUB_WORKSPACE/.ci/evidence/compiler-vitest.log"
       - name: Retain the full compiler output and source pin
         if: always()
         uses: actions/upload-artifact@v4

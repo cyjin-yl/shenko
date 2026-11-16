@@ -1,0 +1,16 @@
+{
+  "executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "source_checkout": "/workspace/scratch/549c30a35cef/obelisk-audit",
+  "arguments": [
+    "/workspace/scratch/549c30a35cef/obelisk-audit/packages/cli/src/obelisk.ts"
+  ],
+  "index_home": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/placeholder-index",
+  "source_instance": "obelisk-acceptance/qwen4b-v1",
+  "sources": [
+    {
+      "provider": "codex",
+      "root_label": "synthetic-codex",
+      "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/placeholder-synthetic"
+    }
+  ]
+}

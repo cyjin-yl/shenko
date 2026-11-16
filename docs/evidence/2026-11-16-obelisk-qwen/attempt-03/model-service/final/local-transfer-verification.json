@@ -1,0 +1,10 @@
+{
+  "verified_at_utc": "2026-11-15T18:12:16.586008+00:00",
+  "remote_archive": "/workspace/shenko-obelisk-qwen4b-20261116/service-evidence.tar.gz",
+  "archive_bytes": 151278,
+  "archive_sha256": "59d8271e99701feac015222668f52861f1c742d78df2146b073aba6aec2afaf7",
+  "all_file_members_verified": true,
+  "file_members_verified": 148,
+  "chunk_count": 10,
+  "transfer": "Base64 exact bytes with per-member SHA256 verified after archive SHA256"
+}

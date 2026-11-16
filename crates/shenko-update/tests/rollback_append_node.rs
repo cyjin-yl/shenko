@@ -174,7 +174,7 @@ fn register_agent(store: &Store, agent: EntityId) {
         bootstrap_event_ref: seed.clone(),
         created_commit: genesis_commit,
     };
-    let head = SubjectBranchHead {
+    let head = SubjectBranchHead { branch_origin: None,
         agent_id: agent,
         branch_id: branch_id.clone(),
         subject_root_task_id: EntityId::new(),

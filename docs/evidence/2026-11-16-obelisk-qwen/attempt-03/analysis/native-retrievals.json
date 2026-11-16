@@ -1,0 +1,2471 @@
+[
+  {
+    "condition": "baseline",
+    "task_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+    "task_kind": "history.query",
+    "result_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+    "task_result_DB_commit_seq": 20,
+    "task_state": {
+      "status": "terminal",
+      "outcome_ref": {
+        "digest": "blake3:379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "bytes": 2604,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/37/90/379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      }
+    },
+    "task_result": {
+      "schema_version": 1,
+      "result_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+      "task_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+      "task_revision": 0,
+      "task_record_revision": 3,
+      "invocation_id": "94ca3f4d-6f2f-48cb-9f94-cfc2dd982112",
+      "operation_id": "63c1b166-de0c-435a-9896-d76d083b2bb2",
+      "receipt_id": "d3c2f8e8-0c39-42e0-95c4-b87d27a2b5c7",
+      "outcome": "succeeded",
+      "result": {
+        "events": [
+          {
+            "data_preview": "b0da9\",\"kind\":\"message\",\"payload\":{\"message_type\":\"private\",\"post_type\":\"message\",\"raw_message\":\"上次 Hydra auth refresh 并发问题最后改了哪些文件，为什么这么改？请用本次可用的历史检索能力核实，给出可回查的来源，并区分候选方案与已实施的修改。\",\"sender\":{\"nickname\":\"试用者\",\"user_id\":10001},\"user_id\":10001},\"source\":\"napcat\"},\"text\":\"[event 75d8450c-2ab0-480a-9a89-2444203b0da9] [试用者 · 私聊 QQ 10001] 上次 Hydra auth refresh 并发问题最后改了哪些文件，为什么这么改？请用本次可用的历史检索能力核实，给出可回查的来源",
+            "data_preview_match_visible": true,
+            "data_preview_start_char": 105,
+            "data_preview_truncated": true,
+            "data_preview_truncated_after": true,
+            "data_preview_truncated_before": true,
+            "event_id": "09d41675-388f-4122-b8aa-2f2cd771e569",
+            "event_ref": "session:f61d48a5-90fd-4265-8caa-de1ba1456832/event:09d41675-388f-4122-b8aa-2f2cd771e569/seq:5",
+            "event_type": "user",
+            "role": "user",
+            "seq": 5,
+            "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+          },
+          {
+            "data_preview": "56-9774-bf585cfc2d65\",\"step_no\":1,\"text\":\"[delegate:history.query:1] {\\\"op\\\":\\\"search\\\",\\\"query\\\":\\\"Hydra auth refresh 并发问题\\\",\\\"from_seq\\\":0,\\\"limit\\\":20}\",\"v\":1}",
+            "data_preview_match_visible": true,
+            "data_preview_start_char": 1196,
+            "data_preview_truncated": true,
+            "data_preview_truncated_after": false,
+            "data_preview_truncated_before": true,
+            "event_id": "e9825e50-82cf-491f-9452-5b6603da64cf",
+            "event_ref": "session:f61d48a5-90fd-4265-8caa-de1ba1456832/event:e9825e50-82cf-491f-9452-5b6603da64cf/seq:6",
+            "event_type": "assistant",
+            "role": "assistant",
+            "seq": 6,
+            "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+          },
+          {
+            "data_preview": "bject_step\",\"step_id\":\"68baf084-cf75-4a56-9774-bf585cfc2d65\",\"text\":\"{\\\"op\\\":\\\"search\\\",\\\"query\\\":\\\"Hydra auth refresh 并发问题\\\",\\\"from_seq\\\":0,\\\"limit\\\":20}\",\"tool\":\"delegation\",\"v\":1}",
+            "data_preview_match_visible": true,
+            "data_preview_start_char": 225,
+            "data_preview_truncated": true,
+            "data_preview_truncated_after": false,
+            "data_preview_truncated_before": true,
+            "event_id": "9b54c923-2848-4420-acfd-e7b6d234c2da",
+            "event_ref": "session:f61d48a5-90fd-4265-8caa-de1ba1456832/event:9b54c923-2848-4420-acfd-e7b6d234c2da/seq:7",
+            "event_type": "tool_call",
+            "role": "assistant",
+            "seq": 7,
+            "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+          }
+        ],
+        "op": "search",
+        "range": {
+          "from_seq": 0,
+          "to_seq": 9223372036854775807
+        },
+        "schema_version": 1,
+        "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "status": "ok"
+      },
+      "evidence_ref": {
+        "digest": "blake3:379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "bytes": 2604,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/37/90/379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "commit_ref": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 20
+      }
+    },
+    "task_result_kind": "native_child",
+    "origin_step_id": "68baf084-cf75-4a56-9774-bf585cfc2d65",
+    "origin_step_state": "committed",
+    "T2_origin_decision_ref": {
+      "digest": "blake3:44e5c556dc45c87fb51c9f478c3d015ee7f5994e817951de843dc3d03bb62068",
+      "bytes": 3092,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/44/e5/44e5c556dc45c87fb51c9f478c3d015ee7f5994e817951de843dc3d03bb62068",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "T2_origin_commit_ref": {
+      "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "seq": 16
+    },
+    "task_input_ref": {
+      "digest": "blake3:44e5c556dc45c87fb51c9f478c3d015ee7f5994e817951de843dc3d03bb62068",
+      "bytes": 3092,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/44/e5/44e5c556dc45c87fb51c9f478c3d015ee7f5994e817951de843dc3d03bb62068",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "task_input_matches_origin_T2_decision": true,
+    "native_intent": {
+      "intent_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+      "step_id": "68baf084-cf75-4a56-9774-bf585cfc2d65",
+      "agent_id": "4f370d99-a75b-4e41-bc77-3195bdec4bcd",
+      "kind": "delegation",
+      "contract": "shenko.task/native/history.query/1",
+      "payload": {
+        "budget_hint": null,
+        "capabilities": [],
+        "definition": {
+          "definition_version": 1,
+          "input": {
+            "from_seq": 0,
+            "limit": 20,
+            "op": "search",
+            "query": "Hydra auth refresh 并发问题"
+          },
+          "kind": "history.query"
+        },
+        "goal": "{\"op\":\"search\",\"query\":\"Hydra auth refresh 并发问题\",\"from_seq\":0,\"limit\":20}",
+        "intent_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+        "model": null,
+        "reply_grant": null,
+        "system_prompt": "{\"op\":\"search\",\"query\":\"Hydra auth refresh 并发问题\",\"from_seq\":0,\"limit\":20}"
+      },
+      "decision_ref": {
+        "digest": "blake3:44e5c556dc45c87fb51c9f478c3d015ee7f5994e817951de843dc3d03bb62068",
+        "bytes": 3092,
+        "media_type": "application/json",
+        "store_namespace": "decisions",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/44/e5/44e5c556dc45c87fb51c9f478c3d015ee7f5994e817951de843dc3d03bb62068",
+        "codec": {
+          "name": "StepDecision",
+          "major": 9,
+          "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+        }
+      },
+      "state": "settled",
+      "owner": null,
+      "revision": 0,
+      "created_seq": 16,
+      "updated_seq": 16,
+      "result_ref": "task:cb17efb1-e16e-4cac-9cc0-2891c29fa735:pending"
+    },
+    "frozen_native_input": {
+      "schema_version": 1,
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "query": {
+        "op": "search",
+        "query": "Hydra auth refresh 并发问题",
+        "filter": {
+          "from_seq": 0,
+          "to_seq": 9223372036854775807,
+          "limit": 20,
+          "event_types": [],
+          "roles": []
+        }
+      }
+    },
+    "operation": {
+      "record_schema_version": 1,
+      "operation_id": "63c1b166-de0c-435a-9896-d76d083b2bb2",
+      "record_revision": 1,
+      "task_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+      "logical_key": "native-handler",
+      "operation_name": "history.query.v1",
+      "input_schema_version": 1,
+      "output_schema_version": 1,
+      "final_input_ref": {
+        "digest": "blake3:de2b51bd64286824d702f97d535bb45fb136671f9c4d5d43c99cf31dd162607f",
+        "bytes": 230,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/de/2b/de2b51bd64286824d702f97d535bb45fb136671f9c4d5d43c99cf31dd162607f",
+        "codec": {
+          "name": "history-query-frozen-input",
+          "major": 1,
+          "digest": "blake3:e64c5b4c649c2779ee13fb74725a7512fbe8fd06a34571e769e7ab76a9fdb725"
+        }
+      },
+      "input_digest": "blake3:de2b51bd64286824d702f97d535bb45fb136671f9c4d5d43c99cf31dd162607f",
+      "contract_ref": {
+        "plugin_id": "8f0dc86b-19b4-46f7-a3a5-cb7235bdcf2a",
+        "artifact_digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+        "contract_digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+        "receipt_reader_ref": {
+          "artifact": {
+            "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+            "locator": "builtin:history-query-v1"
+          },
+          "symbol": "history.query.execute",
+          "schema": {
+            "name": "history-query-observation-v1",
+            "major": 1,
+            "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+          }
+        }
+      },
+      "resource_bindings_ref": {
+        "digest": "blake3:38baee701ff72c97f366acba977d5f69afe6389d2c9d785ffff9238d65ab73a9",
+        "bytes": 248,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/38/ba/38baee701ff72c97f366acba977d5f69afe6389d2c9d785ffff9238d65ab73a9",
+        "codec": {
+          "name": "history-query-binding",
+          "major": 1,
+          "digest": "blake3:ad04fc2a3823cd7ce05bebfa3477b560c5c7cae6399bd0b7d16763b5a59ac211"
+        }
+      },
+      "authority_ref": {
+        "delegation_id": "cb17efb1-e16e-4cac-9cc0-2891c29fa735",
+        "delegation_revision": 0,
+        "decision_ref": "68baf084-cf75-4a56-9774-bf585cfc2d65"
+      },
+      "acceptance_predicate_ref": {
+        "digest": "blake3:9ee3d911ccad5301256291f3b235b8911421ed03d1a47fdf63168b5f9e71bdf7",
+        "bytes": 81,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/9e/e3/9ee3d911ccad5301256291f3b235b8911421ed03d1a47fdf63168b5f9e71bdf7",
+        "codec": {
+          "name": "history-query-acceptance",
+          "major": 1,
+          "digest": "blake3:d759fc802548e57f011f81a36de48ce820450a6b6649af845ed50e39d26528a5"
+        }
+      },
+      "retry_contract_ref": {
+        "digest": "blake3:1ac7396a7acc8062fc005b2217e674b709d6bdaef708a68a9d2571bcf7b71cdb",
+        "bytes": 91,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/1a/c7/1ac7396a7acc8062fc005b2217e674b709d6bdaef708a68a9d2571bcf7b71cdb",
+        "codec": {
+          "name": "history-query-retry",
+          "major": 1,
+          "digest": "blake3:8d05ea7b3e06be6e3a237694b0ad162bcb916e516c21af14b931055c24a90767"
+        }
+      },
+      "checkpoint_scope_ref": null,
+      "state": "resolved",
+      "outcome": "succeeded",
+      "outcome_conflict": false,
+      "effect_status": "none",
+      "retry_of": null,
+      "compensates": null,
+      "possible_duplicate_of": [],
+      "prepared_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 18
+      },
+      "evidence_through": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 19
+      }
+    },
+    "native_attempt": {
+      "record_schema_version": 1,
+      "attempt_id": "f45d698d-d082-4bc8-8503-13cebcc8868f",
+      "operation_id": "63c1b166-de0c-435a-9896-d76d083b2bb2",
+      "attempt_no": 1,
+      "invocation_id": "94ca3f4d-6f2f-48cb-9f94-cfc2dd982112",
+      "worker_id": "a70c03e2-f594-4d3b-8329-5a7ee5f80667",
+      "node_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "epoch": 1,
+      "implementation_ref": {
+        "artifact": {
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+          "locator": "builtin:history-query-v1"
+        },
+        "symbol": "history.query.execute",
+        "schema": {
+          "name": "history-query-observation-v1",
+          "major": 1,
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+        }
+      },
+      "dispatch_stage": "ended",
+      "armed_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 18
+      },
+      "provider_handle": null,
+      "provider_idempotency": null,
+      "transport_ref": null,
+      "started_at": null,
+      "last_observed_at": "2026-11-15T17:58:12.280238113Z",
+      "final_receipt_id": "d3c2f8e8-0c39-42e0-95c4-b87d27a2b5c7"
+    },
+    "evidence_receipt": {
+      "record_schema_version": 1,
+      "receipt_id": "d3c2f8e8-0c39-42e0-95c4-b87d27a2b5c7",
+      "operation_id": "63c1b166-de0c-435a-9896-d76d083b2bb2",
+      "attempt_id": "f45d698d-d082-4bc8-8503-13cebcc8868f",
+      "source_id": "history.query.v1",
+      "source_instance_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "source_event_key": "raw-history:f45d698d-d082-4bc8-8503-13cebcc8868f",
+      "producer_epoch": 1,
+      "producer_schema_version": "1",
+      "raw_ref": {
+        "digest": "blake3:379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "bytes": 2604,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/37/90/379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "decoder_ref": {
+        "artifact": {
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+          "locator": "builtin:history-query-v1"
+        },
+        "symbol": "history.query.execute",
+        "schema": {
+          "name": "history-query-observation-v1",
+          "major": 1,
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+        }
+      },
+      "decode_status": "decoded",
+      "observation_level": null,
+      "normalized_ref": {
+        "digest": "blake3:379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "bytes": 2604,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/37/90/379045ab6f40495691a4d94b334e41c9f3dab25f947fa0052ef33e01971707f2",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "observed_at": "2026-11-15T17:58:12.279985057Z",
+      "received_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 19
+      }
+    },
+    "native_result_equals_evidence_CAS_JSON": true,
+    "normalized_receipt_equals_task_result_JSON": true,
+    "nested_observation_equals_raw_receipt_JSON": false,
+    "native_chain_checks": {
+      "operation_task_id_matches": true,
+      "receipt_operation_id_matches": true,
+      "attempt_operation_id_matches": true,
+      "attempt_invocation_id_matches": true,
+      "attempt_final_receipt_matches": true,
+      "result_commit_seq_matches_DB_column": true,
+      "task_memo_native_result_id_matches": true,
+      "T2_control_action_id_matches_task": true,
+      "T2_delegated_intent_id_matches_task": true,
+      "normalized_receipt_equals_task_result_JSON": true,
+      "raw_receipt_equals_task_result_evidence_CAS": true
+    },
+    "evidence_shape_note": "history.query directly returns its observation; compat history.external.query returns a normalized wrapper whose observation is the raw evidence_ref and whose entire value matches normalized_ref",
+    "input_plan_consumption": [
+      {
+        "step_id": "c1bd014c-a9ea-4767-ba04-b180de3af478",
+        "step_state": "committed",
+        "step_no": 3,
+        "relay_id": "0004-61bb163160c14492affd28819b898fa2",
+        "event_payload_equals_task_result": true,
+        "T2_commit_ref": {
+          "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+          "seq": 37
+        }
+      }
+    ],
+    "provider_wire_visibility": [
+      {
+        "relay_id": "0004-61bb163160c14492affd28819b898fa2",
+        "message_index": 7,
+        "entire_task_result_JSON_semantically_equal": true,
+        "message_content_sha256": "9355a7e74e9c483f7ccb3755ccec19a664db61ce7501494c554b3082bcc6d4a1",
+        "wire_request_sha256": "6177731e3cf75e21609b4625654f527a84436078853caa36488cbfc623dbf1b5"
+      },
+      {
+        "relay_id": "0005-e74daf70aa3449f5b3015995817b8bbd",
+        "message_index": 7,
+        "entire_task_result_JSON_semantically_equal": true,
+        "message_content_sha256": "9355a7e74e9c483f7ccb3755ccec19a664db61ce7501494c554b3082bcc6d4a1",
+        "wire_request_sha256": "4105b1c9f5a9d51ba55e9ac2e94d73aeedc2d4c0372fc844ee0168d7cd48a0db"
+      }
+    ],
+    "subject_event_dispositions": [
+      {
+        "branch_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "event_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+        "step_id": "c1bd014c-a9ea-4767-ba04-b180de3af478",
+        "disposition": {
+          "event_id": "570341aa-6cd1-487f-99d1-9601ce6213ec",
+          "disposition": "ignored",
+          "reason": "主体未在本轮处置"
+        },
+        "commit_seq": 37
+      }
+    ],
+    "actual_result_answer_literal_counts": {
+      "src/auth/refresh.ts": 0,
+      "tests/auth/refresh-race.test.ts": 0,
+      "SameSite": 0,
+      "None": 0,
+      "Lax": 0,
+      "generation": 0,
+      "旧响应": 0,
+      "最新请求": 0
+    },
+    "returned_source_anchors": [
+      {
+        "result_json_path": "$",
+        "anchors": {
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      },
+      {
+        "result_json_path": "$.events[0]",
+        "anchors": {
+          "event_id": "09d41675-388f-4122-b8aa-2f2cd771e569",
+          "event_ref": "session:f61d48a5-90fd-4265-8caa-de1ba1456832/event:09d41675-388f-4122-b8aa-2f2cd771e569/seq:5",
+          "seq": 5,
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "returned_record",
+        "resolved_raw_Store_event": {
+          "event_id": "09d41675-388f-4122-b8aa-2f2cd771e569",
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+          "seq": 5,
+          "role": "user",
+          "event_type": "user"
+        },
+        "raw_event_is_synthetic_fixture": false,
+        "preview_verification": {
+          "source": "original session_events.data SQLite string; Unicode scalar positions",
+          "raw_data_sha256": "a7ef29ac6ea8b73c883395569dca5c68a464cd17cc2299738ea46a199e602033",
+          "preview_sha256": "31725bda6ad5c69aceb9f3727cd9c87ec066814e96e9dd1a0f00f10c00f0b37a",
+          "start_char": 105,
+          "preview_chars": 400,
+          "raw_data_chars": 529,
+          "matches_exact_raw_Store_slice": true,
+          "truncated_before": true,
+          "truncated_after": true
+        },
+        "data_preview": "b0da9\",\"kind\":\"message\",\"payload\":{\"message_type\":\"private\",\"post_type\":\"message\",\"raw_message\":\"上次 Hydra auth refresh 并发问题最后改了哪些文件，为什么这么改？请用本次可用的历史检索能力核实，给出可回查的来源，并区分候选方案与已实施的修改。\",\"sender\":{\"nickname\":\"试用者\",\"user_id\":10001},\"user_id\":10001},\"source\":\"napcat\"},\"text\":\"[event 75d8450c-2ab0-480a-9a89-2444203b0da9] [试用者 · 私聊 QQ 10001] 上次 Hydra auth refresh 并发问题最后改了哪些文件，为什么这么改？请用本次可用的历史检索能力核实，给出可回查的来源"
+      },
+      {
+        "result_json_path": "$.events[1]",
+        "anchors": {
+          "event_id": "e9825e50-82cf-491f-9452-5b6603da64cf",
+          "event_ref": "session:f61d48a5-90fd-4265-8caa-de1ba1456832/event:e9825e50-82cf-491f-9452-5b6603da64cf/seq:6",
+          "seq": 6,
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "returned_record",
+        "resolved_raw_Store_event": {
+          "event_id": "e9825e50-82cf-491f-9452-5b6603da64cf",
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+          "seq": 6,
+          "role": "assistant",
+          "event_type": "assistant"
+        },
+        "raw_event_is_synthetic_fixture": false,
+        "preview_verification": {
+          "source": "original session_events.data SQLite string; Unicode scalar positions",
+          "raw_data_sha256": "c4d1102bbbcb0f2ef5dba4fc92330a20706036cca45be302d0b900acd739f967",
+          "preview_sha256": "aad00e3f7fee198bf4ccc75d7990537a3218922cc1a022badb2a5437081ca8c4",
+          "start_char": 1196,
+          "preview_chars": 162,
+          "raw_data_chars": 1358,
+          "matches_exact_raw_Store_slice": true,
+          "truncated_before": true,
+          "truncated_after": false
+        },
+        "data_preview": "56-9774-bf585cfc2d65\",\"step_no\":1,\"text\":\"[delegate:history.query:1] {\\\"op\\\":\\\"search\\\",\\\"query\\\":\\\"Hydra auth refresh 并发问题\\\",\\\"from_seq\\\":0,\\\"limit\\\":20}\",\"v\":1}"
+      },
+      {
+        "result_json_path": "$.events[2]",
+        "anchors": {
+          "event_id": "9b54c923-2848-4420-acfd-e7b6d234c2da",
+          "event_ref": "session:f61d48a5-90fd-4265-8caa-de1ba1456832/event:9b54c923-2848-4420-acfd-e7b6d234c2da/seq:7",
+          "seq": 7,
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "returned_record",
+        "resolved_raw_Store_event": {
+          "event_id": "9b54c923-2848-4420-acfd-e7b6d234c2da",
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+          "seq": 7,
+          "role": "assistant",
+          "event_type": "tool_call"
+        },
+        "raw_event_is_synthetic_fixture": false,
+        "preview_verification": {
+          "source": "original session_events.data SQLite string; Unicode scalar positions",
+          "raw_data_sha256": "414b6c0347debc672410bdf774ad8cec4eacef54bff62dbc75fc1519de2cea57",
+          "preview_sha256": "ae8848cc74da01210fae5968369dcf4b2d8d2bc851ef3d4b17fd69fb1bc63474",
+          "start_char": 225,
+          "preview_chars": 182,
+          "raw_data_chars": 407,
+          "matches_exact_raw_Store_slice": true,
+          "truncated_before": true,
+          "truncated_after": false
+        },
+        "data_preview": "bject_step\",\"step_id\":\"68baf084-cf75-4a56-9774-bf585cfc2d65\",\"text\":\"{\\\"op\\\":\\\"search\\\",\\\"query\\\":\\\"Hydra auth refresh 并发问题\\\",\\\"from_seq\\\":0,\\\"limit\\\":20}\",\"tool\":\"delegation\",\"v\":1}"
+      }
+    ],
+    "returned_record_array_counts": [
+      {
+        "json_path": "$.events",
+        "count": 3
+      }
+    ],
+    "interpretation_limit": "A succeeded native call or visible task_result alone does not prove retrieval of relevant fixture facts or correct use in the final answer"
+  },
+  {
+    "condition": "baseline",
+    "task_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+    "task_kind": "history.query",
+    "result_id": "cf3e79e9-0923-428a-a6af-767bcc3dc6e7",
+    "task_result_DB_commit_seq": 34,
+    "task_state": {
+      "status": "terminal",
+      "outcome_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      }
+    },
+    "task_result": {
+      "schema_version": 1,
+      "result_id": "cf3e79e9-0923-428a-a6af-767bcc3dc6e7",
+      "task_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+      "task_revision": 0,
+      "task_record_revision": 3,
+      "invocation_id": "27ad137b-268d-4772-a024-0585958f9f3c",
+      "operation_id": "c119c0de-9607-4bee-ae63-27d626a879fc",
+      "receipt_id": "b4cdcb4a-09b8-4884-a2c4-5f6016442d97",
+      "outcome": "succeeded",
+      "result": {
+        "events": [],
+        "op": "list",
+        "range": {
+          "from_seq": 0,
+          "to_seq": 9223372036854775807
+        },
+        "schema_version": 1,
+        "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "status": "ok"
+      },
+      "evidence_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "commit_ref": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 34
+      }
+    },
+    "task_result_kind": "native_child",
+    "origin_step_id": "a1f739ae-3bba-4ab3-8308-350d1f655cb3",
+    "origin_step_state": "committed",
+    "T2_origin_decision_ref": {
+      "digest": "blake3:40a7837554affdca73d596864091f38419ef2a2f9f6648c74875db84a0f36205",
+      "bytes": 2792,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/40/a7/40a7837554affdca73d596864091f38419ef2a2f9f6648c74875db84a0f36205",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "T2_origin_commit_ref": {
+      "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "seq": 26
+    },
+    "task_input_ref": {
+      "digest": "blake3:40a7837554affdca73d596864091f38419ef2a2f9f6648c74875db84a0f36205",
+      "bytes": 2792,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/40/a7/40a7837554affdca73d596864091f38419ef2a2f9f6648c74875db84a0f36205",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "task_input_matches_origin_T2_decision": true,
+    "native_intent": {
+      "intent_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+      "step_id": "a1f739ae-3bba-4ab3-8308-350d1f655cb3",
+      "agent_id": "4f370d99-a75b-4e41-bc77-3195bdec4bcd",
+      "kind": "delegation",
+      "contract": "shenko.task/native/history.query/1",
+      "payload": {
+        "budget_hint": null,
+        "capabilities": [],
+        "definition": {
+          "definition_version": 1,
+          "input": {
+            "event_types": [
+              "issue",
+              "patch"
+            ],
+            "op": "list"
+          },
+          "kind": "history.query"
+        },
+        "goal": "{\"op\":\"list\",\"event_types\":[\"issue\",\"patch\"]}",
+        "intent_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+        "model": null,
+        "reply_grant": null,
+        "system_prompt": "{\"op\":\"list\",\"event_types\":[\"issue\",\"patch\"]}"
+      },
+      "decision_ref": {
+        "digest": "blake3:40a7837554affdca73d596864091f38419ef2a2f9f6648c74875db84a0f36205",
+        "bytes": 2792,
+        "media_type": "application/json",
+        "store_namespace": "decisions",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/40/a7/40a7837554affdca73d596864091f38419ef2a2f9f6648c74875db84a0f36205",
+        "codec": {
+          "name": "StepDecision",
+          "major": 9,
+          "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+        }
+      },
+      "state": "settled",
+      "owner": null,
+      "revision": 0,
+      "created_seq": 26,
+      "updated_seq": 26,
+      "result_ref": "task:1dc29678-11ff-4abb-90e8-2d87e0bb0b21:pending"
+    },
+    "frozen_native_input": {
+      "schema_version": 1,
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "query": {
+        "op": "list",
+        "filter": {
+          "from_seq": 0,
+          "to_seq": 9223372036854775807,
+          "limit": 20,
+          "event_types": [
+            "issue",
+            "patch"
+          ],
+          "roles": []
+        }
+      }
+    },
+    "operation": {
+      "record_schema_version": 1,
+      "operation_id": "c119c0de-9607-4bee-ae63-27d626a879fc",
+      "record_revision": 1,
+      "task_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+      "logical_key": "native-handler",
+      "operation_name": "history.query.v1",
+      "input_schema_version": 1,
+      "output_schema_version": 1,
+      "final_input_ref": {
+        "digest": "blake3:de7bd6194e1be1bba0975b5bb21f0265d6183cd28fb6e264a251cdfbef420155",
+        "bytes": 201,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/de/7b/de7bd6194e1be1bba0975b5bb21f0265d6183cd28fb6e264a251cdfbef420155",
+        "codec": {
+          "name": "history-query-frozen-input",
+          "major": 1,
+          "digest": "blake3:e64c5b4c649c2779ee13fb74725a7512fbe8fd06a34571e769e7ab76a9fdb725"
+        }
+      },
+      "input_digest": "blake3:de7bd6194e1be1bba0975b5bb21f0265d6183cd28fb6e264a251cdfbef420155",
+      "contract_ref": {
+        "plugin_id": "8f0dc86b-19b4-46f7-a3a5-cb7235bdcf2a",
+        "artifact_digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+        "contract_digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+        "receipt_reader_ref": {
+          "artifact": {
+            "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+            "locator": "builtin:history-query-v1"
+          },
+          "symbol": "history.query.execute",
+          "schema": {
+            "name": "history-query-observation-v1",
+            "major": 1,
+            "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+          }
+        }
+      },
+      "resource_bindings_ref": {
+        "digest": "blake3:38baee701ff72c97f366acba977d5f69afe6389d2c9d785ffff9238d65ab73a9",
+        "bytes": 248,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/38/ba/38baee701ff72c97f366acba977d5f69afe6389d2c9d785ffff9238d65ab73a9",
+        "codec": {
+          "name": "history-query-binding",
+          "major": 1,
+          "digest": "blake3:ad04fc2a3823cd7ce05bebfa3477b560c5c7cae6399bd0b7d16763b5a59ac211"
+        }
+      },
+      "authority_ref": {
+        "delegation_id": "1dc29678-11ff-4abb-90e8-2d87e0bb0b21",
+        "delegation_revision": 0,
+        "decision_ref": "a1f739ae-3bba-4ab3-8308-350d1f655cb3"
+      },
+      "acceptance_predicate_ref": {
+        "digest": "blake3:9ee3d911ccad5301256291f3b235b8911421ed03d1a47fdf63168b5f9e71bdf7",
+        "bytes": 81,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/9e/e3/9ee3d911ccad5301256291f3b235b8911421ed03d1a47fdf63168b5f9e71bdf7",
+        "codec": {
+          "name": "history-query-acceptance",
+          "major": 1,
+          "digest": "blake3:d759fc802548e57f011f81a36de48ce820450a6b6649af845ed50e39d26528a5"
+        }
+      },
+      "retry_contract_ref": {
+        "digest": "blake3:1ac7396a7acc8062fc005b2217e674b709d6bdaef708a68a9d2571bcf7b71cdb",
+        "bytes": 91,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/1a/c7/1ac7396a7acc8062fc005b2217e674b709d6bdaef708a68a9d2571bcf7b71cdb",
+        "codec": {
+          "name": "history-query-retry",
+          "major": 1,
+          "digest": "blake3:8d05ea7b3e06be6e3a237694b0ad162bcb916e516c21af14b931055c24a90767"
+        }
+      },
+      "checkpoint_scope_ref": null,
+      "state": "resolved",
+      "outcome": "succeeded",
+      "outcome_conflict": false,
+      "effect_status": "none",
+      "retry_of": null,
+      "compensates": null,
+      "possible_duplicate_of": [],
+      "prepared_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 32
+      },
+      "evidence_through": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 33
+      }
+    },
+    "native_attempt": {
+      "record_schema_version": 1,
+      "attempt_id": "bb79e531-b9d1-4ce0-a843-b59567166c4d",
+      "operation_id": "c119c0de-9607-4bee-ae63-27d626a879fc",
+      "attempt_no": 1,
+      "invocation_id": "27ad137b-268d-4772-a024-0585958f9f3c",
+      "worker_id": "a70c03e2-f594-4d3b-8329-5a7ee5f80667",
+      "node_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "epoch": 1,
+      "implementation_ref": {
+        "artifact": {
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+          "locator": "builtin:history-query-v1"
+        },
+        "symbol": "history.query.execute",
+        "schema": {
+          "name": "history-query-observation-v1",
+          "major": 1,
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+        }
+      },
+      "dispatch_stage": "ended",
+      "armed_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 32
+      },
+      "provider_handle": null,
+      "provider_idempotency": null,
+      "transport_ref": null,
+      "started_at": null,
+      "last_observed_at": "2026-11-15T17:58:33.775854464Z",
+      "final_receipt_id": "b4cdcb4a-09b8-4884-a2c4-5f6016442d97"
+    },
+    "evidence_receipt": {
+      "record_schema_version": 1,
+      "receipt_id": "b4cdcb4a-09b8-4884-a2c4-5f6016442d97",
+      "operation_id": "c119c0de-9607-4bee-ae63-27d626a879fc",
+      "attempt_id": "bb79e531-b9d1-4ce0-a843-b59567166c4d",
+      "source_id": "history.query.v1",
+      "source_instance_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "source_event_key": "raw-history:bb79e531-b9d1-4ce0-a843-b59567166c4d",
+      "producer_epoch": 1,
+      "producer_schema_version": "1",
+      "raw_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "decoder_ref": {
+        "artifact": {
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+          "locator": "builtin:history-query-v1"
+        },
+        "symbol": "history.query.execute",
+        "schema": {
+          "name": "history-query-observation-v1",
+          "major": 1,
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+        }
+      },
+      "decode_status": "decoded",
+      "observation_level": null,
+      "normalized_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "observed_at": "2026-11-15T17:58:33.775597925Z",
+      "received_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 33
+      }
+    },
+    "native_result_equals_evidence_CAS_JSON": true,
+    "normalized_receipt_equals_task_result_JSON": true,
+    "nested_observation_equals_raw_receipt_JSON": false,
+    "native_chain_checks": {
+      "operation_task_id_matches": true,
+      "receipt_operation_id_matches": true,
+      "attempt_operation_id_matches": true,
+      "attempt_invocation_id_matches": true,
+      "attempt_final_receipt_matches": true,
+      "result_commit_seq_matches_DB_column": true,
+      "task_memo_native_result_id_matches": true,
+      "T2_control_action_id_matches_task": true,
+      "T2_delegated_intent_id_matches_task": true,
+      "normalized_receipt_equals_task_result_JSON": true,
+      "raw_receipt_equals_task_result_evidence_CAS": true
+    },
+    "evidence_shape_note": "history.query directly returns its observation; compat history.external.query returns a normalized wrapper whose observation is the raw evidence_ref and whose entire value matches normalized_ref",
+    "input_plan_consumption": [
+      {
+        "step_id": "7b1041c9-9fa6-4498-9b42-5a4ecaec18cc",
+        "step_state": "awaiting_model",
+        "step_no": 4,
+        "relay_id": "0005-e74daf70aa3449f5b3015995817b8bbd",
+        "event_payload_equals_task_result": true,
+        "T2_commit_ref": null
+      }
+    ],
+    "provider_wire_visibility": [
+      {
+        "relay_id": "0005-e74daf70aa3449f5b3015995817b8bbd",
+        "message_index": 10,
+        "entire_task_result_JSON_semantically_equal": true,
+        "message_content_sha256": "9a62a29165469d76f07262ef07e40df998f8bacd89c5670d4d28863cb4813220",
+        "wire_request_sha256": "4105b1c9f5a9d51ba55e9ac2e94d73aeedc2d4c0372fc844ee0168d7cd48a0db"
+      }
+    ],
+    "subject_event_dispositions": [],
+    "actual_result_answer_literal_counts": {
+      "src/auth/refresh.ts": 0,
+      "tests/auth/refresh-race.test.ts": 0,
+      "SameSite": 0,
+      "None": 0,
+      "Lax": 0,
+      "generation": 0,
+      "旧响应": 0,
+      "最新请求": 0
+    },
+    "returned_source_anchors": [
+      {
+        "result_json_path": "$",
+        "anchors": {
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      }
+    ],
+    "returned_record_array_counts": [
+      {
+        "json_path": "$.events",
+        "count": 0
+      }
+    ],
+    "interpretation_limit": "A succeeded native call or visible task_result alone does not prove retrieval of relevant fixture facts or correct use in the final answer"
+  },
+  {
+    "condition": "baseline",
+    "task_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+    "task_kind": "history.query",
+    "result_id": "492db926-0856-4a01-8451-f096f5f0e6dc",
+    "task_result_DB_commit_seq": 45,
+    "task_state": {
+      "status": "terminal",
+      "outcome_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      }
+    },
+    "task_result": {
+      "schema_version": 1,
+      "result_id": "492db926-0856-4a01-8451-f096f5f0e6dc",
+      "task_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+      "task_revision": 0,
+      "task_record_revision": 3,
+      "invocation_id": "881f441b-3748-43cb-9889-c0ca8ebe44e5",
+      "operation_id": "23ccb292-7cbf-45a6-98a9-cf61f3ccacdf",
+      "receipt_id": "3a5a81c5-10eb-4810-9749-4fa50f7453e7",
+      "outcome": "succeeded",
+      "result": {
+        "events": [],
+        "op": "list",
+        "range": {
+          "from_seq": 0,
+          "to_seq": 9223372036854775807
+        },
+        "schema_version": 1,
+        "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+        "status": "ok"
+      },
+      "evidence_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "commit_ref": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 45
+      }
+    },
+    "task_result_kind": "native_child",
+    "origin_step_id": "c1bd014c-a9ea-4767-ba04-b180de3af478",
+    "origin_step_state": "committed",
+    "T2_origin_decision_ref": {
+      "digest": "blake3:552bb33e20f45c1e5d9ad353dd54ff181d55c1286d0e8ab97c78746f9d619aa9",
+      "bytes": 2903,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/55/2b/552bb33e20f45c1e5d9ad353dd54ff181d55c1286d0e8ab97c78746f9d619aa9",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "T2_origin_commit_ref": {
+      "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "seq": 37
+    },
+    "task_input_ref": {
+      "digest": "blake3:552bb33e20f45c1e5d9ad353dd54ff181d55c1286d0e8ab97c78746f9d619aa9",
+      "bytes": 2903,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/55/2b/552bb33e20f45c1e5d9ad353dd54ff181d55c1286d0e8ab97c78746f9d619aa9",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "task_input_matches_origin_T2_decision": true,
+    "native_intent": {
+      "intent_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+      "step_id": "c1bd014c-a9ea-4767-ba04-b180de3af478",
+      "agent_id": "4f370d99-a75b-4e41-bc77-3195bdec4bcd",
+      "kind": "delegation",
+      "contract": "shenko.task/native/history.query/1",
+      "payload": {
+        "budget_hint": null,
+        "capabilities": [],
+        "definition": {
+          "definition_version": 1,
+          "input": {
+            "event_types": [
+              "issue",
+              "patch"
+            ],
+            "op": "list"
+          },
+          "kind": "history.query"
+        },
+        "goal": "{\"op\":\"list\",\"event_types\":[\"issue\",\"patch\"]}",
+        "intent_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+        "model": null,
+        "reply_grant": null,
+        "system_prompt": "{\"op\":\"list\",\"event_types\":[\"issue\",\"patch\"]}"
+      },
+      "decision_ref": {
+        "digest": "blake3:552bb33e20f45c1e5d9ad353dd54ff181d55c1286d0e8ab97c78746f9d619aa9",
+        "bytes": 2903,
+        "media_type": "application/json",
+        "store_namespace": "decisions",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/55/2b/552bb33e20f45c1e5d9ad353dd54ff181d55c1286d0e8ab97c78746f9d619aa9",
+        "codec": {
+          "name": "StepDecision",
+          "major": 9,
+          "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+        }
+      },
+      "state": "settled",
+      "owner": null,
+      "revision": 0,
+      "created_seq": 37,
+      "updated_seq": 37,
+      "result_ref": "task:d2086b92-b9e5-4f7c-872c-01e74b963767:pending"
+    },
+    "frozen_native_input": {
+      "schema_version": 1,
+      "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832",
+      "query": {
+        "op": "list",
+        "filter": {
+          "from_seq": 0,
+          "to_seq": 9223372036854775807,
+          "limit": 20,
+          "event_types": [
+            "issue",
+            "patch"
+          ],
+          "roles": []
+        }
+      }
+    },
+    "operation": {
+      "record_schema_version": 1,
+      "operation_id": "23ccb292-7cbf-45a6-98a9-cf61f3ccacdf",
+      "record_revision": 1,
+      "task_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+      "logical_key": "native-handler",
+      "operation_name": "history.query.v1",
+      "input_schema_version": 1,
+      "output_schema_version": 1,
+      "final_input_ref": {
+        "digest": "blake3:de7bd6194e1be1bba0975b5bb21f0265d6183cd28fb6e264a251cdfbef420155",
+        "bytes": 201,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/de/7b/de7bd6194e1be1bba0975b5bb21f0265d6183cd28fb6e264a251cdfbef420155",
+        "codec": {
+          "name": "history-query-frozen-input",
+          "major": 1,
+          "digest": "blake3:e64c5b4c649c2779ee13fb74725a7512fbe8fd06a34571e769e7ab76a9fdb725"
+        }
+      },
+      "input_digest": "blake3:de7bd6194e1be1bba0975b5bb21f0265d6183cd28fb6e264a251cdfbef420155",
+      "contract_ref": {
+        "plugin_id": "8f0dc86b-19b4-46f7-a3a5-cb7235bdcf2a",
+        "artifact_digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+        "contract_digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+        "receipt_reader_ref": {
+          "artifact": {
+            "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+            "locator": "builtin:history-query-v1"
+          },
+          "symbol": "history.query.execute",
+          "schema": {
+            "name": "history-query-observation-v1",
+            "major": 1,
+            "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+          }
+        }
+      },
+      "resource_bindings_ref": {
+        "digest": "blake3:38baee701ff72c97f366acba977d5f69afe6389d2c9d785ffff9238d65ab73a9",
+        "bytes": 248,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/38/ba/38baee701ff72c97f366acba977d5f69afe6389d2c9d785ffff9238d65ab73a9",
+        "codec": {
+          "name": "history-query-binding",
+          "major": 1,
+          "digest": "blake3:ad04fc2a3823cd7ce05bebfa3477b560c5c7cae6399bd0b7d16763b5a59ac211"
+        }
+      },
+      "authority_ref": {
+        "delegation_id": "d2086b92-b9e5-4f7c-872c-01e74b963767",
+        "delegation_revision": 0,
+        "decision_ref": "c1bd014c-a9ea-4767-ba04-b180de3af478"
+      },
+      "acceptance_predicate_ref": {
+        "digest": "blake3:9ee3d911ccad5301256291f3b235b8911421ed03d1a47fdf63168b5f9e71bdf7",
+        "bytes": 81,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/9e/e3/9ee3d911ccad5301256291f3b235b8911421ed03d1a47fdf63168b5f9e71bdf7",
+        "codec": {
+          "name": "history-query-acceptance",
+          "major": 1,
+          "digest": "blake3:d759fc802548e57f011f81a36de48ce820450a6b6649af845ed50e39d26528a5"
+        }
+      },
+      "retry_contract_ref": {
+        "digest": "blake3:1ac7396a7acc8062fc005b2217e674b709d6bdaef708a68a9d2571bcf7b71cdb",
+        "bytes": 91,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/1a/c7/1ac7396a7acc8062fc005b2217e674b709d6bdaef708a68a9d2571bcf7b71cdb",
+        "codec": {
+          "name": "history-query-retry",
+          "major": 1,
+          "digest": "blake3:8d05ea7b3e06be6e3a237694b0ad162bcb916e516c21af14b931055c24a90767"
+        }
+      },
+      "checkpoint_scope_ref": null,
+      "state": "resolved",
+      "outcome": "succeeded",
+      "outcome_conflict": false,
+      "effect_status": "none",
+      "retry_of": null,
+      "compensates": null,
+      "possible_duplicate_of": [],
+      "prepared_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 43
+      },
+      "evidence_through": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 44
+      }
+    },
+    "native_attempt": {
+      "record_schema_version": 1,
+      "attempt_id": "c6180de7-31c5-42f3-9ba1-a07ed46d90f6",
+      "operation_id": "23ccb292-7cbf-45a6-98a9-cf61f3ccacdf",
+      "attempt_no": 1,
+      "invocation_id": "881f441b-3748-43cb-9889-c0ca8ebe44e5",
+      "worker_id": "a70c03e2-f594-4d3b-8329-5a7ee5f80667",
+      "node_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "epoch": 1,
+      "implementation_ref": {
+        "artifact": {
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+          "locator": "builtin:history-query-v1"
+        },
+        "symbol": "history.query.execute",
+        "schema": {
+          "name": "history-query-observation-v1",
+          "major": 1,
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+        }
+      },
+      "dispatch_stage": "ended",
+      "armed_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 43
+      },
+      "provider_handle": null,
+      "provider_idempotency": null,
+      "transport_ref": null,
+      "started_at": null,
+      "last_observed_at": "2026-11-15T18:01:33.277245815Z",
+      "final_receipt_id": "3a5a81c5-10eb-4810-9749-4fa50f7453e7"
+    },
+    "evidence_receipt": {
+      "record_schema_version": 1,
+      "receipt_id": "3a5a81c5-10eb-4810-9749-4fa50f7453e7",
+      "operation_id": "23ccb292-7cbf-45a6-98a9-cf61f3ccacdf",
+      "attempt_id": "c6180de7-31c5-42f3-9ba1-a07ed46d90f6",
+      "source_id": "history.query.v1",
+      "source_instance_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+      "source_event_key": "raw-history:c6180de7-31c5-42f3-9ba1-a07ed46d90f6",
+      "producer_epoch": 1,
+      "producer_schema_version": "1",
+      "raw_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "decoder_ref": {
+        "artifact": {
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9",
+          "locator": "builtin:history-query-v1"
+        },
+        "symbol": "history.query.execute",
+        "schema": {
+          "name": "history-query-observation-v1",
+          "major": 1,
+          "digest": "blake3:8702b5ddfd8dfbd61d2721da435078eda3cdf6333ff9da1974697e919274d7b9"
+        }
+      },
+      "decode_status": "decoded",
+      "observation_level": null,
+      "normalized_ref": {
+        "digest": "blake3:5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "bytes": 162,
+        "media_type": "application/json",
+        "store_namespace": "native-history-reads",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/baseline-400b436f-2c39-437f-83a3-4596f13a43fb/cas/5b/a2/5ba261edc6781ee39a814931e318629afb56b28cf02be9976894656a5af9645d",
+        "codec": {
+          "name": "history-query-observation",
+          "major": 1,
+          "digest": "blake3:5e37d1cb0f6ee274de03c6e85c4df38ad822dd7ecaae99b80bbea938f8e4d59b"
+        }
+      },
+      "observed_at": "2026-11-15T18:01:33.276976556Z",
+      "received_commit": {
+        "ledger_id": "abae2e06-d30a-46cf-bb1b-7acc84a9d02d",
+        "seq": 44
+      }
+    },
+    "native_result_equals_evidence_CAS_JSON": true,
+    "normalized_receipt_equals_task_result_JSON": true,
+    "nested_observation_equals_raw_receipt_JSON": false,
+    "native_chain_checks": {
+      "operation_task_id_matches": true,
+      "receipt_operation_id_matches": true,
+      "attempt_operation_id_matches": true,
+      "attempt_invocation_id_matches": true,
+      "attempt_final_receipt_matches": true,
+      "result_commit_seq_matches_DB_column": true,
+      "task_memo_native_result_id_matches": true,
+      "T2_control_action_id_matches_task": true,
+      "T2_delegated_intent_id_matches_task": true,
+      "normalized_receipt_equals_task_result_JSON": true,
+      "raw_receipt_equals_task_result_evidence_CAS": true
+    },
+    "evidence_shape_note": "history.query directly returns its observation; compat history.external.query returns a normalized wrapper whose observation is the raw evidence_ref and whose entire value matches normalized_ref",
+    "input_plan_consumption": [],
+    "provider_wire_visibility": [],
+    "subject_event_dispositions": [],
+    "actual_result_answer_literal_counts": {
+      "src/auth/refresh.ts": 0,
+      "tests/auth/refresh-race.test.ts": 0,
+      "SameSite": 0,
+      "None": 0,
+      "Lax": 0,
+      "generation": 0,
+      "旧响应": 0,
+      "最新请求": 0
+    },
+    "returned_source_anchors": [
+      {
+        "result_json_path": "$",
+        "anchors": {
+          "session_id": "f61d48a5-90fd-4265-8caa-de1ba1456832"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      }
+    ],
+    "returned_record_array_counts": [
+      {
+        "json_path": "$.events",
+        "count": 0
+      }
+    ],
+    "interpretation_limit": "A succeeded native call or visible task_result alone does not prove retrieval of relevant fixture facts or correct use in the final answer"
+  },
+  {
+    "condition": "candidate",
+    "task_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+    "task_kind": "history.external.query",
+    "result_id": "1368c165-f5dc-48ee-828c-e119f1ab6793",
+    "task_result_DB_commit_seq": 18,
+    "task_state": {
+      "status": "terminal",
+      "outcome_ref": {
+        "digest": "blake3:9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+        "bytes": 2890,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/9d/7e/9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+        "codec": {
+          "name": "compat-observation",
+          "major": 1,
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20"
+        }
+      }
+    },
+    "task_result": {
+      "schema_version": 1,
+      "result_id": "1368c165-f5dc-48ee-828c-e119f1ab6793",
+      "task_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+      "task_revision": 0,
+      "task_record_revision": 3,
+      "invocation_id": "0e676366-a624-455a-a28e-c1517fdabf53",
+      "operation_id": "059b9996-bc60-4bb9-9b66-c8a4f6c319e6",
+      "receipt_id": "70d06f03-0229-4a46-a362-32b83c543a26",
+      "outcome": "succeeded",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+          "kind": "cas_object",
+          "reference": "operation:059b9996-bc60-4bb9-9b66-c8a4f6c319e6"
+        },
+        "observation": {
+          "effect_scope": "configured_query_and_observed_local_preparation",
+          "host_side_effects_independently_verified": false,
+          "result": {
+            "coverage": {
+              "configured_sources": [
+                {
+                  "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+                  "provider": "codex",
+                  "root_label": "synthetic-codex"
+                }
+              ],
+              "distributed_frontier": null,
+              "index_observation": {
+                "completeness_reason": "The query API does not attest a complete inventory or a distributed frontier.",
+                "observed_at": "2026-11-15T18:06:05.766Z",
+                "original_archive_complete": false,
+                "refresh_complete": null,
+                "source_text_may_be_truncated": true,
+                "sources": [
+                  {
+                    "latest_session_time": "2026-11-05T10:00:02.000Z",
+                    "sessions": 2,
+                    "source": "codex"
+                  }
+                ]
+              },
+              "index_warnings": false,
+              "original_archive_complete": false,
+              "refresh_complete": null,
+              "scope": "node_local_snapshot",
+              "source_roots": [
+                {
+                  "error": null,
+                  "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+                  "provider": "codex",
+                  "root_label": "synthetic-codex",
+                  "status": "available"
+                }
+              ],
+              "source_text_may_be_truncated": true
+            },
+            "data": {
+              "full_original_coverage": false,
+              "hits": [],
+              "mode": "literal_index_fallback",
+              "searched_projection": "obelisk_index"
+            },
+            "manifest_next_path": null,
+            "process": {
+              "arguments": [
+                "/workspace/scratch/549c30a35cef/obelisk-audit/packages/cli/src/obelisk.ts",
+                "--query",
+                "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/obelisk-index/shenko-query-5c4a9bfa-366b-40d6-bbb0-0470a497e0f7.js"
+              ],
+              "custom_script_host_authority": false,
+              "error": null,
+              "executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+              "exit_code": 0,
+              "index_home": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/obelisk-index",
+              "index_preparation_complete": true,
+              "index_preparation_started": true,
+              "installation": {
+                "contract": "shenko.obelisk.source-cli-v1",
+                "manifest_digest": "b26e9ebf7a5db02b55ac89e005ccd44854a330e3d4168e11cca1fde2c4a1c771",
+                "repository": "https://github.com/tommy0103/obelisk",
+                "revision": "cc75c2dd1aead4f4374758a7536385307934e177",
+                "source_checkout": "/workspace/scratch/549c30a35cef/obelisk-audit",
+                "verified_files": 51
+              },
+              "pid": 20,
+              "query_digest": "a7421deaa6097033b12aac849cde0c9cbaae1274ddb5167862aa89103b8d0de5",
+              "readers_drained": true,
+              "readers_joined": true,
+              "reaped": true,
+              "started": true,
+              "stderr": "",
+              "stderr_base64": null,
+              "stderr_truncated": false,
+              "stdout_base64": null,
+              "stdout_truncated": false,
+              "termination_requested": false,
+              "termination_scope": "process_group"
+            },
+            "schema_version": 1,
+            "source_instance": "obelisk-acceptance/synthetic-v1",
+            "source_manifests": [],
+            "status": "succeeded"
+          }
+        },
+        "source_receipt": {
+          "bytes": 2890,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+          "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/9d/7e/9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "evidence_ref": {
+        "digest": "blake3:9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+        "bytes": 2890,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/9d/7e/9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+        "codec": {
+          "name": "compat-observation",
+          "major": 1,
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20"
+        }
+      },
+      "commit_ref": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 18
+      }
+    },
+    "task_result_kind": "native_child",
+    "origin_step_id": "b9d37c15-baa6-4344-bf82-96311c63391e",
+    "origin_step_state": "committed",
+    "T2_origin_decision_ref": {
+      "digest": "blake3:561f11924945ee530a3ca3443800021c99353f5d1db45209ecb7812e6c349587",
+      "bytes": 3195,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/56/1f/561f11924945ee530a3ca3443800021c99353f5d1db45209ecb7812e6c349587",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "T2_origin_commit_ref": {
+      "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+      "seq": 11
+    },
+    "task_input_ref": {
+      "digest": "blake3:561f11924945ee530a3ca3443800021c99353f5d1db45209ecb7812e6c349587",
+      "bytes": 3195,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/56/1f/561f11924945ee530a3ca3443800021c99353f5d1db45209ecb7812e6c349587",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "task_input_matches_origin_T2_decision": true,
+    "native_intent": {
+      "intent_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+      "step_id": "b9d37c15-baa6-4344-bf82-96311c63391e",
+      "agent_id": "fda9a7db-b9b0-4b44-b39e-3e016ccc055d",
+      "kind": "delegation",
+      "contract": "shenko.task/native/history.external.query/1",
+      "payload": {
+        "budget_hint": null,
+        "capabilities": [],
+        "definition": {
+          "definition_version": 1,
+          "input": {
+            "op": "obelisk",
+            "request": {
+              "limit": 20,
+              "op": "search",
+              "query": "Hydra auth refresh 并发问题"
+            }
+          },
+          "kind": "history.external.query"
+        },
+        "goal": "{\"op\":\"obelisk\",\"request\":{\"op\":\"search\",\"query\":\"Hydra auth refresh 并发问题\",\"limit\":20}}",
+        "intent_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+        "model": null,
+        "reply_grant": null,
+        "system_prompt": "{\"op\":\"obelisk\",\"request\":{\"op\":\"search\",\"query\":\"Hydra auth refresh 并发问题\",\"limit\":20}}"
+      },
+      "decision_ref": {
+        "digest": "blake3:561f11924945ee530a3ca3443800021c99353f5d1db45209ecb7812e6c349587",
+        "bytes": 3195,
+        "media_type": "application/json",
+        "store_namespace": "decisions",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/56/1f/561f11924945ee530a3ca3443800021c99353f5d1db45209ecb7812e6c349587",
+        "codec": {
+          "name": "StepDecision",
+          "major": 9,
+          "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+        }
+      },
+      "state": "settled",
+      "owner": null,
+      "revision": 0,
+      "created_seq": 11,
+      "updated_seq": 11,
+      "result_ref": "task:2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913:pending"
+    },
+    "frozen_native_input": {
+      "op": "obelisk",
+      "request": {
+        "op": "search",
+        "query": "Hydra auth refresh 并发问题",
+        "provider": null,
+        "session_id": null,
+        "project_path": null,
+        "after": null,
+        "before": null,
+        "limit": 20,
+        "include_inactive": false,
+        "literal_fallback": true
+      }
+    },
+    "operation": {
+      "record_schema_version": 1,
+      "operation_id": "059b9996-bc60-4bb9-9b66-c8a4f6c319e6",
+      "record_revision": 1,
+      "task_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+      "logical_key": "native-handler",
+      "operation_name": "history.external.query",
+      "input_schema_version": 1,
+      "output_schema_version": 1,
+      "final_input_ref": {
+        "digest": "blake3:8f54d661000124f0f2227a2c0845f5cc256df378e8aede4be393dab4a05eb0ee",
+        "bytes": 225,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/8f/54/8f54d661000124f0f2227a2c0845f5cc256df378e8aede4be393dab4a05eb0ee",
+        "codec": {
+          "name": "compat-frozen-input",
+          "major": 1,
+          "digest": "blake3:351b7a5493b85a016d28b2992d90b364d4bba468cfe2cedb6922b9d6e099abce"
+        }
+      },
+      "input_digest": "blake3:8f54d661000124f0f2227a2c0845f5cc256df378e8aede4be393dab4a05eb0ee",
+      "contract_ref": {
+        "plugin_id": "9fa05961-ac51-4ea7-b7f1-10ca382d9ab3",
+        "artifact_digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+        "contract_digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+        "receipt_reader_ref": {
+          "artifact": {
+            "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+            "locator": "builtin:history.external.query:1"
+          },
+          "symbol": "history.external.query",
+          "schema": {
+            "name": "compat-receipt",
+            "major": 1,
+            "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193"
+          }
+        }
+      },
+      "resource_bindings_ref": {
+        "digest": "blake3:2b01f05b5568dd108e807758a118d79d9943512b5f742b878a2bb76626994c5b",
+        "bytes": 718,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/2b/01/2b01f05b5568dd108e807758a118d79d9943512b5f742b878a2bb76626994c5b",
+        "codec": {
+          "name": "compat-bindings",
+          "major": 1,
+          "digest": "blake3:337bab7fb67ce2a3933387445e24a010cfa3611b2212eca166452df601c50f44"
+        }
+      },
+      "authority_ref": {
+        "delegation_id": "2d12c2c4-8ae2-4c34-bd3d-c2d8da01f913",
+        "delegation_revision": 0,
+        "decision_ref": "b9d37c15-baa6-4344-bf82-96311c63391e"
+      },
+      "acceptance_predicate_ref": {
+        "digest": "blake3:f92b6fdb278c779052231b48215fc17affc511c8cb55896382174fcd4bdeeea2",
+        "bytes": 140,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/f9/2b/f92b6fdb278c779052231b48215fc17affc511c8cb55896382174fcd4bdeeea2",
+        "codec": {
+          "name": "compat-acceptance",
+          "major": 1,
+          "digest": "blake3:23ff2aca2f32c0dddd27bd7906ef46673ecd71ad4ca33fea7026ba9eb4df0482"
+        }
+      },
+      "retry_contract_ref": {
+        "digest": "blake3:1e8973f9bab825ee45b4496ba4790e43ff5fe39795e280db8eb2d337df9513c6",
+        "bytes": 155,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/1e/89/1e8973f9bab825ee45b4496ba4790e43ff5fe39795e280db8eb2d337df9513c6",
+        "codec": {
+          "name": "compat-retry",
+          "major": 1,
+          "digest": "blake3:bd9ff65a160a98fd690aad1e57e05ef3dc0bad31789d63ede2d714472e4e78e2"
+        }
+      },
+      "checkpoint_scope_ref": null,
+      "state": "resolved",
+      "outcome": "succeeded",
+      "outcome_conflict": false,
+      "effect_status": "complete",
+      "retry_of": null,
+      "compensates": null,
+      "possible_duplicate_of": [],
+      "prepared_commit": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 16
+      },
+      "evidence_through": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 17
+      }
+    },
+    "native_attempt": {
+      "record_schema_version": 1,
+      "attempt_id": "586f3c95-16ac-42f4-b1c8-712ff6850eb1",
+      "operation_id": "059b9996-bc60-4bb9-9b66-c8a4f6c319e6",
+      "attempt_no": 1,
+      "invocation_id": "0e676366-a624-455a-a28e-c1517fdabf53",
+      "worker_id": "54a64ce2-1523-4c72-9ca4-6b289cc9b4a3",
+      "node_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+      "epoch": 1,
+      "implementation_ref": {
+        "artifact": {
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+          "locator": "builtin:history.external.query:1"
+        },
+        "symbol": "history.external.query",
+        "schema": {
+          "name": "compat-receipt",
+          "major": 1,
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193"
+        }
+      },
+      "dispatch_stage": "ended",
+      "armed_commit": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 16
+      },
+      "provider_handle": null,
+      "provider_idempotency": null,
+      "transport_ref": null,
+      "started_at": null,
+      "last_observed_at": "2026-11-15T18:06:05.783471776Z",
+      "final_receipt_id": "70d06f03-0229-4a46-a362-32b83c543a26"
+    },
+    "evidence_receipt": {
+      "record_schema_version": 1,
+      "receipt_id": "70d06f03-0229-4a46-a362-32b83c543a26",
+      "operation_id": "059b9996-bc60-4bb9-9b66-c8a4f6c319e6",
+      "attempt_id": "586f3c95-16ac-42f4-b1c8-712ff6850eb1",
+      "source_id": "history.external.query",
+      "source_instance_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+      "source_event_key": null,
+      "producer_epoch": 1,
+      "producer_schema_version": "1",
+      "raw_ref": {
+        "digest": "blake3:9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+        "bytes": 2890,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/9d/7e/9d7ec95498ea55689d20376417293d19913dfaeabb5970c4a7435b62b28762be",
+        "codec": {
+          "name": "compat-observation",
+          "major": 1,
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20"
+        }
+      },
+      "decoder_ref": {
+        "artifact": {
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+          "locator": "builtin:history.external.query:1"
+        },
+        "symbol": "history.external.query",
+        "schema": {
+          "name": "compat-receipt",
+          "major": 1,
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193"
+        }
+      },
+      "decode_status": "decoded",
+      "observation_level": null,
+      "normalized_ref": {
+        "digest": "blake3:f1f6338c2356ddf2633938793d274e67f5546a3e098fee0c3ef3b21ff1b6e1fb",
+        "bytes": 3659,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/f1/f6/f1f6338c2356ddf2633938793d274e67f5546a3e098fee0c3ef3b21ff1b6e1fb",
+        "codec": {
+          "name": "compat-result",
+          "major": 1,
+          "digest": "blake3:52a3c86041f6bca4748e83e3857dc86fa5f61dd684900b464f9a055bdc43ede5"
+        }
+      },
+      "observed_at": "2026-11-15T18:06:05.783012095Z",
+      "received_commit": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 17
+      }
+    },
+    "native_result_equals_evidence_CAS_JSON": false,
+    "normalized_receipt_equals_task_result_JSON": true,
+    "nested_observation_equals_raw_receipt_JSON": true,
+    "native_chain_checks": {
+      "operation_task_id_matches": true,
+      "receipt_operation_id_matches": true,
+      "attempt_operation_id_matches": true,
+      "attempt_invocation_id_matches": true,
+      "attempt_final_receipt_matches": true,
+      "result_commit_seq_matches_DB_column": true,
+      "task_memo_native_result_id_matches": true,
+      "T2_control_action_id_matches_task": true,
+      "T2_delegated_intent_id_matches_task": true,
+      "normalized_receipt_equals_task_result_JSON": true,
+      "raw_receipt_equals_task_result_evidence_CAS": true
+    },
+    "evidence_shape_note": "history.query directly returns its observation; compat history.external.query returns a normalized wrapper whose observation is the raw evidence_ref and whose entire value matches normalized_ref",
+    "input_plan_consumption": [
+      {
+        "step_id": "a2471373-9ea2-4f0c-be83-adb7155310b2",
+        "step_state": "awaiting_model",
+        "step_no": 3,
+        "relay_id": "0008-47169a59965e4fb2a867707f6eae2f7c",
+        "event_payload_equals_task_result": true,
+        "T2_commit_ref": null
+      }
+    ],
+    "provider_wire_visibility": [
+      {
+        "relay_id": "0008-47169a59965e4fb2a867707f6eae2f7c",
+        "message_index": 6,
+        "entire_task_result_JSON_semantically_equal": true,
+        "message_content_sha256": "ec30f7079c310ca2d0d30114d87a2a7f4ad0f763ee49096015add782e4d875e3",
+        "wire_request_sha256": "c577928b0ea2efbd7b6256da8eb47c506de26b67a4c49eb73e691e0cdbee37e3"
+      }
+    ],
+    "subject_event_dispositions": [],
+    "actual_result_answer_literal_counts": {
+      "src/auth/refresh.ts": 0,
+      "tests/auth/refresh-race.test.ts": 0,
+      "SameSite": 0,
+      "None": 0,
+      "Lax": 0,
+      "generation": 0,
+      "旧响应": 0,
+      "最新请求": 0
+    },
+    "returned_source_anchors": [
+      {
+        "result_json_path": "$.observation.result",
+        "anchors": {
+          "source_instance": "obelisk-acceptance/synthetic-v1"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      },
+      {
+        "result_json_path": "$.observation.result.coverage.configured_sources[0]",
+        "anchors": {
+          "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+          "provider": "codex"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      },
+      {
+        "result_json_path": "$.observation.result.coverage.source_roots[0]",
+        "anchors": {
+          "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+          "provider": "codex"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      }
+    ],
+    "returned_record_array_counts": [
+      {
+        "json_path": "$.observation.result.data.hits",
+        "count": 0
+      }
+    ],
+    "interpretation_limit": "A succeeded native call or visible task_result alone does not prove retrieval of relevant fixture facts or correct use in the final answer"
+  },
+  {
+    "condition": "candidate",
+    "task_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+    "task_kind": "history.external.query",
+    "result_id": "2ae72948-b6ee-4663-ae3a-11355ac7b510",
+    "task_result_DB_commit_seq": 29,
+    "task_state": {
+      "status": "terminal",
+      "outcome_ref": {
+        "digest": "blake3:bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+        "bytes": 2890,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/bc/50/bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+        "codec": {
+          "name": "compat-observation",
+          "major": 1,
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20"
+        }
+      }
+    },
+    "task_result": {
+      "schema_version": 1,
+      "result_id": "2ae72948-b6ee-4663-ae3a-11355ac7b510",
+      "task_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+      "task_revision": 0,
+      "task_record_revision": 3,
+      "invocation_id": "be9239c6-da43-4b02-b0b5-caf242a4a9f8",
+      "operation_id": "77fd4fdf-0a06-4919-b135-ee8b5e00cc4a",
+      "receipt_id": "a64e8cbe-108e-4554-89c1-02e77c0f189c",
+      "outcome": "succeeded",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+          "kind": "cas_object",
+          "reference": "operation:77fd4fdf-0a06-4919-b135-ee8b5e00cc4a"
+        },
+        "observation": {
+          "effect_scope": "configured_query_and_observed_local_preparation",
+          "host_side_effects_independently_verified": false,
+          "result": {
+            "coverage": {
+              "configured_sources": [
+                {
+                  "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+                  "provider": "codex",
+                  "root_label": "synthetic-codex"
+                }
+              ],
+              "distributed_frontier": null,
+              "index_observation": {
+                "completeness_reason": "The query API does not attest a complete inventory or a distributed frontier.",
+                "observed_at": "2026-11-15T18:06:31.678Z",
+                "original_archive_complete": false,
+                "refresh_complete": null,
+                "source_text_may_be_truncated": true,
+                "sources": [
+                  {
+                    "latest_session_time": "2026-11-05T10:00:02.000Z",
+                    "sessions": 2,
+                    "source": "codex"
+                  }
+                ]
+              },
+              "index_warnings": false,
+              "original_archive_complete": false,
+              "refresh_complete": null,
+              "scope": "node_local_snapshot",
+              "source_roots": [
+                {
+                  "error": null,
+                  "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+                  "provider": "codex",
+                  "root_label": "synthetic-codex",
+                  "status": "available"
+                }
+              ],
+              "source_text_may_be_truncated": true
+            },
+            "data": {
+              "full_original_coverage": false,
+              "hits": [],
+              "mode": "literal_index_fallback",
+              "searched_projection": "obelisk_index"
+            },
+            "manifest_next_path": null,
+            "process": {
+              "arguments": [
+                "/workspace/scratch/549c30a35cef/obelisk-audit/packages/cli/src/obelisk.ts",
+                "--query",
+                "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/obelisk-index/shenko-query-97612b21-9532-4b2e-8a71-367dd531c650.js"
+              ],
+              "custom_script_host_authority": false,
+              "error": null,
+              "executable": "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+              "exit_code": 0,
+              "index_home": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/obelisk-index",
+              "index_preparation_complete": true,
+              "index_preparation_started": true,
+              "installation": {
+                "contract": "shenko.obelisk.source-cli-v1",
+                "manifest_digest": "b26e9ebf7a5db02b55ac89e005ccd44854a330e3d4168e11cca1fde2c4a1c771",
+                "repository": "https://github.com/tommy0103/obelisk",
+                "revision": "cc75c2dd1aead4f4374758a7536385307934e177",
+                "source_checkout": "/workspace/scratch/549c30a35cef/obelisk-audit",
+                "verified_files": 51
+              },
+              "pid": 30,
+              "query_digest": "a7421deaa6097033b12aac849cde0c9cbaae1274ddb5167862aa89103b8d0de5",
+              "readers_drained": true,
+              "readers_joined": true,
+              "reaped": true,
+              "started": true,
+              "stderr": "",
+              "stderr_base64": null,
+              "stderr_truncated": false,
+              "stdout_base64": null,
+              "stdout_truncated": false,
+              "termination_requested": false,
+              "termination_scope": "process_group"
+            },
+            "schema_version": 1,
+            "source_instance": "obelisk-acceptance/synthetic-v1",
+            "source_manifests": [],
+            "status": "succeeded"
+          }
+        },
+        "source_receipt": {
+          "bytes": 2890,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+          "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/bc/50/bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "evidence_ref": {
+        "digest": "blake3:bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+        "bytes": 2890,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/bc/50/bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+        "codec": {
+          "name": "compat-observation",
+          "major": 1,
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20"
+        }
+      },
+      "commit_ref": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 29
+      }
+    },
+    "task_result_kind": "native_child",
+    "origin_step_id": "bff60bd0-1920-4942-bff2-5cc8a2c75cd2",
+    "origin_step_state": "committed",
+    "T2_origin_decision_ref": {
+      "digest": "blake3:945e9328668ebe440caa4188342026d236690ed18a6ceeb57a63b8b62c9e3bd9",
+      "bytes": 3084,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/94/5e/945e9328668ebe440caa4188342026d236690ed18a6ceeb57a63b8b62c9e3bd9",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "T2_origin_commit_ref": {
+      "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+      "seq": 21
+    },
+    "task_input_ref": {
+      "digest": "blake3:945e9328668ebe440caa4188342026d236690ed18a6ceeb57a63b8b62c9e3bd9",
+      "bytes": 3084,
+      "media_type": "application/json",
+      "store_namespace": "decisions",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/94/5e/945e9328668ebe440caa4188342026d236690ed18a6ceeb57a63b8b62c9e3bd9",
+      "codec": {
+        "name": "StepDecision",
+        "major": 9,
+        "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+      }
+    },
+    "task_input_matches_origin_T2_decision": true,
+    "native_intent": {
+      "intent_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+      "step_id": "bff60bd0-1920-4942-bff2-5cc8a2c75cd2",
+      "agent_id": "fda9a7db-b9b0-4b44-b39e-3e016ccc055d",
+      "kind": "delegation",
+      "contract": "shenko.task/native/history.external.query/1",
+      "payload": {
+        "budget_hint": null,
+        "capabilities": [],
+        "definition": {
+          "definition_version": 1,
+          "input": {
+            "op": "obelisk",
+            "request": {
+              "limit": 20,
+              "op": "search",
+              "query": "Hydra auth refresh 并发问题"
+            }
+          },
+          "kind": "history.external.query"
+        },
+        "goal": "{\"op\":\"obelisk\",\"request\":{\"op\":\"search\",\"query\":\"Hydra auth refresh 并发问题\",\"limit\":20}}",
+        "intent_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+        "model": null,
+        "reply_grant": null,
+        "system_prompt": "{\"op\":\"obelisk\",\"request\":{\"op\":\"search\",\"query\":\"Hydra auth refresh 并发问题\",\"limit\":20}}"
+      },
+      "decision_ref": {
+        "digest": "blake3:945e9328668ebe440caa4188342026d236690ed18a6ceeb57a63b8b62c9e3bd9",
+        "bytes": 3084,
+        "media_type": "application/json",
+        "store_namespace": "decisions",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/94/5e/945e9328668ebe440caa4188342026d236690ed18a6ceeb57a63b8b62c9e3bd9",
+        "codec": {
+          "name": "StepDecision",
+          "major": 9,
+          "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+        }
+      },
+      "state": "settled",
+      "owner": null,
+      "revision": 0,
+      "created_seq": 21,
+      "updated_seq": 21,
+      "result_ref": "task:c175ad7d-bade-477e-a104-0865cbe9e5da:pending"
+    },
+    "frozen_native_input": {
+      "op": "obelisk",
+      "request": {
+        "op": "search",
+        "query": "Hydra auth refresh 并发问题",
+        "provider": null,
+        "session_id": null,
+        "project_path": null,
+        "after": null,
+        "before": null,
+        "limit": 20,
+        "include_inactive": false,
+        "literal_fallback": true
+      }
+    },
+    "operation": {
+      "record_schema_version": 1,
+      "operation_id": "77fd4fdf-0a06-4919-b135-ee8b5e00cc4a",
+      "record_revision": 1,
+      "task_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+      "logical_key": "native-handler",
+      "operation_name": "history.external.query",
+      "input_schema_version": 1,
+      "output_schema_version": 1,
+      "final_input_ref": {
+        "digest": "blake3:8f54d661000124f0f2227a2c0845f5cc256df378e8aede4be393dab4a05eb0ee",
+        "bytes": 225,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/8f/54/8f54d661000124f0f2227a2c0845f5cc256df378e8aede4be393dab4a05eb0ee",
+        "codec": {
+          "name": "compat-frozen-input",
+          "major": 1,
+          "digest": "blake3:351b7a5493b85a016d28b2992d90b364d4bba468cfe2cedb6922b9d6e099abce"
+        }
+      },
+      "input_digest": "blake3:8f54d661000124f0f2227a2c0845f5cc256df378e8aede4be393dab4a05eb0ee",
+      "contract_ref": {
+        "plugin_id": "9fa05961-ac51-4ea7-b7f1-10ca382d9ab3",
+        "artifact_digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+        "contract_digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+        "receipt_reader_ref": {
+          "artifact": {
+            "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+            "locator": "builtin:history.external.query:1"
+          },
+          "symbol": "history.external.query",
+          "schema": {
+            "name": "compat-receipt",
+            "major": 1,
+            "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193"
+          }
+        }
+      },
+      "resource_bindings_ref": {
+        "digest": "blake3:2b01f05b5568dd108e807758a118d79d9943512b5f742b878a2bb76626994c5b",
+        "bytes": 718,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/2b/01/2b01f05b5568dd108e807758a118d79d9943512b5f742b878a2bb76626994c5b",
+        "codec": {
+          "name": "compat-bindings",
+          "major": 1,
+          "digest": "blake3:337bab7fb67ce2a3933387445e24a010cfa3611b2212eca166452df601c50f44"
+        }
+      },
+      "authority_ref": {
+        "delegation_id": "c175ad7d-bade-477e-a104-0865cbe9e5da",
+        "delegation_revision": 0,
+        "decision_ref": "bff60bd0-1920-4942-bff2-5cc8a2c75cd2"
+      },
+      "acceptance_predicate_ref": {
+        "digest": "blake3:f92b6fdb278c779052231b48215fc17affc511c8cb55896382174fcd4bdeeea2",
+        "bytes": 140,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/f9/2b/f92b6fdb278c779052231b48215fc17affc511c8cb55896382174fcd4bdeeea2",
+        "codec": {
+          "name": "compat-acceptance",
+          "major": 1,
+          "digest": "blake3:23ff2aca2f32c0dddd27bd7906ef46673ecd71ad4ca33fea7026ba9eb4df0482"
+        }
+      },
+      "retry_contract_ref": {
+        "digest": "blake3:1e8973f9bab825ee45b4496ba4790e43ff5fe39795e280db8eb2d337df9513c6",
+        "bytes": 155,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/1e/89/1e8973f9bab825ee45b4496ba4790e43ff5fe39795e280db8eb2d337df9513c6",
+        "codec": {
+          "name": "compat-retry",
+          "major": 1,
+          "digest": "blake3:bd9ff65a160a98fd690aad1e57e05ef3dc0bad31789d63ede2d714472e4e78e2"
+        }
+      },
+      "checkpoint_scope_ref": null,
+      "state": "resolved",
+      "outcome": "succeeded",
+      "outcome_conflict": false,
+      "effect_status": "complete",
+      "retry_of": null,
+      "compensates": null,
+      "possible_duplicate_of": [],
+      "prepared_commit": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 23
+      },
+      "evidence_through": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 28
+      }
+    },
+    "native_attempt": {
+      "record_schema_version": 1,
+      "attempt_id": "4126eb48-1629-42ac-9817-2dc0405621e9",
+      "operation_id": "77fd4fdf-0a06-4919-b135-ee8b5e00cc4a",
+      "attempt_no": 1,
+      "invocation_id": "be9239c6-da43-4b02-b0b5-caf242a4a9f8",
+      "worker_id": "54a64ce2-1523-4c72-9ca4-6b289cc9b4a3",
+      "node_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+      "epoch": 1,
+      "implementation_ref": {
+        "artifact": {
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+          "locator": "builtin:history.external.query:1"
+        },
+        "symbol": "history.external.query",
+        "schema": {
+          "name": "compat-receipt",
+          "major": 1,
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193"
+        }
+      },
+      "dispatch_stage": "ended",
+      "armed_commit": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 23
+      },
+      "provider_handle": null,
+      "provider_idempotency": null,
+      "transport_ref": null,
+      "started_at": null,
+      "last_observed_at": "2026-11-15T18:06:31.702699061Z",
+      "final_receipt_id": "a64e8cbe-108e-4554-89c1-02e77c0f189c"
+    },
+    "evidence_receipt": {
+      "record_schema_version": 1,
+      "receipt_id": "a64e8cbe-108e-4554-89c1-02e77c0f189c",
+      "operation_id": "77fd4fdf-0a06-4919-b135-ee8b5e00cc4a",
+      "attempt_id": "4126eb48-1629-42ac-9817-2dc0405621e9",
+      "source_id": "history.external.query",
+      "source_instance_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+      "source_event_key": null,
+      "producer_epoch": 1,
+      "producer_schema_version": "1",
+      "raw_ref": {
+        "digest": "blake3:bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+        "bytes": 2890,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/bc/50/bc504d48b13ac86737775377a25e7c7ce825fd417f765c5fc54e74ef70a056dc",
+        "codec": {
+          "name": "compat-observation",
+          "major": 1,
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20"
+        }
+      },
+      "decoder_ref": {
+        "artifact": {
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193",
+          "locator": "builtin:history.external.query:1"
+        },
+        "symbol": "history.external.query",
+        "schema": {
+          "name": "compat-receipt",
+          "major": 1,
+          "digest": "blake3:29c4c9633298b9e197819fc615d5add5d01111dfe4a9d6d5805a8d6fa0d9c193"
+        }
+      },
+      "decode_status": "decoded",
+      "observation_level": null,
+      "normalized_ref": {
+        "digest": "blake3:e8de81db90d070abe484decbf9181246c103a7c40dd032641ead8e947bd3829c",
+        "bytes": 3659,
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat",
+        "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/cas/e8/de/e8de81db90d070abe484decbf9181246c103a7c40dd032641ead8e947bd3829c",
+        "codec": {
+          "name": "compat-result",
+          "major": 1,
+          "digest": "blake3:52a3c86041f6bca4748e83e3857dc86fa5f61dd684900b464f9a055bdc43ede5"
+        }
+      },
+      "observed_at": "2026-11-15T18:06:31.702243556Z",
+      "received_commit": {
+        "ledger_id": "83e1cea5-51f5-41df-a215-eae98b00155a",
+        "seq": 28
+      }
+    },
+    "native_result_equals_evidence_CAS_JSON": false,
+    "normalized_receipt_equals_task_result_JSON": true,
+    "nested_observation_equals_raw_receipt_JSON": true,
+    "native_chain_checks": {
+      "operation_task_id_matches": true,
+      "receipt_operation_id_matches": true,
+      "attempt_operation_id_matches": true,
+      "attempt_invocation_id_matches": true,
+      "attempt_final_receipt_matches": true,
+      "result_commit_seq_matches_DB_column": true,
+      "task_memo_native_result_id_matches": true,
+      "T2_control_action_id_matches_task": true,
+      "T2_delegated_intent_id_matches_task": true,
+      "normalized_receipt_equals_task_result_JSON": true,
+      "raw_receipt_equals_task_result_evidence_CAS": true
+    },
+    "evidence_shape_note": "history.query directly returns its observation; compat history.external.query returns a normalized wrapper whose observation is the raw evidence_ref and whose entire value matches normalized_ref",
+    "input_plan_consumption": [],
+    "provider_wire_visibility": [],
+    "subject_event_dispositions": [],
+    "actual_result_answer_literal_counts": {
+      "src/auth/refresh.ts": 0,
+      "tests/auth/refresh-race.test.ts": 0,
+      "SameSite": 0,
+      "None": 0,
+      "Lax": 0,
+      "generation": 0,
+      "旧响应": 0,
+      "最新请求": 0
+    },
+    "returned_source_anchors": [
+      {
+        "result_json_path": "$.observation.result",
+        "anchors": {
+          "source_instance": "obelisk-acceptance/synthetic-v1"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      },
+      {
+        "result_json_path": "$.observation.result.coverage.configured_sources[0]",
+        "anchors": {
+          "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+          "provider": "codex"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      },
+      {
+        "result_json_path": "$.observation.result.coverage.source_roots[0]",
+        "anchors": {
+          "path": "/workspace/scratch/549c30a35cef/obelisk-qwen4b-real-20261116/acceptance/run-e9ed20af-9aba-47f7-ac4d-141b4b3e665c/candidate-669cf520-9894-458d-8cc7-fd0b48ea0e8a/synthetic-codex",
+          "provider": "codex"
+        },
+        "answer_literal_counts_in_this_object": {
+          "src/auth/refresh.ts": 0,
+          "tests/auth/refresh-race.test.ts": 0,
+          "SameSite": 0,
+          "None": 0,
+          "Lax": 0,
+          "generation": 0,
+          "旧响应": 0,
+          "最新请求": 0
+        },
+        "anchor_scope": "metadata_or_other"
+      }
+    ],
+    "returned_record_array_counts": [
+      {
+        "json_path": "$.observation.result.data.hits",
+        "count": 0
+      }
+    ],
+    "interpretation_limit": "A succeeded native call or visible task_result alone does not prove retrieval of relevant fixture facts or correct use in the final answer"
+  }
+]

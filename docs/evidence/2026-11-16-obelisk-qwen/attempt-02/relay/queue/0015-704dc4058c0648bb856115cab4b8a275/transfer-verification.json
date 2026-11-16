@@ -1,0 +1,10 @@
+{
+  "verified_at_utc": "2026-11-15T17:45:27.410614+00:00",
+  "request_bytes_identical": true,
+  "response_bytes_identical": true,
+  "request_sha256": "e43d81dd369998351d12d8975712a2c4273235befd838268e35f04ef6ea952fd",
+  "response_sha256": "04a46028498dc044af2bbca3dcc3970e7857329fe499305d605fb889ebfb7f42",
+  "compression": "gzip only for connector transport; decoded before HTTP response",
+  "response_model_content_parsed_or_rewritten": false,
+  "inference_retries": 0
+}

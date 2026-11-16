@@ -117,6 +117,7 @@ impl Store {
 
         // Run migrations
         crate::migrations::run_migrations(&conn)?;
+        conn.execute_batch(crate::authority::SCHEMA)?;
 
         let sqlite_version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         let journal_mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
@@ -435,8 +436,9 @@ impl Store {
         expected_head: &SubjectBranchHead,
         expected_revision: RecordRevision,
     ) -> Result<CommitReceipt, ShenkoError> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
-            || self.try_upsert_step(step, expected_head, expected_revision, None, None),
+            || self.try_upsert_step(step, expected_head, expected_revision, None, None, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -453,6 +455,7 @@ impl Store {
         expected_revision: RecordRevision,
         claim_send: EntityId,
     ) -> Result<CommitReceipt, ShenkoError> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
             || {
                 self.try_upsert_step(
@@ -461,6 +464,7 @@ impl Store {
                     expected_revision,
                     Some(claim_send),
                     None,
+                    &authority,
                 )
             },
             |e| matches!(e, ShenkoError::Storage(_)),
@@ -479,6 +483,17 @@ impl Store {
         claim_send: Option<EntityId>,
         attempt: &crate::subject_request::SubjectRequestAttempt,
     ) -> Result<CommitReceipt, ShenkoError> {
+        let previous = self.get_step(&expected_head.branch_id, step.step_id)?
+            .ok_or_else(|| ShenkoError::not_found("registered request step"))?;
+        let authority = self.reserve_admission(expected_head, crate::authority::AdmissionPosition {
+            key: format!("step/{}/request-after/{}", step.step_id,
+                previous.active_request_id.unwrap_or_else(EntityId::nil)),
+            aliases: vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)],
+            attempt_id: Some(attempt.attempt_id), expected_steps: vec![previous], ..Default::default()
+        },
+            &serde_json::json!({"kind": "subject.request_arm", "step": step,
+                "expected_head": expected_head, "expected_revision": expected_revision,
+                "claim_send": claim_send, "attempt": attempt}))?;
         self.ledger.with_mutation(
             || {
                 self.try_upsert_step(
@@ -487,6 +502,7 @@ impl Store {
                     expected_revision,
                     claim_send,
                     Some(attempt),
+                    &authority,
                 )
             },
             |e| matches!(e, ShenkoError::Storage(_)),
@@ -500,11 +516,13 @@ impl Store {
         expected_revision: RecordRevision,
         claim_send: Option<EntityId>,
         attempt: Option<&crate::subject_request::SubjectRequestAttempt>,
+        authority: &crate::authority::AuthorityReservation,
     ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
+        authority.check(&tx, self.capabilities.incarnation, Some(expected_head.agent_id))?;
         let head = checked_head(&tx, expected_head)?;
         validate_step_binding(&head, step)?;
         let previous = read_step(&tx, &head.branch_id, step.step_id)?
@@ -609,8 +627,10 @@ impl Store {
             armed.created_commit = commit_ref;
             self.insert_subject_request_tx(&tx, &armed, seq)?;
         }
-        self.record_subject_commit(&tx, commit_ref, 1)?;
+        authority.record_admission(&tx, commit_ref)?;
+        self.record_subject_commit(&tx, commit_ref, 2)?;
         tx.commit().map_err(storage_error)?;
+        authority.materialized();
         Ok(self.subject_receipt(
             commit_ref,
             vec![UpdatedEntity {
@@ -629,8 +649,9 @@ impl Store {
         expected_head: &SubjectBranchHead,
         replacement: &SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(
-            || self.try_reject_output_and_replace_step(retired, expected_head, replacement),
+            || self.try_reject_output_and_replace_step(retired, expected_head, replacement, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -640,11 +661,13 @@ impl Store {
         retired: &SubjectStep,
         expected_head: &SubjectBranchHead,
         replacement: &SubjectStep,
+        authority: &crate::authority::AuthorityReservation,
     ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
+        authority.check(&tx, self.capabilities.incarnation, Some(expected_head.agent_id))?;
         let mut head = checked_head(&tx, expected_head)?;
         validate_step_binding(&head, retired)?;
         let previous = read_step(&tx, &head.branch_id, retired.step_id)?
@@ -762,25 +785,45 @@ impl Store {
         expected_head: &SubjectBranchHead,
         next_step_id: EntityId,
     ) -> Result<CommitReceipt, ShenkoError> {
+        let (previous, expected_tasks) = {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction().map_err(storage_error)?;
+            let (head, previous, decision) = self.validate_step_commit(&tx, step, expected_head, next_step_id)?;
+            let mut tasks = std::collections::BTreeMap::new();
+            for intent in &decision.child_dialogue_intents {
+                if intent.direction != shenko_types::subject::DialogueDirection::ToChild { continue; }
+                if let Some(task) = crate::child::read_task(&tx, intent.target_task_id).map_err(storage_error)?
+                    && task.agent_id == head.agent_id && !task.is_terminal() && task.abort_request.is_none()
+                    && crate::child::task_in_current_branch(&tx, &task, &head).map_err(storage_error)?
+                {
+                    tasks.insert(task.task_id, task);
+                }
+            }
+            (previous, tasks.into_values().collect::<Vec<_>>())
+        };
+        let mut aliases = vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)];
+        aliases.extend(expected_tasks.iter().map(crate::authority::task_revision_position));
+        let authority = self.reserve_admission(expected_head, crate::authority::AdmissionPosition {
+            key: format!("branch/{}/successor/{}:{}", expected_head.branch_id.0,
+                expected_head.committed_at.ledger_id, expected_head.committed_at.seq.0),
+            aliases, expected_tasks, expected_steps: vec![previous],
+            bind_parent: true, ..Default::default()
+        },
+            &serde_json::json!({"kind": "subject.step_commit", "step": step,
+                "expected_head": expected_head, "next_step_id": next_step_id}))?;
         self.ledger.with_mutation(
-            || self.try_commit_step_and_advance_head(step, expected_head, next_step_id),
+            || self.try_commit_step_and_advance_head(step, expected_head, next_step_id, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
 
-    fn try_commit_step_and_advance_head(
-        &self,
-        step: &SubjectStep,
-        expected_head: &SubjectBranchHead,
-        next_step_id: EntityId,
-    ) -> Result<CommitReceipt, ShenkoError> {
-        let mut conn = self.ledger.conn.lock();
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
-        let mut head = checked_head(&tx, expected_head)?;
+    fn validate_step_commit(
+        &self, tx: &rusqlite::Transaction<'_>, step: &SubjectStep,
+        expected_head: &SubjectBranchHead, next_step_id: EntityId,
+    ) -> Result<(SubjectBranchHead, SubjectStep, shenko_types::subject::StepDecision), ShenkoError> {
+        let head = checked_head(tx, expected_head)?;
         validate_step_binding(&head, step)?;
-        let previous = read_step(&tx, &head.branch_id, step.step_id)?
+        let previous = read_step(tx, &head.branch_id, step.step_id)?
             .ok_or_else(|| ShenkoError::not_found("registered subject step"))?;
         validate_step_binding(&head, &previous)?;
         if previous.state != SubjectStepState::ResultRecorded
@@ -817,7 +860,23 @@ impl Store {
         {
             return Err(ShenkoError::conflict("decision/step/successor mismatch"));
         }
-        self.validate_decision_controls(&tx, &head, step, &decision)?;
+        self.validate_decision_controls(tx, &head, step, &decision)?;
+        Ok((head, previous, decision))
+    }
+
+    pub(crate) fn try_commit_step_and_advance_head(
+        &self,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        next_step_id: EntityId,
+        authority: &crate::authority::AuthorityReservation,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        authority.check(&tx, self.capabilities.incarnation, Some(expected_head.agent_id))?;
+        let (mut head, previous, decision) = self.validate_step_commit(&tx, step, expected_head, next_step_id)?;
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
         // Identity is settled under the SAME IMMEDIATE transaction as S1. The
@@ -994,8 +1053,10 @@ impl Store {
         if changed != 1 {
             return Err(ShenkoError::conflict("stale branch head"));
         }
-        self.record_subject_commit(&tx, commit_ref, 3)?;
+        authority.record_admission(&tx, commit_ref)?;
+        self.record_subject_commit(&tx, commit_ref, 4)?;
         tx.commit().map_err(storage_error)?;
+        authority.materialized();
         Ok(self.subject_receipt(
             commit_ref,
             vec![
@@ -2053,7 +2114,7 @@ fn unchanged_tuple(db_path: &Path, recorded: &[Option<MemberSig>]) -> Result<boo
     Ok(true)
 }
 
-fn read_subject(
+pub(crate) fn read_subject(
     conn: &Connection,
     agent_id: EntityId,
 ) -> Result<(SubjectBranchHead, SubjectStep), ShenkoError> {
@@ -2151,7 +2212,7 @@ pub(crate) fn validate_step_binding(
     Ok(())
 }
 
-fn insert_step(
+pub(crate) fn insert_step(
     tx: &rusqlite::Transaction<'_>,
     step: &SubjectStep,
     seq: u64,

@@ -66,7 +66,8 @@ jobs:
       - name: Check every workspace target with the lockfile
         run: cargo check --workspace --all-targets --features shenko/compat-poppy --locked -j2
       - name: Test the workspace, including integration tests and doctests
-        run: cargo test --workspace --features shenko/compat-poppy --locked -j2
+        # Retain every failing target in one run; any failure still fails CI.
+        run: cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4

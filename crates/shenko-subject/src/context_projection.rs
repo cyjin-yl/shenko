@@ -710,6 +710,33 @@ pub(super) fn project_payload_stable(
     Ok((payload, estimate, unfinished, source_commit_seq))
 }
 
+/// Bind a window to the actual subject configuration without staging input or
+/// calling a model. Preparers use the same binding as the next S0; a later
+/// configuration change still invalidates their window through the usual rebind.
+pub(super) fn bind_context_profile(state: &SubjectLoopState) -> Result<Digest, ShenkoError> {
+    let registry = &state.context_registry;
+    let binding = state.broker.as_ref().map(|broker| broker.binding());
+    if state.model_capabilities.as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
+        return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
+    }
+    let profile_digest = Digest::blake3(&serde_json::to_vec(&(
+        binding, &state.model_capabilities, &stable_system_prompt(state), state.max_tokens,
+        "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
+    ))?);
+    let current_generation = registry.ledger().model_generation().map_err(storage)?;
+    let profile_matches = registry.ledger().model_profile().map_err(storage)?
+        .is_some_and(|(generation, profile)|
+            generation == current_generation && profile.as_str() == profile_digest.0.as_str());
+    if !profile_matches {
+        registry.ledger().current().map_err(storage)?;
+        let generation = current_generation
+            .checked_add(1).filter(|value| i64::try_from(*value).is_ok())
+            .ok_or_else(|| ShenkoError::conflict("context model generation exhausted"))?;
+        registry.ledger().rebind_model(generation, &profile_digest.0).map_err(storage)?;
+    }
+    Ok(profile_digest)
+}
+
 pub(super) fn prepare_context(
     state: &mut SubjectLoopState,
     events: &[InboxEvent],
@@ -774,7 +801,6 @@ pub(super) fn prepare_context(
             ShenkoError::storage(format!("cognition disclosure failed: {error:#}"))
         })?
         .unwrap_or_default();
-    let stable_prompt = stable_system_prompt(state);
     let obligations = state.store.open_subject_obligations(state.agent_id)?;
     // The once-per-window reminder is READ here and answered by the commit of
     // the request that carries it. Reading it twice is idempotent.
@@ -782,24 +808,7 @@ pub(super) fn prepare_context(
     let system_prompt = build_system_prompt(state, &awareness, &obligations);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.broker.as_ref().map(|broker| broker.binding());
-    if state.model_capabilities.as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
-        return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
-    }
-    let profile_digest = Digest::blake3(&serde_json::to_vec(&(
-        binding, &state.model_capabilities, &stable_prompt, state.max_tokens,
-        "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
-    ))?);
-    let current_generation = registry.ledger().model_generation().map_err(storage)?;
-    let profile_matches = registry.ledger().model_profile().map_err(storage)?
-        .is_some_and(|(generation, profile)|
-            generation == current_generation && profile.as_str() == profile_digest.0.as_str());
-    if !profile_matches {
-        registry.ledger().current().map_err(storage)?;
-        let generation = current_generation
-            .checked_add(1).filter(|value| i64::try_from(*value).is_ok())
-            .ok_or_else(|| ShenkoError::conflict("context model generation exhausted"))?;
-        registry.ledger().rebind_model(generation, &profile_digest.0).map_err(storage)?;
-    }
+    let profile_digest = bind_context_profile(state)?;
     let model_generation = registry.ledger().model_generation().map_err(storage)?;
     let scope_id = EntityId(state.head.branch_id.0);
     let source = StoreHistory::new(Arc::clone(&state.store), scope_id, Arc::new(estimate_tokens));

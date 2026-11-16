@@ -19,11 +19,12 @@ use axum::{
     response::{Html, IntoResponse, Json, Redirect, Response}, routing::{get, post}, Router,
 };
 use chrono::{DateTime, Utc};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_store::Store;
-use shenko_store::artifacts::{ArtifactManifest, ArtifactRecord, BackendManifest, FrontendBinding};
+use shenko_store::artifacts::{ArtifactCommit, ArtifactManifest, ArtifactOperation, ArtifactRecord,
+    ArtifactTransition, ArtifactReaderIdentity, ArtifactReaderRequest, ArtifactReaderResult, BackendManifest, FrontendBinding};
 use shenko_subject::NativeChildService;
 use shenko_types::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::{ids::EntityId, object::{Digest, ObjectRef}};
@@ -34,9 +35,9 @@ use crate::playground_backend::{ActionError, ArtifactActor, BackendActionRequest
 pub(crate) const ARTIFACT_SCHEMA: u32 = 2;
 
 /// One immutable content version of an artifact. Content and version records
-/// are immutable; only `meta.json` selects a head. A version is written and
-/// synced before the head changes. This type is the file-backed content
-/// record; the durable business record is `shenko_store::ArtifactRecord`.
+/// are immutable. The ledger's artifact record selects the head; files are
+/// recoverable projections of the same CAS closure. Older file-selected heads
+/// are imported on open without discarding their retained version chains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactVersion {
@@ -68,6 +69,18 @@ pub struct PlaygroundState {
     /// the store, and the subject's pending-inbox drain owns delivery.
     inbox_tx: Arc<RwLock<Option<Sender<InboxEvent>>>>,
     records: Arc<RwLock<HashMap<EntityId, ArtifactVersion>>>,
+    mutation_lock: Arc<Mutex<()>>,
+}
+
+/// A CAS-sealed proposal, with no business effect until its Store transaction
+/// commits. Native operations attach their exact observation to that boundary.
+pub(crate) struct PreparedArtifact {
+    pub record: ArtifactRecord,
+    pub version: Option<ArtifactVersion>,
+    expected_revision: Option<u64>,
+    manifest: Option<ArtifactManifest>,
+    event: Option<InboxEvent>,
+    changed: bool,
 }
 
 impl PlaygroundState {
@@ -83,10 +96,11 @@ impl PlaygroundState {
             native: Arc::new(RwLock::new(None)),
             inbox_tx: Arc::new(RwLock::new(None)),
             records: Arc::new(RwLock::new(HashMap::new())),
+            mutation_lock: Arc::new(Mutex::new(())),
         };
         state.load()?;
-        state.recover_notifications()?;
         state.recover_durable()?;
+        state.recover_notifications()?;
         Ok(state)
     }
 
@@ -103,6 +117,8 @@ impl PlaygroundState {
     pub(crate) fn native(&self) -> Option<Arc<NativeChildService>> {
         self.native.read().clone()
     }
+
+    pub(crate) fn mutation(&self) -> MutexGuard<'_, ()> { self.mutation_lock.lock() }
 
     /// Wake the subject about a fact that is already durably admitted.
     fn wake(&self, event: &InboxEvent) {
@@ -171,34 +187,153 @@ impl PlaygroundState {
             &serde_json::to_vec(record).map_err(io::Error::other)?)
     }
 
-    pub fn put(&self, id: EntityId, title: String, mime: String, bytes: &[u8]) -> io::Result<ArtifactVersion> {
-        let mut records = self.records.write();
-        let previous = records.get(&id);
-        let revision = self.next_revision(id)?;
-        let record = ArtifactVersion {
-            schema_version: ARTIFACT_SCHEMA, artifact_id: id, title, mime: mime.clone(),
-            bytes_path: self.version_path(id, revision), content_ref: self.seal_content(bytes, &mime)?,
-            revision, parent_revision: previous.map(|r| r.revision), restored_from: None,
-            updated_at: Utc::now(), backend: previous.and_then(|r| r.backend.clone()),
+    pub(crate) fn prepare_put(
+        &self,
+        id: EntityId,
+        title: String,
+        mime: String,
+        bytes: &[u8],
+        create_only: bool,
+    ) -> anyhow::Result<PreparedArtifact> {
+        let previous_record = self.store.artifact_record(id)?;
+        anyhow::ensure!(
+            !create_only || previous_record.is_none(),
+            "artifact already exists"
+        );
+        self.prepare_content(id, title, mime, bytes, previous_record)
+    }
+
+    pub(crate) fn prepare_edit(
+        &self,
+        id: EntityId,
+        title: Option<String>,
+        mime: Option<String>,
+        bytes: &[u8],
+    ) -> anyhow::Result<PreparedArtifact> {
+        let previous_record = self
+            .store
+            .artifact_record(id)?
+            .ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+        let previous = self.version_from_ref(&previous_record.state_ref)?;
+        self.prepare_content(
+            id,
+            title.unwrap_or(previous.title),
+            mime.unwrap_or(previous.mime),
+            bytes,
+            Some(previous_record),
+        )
+    }
+
+    fn prepare_content(
+        &self,
+        id: EntityId,
+        title: String,
+        mime: String,
+        bytes: &[u8],
+        previous_record: Option<ArtifactRecord>,
+    ) -> anyhow::Result<PreparedArtifact> {
+        let previous = previous_record
+            .as_ref()
+            .map(|record| self.version_from_ref(&record.state_ref))
+            .transpose()?;
+        let revision = self.next_revision(id)?.max(
+            previous
+                .as_ref()
+                .map(|v| {
+                    v.revision
+                        .checked_add(1)
+                        .ok_or_else(|| io::Error::other("artifact revision overflow"))
+                })
+                .transpose()?
+                .unwrap_or(1),
+        );
+        let version = ArtifactVersion {
+            schema_version: ARTIFACT_SCHEMA,
+            artifact_id: id,
+            title,
+            mime: mime.clone(),
+            bytes_path: self.version_path(id, revision),
+            content_ref: self.seal_content(bytes, &mime)?,
+            revision,
+            parent_revision: previous.as_ref().map(|r| r.revision),
+            restored_from: None,
+            updated_at: Utc::now(),
+            backend: previous.and_then(|r| r.backend),
         };
-        self.commit_version(&record, bytes)?;
-        // The durable record and the fact announcing this revision commit
-        // together; a failure here leaves the version chain committed and
-        // reopen reconciles it, but the caller is never told the notification
-        // succeeded when it did not.
-        self.sync_durable(&record).map_err(io::Error::other)?;
-        records.insert(id, record.clone());
-        Ok(record)
+        self.prepare_version(version, previous_record)
     }
 
-    pub fn get(&self, id: &EntityId) -> Option<ArtifactVersion> {
-        self.records.read().get(id).cloned()
+    pub fn put(
+        &self,
+        id: EntityId,
+        title: String,
+        mime: String,
+        bytes: &[u8],
+    ) -> io::Result<ArtifactVersion> {
+        let _mutation = self.mutation();
+        let prepared = self
+            .prepare_put(id, title, mime, bytes, false)
+            .map_err(io::Error::other)?;
+        let version = prepared
+            .version
+            .clone()
+            .ok_or_else(|| io::Error::other("content proposal has no version"))?;
+        self.commit_prepared(Some(&prepared), None)
+            .map_err(io::Error::other)?;
+        Ok(version)
     }
 
-    pub fn list(&self) -> Vec<ArtifactVersion> {
-        let mut records: Vec<_> = self.records.read().values().cloned().collect();
+    fn read_object(&self, reference: &ObjectRef) -> anyhow::Result<Vec<u8>> {
+        let bytes = self.store.cas.read_object(&reference.digest)?;
+        anyhow::ensure!(
+            bytes.len() as u64 == reference.bytes && Digest::blake3(&bytes) == reference.digest,
+            "artifact CAS object length/digest mismatch"
+        );
+        Ok(bytes)
+    }
+
+    fn version_from_ref(&self, reference: &ObjectRef) -> anyhow::Result<ArtifactVersion> {
+        let mut version: ArtifactVersion = serde_json::from_slice(&self.read_object(reference)?)?;
+        anyhow::ensure!(
+            version.schema_version == ARTIFACT_SCHEMA,
+            "artifact version schema mismatch"
+        );
+        version.bytes_path = self.version_path(version.artifact_id, version.revision);
+        Ok(version)
+    }
+
+    pub(crate) fn current_version(&self, id: EntityId) -> anyhow::Result<Option<ArtifactVersion>> {
+        match self.store.artifact_record(id)? {
+            Some(record) => {
+                let version = self.version_from_ref(&record.state_ref)?;
+                anyhow::ensure!(
+                    version.artifact_id == id,
+                    "artifact version identity mismatch"
+                );
+                Ok(Some(version))
+            }
+            None => Ok(self.records.read().get(&id).cloned()),
+        }
+    }
+
+    pub fn get(&self, id: &EntityId) -> anyhow::Result<Option<ArtifactVersion>> {
+        self.current_version(*id)
+    }
+
+    pub(crate) fn list_current(&self) -> anyhow::Result<Vec<ArtifactVersion>> {
+        let mut records = self
+            .store
+            .list_artifact_records()?
+            .into_iter()
+            .filter(|record| record.subject_id == self.agent_id)
+            .map(|record| self.version_from_ref(&record.state_ref))
+            .collect::<anyhow::Result<Vec<_>>>()?;
         records.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        records
+        Ok(records)
+    }
+
+    pub fn list(&self) -> anyhow::Result<Vec<ArtifactVersion>> {
+        self.list_current()
     }
 
     /// The durable business record of one artifact, when it was synced.
@@ -210,23 +345,66 @@ impl PlaygroundState {
     /// docs/specs/configuration-playground.md#spec-43-2. Roots come from the durable records, not from listing the
     /// playground directory, so a stray directory is never mistaken for an
     /// artifact.
-    pub fn roots(&self) -> Vec<(EntityId, PathBuf, Digest)> {
-        self.store.artifact_roots().unwrap_or_default()
+    pub fn roots(&self) -> anyhow::Result<Vec<(EntityId, PathBuf, Digest)>> {
+        self.store.artifact_roots()
     }
 
     pub fn read_content(&self, record: &ArtifactVersion) -> io::Result<Vec<u8>> {
-        let bytes = fs::read(self.version_path(record.artifact_id, record.revision))?;
-        if bytes.len() as u64 != record.content_ref.bytes || Digest::blake3(&bytes) != record.content_ref.digest {
-            return Err(io::Error::other("artifact version content digest mismatch"));
-        }
-        Ok(bytes)
+        self.read_object(&record.content_ref)
+            .map_err(io::Error::other)
     }
 
     pub(crate) fn read_version(&self, id: EntityId, revision: u64) -> io::Result<ArtifactVersion> {
-        let mut record: ArtifactVersion = serde_json::from_slice(
-            &fs::read(self.version_record_path(id, revision))?).map_err(io::Error::other)?;
-        if record.schema_version != ARTIFACT_SCHEMA || record.artifact_id != id || record.revision != revision {
-            return Err(io::Error::other("artifact version identity/schema mismatch"));
+        if let Some(current) = self.current_version(id).map_err(io::Error::other)?
+            && current.revision == revision
+        {
+            return Ok(current);
+        }
+        // Every committed manifest retains its exact version record in CAS.
+        // A missing/stale local projection must never turn a committed effect
+        // into an unknown result or authorize a second mutation.
+        let mut found: Option<ArtifactVersion> = None;
+        for manifest in self
+            .store
+            .list_artifact_manifests(id)
+            .map_err(io::Error::other)?
+        {
+            let closure: Value = serde_json::from_slice(
+                &self
+                    .read_object(&manifest.recovery_closure_ref)
+                    .map_err(io::Error::other)?,
+            )
+            .map_err(io::Error::other)?;
+            let reference: ObjectRef =
+                serde_json::from_value(closure.get("version_record_ref").cloned().ok_or_else(
+                    || io::Error::other("artifact recovery closure has no version record"),
+                )?)
+                .map_err(io::Error::other)?;
+            let record = self
+                .version_from_ref(&reference)
+                .map_err(io::Error::other)?;
+            if record.artifact_id == id && record.revision == revision {
+                if let Some(previous) = &found
+                    && serde_json::to_vec(previous).map_err(io::Error::other)?
+                        != serde_json::to_vec(&record).map_err(io::Error::other)?
+                {
+                    return Err(io::Error::other("artifact revision is ambiguous across retained histories"));
+                }
+                found = Some(record);
+            }
+        }
+        if let Some(record) = found { return Ok(record); }
+        // Legacy committed chains may predate their durable manifest import.
+        let mut record: ArtifactVersion =
+            serde_json::from_slice(&fs::read(self.version_record_path(id, revision))?)
+                .map_err(io::Error::other)?;
+        if record.schema_version != ARTIFACT_SCHEMA
+            || record.artifact_id != id
+            || record.revision != revision
+        {
+            return Err(io::Error::other(
+                "artifact version identity/schema mismatch",
+            ));
         }
         record.bytes_path = self.version_path(id, revision);
         Ok(record)
@@ -235,7 +413,7 @@ impl PlaygroundState {
     /// Only the committed ancestor chain is history; unrelated orphan writes
     /// remain on disk but are not silently published as earlier versions.
     pub fn revisions(&self, id: EntityId) -> io::Result<Vec<u64>> {
-        let Some(head) = self.get(&id) else { return Ok(Vec::new()) };
+        let Some(head) = self.get(&id).map_err(io::Error::other)? else { return Ok(Vec::new()) };
         let mut next = Some(head.revision);
         let mut revisions = Vec::new();
         while let Some(revision) = next {
@@ -252,43 +430,101 @@ impl PlaygroundState {
 
     /// Restore the exact earlier content, MIME, title AND executable binding
     /// as a new version. Business state lives separately and is never erased.
-    pub fn rollback(&self, id: EntityId, source_revision: u64) -> io::Result<ArtifactVersion> {
-        if !self.revisions(id)?.contains(&source_revision) {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "committed artifact revision not found"));
+    pub(crate) fn prepare_rollback(
+        &self,
+        id: EntityId,
+        source_revision: u64,
+    ) -> anyhow::Result<PreparedArtifact> {
+        let previous_record = self
+            .store
+            .artifact_record(id)?
+            .ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+        let head = self.version_from_ref(&previous_record.state_ref)?;
+        let mut ancestor = Some(head.revision);
+        let mut source = None;
+        while let Some(revision) = ancestor {
+            let version = self.read_version(id, revision)?;
+            anyhow::ensure!(
+                version
+                    .parent_revision
+                    .is_none_or(|parent| parent < revision),
+                "artifact history is not monotonic"
+            );
+            if revision == source_revision {
+                source = Some(version);
+                break;
+            }
+            ancestor = version.parent_revision;
         }
-        let mut records = self.records.write();
-        let head = records.get(&id).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "artifact not found"))?;
-        let source = self.read_version(id, source_revision)?;
-        let bytes = self.read_content(&source)?;
-        let revision = self.next_revision(id)?;
-        let record = ArtifactVersion {
-            revision, parent_revision: Some(head.revision), restored_from: Some(source_revision),
-            updated_at: Utc::now(), bytes_path: self.version_path(id, revision), ..source
+        let source =
+            source.ok_or_else(|| anyhow::anyhow!("committed artifact revision not found"))?;
+        self.read_content(&source)?;
+        let revision = self.next_revision(id)?.max(
+            head.revision
+                .checked_add(1)
+                .ok_or_else(|| io::Error::other("artifact revision overflow"))?,
+        );
+        let version = ArtifactVersion {
+            revision,
+            parent_revision: Some(head.revision),
+            restored_from: Some(source_revision),
+            updated_at: Utc::now(),
+            bytes_path: self.version_path(id, revision),
+            ..source
         };
-        self.commit_version(&record, &bytes)?;
-        self.sync_durable(&record).map_err(io::Error::other)?;
-        records.insert(id, record.clone());
-        Ok(record)
+        self.prepare_version(version, Some(previous_record))
+    }
+
+    pub fn rollback(&self, id: EntityId, source_revision: u64) -> io::Result<ArtifactVersion> {
+        let _mutation = self.mutation();
+        let prepared = self
+            .prepare_rollback(id, source_revision)
+            .map_err(io::Error::other)?;
+        let version = prepared
+            .version
+            .clone()
+            .ok_or_else(|| io::Error::other("rollback proposal has no version"))?;
+        self.commit_prepared(Some(&prepared), None)
+            .map_err(io::Error::other)?;
+        Ok(version)
     }
 
     /// Every binding is a new artifact version, including its invocation
     /// contract and CAS module identity. A code rollback restores this binding
     /// while keeping all state written by newer code.
     pub fn bind_backend(&self, id: EntityId, module: &[u8]) -> io::Result<ArtifactVersion> {
+        let _mutation = self.mutation();
         let binding = BackendBinding::seal(&self.store, module).map_err(io::Error::other)?;
-        let mut records = self.records.write();
-        let previous = records.get(&id).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "artifact not found"))?;
-        let bytes = self.read_content(previous)?;
-        let revision = self.next_revision(id)?;
-        let record = ArtifactVersion {
-            revision, parent_revision: Some(previous.revision), restored_from: None,
-            updated_at: Utc::now(), bytes_path: self.version_path(id, revision),
-            backend: Some(binding), ..previous.clone()
+        let previous_record = self
+            .store
+            .artifact_record(id)
+            .map_err(io::Error::other)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "artifact not found"))?;
+        let previous = self
+            .version_from_ref(&previous_record.state_ref)
+            .map_err(io::Error::other)?;
+        self.read_content(&previous)?;
+        let revision = self.next_revision(id)?.max(
+            previous
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| io::Error::other("artifact revision overflow"))?,
+        );
+        let version = ArtifactVersion {
+            revision,
+            parent_revision: Some(previous.revision),
+            restored_from: None,
+            updated_at: Utc::now(),
+            bytes_path: self.version_path(id, revision),
+            backend: Some(binding),
+            ..previous
         };
-        self.commit_version(&record, &bytes)?;
-        self.sync_durable(&record).map_err(io::Error::other)?;
-        records.insert(id, record.clone());
-        Ok(record)
+        let prepared = self
+            .prepare_version(version.clone(), Some(previous_record))
+            .map_err(io::Error::other)?;
+        self.commit_prepared(Some(&prepared), None)
+            .map_err(io::Error::other)?;
+        Ok(version)
     }
 
     /// Build the versioned manifest for one committed content version: the
@@ -369,47 +605,290 @@ impl PlaygroundState {
         Ok((manifest, manifest_ref, version_record_ref))
     }
 
-    /// Store the manifest and the durable artifact record for one committed
-    /// content version. Called on every content write so the record is never
-    /// behind the committed head.
-    fn sync_durable(&self, version: &ArtifactVersion) -> anyhow::Result<ArtifactRecord> {
-        let (manifest, manifest_ref, version_record_ref) = self.build_manifest(version)?;
-        self.store.put_artifact_manifest(&manifest)?;
-        // A content head is an authored proposal. Only publish selects an
-        // active manifest; edits must also retain earlier staged proposals.
-        let (creator_task_id, active_manifest_ref, candidate_manifest_refs, lifecycle, runtime_instance_refs) =
-            match self.store.artifact_record(version.artifact_id)? {
-                Some(record) => (
-                    record.creator_task_id, record.active_manifest_ref,
-                    record.candidate_manifest_refs, record.lifecycle, record.runtime_instance_refs,
-                ),
-                None => (None, None, Vec::new(), "draft".into(), Vec::new()),
-            };
+    /// Seal the complete version closure before any artifact row changes.
+    fn prepare_version(
+        &self,
+        version: ArtifactVersion,
+        previous: Option<ArtifactRecord>,
+    ) -> anyhow::Result<PreparedArtifact> {
+        let (manifest, manifest_ref, version_record_ref) = self.build_manifest(&version)?;
+        let expected_revision = previous.as_ref().map(|record| record.record_revision);
+        let (
+            creator_task_id,
+            active_manifest_ref,
+            candidate_manifest_refs,
+            lifecycle,
+            runtime_instance_refs,
+        ) = match previous {
+            Some(record) => (
+                record.creator_task_id,
+                record.active_manifest_ref,
+                record.candidate_manifest_refs,
+                record.lifecycle,
+                record.runtime_instance_refs,
+            ),
+            None => (None, None, Vec::new(), "draft".into(), Vec::new()),
+        };
         let root = self.artifact_dir(version.artifact_id);
-        let root_identity = directory_identity(&root);
+        // The directory is a locator, never the commit point. Creating it
+        // before the transaction gives the committed root a real identity.
+        fs::create_dir_all(&root)?;
         let record = ArtifactRecord {
             schema_version: 1,
             artifact_id: version.artifact_id,
             subject_id: self.agent_id,
             creator_task_id,
             title: version.title.clone(),
-            record_revision: 0,
+            record_revision: expected_revision.unwrap_or(0),
             active_manifest_ref,
             candidate_manifest_refs,
-            state_revision: format!("{}:{}", version.revision, &manifest.version_digest.0[..16.min(manifest.version_digest.0.len())]),
+            state_revision: format!(
+                "{}:{}",
+                version.revision,
+                &manifest.version_digest.0[..16.min(manifest.version_digest.0.len())]
+            ),
             state_ref: version_record_ref.clone(),
             lifecycle,
             runtime_instance_refs,
             desired_lifecycle_ref: manifest_ref,
             provenance_and_causation_ref: version_record_ref,
+            root_identity: directory_identity(&root),
             artifact_root: root,
-            root_identity,
-            updated_commit: shenko_types::commit::CommitRef::new(EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO),
+            updated_commit: shenko_types::commit::CommitRef::new(
+                EntityId::nil(),
+                shenko_types::ids::LedgerSeq::ZERO,
+            ),
         };
-        // The content revision and the fact announcing it commit together, so
-        // a committed version is never missing from the subject's perception.
-        let event = self.change_event(version);
-        self.commit_record(&record, Some(&event))
+        let event = self.change_event(&version);
+        Ok(PreparedArtifact {
+            record,
+            version: Some(version),
+            expected_revision,
+            manifest: Some(manifest),
+            event: Some(event),
+            changed: true,
+        })
+    }
+
+    /// SQLite is the effect boundary. Projection failures after that commit
+    /// are recoverable cache failures; reporting the mutation as failed here
+    /// would invite a second effect after an already committed first one.
+    pub(crate) fn commit_prepared(
+        &self,
+        prepared: Option<&PreparedArtifact>,
+        binding: Option<ArtifactOperation<'_>>,
+    ) -> anyhow::Result<ArtifactCommit> {
+        self.commit_prepared_request(prepared, binding, None)
+    }
+
+    fn commit_prepared_request(
+        &self,
+        prepared: Option<&PreparedArtifact>,
+        binding: Option<ArtifactOperation<'_>>,
+        reader: Option<ArtifactReaderRequest<'_>>,
+    ) -> anyhow::Result<ArtifactCommit> {
+        let changed = prepared.filter(|prepared| prepared.changed);
+        let notification = changed
+            .and_then(|prepared| prepared.event.as_ref())
+            .map(|event| self.notification(event))
+            .transpose()?;
+        if changed.is_none() && binding.is_none() && reader.is_none() {
+            return Ok(ArtifactCommit {
+                record: prepared.map(|prepared| prepared.record.clone()),
+                checkpoint_ref: None,
+                reader_receipt: None,
+                replayed: true,
+            });
+        }
+        let committed = self.store.commit_artifact_transition(
+            prepared
+                .filter(|prepared| prepared.changed || reader.is_some())
+                .map(|prepared| ArtifactTransition {
+                    record: &prepared.record,
+                    expected_revision: prepared.expected_revision,
+                    manifest: prepared.manifest.as_ref(),
+                    notification: notification.as_ref(),
+                    write_record: prepared.changed,
+                }),
+            binding,
+            reader,
+        )?;
+        if !committed.replayed {
+            if let Some(reader) = &committed.reader_receipt {
+                self.wake(&reader.event);
+            }
+            if let Some(prepared) = changed {
+                if let Some(version) = &prepared.version {
+                    self.records
+                        .write()
+                        .insert(version.artifact_id, version.clone());
+                    if let Err(error) = self.project_version(version) {
+                        tracing::warn!(artifact_id = %version.artifact_id, revision = version.revision,
+                            %error, "artifact committed; local projection needs recovery");
+                    }
+                }
+                if let Some(event) = &prepared.event {
+                    self.wake(event);
+                }
+            }
+        }
+        Ok(committed)
+    }
+
+    /// The inbox request receipt and its source artifact transition commit
+    /// together. Replays read that original receipt before today's revision,
+    /// including after a later adoption or content edit.
+    fn reader_action(
+        &self,
+        id: EntityId,
+        actor: &ArtifactActor,
+        request_id: &str,
+        action: ReaderAction,
+    ) -> anyhow::Result<Value> {
+        anyhow::ensure!(
+            !request_id.is_empty() && request_id.len() <= 256,
+            "request_id must contain 1..256 bytes"
+        );
+        let _mutation = self.mutation();
+        let identity = ArtifactReaderIdentity {
+            event_id: stable_id(&format!(
+                "artifact-reader/v1:{}",
+                serde_json::to_string(&(id, actor.identity(), request_id))?
+            )),
+            artifact_id: id,
+            subject_id: self.agent_id,
+            actor: actor.identity(),
+            request_id: request_id.into(),
+            input_digest: Digest::blake3(&serde_json::to_vec(&action)?),
+        };
+        if let Some(original) = self.store.artifact_reader_receipt(&identity)? {
+            return self.reader_response(original, &action, true);
+        }
+        let prepared = (|| -> anyhow::Result<_> {
+            let input_ref = self.seal_playground_object(&action, "artifact-reader-input")?;
+            let prepared = match &action {
+                ReaderAction::Stage { revision } => {
+                    self.prepare_stage(id, Some(*revision), Some(request_id))?
+                }
+                ReaderAction::Publish {
+                    revision,
+                    manifest_digest,
+                } => self.prepare_publish(
+                    id,
+                    Some(manifest_digest),
+                    Some(*revision),
+                    Some(request_id),
+                )?,
+                ReaderAction::Rollback { source_revision } => {
+                    self.prepare_rollback(id, *source_revision)?
+                }
+            };
+            let result_ref = prepared
+                .version
+                .as_ref()
+                .map(|version| self.seal_playground_object(version, "artifact-version-record"))
+                .transpose()?;
+            let committed = self.commit_prepared_request(
+                Some(&prepared),
+                None,
+                Some(ArtifactReaderRequest {
+                    identity: &identity,
+                    input_ref: &input_ref,
+                    result_ref: result_ref.as_ref(),
+                }),
+            )?;
+            Ok((
+                committed
+                    .reader_receipt
+                    .ok_or_else(|| anyhow::anyhow!("artifact commit has no reader receipt"))?,
+                committed.replayed,
+            ))
+        })();
+        match prepared {
+            Ok((receipt, replayed)) => self.reader_response(receipt, &action, replayed),
+            Err(error) => {
+                // A competing same-key transaction may have won while this
+                // caller prepared or saw a stale row. That original result
+                // wins without preparing or executing another mutation.
+                match self.store.artifact_reader_receipt(&identity)? {
+                    Some(original) => self.reader_response(original, &action, true),
+                    None => Err(error),
+                }
+            }
+        }
+    }
+
+    fn reader_response(
+        &self,
+        original: ArtifactReaderResult,
+        action: &ReaderAction,
+        replayed: bool,
+    ) -> anyhow::Result<Value> {
+        let mut response = json!({"ok": true, "replayed": replayed,
+            "request_id": original.receipt.identity.request_id,
+            "receipt_ref": original.receipt_ref, "committed_at": original.receipt.committed_at});
+        if matches!(action, ReaderAction::Rollback { .. }) {
+            let reference = original
+                .receipt
+                .result_ref
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("rollback receipt has no version result"))?;
+            response["version"] = serde_json::from_slice(&self.read_object(reference)?)?;
+        } else {
+            response["record"] = serde_json::to_value(original.receipt.record)?;
+        }
+        Ok(response)
+    }
+
+    fn project_version(&self, version: &ArtifactVersion) -> anyhow::Result<()> {
+        let bytes = self.read_content(version)?;
+        write_immutable(
+            &self.version_path(version.artifact_id, version.revision),
+            &bytes,
+        )?;
+        write_immutable(
+            &self.version_record_path(version.artifact_id, version.revision),
+            &serde_json::to_vec(version)?,
+        )?;
+        if self
+            .current_version(version.artifact_id)?
+            .is_some_and(|current| current.revision == version.revision)
+        {
+            let selected = serde_json::to_vec(version)?;
+            self.retain_file_head(version.artifact_id, &selected)?;
+            atomic_write(
+                &self.artifact_dir(version.artifact_id).join("meta.json"),
+                &selected,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Preserve a superseded local selection as unselected evidence. Numeric
+    /// file revisions never overrule the ledger, and recovery must not erase
+    /// a legacy/foreign head just to make its projection look current.
+    fn retain_file_head(&self, id: EntityId, selected: &[u8]) -> anyhow::Result<()> {
+        let path = self.artifact_dir(id).join("meta.json");
+        let previous = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        if previous == selected {
+            return Ok(());
+        }
+        let digest = blake3::hash(&previous).to_hex().to_string();
+        let retained = self.artifact_dir(id).join("retained-heads");
+        write_immutable(&retained.join(format!("{digest}.raw")), &previous)?;
+        write_immutable(
+            &retained.join(format!("{digest}.provenance.json")),
+            &serde_json::to_vec(&json!({
+                "schema_version": 1, "kind": "unselected_artifact_file_head", "artifact_id": id,
+                "source_path": "meta.json", "raw_digest": Digest::blake3(&previous), "raw_bytes": previous.len(),
+                "selection": "retained_only", "head_authority": "artifact_records.state_ref",
+            }))?,
+        )?;
+        Ok(())
     }
 
     /// Whether the work is still at the revision an action names.
@@ -429,49 +908,64 @@ impl PlaygroundState {
     pub fn adopted_version(&self, id: EntityId) -> anyhow::Result<Option<ArtifactVersion>> {
         let Some(record) = self.store.artifact_record(id)? else { return Ok(None) };
         let Some(active) = record.active_manifest_ref else { return Ok(None) };
-        let bytes = self.store.cas.read_object(&active.digest)?;
-        let manifest: ArtifactManifest = serde_json::from_slice(&bytes)?;
+        let manifest: ArtifactManifest = serde_json::from_slice(&self.read_object(&active)?)?;
         let Some(frontend) = manifest.frontend else { return Ok(None) };
-        for revision in self.revisions(id)?.into_iter().rev() {
-            let version = self.read_version(id, revision)?;
-            if version.content_ref.digest == frontend.bundle_ref.digest {
-                return Ok(Some(version));
-            }
-        }
-        anyhow::bail!("the adopted manifest names a page no retained version carries")
+        let closure: Value = serde_json::from_slice(&self.read_object(&manifest.recovery_closure_ref)?)?;
+        let version_ref: ObjectRef = serde_json::from_value(closure.get("version_record_ref").cloned()
+            .ok_or_else(|| anyhow::anyhow!("adopted manifest has no version record"))?)?;
+        let version = self.version_from_ref(&version_ref)?;
+        anyhow::ensure!(version.artifact_id == id && version.content_ref == frontend.bundle_ref,
+            "adopted manifest and its version record disagree");
+        Ok(Some(version))
     }
 
     /// Stage the current head without adopting it. Native actions may choose
     /// the current head; a reader's expected revision is checked under the
     /// same guard as the proposal's durable transition.
+    pub(crate) fn prepare_stage(
+        &self,
+        id: EntityId,
+        expected_revision: Option<u64>,
+        request_id: Option<&str>,
+    ) -> anyhow::Result<PreparedArtifact> {
+        let mut record = self
+            .store
+            .artifact_record(id)?
+            .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
+        let expected_record_revision = record.record_revision;
+        let version = self.version_from_ref(&record.state_ref)?;
+        if let Some(expected) = expected_revision {
+            Self::check_revision(&version, expected)?;
+        }
+        let (manifest, manifest_ref, _) = self.build_manifest(&version)?;
+        let changed = !record.candidate_manifest_refs.contains(&manifest_ref)
+            && record.active_manifest_ref.as_ref() != Some(&manifest_ref);
+        if changed {
+            record.candidate_manifest_refs.push(manifest_ref);
+        }
+        let event = changed.then(|| self.state_event(&record, "stage", request_id));
+        Ok(PreparedArtifact {
+            record,
+            version: None,
+            expected_revision: Some(expected_record_revision),
+            manifest: Some(manifest),
+            event,
+            changed,
+        })
+    }
+
     pub fn stage_artifact(
         &self,
         id: EntityId,
         expected_revision: Option<u64>,
         request_id: Option<&str>,
     ) -> anyhow::Result<ArtifactRecord> {
-        let records = self.records.write();
-        let version = records.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
-        if let Some(expected) = expected_revision {
-            Self::check_revision(version, expected)?;
-        }
-        let (manifest, manifest_ref, _) = self.build_manifest(version)?;
-        self.store.put_artifact_manifest(&manifest)?;
-        let mut record = self.store.artifact_record(id)?
-            .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
-        if record.candidate_manifest_refs.contains(&manifest_ref)
-            || record.active_manifest_ref.as_ref() == Some(&manifest_ref)
-        {
-            // Already staged (or already active): this is a replay of the
-            // same proposal, not a new transition. No record write, no new
-            // fact, no risk of re-admitting a different payload under one id.
-            return Ok(record);
-        }
-        record.candidate_manifest_refs.push(manifest_ref);
-        // Lifecycle is the artifact's declared stage, never a manifest-selection
-        // word: staging changes the candidate set only.
-        let event = self.state_event(&record, "stage", request_id);
-        self.commit_record(&record, Some(&event))
+        let _mutation = self.mutation();
+        let prepared = self.prepare_stage(id, expected_revision, request_id)?;
+        Ok(self
+            .commit_prepared(Some(&prepared), None)?
+            .record
+            .unwrap_or(prepared.record))
     }
 
     /// Publish one staged candidate as the active manifest — the explicit
@@ -482,6 +976,57 @@ impl PlaygroundState {
     /// previous proposal facts remain readable. The published manifest must be
     /// CAS-resolvable right now (digest and length), because it becomes the
     /// closure other nodes verify against.
+    pub(crate) fn prepare_publish(
+        &self,
+        id: EntityId,
+        manifest_digest: Option<&Digest>,
+        expected_revision: Option<u64>,
+        request_id: Option<&str>,
+    ) -> anyhow::Result<PreparedArtifact> {
+        let mut record = self
+            .store
+            .artifact_record(id)?
+            .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
+        let expected_record_revision = record.record_revision;
+        if let Some(expected) = expected_revision {
+            Self::check_revision(&self.version_from_ref(&record.state_ref)?, expected)?;
+        }
+        let published = match manifest_digest {
+            Some(digest) => record
+                .candidate_manifest_refs
+                .iter()
+                .find(|reference| &reference.digest == digest),
+            None => record.candidate_manifest_refs.last(),
+        }
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("publish requires a staged candidate manifest"))?;
+        let changed = record.active_manifest_ref.as_ref() != Some(&published);
+        if changed {
+            let bytes = self.read_object(&published)?;
+            let staged: ArtifactManifest = serde_json::from_slice(&bytes)?;
+            let manifest = self
+                .store
+                .artifact_manifest(id, &staged.version_digest)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("published manifest is not in the durable manifest set")
+                })?;
+            anyhow::ensure!(
+                serde_json::to_vec(&manifest)? == bytes,
+                "durable manifest row and its CAS object describe different closures"
+            );
+            record.active_manifest_ref = Some(published);
+        }
+        let event = changed.then(|| self.state_event(&record, "publish", request_id));
+        Ok(PreparedArtifact {
+            record,
+            version: None,
+            expected_revision: Some(expected_record_revision),
+            manifest: None,
+            event,
+            changed,
+        })
+    }
+
     pub fn publish_artifact(
         &self,
         id: EntityId,
@@ -489,38 +1034,13 @@ impl PlaygroundState {
         expected_revision: Option<u64>,
         request_id: Option<&str>,
     ) -> anyhow::Result<ArtifactRecord> {
-        let records = self.records.write();
-        if let Some(expected) = expected_revision {
-            let version = records.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
-            Self::check_revision(version, expected)?;
-        }
-        let mut record = self.store.artifact_record(id)?
-            .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
-        if record.active_manifest_ref.as_ref().map(|reference| &reference.digest) == Some(manifest_digest) {
-            // Exact replay of an already-published adoption: answer from the
-            // durable record instead of writing a second transition.
-            return Ok(record);
-        }
-        let published = record.candidate_manifest_refs.iter()
-            .find(|reference| &reference.digest == manifest_digest).cloned()
-            .ok_or_else(|| anyhow::anyhow!("publish requires a staged candidate manifest"))?;
-        let bytes = self.store.cas.read_object(&published.digest)?;
-        anyhow::ensure!(
-            bytes.len() as u64 == published.bytes && Digest::blake3(&bytes) == published.digest,
-            "published manifest reference does not resolve to its exact bytes"
-        );
-        // The candidate names the CAS object. Its typed manifest carries the
-        // separate version digest used to index the durable manifest row.
-        let staged: ArtifactManifest = serde_json::from_slice(&bytes)?;
-        let manifest = self.store.artifact_manifest(id, &staged.version_digest)?
-            .ok_or_else(|| anyhow::anyhow!("published manifest is not in the durable manifest set"))?;
-        anyhow::ensure!(
-            serde_json::to_vec(&manifest)?.as_slice() == bytes.as_slice(),
-            "durable manifest row and its CAS object describe different closures"
-        );
-        record.active_manifest_ref = Some(published);
-        let event = self.state_event(&record, "publish", request_id);
-        self.commit_record(&record, Some(&event))
+        let _mutation = self.mutation();
+        let prepared =
+            self.prepare_publish(id, Some(manifest_digest), expected_revision, request_id)?;
+        Ok(self
+            .commit_prepared(Some(&prepared), None)?
+            .record
+            .unwrap_or(prepared.record))
     }
 
     /// A lifecycle/manifest transition of an artifact is a business fact the
@@ -546,13 +1066,14 @@ impl PlaygroundState {
             .iter()
             .map(|reference| reference.digest.0.clone())
             .collect::<Vec<_>>();
-        // The identity names the transition, not a timestamp: the same
-        // resulting state reached by the same cause is the same fact, and a
-        // different cause or a different manifest set is a different one.
+        // Include the pre-transition row revision: returning to an older
+        // adoption after another edit is a new fact. An exact retry returns
+        // before this method and does not create a second notification.
         InboxEvent {
             event_id: stable_id(&format!(
-                "artifact-state/v2:{}:{cause}:{}:{}:{}",
+                "artifact-state/v3:{}:{}:{cause}:{}:{}:{}",
                 record.artifact_id,
+                record.record_revision,
                 record.lifecycle,
                 active.clone().unwrap_or_else(|| "-".into()),
                 candidates.join(","),
@@ -564,9 +1085,8 @@ impl PlaygroundState {
                 "kind": "artifact.state_changed",
                 "artifact_id": record.artifact_id,
                 "cause": cause,
-                // The request that named this transition rides the durable
-                // fact. It does NOT change the event's identity: the same
-                // resulting state reached by the same cause is the same fact.
+                // The request names this transition; the row revision binds
+                // its identity even when a later adoption returns here.
                 "request_id": request_id,
                 "lifecycle": &record.lifecycle,
                 "active_manifest_digest": active,
@@ -574,10 +1094,11 @@ impl PlaygroundState {
                 "state_revision": &record.state_revision,
                 // Reason pointers: the subject can cite this exact record
                 // state and commit, never a paraphrase of it.
-                "updated_commit": record.updated_commit,
+                "previous_commit": record.updated_commit,
+                "previous_record_revision": record.record_revision,
                 "desired_lifecycle_ref": record.desired_lifecycle_ref,
                 "explanation": format!(
-                    "Artifact '{}' is in lifecycle '{}' after {cause}; the durable record, its manifest refs and its commit above are the exact transition.",
+                    "Artifact '{}' is in lifecycle '{}' after {cause}; its manifest refs describe the transition from the previous record revision above.",
                     record.artifact_id, record.lifecycle
                 ),
             }),
@@ -592,26 +1113,6 @@ impl PlaygroundState {
             source: "playground".into(),
             payload: serde_json::to_value(event)?,
         })
-    }
-
-    /// Commit a durable record together with the fact announcing it. The
-    /// volatile wake happens only after the fact is durable.
-    pub(crate) fn commit_record(
-        &self,
-        record: &ArtifactRecord,
-        event: Option<&InboxEvent>,
-    ) -> anyhow::Result<ArtifactRecord> {
-        let notification = match event {
-            Some(event) => Some(self.notification(event)?),
-            None => None,
-        };
-        let (record, _) = self
-            .store
-            .put_artifact_record_with_event(record, notification.as_ref())?;
-        if let Some(event) = event {
-            self.wake(event);
-        }
-        Ok(record)
     }
 
     fn change_event(&self, record: &ArtifactVersion) -> InboxEvent {
@@ -647,7 +1148,7 @@ impl PlaygroundState {
     }
 
     fn recover_notifications(&self) -> anyhow::Result<()> {
-        for artifact in self.list() {
+        for artifact in self.list()? {
             for revision in self.revisions(artifact.artifact_id)? {
                 self.notify_changed(&self.read_version(artifact.artifact_id, revision)?)?;
             }
@@ -655,24 +1156,63 @@ impl PlaygroundState {
         Ok(())
     }
 
-    /// Reconcile the durable records with the committed version chain after a
-    /// restart: every head that has no durable record yet gets one. The file
-    /// chain is the content truth; the durable record is the business truth.
+    /// Import older file-selected heads once. New writes commit their full CAS
+    /// closure to the ledger first; projection recovery cannot author a newer
+    /// version or replace a record that advanced concurrently.
     fn recover_durable(&self) -> anyhow::Result<()> {
-        for version in self.list() {
-            if self.store.artifact_record(version.artifact_id)?.is_none() {
-                self.sync_durable(&version)?;
+        let heads = self.records.read().values().cloned().collect::<Vec<_>>();
+        for version in heads {
+            let previous = self.store.artifact_record(version.artifact_id)?;
+            if previous.is_none() {
+                let prepared = self.prepare_version(version, previous)?;
+                self.commit_prepared(Some(&prepared), None)?;
+            }
+        }
+        // Historical manifests retain every committed revision independently
+        // of local files. Rebuild missing projections without changing facts.
+        for version in self.list_current()? {
+            for revision in self.revisions(version.artifact_id)? {
+                let retained = self.read_version(version.artifact_id, revision)?;
+                if let Err(error) = self.project_version(&retained) {
+                    tracing::warn!(artifact_id = %retained.artifact_id, %error,
+                        "artifact remains committed; local projection needs recovery");
+                }
             }
         }
         Ok(())
     }
 
     fn load(&self) -> anyhow::Result<()> {
+        for record in self.store.list_artifact_records()? {
+            if record.subject_id != self.agent_id {
+                continue;
+            }
+            let version = self.version_from_ref(&record.state_ref)?;
+            anyhow::ensure!(
+                version.artifact_id == record.artifact_id,
+                "artifact version identity mismatch"
+            );
+            self.records.write().insert(version.artifact_id, version);
+        }
         for entry in fs::read_dir(self.root.as_path())? {
             let entry = entry?;
-            if !entry.file_type()?.is_dir() { continue; }
-            let Some(id) = entry.file_name().to_str().and_then(|name| name.parse::<EntityId>().ok()) else { continue };
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let Some(id) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<EntityId>().ok())
+            else {
+                continue;
+            };
             let meta = entry.path().join("meta.json");
+            // A file revision is not a commit ordering proof. A stale or
+            // foreign projection, even with a larger counter, cannot select
+            // over a durable head. Recovery preserves it before replacement.
+            if self.records.read().contains_key(&id) {
+                continue;
+            }
             let raw = match fs::read(&meta) {
                 Ok(bytes) => bytes,
                 // A content write before first head selection is an orphan,
@@ -681,12 +1221,17 @@ impl PlaygroundState {
                 Err(e) => return Err(e.into()),
             };
             let value: Value = serde_json::from_slice(&raw)?;
-            let record = if value.get("schema_version").and_then(Value::as_u64) == Some(ARTIFACT_SCHEMA as u64) {
+            let record = if value.get("schema_version").and_then(Value::as_u64)
+                == Some(ARTIFACT_SCHEMA as u64)
+            {
                 let mut head: ArtifactVersion = serde_json::from_value(value)?;
                 head.bytes_path = self.version_path(id, head.revision);
                 let immutable = self.read_version(id, head.revision)?;
-                anyhow::ensure!(head.artifact_id == id && serde_json::to_value(&head)? == serde_json::to_value(&immutable)?,
-                    "artifact head differs from immutable version");
+                anyhow::ensure!(
+                    head.artifact_id == id
+                        && serde_json::to_value(&head)? == serde_json::to_value(&immutable)?,
+                    "artifact head differs from immutable version"
+                );
                 self.read_content(&immutable)?;
                 immutable
             } else {
@@ -694,15 +1239,31 @@ impl PlaygroundState {
                 // meta.json layout. Preserve the exact old metadata and content
                 // files; do not execute its old reserved backend_script field.
                 #[derive(Deserialize)]
-                struct Legacy { artifact_id: EntityId, title: String, mime: String, revision: u64, updated_at: DateTime<Utc> }
+                struct Legacy {
+                    artifact_id: EntityId,
+                    title: String,
+                    mime: String,
+                    revision: u64,
+                    updated_at: DateTime<Utc>,
+                }
                 let legacy: Legacy = serde_json::from_slice(&raw)?;
-                anyhow::ensure!(legacy.artifact_id == id, "legacy artifact identity mismatch");
+                anyhow::ensure!(
+                    legacy.artifact_id == id,
+                    "legacy artifact identity mismatch"
+                );
                 let bytes = fs::read(entry.path().join("content"))?;
                 let record = ArtifactVersion {
-                    schema_version: ARTIFACT_SCHEMA, artifact_id: id,
-                    title: legacy.title, mime: legacy.mime.clone(), revision: legacy.revision,
-                    content_ref: self.seal_content(&bytes, &legacy.mime)?, bytes_path: self.version_path(id, legacy.revision),
-                    parent_revision: None, restored_from: None, updated_at: legacy.updated_at, backend: None,
+                    schema_version: ARTIFACT_SCHEMA,
+                    artifact_id: id,
+                    title: legacy.title,
+                    mime: legacy.mime.clone(),
+                    revision: legacy.revision,
+                    content_ref: self.seal_content(&bytes, &legacy.mime)?,
+                    bytes_path: self.version_path(id, legacy.revision),
+                    parent_revision: None,
+                    restored_from: None,
+                    updated_at: legacy.updated_at,
+                    backend: None,
                 };
                 write_immutable(&entry.path().join("legacy-meta.json"), &raw)?;
                 self.commit_version(&record, &bytes)?;
@@ -712,6 +1273,8 @@ impl PlaygroundState {
         }
         Ok(())
     }
+
+
 }
 
 /// The dev/ino identity of a directory, or a zero digest when it cannot be
@@ -784,6 +1347,15 @@ pub fn router(state: PlaygroundState) -> Router {
         .with_state(state)
 }
 
+/// Frozen reader action arguments; request identity and actor are separate.
+#[derive(Serialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum ReaderAction {
+    Stage { revision: u64 },
+    Publish { revision: u64, manifest_digest: Digest },
+    Rollback { source_revision: u64 },
+}
+
 /// The action a reader performs on a work.
 ///
 /// It names the revision it acts on and the request that named it. The
@@ -803,8 +1375,8 @@ async fn stage_handler(
     AxumPath(id): AxumPath<EntityId>,
     Json(request): Json<WorkAction>,
 ) -> Response {
-    match pg.stage_artifact(id, Some(request.revision), Some(&request.request_id)) {
-        Ok(record) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "record": record})).into_response(),
+    match pg.reader_action(id, &ArtifactActor::Participant, &request.request_id, ReaderAction::Stage { revision: request.revision }) {
+        Ok(response) => Json(response).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact stage failed: {e:#}")),
     }
 }
@@ -819,8 +1391,9 @@ struct PublishRequest {
 
 async fn publish_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
     Json(request): Json<PublishRequest>) -> Response {
-    match pg.publish_artifact(id, &request.manifest_digest, Some(request.revision), Some(&request.request_id)) {
-        Ok(record) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "record": record})).into_response(),
+    match pg.reader_action(id, &ArtifactActor::Participant, &request.request_id,
+        ReaderAction::Publish { revision: request.revision, manifest_digest: request.manifest_digest }) {
+        Ok(response) => Json(response).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact publish failed: {e:#}")),
     }
 }
@@ -859,7 +1432,11 @@ async fn adopted_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPa
 }
 
 async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
-    let Some(record) = pg.get(&id) else { return error_response(StatusCode::NOT_FOUND, "artifact not found") };
+    let record = match pg.get(&id) {
+        Ok(Some(record)) => record,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "artifact not found"),
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    };
     match pg.read_content(&record) {
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
         Ok(bytes) => {
@@ -899,20 +1476,20 @@ struct RollbackRequest {
     request_id: String,
 }
 async fn rollback_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>, Json(request): Json<RollbackRequest>) -> Response {
-    // A rollback APPENDS a new version: the older bytes stay, and the work's
-    // own revision moves on. The named revision is the source, not the
-    // target — that is why a repeated submit cannot produce a second
-    // rollback by accident: the source has already been left behind.
-    match pg.rollback(id, request.revision) {
-        Ok(version) => Json(json!({"ok": true, "replayed": false, "request_id": request.request_id, "version": version})).into_response(),
+    // This route has the same real Participant namespace as backend actions;
+    // request JSON cannot impersonate an owner or a delegated subject task.
+    match pg.reader_action(id, &ArtifactActor::Participant, &request.request_id,
+        ReaderAction::Rollback { source_revision: request.revision }) {
+        Ok(response) => Json(response).into_response(),
         Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact rollback failed: {e:#}")),
     }
 }
 
 async fn backend_info_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
     match pg.get(&id) {
-        Some(record) => Json(json!({"ok": true, "revision": record.revision, "backend": record.backend})).into_response(),
-        None => error_response(StatusCode::NOT_FOUND, "artifact not found"),
+        Ok(Some(record)) => Json(json!({"ok": true, "revision": record.revision, "backend": record.backend})).into_response(),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "artifact not found"),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
 

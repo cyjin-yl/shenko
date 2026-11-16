@@ -1,0 +1,29 @@
+{
+  "id": "0018-aabc32715f484546a8e49381276897a3",
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "started_at_utc": "2026-11-15T17:45:48.445327+00:00",
+  "inference_started_at_utc": "2026-11-15T17:45:48.468192+00:00",
+  "finished_at_utc": "2026-11-15T17:45:48.482991+00:00",
+  "remote_elapsed_ms": 37.67188708297908,
+  "inference_elapsed_ms": 14.800812932662666,
+  "curl_time_total_seconds": 0.000195,
+  "curl_exit": 7,
+  "http_status": 0,
+  "content_type": "application/octet-stream",
+  "request_sha256": "0ecd77cdf2d362babbdcb770a6fd2daf768c913403dde95a47d511844b7ddb74",
+  "request_bytes": 17466,
+  "response_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "response_bytes": 0,
+  "headers_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "response_gzip_sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+  "response_gzip_bytes": 20,
+  "inference_attempts": 1,
+  "inference_retries": 0,
+  "curl_max_time_seconds": 175,
+  "capacity": {
+    "preflight_curl_exit": 7,
+    "request_sha256": "0ecd77cdf2d362babbdcb770a6fd2daf768c913403dde95a47d511844b7ddb74"
+  },
+  "model_service_manifest": "/workspace/shenko-obelisk-qwen-20261116/service-manifest.json"
+}

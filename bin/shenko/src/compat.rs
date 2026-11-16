@@ -58,7 +58,7 @@ fn store_of(data_dir: &Path) -> Result<std::sync::Arc<shenko_store::store::Store
 /// creating the node record is the same initialization `shenko sync` performs.
 /// Once a subject exists, the real binding check applies — an adapter import
 /// can never attach this node to a different subject.
-fn node_of(data_dir: &Path) -> Result<Node> {
+pub(crate) fn node_of(data_dir: &Path) -> Result<Node> {
     if data_dir.join("shenko.db").is_file() {
         let store = store_of(data_dir)?;
         return crate::node_sync::open_node(data_dir, &store);
@@ -78,7 +78,7 @@ fn node_of(data_dir: &Path) -> Result<Node> {
 /// Only the adapter an import actually needs is recorded: importing a Skill
 /// never installs the MCP record, and importing a connection never installs
 /// the Skill record. Enabling stays a separate, explicit action.
-fn ensure_plugin(node: &mut Node, root: &Path, unit_id: &str) -> Result<()> {
+pub(crate) fn ensure_plugin(node: &mut Node, root: &Path, unit_id: &str) -> Result<()> {
     let current = plugin_package(unit_id)?.unit;
     if node
         .installed_unit_fact(unit_id)?

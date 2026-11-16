@@ -1,0 +1,535 @@
+{
+  "exit_code": 0,
+  "source_head": "012370b76735daaa97623bbea4401313b3d9be06",
+  "command": [
+    "flock",
+    "/tmp/shenko-cargo.lock",
+    "/home/agent/.cargo/bin/cargo",
+    "--config",
+    "/workspace/scratch/549c30a35cef/obelisk-validation-evidence/validation-cargo-profile.toml",
+    "clippy",
+    "--offline",
+    "--locked",
+    "-p",
+    "shenko",
+    "--example",
+    "obelisk_acceptance",
+    "--message-format=json",
+    "--",
+    "--force-warn",
+    "clippy::all",
+    "--force-warn",
+    "clippy::unwrap_used",
+    "--force-warn",
+    "clippy::expect_used"
+  ],
+  "modified_file_diagnostics": [
+    {
+      "code": {
+        "code": "unused_imports",
+        "explanation": null
+      },
+      "message": "unused import: `DialogueDirection`",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 25,
+          "line_end": 25
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::collapsible_if",
+        "explanation": null
+      },
+      "message": "this `if` statement can be collapsed",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/context_projection.rs",
+          "line_start": 258,
+          "line_end": 262
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::redundant_closure",
+        "explanation": null
+      },
+      "message": "redundant closure",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/context_projection.rs",
+          "line_start": 402,
+          "line_end": 402
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::redundant_closure",
+        "explanation": null
+      },
+      "message": "redundant closure",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/context_projection.rs",
+          "line_start": 408,
+          "line_end": 408
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::too_many_arguments",
+        "explanation": null
+      },
+      "message": "this function has too many arguments (8/7)",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/context_projection.rs",
+          "line_start": 689,
+          "line_end": 698
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::explicit_auto_deref",
+        "explanation": null
+      },
+      "message": "deref which would be done by auto-deref",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/context_projection.rs",
+          "line_start": 773,
+          "line_end": 773
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on an `Option` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/context_projection.rs",
+          "line_start": 858,
+          "line_end": 858
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::clone_on_copy",
+        "explanation": null
+      },
+      "message": "using `clone` on type `EntityId` which implements the `Copy` trait",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 264,
+          "line_end": 264
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on an `Option` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 585,
+          "line_end": 585
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on a `Result` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1112,
+          "line_end": 1112
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::collapsible_if",
+        "explanation": null
+      },
+      "message": "this `if` statement can be collapsed",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1144,
+          "line_end": 1151
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on a `Result` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1149,
+          "line_end": 1149
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on a `Result` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1157,
+          "line_end": 1163
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on a `Result` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1176,
+          "line_end": 1177
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on a `Result` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1209,
+          "line_end": 1209
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::collapsible_if",
+        "explanation": null
+      },
+      "message": "this `if` statement can be collapsed",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1518,
+          "line_end": 1543
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::collapsible_if",
+        "explanation": null
+      },
+      "message": "this `if` statement can be collapsed",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 1906,
+          "line_end": 1920
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::needless_borrow",
+        "explanation": null
+      },
+      "message": "this expression creates a reference which is immediately dereferenced by the compiler",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2125,
+          "line_end": 2125
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::collapsible_if",
+        "explanation": null
+      },
+      "message": "this `if` statement can be collapsed",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2223,
+          "line_end": 2227
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::collapsible_if",
+        "explanation": null
+      },
+      "message": "this `if` statement can be collapsed",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2246,
+          "line_end": 2259
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::clone_on_copy",
+        "explanation": null
+      },
+      "message": "using `clone` on type `CommitRef` which implements the `Copy` trait",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2252,
+          "line_end": 2252
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::manual_is_multiple_of",
+        "explanation": null
+      },
+      "message": "manual implementation of `.is_multiple_of()`",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2261,
+          "line_end": 2261
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on an `Option` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2389,
+          "line_end": 2389
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::unwrap_used",
+        "explanation": null
+      },
+      "message": "used `unwrap()` on an `Option` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-subject/src/loop_runner.rs",
+          "line_start": 2595,
+          "line_end": 2595
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "unused_imports",
+        "explanation": null
+      },
+      "message": "unused import: `OutputAction`",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 57,
+          "line_end": 57
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "unused_variables",
+        "explanation": null
+      },
+      "message": "unused variable: `sample_stop`",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 1146,
+          "line_end": 1146
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::manual_inspect",
+        "explanation": null
+      },
+      "message": "using `map_err` over `inspect_err`",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 346,
+          "line_end": 346
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::too_many_arguments",
+        "explanation": null
+      },
+      "message": "this function has too many arguments (8/7)",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 357,
+          "line_end": 366
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::manual_async_fn",
+        "explanation": null
+      },
+      "message": "this function can be simplified using the `async fn` syntax",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 664,
+          "line_end": 669
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::too_many_arguments",
+        "explanation": null
+      },
+      "message": "this function has too many arguments (8/7)",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 693,
+          "line_end": 702
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::needless_borrow",
+        "explanation": null
+      },
+      "message": "this expression creates a reference which is immediately dereferenced by the compiler",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 925,
+          "line_end": 925
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::needless_borrow",
+        "explanation": null
+      },
+      "message": "this expression creates a reference which is immediately dereferenced by the compiler",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 928,
+          "line_end": 928
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::needless_borrow",
+        "explanation": null
+      },
+      "message": "this expression creates a reference which is immediately dereferenced by the compiler",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 936,
+          "line_end": 936
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::needless_borrow",
+        "explanation": null
+      },
+      "message": "this expression creates a reference which is immediately dereferenced by the compiler",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 945,
+          "line_end": 945
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::too_many_arguments",
+        "explanation": null
+      },
+      "message": "this function has too many arguments (9/7)",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 1201,
+          "line_end": 1211
+        }
+      ]
+    },
+    {
+      "code": {
+        "code": "clippy::expect_used",
+        "explanation": null
+      },
+      "message": "used `expect()` on a `Result` value",
+      "spans": [
+        {
+          "file_name": "crates/shenko-exec-host/src/cognition_trial.rs",
+          "line_start": 1291,
+          "line_end": 1293
+        }
+      ]
+    }
+  ],
+  "scope": "focused lint check; does not replace CI baseline ratchet",
+  "diagnostics_on_added_or_changed_lines": [],
+  "comparison_note": "Primary source spans compared with the actual 1ff6725..012370b changed line ranges; this is not the full baseline ratchet."
+}

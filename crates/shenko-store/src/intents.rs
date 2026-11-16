@@ -568,11 +568,39 @@ impl Store {
         ensure!(parent.kind == crate::external::MODEL_CHILD_KIND, invalid());
         ensure!(parent.abort_request.is_none() && !parent.is_terminal(), invalid());
         ensure!(!intent.content.trim().is_empty(), invalid());
-        let payload = serde_json::to_value(intent)?;
+        let payload_json = serde_json::to_value(intent)?.to_string();
+        {
+            let conn = self.ledger.conn.lock();
+            let existing: Option<String> = conn.query_row(
+                "SELECT payload FROM subject_intents WHERE intent_id=?1 AND kind='publication'",
+                [intent.intent_id.to_string()], |row| row.get(0)).optional()?;
+            if let Some(existing) = existing {
+                ensure!(existing == payload_json, "child publication identity already committed with different content");
+                return Ok(None);
+            }
+        }
+        let (head, mut position) = self.task_admission_position(parent.task_id,
+            format!("publication/{}/create", intent.intent_id))?;
+        let expected = position.expected_tasks.first().context("publication parent missing")?;
+        let same_invocation = match (&parent.state, &expected.state) {
+            (TaskState::Running { invocation_id: old, epoch: old_epoch, .. },
+             TaskState::Running { invocation_id, epoch, .. }) => old == invocation_id && old_epoch == epoch && *epoch == head.controller_epoch,
+            _ => serde_json::to_value(&parent.state)? == serde_json::to_value(&expected.state)?,
+        };
+        ensure!(expected.task_revision == parent.task_revision && expected.agent_id == parent.agent_id
+            && expected.owner == parent.owner && expected.created_by_step_id == parent.created_by_step_id
+            && expected.abort_request.is_none() && !expected.is_terminal() && same_invocation, invalid());
+        let current_parent = expected.clone();
+        let parent = &current_parent;
+        position.reads.append(&mut position.aliases);
+        let authority = self.reserve_admission(&head, position, &serde_json::json!({
+            "kind":"publication.child_admit", "parent":parent, "intent":intent, "decision_ref":decision_ref,
+        }))?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
                 let existing: Option<String> = tx
                     .query_row(
@@ -583,7 +611,7 @@ impl Store {
                     .optional()?;
                 if let Some(data) = existing {
                     ensure!(
-                        data == payload.to_string(),
+                        data == payload_json,
                         "child publication identity already committed with different content"
                     );
                     tx.commit()?;
@@ -602,7 +630,7 @@ impl Store {
                         step_id.to_string(),
                         parent.agent_id.to_string(),
                         crate::channel::CHANNEL_PUBLISH_CONTRACT,
-                        payload.to_string(),
+                        payload_json,
                         serde_json::to_string(decision_ref)?,
                         seq.0 as i64
                     ],
@@ -633,10 +661,11 @@ impl Store {
                         checkpoint_ref: None,
                     },
                     abort_request: None,
-                    memos: serde_json::Map::from_iter([(
-                        "intent_id".into(),
-                        serde_json::json!(intent.intent_id),
-                    )]),
+                    memos: serde_json::Map::from_iter([
+                        ("intent_id".into(), serde_json::json!(intent.intent_id)),
+                        ("publication_parent_task_id".into(), serde_json::json!(parent.task_id)),
+                        ("publication_parent_task_revision".into(), serde_json::json!(parent.task_revision)),
+                    ]),
                     residual_case_ids: vec![],
                     created_by_step_id: Some(step_id),
                     dispatch_eligibility: DispatchEligibility::Ready,
@@ -647,8 +676,10 @@ impl Store {
                     updated_commit: commit,
                 };
                 insert_task(&tx, &task, commit)?;
+                authority.record_admission(&tx, commit)?;
                 self.intent_log(&tx, commit)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(Some(intent.clone()))
             },
             storage_failure,
@@ -658,8 +689,10 @@ impl Store {
     /// Called once before releasing the recovered subject. Invalidates only
     /// dispatch authority; old callbacks can still enter EvidenceIngress.
     pub fn start_subject_dispatcher(&self) -> Result<()> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(|| {
             let mut c=self.ledger.conn.lock(); let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
             let old_steps = {
                 let mut q=tx.prepare("SELECT s.data,h.data FROM subject_steps s JOIN subject_branch_heads h ON s.branch_id=h.branch_id LEFT JOIN subject_intent_steps i ON i.step_id=s.step_id WHERE s.state='committed' AND i.step_id IS NULL ORDER BY s.updated_commit_seq")?;
                 q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
@@ -814,8 +847,10 @@ impl Store {
     /// Deterministic memory worker: same DB transaction as its progress/result.
     /// No model, network or filesystem worker runs under this mutation line.
     pub fn settle_subject_memory(&self) -> Result<usize> {
+        let authority = self.reserve_authority()?;
         self.ledger.with_mutation(|| {
             let mut c=self.ledger.conn.lock();let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            authority.check(&tx, self.capabilities.incarnation, None)?;
             self.check_dispatch_owner(&tx)?;
             let rows={let mut q=tx.prepare("SELECT i.intent_id,i.payload,i.revision,m.agent_id,m.content,m.scope,m.created_at_ms FROM subject_intents i JOIN memory_intents m ON i.intent_id=m.intent_id WHERE i.kind='memory' AND i.state='ready' ORDER BY i.created_seq LIMIT 32")?;
                 q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,u64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?)))?.collect::<rusqlite::Result<Vec<_>>>()?};
@@ -1025,6 +1060,9 @@ fn deliver_child_dialogue(
         return Ok(DialogueOutcome::Late(
             "the dialogue endpoint belongs to another subject".into(),
         ));
+    }
+    if !crate::child::task_in_current_branch(tx, &target, head).map_err(crate::store::storage_error)? {
+        return Ok(DialogueOutcome::Late("the dialogue endpoint belongs to a retained parent branch".into()));
     }
     if target.abort_request.is_some() {
         return Ok(DialogueOutcome::Late(

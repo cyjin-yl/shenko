@@ -1,0 +1,442 @@
+[
+  {
+    "condition": "baseline",
+    "kind": "subject-attempt-01-result",
+    "reference": {
+      "digest": "blake3:465fa919af7468ce5df02c70a6772c37f117e62c8c2bad168039c5610f8ff18c",
+      "bytes": 1854,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/46/5f/465fa919af7468ce5df02c70a6772c37f117e62c8c2bad168039c5610f8ff18c",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/46/5f/465fa919af7468ce5df02c70a6772c37f117e62c8c2bad168039c5610f8ff18c",
+    "cas_sha256": "68c040223e84b7c0cc2379963ff14d88c4abae1e125d85849b83bb7c13d3f3d9",
+    "export": "analysis/baseline-subject-attempt-01-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "baseline",
+    "kind": "judge-result",
+    "reference": {
+      "bytes": 2140,
+      "codec": {
+        "digest": "blake3:ad563b61fe6517f28cb77fa7f7350c929a5aaaa34a94b69cc28bd668519875cf",
+        "major": 1,
+        "name": "cognition-trial-judge-result"
+      },
+      "digest": "blake3:af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/af/88/af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+      "media_type": "application/json",
+      "store_namespace": "native-cognition"
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/af/88/af8892f76dd0eeff4096a30d04163aaed2c40ec4a12200108bc426357929f43c",
+    "cas_sha256": "87a7cffbcbc088eb715f19431feec4b6c6874baee5f4702325bd137012b13287",
+    "export": "analysis/baseline-judge-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "baseline",
+    "kind": "judge-request",
+    "reference": {
+      "bytes": 7531,
+      "codec": {
+        "digest": "blake3:b8de5791fe88bc784337893a80e3f886e8a4a51d6e0231f883e365e58a8e281d",
+        "major": 1,
+        "name": "cognition-trial-judge-request"
+      },
+      "digest": "blake3:1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1d/b0/1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+      "media_type": "application/json",
+      "store_namespace": "native-cognition"
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1d/b0/1db013f7fe2919148c561557ceb3d93bdf8a1fd02732a6837b29f9ceddb20851",
+    "cas_sha256": "1a2a9560a80031c55d201a83e7eec565183f64b2f6800edee235b7b5be583647",
+    "export": "analysis/baseline-judge-request.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "baseline",
+    "kind": "facts",
+    "reference": {
+      "bytes": 3163,
+      "codec": {
+        "digest": "blake3:89c1306f21f16f4d042d76c11a11e880affa73aec6cf82d85e20c3979ffad7c4",
+        "major": 1,
+        "name": "observed-facts"
+      },
+      "digest": "blake3:a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/a9/0b/a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+      "media_type": "application/json",
+      "store_namespace": "obelisk-acceptance"
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/a9/0b/a90b7e536985160c4575874cdeddcfe4fd93e04900c10b261edcb2d371bb0f75",
+    "cas_sha256": "1e52c94852f96aff6e514931ca2b356ae08431b23d7448ac63eac4a324e69eca",
+    "export": "analysis/baseline-facts.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "baseline",
+    "kind": "installation",
+    "reference": {
+      "bytes": 234,
+      "codec": {
+        "digest": "blake3:b74b9307b0752a9369bce47091da4d5480aead942523aa2efe0db5b46a667cd4",
+        "major": 1,
+        "name": "installation"
+      },
+      "digest": "blake3:1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1b/24/1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+      "media_type": "application/json",
+      "store_namespace": "obelisk-acceptance"
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/1b/24/1b24d23019489074b600b7469d536ce383a9ca0a529680512d6de6e5eb9ba9d4",
+    "cas_sha256": "ae7075b48148180635cd6b01cfab6b55b0144b53c367e0769e4d09689c8644f2",
+    "export": "analysis/baseline-installation.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "baseline",
+    "kind": "configuration",
+    "reference": {
+      "bytes": 630,
+      "codec": {
+        "digest": "blake3:6f9b6927228ad98444162e1a202914bf3ea3a88328c16d1b116f95051444187f",
+        "major": 1,
+        "name": "configuration"
+      },
+      "digest": "blake3:67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/67/bf/67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+      "media_type": "application/json",
+      "store_namespace": "obelisk-acceptance"
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/67/bf/67bfbf930ad39e1eb47b606a7d5564112124facf220d554d7f9a8a190d9326be",
+    "cas_sha256": "635f3cd322ef447e5b074cfbfc28a2d004c0fd69fcac362bf895f09e14a65109",
+    "export": "analysis/baseline-configuration.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "baseline",
+    "kind": "sample",
+    "reference": {
+      "bytes": 2244,
+      "codec": {
+        "digest": "blake3:df65e425d1461cbf91344b127baef8c09cbe5c0c9ccc039c59770bf5ca13fd63",
+        "major": 1,
+        "name": "committed-output"
+      },
+      "digest": "blake3:3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/3e/41/3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+      "media_type": "application/json",
+      "store_namespace": "obelisk-acceptance"
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/baseline-b8d66232-ee7d-49a6-b310-f96598575df1/cas/3e/41/3e4175e12e315080863b61182d37767506376eedb7a885afebb6287a68e65fa3",
+    "cas_sha256": "c375ee0555c0965477a777f23729e603d7baf5326b5399e6692f2a5d24e0e5c2",
+    "export": "analysis/baseline-sample.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-01-result",
+    "reference": {
+      "digest": "blake3:8eb6a02cd8b0633fbcd50066a20575b493b7aa5afce9de8c23093a7aaab6b775",
+      "bytes": 2938,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/8e/b6/8eb6a02cd8b0633fbcd50066a20575b493b7aa5afce9de8c23093a7aaab6b775",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/8e/b6/8eb6a02cd8b0633fbcd50066a20575b493b7aa5afce9de8c23093a7aaab6b775",
+    "cas_sha256": "ea02efdb5d5f4212f04cf28aeebcb8491057f0f5ef161502640e4b7b1d8bf173",
+    "export": "analysis/candidate-subject-attempt-01-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-02-result",
+    "reference": {
+      "digest": "blake3:e200e9c3bdce9d180ff008a76ca54b1b2fa1038283137099a3725ff7ba5563a2",
+      "bytes": 1635,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/e2/00/e200e9c3bdce9d180ff008a76ca54b1b2fa1038283137099a3725ff7ba5563a2",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/e2/00/e200e9c3bdce9d180ff008a76ca54b1b2fa1038283137099a3725ff7ba5563a2",
+    "cas_sha256": "c5442c217dd395f7fa82e8b707f3bae5b2894b950400e0062714c74e484e0dd9",
+    "export": "analysis/candidate-subject-attempt-02-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-03-result",
+    "reference": {
+      "digest": "blake3:bc04536d2e4cdf2eeb6b162bc8130983a034d55395a3cc3be38052f751102891",
+      "bytes": 1635,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bc/04/bc04536d2e4cdf2eeb6b162bc8130983a034d55395a3cc3be38052f751102891",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/bc/04/bc04536d2e4cdf2eeb6b162bc8130983a034d55395a3cc3be38052f751102891",
+    "cas_sha256": "5acf269716f398ac27917f16d48a56fd2b5b52f814e5cc0a5a5af03bbf8fe5b7",
+    "export": "analysis/candidate-subject-attempt-03-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-04-result",
+    "reference": {
+      "digest": "blake3:acd034b3d672d19113d3194c1623adf3405883060186b70efd5a4a662cb865ff",
+      "bytes": 1635,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ac/d0/acd034b3d672d19113d3194c1623adf3405883060186b70efd5a4a662cb865ff",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ac/d0/acd034b3d672d19113d3194c1623adf3405883060186b70efd5a4a662cb865ff",
+    "cas_sha256": "24b5eaa1cdd785b7febce52c354d2982ce33495f757621923fb2731211a0f6e9",
+    "export": "analysis/candidate-subject-attempt-04-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-05-result",
+    "reference": {
+      "digest": "blake3:a9dd19a46e541d7ce014d19a9a6da2e6a54d9ba3c56534c8001309e87ab094bd",
+      "bytes": 1623,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a9/dd/a9dd19a46e541d7ce014d19a9a6da2e6a54d9ba3c56534c8001309e87ab094bd",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/a9/dd/a9dd19a46e541d7ce014d19a9a6da2e6a54d9ba3c56534c8001309e87ab094bd",
+    "cas_sha256": "dd8f34c200f3fe1b10be8d8bef0c08d2c2ac3045bf19e831364d733556b4e2e2",
+    "export": "analysis/candidate-subject-attempt-05-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-06-result",
+    "reference": {
+      "digest": "blake3:55126c23e001bdee6d22fdaf2315aaef6aefc047e82d268aad9f1d5f7ecc0f6c",
+      "bytes": 1635,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/55/12/55126c23e001bdee6d22fdaf2315aaef6aefc047e82d268aad9f1d5f7ecc0f6c",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/55/12/55126c23e001bdee6d22fdaf2315aaef6aefc047e82d268aad9f1d5f7ecc0f6c",
+    "cas_sha256": "cd42a17a4861059b91902f1805f053821305d284423fd6139cb792f736e4730a",
+    "export": "analysis/candidate-subject-attempt-06-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-07-result",
+    "reference": {
+      "digest": "blake3:3196205ffb9a2e89687b428bd2d8b7ca77db774c12a8f73aab62ebaccd97e5b4",
+      "bytes": 1636,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/31/96/3196205ffb9a2e89687b428bd2d8b7ca77db774c12a8f73aab62ebaccd97e5b4",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/31/96/3196205ffb9a2e89687b428bd2d8b7ca77db774c12a8f73aab62ebaccd97e5b4",
+    "cas_sha256": "79915037d30ad38d997c59190a15b31bd72c1cb01db3fd1f8e34f77872238d9f",
+    "export": "analysis/candidate-subject-attempt-07-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-08-result",
+    "reference": {
+      "digest": "blake3:61e04c1d02096c0f3b5de61e28efd4e834d50f75983038cf575846e2a5e2bdb5",
+      "bytes": 1625,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/61/e0/61e04c1d02096c0f3b5de61e28efd4e834d50f75983038cf575846e2a5e2bdb5",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/61/e0/61e04c1d02096c0f3b5de61e28efd4e834d50f75983038cf575846e2a5e2bdb5",
+    "cas_sha256": "650bc2383f2c9be05547330428ad03b9ed80b2c87bf72fa80ee9fb83724de68b",
+    "export": "analysis/candidate-subject-attempt-08-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-09-result",
+    "reference": {
+      "digest": "blake3:3a52fb0d56027eae2672f4630dcd821984a6655d29cbcb6f94ffd550c5058751",
+      "bytes": 1624,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/3a/52/3a52fb0d56027eae2672f4630dcd821984a6655d29cbcb6f94ffd550c5058751",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/3a/52/3a52fb0d56027eae2672f4630dcd821984a6655d29cbcb6f94ffd550c5058751",
+    "cas_sha256": "8552e437f5b602866ee85a2a29264f170051d6dd61aac7a399f65c064d0b7f38",
+    "export": "analysis/candidate-subject-attempt-09-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-10-result",
+    "reference": {
+      "digest": "blake3:ec19599418877f893f7b29327ecd6480b62e1e94c0c367b0325f916703c693c1",
+      "bytes": 1626,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ec/19/ec19599418877f893f7b29327ecd6480b62e1e94c0c367b0325f916703c693c1",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/ec/19/ec19599418877f893f7b29327ecd6480b62e1e94c0c367b0325f916703c693c1",
+    "cas_sha256": "6214ac3bcccbc1c7b010fe7e41338577646893db9962aed627c5bc4b99083908",
+    "export": "analysis/candidate-subject-attempt-10-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-11-result",
+    "reference": {
+      "digest": "blake3:73f95005061281479ffb85ceb6376d3239cd5ba8318c64f14d7b0995eb1ea2c4",
+      "bytes": 1634,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/73/f9/73f95005061281479ffb85ceb6376d3239cd5ba8318c64f14d7b0995eb1ea2c4",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/73/f9/73f95005061281479ffb85ceb6376d3239cd5ba8318c64f14d7b0995eb1ea2c4",
+    "cas_sha256": "646a70300c13eafedc501e70b4bd9c2655de7636c6af95712bbf076ba91957c5",
+    "export": "analysis/candidate-subject-attempt-11-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-12-result",
+    "reference": {
+      "digest": "blake3:509b375f31311de0adffebb3a6794a45e8cb45e312b93d0b843f60239a021535",
+      "bytes": 1633,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/50/9b/509b375f31311de0adffebb3a6794a45e8cb45e312b93d0b843f60239a021535",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/50/9b/509b375f31311de0adffebb3a6794a45e8cb45e312b93d0b843f60239a021535",
+    "cas_sha256": "1b28b197417fbaef9eced2c2336229ae42d86b8e42bef05a5a0fd40d07ba76b8",
+    "export": "analysis/candidate-subject-attempt-12-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-13-result",
+    "reference": {
+      "digest": "blake3:f451875a18c4ed4dd5b664e1b3d85a658c94b0d6a625546dc813a24952e96797",
+      "bytes": 1635,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f4/51/f451875a18c4ed4dd5b664e1b3d85a658c94b0d6a625546dc813a24952e96797",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/f4/51/f451875a18c4ed4dd5b664e1b3d85a658c94b0d6a625546dc813a24952e96797",
+    "cas_sha256": "80036ffe8e23813d81b3bed4466007aca37566c2b47cae3f810246233cc8b7cc",
+    "export": "analysis/candidate-subject-attempt-13-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-14-result",
+    "reference": {
+      "digest": "blake3:622b782af1dd2134fd5f2fb0ca119b69ee3e45f466287fb2d677d9974c5c9a88",
+      "bytes": 1636,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/62/2b/622b782af1dd2134fd5f2fb0ca119b69ee3e45f466287fb2d677d9974c5c9a88",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/62/2b/622b782af1dd2134fd5f2fb0ca119b69ee3e45f466287fb2d677d9974c5c9a88",
+    "cas_sha256": "67b6f7a54d20e62747e1887f46eb1d1620c15b12b62405fa53c9a2c7313f45c3",
+    "export": "analysis/candidate-subject-attempt-14-result.json",
+    "export_is_exact_original_bytes": true
+  },
+  {
+    "condition": "candidate",
+    "kind": "subject-attempt-15-result",
+    "reference": {
+      "digest": "blake3:431931442f1fe77457c0a152df29eb2c40cdbef58a49e4dfb996b1fd5edc6097",
+      "bytes": 526,
+      "media_type": "application/json",
+      "store_namespace": "subject_requests",
+      "locator": "file:///workspace/scratch/549c30a35cef/obelisk-qwen-round2-20261116/acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/43/19/431931442f1fe77457c0a152df29eb2c40cdbef58a49e4dfb996b1fd5edc6097",
+      "codec": {
+        "name": "subject-request-result",
+        "major": 1,
+        "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+      }
+    },
+    "cas_path": "acceptance/run-409eec7a-0807-444c-9d28-e03c9a0cea69/candidate-9086a364-f2a5-42e9-8953-c8c7d7ef78eb/cas/43/19/431931442f1fe77457c0a152df29eb2c40cdbef58a49e4dfb996b1fd5edc6097",
+    "cas_sha256": "045ccd8f222285b7229d57f7c71f67df4cb0bb6e39538f0c08c23e3a196d9656",
+    "export": "analysis/candidate-subject-attempt-15-result.json",
+    "export_is_exact_original_bytes": true
+  }
+]
