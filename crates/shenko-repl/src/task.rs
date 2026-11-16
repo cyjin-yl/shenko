@@ -257,12 +257,42 @@ fn resolution_refusal(message: &str) -> bool {
         || message.contains("REPL_ENTRY_")
 }
 
+/// Reject malformed requests before T1 without opening a session or starting
+/// an interpreter. The effect runner repeats the strict parse when selecting
+/// its typed arguments; this preflight is deliberately limited to pure syntax.
+fn validate_session_arguments(op: SessionOp, payload: &serde_json::Value) -> Result<()> {
+    match op {
+        SessionOp::ListKernels | SessionOp::ListSessions => {
+            let _: NoArgs = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+        }
+        SessionOp::Create => {
+            let _: CreateInput = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_KERNEL_INVALID: {error}"))?;
+        }
+        SessionOp::InstallKernel => {
+            let _: InstallKernelInput = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_ENTRY_INVALID: {error}"))?;
+        }
+        SessionOp::InstallDependencies => {
+            let _: InstallInput = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_INSTALL_INVALID: {error}"))?;
+        }
+        SessionOp::Inspect | SessionOp::Checkpoint | SessionOp::Restore
+        | SessionOp::Fork | SessionOp::Reset | SessionOp::Cancel | SessionOp::Dispose => {
+            let _: SessionRef = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Frozen inputs and bounded results (sealed into CAS).
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-struct SessionFrozenInput {
+struct SessionOpObservation {
     op: String,
     kernel_id: Option<String>,
     /// Installed binding the op resolved, when it used one.
@@ -784,7 +814,7 @@ pub struct ReplSessionHandler {
 }
 
 type SessionOpOutcome = (
-    SessionFrozenInput,
+    SessionOpObservation,
     serde_json::Value,
     bool,
     Option<OperationOutcome>,
@@ -817,100 +847,93 @@ impl ReplSessionHandler {
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         let input: SessionInput = serde_json::from_value(invocation.input.clone())
             .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+        validate_session_arguments(input.op, &invocation.input)?;
+
+        // Freeze the *requested* operation, not an observation of work that
+        // has already run. The former implementation spawned the real session
+        // operation before T1 and armed the resulting post-effect snapshot.
+        // Recovered InFlight attempts must never call that worker again.
+        let input_ref = self.core.seal(&invocation.input, "repl-session-frozen-input")?;
+        let bindings = ResourceBindings {
+            provider: "repl.session.v1".into(),
+            account_identity: String::new(),
+            runtime_node: invocation.task_invocation.node_id.to_string(),
+            mount_generation: 0,
+            capability_level: "managed_session_home".into(),
+            extra: serde_json::json!({
+                "op": input.op.wire_name(),
+                "session_id": invocation.input.get("session_id"),
+                "entry": invocation.input.get("entry")
+            }),
+        };
+        let resource = self.core.seal(&bindings, "repl-session-binding")?;
+        let acceptance = self.core.seal(
+            &"one session operation observed against its durable session journal; resolution refusals are explicit",
+            "repl-session-acceptance",
+        )?;
+        let retry = self.core.seal(
+            &"armed session work has an unknown outcome until the original attempt is reconciled; never replay it",
+            "repl-session-retry",
+        )?;
+        let (mut operation, mut attempt) =
+            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry);
+        if let Some(existing) = self.core.store.arm_external_operation(
+            &invocation.task_invocation, &mut operation, &mut attempt,
+        )? {
+            return Ok(existing);
+        }
+
+        // T1 is durable before create/restore/reset/fork/installation or even
+        // a live session open. A refusal discovered now settles this very
+        // attempt, rather than arming a replacement with a new input.
         let sessions = Arc::clone(&self.sessions);
         let payload = invocation.input.clone();
         let task_id = invocation.task_invocation.task_id;
         let worker_id = invocation.task_invocation.worker_id;
-        let prepared: Result<SessionOpOutcome> =
-            tokio::task::spawn_blocking(move ||
-                run_session_op(&sessions, &payload, input, task_id, worker_id)).await?;
-        let (frozen, value, decoded, outcome, effect, event_key) = match prepared {
+        let prepared: Result<SessionOpOutcome> = tokio::task::spawn_blocking(move ||
+            run_session_op(&sessions, &payload, input, task_id, worker_id)).await?;
+        let (observed, value, decoded, outcome, effect, event_key) = match prepared {
             Ok(parts) => parts,
             Err(error) => {
                 let message = format!("{error:#}");
                 if resolution_refusal(&message) {
-                    return self.record_refusal(&invocation, message).await;
+                    return self.record_refusal(&invocation, &operation, &attempt, message);
                 }
+                // Without a conclusive result the original armed attempt
+                // remains Unknown. No rearm or implicit retry follows.
                 return Err(error);
             }
         };
         let raw = self.core.seal(&serde_json::json!({
             "operation_id": invocation.operation_id,
+            "observed_session": observed,
             "result": value,
         }), "repl-session-observation")?;
         let normalized = self.core.seal(&value, "repl-session-result")?;
-        let store = Arc::clone(&self.core.store);
-        let (mut operation, mut attempt) = {
-            let input_ref = self.core.seal(&frozen, "repl-session-frozen-input")?;
-            let bindings = ResourceBindings {
-                provider: "repl.session.v1".into(),
-                account_identity: String::new(),
-                runtime_node: invocation.task_invocation.node_id.to_string(),
-                mount_generation: 0,
-                capability_level: "managed_session_home".into(),
-                extra: serde_json::json!({"session_id": frozen.session_id, "op": frozen.op}),
-            };
-            let resource = self.core.seal(&bindings, "repl-session-binding")?;
-            let acceptance = self.core.seal(
-                &"session op completed against the durable session journal; refusals carry an explicit REPL_* reason",
-                "repl-session-acceptance",
-            )?;
-            let retry = self.core.seal(
-                &"an armed session op without a conclusive observation remains unknown; no automatic replay",
-                "repl-session-retry",
-            )?;
-            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)
-        };
-        if let Some(existing) = store.arm_external_operation(
-            &invocation.task_invocation, &mut operation, &mut attempt,
-        )? {
-            return Ok(existing);
-        }
         self.core.evidence(&invocation, &operation, &attempt, raw, Some(normalized),
             decoded, outcome, effect, event_key)
     }
 
-    /// Record an explicit REPL_* resolution refusal as the task's real outcome.
-    async fn record_refusal(&self, invocation: &NativeTaskInvocation, detail: String)
-        -> Result<OperationRecord>
-    {
-        let frozen = SessionFrozenInput { op: "refused".into(), kernel_id: None, entry: None,
-            module: None, module_digest: None, session_id: None, limits: None };
+    /// Settle a resolution refusal on the already-armed attempt. No new T1.
+    fn record_refusal(
+        &self, invocation: &NativeTaskInvocation, operation: &OperationRecord,
+        attempt: &AttemptRecord, detail: String,
+    ) -> Result<OperationRecord> {
         let value = serde_json::to_value(SessionResult {
             session_id: None, outcome: Some("refused".into()), kernel_id: None, runtime: None,
             backend: None, session_model: None, recovery_level: None, cells_executed: None,
             environment_generation: None, detail: None, error: Some(detail.clone()),
         })?;
-        let store = Arc::clone(&self.core.store);
-        let (mut operation, mut attempt) = {
-            let input_ref = self.core.seal(&frozen, "repl-session-frozen-input")?;
-            let bindings = ResourceBindings {
-                provider: "repl.session.v1".into(),
-                account_identity: String::new(),
-                runtime_node: invocation.task_invocation.node_id.to_string(),
-                mount_generation: 0,
-                capability_level: "resolution".into(),
-                extra: serde_json::json!({"error": detail}),
-            };
-            let resource = self.core.seal(&bindings, "repl-session-binding")?;
-            let acceptance = self.core.seal(&"explicit resolution refusal", "repl-session-acceptance")?;
-            let retry = self.core.seal(&"no execution attempted", "repl-session-retry")?;
-            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
-        };
-        if let Some(existing) = store.arm_external_operation(
-            &invocation.task_invocation, &mut operation, &mut attempt,
-        )? {
-            return Ok(existing);
-        }
         let raw = self.core.seal(&serde_json::json!({
             "operation_id": invocation.operation_id,
             "error": detail,
             "executed": false,
         }), "repl-session-observation")?;
         let normalized = self.core.seal(&value, "repl-session-result")?;
-        self.core.evidence(invocation, &operation, &attempt, raw, Some(normalized),
+        self.core.evidence(invocation, operation, attempt, raw, Some(normalized),
             true, Some(OperationOutcome::Failed), EffectStatus::None, None)
     }
+
 }
 
 /// Execute one session op with the session mutex held. Blocking by design
@@ -945,7 +968,7 @@ fn run_session_op(
             // caller must not have to remember interpreter paths.
             let entries = crate::entry::list(&sessions.entries_root())?;
             let value = serde_json::to_value(ListKernelsResult { targets, entries })?;
-            Ok((SessionFrozenInput { op: "list_kernels".into(), kernel_id: None, module: None,
+            Ok((SessionOpObservation { op: "list_kernels".into(), kernel_id: None, module: None,
                 entry: None, module_digest: None, session_id: None, limits: None }, value, true,
                 Some(OperationOutcome::Succeeded), EffectStatus::None, None))
         }
@@ -958,7 +981,7 @@ fn run_session_op(
             // repaired, so this observation changes nothing.
             let listings = crate::session::list_sessions(&sessions.sessions_root_cloned())?;
             let value = serde_json::to_value(ListSessionsResult { sessions: listings })?;
-            Ok((SessionFrozenInput { op: "list_sessions".into(), kernel_id: None, entry: None,
+            Ok((SessionOpObservation { op: "list_sessions".into(), kernel_id: None, entry: None,
                 module: None, module_digest: None, session_id: None, limits: None }, value, true,
                 Some(OperationOutcome::Succeeded), EffectStatus::None, None))
         }
@@ -999,7 +1022,7 @@ fn run_session_op(
                 detail: None,
                 error: None,
             })?;
-            Ok((SessionFrozenInput { op: "create".into(), kernel_id: Some(profile.kernel_id.clone()),
+            Ok((SessionOpObservation { op: "create".into(), kernel_id: Some(profile.kernel_id.clone()),
                 entry: create.entry.clone(), module: Some(match &profile.module {
                     crate::kernel::ModuleSource::ModulePath(path) => path.clone(),
                 }), module_digest: Some(module_digest), session_id: Some(session_id),
@@ -1037,7 +1060,7 @@ fn run_session_op(
                 )),
                 error: None,
             })?;
-            Ok((SessionFrozenInput {
+            Ok((SessionOpObservation {
                 op: "install_kernel".into(),
                 kernel_id: Some(entry.entry.clone()),
                 entry: Some(entry.entry.clone()),
@@ -1052,7 +1075,7 @@ fn run_session_op(
                 .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
             let session_id = reference.session_id;
             let requested = sessions.request_cancel(session_id)?;
-            let frozen = SessionFrozenInput { op: "cancel".into(), kernel_id: None,
+            let frozen = SessionOpObservation { op: "cancel".into(), kernel_id: None,
                 entry: None, module: None, module_digest: None, session_id: Some(session_id),
                 limits: None };
             let value = serde_json::to_value(SessionResult {
@@ -1085,7 +1108,7 @@ fn run_session_op(
             };
             let session_id = route.session_id;
             let handle = sessions.open(session_id)?;
-            let frozen = SessionFrozenInput { op: input.op.wire_name().into(),
+            let frozen = SessionOpObservation { op: input.op.wire_name().into(),
                 kernel_id: None, entry: None, module: None, module_digest: None,
                 session_id: Some(session_id), limits: None };
             let mut session = handle.lock()
@@ -1384,9 +1407,44 @@ impl ReplCellHandler {
             CellKindInput::DeclaredEffect => crate::contract::CellKind::DeclaredEffect,
             CellKindInput::Unknown => crate::contract::CellKind::Unknown,
         };
+        let session_id = frozen.session_id;
+
+        // The source bytes, replay boundary and session identity are all
+        // sealed *before* any interpreter step. The prior code executed the
+        // cell and persisted its streams before arming T1, so a crash/retry
+        // could run an externally effective cell twice.
+        let input_ref = self.core.seal(&invocation.input, "repl-cell-frozen-input")?;
+        let bindings = ResourceBindings {
+            provider: "repl.cell.v1".into(),
+            account_identity: String::new(),
+            runtime_node: invocation.task_invocation.node_id.to_string(),
+            mount_generation: 0,
+            capability_level: "managed_session_cell".into(),
+            extra: serde_json::json!({
+                "session_id": session_id,
+                "source_digest": frozen.source_digest,
+                "cell_kind": frozen.cell_kind
+            }),
+        };
+        let resource = self.core.seal(&bindings, "repl-cell-binding")?;
+        let acceptance = self.core.seal(
+            &"one cell executed under its durable session journal, with original source and stream digests",
+            "repl-cell-acceptance",
+        )?;
+        let retry = self.core.seal(
+            &"an armed cell without conclusive observation remains unknown and is never automatically replayed",
+            "repl-cell-retry",
+        )?;
+        let (mut operation, mut attempt) =
+            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry);
+        if let Some(existing) = self.core.store.arm_external_operation(
+            &invocation.task_invocation, &mut operation, &mut attempt,
+        )? {
+            return Ok(existing);
+        }
+
         let sessions = Arc::clone(&self.sessions);
         let store = Arc::clone(&self.core.store);
-        let session_id = frozen.session_id;
         let task_label = invocation.task_invocation.task_id;
         let prepared: Result<(
             crate::contract::CellResult,
@@ -1408,14 +1466,15 @@ impl ReplCellHandler {
             let stderr = seal_stream(&store, &dir, &result.record.stderr_path)?;
             Ok((result, outcome, stdout, stderr))
         }).await?;
-
         let (cell, outcome, stdout_evidence, stderr_evidence) = match prepared {
             Ok(parts) => parts,
             Err(error) => {
                 let message = format!("{error:#}");
                 if message.contains("REPL_SESSION_UNAVAILABLE") || message.contains("REPL_RECOVERY_REQUIRED") {
-                    return self.record_refusal(&invocation, message).await;
+                    return self.record_refusal(&invocation, &operation, &attempt, message);
                 }
+                // The cell may have run but its outcome was not retained.
+                // Preserve this original attempt as Unknown for reconciliation.
                 return Err(error);
             }
         };
@@ -1447,34 +1506,6 @@ impl ReplCellHandler {
                 _ => None,
             },
         };
-
-        let store = Arc::clone(&self.core.store);
-        let (mut operation, mut attempt) = {
-            let input_ref = self.core.seal(&frozen, "repl-cell-frozen-input")?;
-            let bindings = ResourceBindings {
-                provider: "repl.cell.v1".into(),
-                account_identity: String::new(),
-                runtime_node: invocation.task_invocation.node_id.to_string(),
-                mount_generation: 0,
-                capability_level: "managed_session_cell".into(),
-                extra: serde_json::json!({"session_id": session_id, "seq": cell.record.seq}),
-            };
-            let resource = self.core.seal(&bindings, "repl-cell-binding")?;
-            let acceptance = self.core.seal(
-                &"cell completed under the session journal; stream digests and the driver report bind the outcome",
-                "repl-cell-acceptance",
-            )?;
-            let retry = self.core.seal(
-                &"an armed cell without a conclusive observation remains unknown; no automatic replay",
-                "repl-cell-retry",
-            )?;
-            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)
-        };
-        if let Some(existing) = store.arm_external_operation(
-            &invocation.task_invocation, &mut operation, &mut attempt,
-        )? {
-            return Ok(existing);
-        }
         let raw = self.core.seal(&serde_json::json!({
             "operation_id": invocation.operation_id,
             "session_id": session_id,
@@ -1486,11 +1517,12 @@ impl ReplCellHandler {
             true, Some(operation_outcome_of(&outcome)), cell_effect_of(&outcome), None)
     }
 
-    async fn record_refusal(&self, invocation: &NativeTaskInvocation, detail: String)
-        -> Result<OperationRecord>
-    {
-        let frozen = CellFrozenInput { op: "refused".into(), session_id: EntityId::nil(),
-            source_len: 0, source_digest: crate::journal::hash_bytes(b""), cell_kind: "unknown".into() };
+    /// A refused session is a terminal observation of this same armed cell,
+    /// never an excuse to invent an additional external-operation attempt.
+    fn record_refusal(
+        &self, invocation: &NativeTaskInvocation, operation: &OperationRecord,
+        attempt: &AttemptRecord, detail: String,
+    ) -> Result<OperationRecord> {
         let value = CellResultView {
             session_id: EntityId::nil(), seq: 0, cell: EntityId::nil(),
             outcome: "refused".into(), exit_code: None,
@@ -1498,36 +1530,16 @@ impl ReplCellHandler {
             stderr_b64: None, stderr_bytes: None, stderr_ref: None,
             driver_report: None, truncated: false, error: Some(detail.clone()),
         };
-        let store = Arc::clone(&self.core.store);
-        let (mut operation, mut attempt) = {
-            let input_ref = self.core.seal(&frozen, "repl-cell-frozen-input")?;
-            let bindings = ResourceBindings {
-                provider: "repl.cell.v1".into(),
-                account_identity: String::new(),
-                runtime_node: invocation.task_invocation.node_id.to_string(),
-                mount_generation: 0,
-                capability_level: "resolution".into(),
-                extra: serde_json::json!({"error": detail}),
-            };
-            let resource = self.core.seal(&bindings, "repl-cell-binding")?;
-            let acceptance = self.core.seal(&"explicit resolution refusal", "repl-cell-acceptance")?;
-            let retry = self.core.seal(&"no cell executed", "repl-cell-retry")?;
-            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
-        };
-        if let Some(existing) = store.arm_external_operation(
-            &invocation.task_invocation, &mut operation, &mut attempt,
-        )? {
-            return Ok(existing);
-        }
         let raw = self.core.seal(&serde_json::json!({
             "operation_id": invocation.operation_id,
             "error": detail,
             "executed": false,
         }), "repl-cell-observation")?;
         let normalized = self.core.seal(&value, "repl-cell-result")?;
-        self.core.evidence(invocation, &operation, &attempt, raw, Some(normalized),
+        self.core.evidence(invocation, operation, attempt, raw, Some(normalized),
             true, Some(OperationOutcome::Failed), EffectStatus::None, None)
     }
+
 }
 
 #[async_trait]
