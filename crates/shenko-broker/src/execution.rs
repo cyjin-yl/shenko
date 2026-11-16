@@ -1115,6 +1115,11 @@ mod tests {
                 // The endpoint has accepted the exact real HTTP request but
                 // provides no terminal answer before the configured deadline.
                 socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n").await?;
+                // Keep the peer alive past the sealed 500ms observation limit.
+                // Reading EOF immediately can race the client's normal request
+                // half-close and accidentally test an incomplete response
+                // rather than the configured HTTP deadline.
+                tokio::time::sleep(Duration::from_millis(900)).await;
                 let mut tail = Vec::new();
                 socket.read_to_end(&mut tail).await?;
                 anyhow::ensure!(tail.is_empty());
@@ -1150,12 +1155,13 @@ mod tests {
             anyhow::ensure!(result.request_id == request_id && result.effective.provider_binding == binding);
             anyhow::ensure!(result.status == InferenceStatus::Failed && result.termination.kind == TerminationKind::Unknown);
             anyhow::ensure!(receipt.recorded().len() == 1 && receipt.recorded()[0].termination.kind == TerminationKind::Unknown);
-            anyhow::ensure!(observations.terminals.lock().as_slice() == [result.termination.clone()]);
+            anyhow::ensure!(observations.terminals.lock().as_slice() == std::slice::from_ref(&result.termination));
             {
                 let errors = observations.errors.lock();
                 anyhow::ensure!(errors.len() == 1 && errors[0].code == "INFERENCE_TRANSPORT_TIMEOUT"
                     && errors[0].request_id == request_id && errors[0].agent_id == agent_id
-                    && errors[0].message.contains("500 ms"));
+                    && errors[0].message.contains("500 ms"),
+                    "expected the sealed 500ms deadline in the error journal; observed {errors:?}");
             }
             anyhow::ensure!(handle.active_count() == 1);
             handle.reconcile_recorded(request_id)?;
