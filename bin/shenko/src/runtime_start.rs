@@ -5,7 +5,7 @@ use anyhow::Result;
 use shenko_identity::IdentityService;
 use tracing::info;
 
-use crate::{node_sync, runtime_authority, runtime_channels, runtime_cognition, runtime_inference, runtime_publications, update_control, update_runtime};
+use crate::{node_sync, runtime_channels, runtime_cognition, runtime_inference, runtime_publications, update_control, update_runtime};
 use crate::runtime_bootstrap::{adopt_identity, bootstrap_genesis, create_data_directory_async};
 use crate::runtime_consumers::RuntimeConsumers;
 use crate::runtime_lifecycle::{StoreErrorSink, spawn_runtime_hook_pump};
