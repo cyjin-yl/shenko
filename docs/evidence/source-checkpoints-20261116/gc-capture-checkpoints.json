@@ -1,0 +1,84 @@
+{
+  "recorded_at": "2026-11-16T20:37:36.345415+00:00",
+  "bundle": "gc-capture-repair.bundle",
+  "bytes": 54583,
+  "sha256": "a84a0e1031b504415cda0d48e7397e0993d463f3c7e202f7396405318146c90f",
+  "create_exit": 0,
+  "verify_exit": 0,
+  "prerequisites": [
+    "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+    "2798bb37ef793dc90a6dadccab0738aacff84b04",
+    "ff771184d8dd05b4c2125483958cfb2c55319bb4"
+  ],
+  "prerequisite_sources": [
+    "public83bf",
+    "authored-checkpoints.bundle",
+    "seat-successor.bundle"
+  ],
+  "commits": [
+    {
+      "commit": "10188718b5af116796d49dd54832ef110b8c2085",
+      "tree": "5bd930deaf601460ab2a6fa6851148a81b2596a0",
+      "parents": "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:15:09Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:15:09Z",
+      "message": "fix(gc): reject inconsistent root declarations before reclamation\n\n",
+      "bundle_ref": "refs/heads/checkpoint/gc-registry-original-20261116"
+    },
+    {
+      "commit": "7191f89f98e1bf3f9b197db63de1f0b97159afef",
+      "tree": "bc8f6c1863494b04891d7c716835c0500e5cd76a",
+      "parents": "2798bb37ef793dc90a6dadccab0738aacff84b04",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:31:39Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:31:39Z",
+      "message": "fix(store): distinguish FTS capture readers and unqualified reads\n\n",
+      "bundle_ref": "refs/heads/checkpoint/capture-reader-repair-original-20261116"
+    },
+    {
+      "commit": "5b1c8a310b959acca251d26c9d008520f7b6291f",
+      "tree": "5649ddd72ce7ac08b56c50332601c66047aedfb1",
+      "parents": "87ff847ae6b03805ffd0cded80eeec177ac850e5",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:31:39Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:32:15Z",
+      "message": "fix(store): distinguish FTS capture readers and unqualified reads\n\n",
+      "bundle_ref": "refs/heads/checkpoint/gc-capture-integration-20261116"
+    }
+  ],
+  "source_comparison": [
+    {
+      "scope": "gc",
+      "original": "10188718b5af116796d49dd54832ef110b8c2085",
+      "path": "crates/shenko-wasm/src/gc.rs",
+      "git_blob": "82f29e9861e8f1df5ce1b8beb398f801ba310e7b",
+      "identical_after_integration": true
+    },
+    {
+      "scope": "gc",
+      "original": "10188718b5af116796d49dd54832ef110b8c2085",
+      "path": "crates/shenko-wasm/tests/tool_artifact_roots.rs",
+      "git_blob": "a16c4eaa1000612e84616d40b844c3acae0839ba",
+      "identical_after_integration": true
+    },
+    {
+      "scope": "capture",
+      "original": "7191f89f98e1bf3f9b197db63de1f0b97159afef",
+      "path": "crates/shenko-store/src/control_transition.rs",
+      "git_blob": "148061d58defdea6589a468971866584ed8dd20c",
+      "identical_after_integration": true
+    }
+  ],
+  "product_runtime_executed": false,
+  "scope": "Exact authored source and independent integration preservation. CI83 failed; repair and new GC source require their own runtime result."
+}

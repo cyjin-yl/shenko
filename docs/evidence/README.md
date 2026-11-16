@@ -2,6 +2,9 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [83bf CI 的六处 capture 失败与原件](ci-83bf3914-20261116/README.md)：实际 checkout `2d275430`／tree `d695242e`、独立 baseline `84ae1940`；五门成功、Rust 六失败，四份完整 ZIP 和可取得的完整日志均保留。E1 导出明确部分失败；非 pinned SQLite 诊断与其两次初始失败也保留。随后源码修复仍需新 CI。
+- [GC 根声明的一致性边界](../development/cas-root-declarations.md)：校验实际 producer／namespace／root report 的一致性，原旅程增加五拒绝与一恢复窗口；源码已审，尚未运行，不等同 Store GC 或共享 CAS 排他完成。
+
 - [CI 51a1：三进程通过、首次 E1 准备失败](ci-51a1ce43-20261116/README.md)：保存完整 Rust job 原文、API 源码与实际 merge checkout/tree 绑定、取消记录和两次 Clippy 日志读取失败；三进程 SSH star 85.61 秒通过，五门通过。E1 因 schema 8 acknowledgement 在 SSH 前失败，九窗口未到达；713 只修 fixture，仍待运行，原 ZIP 尚待独立字节归档与核验。
 - [CI bf49：新原生闭环与纠错容量旅程](ci-bf49f387-20261116/README.md)：Store 40/40 与 subject 新容量旅程实际通过；全 CI 仍因 metadata readiness 和精确 Clippy 增量失败。全部原始日志、manifest 和单独源码绑定的后续编译结果保留，未将修后检查改称该轮通过。
 - [Node-WASIX 固定源码构建候选](node-wasix-source-build-20261116/README.md)：从具有 BigInt handler 的精确上游源码及固定官方工具链进行独立 opt-in 构建，再复用原三 cell／reopen；仅静态检查，尚无该源码构建或运行结果，不改变能力与完成声明。
@@ -31,9 +34,9 @@
 - [51a 原失败 ZIP 的恢复后补证](ci-51a1ce43-20261116/archive-recovered/README.md)：完整字节与成员校验追加，不覆盖当时记录。
 - [262 CI 六门通过与完整原件](ci-262f980e-20261116/README.md)：实际 aa58209c checkout／1740cd95 tree、84ae1940 baseline；保留两完整 ZIP、完整 job 原文与首次 E1 原件。此结果不覆盖随后容量、留证、seat 或 Node 构建规则改动。
 - [首次 E1 原始事实与 CAS 的安全留证](native-e1-retention-20261116/README.md)：成功和失败清理前保留选定原始行与有类型的对象闭包；两个 Python 导出窗口通过，新 Rust／SSH 运行仍待对应候选验证。
-- [Canonical capture 容量与 once-evaluation 边界](../development/canonical-capture-budget.md)：同一事务中一次评估、流式完整性观察、预付行与 JSON 容量及既有 S1 准入退路；九个新窗口尚未在 Rust 环境执行，不声称消除了全表 I/O 或一般读取集缺口。
+- [Canonical capture 容量与 once-evaluation 边界](../development/canonical-capture-budget.md)：同一事务中一次评估、流式完整性观察、预付行与 JSON 容量及既有 S1 准入退路。83bf 的容量旅程通过，但缓存／FTS 旅程在首处拒绝，后续窗口未到达；针对性源码修复保留原九窗口与预算，仍待新 CI，不声称消除了全表 I/O。
 - [固定 Node 源码构建的完整失败原件](node-wasix-source-hosted-43922989826/README.md)：原 3,195.484 秒构建在 OpenSSL 归档处失败；完整 ZIP、stderr 与资源观测保留，没有 Node 链接、guest cell 或恢复通过。
-- [Node 归档长参数修复与有限诊断](node-wasix-archive-recipe-20261116/README.md)：固定上游两处分支补丁；普通和 thin 响应文件规则保留 928 个输入及顺序，初次 ptrace 拒绝原件也保留；完整 WASIX 构建及运行未重跑。
+- [Node 归档长参数修复与有限诊断](node-wasix-archive-recipe-20261116/README.md)：固定上游两处分支补丁；普通和 thin 响应文件规则保留 928 个输入及顺序，初次 ptrace 拒绝原件也保留。修复后的唯一完整构建 [43945415290](https://github.com/cyjin-yl/shenko/actions/runs/43945415290) 在此记录时运行中，尚无 WASIX 构建或 guest 通过结论。
 - [原始作者与提交对象](source-checkpoints-20261116/README.md)：保存原始 Git commit／tree／作者与时间，不把来源保全误算成产品验证，待修的 seat checkpoint 也明确保留原状态。
 - [托管 seat 生命周期候选与复核](managed-seat-lifecycle-20261116/README.md)：关闭取消保留失败、同 generation 的七个工具注册、六个新或扩展窗口；源码已复核，集成运行待验证。
 - [首次 Unknown 的一个因果 E1 后继](../development/canonical-native-e1-successor.md)：保留原观察、acknowledgement 与来源，七个新 SSH 窗口不获得执行权限；没有用较早首次 E1 的通过代替后继运行结果。

@@ -71,3 +71,28 @@ source reviews found no remaining confirmed blocker in those bounded changes.
 The six seat and seven successor observation windows still need the integrated
 candidate's actual Rust/SSH run. Source preservation and review do not establish
 that runtime result, actual coding, complete writer fencing or safe shared-CAS GC.
+
+## GC declarations and the observed capture repair
+
+`gc-capture-repair.bundle` preserves original GC source `10188718`, capture
+repair `7191f89f`, and the local integration checkpoint `5b1c8a31`. Its exact
+hash, original authors and times, prerequisite objects and three source-blob
+comparisons are in `gc-capture-checkpoints.json`; create/verify output and
+advertised refs are retained. Verification exited zero with public `83bf3914`,
+original `2798bb37` from the first bundle, and local `ff771184` from
+`seat-successor.bundle` available. Obtain those prerequisites before fetching
+this incremental bundle.
+
+The GC source verifies declarations at the callable API; it does not install
+Store reclamation or shared-CAS exclusion. The capture repair follows six
+actual Rust failures in [CI 83bf](../ci-83bf3914-20261116/README.md). It preserves
+the original nine observation windows and budgets. The retained finite C API
+investigation used system SQLite 3.46.1, not the pinned project binary. Neither
+this bundle nor that investigation establishes the repaired Rust result.
+
+`ci83-archive-author.commit` separately preserves the exact raw commit object
+for `cf4474209eed96feadcf0d00e260bb634a87e276`.
+`ci83-archive-source-tree.json` binds its original public `83bf3914` base and
+all 84 added blob paths to its original tree. Every blob matches the integrated
+archive. This preserves the author's original commit without placing another
+copy of all four original ZIPs into a source bundle.
