@@ -63,6 +63,7 @@ fn executable(name: &str) -> Result<PathBuf> {
 struct Fixture {
     root: PathBuf,
     counter: Cell<u32>,
+    originals_captured: Cell<bool>,
     started: Instant,
     server: Option<OwnedProcess>,
     port: u16,
@@ -87,6 +88,7 @@ impl Fixture {
         Ok(Self {
             root,
             counter: Cell::new(0),
+            originals_captured: Cell::new(false),
             started: Instant::now(),
             server: None,
             port,
@@ -97,6 +99,41 @@ impl Fixture {
     }
     fn logs(&self) -> PathBuf {
         self.root.join("logs")
+    }
+    fn capture_originals(&self) -> Result<()> {
+        if self.originals_captured.get() {
+            return Ok(());
+        }
+        let serial = self.counter.get();
+        self.counter.set(serial + 1);
+        let label = format!("{serial:03}-capture-originals");
+        let script = self.logs().join("native_e1_snapshot.py");
+        fs::write(&script, include_str!("support/native_e1_snapshot.py"))?;
+        let archive = self.logs().join(format!("{serial:03}-native-e1-originals.zip"));
+        let status = OwnedProcess::spawn(
+            self.command(executable("python3")?)?
+                .arg(&script)
+                .arg("--root")
+                .arg(self.private())
+                .arg("--output")
+                .arg(&archive)
+                .arg("--source-revision")
+                .arg(std::env::var("SHENKO_SOURCE_REVISION").unwrap_or_else(|_| "unrecorded".into())),
+            &self.logs(),
+            &label,
+        )?
+        // Evidence collection still has a finite opportunity after the
+        // journey's deadline, including its panic/error path.
+        .finish(Duration::from_secs(30))?;
+        append_json(
+            &self.logs().join("originals.jsonl"),
+            &json!({"status":status.to_string(),"archive":archive.file_name().and_then(|name| name.to_str()),
+                "sha256":archive.is_file().then(|| file_sha256(&archive)).transpose()?,
+                "scope":"selected original row values and typed CAS closure, not a SQLite backup"}),
+        )?;
+        ensure!(status.success(), "native E1 original evidence export failed; see capture logs");
+        self.originals_captured.set(true);
+        Ok(())
     }
     fn data(&self, name: &str) -> PathBuf {
         self.private().join(name)
@@ -316,8 +353,13 @@ impl Drop for Fixture {
             .map(|server| server.stop(libc::SIGKILL, Duration::ZERO))
             .transpose();
         let clean = cleanup.is_ok() && TcpStream::connect(("127.0.0.1", self.port)).is_err();
+        // Capture before deleting the private installation, on failure too.
+        // Only the exporter's explicit public subset enters the log directory.
+        let originals = self.capture_originals();
         let record = json!({"clean":clean,"joined":cleanup.as_ref().map(|_| true).unwrap_or(false),
-            "error":cleanup.err().map(|error| format!("{error:#}"))});
+            "error":cleanup.err().map(|error| format!("{error:#}")),
+            "originals_retained":originals.is_ok(),
+            "originals_error":originals.as_ref().err().map(|error| format!("{error:#}"))});
         let _ = fs::write(
             self.logs().join("cleanup.json"),
             serde_json::to_vec(&record).unwrap_or_default(),
@@ -327,7 +369,7 @@ impl Drop for Fixture {
         {
             eprintln!("native E1 evidence copy failed: {error:#}");
         }
-        if clean && !self.logs().join("processes.cleanup-failed").exists() {
+        if clean && originals.is_ok() && !self.logs().join("processes.cleanup-failed").exists() {
             let _ = fs::remove_dir_all(self.private());
         }
         eprintln!(
@@ -911,5 +953,6 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
         "source_ledger":source.ledger.ledger_id(),"receiver_ledger":receiver.ledger.ledger_id(),"receipts":receipts,
         "local_case":receiver_case,"physical_effect_count":2,"chosen_t2_count":0}),
     )?;
+    fixture.capture_originals()?;
     Ok(())
 }
