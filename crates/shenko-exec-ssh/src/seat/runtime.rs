@@ -1107,12 +1107,12 @@ mod tests {
                 BEFORE UPDATE ON seat_answer_decisions
                 WHEN json_extract(NEW.data,'$.state')='answer_unknown'
                 BEGIN SELECT RAISE(ABORT,'injected durable close failure'); END;")?;
-            anyhow::bail!("original transport reply was lost after append")
+            Err(anyhow::anyhow!("original transport reply was lost after append"))
         }
         async fn submit(&self, _seat: &SeatHandle, _text: &str, _fence: &SeatWriteFence)
-            -> Result<SeatResponse> { anyhow::bail!("fixture has no submit path") }
+            -> Result<SeatResponse> { Err(anyhow::anyhow!("fixture has no submit path")) }
         async fn interrupt(&self, _seat: &SeatHandle, _fence: &SeatWriteFence)
-            -> Result<SeatResponse> { anyhow::bail!("fixture has no interrupt path") }
+            -> Result<SeatResponse> { Err(anyhow::anyhow!("fixture has no interrupt path")) }
     }
 
     #[test]
