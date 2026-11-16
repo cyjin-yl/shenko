@@ -93,8 +93,12 @@ impl Kind {
         }
     }
     fn descriptor(self) -> NativeTaskDescriptor {
+        let request_contract = match self {
+            Self::Commerce => "; immutable original service/OAuth resource and instrument digest; protected final serialized request/RPC ID/Request-Id sealed before mutation send",
+            Self::Account | Self::Request => "",
+        };
         let contract = format!(
-            "shenko.{}:1; installed Node connection; node-local secrets; frozen operator/company/user/session/grant/input; T1 then owned dispatch marker; per-send authority guard; actual observations; no automatic mutation replay; private browser challenge stays outside ledger",
+            "shenko.{}:1; installed Node connection; node-local secrets; frozen operator/company/user/session/grant/input; T1 then owned dispatch marker; per-send authority guard; actual observations; no automatic mutation replay; private browser challenge stays outside ledger{request_contract}",
             self.name()
         );
         NativeTaskDescriptor {
@@ -259,6 +263,16 @@ impl Runtime {
         if input.account.is_some() {
             binding["account_state"] = account::binding_snapshot(&client)?;
         }
+        if let Some(action) = &input.commerce {
+            binding["service_binding"] = commerce::action_service_binding(&self.store, &client, action)?;
+            if let CommerceAction::Request(request) = action
+                && let Some(reference) = &request.payment_credential_ref
+            {
+                binding["payment_credential"] = serde_json::to_value(client.instrument_reference(
+                    reference, &commerce::service_binding(&client, request.transport)?,
+                )?)?;
+            }
+        }
         let mut call = RecordedCall::prepare(
             &self.store,
             &invocation,
@@ -309,6 +323,11 @@ impl Runtime {
                 Connection::read(&owner.node.lock(), &frozen_connection)?;
                 Ok(())
             }));
+        let client = if input.commerce.is_some() {
+            client.with_commerce_call(self.store.clone(), &call)?
+        } else {
+            client
+        };
         let work = async {
             if let Some(action) = &input.account {
                 account::execute(
@@ -320,7 +339,7 @@ impl Runtime {
                 )
                 .await
             } else if let Some(action) = &input.commerce {
-                commerce::execute(&client, &self.store, action, &cancellation).await
+                commerce::execute(&client, &self.store, &call, action, &cancellation).await
             } else {
                 api(
                     &client,
@@ -369,6 +388,9 @@ impl Runtime {
             // A deadline never proves that the merchant stopped its operation.
             value["stop_requested"] = reason.into();
             value["remote_effects_stopped"] = false.into();
+        }
+        if let Some(reference) = client.final_commerce_request() {
+            value["final_request"] = reference;
         }
         if client.redact_observation(&mut value).is_err() {
             value = json!({"status":"unknown","reason":"external response contained a private credential; observation withheld",
@@ -625,12 +647,20 @@ fn apply_reconciliation(store: &Store, recovery: &OperationRecord) -> Result<()>
         "client_id",
         "account_binding",
         "platform_profile",
+        "service_binding",
     ] {
         ensure!(
             bindings["extra"][field] == proof[field],
             "recovery changed the original {field} binding"
         );
     }
+    ensure!(
+        bindings["extra"].get("service_binding").is_some()
+            && !bindings["extra"]["service_binding"].is_null()
+            && proof["original_final_request"]
+                == super::transport::commerce_request_reference(store, &original)?,
+        "recovery lacks the original immutable service and final request proof"
+    );
     let original_attempt = store.external_operation_attempt(original_id)?;
     store.record_external_evidence(
         original_id,

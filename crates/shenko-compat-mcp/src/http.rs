@@ -405,6 +405,9 @@ impl BoundedHttpClient {
                     "HTTP authorization changed the frozen method, destination or payload",
                 ));
             }
+            authorizer
+                .before_send(&request)
+                .map_err(|_| authorization_error("final HTTP request could not be retained"))?;
         }
         let response = client.execute(request).await?;
         if let Some(authorizer) = &self.authorizer {

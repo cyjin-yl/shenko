@@ -9,6 +9,7 @@ use base64::{
 };
 use ring::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use shenko_compat::recorded::seal;
+use shenko_compat_mcp::protocol::HttpRequestAuthorizer;
 use shenko_compat_poppy::{
     discovery::{
         DeclaredCapabilities, DiscoveredDocument, DiscoveryReport, DiscoverySource, DiscoveryState,
@@ -38,7 +39,7 @@ const PROCESSOR: &str = "com.example.fixture_processor";
 fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> Result<()> {
     let directory = TemporaryDirectory::new()?;
     let root = &directory.0;
-    let store = Store::open(root.join("shenko.db"), root.join("cas"))?;
+    let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
     let home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
         data_dir: root.clone(),
         ..Default::default()
@@ -135,7 +136,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
         Operation::GetCheckout,
         &json!({"structuredContent":ready_resource}),
     )?;
-    let mut ready_value = envelope(&client);
+    let mut ready_value = envelope(&client)?;
     commerce::record_resource(
         &client,
         Operation::GetCheckout,
@@ -155,7 +156,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     );
     let (outcome, effect, level) = settlement(&ready_value);
     read_call.observe(&store, ready_value, outcome, effect, level)?;
-    let ready = commerce::load_checkout(&store, read_call.operation.operation_id, &client)?;
+    let ready = commerce::load_checkout(&store, read_call.operation.operation_id, &client, Transport::Mcp)?;
 
     // Only the encrypted local vault receives this deliberately synthetic
     // processor token. The frozen task carries a checkout-scoped handle.
@@ -170,14 +171,16 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     )?;
     client
         .vault()
-        .write(&instrument_ref, &serde_json::to_vec(&record)?)?;
+        .write_immutable(&instrument_ref, &serde_json::to_vec(&record)?)?;
+    let service = commerce::service_binding(&client, Transport::Mcp)?;
+    let instrument_reference = client.instrument_reference(&instrument_ref, &service)?;
     let idempotency_key = EntityId::new().to_string();
     let binding = CompletionBinding::new(&ready, &idempotency_key, &instrument_ref)?;
     let mut other_checkout = binding.clone();
     other_checkout.identity.resource_id = "checkout-other".into();
     ensure!(
         client
-            .credential_for_checkout(&instrument_ref, &other_checkout)
+            .credential_for_checkout(&instrument_reference, &other_checkout, &service)
             .is_err(),
         "instrument escaped its observed checkout scope"
     );
@@ -187,7 +190,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
             &ready,
             &negotiated,
             Transport::Mcp,
-            client.credential_for_checkout(&instrument_ref, &binding)?,
+            client.credential_for_checkout(&instrument_reference, &binding, &service)?,
         )?
         .with_request_id(&request_id)?;
     schemas.validate_request(&plan)?;
@@ -195,7 +198,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
         plan.mcp_params()["arguments"]["meta"]["idempotency-key"] == idempotency_key,
         "completion changed its durable key"
     );
-    verify_checkout_http_signature(&client, &plan, &idempotency_key, &request_id)?;
+    let final_request = verify_checkout_http_signature(&client, &plan, &idempotency_key, &request_id)?;
 
     let complete_input = input(
         &reference,
@@ -220,6 +223,31 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     );
     let original_id = original_call.operation.operation_id;
     let frozen_input = original_call.operation.final_input_ref.clone();
+    let guard_store = store.clone();
+    let client = client
+        .with_guard(Arc::new(move || {
+            ensure!(guard_store.external_operation(original_id)?.outcome.is_none(),
+                "fixture request no longer owns its unsettled operation");
+            Ok(())
+        }))
+        .with_commerce_call(store.clone(), &original_call)?;
+    client.prepare_commerce_request(&plan, &serde_json::to_value(&binding)?)?;
+    let authorizer = client.authorizer(
+        EndpointBinding::from_ucp_plan(&client.connection().report, &plan)?,
+        BTreeMap::new(), None,
+    )?;
+    // Exercise the production final-send callback with the exact signed HTTP
+    // body. No fixture merchant is contacted and no response is invented here.
+    authorizer.before_send(&final_request)?;
+    let final_reference = client.final_commerce_request().context("final request reference")?;
+    ensure!(
+        final_reference["rpc_id"] == 1 && final_reference["request_id"] == request_id
+            && final_reference["idempotency_key"] == idempotency_key
+            && store.external_operation_attempt(original_id)?.final_receipt_id.is_none(),
+        "pre-send request identity was lost or was mistaken for a merchant response"
+    );
+    ensure!(authorizer.before_send(&final_request).is_err(), "sealed mutation was eligible for replay");
+    drop(authorizer);
     let unknown = original_call.observe(&store,
         json!({"status":"unknown","reason":"controller stopped after send; no merchant result observed",
             "original_operation":original_id,"request_dispatched":null}),
@@ -232,6 +260,69 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
         .external_operation_attempt(original_id)?
         .final_receipt_id
         .context("unknown receipt")?;
+
+    // A lost reply must not make an instrument handle mutable. A separately
+    // imported instrument cannot replace either the T1 digest or final bytes.
+    let mut changed_record = record.clone();
+    changed_record["instrument"]["credential"]["token"] = "fixture-replacement-token".into();
+    let changed_bytes = serde_json::to_vec(&changed_record)?;
+    ensure!(
+        client.vault().write(&instrument_ref, &changed_bytes).is_err()
+            && client.vault().write_immutable(&instrument_ref, &changed_bytes).is_err(),
+        "lost reply allowed the original instrument reference to be replaced"
+    );
+    let replacement_ref = format!("instrument-{}", EntityId::new());
+    client.vault().write_immutable(&replacement_ref, &changed_bytes)?;
+    let replacement = client.instrument_reference(&replacement_ref, &service)?;
+    ensure!(
+        client.credential_for_checkout(&replacement, &binding, &service).is_err(),
+        "a new instrument was substituted into the sealed completion"
+    );
+
+    // Another service may expose exactly the same checkout and order IDs and
+    // terms under the same issuer/user/grant. Refuse it before any lookup/send.
+    drop(client);
+    let mut changed_connection = Connection::read(&node, &reference)?;
+    changed_connection.report.ucp.as_mut().context("UCP collision fixture")?
+        .metadata["ucp"]["services"][SHOPPING_SERVICE][0]["endpoint"] =
+        "https://merchant.example/other-service/mcp".into();
+    let changed_client = CompanyClient::new(
+        Vault::open(root, false)?, changed_connection,
+        &Authentication::SignedOut, Duration::from_secs(10),
+    )?;
+    let mut collision = envelope(&changed_client)?;
+    let mut collision_resource = ready.resource.clone();
+    collision_resource["status"] = "completed".into();
+    collision_resource["order"] = json!({"id":"order-original"});
+    commerce::record_resource(&changed_client, Operation::GetCheckout, collision_resource, &mut collision)?;
+    ensure!(
+        commerce::load_checkout(&store, read_call.operation.operation_id, &changed_client, Transport::Mcp).is_err()
+            && commerce::payment_credential_record(&changed_client, &store, read_call.operation.operation_id,
+                changed_record["instrument"].clone()).is_err()
+            && changed_client.instrument_reference(&instrument_ref, &commerce::service_binding(&changed_client, Transport::Mcp)?).is_err()
+            && commerce::observe_reconciliation(&changed_client, &store, original_id, &mut collision).is_err(),
+        "changed service admitted a colliding original checkout, instrument or recovery proof"
+    );
+    drop(changed_client);
+    let mut refreshed_connection = Connection::read(&node, &reference)?;
+    refreshed_connection.session_id = shenko_compat_poppy::session::SessionIdentity::new(
+        &refreshed_connection.report.company_identifier, &refreshed_connection.user_id,
+    )?.session_id().into();
+    let client = CompanyClient::new(
+        Vault::open(root, false)?, refreshed_connection,
+        &Authentication::SignedOut, Duration::from_secs(10),
+    )?;
+    ensure!(
+        commerce::load_checkout(&store, read_call.operation.operation_id, &client, Transport::Mcp)?.identity == ready.identity,
+        "compatible Session refresh lost the original service-owned checkout"
+    );
+    let CommerceAction::Request(original_request) = complete_action else {
+        anyhow::bail!("completion fixture lost its original action")
+    };
+    ensure!(
+        client.original_commerce_request(&store, &original_call.operation, &original_request)? == final_reference,
+        "reopening with a new instrument or Session changed the original final send identity"
+    );
 
     let recovery_plan = binding.recovery_request(
         &negotiated,
@@ -258,7 +349,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
         Operation::GetCheckout,
         &json!({"structuredContent":completed_resource}),
     )?;
-    let mut proof = envelope(&client);
+    let mut proof = envelope(&client)?;
     commerce::record_resource(
         &client,
         Operation::GetCheckout,
@@ -344,7 +435,7 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
         Duration::from_secs(10),
     )?;
     ensure!(
-        commerce::load_checkout(&reopened, original_id, &reopened_client)?.status
+        commerce::load_checkout(&reopened, original_id, &reopened_client, Transport::Mcp)?.status
             == CheckoutStatus::Completed,
         "derived recovery receipt became unreadable after restart"
     );
@@ -368,11 +459,22 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
     );
     let evidence = reopened.external_operation_evidence(original_id)?;
     ensure!(
-        evidence.len() == 2
+        evidence.len() == 3
             && evidence
                 .iter()
-                .any(|receipt| receipt.receipt_id == unknown_receipt),
+                .any(|receipt| receipt.receipt_id == unknown_receipt)
+            && evidence.iter().filter(|receipt| receipt.source_id == "compat.poppy.commerce.request").count() == 1
+            && reopened_client.original_commerce_request(&reopened, &repaired, &original_request)? == final_reference,
         "recovery erased uncertainty or duplicated the observed external event"
+    );
+    let request_receipt = evidence.iter().find(|receipt| receipt.source_id == "compat.poppy.commerce.request")
+        .context("original final request receipt missing")?;
+    let request_reference = commerce::read_observation(&reopened, &request_receipt.raw_ref)?;
+    ensure!(
+        request_reference == final_reference
+            && !serde_json::to_string(&request_reference)?.contains("fixture-private-token")
+            && !serde_json::to_string(&request_reference)?.contains("fixture-replacement-token"),
+        "shared final request reference lost its authenticated identity or exposed an instrument"
     );
     ensure!(
         !serde_json::to_string(&commerce::read_observation(&reopened, &frozen_input)?)?
@@ -384,6 +486,16 @@ fn checkout_unknown_is_repaired_from_immutable_observation_without_replay() -> R
             .contains("fixture-private-token"),
         "local processor credential entered shared CAS"
     );
+    let private = reopened_client.vault().read(final_reference["private_ref"].as_str().context("private request reference")?)?
+        .context("retained private request missing after reopen")?;
+    let private: Value = serde_json::from_slice(&private)?;
+    let body = URL_SAFE_NO_PAD.decode(private["body_base64url"].as_str().context("retained final body")?)?;
+    ensure!(
+        body == final_request.body().and_then(reqwest::Body::as_bytes).context("original signed body")?
+            && serde_json::from_slice::<Value>(&body)?["params"]["arguments"]["checkout"]["payment"]["instruments"][0]["credential"]["token"] == "fixture-private-token"
+            && !serde_json::to_string(&final_reference)?.contains("fixture-private-token"),
+        "lost reply or later instrument import changed the retained bytes or exposed their credential"
+    );
     Ok(())
 }
 
@@ -392,7 +504,7 @@ fn verify_checkout_http_signature(
     plan: &RequestPlan,
     original_key: &str,
     request_id: &str,
-) -> Result<()> {
+) -> Result<reqwest::Request> {
     // The verifier receives public JWKS and the exact materialized request.
     // It rebuilds the RFC 9421 base from required wire components, not signer
     // internals, and checks the digest against the same checkout body.
@@ -546,7 +658,7 @@ fn verify_checkout_http_signature(
             && claims["htu"] == plan.endpoint,
         "signed checkout Session lost its original owner or destination"
     );
-    Ok(())
+    Ok(request)
 }
 
 fn input(reference: &UnitRef, commerce: Value) -> Value {
@@ -559,12 +671,13 @@ fn owner(client: &CompanyClient, reference: &UnitRef) -> Value {
         "client_id":client.client_id(),"account_binding":client.account_binding(),"platform_profile":client.profile().url()})
 }
 
-fn envelope(client: &CompanyClient) -> Value {
-    json!({"commerce_schema":1,"company":client.connection().report.company_identifier,
+fn envelope(client: &CompanyClient) -> Result<Value> {
+    Ok(json!({"commerce_schema":1,"company":client.connection().report.company_identifier,
         "user_id":client.connection().user_id,"client_id":client.client_id(),
         "account_binding":client.account_binding(),"platform_profile":client.profile().url(),
+        "service_binding":commerce::service_binding(client, Transport::Mcp)?,
         "request":{"operation":"get_checkout","id":"checkout-original"},
-        "status":"unknown","request_dispatched":true})
+        "status":"unknown","request_dispatched":true}))
 }
 
 fn prepare(
@@ -574,12 +687,22 @@ fn prepare(
     client: &CompanyClient,
     reference: &UnitRef,
 ) -> Result<RecordedCall> {
+    let action: CommerceAction = serde_json::from_value(input["commerce"].clone())?;
+    let mut binding = owner(client, reference);
+    binding["service_binding"] = commerce::action_service_binding(store, client, &action)?;
+    if let CommerceAction::Request(request) = &action
+        && let Some(reference) = &request.payment_credential_ref
+    {
+        binding["payment_credential"] = serde_json::to_value(client.instrument_reference(
+            reference, &commerce::service_binding(client, request.transport)?,
+        )?)?;
+    }
     RecordedCall::prepare(
         store,
         invocation,
         &Kind::Commerce.descriptor(),
         input,
-        owner(client, reference),
+        binding,
         ACCEPTANCE,
         RETRY,
     )

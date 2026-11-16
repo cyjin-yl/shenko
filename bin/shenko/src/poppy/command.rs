@@ -196,12 +196,16 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             resource,
             signed_out,
         } => {
-            uuid::Uuid::parse_str(
+            let instrument_id = uuid::Uuid::parse_str(
                 reference
                     .strip_prefix("instrument-")
                     .context("instrument reference must be instrument-<UUID>")?,
             )
             .context("instrument reference must be instrument-<UUID>")?;
+            ensure!(
+                reference == format!("instrument-{instrument_id}"),
+                "instrument reference must be canonical"
+            );
             let bytes = super::vault::read_private(&file)?;
             let instrument: Value =
                 serde_json::from_slice(&bytes).context("instrument file is not JSON")?;
@@ -236,7 +240,7 @@ pub(crate) async fn command(data_dir: &Path, command: crate::CompatPoppyCommand)
             let encoded = serde_json::to_vec(&record);
             super::transport::clear_json(&mut record);
             let encoded = zeroize::Zeroizing::new(encoded?);
-            client.vault().write(&reference, &encoded)?;
+            client.vault().write_immutable(&reference, &encoded)?;
             json!({"credential_ref":reference,"checkout_observation":checkout_observation,
                 "node_local":true,"secret_exported":false})
         }

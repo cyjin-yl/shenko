@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use shenko_compat::recorded::RecordedCall;
 use shenko_compat_mcp::protocol::{Response, Session};
 use shenko_compat_poppy::ucp::{
     CheckoutObservation, CheckoutStatus, CompletionBinding, NegotiatedProfile, Operation,
@@ -19,10 +20,47 @@ use shenko_types::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::transport::CompanyClient;
+use super::transport::{CompanyClient, InstrumentRef};
 
 const HANDLER: &str = "compat.poppy.commerce";
 const MAX_PRIOR_BYTES: u64 = 2 * 1024 * 1024;
+
+/// A checkout ID is scoped to the original advertised service, independently
+/// of a refreshable Session or access token. Preserve literal OAuth resource
+/// identity (including the distinction between a default token and a URL).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ServiceBinding {
+    pub schema_version: u32,
+    pub transport: Transport,
+    pub endpoint: String,
+    pub oauth_resource: std::option::Option<std::string::String>,
+}
+
+pub(super) fn service_binding(client: &CompanyClient, transport: Transport) -> Result<ServiceBinding> {
+    let business = &client.connection().report.ucp.as_ref()
+        .context("company has no UCP profile")?.metadata;
+    let negotiated = NegotiatedProfile::from_business(business, client.profile())?;
+    Ok(ServiceBinding {
+        schema_version: 1,
+        transport,
+        endpoint: negotiated.service(transport)?.endpoint.clone(),
+        oauth_resource: client.resource().map(str::to_owned),
+    })
+}
+
+pub(super) fn action_service_binding(
+    store: &Store,
+    client: &CompanyClient,
+    action: &CommerceAction,
+) -> Result<Value> {
+    let transport = match action {
+        CommerceAction::Negotiate => return Ok(Value::Null),
+        CommerceAction::Request(request) => request.transport,
+        CommerceAction::Reconcile { operation_id } => original_request(store, *operation_id, client)?.transport,
+    };
+    Ok(serde_json::to_value(service_binding(client, transport)?)?)
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -139,6 +177,7 @@ impl CommerceAction {
 pub(super) async fn execute(
     client: &CompanyClient,
     store: &Store,
+    call: &RecordedCall,
     action: &CommerceAction,
     cancellation: &CancellationToken,
 ) -> Result<Value> {
@@ -155,6 +194,7 @@ pub(super) async fn execute(
         "commerce_schema": 1, "company": client.connection().report.company_identifier,
         "user_id": client.connection().user_id, "client_id": client.client_id(),
         "account_binding": client.account_binding(), "platform_profile": client.profile().url(),
+        "service_binding": action_service_binding(store, client, action)?,
         "action": action, "request_dispatched": false, "network_started": false,
         "observed_at": chrono::Utc::now(), "status": "unknown"
     });
@@ -170,6 +210,7 @@ pub(super) async fn execute(
             run_request(
                 client,
                 store,
+                call,
                 &negotiated,
                 request,
                 cancellation,
@@ -181,6 +222,7 @@ pub(super) async fn execute(
             reconcile(
                 client,
                 store,
+                call,
                 &negotiated,
                 *operation_id,
                 cancellation,
@@ -258,13 +300,14 @@ async fn negotiate(
 async fn run_request(
     client: &CompanyClient,
     store: &Store,
+    call: &RecordedCall,
     negotiated: &NegotiatedProfile,
     request: &CommerceRequest,
     cancellation: &CancellationToken,
     envelope: &mut Value,
 ) -> Result<()> {
     if request.transport == Transport::Rest {
-        return run_rest_request(client, store, negotiated, request, cancellation, envelope).await;
+        return run_rest_request(client, store, call, negotiated, request, cancellation, envelope).await;
     }
     ensure!(
         !cancellation.is_cancelled(),
@@ -287,6 +330,7 @@ async fn run_request(
                     .checkout_observation
                     .context("original checkout observation missing")?,
                 client,
+                request.transport,
             )?;
             ensure!(
                 request.id.as_deref() == Some(&original.identity.resource_id),
@@ -319,7 +363,7 @@ async fn run_request(
                 &latest,
                 negotiated,
                 Transport::Mcp,
-                client.credential_for_checkout(&binding.credential_ref, &binding)?,
+                completion_credential(client, store, call, &binding, request.transport)?,
             )?
         } else {
             if request.operation == Operation::UpdateCheckout {
@@ -350,6 +394,7 @@ async fn run_request(
         let plan = request_metadata(plan, request.buyer_ip.as_deref())?;
         schemas.validate_request(&plan)?;
         envelope["request"] = request_binding(&plan)?;
+        client.prepare_commerce_request(&plan, &envelope["completion_binding"])?;
         ensure!(
             !cancellation.is_cancelled(),
             "commerce cancelled before tool dispatch"
@@ -462,6 +507,7 @@ async fn rest_documents(
 async fn run_rest_request(
     client: &CompanyClient,
     store: &Store,
+    call: &RecordedCall,
     negotiated: &NegotiatedProfile,
     request: &CommerceRequest,
     cancellation: &CancellationToken,
@@ -481,6 +527,7 @@ async fn run_rest_request(
                 .checkout_observation
                 .context("original checkout observation missing")?,
             client,
+            request.transport,
         )?;
         ensure!(
             request.id.as_deref() == Some(&original.identity.resource_id),
@@ -513,7 +560,7 @@ async fn run_rest_request(
             &latest,
             negotiated,
             Transport::Rest,
-            client.credential_for_checkout(&binding.credential_ref, &binding)?,
+            completion_credential(client, store, call, &binding, request.transport)?,
         )?
     } else {
         if request.operation == Operation::UpdateCheckout {
@@ -544,6 +591,7 @@ async fn run_rest_request(
     let plan = request_metadata(plan, request.buyer_ip.as_deref())?;
     schemas.validate_request(&plan)?;
     envelope["request"] = request_binding(&plan)?;
+    client.prepare_commerce_request(&plan, &envelope["completion_binding"])?;
     ensure!(
         !cancellation.is_cancelled(),
         "commerce cancelled before REST dispatch"
@@ -737,6 +785,19 @@ fn request_binding(plan: &RequestPlan) -> Result<Value> {
     )
 }
 
+fn completion_credential(
+    client: &CompanyClient,
+    store: &Store,
+    call: &RecordedCall,
+    binding: &CompletionBinding,
+    transport: Transport,
+) -> Result<Value> {
+    let frozen = read_observation(store, &call.operation.resource_bindings_ref)?;
+    let instrument: InstrumentRef = serde_json::from_value(frozen["extra"]["payment_credential"].clone())
+        .context("completion lacks its frozen immutable instrument reference")?;
+    client.credential_for_checkout(&instrument, binding, &service_binding(client, transport)?)
+}
+
 pub(super) fn record_resource(
     client: &CompanyClient,
     operation: Operation,
@@ -795,6 +856,7 @@ pub(super) fn record_resource(
 async fn reconcile(
     client: &CompanyClient,
     store: &Store,
+    call: &RecordedCall,
     negotiated: &NegotiatedProfile,
     operation_id: EntityId,
     cancellation: &CancellationToken,
@@ -835,7 +897,7 @@ async fn reconcile(
         payment_credential_ref: None,
         buyer_ip: request.buyer_ip.clone(),
     };
-    run_request(client, store, negotiated, &query, cancellation, envelope).await?;
+    run_request(client, store, call, negotiated, &query, cancellation, envelope).await?;
     observe_reconciliation(client, store, operation_id, envelope)
 }
 
@@ -848,11 +910,16 @@ pub(super) fn observe_reconciliation(
     envelope: &mut Value,
 ) -> Result<()> {
     let request = original_request(store, operation_id, client)?;
-    validate_binding_owner(envelope, client)?;
+    validate_binding_owner(envelope, client, request.transport)?;
     envelope["reconciles_operation"] = json!(operation_id);
     envelope["original_idempotency_key"] = json!(request.idempotency_key);
     envelope["original_request_replayed"] = false.into();
     envelope["original_effect_resolved"] = false.into();
+    if request.operation.changes_state() {
+        envelope["original_final_request"] = super::transport::commerce_request_reference(
+            store, &store.external_operation(operation_id)?,
+        )?;
+    }
     if request.operation == Operation::CompleteCheckout
         && envelope["status"] == "observed"
         && envelope["checkout"]["status"] == "completed"
@@ -866,6 +933,7 @@ pub(super) fn observe_reconciliation(
                 .checkout_observation
                 .context("original purchase terms observation missing")?,
             client,
+            request.transport,
         )?;
         let current = CheckoutObservation::from_resource(
             &client.connection().report.company_identifier,
@@ -919,11 +987,16 @@ fn original_request(
         anyhow::bail!("original operation has no commerce business request")
     };
     let bindings = read_observation(store, &original.resource_bindings_ref)?;
-    validate_binding_owner(&bindings["extra"], client)?;
+    validate_binding_owner(&bindings["extra"], client, request.transport)?;
+    if request.operation.changes_state() {
+        // An old high-level intent without a retained final send is never
+        // enough to reconstruct, replay, or settle an original mutation.
+        client.original_commerce_request(store, &original, &request)?;
+    }
     Ok(request)
 }
 
-fn validate_binding_owner(extra: &Value, client: &CompanyClient) -> Result<()> {
+fn validate_binding_owner(extra: &Value, client: &CompanyClient, transport: Transport) -> Result<()> {
     ensure!(
         extra["company"].as_str() == Some(&client.connection().report.company_identifier)
             && extra["user_id"].as_str() == Some(&client.connection().user_id)
@@ -932,6 +1005,11 @@ fn validate_binding_owner(extra: &Value, client: &CompanyClient) -> Result<()> {
             && extra.get("account_binding").is_some()
             && extra["account_binding"].as_str() == client.account_binding(),
         "original dispatch belongs to a different company, user, operator, or account grant"
+    );
+    ensure!(
+        extra.get("service_binding").is_some()
+            && extra["service_binding"] == serde_json::to_value(service_binding(client, transport)?)?,
+        "original commerce service or OAuth resource changed, or the old record lacks its immutable service binding"
     );
     Ok(())
 }
@@ -957,7 +1035,13 @@ pub(super) fn load_checkout(
     store: &Store,
     operation_id: EntityId,
     client: &CompanyClient,
+    transport: Transport,
 ) -> Result<CheckoutObservation> {
+    let request = original_request(store, operation_id, client)?;
+    ensure!(
+        request.transport == transport,
+        "checkout cannot move to another UCP transport or service"
+    );
     let observed = load_observation(store, operation_id, client)?;
     ensure!(
         observed["status"] == "observed",
@@ -1006,13 +1090,15 @@ pub(super) fn payment_credential_record(
             "payment instrument identity is incomplete"
         );
     }
-    let checkout = load_checkout(store, checkout_observation, client)?;
+    let request = original_request(store, checkout_observation, client)?;
+    let checkout = load_checkout(store, checkout_observation, client, request.transport)?;
     Ok(json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "company": checkout.identity.company,
         "user_id": checkout.identity.pairwise_user_id,
         "client_id": client.client_id(),
         "account_binding": client.account_binding(),
+        "service_binding": service_binding(client, request.transport)?,
         "checkout_id": checkout.identity.resource_id,
         "terms_sha256": checkout.terms_sha256()?,
         "instrument": instrument
@@ -1024,11 +1110,7 @@ fn load_observation(
     operation_id: EntityId,
     client: &CompanyClient,
 ) -> Result<Value> {
-    let operation = store.external_operation(operation_id)?;
-    ensure!(
-        operation.operation_name == HANDLER,
-        "prior operation is not a Poppy commerce operation"
-    );
+    let request = original_request(store, operation_id, client)?;
     let attempt = store.external_operation_attempt(operation_id)?;
     let receipt = store.external_evidence(
         attempt
@@ -1066,6 +1148,7 @@ fn load_observation(
             && observed["account_binding"].as_str() == client.account_binding(),
         "original commerce observation belongs to a different company, user, operator, or account grant"
     );
+    validate_binding_owner(&observed, client, request.transport)?;
     Ok(observed)
 }
 

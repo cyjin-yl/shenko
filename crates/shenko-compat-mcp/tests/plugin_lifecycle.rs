@@ -166,9 +166,37 @@ for line in sys.stdin:
 
 #[tokio::test]
 async fn streamable_http_transport_bounds_json_and_sse() -> Result<()> {
-    use shenko_compat_mcp::protocol::{Response, Session};
+    use shenko_compat_mcp::protocol::{HttpRequestAuthorizer, Response, Session};
+    use std::io::Write as _;
     use tokio::io::AsyncBufReadExt as _;
     use tokio_util::sync::CancellationToken;
+    struct RequestJournal(PathBuf);
+    impl HttpRequestAuthorizer for RequestJournal {
+        fn authorize<'a>(
+            &'a self, _request: &'a mut reqwest::Request,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn before_send(&self, request: &reqwest::Request) -> Result<()> {
+            if request.method() != reqwest::Method::POST {
+                return Ok(());
+            }
+            let body = request.body().and_then(reqwest::Body::as_bytes).context("SDK body missing")?;
+            let rpc: Value = serde_json::from_slice(body)?;
+            if rpc["method"] != "tools/call" {
+                return Ok(());
+            }
+            let id = rpc["id"].as_str().map(str::to_owned).unwrap_or_else(|| rpc["id"].to_string());
+            ensure!(!id.is_empty() && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
+                "unexpected SDK request ID");
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
+                .open(self.0.join(format!("final-{id}.json")))?;
+            file.write_all(body)?;
+            file.sync_all()?;
+            std::fs::File::open(&self.0)?.sync_all()?;
+            Ok(())
+        }
+    }
     const HTTP_SERVER: &str = r#"import json, os, pathlib, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 root = pathlib.Path(sys.argv[1])
@@ -198,7 +226,10 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self): self.empty(200)
     def do_POST(self):
         if not self.authed(): return self.unauth()
-        message=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0')) or b'0') or b'{}')
+        wire=self.rfile.read(int(self.headers.get('Content-Length','0')) or b'0')
+        message=json.loads(wire or b'{}')
+        if message.get('method')=='tools/call':
+            assert (root/('final-'+str(message['id'])+'.json')).read_bytes()==wire, 'request reached server before exact SDK bytes/ID were synced'
         posts.append({'method':message.get('method'),'id':message.get('id')})
         method,ident=message.get('method'),message.get('id')
         if method=='initialize':
@@ -265,7 +296,7 @@ finally:
         unsafe { std::env::set_var("SHENKO_HTTP_FIXTURE_TOKEN", "secret-token-value"); }
         let spec = ConnectionSpec::StreamableHttp { url: format!("http://127.0.0.1:{port}/mcp"),
             header_env_refs: BTreeMap::from([("X-Fixture-Auth".into(), "SHENKO_HTTP_FIXTURE_TOKEN".into())]) };
-        let mut session = Session::connect(&spec, Duration::from_secs(5)).await
+        let mut session = Session::connect_authorized(&spec, Duration::from_secs(5), Arc::new(RequestJournal(root.clone()))).await
             .with_context(|| format!("HTTP fixture did not negotiate at port {port}"))?;
         let info = session.server_info()?;
         ensure!(info["serverInfo"]["name"] == "http-fixture", "legacy HTTP negotiation failed: {info}");
@@ -314,7 +345,7 @@ finally:
     ensure!(!Path::new(&format!("/proc/{pid}")).exists(), "HTTP fixture child was not joined");
     std::fs::write(root.join("receipt.json"), serde_json::to_vec_pretty(&json!({
         "port":port,"observed_counts":counts,"joined_pid":pid,
-        "scope":"real HTTP server over TCP; legacy session+SSE, bounded JSON body and SSE event; no model efficacy"}))?)?;
+        "scope":"real HTTP server over TCP; exact SDK bytes/ID synced before server admission, legacy session+SSE, bounded JSON body and SSE event; no model efficacy"}))?)?;
     println!("http transport receipt: {}", root.join("receipt.json").display());
     Ok(())
 }

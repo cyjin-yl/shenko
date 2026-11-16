@@ -35,6 +35,14 @@ pub trait HttpRequestAuthorizer: Send + Sync {
         request: &'a mut reqwest::Request,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
+    /// Retain the final SDK-serialized request after authorization and the
+    /// frozen-body checks, before any socket dispatch. The credential owner
+    /// decides how to protect its bytes; this protocol layer never logs them.
+    /// Failure refuses this send and never authorizes a replay.
+    fn before_send(&self, _request: &reqwest::Request) -> Result<()> {
+        Ok(())
+    }
+
     /// An optional isolated client for this exact request. For discovered
     /// services this lets the credential owner pin checked DNS addresses at
     /// every send. Such a client must disable redirects and automatic retries.

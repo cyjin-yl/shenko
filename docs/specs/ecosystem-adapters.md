@@ -483,9 +483,15 @@ Session，远端错误不会触发自动切换和重发。账号不根据 opaque
 服务资源按 protected-resource metadata 与 issuer 核对，MCP 的 resource
 必须精确匹配实际端点；资源 token 不得用于其他 API 或浏览器加入。
 
+商务资源还冻结所选 transport、原始 UCP service endpoint 和精确 OAuth resource
+（包括默认 token 的 null 身份）。原请求读取、checkout 观察加载、instrument 绑定、完成和
+对账都核对这份绑定。保持同一服务、resource 和 grant 的 Session 更新可以继续读取原资源；
+同一 issuer/user/grant 下另一个服务即使返回相同 checkout ID、订单与条款，也不能替代原服务。
+
 节点凭据保存在数据目录下的 `poppy-private`，与可共享的 Node 连接、任务输入和 CAS 分开。
 Unix 实现使用属主校验、0700 目录、0600 且不跟随符号链接的文件、持有期间的 OS 锁，以及
-AES-256-GCM 密文的原子替换和 fsync；未实现对应 ACL 的非 Unix 平台明确拒绝此 vault。
+AES-256-GCM 密文和 fsync；可变账号状态原子替换，instrument 与最终商务请求则完整同步后
+以不覆盖目标的方式发布。未实现对应 ACL 的非 Unix 平台明确拒绝此 vault。
 长期密钥、OAuth state/verifier、callback、refresh/access token、DPoP 私钥和支付 instrument
 留在节点上；
 公开观察只含引用、实际返回的 scope/expiry 等 metadata 和未知结果记录。
@@ -536,6 +542,14 @@ DPoP nonce 按 AS/RS 角色及精确 endpoint 分开持久化，成功响应中�
 输入并建立 T1、取得本次 dispatch 归属；每次发送前检查当前任务和插件代际。停止与取消
 可以阻止后续发送，但不证明已发出的远端动作停止。原始回执使用既有 E1/CAS 路径；共用
 `compat.artifact.read` 在 MCP/Poppy 任一精确安装启用时保持可用。
+
+商务修改在最终发送边界另保留一次不可变请求事实：MCP 在 SDK 分配 RPC ID、序列化及授权
+完成并通过正文不变检查后，REST 在实际请求序列化与授权后，将最终 method、URL、授权头、
+原始正文字节、RPC ID、Request-Id、幂等键、完成绑定及 instrument 内容摘要封存在同一节点
+vault。共享 CAS 只保存受认证的私有引用、摘要和公开请求标识；既有 Store evidence 批次将它
+关联原 RecordedCall 的 operation/attempt，提交完成后才可发送。该事实没有远端观察级别，
+不冒充商家响应，不改写原 attempt 的 final receipt。中断、持久化失败或已存在的私有请求
+引用都不授予重发资格；无法确定结果时仍按原身份保留 Unknown。
 
 ### 账号授权与私有浏览器流程
 
@@ -642,6 +656,10 @@ shenko compat poppy credential \
 
 instrument 必须由实际提供方取得，包含其 `id`、`handler_id`、`type` 等真实资料；不能用示例
 字符串伪造。导入将它与原观察的公司、用户、操作者、grant、checkout 和条款摘要一起封存。
+instrument 记录同时绑定原 service/resource，使用新的 canonical `instrument-<UUID>` 引用；
+已有引用不能覆盖或移除。T1 再冻结该私有记录的内容摘要，实际解析必须匹配，另一次导入的
+instrument 不能替换已经封存的完成请求。缺少 service 绑定的旧 credential 记录保留原样，
+须在具备新观察后导入新的引用，不能把当前配置补写成旧请求的历史身份。
 没有资源专用 token 时省略 `--resource`，只有与真实服务 metadata 相符时才可使用默认 token。
 原观察属于未登录 checkout 时使用 `--signed-out`，不指定 `--resource`；导入仍核对原观察的
 公司、用户和条款，不把已登录账号的凭据改绑为访客身份。
@@ -674,11 +692,16 @@ instrument 必须由实际提供方取得，包含其 `id`、`handler_id`、`typ
 {"action":"reconcile","operation_id":"<原始商务操作 UUID>"}
 ```
 
-该动作读取冻结输入和原回执，在同一公司、用户、操作者、平台与 grant 绑定下查询原资源，
+该动作读取冻结输入、受认证的节点私有最终请求及原回执，在同一公司、用户、操作者、平台、
+grant、原 service endpoint 与 OAuth resource 绑定下查询原资源，
 不重发原修改。原 create 的响应丢失且从未取得资源 ID 时，结果继续 unknown。后来看到
 购物车变化不能证明由哪一次 update/cancel 引起；完成订单的恢复还必须匹配原 checkout
 和购买条款，才可形成原操作的后置条件证据。更换账号 grant 后不允许拿新 grant 的结果
 结算旧 grant 下的未知订单。
+
+旧操作缺少不可变 service 绑定或最终发送请求，或当前节点缺少与共享摘要相符的私有快照时，
+拒绝据此加载购买观察、导入支付凭据或对账结算，原始输入与回执仍可按 CAS 身份读取。
+不从当前连接、当前 token 或新 instrument 推测并补造原请求，也不自动重新发送。
 
 本节不声称已完成真实商家登录、真实浏览器账号绑定、付款或购买。用户授权需要实际商家
 流程，协议接受程度由实际响应决定；构建、fixture、工具目录和本地能力交集不能替代这些

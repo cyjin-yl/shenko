@@ -125,6 +125,21 @@ impl Vault {
 
     pub fn write(&self, name: &str, bytes: &[u8]) -> Result<()> {
         ensure!(
+            !immutable_reference(name),
+            "instrument and commerce request references are immutable; use a new reference"
+        );
+        self.write_record(name, bytes, false)
+    }
+
+    /// Publish a fully synced encrypted record without replacing an existing
+    /// identity. The vault lock covers both CLI imports and live send owners.
+    pub fn write_immutable(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        ensure!(immutable_reference(name), "not an immutable private reference");
+        self.write_record(name, bytes, true)
+    }
+
+    fn write_record(&self, name: &str, bytes: &[u8], immutable: bool) -> Result<()> {
+        ensure!(
             bytes.len() as u64 <= MAX_BYTES - 128,
             "credential record exceeds size bound"
         );
@@ -145,8 +160,13 @@ impl Vault {
         wire.extend_from_slice(&sealed);
         let temporary = self.root.join(format!("staging-{}", uuid::Uuid::new_v4()));
         write_new(&temporary, &wire)?;
-        let result =
-            fs::rename(&temporary, &destination).and_then(|()| File::open(&self.root)?.sync_all());
+        let result = if immutable {
+            fs::hard_link(&temporary, &destination)
+                .and_then(|()| fs::remove_file(&temporary))
+        } else {
+            fs::rename(&temporary, &destination)
+        }
+        .and_then(|()| File::open(&self.root)?.sync_all());
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
         }
@@ -154,6 +174,10 @@ impl Vault {
     }
 
     pub fn remove(&self, name: &str) -> Result<()> {
+        ensure!(
+            !immutable_reference(name),
+            "cannot remove an immutable instrument or commerce request reference"
+        );
         match fs::remove_file(self.path(name)?) {
             Ok(()) => File::open(&self.root)?.sync_all()?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -173,6 +197,10 @@ impl Vault {
         );
         Ok(self.root.join(format!("{name}.sealed")))
     }
+}
+
+fn immutable_reference(name: &str) -> bool {
+    name.starts_with("instrument-") || name.starts_with("commerce-request-")
 }
 
 fn random(bytes: &mut [u8]) -> Result<()> {

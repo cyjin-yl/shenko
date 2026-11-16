@@ -159,3 +159,41 @@ DNS/TLS/HTTP 到真实商家的成功证据。没有为通过检查放宽代理�
 
 Issue #297 保留真实部署、账号、浏览器及交易恢复验收项。代码交付、fixture、CI 与公开
 取样各自提供其实际范围的证据，不代替这些尚未执行的外部步骤。
+
+## 2026-11-16 PR302 两项 P2 的源码修复交接
+
+修复工作树以 `983cc13f318d0389410ab152545630ebc0b4d5b0` 为原始来源；本节只记录尚未提交的
+源码变化，不将上文历史 CI 或运行结果移用于新代码。子席没有运行构建、测试、lint、formatter、
+模型或网络请求；由主席在既有 CT102 开发容器中验证同一持久源并整合 PR298/current main。
+
+第一项修复把原始 UCP transport、service endpoint 与 OAuth resource 加入冻结 owner、
+checkout 观察和 schema-2 instrument 记录，原请求、完成、凭据加载及恢复均作严格核对。
+Session 可在服务/resource/grant 不变时更新，另一个服务中的同 ID/条款不能结算原请求。
+缺失绑定的旧数据原样保留，拒绝推测历史身份。
+commerce 的 implementation contract digest 随上述新合同更新；account/request 的该身份不变。
+
+第二项修复复用 vault、RecordedCall、真实 CompanyAuthorizer 和 MCP HTTP 请求 API。
+MCP 的新 `before_send` 回调位于实际 SDK 正文及授权不变检查之后；REST 进入同一回调。
+最终请求的确切正文、SDK RPC ID、Request-Id、授权头、原幂等键、完成绑定和 instrument
+摘要进入 AES-GCM 保护的不可变 `commerce-request-<attempt UUID>` 记录。普通 CAS/evidence
+只保留公开引用与摘要；原 attempt 的 final receipt 不因封存事实而变成远端完成。
+instrument 引用不可覆盖/移除，T1 记录其完整私有内容摘要；所有未知结果仍禁止自动重发。
+
+只扩充两个既有消费者，没有新增测试函数：
+
+- checkout 连续旅程增加同 issuer/user/grant、同资源 ID/条款但 endpoint 改变时的加载、支付
+  绑定与恢复拒绝；加入 Session 更新的正面控制；原完成丢失回复后尝试改写 instrument、
+  另行导入 instrument，再关闭/重开并核对原最终请求、RPC ID、Request-Id 与原始正文字节。
+  商家响应仍是明确 fixture，没有真实购买或生产 `commerce::execute` 网络旅程。
+- 既有 MCP HTTP 消费者在 SDK 的真实回调中同步每个 tools/call 的原始正文，独立 TCP fixture
+  在收到请求时先核对同一 RPC ID 的已落盘字节，再处理请求；原 JSON/SSE 边界与关闭断言保留。
+
+主席的精确原生选择器如下，均需在项目已授权的开发容器中执行；这里没有执行结果：
+
+```sh
+cargo test -p shenko --features compat-poppy --lib --locked --offline -j2 poppy::operational::tests::checkout_unknown_is_repaired_from_immutable_observation_without_replay -- --exact
+cargo test -p shenko-compat-mcp --test plugin_lifecycle --locked --offline -j2 streamable_http_transport_bounds_json_and_sse -- --exact
+```
+
+这些选择器分别检验本机封存/恢复与真实 SDK/TCP 发送顺序，不替代商家登录、实际支付、物理
+断电、多节点凭据迁移或模型行为验收。主席取得新运行结果后须单独绑定整合后的源码与输入。

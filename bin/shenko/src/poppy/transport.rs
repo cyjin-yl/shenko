@@ -9,14 +9,22 @@ use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
+use shenko_compat::recorded::{RecordedCall, seal};
 use shenko_compat_mcp::protocol::{ConnectionSpec, HttpRequestAuthorizer, Session};
 use shenko_compat_poppy::{
     auth::{AccountTokens, TokenType},
     discovery::DiscoveryOptions,
     session::SessionIdentity,
     transport::{EndpointBinding, RequestSigner, pinned_client},
-    ucp::{CompletionBinding, PlatformProfile, RequestPlan},
+    ucp::{CompletionBinding, Operation, PlatformProfile, RequestPlan, Transport},
+};
+use shenko_store::Store;
+use shenko_types::{
+    evidence::{DecodeStatus, EvidenceReceipt},
+    object::Digest,
+    operation::{AttemptDispatchStage, OperationRecord, OperationState},
+    store::WriteBatch,
 };
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -24,6 +32,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::{
     account::load_account,
+    commerce::{self, CommerceAction, CommerceRequest, ServiceBinding},
     connection::{Connection, Operator},
     vault::Vault,
 };
@@ -162,6 +171,9 @@ impl CompanyClient {
     pub fn account_binding(&self) -> Option<&str> {
         self.account_binding.as_deref()
     }
+    pub fn resource(&self) -> Option<&str> {
+        self.resource.as_deref()
+    }
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
@@ -184,18 +196,22 @@ impl CompanyClient {
         self.http.check_backoff(url)
     }
 
+    pub fn instrument_reference(&self, name: &str, service: &ServiceBinding) -> Result<InstrumentRef> {
+        let (bytes, _record) = self.read_instrument(name, service)?;
+        Ok(InstrumentRef { reference: name.into(), digest: Digest::blake3(&bytes) })
+    }
+
     pub fn credential_for_checkout(
         &self,
-        name: &str,
+        reference: &InstrumentRef,
         binding: &CompletionBinding,
+        service: &ServiceBinding,
     ) -> Result<Value> {
-        let suffix = name
-            .strip_prefix("instrument-")
-            .context("invalid payment credential reference")?;
-        let id = uuid::Uuid::parse_str(suffix).context("invalid payment credential reference")?;
+        let name = reference.reference.as_str();
+        let (bytes, mut record) = self.read_instrument(name, service)?;
         ensure!(
-            name == format!("instrument-{id}"),
-            "payment credential reference is not canonical"
+            Digest::blake3(&bytes) == reference.digest,
+            "payment credential contents differ from the immutable reference frozen before T1"
         );
         ensure!(
             binding.credential_ref == name,
@@ -205,26 +221,131 @@ impl CompanyClient {
             &self.connection.report.company_identifier,
             &self.connection.user_id,
         )?;
-        let bytes = self
-            .vault
-            .read(name)?
-            .context("payment credential is absent on this node")?;
-        let mut record: InstrumentRecord =
-            serde_json::from_slice(&bytes).context("invalid local instrument credential")?;
         ensure!(
-            record.schema_version == 1
-                && record.company == self.connection.report.company_identifier
-                && record.user_id == self.connection.user_id
-                && record.client_id == self.client_id()
-                && record.account_binding.as_deref() == self.account_binding()
-                && record.checkout_id == binding.identity.resource_id
+            record.checkout_id == binding.identity.resource_id
                 && record.terms_sha256 == binding.terms_sha256,
-            "payment credential belongs to different checkout, terms, or account credentials"
+            "payment credential belongs to different checkout or terms"
         );
         if let Some(credential) = record.instrument.get("credential") {
             self.http.secrets.lock().remember_value(credential)?;
         }
         Ok(std::mem::take(&mut record.instrument))
+    }
+
+    fn read_instrument(
+        &self,
+        name: &str,
+        service: &ServiceBinding,
+    ) -> Result<(Zeroizing<Vec<u8>>, InstrumentRecord)> {
+        let suffix = name
+            .strip_prefix("instrument-")
+            .context("invalid payment credential reference")?;
+        let id = uuid::Uuid::parse_str(suffix).context("invalid payment credential reference")?;
+        ensure!(
+            name == format!("instrument-{id}"),
+            "payment credential reference is not canonical"
+        );
+        let bytes = self
+            .vault
+            .read(name)?
+            .context("payment credential is absent on this node")?;
+        let record: InstrumentRecord = serde_json::from_slice(&bytes)
+            .context("instrument lacks an immutable service binding; import a new instrument reference")?;
+        ensure!(
+            record.schema_version == 2
+                && record.company == self.connection.report.company_identifier
+                && record.user_id == self.connection.user_id
+                && record.client_id == self.client_id()
+                && record.account_binding.as_deref() == self.account_binding()
+                && record.service_binding == *service
+                && *service == commerce::service_binding(self, service.transport)?,
+            "payment credential belongs to different service, OAuth resource, or account credentials"
+        );
+        Ok((bytes, record))
+    }
+
+    /// Install the already armed RecordedCall as the final-send owner. The
+    /// shared HTTP state reaches the authorizer created during MCP discovery.
+    pub fn with_commerce_call(self, store: Arc<Store>, call: &RecordedCall) -> Result<Self> {
+        let frozen = commerce::read_observation(&store, &call.operation.final_input_ref)?;
+        let action: CommerceAction = serde_json::from_value(frozen["commerce"].clone())?;
+        if let CommerceAction::Request(request) = action
+            && request.operation.changes_state()
+        {
+            let bindings = commerce::read_observation(&store, &call.operation.resource_bindings_ref)?;
+            let service: ServiceBinding = serde_json::from_value(bindings["extra"]["service_binding"].clone())?;
+            ensure!(
+                service == commerce::service_binding(&self, request.transport)?,
+                "commerce send owner differs from its frozen service or OAuth resource"
+            );
+            *self.http.commerce.lock() = Some(CommerceDispatch {
+                store,
+                call: RecordedCall { operation: call.operation.clone(), attempt: call.attempt.clone() },
+                request,
+                service,
+                plan: None,
+                final_reference: None,
+            });
+        }
+        Ok(self)
+    }
+
+    pub fn prepare_commerce_request(&self, plan: &RequestPlan, completion: &Value) -> Result<()> {
+        if !plan.operation.changes_state() {
+            return Ok(());
+        }
+        let mut owner = self.http.commerce.lock();
+        let owner = owner.as_mut().context("commerce mutation has no armed RecordedCall owner")?;
+        owner.prepare(plan, completion)
+    }
+
+    pub fn final_commerce_request(&self) -> Option<Value> {
+        self.http.commerce.lock().as_ref().and_then(|owner| owner.final_reference.clone())
+    }
+
+    pub fn original_commerce_request(
+        &self,
+        store: &Store,
+        operation: &OperationRecord,
+        request: &CommerceRequest,
+    ) -> Result<Value> {
+        let reference = commerce_request_reference(store, operation)?;
+        let attempt = store.external_operation_attempt(operation.operation_id)?;
+        ensure!(
+            reference["node_id"] == json!(attempt.node_id),
+            "original final request belongs to another runtime node"
+        );
+        let name = reference["private_ref"].as_str().context("original private request reference missing")?;
+        let digest: Digest = serde_json::from_value(reference["private_digest"].clone())?;
+        let bytes = self.vault.read(name)?
+            .context("original final request is unavailable in this node's protected vault; original effect remains unknown")?;
+        ensure!(Digest::blake3(&bytes) == digest, "original protected request digest mismatch");
+        let mut snapshot: Value = serde_json::from_slice(&bytes)?;
+        let checked = (|| -> Result<()> {
+            let bindings = commerce::read_observation(store, &operation.resource_bindings_ref)?;
+            ensure!(
+                snapshot["schema_version"] == 1
+                    && snapshot["operation_id"] == json!(operation.operation_id)
+                    && snapshot["attempt_id"] == json!(attempt.attempt_id)
+                    && snapshot["node_id"] == json!(attempt.node_id)
+                    && snapshot["frozen_input_ref"] == json!(operation.final_input_ref)
+                    && snapshot["resource_bindings_ref"] == json!(operation.resource_bindings_ref)
+                    && snapshot["service_binding"] == bindings["extra"]["service_binding"]
+                    && snapshot["payment_credential"] == bindings["extra"]["payment_credential"]
+                    && snapshot["operation"] == json!(request.operation)
+                    && snapshot["transport"] == json!(request.transport)
+                    && snapshot["idempotency_key"] == json!(request.idempotency_key)
+                    && reference["idempotency_key"] == snapshot["idempotency_key"]
+                    && snapshot["request_id"] == reference["request_id"]
+                    && snapshot["rpc_id"] == reference["rpc_id"]
+                    && snapshot["body_digest"] == reference["body_digest"],
+                "original protected final request does not match its operation, attempt, credential or service binding"
+            );
+            Ok(())
+        })();
+        clear_json(&mut snapshot);
+        checked?;
+        Ok(reference)
     }
 
     /// Public observations must not echo a credential used by this operation.
@@ -257,7 +378,7 @@ impl CompanyClient {
         )
     }
 
-    fn authorizer(
+    pub(super) fn authorizer(
         &self,
         binding: EndpointBinding,
         headers: BTreeMap<String, String>,
@@ -381,6 +502,7 @@ impl CompanyClient {
             .await?
             .context("Poppy pinned HTTP client missing")?;
         authorizer.authorize(&mut request).await?;
+        authorizer.before_send(&request)?;
         let response = client
             .execute(request)
             .await
@@ -566,7 +688,7 @@ impl CompanyClient {
     }
 }
 
-struct CompanyAuthorizer {
+pub(super) struct CompanyAuthorizer {
     signer: RequestSigner,
     tokens: Option<Arc<AccountTokens>>,
     resource: Option<String>,
@@ -579,6 +701,16 @@ struct CompanyAuthorizer {
 }
 
 impl HttpRequestAuthorizer for CompanyAuthorizer {
+    fn before_send(&self, request: &Request) -> Result<()> {
+        check_guard(&self.guard)?;
+        if let Some(owner) = self.http.commerce.lock().as_mut() {
+            owner.retain_request(&self.http.vault, request)?;
+        }
+        // Persistence may take time; losing authority while sealing still
+        // refuses dispatch, without erasing the original request identity.
+        check_guard(&self.guard)
+    }
+
     fn cancellation_token(&self) -> Option<CancellationToken> {
         self.cancellation.clone()
     }
@@ -706,6 +838,207 @@ fn check_guard(guard: &Option<Guard>) -> Result<()> {
         .context("Poppy network request has no durable dispatch owner")?()
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InstrumentRef {
+    pub reference: String,
+    pub digest: Digest,
+}
+
+const COMMERCE_REQUEST_SOURCE: &str = "compat.poppy.commerce.request";
+
+/// Only public references and digests enter CAS. The actual authorized HTTP
+/// headers and exact SDK/REST body stay in the existing encrypted vault.
+struct CommerceDispatch {
+    store: Arc<Store>,
+    call: RecordedCall,
+    request: CommerceRequest,
+    service: ServiceBinding,
+    plan: Option<PreparedCommerceRequest>,
+    final_reference: Option<Value>,
+}
+
+struct PreparedCommerceRequest {
+    method: String,
+    endpoint: String,
+    payload_digest: Option<Digest>,
+    request_id: String,
+    completion: Value,
+}
+
+impl CommerceDispatch {
+    fn prepare(&mut self, plan: &RequestPlan, completion: &Value) -> Result<()> {
+        ensure!(self.plan.is_none() && self.final_reference.is_none(), "commerce request is already prepared; no replay is permitted");
+        ensure!(
+            plan.operation == self.request.operation
+                && plan.transport == self.request.transport
+                && plan.arguments().get("id").and_then(Value::as_str) == self.request.id.as_deref()
+                && plan.arguments()["meta"]["idempotency-key"].as_str() == self.request.idempotency_key.as_deref(),
+            "final commerce plan differs from its original armed operation"
+        );
+        plan.validate_destination(&self.service.endpoint)?;
+        let request_id = plan.arguments()["meta"]["request-id"].as_str()
+            .context("final commerce plan has no Request-Id")?.to_owned();
+        let payload_digest = match plan.transport {
+            Transport::Mcp => {
+                let mut params = plan.mcp_params();
+                let encoded = serde_json::to_vec(&params);
+                clear_json(&mut params);
+                let encoded = Zeroizing::new(encoded?);
+                Some(Digest::blake3(&encoded))
+            }
+            Transport::Rest => plan.rest_body().map(|body| -> Result<Digest> {
+                let encoded = Zeroizing::new(serde_json::to_vec(body)?);
+                Ok(Digest::blake3(&encoded))
+            }).transpose()?,
+        };
+        self.plan = Some(PreparedCommerceRequest {
+            method: plan.method.into(), endpoint: plan.endpoint.clone(), payload_digest,
+            request_id, completion: completion.clone(),
+        });
+        Ok(())
+    }
+
+    fn retain_request(&mut self, vault: &Vault, request: &Request) -> Result<()> {
+        let mut rpc = Value::Null;
+        let checked = (|| -> Result<()> {
+            let body = request.body().map(|body| body.as_bytes()
+                .context("final commerce body is not materialized")).transpose()?;
+            if self.request.transport == Transport::Mcp {
+                if request.method() != Method::POST {
+                    return Ok(());
+                }
+                rpc = serde_json::from_slice(body.context("MCP request body missing")?)?;
+                if rpc["method"] != "tools/call" {
+                    return Ok(());
+                }
+                let operation: Operation = serde_json::from_value(rpc["params"]["name"].clone())?;
+                if !operation.changes_state() {
+                    return Ok(());
+                }
+                ensure!(operation == self.request.operation, "MCP mutation differs from its armed commerce owner");
+            } else if request.method() == Method::GET || request.method() == Method::HEAD {
+                return Ok(());
+            }
+            let plan = self.plan.as_ref().context("commerce mutation reached send before its final plan was frozen")?;
+            ensure!(self.final_reference.is_none(), "original commerce request is already sealed; no automatic replay");
+            ensure!(
+                request.method().as_str() == plan.method && request.url().as_str() == plan.endpoint,
+                "final commerce method or destination changed"
+            );
+            let header = |name: &str| request.headers().get(name).and_then(|value| value.to_str().ok());
+            ensure!(
+                header("request-id") == Some(plan.request_id.as_str())
+                    && header("idempotency-key") == self.request.idempotency_key.as_deref(),
+                "final commerce Request-Id or idempotency key changed"
+            );
+            let payload_digest = if self.request.transport == Transport::Mcp {
+                ensure!(
+                    rpc["jsonrpc"] == "2.0" && (rpc["id"].is_number() || rpc["id"].is_string()),
+                    "final commerce RPC identity is missing"
+                );
+                let encoded = Zeroizing::new(serde_json::to_vec(&rpc["params"])?);
+                Some(Digest::blake3(&encoded))
+            } else {
+                body.map(Digest::blake3)
+            };
+            ensure!(payload_digest == plan.payload_digest, "final serialized commerce payload changed");
+            let operation = self.store.external_operation(self.call.operation.operation_id)?;
+            let attempt = self.store.external_attempt(self.call.attempt.attempt_id)?;
+            ensure!(
+                operation.state == OperationState::InFlight && operation.outcome.is_none()
+                    && operation.final_input_ref == self.call.operation.final_input_ref
+                    && operation.resource_bindings_ref == self.call.operation.resource_bindings_ref
+                    && attempt.operation_id == operation.operation_id
+                    && attempt.invocation_id == self.call.attempt.invocation_id
+                    && attempt.dispatch_stage == AttemptDispatchStage::Armed
+                    && attempt.final_receipt_id.is_none(),
+                "commerce request lost its original armed operation or attempt"
+            );
+            let bindings = commerce::read_observation(&self.store, &operation.resource_bindings_ref)?;
+            let body_digest = body.map(Digest::blake3);
+            let rpc_id = if self.request.transport == Transport::Mcp { rpc["id"].clone() } else { Value::Null };
+            let headers: Vec<_> = request.headers().iter().map(|(name, value)| {
+                json!([name.as_str(), URL_SAFE_NO_PAD.encode(value.as_bytes())])
+            }).collect();
+            let mut snapshot = json!({
+                "schema_version": 1, "operation_id": operation.operation_id,
+                "attempt_id": attempt.attempt_id, "node_id": attempt.node_id,
+                "frozen_input_ref": operation.final_input_ref, "resource_bindings_ref": operation.resource_bindings_ref,
+                "operation": self.request.operation, "transport": self.request.transport,
+                "idempotency_key": self.request.idempotency_key, "request_id": plan.request_id,
+                "rpc_id": rpc_id, "body_digest": body_digest,
+                "service_binding": self.service, "payment_credential": bindings["extra"]["payment_credential"],
+                "completion_binding": plan.completion,
+                "method": request.method().as_str(), "url": request.url().as_str(),
+                "http_version": format!("{:?}", request.version())
+            });
+            snapshot["headers_base64url"] = Value::Array(headers);
+            snapshot["body_base64url"] = body.map_or(Value::Null, |body| Value::String(URL_SAFE_NO_PAD.encode(body)));
+            let encoded = serde_json::to_vec(&snapshot);
+            clear_json(&mut snapshot);
+            let encoded = Zeroizing::new(encoded?);
+            let private_ref = format!("commerce-request-{}", attempt.attempt_id);
+            // A prior file, even without its public receipt, is an interrupted
+            // send boundary. Never replace it or take it as permission to send.
+            vault.write_immutable(&private_ref, &encoded)?;
+            let reference = json!({"schema_version":1,"operation_id":operation.operation_id,
+                "attempt_id":attempt.attempt_id,"node_id":attempt.node_id,
+                "private_ref":private_ref,"private_digest":Digest::blake3(&encoded),
+                "body_digest":body_digest,"request_id":plan.request_id,"rpc_id":rpc_id,
+                "idempotency_key":self.request.idempotency_key});
+            let raw_ref = seal(&self.store, &reference, "poppy-final-request-reference")?;
+            let mut batch = WriteBatch::new();
+            batch.evidence_upserts.push(EvidenceReceipt {
+                record_schema_version: 1, receipt_id: shenko_types::ids::EntityId::new(),
+                operation_id: Some(operation.operation_id), attempt_id: Some(attempt.attempt_id),
+                source_id: COMMERCE_REQUEST_SOURCE.into(), source_instance_id: attempt.node_id.to_string(),
+                source_event_key: Some(attempt.attempt_id.to_string()), producer_epoch: Some(attempt.epoch.0),
+                producer_schema_version: Some("1".into()), raw_ref,
+                decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()), decode_status: DecodeStatus::Decoded,
+                observation_level: None, normalized_ref: None, observed_at: Some(chrono::Utc::now()),
+                received_commit: operation.prepared_commit,
+            });
+            // Append evidence without marking this request as a response or
+            // changing Armed/final_receipt_id. A crash still recovers Unknown.
+            self.store.commit(batch)?;
+            self.final_reference = Some(reference);
+            Ok(())
+        })();
+        clear_json(&mut rpc);
+        checked
+    }
+}
+
+pub(super) fn commerce_request_reference(store: &Store, operation: &OperationRecord) -> Result<Value> {
+    let attempt = store.external_operation_attempt(operation.operation_id)?;
+    let mut original = None;
+    for receipt in store.external_operation_evidence(operation.operation_id)? {
+        if receipt.source_id != COMMERCE_REQUEST_SOURCE {
+            continue;
+        }
+        ensure!(original.is_none(), "original commerce request has multiple final send identities");
+        ensure!(
+            receipt.operation_id == Some(operation.operation_id) && receipt.attempt_id == Some(attempt.attempt_id)
+                && receipt.source_instance_id == attempt.node_id.to_string()
+                && receipt.source_event_key.as_deref() == Some(attempt.attempt_id.to_string().as_str())
+                && receipt.producer_epoch == Some(attempt.epoch.0)
+                && receipt.producer_schema_version.as_deref() == Some("1")
+                && receipt.decode_status == DecodeStatus::Decoded && receipt.observation_level.is_none(),
+            "original final commerce request receipt identity mismatch"
+        );
+        let reference = commerce::read_observation(store, &receipt.raw_ref)?;
+        ensure!(
+            reference["schema_version"] == 1 && reference["operation_id"] == json!(operation.operation_id)
+                && reference["attempt_id"] == json!(attempt.attempt_id) && reference["node_id"] == json!(attempt.node_id)
+                && reference["private_ref"] == format!("commerce-request-{}", attempt.attempt_id),
+            "original final commerce request reference mismatch"
+        );
+        original = Some(reference);
+    }
+    original.context("original commerce mutation has no immutable final request; its effect remains unknown and is not replayed")
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstrumentRecord {
@@ -714,6 +1047,7 @@ struct InstrumentRecord {
     user_id: String,
     client_id: String,
     account_binding: Option<String>,
+    service_binding: ServiceBinding,
     checkout_id: String,
     terms_sha256: String,
     instrument: Value,
@@ -733,6 +1067,7 @@ struct HttpState {
     nonces: Mutex<BTreeMap<String, String>>,
     backoff: Mutex<BackoffDocument>,
     secrets: Mutex<SecretRegistry>,
+    commerce: Mutex<Option<CommerceDispatch>>,
 }
 
 #[derive(Clone, Copy)]
@@ -827,6 +1162,7 @@ impl HttpState {
             nonces: Mutex::new(nonces),
             backoff: Mutex::new(backoff),
             secrets: Mutex::new(SecretRegistry::default()),
+            commerce: Mutex::new(None),
         })
     }
 
