@@ -7,11 +7,14 @@
 
 #[path = "support/process_runtime.rs"]
 mod process_runtime;
+#[path = "support/runtime_health.rs"]
+mod runtime_health;
 
 use anyhow::{Context, Result, ensure};
 use process_runtime::{
-    OwnedProcess, append_json, copy_diagnostics, file_sha256, health, write_sshd_config,
+    OwnedProcess, append_json, copy_diagnostics, file_sha256, write_sshd_config,
 };
+use runtime_health::{health, http_json};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 use shenko_node::{
@@ -947,9 +950,37 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
     fixture.start(2, ui_ports[2], None, None)?;
     fixture.start(1, ui_ports[1], Some(boundary), Some(metadata.port))?;
     let coordinator_health = fixture.ready(1, ui_ports[1])?;
+    let coordinator_self = http_json(
+        ui_ports[1],
+        "/api/self",
+        Some(&fixture.logs().join("coordinator-self.response")),
+    )?;
+    let reported_subject: EntityId = serde_json::from_value(
+        coordinator_self
+            .get("subject_id")
+            .context("UI subject identity missing")?
+            .clone(),
+    )
+    .context("UI subject identity is not an entity ID")?;
+    let reported_identity: EntityId = serde_json::from_value(
+        coordinator_self
+            .get("identity")
+            .and_then(|identity| identity.get("agent_id"))
+            .context("UI installed identity missing")?
+            .clone(),
+    )
+    .context("UI installed identity is not an entity ID")?;
+    let reported_data_dir = coordinator_self
+        .get("data_dir")
+        .and_then(Value::as_str)
+        .context("UI installation path missing")?;
     ensure!(
-        coordinator_health["subject_id"] == json!(subject_id),
+        reported_subject == subject_id && reported_identity == subject_id,
         "coordinator started a different self"
+    );
+    ensure!(
+        Path::new(reported_data_dir) == fixture.data(1),
+        "coordinator UI reports a different installation"
     );
     let paused = fixture.json(1, &["runtime", "status", &boundary.to_string()], None)?;
     ensure!(
@@ -1043,7 +1074,7 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
     fs::write(
         fixture.logs().join("agreement.json"),
         serde_json::to_vec_pretty(
-            &json!({"observations":observed,"certificate":certificate,"paused":paused,"coordinator_health":coordinator_health}),
+            &json!({"observations":observed,"certificate":certificate,"paused":paused,"coordinator_health":coordinator_health,"coordinator_self":coordinator_self}),
         )?,
     )?;
     let first = (0..3)

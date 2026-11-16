@@ -184,9 +184,9 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
     // request deadline. Do not interrupt the surrounding plugin installation.
     let discovered = {
         use std::{future::Future, task::Poll};
-        let mut cancelled = std::pin::pin!(cancel.cancelled());
-        let mut signal = std::pin::pin!(tokio::signal::ctrl_c());
-        let mut discovery = std::pin::pin!(broker.discover_capabilities());
+        let mut cancelled = Box::pin(cancel.cancelled());
+        let mut signal = Box::pin(tokio::signal::ctrl_c());
+        let mut discovery = Box::pin(broker.discover_capabilities());
         let outcome = std::future::poll_fn(|cx| {
             if cancelled.as_mut().poll(cx).is_ready() {
                 return Poll::Ready(Err(anyhow::anyhow!(

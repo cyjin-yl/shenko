@@ -1,0 +1,12 @@
+{
+  "rss_monitor_bytes": 6442450944,
+  "available_memory_reserve_bytes": 3943718912,
+  "free_disk_reserve_bytes": 4294967296,
+  "address_space_hard_bytes": 12884901888,
+  "wall_seconds_per_guest": 180,
+  "cpu_soft_seconds": 150,
+  "file_hard_bytes": 16777216,
+  "monitor_interval_seconds": 0.05,
+  "basis": "min(system MemAvailable, finite visible ancestor max/high minus current); reserve max(1 GiB, one quarter); RSS remainder capped at 6 GiB and rounded down to 64 MiB",
+  "enforcement": "RLIMIT_AS/CPU/file-size are hard per-process limits; RSS and remaining headroom are sampled group/system/cgroup guards, not hard resident-memory enforcement"
+}

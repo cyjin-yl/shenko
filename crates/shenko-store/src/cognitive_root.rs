@@ -140,15 +140,6 @@ impl Store {
         let content_bytes = capture.content.canonical_bytes()?;
         let content_digest = Digest::blake3(&content_bytes);
 
-        // Seal root content in CAS.
-        let sealed = self.cas.seal_object(
-            &content_bytes,
-            "application/json",
-            COGNITIVE_ROOT_NAMESPACE,
-            COGNITIVE_ROOT_CODEC,
-            COGNITIVE_ROOT_CODEC_MAJOR,
-        )?;
-
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -156,18 +147,13 @@ impl Store {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(storage_error)?;
 
-                // Idempotent request check.
-                let existing: Option<i64> = tx
-                    .query_row(
-                        "SELECT root_revision FROM cognitive_root_requests WHERE request_id=?1",
-                        [capture.request_id.to_string()],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .map_err(storage_error)?;
-                if let Some(rev) = existing {
-                    let node = self.read_root_node_tx(&tx, rev as u64)?
-                        .ok_or_else(|| ShenkoError::storage("idempotent request references missing node"))?;
+                if let Some(node) = self.replay_root_request_tx(
+                    &tx,
+                    capture.request_id,
+                    RootRequestKind::Capture,
+                    &content_digest,
+                    None,
+                )? {
                     tx.commit().map_err(storage_error)?;
                     return Ok(node);
                 }
@@ -178,6 +164,14 @@ impl Store {
                 // Fence check.
                 let agent_id = self.require_agent_id_tx(&tx)?;
                 self.verify_root_fence_tx(&tx, &capture.fence, agent_id)?;
+
+                let sealed = self.cas.seal_object(
+                    &content_bytes,
+                    "application/json",
+                    COGNITIVE_ROOT_NAMESPACE,
+                    COGNITIVE_ROOT_CODEC,
+                    COGNITIVE_ROOT_CODEC_MAJOR,
+                )?;
 
                 // Next revision.
                 let next_rev = self.next_root_revision_tx(&tx)?;
@@ -252,18 +246,13 @@ impl Store {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(storage_error)?;
 
-                // Idempotent request check.
-                let existing: Option<i64> = tx
-                    .query_row(
-                        "SELECT root_revision FROM cognitive_root_requests WHERE request_id=?1",
-                        [reinstatement.request_id.to_string()],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .map_err(storage_error)?;
-                if let Some(rev) = existing {
-                    let node = self.read_root_node_tx(&tx, rev as u64)?
-                        .ok_or_else(|| ShenkoError::storage("idempotent request references missing node"))?;
+                if let Some(node) = self.replay_root_request_tx(
+                    &tx,
+                    reinstatement.request_id,
+                    RootRequestKind::Reinstate,
+                    &reinstatement.target.content,
+                    Some(&reinstatement.target),
+                )? {
                     tx.commit().map_err(storage_error)?;
                     return Ok(node);
                 }
@@ -765,10 +754,13 @@ impl Store {
         effects: &[ExternalEffectDisposition],
     ) -> Result<(), ShenkoError> {
         for effect in effects {
-            tx.execute(
-                "INSERT OR IGNORE INTO cognitive_root_effects
+            let admitted = tx.execute(
+                "INSERT INTO cognitive_root_effects
                  (root_revision, effect_id, disposition)
-                 VALUES (?1, ?2, ?3)",
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(root_revision, effect_id) DO UPDATE
+                 SET disposition=excluded.disposition
+                 WHERE cognitive_root_effects.disposition=excluded.disposition",
                 params![
                     root_revision as i64,
                     effect.effect_id.to_string(),
@@ -778,8 +770,57 @@ impl Store {
                 ],
             )
             .map_err(storage_error)?;
+            if admitted == 0 {
+                return Err(ShenkoError::conflict(format!(
+                    "cognitive root effect {} has contradictory dispositions",
+                    effect.effect_id
+                )));
+            }
         }
         Ok(())
+    }
+
+    fn replay_root_request_tx(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        request_id: EntityId,
+        kind: RootRequestKind,
+        content: &Digest,
+        target: Option<&RootRef>,
+    ) -> Result<Option<CognitiveRootNode>, ShenkoError> {
+        let existing: Option<(i64, String, String, Option<String>)> = tx
+            .query_row(
+                "SELECT root_revision, kind, content_digest, target_json
+                 FROM cognitive_root_requests WHERE request_id=?1",
+                [request_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let Some((revision, saved_kind, saved_content, saved_target)) = existing else {
+            return Ok(None);
+        };
+        let saved_target: Option<RootRef> = saved_target
+            .map(|json| serde_json::from_str(&json))
+            .transpose()
+            .map_err(storage_error)?;
+        if saved_kind != kind.name()
+            || saved_content != content.0
+            || saved_target.as_ref() != target
+        {
+            return Err(ShenkoError::conflict(format!(
+                "cognitive root request {request_id} was already admitted with a different kind, content or target"
+            )));
+        }
+        let node = self
+            .read_root_node_tx(tx, revision as u64)?
+            .ok_or_else(|| ShenkoError::storage("idempotent request references missing node"))?;
+        if node.content.digest() != content || node.reinstated_from.as_ref() != target {
+            return Err(ShenkoError::storage(
+                "cognitive root request does not match its recorded node",
+            ));
+        }
+        Ok(Some(node))
     }
 
     fn insert_root_request_tx(

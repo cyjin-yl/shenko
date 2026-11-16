@@ -1,6 +1,6 @@
 # Node-WASIX：真实候选、两次本机失败与 hosted 复现入口
 
-本切片关联 [Issue #19](https://github.com/cyjin-yl/shenko/issues/19)、[具名 REPL 与恢复合同](../../specs/repl.md)。它增加一个可执行的上游 runtime 观察入口，尚未安装 Shenko WASIX 后端，`node-wasm` 与 `bun-wasm` 的可用性保持原事实。**没有成功的 Node cell、checkpoint/reopen 或 hosted 运行结果；不计作 Bun、完整 R1/R2、S1/S2 或 27B 行为验收。**
+本切片关联 [Issue #19](https://github.com/cyjin-yl/shenko/issues/19)、[具名 REPL 与恢复合同](../../specs/repl.md)。它增加一个可执行的上游 runtime 观察入口，尚未安装 Shenko WASIX 后端，`node-wasm` 与 `bun-wasm` 的可用性保持原事实。**该入口提交时没有成功的 Node cell、checkpoint/reopen 或 hosted 运行结果；不计作 Bun、完整 R1/R2、S1/S2 或 27B 行为验收。** 后续 [首次 hosted 运行](../node-wasix-hosted-43916483602/README.md) 已取得具体的 runtime builtin 失败，原始本机记录保持不变。
 
 ## 两次原始观测
 
@@ -31,7 +31,7 @@ Node-WASIX 是第三方 Node/V8 移植，不能表述为官方 Node 发布的 WA
 
 ## 如何执行同一旅程
 
-[工作流](../../../.github/workflows/node-wasix-feasibility.yml) 仅接受手动 `workflow_dispatch` 或一次 `run-node-wasix` PR 标签事件；普通 push、无关标签不会重跑，后来的 opt-in 不取消正在运行的 owned cleanup。当前仅提交入口，没有触发远端。它在 Ubuntu 24.04 hosted runner 运行 [stdlib Python 脚本](../../../scripts/real_node_wasix_journey.py)，无需构建 Node/V8 或 Shenko，也没有使用宿主 Node 执行测量 cell。
+[工作流](../../../.github/workflows/node-wasix-feasibility.yml) 仅接受手动 `workflow_dispatch` 或一次 `run-node-wasix` PR 标签事件；普通 push、无关标签不会重跑，后来的 opt-in 不取消正在运行的 owned cleanup。入口提交自身没有触发远端；随后唯一实际运行另见上面的证据链接。它在 Ubuntu 24.04 hosted runner 运行 [stdlib Python 脚本](../../../scripts/real_node_wasix_journey.py)，无需构建 Node/V8 或 Shenko，也没有使用宿主 Node 执行测量 cell。
 
 脚本先核对实际 checkout SHA、原 driver 和完整首轮输入，再观察系统 MemAvailable、磁盘及当前 cgroup v2 到可见 mount 根的祖先链。没有匹配 mount、祖先被 mount root 隐藏，或非根祖先的实际内存上限/使用量不可读时，明确留下失败。真正的 cgroup 层级根没有 memory limit 文件是 Linux 的正常语义，不能误认为它有一个零额度；依据为 [Linux cgroup v2 memory interface](https://www.kernel.org/doc/html/v6.17/admin-guide/cgroup-v2.html)。观察范围始终只涵盖可见系统与祖先，不声称看到了 namespace 外部限制。
 

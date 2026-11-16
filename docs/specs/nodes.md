@@ -393,6 +393,20 @@ keeps the original E1 plus explicit seal debt; it cannot justify generic
 success. The new nine-window journey is not yet executed on this candidate:
 see [direct native continuation](../development/canonical-native-continuation.md).
 
+The original first paired-T1 E1 can also travel independently of chosen T2.
+The authenticated `NativeEvidencePage` adapter exposes bounded source facts
+and explicit gaps for a named self; registered routes verify Node and origin
+identity. Receiving Store requires its own actual canonical T1 receipt,
+keeps the original source commit/time/fold, and separately commits its local
+application receipt. The version-2 E1 reader supports the first definite or
+Unknown observation; an Unknown case is local and never imports a source
+acknowledgement. `sync evidence --peer` and the existing selected-runtime
+replication tick use this path without granting execution. Missing facts,
+transfer failures and incompatible predecessors remain visible delivery
+debt. The new SSH journey is authored but not yet executed on this candidate;
+scope, bootstrap eligibility and limits are recorded in
+[independent native E1 delivery](../development/canonical-native-e1-delivery.md).
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,

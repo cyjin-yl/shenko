@@ -1,11 +1,10 @@
 //! Bounded owned-process and real OpenSSH support shared by CLI journeys.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    net::TcpStream,
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
@@ -166,25 +165,6 @@ pub fn copy_diagnostics(logs: &Path, destination: &Path) -> Result<()> {
         }
     }
     Ok(())
-}
-
-pub fn health(port: u16) -> Result<Value> {
-    let mut stream =
-        TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200))?;
-    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-    write!(
-        stream,
-        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    )?;
-    let mut response = Vec::new();
-    stream.take(64 * 1024).read_to_end(&mut response)?;
-    let split = response
-        .windows(4)
-        .position(|bytes| bytes == b"\r\n\r\n")
-        .context("health HTTP headers")?;
-    ensure!(response.starts_with(b"HTTP/1.1 200 "), "health HTTP status");
-    Ok(serde_json::from_slice(&response[split + 4..])?)
 }
 
 pub fn file_sha256(path: &Path) -> Result<String> {

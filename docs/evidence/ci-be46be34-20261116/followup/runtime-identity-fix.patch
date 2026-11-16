@@ -1,0 +1,111 @@
+diff --git a/bin/shenko/tests/component_process.rs b/bin/shenko/tests/component_process.rs
+index c91ac417..15eb0e8f 100644
+--- a/bin/shenko/tests/component_process.rs
++++ b/bin/shenko/tests/component_process.rs
+@@ -14,7 +14,7 @@ use anyhow::{Context, Result, ensure};
+ use process_runtime::{
+     OwnedProcess, append_json, copy_diagnostics, file_sha256, write_sshd_config,
+ };
+-use runtime_health::health;
++use runtime_health::{health, http_json};
+ use rusqlite::{Connection, OpenFlags};
+ use serde_json::{Value, json};
+ use shenko_node::{
+@@ -950,10 +950,38 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
+     fixture.start(2, ui_ports[2], None, None)?;
+     fixture.start(1, ui_ports[1], Some(boundary), Some(metadata.port))?;
+     let coordinator_health = fixture.ready(1, ui_ports[1])?;
++    let coordinator_self = http_json(
++        ui_ports[1],
++        "/api/self",
++        Some(&fixture.logs().join("coordinator-self.response")),
++    )?;
++    let reported_subject: EntityId = serde_json::from_value(
++        coordinator_self
++            .get("subject_id")
++            .context("UI subject identity missing")?
++            .clone(),
++    )
++    .context("UI subject identity is not an entity ID")?;
++    let reported_identity: EntityId = serde_json::from_value(
++        coordinator_self
++            .get("identity")
++            .and_then(|identity| identity.get("agent_id"))
++            .context("UI installed identity missing")?
++            .clone(),
++    )
++    .context("UI installed identity is not an entity ID")?;
++    let reported_data_dir = coordinator_self
++        .get("data_dir")
++        .and_then(Value::as_str)
++        .context("UI installation path missing")?;
+     ensure!(
+-        coordinator_health["subject_id"] == json!(subject_id),
++        reported_subject == subject_id && reported_identity == subject_id,
+         "coordinator started a different self"
+     );
++    ensure!(
++        Path::new(reported_data_dir) == fixture.data(1),
++        "coordinator UI reports a different installation"
++    );
+     let paused = fixture.json(1, &["runtime", "status", &boundary.to_string()], None)?;
+     ensure!(
+         paused["state"] == "paused" && paused["boundary_at"].is_object(),
+@@ -1046,7 +1074,7 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
+     fs::write(
+         fixture.logs().join("agreement.json"),
+         serde_json::to_vec_pretty(
+-            &json!({"observations":observed,"certificate":certificate,"paused":paused,"coordinator_health":coordinator_health}),
++            &json!({"observations":observed,"certificate":certificate,"paused":paused,"coordinator_health":coordinator_health,"coordinator_self":coordinator_self}),
+         )?,
+     )?;
+     let first = (0..3)
+diff --git a/bin/shenko/tests/support/runtime_health.rs b/bin/shenko/tests/support/runtime_health.rs
+index 440527bb..2d478dfd 100644
+--- a/bin/shenko/tests/support/runtime_health.rs
++++ b/bin/shenko/tests/support/runtime_health.rs
+@@ -2,26 +2,40 @@
+ use anyhow::{Context, Result, ensure};
+ use serde_json::Value;
+ use std::{
++    fs,
+     io::{Read, Write},
+     net::TcpStream,
++    path::Path,
+     time::Duration,
+ };
+ 
+ pub fn health(port: u16) -> Result<Value> {
++    http_json(port, "/health", None)
++}
++
++pub fn http_json(port: u16, path: &str, response_path: Option<&Path>) -> Result<Value> {
+     let mut stream =
+         TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200))?;
+     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
+     write!(
+         stream,
+-        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
++        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+     )?;
+     let mut response = Vec::new();
+-    stream.take(64 * 1024).read_to_end(&mut response)?;
++    let read = stream.take(64 * 1024).read_to_end(&mut response);
++    if let Some(path) = response_path {
++        fs::write(path, &response)?;
++    }
++    read?;
++    ensure!(
++        response.len() < 64 * 1024,
++        "UI HTTP response exceeded its observation bound"
++    );
+     let split = response
+         .windows(4)
+         .position(|bytes| bytes == b"\r\n\r\n")
+-        .context("health HTTP headers")?;
+-    ensure!(response.starts_with(b"HTTP/1.1 200 "), "health HTTP status");
++        .context("UI HTTP headers")?;
++    ensure!(response.starts_with(b"HTTP/1.1 200 "), "UI HTTP status");
+     Ok(serde_json::from_slice(&response[split + 4..])?)
+ }

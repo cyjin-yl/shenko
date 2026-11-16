@@ -48,6 +48,7 @@
   - `crates/shenko-store/tests/receipt_conflicts.rs` 的真实 Store/SQLite/CAS 回归均已通过：`same_receipt_id_retains_distinct_facts_and_deduplicates_delivery_replay` 覆盖 A 接纳、同 ID 的 B/C 均拒绝且重开后仍可读、不同 delivery commit 的 B 重放无新增提交、metadata 差异和跨 ledger/投递顺序的稳定冲突身份；`legacy_pair_index_migration_keeps_rows_and_deduplicates_normalized_replay` 覆盖旧唯一索引与 pair-only 行迁移、完整行字节/身份不变、旧 B 重放与新增 C、再次重开去重。[X04](specs/durable-state.md#spec-41-4) 与[回执合同](specs/plugins.md#spec-41-7-3)保持不变。
 
 - **协议类型（ID、CommitRef、TaskRecord 等）** — 已接线
+  - 原生首次 E1 的独立传递为部分已接线：`native_evidence.rs` 的 v2 reader 固定原 fold；`native_evidence_delivery.rs` 拥有 source manifest、本地 delivery debt 与原子物化，`bin/shenko/src/native_evidence_sync.rs` 使用实际注册 SSH/CAS 通道。限本安装已实际物化同一 canonical T1 的首次 definite/Unknown，不授予执行许可、不复制源 acknowledgement。新增真实 SSH 旅程待远端执行，见[范围与验证边界](development/canonical-native-e1-delivery.md)。
   - [§41.3](specs/durable-state.md#spec-41-3)
   - docs/requirements/requirements.json（R029）
 
@@ -106,10 +107,11 @@
 
 ## 能力与插件
 
-- **Poppy 公开发现（shenko-compat-poppy）** — 已接线，但必须显式编译 `compat-poppy` 并启用 `compat.poppy` 才向主体提供 `compat.poppy.discover:1`。装配根 `bin/shenko/src/poppy.rs` 复用安装观察、native handler 和持久回执；协议 crate 不依赖 Store 或 Subject。
-  - [Poppy：发现与签名基础](specs/ecosystem-adapters.md#poppy-foundation)
+- **Poppy 身份、账号与 UCP 商务（shenko-compat-poppy）** — 已接线，必须显式编译 `compat-poppy` 并启用 `compat.poppy`。主体接口包括 `compat.poppy.discover:1`、`compat.poppy.account:1`、`compat.poppy.request:1` 和 `compat.poppy.commerce:1`。装配根 `bin/shenko/src/poppy.rs` 及其子模块复用安装观察、native handler 和持久效果回执；协议 crate 不依赖 Store 或 Subject。
+  - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)
   - `shenko compat poppy discover <https-origin>` 是独立的公开诊断命令，不创建主体任务。
-  - 委托 ES256 Session 签名和公钥 metadata/JWKS 生成**仅源码**；商家请求尚不携带这些签名。平台托管、持久凭据、OAuth/DPoP、浏览器 join、UCP 协商、购物与订单接续**未实现**。跟踪 [Issue #297](https://github.com/cyjin-yl/shenko/issues/297)。
+  - 节点身份与加密凭据、CIMD/JWKS/UCP profile 导出、Session 与 HTTP Message Signature、OAuth/DPoP、受所有权约束的浏览器 join、UCP schema 协商和未知 checkout 的只读恢复均有生产执行路径。已 armed 的商务修改不会自动重放。
+  - 实现接线不代表外部验收完成：公开身份与回调服务须实际托管；真实商家授权、支付提供方和 instrument、浏览器账号状态、购买及订单恢复尚无端到端成功证据。跟踪 [Issue #297](https://github.com/cyjin-yl/shenko/issues/297)；具体已执行检查见[后续增量验证记录](evidence/poppy-operational-20261115.md)。
 
 - **Cordis 内核（shenko-kernel：Plugin/Service 生命周期、capability、hooks、effect contract）** — 已接线（`Supervisor` 是运行时装配根）
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
@@ -289,6 +291,8 @@
 | [内核 9](specs/kernel.md#kernel-9) 内核不做判断 | `shenko-awareness-core` 的种子单元；`shenko-subject` 的 `subject_frame`、`idle_perception` | 部分：编译回退文本仍在（`SUBJECT_CONTRACT`、`IDLE_CONTINUATION_PROMPT`、`ROLE_CONTRACT`） |
 
 ## 验证规则
+
+认知根写入的请求身份与外部效应准入由 `shenko-store::Store::{capture_cognitive_root, reinstate_cognitive_root}` 统一持有。同一请求身份只接受原动作、内容和目标；矛盾的效应处置使整个根事务回滚，重复的相同处置仍幂等。`crates/shenko-store/tests/cognitive_root_chain.rs` 的真实 Store/SQLite 重开消费者覆盖这些边界。此证据不代表根的全部 CAS 闭包、家园内容捕获或运行状态恢复已验收。
 
 - 任何 Agent 任务的 prompt 必须显式列出"必读文档"清单
 - Agent 必须完整读取每份文档，不能跳过或假设"已知"

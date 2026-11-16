@@ -1,0 +1,518 @@
+{
+  "schema_version": 1,
+  "kind": "native_e1_source_and_metadata_only",
+  "product_tested": false,
+  "date_utc": "2026-11-16",
+  "source_commit": "862213d9e351f0fc1816553d6802f35be57ab4e5",
+  "source_tree": "aac54099ad0df6f7bdb9b4e2bff987d0eb034928",
+  "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+  "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+  "scope": "Independent first original native E1, definite or Unknown, over the actual authenticated SSH/CLI/CAS adapter, requiring receiver actual canonical paired T1. No T2 choice or new worker/send permission.",
+  "checks_execution": {
+    "cwd": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+    "cargo_environment": {
+      "PATH": "/home/agent/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+      "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0"
+    },
+    "cargo_lock_wrapper": [
+      "flock",
+      "-n",
+      "/tmp/shenko-cargo.lock",
+      "env"
+    ],
+    "cargo_execution": "metadata only; no local test codegen or journey execution",
+    "toolchain": "repository-pinned Rust/Cargo 1.98.1"
+  },
+  "checks": [
+    {
+      "id": "initial_lib_metadata",
+      "argv": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko-node",
+        "-p",
+        "shenko",
+        "--lib"
+      ],
+      "exit_code": 101,
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run."
+      },
+      "stream_mode": "stdout and stderr captured together with > log 2>&1",
+      "streams": [
+        "raw/native-e1-metadata-initial.log.gz"
+      ],
+      "findings": [
+        "E0308: node.local_node_id() yields Option<EntityId>, not EntityId (native_evidence_sync.rs:20).",
+        "E0308: peer_route yields Option<SyncPeer>, not SyncPeer (native_evidence_sync.rs:213)."
+      ],
+      "resolution": "Explicit context-based refusal for missing Node/peer, without expect or a new permit."
+    },
+    {
+      "id": "new_cli_journey_metadata",
+      "argv": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko",
+        "--test",
+        "native_evidence_delivery"
+      ],
+      "exit_code": 0,
+      "cargo_reported_duration": "1m 16s",
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run.",
+        "stage": "Protocol and new journey typechecked before the shared HTTP health helper was moved out of process_runtime. The later exact Rust candidate is checked separately below."
+      },
+      "stream_mode": "stdout and stderr captured together with > log 2>&1",
+      "streams": [
+        "raw/native-e1-journey-metadata.log.gz"
+      ],
+      "findings": [
+        "New dead_code warning: health() in shared process_runtime was not used by this non-HTTP journey."
+      ],
+      "resolution": "Move the unchanged HTTP helper to runtime_health.rs and keep both existing HTTP journeys importing it; no allow, false call or assertion removal."
+    },
+    {
+      "id": "shared_store_journey_metadata",
+      "argv": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip"
+      ],
+      "exit_code": 0,
+      "cargo_reported_duration": "25.79s",
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run.",
+        "stage": "Store and moved canonical helpers match the final candidate; no separate whole-workspace tree was recorded at this earlier point."
+      },
+      "stream_mode": "stdout and stderr captured together with > log 2>&1",
+      "streams": [
+        "raw/native-e1-store-metadata.log.gz"
+      ],
+      "findings": [
+        "Existing Store roundtrip assertions remain in place after fixture extraction; this is compilation, not test execution."
+      ]
+    },
+    {
+      "id": "initial_scoped_clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko-node",
+        "-p",
+        "shenko-types",
+        "--lib",
+        "--test",
+        "native_evidence_delivery",
+        "--test",
+        "component_process",
+        "--test",
+        "ssh_wasi_client",
+        "--test",
+        "store_roundtrip",
+        "--message-format=json",
+        "--",
+        "--force-warn",
+        "clippy::all",
+        "--force-warn",
+        "clippy::unwrap_used",
+        "--force-warn",
+        "clippy::expect_used"
+      ],
+      "exit_code": 0,
+      "cargo_reported_duration": "1m 46s",
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run.",
+        "stage": "After the HTTP helper move, before deleting its now-unused ensure import in process_runtime.rs. No product-source change occurred between this and final scoped Clippy."
+      },
+      "stream_mode": "separate complete Cargo JSON stdout and textual stderr",
+      "stdout": "raw/native-e1-clippy.jsonl.gz",
+      "stderr": "raw/native-e1-clippy.log.gz",
+      "findings": [
+        "Unused ensure import in process_runtime.rs appears for the affected test targets.",
+        "Moved historical fixture unwrap diagnostics remain in the complete all-target output. They are test-only under the existing production-only unwrap/expect ratchet policy."
+      ],
+      "resolution": "Remove only the newly unused import; do not change lint policy or historical test assertions."
+    },
+    {
+      "id": "final_scoped_clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko-node",
+        "-p",
+        "shenko-types",
+        "--lib",
+        "--test",
+        "native_evidence_delivery",
+        "--test",
+        "component_process",
+        "--test",
+        "ssh_wasi_client",
+        "--test",
+        "store_roundtrip",
+        "--message-format=json",
+        "--",
+        "--force-warn",
+        "clippy::all",
+        "--force-warn",
+        "clippy::unwrap_used",
+        "--force-warn",
+        "clippy::expect_used"
+      ],
+      "exit_code": 0,
+      "cargo_reported_duration": "2.92s",
+      "source_binding": {
+        "kind": "exact_final_rust_source",
+        "source_commit": "862213d9e351f0fc1816553d6802f35be57ab4e5",
+        "source_tree": "aac54099ad0df6f7bdb9b4e2bff987d0eb034928",
+        "fact": "No Rust changes occurred after this run and before the commit. It preceded the Git commit, so source identity is bound by the unchanged files rather than a claimed pre-existing HEAD.",
+        "file_hash_manifest": "checked-rust-files.json"
+      },
+      "stream_mode": "separate complete Cargo JSON stdout and textual stderr",
+      "stdout": "raw/native-e1-clippy-final.jsonl.gz",
+      "stderr": "raw/native-e1-clippy-final.log.gz",
+      "findings": [
+        "No diagnostics remain on new/changed Rust lines, excluding test-only unwrap/expect under the existing CI policy.",
+        "This scoped check is not a full workspace base/candidate ratchet run."
+      ]
+    },
+    {
+      "id": "docs_first_helper_move",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 1,
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run."
+      },
+      "stream_mode": "original merged output overwritten by a later run at the same path",
+      "streams": [],
+      "raw_stream_available": false,
+      "diagnostics_from_tool_return": [
+        "Trace crates/shenko-store/tests/store_roundtrip.rs#committed_candidate_with: missing or unsupported symbol 'committed_candidate_with'",
+        "Trace crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_docket: missing or unsupported symbol 'recorded_result_with_docket'"
+      ],
+      "limitation": "These are the observed error strings from the tool return, not a reconstructed original full stdout/stderr. No replay was performed to manufacture an old log."
+    },
+    {
+      "id": "docs_intermediate_trace_move",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 1,
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run."
+      },
+      "stream_mode": "original merged output overwritten by a later run at the same path",
+      "streams": [],
+      "raw_stream_available": false,
+      "diagnostics_from_tool_return": [
+        "Immutable original citation migration changed",
+        "Current trace ownership drops or invents a citation site",
+        "Trace citation relocation crates/shenko-store/tests/store_roundtrip.rs: citation needs explicit current locations",
+        "Unowned/duplicate current trace citation: crates/shenko-store/tests/store_roundtrip.rs"
+      ],
+      "resolution": "Restore the original citation_migration values and update only current symbol owners; keep the immutable digest unchanged.",
+      "limitation": "Only the tool-returned diagnostic list survives; the full original output was overwritten, and that evidence gap remains explicit."
+    },
+    {
+      "id": "docs_corrected_intermediate",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 0,
+      "source_binding": {
+        "kind": "uncommitted_intermediate",
+        "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+        "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+        "exact_git_tree": null,
+        "limitation": "No original intermediate Git tree was checkpointed. Compiler paths and diagnostics are retained; the final commit must not be presented as the source of this earlier run.",
+        "stage": "After restoring immutable provenance and relocating current owners; before the final source commit."
+      },
+      "stream_mode": "stdout and stderr captured together with > log 2>&1",
+      "streams": [
+        "raw/native-e1-docs.log.gz"
+      ],
+      "errors": []
+    },
+    {
+      "id": "docs_final_committed_source",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 0,
+      "source_binding": {
+        "kind": "checked_committed_source",
+        "source_commit": "862213d9e351f0fc1816553d6802f35be57ab4e5",
+        "source_tree": "aac54099ad0df6f7bdb9b4e2bff987d0eb034928"
+      },
+      "stream_mode": "stdout and stderr captured together with > log 2>&1",
+      "streams": [
+        "raw/native-e1-docs-final.log.gz"
+      ],
+      "errors": []
+    }
+  ],
+  "authored_journey": {
+    "path": "bin/shenko/tests/native_evidence_delivery.rs",
+    "symbol": "original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution",
+    "executed": false,
+    "physical_effect_assertion": "The two fixture file appends must remain two; assertion authored, not observed in this archive.",
+    "control_grants": "existing retained-value Store fixtures, not real quorum/process-election evidence",
+    "windows": [
+      {
+        "id": 1,
+        "name": "first_definite",
+        "authored_assertion": "Preserve original receipt/fold across distinct ledgers without chosen T2.",
+        "executed": false
+      },
+      {
+        "id": 2,
+        "name": "first_unknown",
+        "authored_assertion": "Create a local Unknown case; do not copy the source S1 acknowledgement.",
+        "executed": false
+      },
+      {
+        "id": 3,
+        "name": "interrupted_authenticated_chunk_exchange",
+        "authored_assertion": "After authenticated SSH connection, the launcher exits 75 before execing the CLI for one read_control_object request; pending survives and a new CLI process retries. This is not a reply-loss-after-chunk-production observation.",
+        "executed": false
+      },
+      {
+        "id": 4,
+        "name": "missing_actual_t1_then_recovery",
+        "authored_assertion": "Keep Blocked before receiver actual T1, then apply the same original fact after recovering that T1.",
+        "executed": false
+      },
+      {
+        "id": 5,
+        "name": "parked_archive",
+        "authored_assertion": "Copied applied markers and parked archive tasks cannot establish a receiver application receipt or execution authority.",
+        "executed": false
+      },
+      {
+        "id": 6,
+        "name": "bounded_page_cursor",
+        "authored_assertion": "One-item pages preserve fixed upper watermark and exact continuation without silently skipping facts.",
+        "executed": false
+      },
+      {
+        "id": 7,
+        "name": "unsupported_codec",
+        "authored_assertion": "Reject the original descriptor with unsupported codec; no generic admission fallback.",
+        "executed": false
+      },
+      {
+        "id": 8,
+        "name": "replay_after_later_local_observation",
+        "authored_assertion": "A repeated first observation does not rewind a later local fold/case or allocate another commit/effect.",
+        "executed": false
+      },
+      {
+        "id": 9,
+        "name": "missing_source_derived_seal",
+        "authored_assertion": "Missing original T1 proof leaves original E1 committed with seal debt, explicit source gap and receiver debt.",
+        "executed": false
+      }
+    ]
+  },
+  "independent_review": {
+    "reviewer": "component_coordinator",
+    "mode": "read-only source review; no build or execution",
+    "reviewed_commit": "862213d9e351f0fc1816553d6802f35be57ab4e5",
+    "confirmed_blockers": [],
+    "scope": [
+      "first E1 source, original receipt and codec/fold closure",
+      "fixed watermark/cursor/budgets and gaps",
+      "receiver actual local S1/claim/paired-T1 receipts",
+      "Unknown and replay transaction/debt boundaries",
+      "SSH same-self, typed NotEligible and queue before download",
+      "no fresh worker/send/task/result permission"
+    ],
+    "wording_correction": "The chunk fault precedes remote CLI exec after SSH authentication; documentation now calls it an interrupted exchange, not physical reply loss."
+  },
+  "gc_boundary": {
+    "runtime_reclamation_consumer": "none found in current runtime/CLI",
+    "full_registry": "A complete namespace declaration including commit-authority lacks a complete Store producer, so adoption/plan refuses CAS_ROOT_NAMESPACE_UNCOVERED.",
+    "omitted_namespace": "GC does not discover omissions; a tool-only declaration for a mixed Store CAS violates the complete-declaration precondition and can delete unlisted facts.",
+    "not_implemented": [
+      "complete Store root producer and shared-CAS assembly",
+      "root-revision or equivalent Store exclusion during reclamation"
+    ],
+    "permanent_pins_added": false,
+    "gc_acceptance_claimed": false,
+    "audit_source_commit": "4987d098ec981bb9003a5d6a0c12cf69c2892849",
+    "audit_worktree": "/workspace/scratch/faaa3ccca531/shenko",
+    "audit_source_scope": "The separately inspected integration source includes PR307 ToolArtifactRoots, absent from the E1 branch base. Neither that producer nor the older home/COW/WASM producers covers Store roots; no runtime CasGc consumer was found in either source. This read-only audit is not a merged-source runtime test."
+  },
+  "evidence_gaps": [
+    "Two earlier docs failure runs reused and overwrote the same output path. Their observed errors are retained above, but their complete original stdout/stderr cannot be recovered from these files.",
+    "Intermediate uncommitted source trees were not checkpointed. Their compiler outputs are retained without attributing them to the final commit.",
+    "No actual SSH E1 journey or full remote workspace/ratchet result exists for this source yet."
+  ],
+  "out_of_scope": [
+    "multiple operations",
+    "ordered multiple-source-E1 continuation",
+    "ordinary-child lifecycle expansion",
+    "model/quota",
+    "publication",
+    "new follower background worker",
+    "Store-aware reclaimable GC"
+  ],
+  "files": {
+    "raw/native-e1-metadata-initial.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-metadata-initial.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 8312,
+      "sha256": "4558308288e514c58ac6e53a4a887b17b9f47c36c44eccb971c3d5eb26564812",
+      "uncompressed_bytes": 41125,
+      "uncompressed_sha256": "b5f045d4df9d7d741e85f85c155261a5003066c1b0b6e1693f7b901fb1da39fe",
+      "source_mtime_ns": 1794846550708186924
+    },
+    "raw/native-e1-journey-metadata.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-journey-metadata.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 7922,
+      "sha256": "0e35ccf929e7de8a74da80dca4740778eb50ee3928d6986f5a1b110e9d58531f",
+      "uncompressed_bytes": 39405,
+      "uncompressed_sha256": "ed469d63f6d7b5bb4e0655feaa5eae007b525a4af14e0e6a3c813812e6daee2d",
+      "source_mtime_ns": 1794848401021886334
+    },
+    "raw/native-e1-store-metadata.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-store-metadata.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 2180,
+      "sha256": "bac4db8a803c17a0202912726478476c1aad92f338cbe5950204378571e9df84",
+      "uncompressed_bytes": 7360,
+      "uncompressed_sha256": "606b3162a6bcf40567e8512f80a6e1e07d4b84e0f956123e4910bb99d16d1c63",
+      "source_mtime_ns": 1794848447361621048
+    },
+    "raw/native-e1-clippy.jsonl.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-clippy.jsonl",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 247379,
+      "sha256": "663ce9e3bd14dc5967d283a222a098f0daebd7d2cf2617ebd7aa5f38839dd467",
+      "uncompressed_bytes": 3331677,
+      "uncompressed_sha256": "354f138568c668ab5675691d6f12b4802edbb3d3a7d7075a975569f488aab7b7",
+      "source_mtime_ns": 1794848663636420495
+    },
+    "raw/native-e1-clippy.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-clippy.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 470,
+      "sha256": "1b21b09e9501ae7dfab1d03c5bf9d176af1af07cefa7eb0c9a1455dba75fef37",
+      "uncompressed_bytes": 3618,
+      "uncompressed_sha256": "54351273569760b96c52596101555ccd7891f89d84f2d88ba3b3f9b6c4fb3d4f",
+      "source_mtime_ns": 1794848663640420472
+    },
+    "raw/native-e1-clippy-final.jsonl.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-clippy-final.jsonl",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 246677,
+      "sha256": "f54a1e5d924e6dfad84198b9acb5ef0179b2ec00ecc2ddbd947658bfab7bac79",
+      "uncompressed_bytes": 3325890,
+      "uncompressed_sha256": "2ac2ac27c24fdd92e04635dba43e186a66dffd05dbd4700d63a67921d6600fc2",
+      "source_mtime_ns": 1794848712692145625
+    },
+    "raw/native-e1-clippy-final.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-clippy-final.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 152,
+      "sha256": "ad780a2641c2a33aa4693298beab142cc19e0d158f1a3f130346e2c1a4cd3d7f",
+      "uncompressed_bytes": 158,
+      "uncompressed_sha256": "eca414c6e23c6f010c3d00add14cee13a4a8b096d84d4b2d604cc78f6794a360",
+      "source_mtime_ns": 1794848712692145625
+    },
+    "raw/native-e1-docs.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-docs.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 283,
+      "sha256": "52c7703f0b29912bcadc31e6daf47cb7a04393952662f0fee60a7e022fe6bdba",
+      "uncompressed_bytes": 497,
+      "uncompressed_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "source_mtime_ns": 1794848416897798410
+    },
+    "raw/native-e1-docs-final.log.gz": {
+      "source_path": "/workspace/scratch/faaa3ccca531/native-e1-docs-final.log",
+      "source_kind": "complete original captured command stream",
+      "transformation": "lossless gzip, mtime=0; no filtering or rewriting",
+      "bytes": 283,
+      "sha256": "52c7703f0b29912bcadc31e6daf47cb7a04393952662f0fee60a7e022fe6bdba",
+      "uncompressed_bytes": 497,
+      "uncompressed_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "source_mtime_ns": 1794848847575378782
+    }
+  }
+}

@@ -7,6 +7,12 @@ use shenko_types::store::WriteBatch;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[path = "support/canonical_native.rs"]
+mod canonical_native;
+use canonical_native::{CanonicalGuard, NativeT2Authority, NativeT2AuthorityState,
+    initialize_subject_in_with_route, recorded_result_with_docket, committed_candidate_with, draft_dispatch_operation};
+
+
 fn tmp_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "shenko-test-{}",
@@ -89,119 +95,6 @@ fn initialize_subject_in(store: &Store, bootstrap_event: &[u8]) -> shenko_types:
     initialize_subject_in_with_route(store, bootstrap_event, None).unwrap()
 }
 
-fn initialize_subject_in_with_route(
-    store: &Store,
-    bootstrap_event: &[u8],
-    route_dir: Option<&std::path::Path>,
-) -> Result<shenko_types::ids::EntityId> {
-    use shenko_types::activation::{ActivationOrigin, ActivationSelector, RouteAuthority};
-    use shenko_types::commit::CommitRef;
-    use shenko_types::ids::*;
-    use shenko_types::object::Digest;
-    use shenko_types::subject::{
-        GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
-    };
-
-    let agent_id = EntityId::new();
-    let branch_id = BranchId::new();
-    let genesis_id = EntityId::new();
-    let bootstrap_id = EntityId::new();
-    let launch_id = EntityId::new();
-    let first_step_id = EntityId::new();
-    let ledger_id = store.ledger.ledger_id();
-
-    let dummy_ref = store
-        .cas
-        .seal_object(bootstrap_event, "application/json", "test", "raw", 1)?
-        .object;
-    let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
-
-    let genesis = SubjectGenesis {
-        genesis_id,
-        subject_id: agent_id,
-        bootstrap_id,
-        launch_id,
-        seed_manifest_ref: dummy_ref.clone(),
-        initial_profile_ref: dummy_ref.clone(),
-        home_manifest_ref: dummy_ref.clone(),
-        bootstrap_event_ref: dummy_ref.clone(),
-        created_commit: genesis_commit,
-    };
-
-    let head = SubjectBranchHead { branch_origin: None,
-        agent_id,
-        branch_id: branch_id.clone(),
-        subject_root_task_id: EntityId::new(),
-        controller_epoch: ControllerEpoch(1),
-        software_generation: RuntimeGeneration::default(),
-        genesis_ref: GenesisRef {
-            ledger_id,
-            genesis_id,
-        },
-        committed_step_no: 0,
-        committed_step_id: None,
-        committed_at: genesis_commit,
-        next_step_id: first_step_id,
-        mode: SubjectMode::Active,
-        mode_reason_ref: None,
-        record_revision: RecordRevision(0),
-    };
-
-    let first_step = SubjectStep {
-        step_id: first_step_id,
-        branch_id: branch_id.clone(),
-        step_no: 1,
-        expected_parent_commit: genesis_commit,
-        controller_epoch: ControllerEpoch(1),
-        software_generation: RuntimeGeneration::default(),
-        state: SubjectStepState::Planned,
-        input_plan_ref: None,
-        context_revision: None,
-        active_request_id: None,
-        active_attempt_id: None,
-        model_result_ref: None,
-        model_outcome_ref: None,
-        decision_ref: None,
-        commit_ref: None,
-        retry_reason_ref: None,
-        record_revision: RecordRevision(0),
-        created_by_step_id: None,
-    };
-
-    let selector = if let Some(dir) = route_dir {
-        let artifact = dir.join("route-fixture-artifact");
-        let artifact_bytes = b"context metadata route fixture; never executed";
-        std::fs::write(&artifact, artifact_bytes)?;
-        let route = RouteAuthority {
-            schema_version: RouteAuthority::SCHEMA_VERSION,
-            agent_id, generation: head.software_generation.clone(), active_epoch: 1,
-            selector_revision: 0, data_dir: dir.to_string_lossy().into_owned(),
-            slot_dir: dir.to_string_lossy().into_owned(),
-            artifact_path: artifact.to_string_lossy().into_owned(),
-            artifact_digest: Digest::blake3(artifact_bytes),
-            launch_command: Vec::new(), primary_claim: None, activation_id: None,
-        };
-        let route_ref = store.cas.seal_object(&serde_json::to_vec(&route)?,
-            "application/json", "activation", "route-authority", 1)?.object;
-        Some(ActivationSelector {
-            agent_id, selector_revision: 0, active_epoch: 1,
-            generation: head.software_generation.clone(), state_ref: dummy_ref.clone(),
-            origin: ActivationOrigin::Genesis { genesis_ref: head.genesis_ref.clone() },
-            route_authority_ref: route_ref,
-        })
-    } else { None };
-    // Initialize genesis and its optional real selector in one transaction.
-    let root_task = shenko_types::task::TaskRecord::subject_root(
-        head.subject_root_task_id,
-        agent_id,
-        dummy_ref,
-        genesis_commit,
-    );
-    store.initialize_genesis_with(&genesis, &head, &first_step, &root_task,
-        selector.as_ref().map(|selector| selector as &dyn shenko_store::GenesisExtension))?;
-
-    Ok(agent_id)
-}
 
 #[test]
 fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() -> Result<()> {
@@ -498,166 +391,12 @@ fn recorded_result_with_wait(
     recorded_result_with_docket(store, head, step, semantic_wait, &[])
 }
 
-/// The frozen S0 input of one step, including the reconciliation docket the
-/// model was actually shown.
-///
-/// A docket makes the plan schema 13; without one the plan stays schema 12,
-/// so existing fixtures keep their exact sealed bytes. S1 only accepts an
-/// acknowledgement for a case carried in THIS docket.
-fn recorded_result_with_docket(
-    store: &Arc<Store>,
-    head: &shenko_types::subject::SubjectBranchHead,
-    mut step: shenko_types::subject::SubjectStep,
-    semantic_wait: Option<shenko_types::subject::SemanticWait>,
-    reconciliation_docket: &[serde_json::Value],
-) -> Result<shenko_types::subject::SubjectStep> {
-    use shenko_types::{ids::*, subject::*};
-    let initial_revision = step.record_revision.0;
-    let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
-        shenko_context_policy::StoreWindowLog::new(Arc::clone(store), EntityId(head.branch_id.0)),
-    ));
-    let profile = shenko_types::object::Digest::blake3(b"store-roundtrip-profile");
-    ledger.rebind_model(1, &profile.0).unwrap();
-    let window = ledger.current().unwrap();
-    let staged = store.stage_subject_inputs(head, &step, &[])?;
-    let input_raw_event_ids: Vec<_> = staged.iter().map(|record| record.event_id).collect();
-    let events = staged.iter().map(|record| {
-        serde_json::from_str::<serde_json::Value>(&record.data)
-            .map(|data| data["inbox_event"].clone())
-    }).collect::<serde_json::Result<Vec<_>>>()?;
-    let plan_schema = if reconciliation_docket.is_empty() { 12 } else { 13 };
-    let plan = serde_json::json!({
-        "schema_version":plan_schema, "reconciliation_docket":reconciliation_docket,
-        "step_id":step.step_id, "step_no":step.step_no, "events":events, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
-        "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
-        "identity_provider_revision":"shenko.identity/default@1",
-        "context":{"source":{"scope_id":EntityId(head.branch_id.0),
-            "source_commit_seq":store.current_commit_seq().unwrap(),
-            "leaf_seq":store.session_leaf_seq(EntityId(head.branch_id.0)).unwrap(),
-            "input_raw_event_ids":input_raw_event_ids, "window_id":window.id,
-            "window_generation":window.generation, "model_generation":1},
-        "profile_digest":profile,
-        "estimated_input_tokens":null, "budget_input_tokens":null,
-        "trigger_budget_input_tokens":null,
-        "budget_provenance":"store fixture without measured current input",
-        "reserved_output_tokens":4096, "unfinished_call_ids":[],
-        "capabilities":null, "observed_input_tokens":null,
-        "token_counter":"heuristic:cjk-1-other-4@1; not a provider tokenizer",
-        "policy_contract":shenko_context_policy::CONTRACT_VERSION,
-        "selection":{"outcome":"unavailable","reason":"store_fixture_without_model_capabilities"},
-        },
-        "payload":{"system_prompt":"store recovery fixture", "messages":[],
-            "max_tokens":4096, "tools":[]},
-    });
-    step.state = SubjectStepState::Preparing;
-    step.record_revision = RecordRevision(initial_revision + 1);
-    step.input_plan_ref = Some(store.cas.seal_object(
-        &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", plan_schema).unwrap().object);
-    store.upsert_step(&step, head, RecordRevision(initial_revision)).unwrap();
-    step.state = SubjectStepState::AwaitingModel;
-    step.record_revision = RecordRevision(initial_revision + 2);
-    step.active_request_id = Some(EntityId::new());
-    store.upsert_step(&step, head, RecordRevision(initial_revision + 1)).unwrap();
-    step.state = SubjectStepState::ResultRecorded;
-    step.record_revision = RecordRevision(initial_revision + 3);
-    step.model_result_ref = Some(
-        store
-            .cas
-            .seal_object("继续先前关注".as_bytes(), "text/plain", "test", "raw", 1)
-            .unwrap()
-            .object,
-    );
-    step.model_outcome_ref = Some(
-        store
-            .cas
-            .seal_object(
-                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 2,
-                    request_id: step.active_request_id.unwrap(),
-                    result_ref: step.model_result_ref.clone().unwrap(),
-                    stop_reason: "end_turn".into(),
-                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
-                    usage: None,
-                })
-                .unwrap(),
-                "application/json",
-                "model_outcomes",
-                "SubjectModelOutcome",
-                2,
-            )
-            .unwrap()
-            .object,
-    );
-    store.upsert_step(&step, head, RecordRevision(initial_revision + 2)).unwrap();
-    Ok(step)
-}
-
 fn committed_candidate(
     store: &Store,
     step: shenko_types::subject::SubjectStep,
     next: shenko_types::ids::EntityId,
 ) -> shenko_types::subject::SubjectStep {
     committed_candidate_with(store, step, next, vec![])
-}
-
-/// A committed S1 candidate that also authored the given outbox intents, the
-/// way a real subject step does.
-fn committed_candidate_with(
-    store: &Store,
-    mut step: shenko_types::subject::SubjectStep,
-    next: shenko_types::ids::EntityId,
-    publications: Vec<shenko_types::subject::PublicationIntent>,
-) -> shenko_types::subject::SubjectStep {
-    use shenko_types::{ids::*, subject::*};
-    let decision = StepDecision {
-        schema_version: 8,
-        output: shenko_types::output::ParsedOutput {
-            schema_version: 5,
-            step_id: step.step_id,
-            raw_ref: step.model_result_ref.clone().unwrap(),
-            text: "继续先前关注".into(),
-            controls: vec![],
-        },
-        identity_intent: None,
-        step_id: step.step_id,
-        input_plan_ref: step.input_plan_ref.clone().unwrap(),
-        model_result_ref: step.model_result_ref.clone(),
-        applied_steering_refs: vec![],
-        event_dispositions: vec![EventDisposition {
-            event_id: step.step_id,
-            disposition: Disposition::Acknowledged,
-            reason: None,
-            priority: None,
-            review_after: None,
-        }],
-        delegated_task_intents: vec![],
-        child_dialogue_intents: vec![],
-        memory_intents: vec![],
-        policy_intents: vec![],
-        publication_intents: publications,
-        pending_obligations: vec![],
-        attention_policy: None,
-        evidence_refs: vec![],
-        unknown_acknowledgements: vec![],
-        successor_step_id: next,
-    };
-    step.decision_ref = Some(
-        store
-            .cas
-            .seal_object(
-                &serde_json::to_vec(&decision).unwrap(),
-                "application/json",
-                "test",
-                "StepDecision",
-                8,
-            )
-            .unwrap()
-            .object,
-    );
-    step.state = SubjectStepState::Committed;
-    step.record_revision = RecordRevision(step.record_revision.0 + 1);
-    step
 }
 
 /// Attach one semantic wait change to a committed candidate, exactly as the
@@ -947,6 +686,143 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() -> Result<()> {
     }
     assert!(settled.iter().any(|item| matches!(&item.kind,
         ItemKind::ToolResult { call_id, .. } if *call_id == intent_id.to_string())));
+    Ok(())
+}
+
+/// One unusable subject memory intent does not wedge the whole batch.
+///
+/// The subject's memory settler owns the `save` operation. A ready intent
+/// that names another operation (the shape a legacy database carries, or
+/// one written before the commit-time block) is isolated with an honest
+/// outcome, while the subject's other memory intents still settle.
+#[test]
+fn one_unusable_subject_memory_intent_does_not_wedge_the_batch() -> Result<()> {
+    use shenko_types::{ids::*, subject::*};
+    let (dir, store, agent) = initialized_subject();
+    let (head, planned) = store.load_subject(agent).unwrap();
+    let result = recorded_result(&store, &head, planned)?;
+    let next = EntityId::new();
+    let mut step = committed_candidate(&store, result, next);
+    let mut decision: StepDecision = serde_json::from_slice(
+        &store.cas.read_object(&step.decision_ref.as_ref().unwrap().digest).unwrap(),
+    ).unwrap();
+    let intent_id = EntityId::new();
+    let content = store.cas.seal_object(b"remember the actual receipt", "text/plain",
+        "memory", "text", 1).unwrap().object;
+    decision.memory_intents = vec![MemoryIntent {
+        intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
+    }];
+    step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
+        "application/json", "decisions", "StepDecision", 8).unwrap().object);
+    store.commit_step_and_advance_head(&step, &head, next).unwrap();
+
+    // A ready subject memory intent that names an operation the subject's
+    // settler does not own, with the library-side row beside it. It is
+    // written directly so it sorts BEFORE the freshly committed intent:
+    // the batch must meet the unusable intent first and still settle the
+    // rest.
+    let unusable = EntityId::new();
+    let malformed = EntityId::new();
+    let missing = EntityId::new();
+    let terminal = EntityId::new();
+    let payload = serde_json::to_string(&MemoryIntent {
+        intent_id: unusable, kind: MemoryIntentKind::Correct, scope: "subject".into(), content_ref: None,
+    })?;
+    let decision_ref = serde_json::to_string(step.decision_ref.as_ref().unwrap())?;
+    let seq = store.current_commit_seq().unwrap() as i64;
+    {
+        let connection = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,owner,revision,created_seq,updated_seq,result_ref)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1',?4,?5,'ready',NULL,0,0,?6,NULL)",
+            rusqlite::params![unusable.to_string(), step.step_id.to_string(), agent.to_string(),
+                payload, decision_ref, seq],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO memory_intents
+                (intent_id,agent_id,kind,knowledge_kind,scope,content,content_ref,entry_id,state,created_at_ms,updated_at_ms)
+             VALUES(?1,?2,'save','note','subject','',NULL,?1,'accepted',?3,?3)",
+            rusqlite::params![unusable.to_string(), agent.to_string(), seq],
+        ).unwrap();
+        // A syntactically valid JSON value with no memory contract must be
+        // isolated too, while retaining the payload for the normal reader.
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,revision,created_seq,updated_seq)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1','{}',?4,'ready',0,0,?5)",
+            rusqlite::params![malformed.to_string(), step.step_id.to_string(), agent.to_string(), decision_ref, seq],
+        ).unwrap();
+        // An absent memory row must not disappear behind a JOIN filter.
+        let missing_payload = serde_json::to_string(&MemoryIntent {
+            intent_id: missing, kind: MemoryIntentKind::Save, scope: "subject".into(),
+            content_ref: decision.memory_intents[0].content_ref.clone(),
+        })?;
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,revision,created_seq,updated_seq)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1',?4,?5,'ready',0,0,?6)",
+            rusqlite::params![missing.to_string(), step.step_id.to_string(), agent.to_string(), missing_payload, decision_ref, seq],
+        ).unwrap();
+        let terminal_payload = serde_json::to_string(&MemoryIntent {
+            intent_id: terminal, kind: MemoryIntentKind::Save, scope: "subject".into(),
+            content_ref: decision.memory_intents[0].content_ref.clone(),
+        })?;
+        connection.execute(
+            "INSERT INTO subject_intents
+                (intent_id,step_id,agent_id,kind,contract,payload,decision_ref,state,revision,created_seq,updated_seq)
+             VALUES(?1,?2,?3,'memory','shenko.memory/sqlite-save/1',?4,?5,'ready',0,0,?6)",
+            rusqlite::params![terminal.to_string(), step.step_id.to_string(), agent.to_string(), terminal_payload, decision_ref, seq],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO memory_intents
+                (intent_id,agent_id,kind,knowledge_kind,scope,content,entry_id,state,reason,created_at_ms,updated_at_ms)
+             VALUES(?1,?2,'save','note','subject','retained terminal input',?1,'failed','original failure',?3,?3)",
+            rusqlite::params![terminal.to_string(), agent.to_string(), seq],
+        ).unwrap();
+    }
+
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(store.settle_subject_memory().unwrap(), 1,
+        "the usable intent settles even though the batch holds an unusable one");
+
+    // The usable intent really settled: it owns its entry.
+    let entry = store.memory_entry(intent_id).unwrap()
+        .expect("the settled intent owns the entry it produced");
+    assert_eq!(entry.content, "remember the actual receipt");
+    let committed = store.committed_intents(Some("memory"), None, 10).unwrap();
+    let settled = committed.iter().find(|intent| intent.intent_id == intent_id).unwrap();
+    assert_eq!(settled.state, "settled");
+
+    // The unusable intent is isolated with an honest outcome: it is not
+    // ready any more, it says which operation the settler owns, and its
+    // library row is failed instead of accepted forever.
+    let isolated = committed.iter().find(|intent| intent.intent_id == unusable).unwrap();
+    assert_eq!(isolated.state, "blocked");
+    assert!(isolated.result_ref.as_deref().unwrap_or_default().contains("save"),
+        "the isolated intent says what the settler owns: {:?}", isolated.result_ref);
+    assert_eq!(store.memory_intent_state(unusable).unwrap().as_deref(), Some("failed"));
+    assert_eq!(store.committed_intent(malformed)?.unwrap().state, "blocked");
+    assert_eq!(store.committed_intent(malformed)?.unwrap().payload, serde_json::json!({}));
+    assert!(store.committed_intent(missing)?.unwrap().result_ref.unwrap().contains("request binding"));
+    assert!(store.memory_intent(missing)?.is_none());
+    let retained = store.memory_intent(terminal)?.unwrap().record;
+    assert_eq!(retained.state, "failed");
+    assert_eq!(retained.reason.as_deref(), Some("original failure"));
+    assert_eq!(retained.content, "retained terminal input");
+    assert!(store.memory_entry(unusable)?.is_none());
+    assert!(store.memory_entry(malformed)?.is_none());
+    assert!(store.memory_entry(terminal)?.is_none());
+
+    // The batch is not wedged: the next pass has nothing left to settle.
+    assert_eq!(store.settle_subject_memory().unwrap(), 0);
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert_eq!(reopened.committed_intent(unusable)?.unwrap().state, "blocked");
+    assert_eq!(reopened.committed_intent(missing)?.unwrap().state, "blocked");
+    assert_eq!(reopened.memory_intent_state(intent_id)?.as_deref(), Some("committed"));
+    let history = reopened.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?;
+    assert!(history.iter().any(|row| row.data.contains(&unusable.to_string()) && row.data.contains("failed")));
     Ok(())
 }
 
@@ -1406,50 +1282,6 @@ fn arm_dispatch_operation(
     (operation.operation_id, attempt.attempt_id)
 }
 
-fn draft_dispatch_operation(
-    store: &Store, invocation: &shenko_types::task::TaskInvocation, key: &str,
-    operation_id: shenko_types::ids::EntityId,
-) -> Result<(shenko_types::task::TaskInvocation, shenko_types::operation::OperationRecord, shenko_types::operation::AttemptRecord)> {
-    use shenko_types::{ids::*, object::*, operation::*};
-    let task = store.external_task(invocation.task_id)?;
-    let mut current = invocation.clone();
-    current.record_revision = task.record_revision;
-    let object = task.input_ref;
-    let reader = VersionRef {
-        artifact: ArtifactRef { digest: object.digest.clone(), locator: object.locator.clone() },
-        symbol: "dispatch-probe".into(), schema: object.codec.clone(),
-    };
-    let operation = OperationRecord {
-        record_schema_version: 1, operation_id, record_revision: RecordRevision(0),
-        task_id: task.task_id, logical_key: key.into(), operation_name: "dispatch.probe".into(),
-        input_schema_version: 1, output_schema_version: 1,
-        final_input_ref: object.clone(), input_digest: object.digest.clone(),
-        contract_ref: OperationContractRef {
-            plugin_id: task.implementation_ref.plugin_id,
-            artifact_digest: object.digest.clone(), contract_digest: object.digest.clone(),
-            receipt_reader_ref: reader.clone(),
-        },
-        resource_bindings_ref: object.clone(),
-        authority_ref: AuthorityRef {
-            delegation_id: task.task_id, delegation_revision: task.record_revision,
-            decision_ref: task.task_id,
-        },
-        acceptance_predicate_ref: object.clone(), retry_contract_ref: object,
-        checkpoint_scope_ref: None, state: OperationState::InFlight, outcome: None,
-        outcome_conflict: false, effect_status: EffectStatus::Unknown, retry_of: None,
-        compensates: None, possible_duplicate_of: vec![], prepared_commit: task.updated_commit,
-        evidence_through: None,
-    };
-    let attempt = AttemptRecord {
-        record_schema_version: 1, attempt_id: EntityId::new(), operation_id: operation.operation_id,
-        attempt_no: 1, invocation_id: current.invocation_id, worker_id: current.worker_id,
-        node_id: current.node_id, epoch: current.epoch, implementation_ref: reader,
-        dispatch_stage: AttemptDispatchStage::Armed, armed_commit: task.updated_commit,
-        provider_handle: None, provider_idempotency: None, transport_ref: None,
-        started_at: None, last_observed_at: None, final_receipt_id: None,
-    };
-    Ok((current, operation, attempt))
-}
 
 #[test]
 fn native_dispatch_is_once_per_attempt_across_steps_cancellation_and_reopen() {
@@ -2703,10 +2535,7 @@ struct CanonicalAuthority {
     chosen: Arc<parking_lot::Mutex<Option<shenko_types::authority::CommitAuthorityGrant>>>,
     lose_reply: bool,
 }
-struct CanonicalGuard(Option<shenko_types::authority::CommitAuthorityStamp>);
-impl shenko_types::authority::CommitAuthorityGuard for CanonicalGuard {
-    fn stamp(&self) -> Option<&shenko_types::authority::CommitAuthorityStamp> { self.0.as_ref() }
-}
+
 impl shenko_types::authority::CommitAuthorityProvider for CanonicalAuthority {
     fn source_id(&self) -> &str { &self.source }
     fn prepare(&self, admission: &shenko_types::authority::CommitAdmission)
@@ -2871,64 +2700,6 @@ fn canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receip
     Ok(())
 }
 
-#[derive(Default)]
-struct NativeT2AuthorityState {
-    grants: std::collections::BTreeMap<String, shenko_types::authority::CommitAuthorityGrant>,
-    last: String,
-    lose_reply: bool,
-    fail_before_choose: bool,
-}
-
-struct NativeT2Authority {
-    source: &'static str,
-    stamp: Option<shenko_types::authority::CommitAuthorityStamp>,
-    state: Arc<parking_lot::Mutex<NativeT2AuthorityState>>,
-}
-
-impl shenko_types::authority::CommitAuthorityProvider for NativeT2Authority {
-    fn source_id(&self) -> &str { self.source }
-
-    fn prepare(&self, admission: &shenko_types::authority::CommitAdmission)
-        -> std::result::Result<Option<shenko_types::authority::CommitAuthorityGrant>, shenko_types::error::ShenkoError>
-    {
-        let mut state = self.state.lock();
-        if std::mem::take(&mut state.fail_before_choose) {
-            return Err(shenko_types::error::ShenkoError::conflict("fixture failed before choosing dispatch"));
-        }
-        let grant = if let Some(original) = state.grants.get(&admission.conflict_key) {
-            if original.admission != *admission {
-                return Err(shenko_types::error::ShenkoError::conflict("fixture cannot replace a chosen action"));
-            }
-            let mut replay = original.clone();
-            replay.replayed = true;
-            replay
-        } else {
-            let grant = shenko_types::authority::CommitAuthorityGrant {
-                admission: admission.clone(), grant_id: format!("native-chosen:{}", admission.action_id),
-                proof: serde_json::json!({"test":"native T2 retained chosen value"}), replayed: false,
-            };
-            state.grants.insert(admission.conflict_key.clone(), grant.clone());
-            grant
-        };
-        state.last = admission.conflict_key.clone();
-        if std::mem::take(&mut state.lose_reply) {
-            return Err(shenko_types::error::ShenkoError::conflict("fixture lost chosen T2 reply"));
-        }
-        Ok(Some(grant))
-    }
-
-    fn acquire(&self, grant: Option<&shenko_types::authority::CommitAuthorityGrant>)
-        -> std::result::Result<Box<dyn shenko_types::authority::CommitAuthorityGuard>, shenko_types::error::ShenkoError>
-    {
-        if let Some(grant) = grant
-            && self.state.lock().grants.get(&grant.admission.conflict_key)
-                .is_none_or(|original| original.grant_id != grant.grant_id || original.admission != grant.admission)
-        {
-            return Err(shenko_types::error::ShenkoError::conflict("fixture has no matching chosen T2"));
-        }
-        Ok(Box::new(CanonicalGuard(self.stamp.clone())))
-    }
-}
 
 struct NativeT2Fixture {
     dir: PathBuf,

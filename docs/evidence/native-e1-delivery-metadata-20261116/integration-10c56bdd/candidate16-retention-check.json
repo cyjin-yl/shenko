@@ -1,0 +1,32 @@
+{
+  "observed_at": "2026-11-16T17:44:57.320656+00:00",
+  "source_commit": "10c56bdd70c07ecc3022a62ea3a8eaaa16451958",
+  "source_tree": "b59ad3df936f763e9c07d344ab889bc0dbceffb7",
+  "retention_files": 43,
+  "lossless_runtime_members": 304,
+  "clippy_zip_crc_members": 18,
+  "comparisons": [
+    {
+      "original_source": "8a38e43f23e317671398416f0e325c10174ee0d3",
+      "integrated_files": [
+        "bin/shenko/src/native_evidence_sync.rs",
+        "crates/shenko-types/src/native_evidence.rs",
+        "crates/shenko-store/src/native_evidence.rs",
+        "crates/shenko-store/src/native_evidence_delivery.rs",
+        "bin/shenko/tests/native_evidence_delivery.rs",
+        "crates/shenko-store/tests/support/canonical_native.rs"
+      ],
+      "byte_identical": true
+    },
+    {
+      "original_source": "6f11e91af751db1a66f74020862d5a84885a5c26",
+      "integrated_files": [
+        "bin/shenko/tests/component_process.rs",
+        "bin/shenko/tests/support/runtime_health.rs"
+      ],
+      "byte_identical": true
+    }
+  ],
+  "errors": [],
+  "product_tested": false
+}

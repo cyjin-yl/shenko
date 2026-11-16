@@ -97,6 +97,7 @@ pub(crate) async fn dispatch(
                 supervisor,
                 Arc::clone(&store),
                 Arc::clone(&discovery_node),
+                &data_dir,
             )
             .await?;
             let _obelisk_plugin = obelisk::spawn(supervisor, Arc::clone(&store), discovery_node, &data_dir).await?;

@@ -223,14 +223,15 @@ class DownloadReader:
         return chunk
 
 
-def fetch_assets(work, evidence, reserve):
+def fetch_assets(work, evidence, reserve, *, download_node=True):
     deadline = time.monotonic() + 240
     runtime = work / "wasmer-7.5.0"
     runtime.mkdir()
     assets = [
         ("wasmer", WASMER_URL, WASMER_BYTES, WASMER_SHA256),
-        ("node", NODE_URL, NODE_BYTES, NODE_SHA256),
     ]
+    if download_node:
+        assets.append(("node", NODE_URL, NODE_BYTES, NODE_SHA256))
     for name, url, size, expected in assets:
         report = {"url": url, "expected_bytes": size, "expected_sha256": expected, "started_at": now(), "verified": False}
         reader = None
@@ -271,17 +272,23 @@ def fetch_assets(work, evidence, reserve):
             write_json(evidence / (name + "-download.json"), report)
     executable = runtime / "bin/wasmer"
     require(digest(executable) == EXECUTABLE_SHA256, "extracted Wasmer executable SHA256 mismatch")
-    require(digest(work / "node.wasm") == NODE_SHA256, "saved Node module SHA256 mismatch")
+    if download_node:
+        require(digest(work / "node.wasm") == NODE_SHA256, "saved Node module SHA256 mismatch")
     executable.chmod(0o700)
     return executable, work / "node.wasm"
 
 
-def install_child_limits():
+def install_child_limits(budget, deny_network=True):
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS + 5))
-    resource.setrlimit(resource.RLIMIT_AS, (ADDRESS_SPACE_BYTES, ADDRESS_SPACE_BYTES))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (16 * MIB, 16 * MIB))
+    cpu = budget["cpu_soft_seconds"]
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 5))
+    address_space = budget["address_space_hard_bytes"]
+    resource.setrlimit(resource.RLIMIT_AS, (address_space, address_space))
+    file_size = budget["file_hard_bytes"]
+    resource.setrlimit(resource.RLIMIT_FSIZE, (file_size, file_size))
     resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
+    if not deny_network:
+        return
     seccomp = ctypes.CDLL("libseccomp.so.2", use_errno=True)
     seccomp.seccomp_init.argtypes = [ctypes.c_uint32]
     seccomp.seccomp_init.restype = ctypes.c_void_p
@@ -357,15 +364,19 @@ def stop_owned(process, reason):
     return {"reason": reason, "actions": actions, "leader_reaped": process.poll() is not None, "remaining_group": remaining, "errors": errors}
 
 
-def run_owned(label, command, input_bytes, work, evidence, resources, budget, wall=WALL_SECONDS):
-    environment = {
+def run_owned(label, command, input_bytes, work, evidence, resources, budget, wall=WALL_SECONDS,
+              *, cwd=None, environment=None, deny_network=True, sample_seconds=1):
+    environment = dict(environment) if environment is not None else {
         "PATH": "/usr/bin:/bin", "LANG": "C", "WASMER_DIR": str(work / "runtime-home"),
         "WASMER_CACHE_DIR": str(work / "cache"), "TMPDIR": str(work / "tmp"),
         "RAYON_NUM_THREADS": "1", "TOKIO_WORKER_THREADS": "1",
     }
     report = {
         "label": label, "command": command, "environment": environment,
-        "denied_network_syscalls": DENIED_NETWORK, "limits": {**budget, "wall_seconds": wall},
+        "cwd": str(cwd or work / "guest"),
+        "denied_network_syscalls": DENIED_NETWORK if deny_network else [],
+        "network_policy": "denied by seccomp" if deny_network else "allowed for the recorded public source fetch only",
+        "limits": {**budget, "wall_seconds": wall, "sample_seconds": sample_seconds},
         "started_at": now(), "resources_before": resources.snapshot(),
         "rss_peak_bytes_observed": 0, "samples": [], "spawn_requested": False, "owned_pid": None,
         "exit_code": None, "leader_reaped": False, "group_remaining": None,
@@ -386,7 +397,7 @@ def run_owned(label, command, input_bytes, work, evidence, resources, budget, wa
         with input_path.open("rb") as source, (evidence / (label + ".stdout")).open("xb") as out, (evidence / (label + ".stderr")).open("xb") as err:
             report["spawn_requested"] = True
             write_json(observation_path, report)
-            process = subprocess.Popen(command, cwd=work / "guest", env=environment, stdin=source, stdout=out, stderr=err, close_fds=True, start_new_session=True, preexec_fn=install_child_limits)
+            process = subprocess.Popen(command, cwd=cwd or work / "guest", env=environment, stdin=source, stdout=out, stderr=err, close_fds=True, start_new_session=True, preexec_fn=lambda: install_child_limits(budget, deny_network))
             report["owned_pid"] = process.pid
             write_json(observation_path, report)
             last_sample = -1
@@ -396,9 +407,9 @@ def run_owned(label, command, input_bytes, work, evidence, resources, budget, wa
                 rss = sum(member.get("VmRSS", 0) * 1024 for member in members)
                 observed = resources.snapshot()
                 report["rss_peak_bytes_observed"] = max(report["rss_peak_bytes_observed"], rss)
-                if int(elapsed) != last_sample:
+                if int(elapsed / sample_seconds) != last_sample:
                     report["samples"].append({"seconds": round(elapsed, 3), "rss_bytes": rss, "members": members, "resources": observed})
-                    last_sample = int(elapsed)
+                    last_sample = int(elapsed / sample_seconds)
                     write_json(observation_path, report)
                 reason = None
                 if STOP_SIGNAL is not None:
@@ -413,11 +424,13 @@ def run_owned(label, command, input_bytes, work, evidence, resources, budget, wa
                     reason = "observed_memory_reserve"
                 elif observed["disk_free_bytes"] < budget["free_disk_reserve_bytes"]:
                     reason = "free_disk_reserve"
+                elif budget.get("output_monitor_bytes") is not None and out.tell() + err.tell() > budget["output_monitor_bytes"]:
+                    reason = "output_observation_limit"
                 if reason:
                     report["stopped"] = stop_owned(process, reason)
                     report["cleanup_attempts"].append(report["stopped"])
                     break
-                time.sleep(0.05)
+                time.sleep(budget["monitor_interval_seconds"])
     except BaseException as error:
         report["execution_error"] = {"type": type(error).__name__, "message": str(error)}
         raise

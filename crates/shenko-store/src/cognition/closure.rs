@@ -47,6 +47,17 @@ impl Store {
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
+        self.collect_closure_bounded(roots, usize::MAX, u64::MAX)
+    }
+
+    /// A factual transport can impose its own finite inventory budget without
+    /// changing the closure semantics of existing cognition archives.
+    pub(crate) fn collect_closure_bounded(
+        &self,
+        roots: &[ObjectRef],
+        max_objects: usize,
+        max_bytes: u64,
+    ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
         // Content membership and JSON expansion are different facts. One
         // digest can have both opaque and JSON-typed references; encountering
         // the opaque alias first must not hide a later typed child closure.
@@ -54,8 +65,10 @@ impl Store {
         let mut expanded: BTreeSet<String> = BTreeSet::new();
         let mut missing: Vec<Digest> = Vec::new();
         let mut out: Vec<CognitionObjectDescriptor> = Vec::new();
+        let mut total_bytes = 0u64;
         let mut queue: std::collections::VecDeque<ObjectRef> = roots.iter().cloned().collect();
         while let Some(object) = queue.pop_front() {
+            anyhow::ensure!(queue.len() < max_objects, "CAS closure reference budget exceeded");
             let key = object.digest.to_string();
             let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
             if let Some(&index) = collected.get(&key) {
@@ -66,6 +79,11 @@ impl Store {
                 if !expand {
                     continue;
                 }
+            } else {
+                anyhow::ensure!(out.len() < max_objects, "CAS closure object budget exceeded");
+                total_bytes = total_bytes.checked_add(object.bytes)
+                    .filter(|total| *total <= max_bytes)
+                    .ok_or_else(|| anyhow::anyhow!("CAS closure byte budget exceeded"))?;
             }
             let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,

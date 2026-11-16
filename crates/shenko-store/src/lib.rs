@@ -13,6 +13,8 @@ mod native_transition;
 mod native_facts;
 mod native_evidence;
 pub use native_evidence::NativeEvidenceSealDebt;
+mod native_evidence_delivery;
+pub use native_evidence_delivery::{NativeEvidenceDeliveryOutcome, NativeEvidenceDeliveryRecord, NativeEvidenceDeliveryState};
 pub use control_recovery::{ControlRecoveryOutcome, PreparedStepDebt, PreparedStepRecovery, CONTROL_RECONCILIATION_SOURCE};
 mod control_predecessor;
 pub use control_predecessor::ControlPredecessorEvidence;

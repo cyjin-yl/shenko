@@ -128,6 +128,7 @@ impl Store {
         crate::migrations::run_migrations(&conn)?;
         conn.execute_batch(crate::authority::SCHEMA)?;
         conn.execute_batch(crate::native_evidence::SCHEMA)?;
+        conn.execute_batch(crate::native_evidence_delivery::SCHEMA)?;
         conn.execute_batch(crate::local_installation::SCHEMA)?;
 
         let sqlite_version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;

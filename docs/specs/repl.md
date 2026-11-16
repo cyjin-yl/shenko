@@ -218,7 +218,15 @@ The separately pinned Node-WASIX feasibility route uses a third-party
 Node/V8 port with a WASIX ABI, not this Preview 1 backend. Its explicit
 hosted workflow preserves the original finite-cell/checkpoint journey and
 records actual resources and all failures. The two retained local attempts
-did not produce a successful cell; the hosted route is not yet executed.
+did not produce a successful cell; the [first hosted attempt](../evidence/node-wasix-hosted-43916483602/README.md)
+then exited with an unsupported `BigIntConstructor` builtin before any cell
+report or checkpoint. A newer pinned source implements that constructor,
+but no matching source-built artifact has yet been verified.
+The [source-build candidate](../evidence/node-wasix-source-build-20261116/README.md)
+adds a separate explicit opt-in route from that exact source and fixed official
+toolchain assets. It retains the fresh module and unsigned build record before
+running the unchanged driver/input journey; its implementation has only static
+checks so far, with no source-build or guest success claim.
 See the [artifact identities, failures and reproducer](../evidence/named-node-wasix-20261116/README.md).
 No installed named-target availability or recovery claim changes, and Bun
 remains an independent obligation.

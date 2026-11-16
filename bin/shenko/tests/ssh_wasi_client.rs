@@ -21,9 +21,12 @@ use std::{
 
 #[path = "support/process_runtime.rs"]
 mod process_runtime;
+#[path = "support/runtime_health.rs"]
+mod runtime_health;
 use process_runtime::{
-    OwnedProcess, append_json, copy_diagnostics, file_sha256, health, write_sshd_config,
+    OwnedProcess, append_json, copy_diagnostics, file_sha256, write_sshd_config,
 };
+use runtime_health::health;
 
 // A named execution cold-verifies its installed artifact and compiles it on
 // the controlled engine. The run budget still includes compile/setup; the

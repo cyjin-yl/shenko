@@ -839,7 +839,12 @@ impl Store {
                 3
             ],
         )?;
-        self.seal_first_native_evidence(&tx, &original, &ev, &op, &att)?;
+        self.seal_first_native_evidence(&tx, &original, &ev, &op, &att,
+            crate::native_evidence::NativeEvidenceFold {
+                expected_revision: fold.map(|fold| fold.expected_revision),
+                outcome, effect,
+                terminal_content_conflict: fold.is_some_and(|fold| fold.terminal_content_conflict),
+            })?;
         tx.commit()?;
         Ok(Some(op))
     }

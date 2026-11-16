@@ -13,6 +13,7 @@ pub mod effect;
 pub mod contacts;
 pub mod error;
 pub mod evidence;
+pub mod native_evidence;
 pub mod identity;
 pub mod ids;
 pub mod inbox;

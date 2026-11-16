@@ -246,6 +246,14 @@ pub enum Request {
     ControlPage {
         after_index: u64,
     },
+    /// Bounded original E1 manifest. Requires the actual Store adapter; this
+    /// is factual delivery and never a request to choose a control value.
+    NativeEvidencePage {
+        subject_id: EntityId,
+        origin_proof: Digest,
+        cursor: Option<shenko_types::native_evidence::NativeEvidenceCursor>,
+        page_items: Option<u16>,
+    },
     ControlObjectProgress {
         digest: Digest,
         total: u64,
@@ -533,7 +541,7 @@ impl Node {
             Request::CapabilityFacts => Ok(json!({"facts": self.capability_facts()?})),
             Request::Coordination => self.coordination_candidates(),
             Request::ComponentPresence => Ok(serde_json::to_value(self.component_presence()?)?),
-            Request::ComponentObserve | Request::PrepareComponent { .. } => {
+            Request::ComponentObserve | Request::PrepareComponent { .. } | Request::NativeEvidencePage { .. } => {
                 anyhow::bail!("component observation requires the authenticated route adapter")
             }
             Request::CommitComponent { certificate } => Ok(serde_json::to_value(self.commit_component(&certificate)?)?),

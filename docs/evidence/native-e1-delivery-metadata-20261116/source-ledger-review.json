@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "kind": "native_e1_source_ledger_review_fix_metadata_only",
+  "product_tested": false,
+  "date_utc": "2026-11-16",
+  "source_commit": "5a3ec71d6df8bf7147c309bbe3bd9fb1e11ff8ff",
+  "source_tree": "484c7793c1a6f018f4b73041686e2383bec61154",
+  "parent_commit": "46124a74a190e90fee349c9710351de7294f54a8",
+  "checked_source": {
+    "tree": "8e3f46667c7b24213080f46006441dbc9dae2527",
+    "reconstruct_from": "46124a74a190e90fee349c9710351de7294f54a8",
+    "patch": "raw/native-e1-source-ledger-checked.patch.gz",
+    "later_change": "Only rustfmt line wrapping. Every changed Rust file was independently formatted from the checked bytes and compared byte-for-byte with the committed source.",
+    "files": [
+      {
+        "path": "bin/shenko/src/native_evidence_sync.rs",
+        "checked_sha256": "c2ef4ad295d215a5eaa367c2512bf440c06374d75cfdd8316a7cf684d9e0dffe",
+        "final_sha256": "c2ef4ad295d215a5eaa367c2512bf440c06374d75cfdd8316a7cf684d9e0dffe",
+        "final_equals_rustfmt_of_checked": true
+      },
+      {
+        "path": "crates/shenko-store/src/native_evidence_delivery.rs",
+        "checked_sha256": "2ef81f600d22c944a1a13e461a43fa5803f5ade6beca19e4d3ad89e056669f9e",
+        "final_sha256": "1d1f30605eaa0c3cc42dac9bb0c914436027f62cd50a68aa99226d426c7b147c",
+        "final_equals_rustfmt_of_checked": true
+      },
+      {
+        "path": "bin/shenko/tests/native_evidence_delivery.rs",
+        "checked_sha256": "b848f643d99d6f3ed06fd2a6521946534d600dfa3b3d8cb739a14a6bfda71aa4",
+        "final_sha256": "196d67b8408bb5839d0d497983114c6a31186066fe04d4c5969f03b276f2ad11",
+        "final_equals_rustfmt_of_checked": true
+      }
+    ]
+  },
+  "changes": [
+    "Wire and Store require original receipt source ledger equal authenticated manifest source ledger; this is not transitive relay.",
+    "Existing bounded-pagination assertions now check both original page source ledgers, without a new window.",
+    "Gap has no automatic source-seal repair or closure. Future Sealed availability has a new delivery identity and cannot erase the old debt.",
+    "Commit entity count is 5 for a fresh definite E1, 6 for fresh Unknown, and 1 for a new delivery row of an already locally applied E1."
+  ],
+  "checks": [
+    {
+      "id": "scoped_clippy_metadata",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "shenko-store",
+        "-p",
+        "shenko",
+        "--lib",
+        "--test",
+        "native_evidence_delivery",
+        "--message-format=json",
+        "--",
+        "--force-warn",
+        "clippy::all",
+        "--force-warn",
+        "clippy::unwrap_used",
+        "--force-warn",
+        "clippy::expect_used"
+      ],
+      "exit_code": 0,
+      "cargo_reported_duration": "1m 07s",
+      "source_tree": "8e3f46667c7b24213080f46006441dbc9dae2527",
+      "changed_rust_files_diagnostics": [],
+      "stdout": "raw/native-e1-source-ledger-clippy.jsonl.gz",
+      "stderr": "raw/native-e1-source-ledger-clippy.log.gz"
+    },
+    {
+      "id": "documentation_migration",
+      "argv": [
+        "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+        "scripts/check_docs.py",
+        "--verify-migration"
+      ],
+      "exit_code": 0,
+      "errors": [],
+      "source_tree": "8e3f46667c7b24213080f46006441dbc9dae2527",
+      "combined_output": "raw/native-e1-source-ledger-docs.log.gz"
+    }
+  ],
+  "execution_environment": "Same shared flock, Cargo target, offline/locked single-job metadata environment as observation.json. No local codegen, test execution or new scenario. No actual SSH journey executed.",
+  "artifacts": [
+    {
+      "path": "raw/native-e1-source-ledger-clippy.jsonl.gz",
+      "original_bytes": 2652807,
+      "original_sha256": "c2f4de23664b12a88f5295aa4e2b270f3ec53c07689496f96247f246cfa51002",
+      "gzip_bytes": 220510,
+      "gzip_sha256": "7033b63d97f2a715b6bc36b08d8530870f35cbc4bc76143a222e699f4a1520a8"
+    },
+    {
+      "path": "raw/native-e1-source-ledger-clippy.log.gz",
+      "original_bytes": 2416,
+      "original_sha256": "1b01dfab1010ce869f3f67bab2eecb1f65ceef6318048db305b79ddf50e394d9",
+      "gzip_bytes": 354,
+      "gzip_sha256": "655f7dfe73b1fd7af13faa24065fd11a81783307e9e096fc88804b928a955a61"
+    },
+    {
+      "path": "raw/native-e1-source-ledger-docs.log.gz",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "gzip_bytes": 283,
+      "gzip_sha256": "52c7703f0b29912bcadc31e6daf47cb7a04393952662f0fee60a7e022fe6bdba"
+    },
+    {
+      "path": "raw/native-e1-source-ledger-checked.patch.gz",
+      "original_bytes": 7159,
+      "original_sha256": "4912947f56d889c8343dd5a1c19f3e0a74c721dbcf588c88c271257a85c5d003",
+      "gzip_bytes": 2449,
+      "gzip_sha256": "b9341ac5a571d0fb5b6a42aefd2e53e48d26744dcc556be345cc6f865dcbb9e9"
+    },
+    {
+      "path": "raw/native-e1-source-ledger-format-only.patch.gz",
+      "original_bytes": 2119,
+      "original_sha256": "88d1f9fd522b7cbbfdd47e6ffeb5d95ac051a42620f6d40d3de55ea7b4c08713",
+      "gzip_bytes": 744,
+      "gzip_sha256": "aa8f98435b7f45ba12ea5133d20e3ab23ee459a567f525a58fec2c560b538c3e"
+    }
+  ],
+  "previous_checks": "Original observation.json and original raw logs remain unchanged and remain bound to their original source stages.",
+  "remaining_limits": [
+    "Nine authored windows remain unexecuted for this independent E1 candidate.",
+    "Store-aware GC roots, runtime assembly and exclusion are not implemented. A complete namespace registry refuses uncovered Store namespaces; omitted namespaces are not automatically detected."
+  ]
+}

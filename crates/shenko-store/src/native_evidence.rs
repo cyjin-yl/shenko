@@ -1,9 +1,10 @@
-//! Exact first definite E1 of the bounded direct native chain.
+//! Exact first E1 of the bounded direct native chain.
 //!
 //! The receipt is an external observation, not a quorum execution fact. Its
 //! original E1 commit, fold and observation time are sealed in that same E1
-//! transaction. A later chosen T2 can transport those bytes to an installation
-//! which already materialized the original paired T1. No provider is called.
+//! transaction. Independent factual delivery, or a later chosen T2, can carry
+//! those bytes to an installation which actually materialized the original
+//! paired T1. Neither transport makes E1 a quorum execution fact.
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
@@ -13,7 +14,8 @@ use shenko_types::{
     ids::{EntityId, RecordRevision},
     object::ObjectRef,
     operation::{
-        AttemptDispatchStage, AttemptRecord, EffectStatus, OperationRecord, OperationState,
+        AttemptDispatchStage, AttemptRecord, EffectStatus, OperationOutcome, OperationRecord,
+        OperationState,
     },
     task::TaskRecord,
 };
@@ -25,10 +27,10 @@ use crate::{
     store::storage_error,
 };
 
-const CODEC: &str = "store-native-evidence-fact";
+pub(crate) const CODEC: &str = "store-native-evidence-fact";
 
 // Local physical application history is never imported as a peer fact. The
-// immutable evidence_ref is carried in the later T2 admission CAS closure.
+// immutable evidence_ref is carried by factual delivery or a later T2 closure.
 pub(crate) const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS native_evidence_materializations (
     receipt_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_commit_seq INTEGER NOT NULL
@@ -62,15 +64,28 @@ pub(crate) struct NativeEvidenceFact {
     pub operation: OperationRecord,
     pub attempt: AttemptRecord,
     created_at: String,
+    /// Version 1 supported only a definite first observation. Version 2
+    /// freezes the actual decoder inputs, including an uncertain conclusion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fold: Option<NativeEvidenceFold>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeEvidenceFold {
+    pub expected_revision: Option<RecordRevision>,
+    pub outcome: Option<OperationOutcome>,
+    pub effect: EffectStatus,
+    pub terminal_content_conflict: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EvidenceMaterialization {
+pub(crate) struct EvidenceMaterialization {
     schema_version: u32,
-    evidence_ref: ObjectRef,
-    logical_result: CommitRef,
-    committed_at: CommitRef,
+    pub evidence_ref: ObjectRef,
+    pub logical_result: CommitRef,
+    pub committed_at: CommitRef,
 }
 
 fn first_armed(operation: &OperationRecord, attempt: &AttemptRecord) -> bool {
@@ -120,33 +135,63 @@ fn has_reconciliation(conn: &Connection, operation: EntityId) -> Result<bool, Sh
 }
 
 impl NativeEvidenceFact {
-    /// Independently reconstruct the only supported fold. Unknown, multiple
-    /// observations and contradictions retain their existing reconciliation
-    /// protocol; this reader cannot guess the decoder's conclusion for them.
+    /// Reconstruct the first observation from the original Armed predecessor
+    /// and the frozen decoder inputs. No later receipt or source case decision
+    /// participates in this projection.
     fn validate(&self, original: &NativeArmFacts) -> Result<(), ShenkoError> {
         let receipt = &self.receipt;
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1 | 2)
+            || (self.schema_version == 2) != self.fold.is_some()
             || receipt.record_schema_version != 1
             || !first_armed(&original.operation, &original.attempt)
-            || self.operation.outcome.is_none()
-            || self.operation.effect_status == EffectStatus::Unknown
             || receipt.operation_id != Some(original.operation.operation_id)
             || receipt.attempt_id != Some(original.attempt.attempt_id)
             || self.attempt.last_observed_at.is_none()
             || chrono::NaiveDateTime::parse_from_str(&self.created_at, "%Y-%m-%d %H:%M:%S").is_err()
         {
             return Err(invalid(
-                "E1 is not the original attempt's first definite observation",
+                "E1 is not the original attempt's first observation",
             ));
         }
+        let fold = match self.fold {
+            Some(fold) => fold,
+            None if self.operation.outcome.is_some()
+                && self.operation.effect_status != EffectStatus::Unknown => NativeEvidenceFold {
+                    expected_revision: None,
+                    outcome: self.operation.outcome,
+                    effect: self.operation.effect_status,
+                    terminal_content_conflict: false,
+                },
+            None => return Err(invalid("legacy E1 cannot describe an uncertain fold")),
+        };
+        if fold.expected_revision.is_some_and(|revision| revision != original.operation.record_revision) {
+            return Err(invalid("E1 decoder read a different operation revision"));
+        }
         let mut operation = original.operation.clone();
-        operation.state = OperationState::Resolved;
-        operation.outcome = self.operation.outcome;
-        operation.effect_status = self.operation.effect_status;
+        let mut attempt = original.attempt.clone();
+        if fold.terminal_content_conflict {
+            operation.outcome_conflict = true;
+            operation.state = OperationState::Reconciling;
+            operation.outcome = None;
+            operation.effect_status = EffectStatus::Unknown;
+            attempt.dispatch_stage = AttemptDispatchStage::Ended;
+        } else if let Some(outcome) = fold.outcome {
+            operation.state = if fold.effect == EffectStatus::Unknown {
+                OperationState::Reconciling
+            } else {
+                OperationState::Resolved
+            };
+            operation.outcome = Some(outcome);
+            operation.effect_status = fold.effect;
+            attempt.dispatch_stage = AttemptDispatchStage::Ended;
+        } else {
+            operation.state = OperationState::Reconciling;
+            operation.outcome = None;
+            operation.effect_status = EffectStatus::Unknown;
+            attempt.dispatch_stage = AttemptDispatchStage::Unknown;
+        }
         operation.record_revision = RecordRevision(1);
         operation.evidence_through = Some(receipt.received_commit);
-        let mut attempt = original.attempt.clone();
-        attempt.dispatch_stage = AttemptDispatchStage::Ended;
         attempt.final_receipt_id = Some(receipt.receipt_id);
         attempt.last_observed_at = self.attempt.last_observed_at;
         if !same(&operation, &self.operation)? || !same(&attempt, &self.attempt)? {
@@ -168,8 +213,9 @@ impl Store {
         receipt: &EvidenceReceipt,
         operation: &OperationRecord,
         attempt: &AttemptRecord,
+        fold: NativeEvidenceFold,
     ) -> Result<(), ShenkoError> {
-        match self.try_seal_first_native_evidence(tx, before, receipt, operation, attempt) {
+        match self.try_seal_first_native_evidence(tx, before, receipt, operation, attempt, fold) {
             Ok(()) => Ok(()),
             Err(error @ ShenkoError::Storage(_)) => Err(error),
             Err(error) => {
@@ -199,14 +245,10 @@ impl Store {
         receipt: &EvidenceReceipt,
         operation: &OperationRecord,
         attempt: &AttemptRecord,
+        fold: NativeEvidenceFold,
     ) -> Result<(), ShenkoError> {
         if !first_armed(&before.0, &before.1)
-            || operation.outcome.is_none()
-            || operation.state != OperationState::Resolved
-            || operation.effect_status == EffectStatus::Unknown
-            || operation.outcome_conflict
             || receipt.record_schema_version != 1
-            || has_reconciliation(tx, operation.operation_id)?
         {
             return Ok(());
         }
@@ -242,12 +284,13 @@ impl Store {
             )
             .map_err(storage_error)?;
         let fact = NativeEvidenceFact {
-            schema_version: 1,
+            schema_version: 2,
             arm,
             receipt: receipt.clone(),
             operation: operation.clone(),
             attempt: attempt.clone(),
             created_at,
+            fold: Some(fold),
         };
         fact.validate(&original)?;
         let bytes = serde_json::to_vec(&fact)?;
@@ -258,11 +301,15 @@ impl Store {
         }
         let reference = self
             .cas
-            .seal_object(&bytes, "application/json", "commit-authority", CODEC, 1)?
+            .seal_object(&bytes, "application/json", "commit-authority", CODEC, 2)?
             .object;
         let (_, missing) = self
-            .collect_closure(std::slice::from_ref(&reference))
-            .map_err(storage_error)?;
+            .collect_closure_bounded(
+                std::slice::from_ref(&reference),
+                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_OBJECTS,
+                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES,
+            )
+            .map_err(invalid)?;
         if !missing.is_empty() {
             return Err(invalid("original E1 closure is incomplete"));
         }
@@ -288,10 +335,26 @@ impl Store {
         conn: &Connection,
         reference: &ObjectRef,
     ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
-        let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, 1)?;
-        let (_, missing) = self
-            .collect_closure(std::slice::from_ref(reference))
-            .map_err(storage_error)?;
+        if !matches!(reference.codec.major, 1 | 2) {
+            return Err(invalid("unsupported typed object for original E1"));
+        }
+        let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, reference.codec.major)?;
+        if fact.schema_version != reference.codec.major
+            || (reference.codec.major == 2) != fact.fold.is_some()
+        {
+            return Err(invalid("E1 codec and frozen fold disagree"));
+        }
+        let (_, missing) = if reference.codec.major == 2 {
+            self.collect_closure_bounded(
+                std::slice::from_ref(reference),
+                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_OBJECTS,
+                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES,
+            )
+            .map_err(invalid)?
+        } else {
+            self.collect_closure(std::slice::from_ref(reference))
+                .map_err(storage_error)?
+        };
         if !missing.is_empty() {
             return Err(invalid("original E1 closure is incomplete"));
         }
@@ -432,6 +495,14 @@ impl Store {
             ],
         )
         .map_err(storage_error)?;
+        if fact.operation.state == OperationState::Reconciling {
+            let reason = if fact.operation.outcome_conflict {
+                crate::reconcile::REASON_CONTRADICTORY_EVIDENCE
+            } else {
+                crate::reconcile::REASON_EFFECT_UNKNOWN
+            };
+            self.ensure_unknown_effect_case(tx, &fact.operation, fact.receipt.receipt_id, reason, local)?;
+        }
         record_materialization(tx, reference, &fact, local)?;
         Ok(true)
     }
@@ -454,7 +525,7 @@ fn record_materialization(
     Ok(())
 }
 
-fn read_materialization(
+pub(crate) fn read_materialization(
     conn: &Connection,
     receipt: EntityId,
 ) -> Result<Option<EvidenceMaterialization>, ShenkoError> {
@@ -471,7 +542,7 @@ fn read_materialization(
     .transpose()
 }
 
-fn verify_materialization(
+pub(crate) fn verify_materialization(
     conn: &Connection,
     marker: &EvidenceMaterialization,
     fact: &NativeEvidenceFact,

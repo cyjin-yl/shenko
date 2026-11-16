@@ -859,6 +859,8 @@ tmux send-keys、按回车确认、任意 shell、无端到端幂等承诺的消
 
 该首次 claim 后新增的受限接续是 paired T1 → 原 attempt 首次确定 E1 → 无 ordinary child 的 terminal T2。源 E1 在原事务中附加精确 seal；派生证明不足时仍保存原 E1，并同笔记录可查询的 seal debt，真实 storage 失败仍封闭 writer。接收端只有已本地物化原 claim/T1 才可在 T2 同一事务应用原 E1；源 `received_commit`、`evidence_through`、`last_observed_at` 与结果 CommitRef 均保留，本地物化位置另列。T2 choice 不证明外部效果由 quorum 执行，重复或恢复均不产生执行许可。新九窗口旅程尚待实际运行，范围与未完成部分见[直接原生接续](../development/canonical-native-continuation.md)。
 
+原 paired T1 的首次 E1 另有独立事实入口，不必等待 T2 choice。接收端仍须验证自己实际物化的 canonical T1，逐字节保留原 receipt、fold 输入、CommitRef 与时间；本地应用收据另列。首次 Unknown 在本地建立对账案例，不复制源端接受 Unknown 的决定。下载前登记 pending，断线、旧 seal 缺口和前驱不匹配保留可查询债务；普通 archive 停泊与所有 fresh 许可边界保持不变。此新增 SSH 旅程尚待实际运行，见[独立原生 E1 传递](../development/canonical-native-e1-delivery.md)。
+
 <a id="spec-41-14"></a>
 <!-- migrated-contract: SPEC:41.14 -->
 ## 41.14 结构化错误与恢复动作
