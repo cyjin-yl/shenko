@@ -516,11 +516,10 @@ impl MemoryStore {
         let store = self.store.as_ref().ok_or_else(|| {
             anyhow::anyhow!("memory store has no persistence backend; use with_store()")
         })?;
-        let mut entries = store
-            .search_memory(query, limit)
-            .map_err(|e| anyhow::anyhow!("search memory: {e}"))?;
-        entries.retain(|entry| entry.agent_id == self.agent_id);
-        Ok(entries)
+        if query.trim().is_empty() { return Ok(Vec::new()); }
+        store.query_memory(Some(query), &shenko_store::MemoryQueryFilter {
+            agent_id: Some(self.agent_id), ..Default::default()
+        }, limit).map_err(|e| anyhow::anyhow!("search memory: {e}"))
     }
 
     /// Recent persisted memory entries, newest first.
@@ -528,11 +527,9 @@ impl MemoryStore {
         let store = self.store.as_ref().ok_or_else(|| {
             anyhow::anyhow!("memory store has no persistence backend; use with_store()")
         })?;
-        let mut entries = store
-            .list_memory(limit)
-            .map_err(|e| anyhow::anyhow!("list memory: {e}"))?;
-        entries.retain(|entry| entry.agent_id == self.agent_id);
-        Ok(entries)
+        store.query_memory(None, &shenko_store::MemoryQueryFilter {
+            agent_id: Some(self.agent_id), ..Default::default()
+        }, limit).map_err(|e| anyhow::anyhow!("list memory: {e}"))
     }
 
     /// Read one entry by id, including semantically forgotten rows. This is
@@ -554,28 +551,12 @@ impl MemoryStore {
         let store = self.store.as_ref().ok_or_else(|| {
             anyhow::anyhow!("memory store has no persistence backend; use with_store()")
         })?;
-        let limit = query.limit.max(1);
-        let mut entries = if query.text.trim().is_empty() {
-            if query.include_retired {
-                store.list_memory_including_retired(limit)
-            } else {
-                store.list_memory(limit)
-            }
-        } else if query.include_retired {
-            store.search_memory_including_retired(&query.text, limit)
-        } else {
-            store.search_memory(&query.text, limit)
-        }
-        .map_err(|e| anyhow::anyhow!("recall memory: {e}"))?;
-        if !query.knowledge_kinds.is_empty() {
-            entries.retain(|entry| query.knowledge_kinds.iter().any(|kind| kind == &entry.kind));
-        }
-        if !query.scopes.is_empty() {
-            entries.retain(|entry| query.scopes.iter().any(|scope| scope == &entry.scope));
-        }
-        // Recall is over this backend's own memory: another agent's entries
-        // are never surfaced through this surface (scope).
-        entries.retain(|entry| entry.agent_id == self.agent_id);
+        let entries = store.query_memory(Some(&query.text), &shenko_store::MemoryQueryFilter {
+            agent_id: Some(self.agent_id),
+            knowledge_kinds: &query.knowledge_kinds,
+            scopes: &query.scopes,
+            include_retired: query.include_retired,
+        }, query.limit.max(1)).map_err(|e| anyhow::anyhow!("recall memory: {e}"))?;
         let hits = entries
             .into_iter()
             .map(|entry| {

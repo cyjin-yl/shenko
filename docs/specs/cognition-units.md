@@ -331,14 +331,25 @@ abort and join the local broker task. A drained local reader does not prove
 remote termination or release unknown debt, and late completions never
 rewrite scenario results.
 
-Every attempt is reported. A provider error, a judge error or an exhausted
-budget is a failure of that attempt: it is counted, it appears in the report
-with its reason, and it is never quietly dropped to make a rate look better.
-The totals of each condition state `attempted`, `scored`, `failed` and
-`effective`, and the rate is over the scored attempts with the attempted count
-next to it. The verdict is `supported`, `not_supported` or `inconclusive`;
-`inconclusive` is the answer when one side has no scored attempt, and it is
-not a pass.
+Every planned slot is reported. Each sample's subject, judge and local cleanup
+share the actual per-sample deadline; that deadline never expands to the whole
+trial budget. The order alternates across repetitions and scenarios, so the
+candidate is not always first. A failed setup, provider error, timeout or judge
+error remains an unknown behavioural outcome, with its receipt and reason;
+unstarted slots are separately counted. Neither kind is silently dropped or
+labelled ineffective.
+
+Report schema 3 retains `attempted`, `unstarted`, `scored`, `failed`, `effective`
+and the diagnostic `rate_over_scored`, and adds `scored_coverage`, `effect_lower`
+and `effect_upper`. The bounds use the Wilson 95% interval across **all planned
+slots**: the lower endpoint treats every unknown as ineffective; the upper
+endpoint treats every unknown as effective. `supported` requires the candidate
+lower bound to exceed the control upper bound; `not_supported` requires the
+reverse separation. All overlapping bounds and any side without scored samples
+are `inconclusive`, which is not a pass. A one-sample exploratory trial therefore
+cannot establish support. These conservative measurement bounds do not establish
+independence of samples, accuracy of the judge or representativeness of the
+caller-supplied scenarios; the report is local evidence, not universal efficacy.
 
 The comparison is bound durably: the Node opens the attempt before the run
 and closes it with the per-sample receipts (each sealed in this

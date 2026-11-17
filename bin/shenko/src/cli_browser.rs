@@ -53,7 +53,7 @@ pub(crate) async fn browser_batch(data_dir: &std::path::Path, file: Option<&std:
     };
     let steps: Vec<serde_json::Value> = serde_json::from_str(&input)?;
     create_data_directory_async(data_dir).await?;
-    let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let provider = Arc::new(BrowserProvider::new(Arc::new(store), data_dir.join("browser")));
     let caller = shenko_types::ids::EntityId::new();
     let node = "browser-cli".to_string();

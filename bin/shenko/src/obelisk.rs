@@ -668,13 +668,10 @@ pub enum ObeliskCommand {
 
 fn store_for(data_dir: &Path, requested: Option<EntityId>) -> Result<(Arc<Store>, EntityId)> {
     ensure!(
-        data_dir.join("shenko.db").is_file(),
+        crate::runtime_bootstrap::installation_db_path(data_dir)?.is_file(),
         "run shenko start once to initialize this subject"
     );
-    let store = Arc::new(Store::open(
-        data_dir.join("shenko.db"),
-        data_dir.join("cas"),
-    )?);
+    let store = Arc::new(crate::runtime_bootstrap::open_installation_store(data_dir)?);
     let agent = store
         .get_existing_agent_id()?
         .context("no initialized subject")?;

@@ -39,16 +39,13 @@ fn plugins() -> impl Iterator<Item = (&'static str, &'static str)> {
 }
 
 pub(crate) fn store_of(data_dir: &Path) -> Result<std::sync::Arc<shenko_store::store::Store>> {
-    let db_path = data_dir.join("shenko.db");
+    let db_path = crate::runtime_bootstrap::installation_db_path(data_dir)?;
     ensure!(
         db_path.is_file(),
         "no managed installation at {}; run `shenko start` once",
         data_dir.display()
     );
-    Ok(std::sync::Arc::new(shenko_store::store::Store::open(
-        db_path,
-        data_dir.join("cas"),
-    )?))
+    Ok(std::sync::Arc::new(crate::runtime_bootstrap::open_installation_store(data_dir)?))
 }
 
 /// The Node that owns installation facts.
@@ -59,7 +56,7 @@ pub(crate) fn store_of(data_dir: &Path) -> Result<std::sync::Arc<shenko_store::s
 /// Once a subject exists, the real binding check applies — an adapter import
 /// can never attach this node to a different subject.
 pub(crate) fn node_of(data_dir: &Path) -> Result<Node> {
-    if data_dir.join("shenko.db").is_file() {
+    if crate::runtime_bootstrap::installation_db_path(data_dir)?.is_file() {
         let store = store_of(data_dir)?;
         return crate::node_sync::open_node(data_dir, &store);
     }

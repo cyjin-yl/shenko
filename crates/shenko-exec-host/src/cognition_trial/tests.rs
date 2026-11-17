@@ -703,13 +703,33 @@ fn unstarted_slots_are_not_started_failures() {
     // A started failure is still a failure, not an unstarted slot.
     let failed = totals_of(&[booked_sample(Condition::Control, true, "failed")], Condition::Control);
     assert_eq!((failed.attempted, failed.unstarted, failed.scored, failed.failed), (1, 0, 0, 1));
+    // One lucky surviving candidate must not beat seven measured successes
+    // by dropping its seven infrastructure failures from the denominator.
+    let mut unequal = vec![booked_sample(Condition::Candidate, true, "effective")];
+    unequal.extend((0..7).map(|_| booked_sample(Condition::Candidate, true, "failed")));
+    unequal.extend((0..7).map(|_| booked_sample(Condition::Control, true, "effective")));
+    unequal.push(booked_sample(Condition::Control, true, "ineffective"));
+    let sparse = totals_of(&unequal, Condition::Candidate);
+    let complete = totals_of(&unequal, Condition::Control);
+    assert!(sparse.rate_over_scored > complete.rate_over_scored);
+    assert_eq!(verdict_of(&sparse, &complete).0, "inconclusive");
+    assert_eq!(sparse.scored_coverage, 0.125);
+    let all_effective = totals_of(&(0..8).map(|_| booked_sample(Condition::Candidate, true, "effective")).collect::<Vec<_>>(), Condition::Candidate);
+    let all_ineffective = totals_of(&(0..8).map(|_| booked_sample(Condition::Control, true, "ineffective")).collect::<Vec<_>>(), Condition::Control);
+    assert_eq!(verdict_of(&all_effective, &all_ineffective).0, "supported");
+    assert_eq!(verdict_of(&all_ineffective, &all_effective).0, "not_supported");
+    let one_negative = totals_of(&[booked_sample(Condition::Control, true, "ineffective")], Condition::Control);
+    assert_eq!(verdict_of(&candidate, &one_negative).0, "inconclusive");
 }
 
 #[test]
 fn every_planned_slot_of_a_pair_gets_the_same_window() {
     assert_eq!(sample_window(900_000, 2), Duration::from_millis(450_000));
     assert_eq!(sample_window(90_000, 4), Duration::from_millis(22_500));
-    assert_eq!(sample_window(1_000, 2), Duration::from_millis(MIN_SAMPLE_WINDOW_MS));
+    assert_eq!(sample_window(1_000, 2), Duration::from_millis(500));
+    assert_eq!(condition_order(0, 0), [Condition::Candidate, Condition::Control]);
+    assert_eq!(condition_order(0, 1), [Condition::Control, Condition::Candidate]);
+    assert_eq!(condition_order(1, 0), [Condition::Control, Condition::Candidate]);
 }
 
 #[test]

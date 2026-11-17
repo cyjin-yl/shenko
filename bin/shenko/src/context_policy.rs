@@ -465,13 +465,13 @@ fn set_policy_config(data_dir: &Path, id: &str, config: &str) -> Result<()> {
     );
     let document: Value = serde_json::from_str(config)
         .with_context(|| format!("context strategy {id} configuration is not JSON"))?;
-    let db_path = data_dir.join("shenko.db");
+    let db_path = crate::runtime_bootstrap::installation_db_path(data_dir)?;
     anyhow::ensure!(
         db_path.is_file(),
         "no managed installation at {}; run `shenko start` once",
         data_dir.display()
     );
-    let store = shenko_store::store::Store::open(db_path, data_dir.join("cas"))?;
+    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let mut node = crate::node_sync::open_node(data_dir, &store)?;
     let package_root = data_dir.join("policy-units");
     reconcile_units(&mut node, &package_root)?;
@@ -498,13 +498,13 @@ fn set_policy_enabled(data_dir: &Path, id: &str, enabled: bool) -> Result<()> {
         known,
         "unknown context strategy {id}; run `shenko context policy list` for the installable ones"
     );
-    let db_path = data_dir.join("shenko.db");
+    let db_path = crate::runtime_bootstrap::installation_db_path(data_dir)?;
     anyhow::ensure!(
         db_path.is_file(),
         "no managed installation at {}; run `shenko start` once",
         data_dir.display()
     );
-    let store = shenko_store::store::Store::open(db_path, data_dir.join("cas"))?;
+    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let mut node = crate::node_sync::open_node(data_dir, &store)?;
     // The record must exist before it can be enabled: a strategy that was
     // never installed is installed here, with the compiled-in version.

@@ -1,5 +1,5 @@
 //! Memory persistence + search (intent→committed, 中文检索).
-use shenko_store::{MemoryEntry, Store};
+use shenko_store::{MemoryEntry, MemoryQueryFilter, Store};
 use shenko_types::ids::EntityId;
 use std::path::PathBuf;
 
@@ -60,6 +60,19 @@ fn insert_rejects_nothing_and_supports_scope_limit() {
     let latest = store.list_memory(2).unwrap();
     assert_eq!(latest.len(), 2);
     assert_eq!(latest[0].content, "entry 2");
+    // The matching row is older than both wrong-scope and foreign-owner
+    // distractors: LIMIT 1 must still select it, for listing and search.
+    let mut foreign = MemoryEntry::new(EntityId::new(), "entry foreign");
+    foreign.scope = "shared".into();
+    store.insert_memory_entry(&foreign).unwrap();
+    let selected = MemoryQueryFilter {
+        agent_id: Some(agent), scopes: &["shared".into()],
+        knowledge_kinds: &["note".into()], ..Default::default()
+    };
+    let matching = store.query_memory(None, &selected, 1).unwrap();
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].content, "entry 0");
+    assert_eq!(store.query_memory(Some("entry"), &selected, 1).unwrap()[0].entry_id, matching[0].entry_id);
 }
 
 /// The entry writer persists the supplied `deleted` flag: re-writing an
@@ -89,6 +102,8 @@ fn unchanged_tombstone_rewrite_stays_hidden() {
     assert_eq!(kept.content, "被遗忘后仍要保留原文");
     assert!(store.search_memory("被遗忘", 10).unwrap().is_empty());
     assert!(store.list_memory(10).unwrap().is_empty());
+    assert_eq!(store.search_memory_including_retired("被遗忘", 1).unwrap()[0].entry_id, entry.entry_id);
+    assert_eq!(store.list_memory_including_retired(1).unwrap()[0].entry_id, entry.entry_id);
 }
 
 /// An operation no worker can settle is refused AT ADMISSION.
