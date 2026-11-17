@@ -1,0 +1,1302 @@
+//! The execution of one admitted request.
+//!
+//! The dispatch fence is checked at the send boundary, the provider runtime
+//! is resolved from the sealed binding, and the terminal result is produced
+//! from what the provider actually reported. A fenced request provably never
+//! left; an unknown outcome keeps its capacity and stays recoverable.
+
+use std::{panic::AssertUnwindSafe, sync::Arc};
+
+use futures::FutureExt as _;
+use tracing::warn;
+
+use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ResidencyIdentity};
+use crate::registry::{ProviderRegistry, ProviderRuntime};
+use crate::request::{
+    EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
+    ProviderRejection, ProviderWireError, RequestPurpose, StreamEvidence,
+    TerminationEvidence, TerminationKind,
+};
+use crate::resource::ResourceDomain;
+use crate::stream::{BoundedStreamPublisher, StreamSinkError};
+
+use crate::broker::{DispatchFence, InferenceReceiptSink, StreamSubmission};
+
+/// The residency context one request executes against.
+///
+/// It is the conversation the request belongs to, so successive turns of one
+/// window renew the same lease and a different window never inherits it.
+fn residency_context(request: &InferenceRequest) -> String {
+    request.conversation_id.to_string()
+}
+
+/// The original worker-owned services for one admitted execution. This only
+/// borrows the installed runtime and physical accounting owners; it creates no
+/// provider, capacity pool, cancellation lifetime or replacement receipt.
+#[derive(Clone, Copy)]
+pub(crate) struct ExecutionContext<'a> {
+    pub(crate) registry: &'a Arc<ProviderRegistry>,
+    pub(crate) domain: &'a Arc<ResourceDomain>,
+    pub(crate) kv: &'a Arc<KvAllocator>,
+    pub(crate) error_sink: &'a crate::error_sink::ErrorSinkCell,
+    pub(crate) stop: &'a tokio_util::sync::CancellationToken,
+}
+
+/// Execute one admitted request and produce its terminal result.
+///
+/// The result carries whether execution attempted to report a specific cause
+/// such as a sealed HTTP deadline or provider rejection. Completion avoids a
+/// second generic diagnostic for the same cause. This flag is not a durable
+/// write acknowledgement: SPEC 45.14 keeps journal failure fail-soft and
+/// observable through dropped counters. E1 and settlement remain separate.
+pub(crate) async fn execute_request(
+    request: &InferenceRequest,
+    receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
+    purpose: RequestPurpose,
+    stream: Option<StreamSubmission>,
+    context: &ExecutionContext<'_>,
+) -> ExecutedRequest {
+    let ExecutionContext { domain, kv, .. } = *context;
+    // A running request is a real reader of its context's residency. While it
+    // runs the context is not an eviction candidate, and a release requested in
+    // the meantime stays pending until this read ends (step 6). A first
+    // request for a context has no lease yet, so there is nothing to hold.
+    let context_id = residency_context(request);
+    let reading = {
+        let mut pool = domain.kv_mut();
+        kv.begin_read(&mut pool, &context_id).is_ok()
+    };
+    let (result, cause_report_attempted) = execute_admitted(
+        request,
+        receipt_sink,
+        purpose,
+        stream,
+        context,
+    )
+    .await;
+    if reading {
+        let mut pool = domain.kv_mut();
+        if result.termination.kind == TerminationKind::Unknown {
+            // The backend may still be reading this context: a dropped
+            // connection, a deadline or an unknown dispatch fence is not proof
+            // that it stopped. The read hold stays charged and off the
+            // eviction list until the original terminal evidence arrives and
+            // the reconciliation path drains it (step 6).
+            kv.hold_unknown_read(&mut pool, &request.request_id.to_string(), &context_id);
+        } else {
+            let _ = kv.end_read(&mut pool, &context_id);
+        }
+    }
+    ExecutedRequest { result, cause_report_attempted }
+}
+
+/// One executed request and whether cause reporting was attempted.
+pub(crate) struct ExecutedRequest {
+    /// The terminal result of this request.
+    pub result: InferenceResult,
+    /// Whether a specific cause was submitted to the fail-soft reporter.
+    pub cause_report_attempted: bool,
+}
+
+/// Dispatch one admitted request and settle its terminal result.
+async fn execute_admitted(
+    request: &InferenceRequest,
+    receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
+    purpose: RequestPurpose,
+    stream: Option<StreamSubmission>,
+    context: &ExecutionContext<'_>,
+) -> (InferenceResult, bool) {
+    let ExecutionContext { registry, error_sink, stop, .. } = *context;
+    if stop.is_cancelled() {
+        return (stopped_before_dispatch(request, purpose), false);
+    }
+    let admitted = receipt_sink.map_or(Ok(DispatchFence::Send), |sink| sink.may_dispatch());
+    match admitted {
+        Ok(DispatchFence::Send) => {
+            let Some(runtime) = registry.runtime_for(&request.provider_binding) else {
+                crate::error_sink::journal_runtime_error(
+                    error_sink,
+                    &crate::error_sink::report_for(
+                        request,
+                        purpose,
+                        "INFERENCE_PROVIDER_UNAVAILABLE",
+                        "no installed provider runtime can serve this binding",
+                    ),
+                );
+                return (
+                    failure_result(
+                        request,
+                        purpose,
+                        &anyhow::Error::new(LocalDispatchError::NoProviderRuntime),
+                        None,
+                    ),
+                    true,
+                );
+            };
+            if !runtime.available() {
+                return (
+                    InferenceResult {
+                        request_id: request.request_id,
+                        status: InferenceStatus::Unavailable,
+                        response: None,
+                        effective: EffectiveInference::for_request(request),
+                        termination: TerminationEvidence::never_dispatched(),
+                        purpose,
+                        stream: None,
+                        quota_headers: Vec::new(),
+                    },
+                    false,
+                );
+            }
+            match stream {
+                Some(stream) => execute_stream(request, purpose, runtime, stream, context).await,
+                None => execute_complete(request, purpose, runtime, context).await,
+            }
+        }
+        otherwise => {
+            let mut cause_report_attempted = false;
+            let status = match otherwise {
+                Ok(DispatchFence::Fenced) => InferenceStatus::Cancelled,
+                Err(error) => {
+                    warn!(request_id=%request.request_id, %error, "model dispatch fence could not be checked");
+                    crate::error_sink::journal_runtime_error(
+                        error_sink,
+                        &crate::error_sink::report_for(
+                            request,
+                            purpose,
+                            "INFERENCE_FENCE_UNCHECKED",
+                            "the dispatch fence could not be checked; the request stays recoverable",
+                        ),
+                    );
+                    // The unchecked fence was submitted to the fail-soft
+                    // reporter. Completion must still retain Unknown even
+                    // though it avoids a second generic diagnostic.
+                    cause_report_attempted = true;
+                    InferenceStatus::Failed
+                }
+                Ok(DispatchFence::Unknown) => InferenceStatus::Failed,
+                Ok(DispatchFence::Send) => unreachable!("dispatched above"),
+            };
+            // A fenced request provably never sent; an unknown verdict means a
+            // dispatch may already exist, so its terminal evidence stays
+            // recoverable instead of a false never-sent claim.
+            let termination = if status == InferenceStatus::Cancelled {
+                TerminationEvidence::never_dispatched()
+            } else {
+                TerminationEvidence::unknown()
+            };
+            (
+                InferenceResult {
+                    request_id: request.request_id,
+                    status,
+                    response: None,
+                    effective: EffectiveInference::for_request(request),
+                    termination,
+                    purpose,
+                    stream: None,
+                    quota_headers: Vec::new(),
+                },
+                cause_report_attempted,
+            )
+        }
+    }
+}
+
+/// Run one complete request.
+async fn execute_complete(
+    request: &InferenceRequest,
+    purpose: RequestPurpose,
+    runtime: Arc<dyn ProviderRuntime>,
+    context: &ExecutionContext<'_>,
+) -> (InferenceResult, bool) {
+    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
+    match provider_outcome(async { runtime.complete_cancellable(request, stop).await }).await {
+        Ok(response) => {
+            let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
+            let termination = termination_evidence(&response, terminal,
+                request.payload.max_tokens.unwrap_or_else(|| request.provider_binding.default_max_tokens()));
+            observe_kv(domain, kv, request, purpose, response.usage.as_ref());
+            let quota_headers = response.ratelimit_headers.clone();
+            (
+                InferenceResult {
+                    request_id: request.request_id,
+                    status: if terminal { InferenceStatus::Success } else { InferenceStatus::Failed },
+                    response: Some(response),
+                    effective: EffectiveInference::for_request(request),
+                    termination,
+                    purpose,
+                    stream: None,
+                    quota_headers,
+                },
+                // The provider answered. Nothing failed, so no cause was
+                // recorded; a non-terminal answer leaves the unknown outcome
+                // for the broker's completion path to state.
+                false,
+            )
+        }
+        Err(error) => {
+            let cause_report_attempted = journal_provider_error(request, purpose, &error, error_sink);
+            (
+                failure_result(request, purpose, &error, None),
+                // This records only the attempt to report the transport cause.
+                cause_report_attempted,
+            )
+        }
+    }
+}
+
+/// Run one streamed request.
+///
+/// The stream starts at the provider. The durable journal receives the
+/// ordered batches and the terminal unit; the public surface receives the
+/// gated text. Both happen independently of the caller: a subject that
+/// disappears does not remove the evidence.
+async fn execute_stream(
+    request: &InferenceRequest,
+    purpose: RequestPurpose,
+    runtime: Arc<dyn ProviderRuntime>,
+    stream: StreamSubmission,
+    context: &ExecutionContext<'_>,
+) -> (InferenceResult, bool) {
+    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
+    let publisher = BoundedStreamPublisher::new(
+        request.request_id,
+        stream.identity,
+        stream.journal,
+        stream.public,
+    );
+    let journaled = publisher.has_journal();
+    if let Err(error) = publisher.open(&request.provider_binding, now_ms()) {
+        return (
+            failure_result(
+                request,
+                purpose,
+                &anyhow::Error::new(LocalDispatchError::JournalOpenFailed(error)),
+                None,
+            ),
+            false,
+        );
+    }
+    let outcome = provider_outcome(async {
+        runtime.stream_cancellable(request, &publisher, stop).await
+    }).await;
+    let (response, termination, status, events, batches, quota_headers, cause_report_attempted) = match outcome {
+        Ok(outcome) => {
+            let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
+            let termination = termination_evidence(&outcome.response, terminal,
+                request.payload.max_tokens.unwrap_or_else(|| request.provider_binding.default_max_tokens()));
+            let status = if terminal { InferenceStatus::Success } else { InferenceStatus::Failed };
+            let quota_headers = outcome.response.ratelimit_headers.clone();
+            (
+                Some(outcome.response),
+                termination,
+                status,
+                outcome.events,
+                outcome.batches,
+                quota_headers,
+                false,
+            )
+        }
+        Err(error) => {
+            let cause_report_attempted = journal_provider_error(request, purpose, &error, error_sink);
+            // Streaming and complete calls classify the same transport facts.
+            // In particular a deadline is still unknown, while an explicit
+            // provider rejection is not lost behind a generic stream error.
+            let failed = failure_result(request, purpose, &error, None);
+            // Reporting is fail-soft; E1 remains the authority on termination.
+            (None, failed.termination, failed.status, 0, 0, failed.quota_headers, cause_report_attempted)
+        }
+    };
+    // The terminal receipt is written here, independently of the caller.
+    let _ = publisher.finish(&termination, now_ms());
+    let public_chunks = publisher.published_chunks();
+    if let Some(response) = &response {
+        observe_kv(domain, kv, request, purpose, response.usage.as_ref());
+    }
+    (
+        InferenceResult {
+            request_id: request.request_id,
+            status,
+            response,
+            effective: EffectiveInference::for_request(request),
+            termination,
+            purpose,
+            stream: Some(StreamEvidence { events, batches, public_chunks, journaled }),
+            quota_headers,
+        },
+        cause_report_attempted,
+    )
+}
+
+/// Report the transport fact without copying credentials, URL query values or
+/// provider response text into the error journal. A timeout explains why the
+/// local reader ended; it is never a provider cancellation acknowledgement.
+///
+/// The report names the cause and, for a deadline, the sealed observation
+/// limit. Returning true records the reporting attempt, including when there
+/// is no sink or its fail-soft write fails; it never confirms persistence.
+/// The original result/stream terminal and retained debt stay independent.
+fn journal_provider_error(
+    request: &InferenceRequest,
+    purpose: RequestPurpose,
+    error: &anyhow::Error,
+    error_sink: &crate::error_sink::ErrorSinkCell,
+) -> bool {
+    let (code, message) = if error.is::<ProviderPanicked>() {
+        ("INFERENCE_PROVIDER_PANICKED", "the owned provider future unwound before a conclusive result; the original request remains Unknown and its capacity stays charged".into())
+    } else if error.is::<LocalObservationStopped>() {
+        ("INFERENCE_OBSERVATION_STOPPED", "runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown".into())
+    } else if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
+        let limit = request.provider_binding.local_request_timeout_ms()
+            .map(|milliseconds| format!(" after the sealed {milliseconds} ms observation limit"))
+            .unwrap_or_default();
+        ("INFERENCE_TRANSPORT_TIMEOUT", format!(
+            "provider HTTP request timed out{limit}; remote termination is unconfirmed and the original request must be reconciled"
+        ))
+    } else if let Some(rejection) = error.downcast_ref::<ProviderRejection>() {
+        ("INFERENCE_PROVIDER_REJECTED", format!("provider rejected the request with HTTP {}", rejection.http_status))
+    } else if let Some(wire) = error.downcast_ref::<ProviderWireError>() {
+        (wire.code().as_str(), "sealed provider request failed local wire validation".to_string())
+    } else {
+        ("INFERENCE_PROVIDER_FAILED", "provider request failed without conclusive terminal evidence; reconcile the original request".to_string())
+    };
+    warn!(request_id=%request.request_id, code, detail=%message, "provider request did not complete");
+    crate::error_sink::journal_runtime_error(
+        error_sink,
+        &crate::error_sink::report_for(request, purpose, code, &message),
+    );
+    true
+}
+
+/// The owned HTTP future ended locally. This is deliberately not a
+/// LocalDispatchError: a dispatched remote generation remains Unknown.
+#[derive(Debug, thiserror::Error)]
+#[error("local inference observation stopped; remote completion is unknown")]
+pub(crate) struct LocalObservationStopped;
+
+/// Catch only the plugin's execution future. Dispatch fences, durable sink
+/// writes and the broker's settlement machinery keep their own error paths;
+/// a panic there must not be reclassified as an ordinary provider failure.
+/// The plugin's future has actually unwound before this returns. Its contract
+/// still forbids leaking independently spawned workers behind that future.
+async fn provider_outcome<T>(future: impl std::future::Future<Output = anyhow::Result<T>>)
+    -> anyhow::Result<T>
+{
+    match AssertUnwindSafe(future).catch_unwind().await {
+        Ok(outcome) => outcome,
+        // A plugin panic payload can contain request text or credentials.
+        // Retain a typed cause, never copy its arbitrary payload into E1.
+        Err(_) => Err(ProviderPanicked.into()),
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("owned provider future panicked; original request outcome remains unknown")]
+struct ProviderPanicked;
+
+pub(crate) fn stopped_before_dispatch(request: &InferenceRequest, purpose: RequestPurpose)
+    -> InferenceResult
+{
+    InferenceResult {
+        request_id: request.request_id, status: InferenceStatus::Cancelled,
+        response: None, effective: EffectiveInference::for_request(request),
+        termination: TerminationEvidence::never_dispatched(), purpose,
+        stream: None, quota_headers: Vec::new(),
+    }
+}
+
+/// Whether the provider's stop reason is a real terminal outcome.
+pub(crate) fn terminal_stop_reason(
+    runtime: &Arc<dyn ProviderRuntime>,
+    stop_reason: &str,
+) -> bool {
+    match runtime.profile().backend_family {
+        crate::profile::BackendFamily::Anthropic => matches!(
+            stop_reason,
+            "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | "pause_turn" | "refusal"
+        ),
+        _ => matches!(
+            stop_reason,
+            "stop" | "length" | "tool_calls" | "function_call" | "content_filter" | "end_turn"
+        ),
+    }
+}
+
+/// The terminal evidence of one provider response. `max_tokens` is the
+/// effective limit of the sealed request: the payload's own reservation, or
+/// the bound provider default when the payload leaves it open. Reporting the
+/// binding default while the wire carried a smaller reservation would
+/// contradict the request this evidence belongs to.
+pub(crate) fn termination_evidence(
+    response: &InferenceResponse,
+    terminal: bool,
+    max_tokens: u64,
+) -> TerminationEvidence {
+    let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
+    if terminal {
+        TerminationEvidence {
+            kind: TerminationKind::ProviderTerminal,
+            stop_reason: Some(response.stop_reason.clone()),
+            max_tokens: Some(max_tokens),
+            output_tokens,
+            length: matches!(response.stop_reason.as_str(), "max_tokens" | "length"),
+        }
+    } else {
+        TerminationEvidence {
+            kind: TerminationKind::Unknown,
+            stop_reason: (!response.stop_reason.is_empty()).then(|| response.stop_reason.clone()),
+            max_tokens: Some(max_tokens),
+            output_tokens,
+            length: false,
+        }
+    }
+}
+
+/// A failure that provably happened before the provider was called.
+///
+/// The request never reached the wire, so it is not unknown remote debt:
+/// `failure_result` records it as `never_dispatched` and releases the slot it
+/// held instead of holding it as an unknown outcome. This is a local fact the
+/// dispatch boundary knows, not a second failure taxonomy — `failure_status`
+/// and `failure_result` still produce every status and termination kind.
+#[derive(Debug)]
+pub(crate) enum LocalDispatchError {
+    /// No installed provider runtime can serve the sealed binding.
+    NoProviderRuntime,
+    /// The durable stream journal could not be opened before dispatch.
+    JournalOpenFailed(StreamSinkError),
+}
+
+impl std::fmt::Display for LocalDispatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoProviderRuntime => {
+                f.write_str("no installed provider runtime can serve this binding")
+            }
+            Self::JournalOpenFailed(error) => {
+                write!(f, "stream journal could not be opened: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LocalDispatchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NoProviderRuntime => None,
+            Self::JournalOpenFailed(error) => Some(error),
+        }
+    }
+}
+
+pub(crate) fn failure_status(error: &anyhow::Error) -> InferenceStatus {
+    if let Some(rejection) = error.downcast_ref::<ProviderRejection>() {
+        return InferenceStatus::Rejected {
+            http_status: rejection.http_status,
+        };
+    }
+    if let Some(wire_error) = error.downcast_ref::<ProviderWireError>() {
+        return InferenceStatus::InvalidRequest {
+            code: wire_error.code(),
+        };
+    }
+    if let Some(local) = error.downcast_ref::<LocalDispatchError>() {
+        return match local {
+            // No installed runtime can serve the binding, so the provider is
+            // unavailable exactly as the `runtime.available()` branch reports.
+            LocalDispatchError::NoProviderRuntime => InferenceStatus::Unavailable,
+            // The provider was reachable; the local durable journal failed.
+            LocalDispatchError::JournalOpenFailed(_) => InferenceStatus::Failed,
+        };
+    }
+    InferenceStatus::Failed
+}
+
+pub(crate) fn failure_result(
+    req: &InferenceRequest,
+    purpose: RequestPurpose,
+    error: &anyhow::Error,
+    stream: Option<StreamEvidence>,
+) -> InferenceResult {
+    let status = failure_status(error);
+    let termination = match status {
+        InferenceStatus::Rejected { .. } => TerminationEvidence {
+            kind: TerminationKind::TransportRejected,
+            stop_reason: None,
+            max_tokens: None,
+            output_tokens: None,
+            length: false,
+        },
+        InferenceStatus::InvalidRequest { .. } => TerminationEvidence::never_dispatched(),
+        // A local failure that provably happened before the provider call is
+        // never dispatched; its capacity releases instead of staying debt.
+        _ if error.downcast_ref::<LocalDispatchError>().is_some() => {
+            TerminationEvidence::never_dispatched()
+        }
+        _ => TerminationEvidence::unknown(),
+    };
+    warn!(
+        ?status,
+        "provider inference did not produce a successful terminal result"
+    );
+    InferenceResult {
+        request_id: req.request_id,
+        status,
+        response: None,
+        effective: EffectiveInference::for_request(req),
+        termination,
+        purpose,
+        stream,
+        quota_headers: error
+            .downcast_ref::<ProviderRejection>()
+            .map(|rejection| rejection.ratelimit_headers.clone())
+            .unwrap_or_default(),
+    }
+}
+
+/// Record the observed context size of one completed call.
+///
+/// The size comes from what the provider reported, not from an estimate. A
+/// provider that did not report its input tokens leaves the pool unchanged.
+///
+/// The reusable prefix is what this call actually reported as cached, so a
+/// backend that reports nothing keeps zero reuse instead of a guess. One hit is
+/// an observation about this request; it is not proof that the backend still
+/// retains KV after the context was released, and it never raises the lease to
+/// a hard reservation.
+fn observe_kv(
+    domain: &Arc<ResourceDomain>,
+    kv: &Arc<KvAllocator>,
+    request: &InferenceRequest,
+    purpose: RequestPurpose,
+    usage: Option<&crate::request::TokenUsage>,
+) {
+    let Some(usage) = usage else { return };
+    let Some(input_tokens) = usage.input_tokens else { return };
+    let side = match purpose {
+        RequestPurpose::Subject | RequestPurpose::External => LeaseSide::Main,
+        _ => LeaseSide::Child,
+    };
+    // The handle belongs to the backend identity discovery established (engine
+    // identity/incarnation, tokenizer, template, toolset) and to this exact
+    // model. An engine rebuild, a re-rendered template or a model switch
+    // invalidates every older handle instead of letting the new backend inherit
+    // their residency. What was never observed stays unknown, so it neither
+    // proves a match nor invents a change.
+    let reusable_units = usage
+        .cache_read_tokens
+        .map(|cached| cached.min(input_tokens))
+        .unwrap_or(0);
+    let domain_identity = domain.identity();
+    let mut pool = domain.kv_mut();
+    let mut identity = pool.identity.clone();
+    identity.adopt(&ResidencyIdentity {
+        engine_identity: Some(domain_identity.engine_identity),
+        engine_incarnation: domain_identity.engine_incarnation,
+        model: Some(request.provider_binding.model().to_string()),
+        tokenizer_fingerprint: None,
+        template_fingerprint: None,
+        toolset_digest: None,
+    });
+    pool.invalidate_stale(&identity);
+    let demand = LeaseDemand {
+        context_id: residency_context(request),
+        side,
+        window_units: input_tokens,
+        reusable_units,
+        recompute_units: input_tokens.saturating_sub(reusable_units),
+        return_probability: 0.5,
+        priority: 0,
+        identity,
+        affinity_options: request
+            .payload
+            .native_options
+            .keys()
+            .filter(|option| crate::capability::is_residency_option(option.as_str()))
+            .cloned()
+            .collect(),
+    };
+    if let Err(error) = kv.acquire(&mut pool, demand) {
+        tracing::debug!(%error, "context residency pool kept its current leases");
+    }
+}
+
+/// The current wall clock in milliseconds.
+pub(crate) fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    use crate::broker::{Broker, InferenceRecoverySource};
+    use crate::capability::BackendCapabilitySnapshot;
+    use crate::profile::{
+        AuthBinding, BackendFamily, ProviderProfile, SamplingCapabilities, TransportKind,
+        UsageFieldMapping,
+    };
+    use crate::registry::TokenCount;
+    use crate::request::{
+        InferenceMessage, InferencePayload, InferencePriority, ProviderBinding, ProviderRejection,
+        TokenUsage, WireErrorCode,
+    };
+    use crate::resource::ResourceDomainIdentity;
+    use crate::stream::{StreamBatch, StreamIdentity, StreamJournalSink};
+    use shenko_types::ids::{ControllerEpoch, EntityId};
+    use std::collections::{BTreeMap, HashSet};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    fn fixture_binding() -> ProviderBinding {
+        ProviderBinding::Local {
+            base_url: "http://127.0.0.1".into(),
+            model: "counting-fixture".into(),
+            allow_invalid_certs: false,
+            serializer_revision: crate::local_provider::SERIALIZER_REVISION,
+            default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+            request_timeout_ms: None,
+        }
+    }
+
+    /// A runtime that counts how many requests actually reached it and can be
+    /// told to drop the connection after specific ones leave.
+    struct CountingRuntime {
+        binding: ProviderBinding,
+        complete_calls: AtomicU64,
+        stream_calls: AtomicU64,
+        reached: Mutex<Vec<EntityId>>,
+        dropped: Mutex<HashSet<EntityId>>,
+    }
+
+    impl CountingRuntime {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                binding: fixture_binding(),
+                complete_calls: AtomicU64::new(0),
+                stream_calls: AtomicU64::new(0),
+                reached: Mutex::new(Vec::new()),
+                dropped: Mutex::new(HashSet::new()),
+            })
+        }
+
+        /// After this request leaves, its connection drops before an outcome
+        /// is known.
+        fn drop_after_dispatch(&self, request_id: EntityId) {
+            self.dropped.lock().expect("dropped set poisoned").insert(request_id);
+        }
+
+        fn reached_ids(&self) -> Vec<EntityId> {
+            self.reached.lock().expect("reached set poisoned").clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProviderRuntime for CountingRuntime {
+        fn profile(&self) -> &ProviderProfile {
+            static PROFILE: std::sync::LazyLock<ProviderProfile> =
+                std::sync::LazyLock::new(|| ProviderProfile {
+                    profile_id: "local.openai.chat_completions".into(),
+                    revision: crate::local_provider::SERIALIZER_REVISION,
+                    backend_family: BackendFamily::OpenAiCompatible,
+                    transport: TransportKind::HttpJson,
+                    endpoint_origin: "http://127.0.0.1".into(),
+                    model_id: "counting-fixture".into(),
+                    api_version: None,
+                    sdk: None,
+                    request_schema_revision: crate::local_provider::SERIALIZER_REVISION,
+                    response_schema_revision: crate::local_provider::SERIALIZER_REVISION,
+                    gateway_profile: None,
+                    beta_features: Vec::new(),
+                    sampling: SamplingCapabilities::default(),
+                    auth: AuthBinding::none(),
+                    usage: UsageFieldMapping::default(),
+                    native_namespaces: Vec::new(),
+                    resource_domain_id: "default.unclassified".into(),
+                    engine_incarnation: None,
+                    default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+                    serializer_revision: crate::local_provider::SERIALIZER_REVISION,
+                });
+            &PROFILE
+        }
+
+        fn binding(&self) -> ProviderBinding {
+            self.binding.clone()
+        }
+
+        async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
+            self.complete_calls.fetch_add(1, Ordering::SeqCst);
+            self.reached.lock().expect("reached set poisoned").push(request.request_id);
+            if self
+                .dropped
+                .lock()
+                .expect("dropped set poisoned")
+                .contains(&request.request_id)
+            {
+                return Err(anyhow::anyhow!(
+                    "the connection dropped after the request left"
+                ));
+            }
+            Ok(InferenceResponse {
+                content: "counting fixture".into(),
+                stop_reason: "stop".into(),
+                raw_response: r#"{"fixture":true,"stop_reason":"stop"}"#.into(),
+                usage: Some(TokenUsage {
+                    input_tokens: Some(1),
+                    output_tokens: Some(1),
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                }),
+                ratelimit_headers: Vec::new(),
+                citations: Vec::new(),
+            })
+        }
+
+        async fn stream(
+            &self,
+            request: &InferenceRequest,
+            _publisher: &BoundedStreamPublisher,
+        ) -> Result<crate::stream::StreamOutcome> {
+            self.stream_calls.fetch_add(1, Ordering::SeqCst);
+            self.reached.lock().expect("reached set poisoned").push(request.request_id);
+            if self
+                .dropped
+                .lock()
+                .expect("dropped set poisoned")
+                .contains(&request.request_id)
+            {
+                return Err(anyhow::anyhow!(
+                    "the connection dropped after the request left"
+                ));
+            }
+            Ok(crate::stream::StreamOutcome {
+                response: InferenceResponse {
+                    content: "counting fixture".into(),
+                    stop_reason: "stop".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"stop"}"#.into(),
+                    usage: None,
+                    ratelimit_headers: Vec::new(),
+                    citations: Vec::new(),
+                },
+                events: 1,
+                batches: 1,
+            })
+        }
+
+        async fn count_tokens(&self, _request: &InferenceRequest) -> Result<TokenCount> {
+            Err(anyhow::anyhow!("the fixture does not count tokens"))
+        }
+
+        async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
+            Err(anyhow::anyhow!("the fixture does not probe"))
+        }
+    }
+
+    /// A receipt owner that records every delivered result and can publish a
+    /// recovered terminal result independently, like the durable ledger does.
+    struct TestReceipt {
+        request_id: EntityId,
+        binding: ProviderBinding,
+        payload: InferencePayload,
+        recorded: Mutex<Vec<InferenceResult>>,
+        terminal: Mutex<Option<InferenceResult>>,
+    }
+
+    impl TestReceipt {
+        fn new(request: &InferenceRequest) -> Arc<Self> {
+            Arc::new(Self {
+                request_id: request.request_id,
+                binding: request.provider_binding.clone(),
+                payload: request.payload.clone(),
+                recorded: Mutex::new(Vec::new()),
+                terminal: Mutex::new(None),
+            })
+        }
+
+        fn publish_terminal(&self, result: InferenceResult) {
+            *self.terminal.lock().expect("terminal poisoned") = Some(result);
+        }
+
+        fn recorded(&self) -> Vec<InferenceResult> {
+            self.recorded.lock().expect("recorded poisoned").clone()
+        }
+    }
+
+    impl InferenceRecoverySource for TestReceipt {
+        fn request_id(&self) -> EntityId {
+            self.request_id
+        }
+
+        fn binding(&self) -> &ProviderBinding {
+            &self.binding
+        }
+
+        fn payload(&self) -> &InferencePayload {
+            &self.payload
+        }
+
+        fn read_terminal_result(&self) -> anyhow::Result<Option<InferenceResult>> {
+            Ok(self.terminal.lock().expect("terminal poisoned").clone())
+        }
+    }
+
+    impl InferenceReceiptSink for TestReceipt {
+        fn may_dispatch(&self) -> anyhow::Result<DispatchFence> {
+            Ok(DispatchFence::Send)
+        }
+
+        fn record(&self, result: &InferenceResult) -> anyhow::Result<()> {
+            self.recorded.lock().expect("recorded poisoned").push(result.clone());
+            Ok(())
+        }
+    }
+
+    /// A durable stream journal whose open always fails before dispatch.
+    struct FailingJournal;
+
+    impl StreamJournalSink for FailingJournal {
+        fn open_stream(&self, _request_id: EntityId, _binding: &ProviderBinding) -> Result<(), StreamSinkError> {
+            Err(StreamSinkError::Journal("fixture journal is unavailable".into()))
+        }
+
+        fn append_batch(&self, _request_id: EntityId, _batch: &StreamBatch) -> Result<(), StreamSinkError> {
+            Ok(())
+        }
+
+        fn append_terminal(&self, _request_id: EntityId, _terminal: &TerminationEvidence) -> Result<(), StreamSinkError> {
+            Ok(())
+        }
+
+        fn close_stream(&self, _request_id: EntityId) -> Result<(), StreamSinkError> {
+            Ok(())
+        }
+    }
+
+    fn domain(capacity: u64) -> Arc<ResourceDomain> {
+        ResourceDomain::new(
+            ResourceDomainIdentity {
+                domain_id: "dispatch-classification.test".into(),
+                engine_identity: "counting-fixture".into(),
+                engine_incarnation: None,
+                epoch: 1,
+            },
+            capacity,
+            crate::admission::CapacityProvenance::Configured,
+            None,
+            crate::admission::CapacityProvenance::Unknown,
+        )
+    }
+
+    fn new_request(
+        request_id: EntityId,
+        binding: &ProviderBinding,
+    ) -> (InferenceRequest, oneshot::Receiver<InferenceResult>) {
+        let (result_tx, result_rx) = oneshot::channel();
+        (
+            InferenceRequest {
+                request_id,
+                agent_id: EntityId::new(),
+                conversation_id: EntityId::new(),
+                provider_binding: binding.clone(),
+                priority: InferencePriority::Subject,
+                epoch: ControllerEpoch(1),
+                payload: InferencePayload {
+                    system_prompt: "fixture system".into(),
+                    messages: vec![InferenceMessage::text("user", "fixture input")],
+                    max_tokens: Some(16),
+                    tools: vec![],
+                    native_options: BTreeMap::new(),
+                },
+                result_tx,
+            },
+            result_rx,
+        )
+    }
+
+    /// The dispatch-boundary classification truth table. A local failure that
+    /// provably happened before the provider was called is never dispatched;
+    /// the pre-existing InvalidRequest mapping and the post-dispatch unknown
+    /// outcome do not regress.
+    #[test]
+    fn failure_classification_keeps_never_dispatched_local_and_unknown_remote() {
+        let (request, _rx) = new_request(EntityId::new(), &fixture_binding());
+
+        // A local validation failure before dispatch stays never-dispatched.
+        let wire = anyhow::Error::new(ProviderWireError::ReservedOption("temperature".into()));
+        let result = failure_result(&request, RequestPurpose::Subject, &wire, None);
+        assert_eq!(
+            result.status,
+            InferenceStatus::InvalidRequest {
+                code: WireErrorCode::ReservedNativeOption
+            }
+        );
+        assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unknown);
+
+        // A real HTTP rejection stays transport-rejected.
+        let rejection = anyhow::Error::new(ProviderRejection {
+            http_status: 429,
+            ratelimit_headers: vec![("retry-after".into(), "1".into())],
+        });
+        let result = failure_result(&request, RequestPurpose::Subject, &rejection, None);
+        assert_eq!(result.status, InferenceStatus::Rejected { http_status: 429 });
+        assert_eq!(result.termination.kind, TerminationKind::TransportRejected);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
+        assert_eq!(result.quota_headers, vec![("retry-after".to_string(), "1".to_string())]);
+
+        let forbidden = anyhow::Error::new(ProviderRejection {
+            http_status: 403, ratelimit_headers: vec![],
+        });
+        let result = failure_result(&request, RequestPurpose::Subject, &forbidden, None);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::BindingRejected);
+
+        // A post-dispatch transport failure stays unknown.
+        let dropped = anyhow::anyhow!("connection closed mid-response");
+        let result = failure_result(&request, RequestPurpose::Subject, &dropped, None);
+        assert_eq!(result.status, InferenceStatus::Failed);
+        assert_eq!(result.termination.kind, TerminationKind::Unknown);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unknown);
+
+        // The local dispatch-boundary failures map to never-dispatched.
+        let missing = anyhow::Error::new(LocalDispatchError::NoProviderRuntime);
+        let result = failure_result(&request, RequestPurpose::Subject, &missing, None);
+        assert_eq!(result.status, InferenceStatus::Unavailable);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
+        assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
+        let journal = anyhow::Error::new(LocalDispatchError::JournalOpenFailed(
+            StreamSinkError::Journal("journal gone".into()),
+        ));
+        let result = failure_result(&request, RequestPurpose::Subject, &journal, None);
+        assert_eq!(result.status, InferenceStatus::Failed);
+        assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
+    }
+
+    /// Issue #274: a runtime that is gone before dispatch consumes the slot.
+    /// With C=1 the request never reaches a provider, its result is the typed
+    /// unavailable outcome, the receipt records NeverDispatched, and the freed
+    /// slot admits the next valid request.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() {
+        let registry = Arc::new(ProviderRegistry::new());
+        let runtime = CountingRuntime::new();
+        let epoch = registry.install(runtime.clone());
+        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1));
+        let binding = handle.binding().clone();
+
+        let (request_one, result_one_rx) = new_request(EntityId::new(), &binding);
+        let request_one_id = request_one.request_id;
+        let receipt_one = TestReceipt::new(&request_one);
+        handle.submit_recorded(request_one, receipt_one.clone()).unwrap();
+
+        // The request was submitted while the runtime existed; the runtime is
+        // uninstalled before the broker drains the queue, so dispatch cannot
+        // reach a provider.
+        let profile_id = runtime.profile().profile_id.clone();
+        assert!(registry.uninstall(&profile_id, epoch));
+        let run = tokio::spawn(broker.run());
+
+        let result_one = tokio::time::timeout(Duration::from_secs(2), result_one_rx)
+            .await
+            .expect("the admitted request answers")
+            .expect("the request delivered its result");
+        assert_eq!(result_one.request_id, request_one_id);
+        assert_eq!(result_one.status, InferenceStatus::Unavailable);
+        assert_eq!(result_one.termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(runtime.stream_calls.load(Ordering::SeqCst), 0);
+        assert!(runtime.reached_ids().is_empty());
+        assert_eq!(handle.active_count(), 0);
+        let recorded = receipt_one.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(recorded[0].status, InferenceStatus::Unavailable);
+
+        // The released slot admits the next valid request on a reinstalled
+        // runtime; the C=1 budget is not permanently held.
+        registry.install(runtime.clone());
+        let (request_two, result_two_rx) = new_request(EntityId::new(), &binding);
+        handle.submit(request_two).unwrap();
+        let result_two = tokio::time::timeout(Duration::from_secs(2), result_two_rx)
+            .await
+            .expect("the second request answers")
+            .expect("the second request delivered its result");
+        assert_eq!(result_two.status, InferenceStatus::Success);
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(runtime.reached_ids().len(), 1);
+        assert_eq!(handle.active_count(), 0);
+
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .expect("the broker drains")
+            .expect("the broker exits");
+    }
+
+    /// Issue #274: the durable stream journal fails before the provider is
+    /// called, so the streamed request is never dispatched and its slot frees.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() {
+        let registry = Arc::new(ProviderRegistry::new());
+        let runtime = CountingRuntime::new();
+        registry.install(runtime.clone());
+        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let binding = handle.binding().clone();
+
+        let (request, result_rx) = new_request(EntityId::new(), &binding);
+        let request_id = request.request_id;
+        let receipt = TestReceipt::new(&request);
+        handle
+            .submit_stream_recorded(
+                request,
+                StreamIdentity {
+                    message_id: EntityId::new().to_string(),
+                    part_id: "text/0".into(),
+                    stream_id: request_id,
+                    attempt_id: EntityId::new(),
+                },
+                Some(Arc::new(FailingJournal)),
+                None,
+                receipt.clone(),
+            )
+            .expect("the streamed submission is admitted");
+        let run = tokio::spawn(broker.run());
+
+        let result = tokio::time::timeout(Duration::from_secs(2), result_rx)
+            .await
+            .expect("the streamed request answers")
+            .expect("the request delivered its result");
+        assert_eq!(result.status, InferenceStatus::Failed);
+        assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(runtime.stream_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 0);
+        assert!(runtime.reached_ids().is_empty());
+        assert_eq!(handle.active_count(), 0);
+        let recorded = receipt.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(recorded[0].status, InferenceStatus::Failed);
+
+        // The released slot admits the next valid request.
+        let (request_two, result_two_rx) = new_request(EntityId::new(), &binding);
+        handle.submit(request_two).unwrap();
+        let result_two = tokio::time::timeout(Duration::from_secs(2), result_two_rx)
+            .await
+            .expect("the second request answers")
+            .expect("the second request delivered its result");
+        assert_eq!(result_two.status, InferenceStatus::Success);
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 1);
+
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .expect("the broker drains")
+            .expect("the broker exits");
+    }
+
+    /// The control case that must not regress: a request that actually left
+    /// and then dropped its connection stays unknown, keeps its C=1 slot, and
+    /// only original terminal evidence releases it.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() {
+        let registry = Arc::new(ProviderRegistry::new());
+        let runtime = CountingRuntime::new();
+        registry.install(runtime.clone());
+        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let binding = handle.binding().clone();
+
+        let (request, result_rx) = new_request(EntityId::new(), &binding);
+        let request_id = request.request_id;
+        let effective = EffectiveInference::for_request(&request);
+        let receipt = TestReceipt::new(&request);
+        runtime.drop_after_dispatch(request_id);
+        handle.submit_recorded(request, receipt.clone()).unwrap();
+        let run = tokio::spawn(broker.run());
+
+        let result = tokio::time::timeout(Duration::from_secs(2), result_rx)
+            .await
+            .expect("the dropped request answers")
+            .expect("the request delivered its result");
+        assert_eq!(result.status, InferenceStatus::Failed);
+        assert_eq!(result.termination.kind, TerminationKind::Unknown);
+        // The provider was called; its outcome is unknown and the slot holds.
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(runtime.reached_ids(), vec![request_id]);
+        assert_eq!(handle.active_count(), 1);
+        let recorded = receipt.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].termination.kind, TerminationKind::Unknown);
+
+        // A second request queues behind the occupied slot instead of entering.
+        let (request_two, mut result_two_rx) = new_request(EntityId::new(), &binding);
+        handle.submit(request_two).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), &mut result_two_rx)
+                .await
+                .is_err(),
+            "the queued request must not be admitted while the slot is held"
+        );
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(handle.active_count(), 1);
+
+        // Original terminal evidence ends the debt and frees the slot.
+        receipt.publish_terminal(InferenceResult {
+            request_id,
+            status: InferenceStatus::Success,
+            response: None,
+            effective,
+            termination: TerminationEvidence {
+                kind: TerminationKind::ProviderTerminal,
+                stop_reason: Some("stop".into()),
+                max_tokens: Some(16),
+                output_tokens: Some(1),
+                length: false,
+            },
+            purpose: RequestPurpose::Subject,
+            stream: None,
+            quota_headers: Vec::new(),
+        });
+        handle.reconcile_recorded(request_id).unwrap();
+
+        let result_two = tokio::time::timeout(Duration::from_secs(2), result_two_rx)
+            .await
+            .expect("the queued request answers")
+            .expect("the queued request delivered its result");
+        assert_eq!(result_two.status, InferenceStatus::Success);
+        assert_eq!(runtime.complete_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(handle.active_count(), 0);
+
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .expect("the broker drains")
+            .expect("the broker exits");
+    }
+
+    /// A real HTTP reader deadline closes only our observation. The recorded
+    /// unknown outcome keeps its charge, and a new timeout configuration may
+    /// not reinterpret the request that already crossed the send boundary.
+    #[test]
+    fn local_http_deadline_keeps_the_frozen_request_and_unknown_debt() -> Result<()> {
+        use anyhow::Context as _;
+        use crate::error_sink::{RuntimeErrorReport, RuntimeErrorSink};
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        #[derive(Default)]
+        struct Observations {
+            terminals: parking_lot::Mutex<Vec<TerminationEvidence>>,
+            errors: parking_lot::Mutex<Vec<RuntimeErrorReport>>,
+        }
+        impl RuntimeErrorSink for Observations {
+            fn journal_runtime_error(&self, report: &RuntimeErrorReport) -> Result<()> {
+                self.errors.lock().push(report.clone());
+                Ok(())
+            }
+        }
+        impl StreamJournalSink for Observations {
+            fn open_stream(&self, _: EntityId, _: &ProviderBinding) -> Result<(), StreamSinkError> { Ok(()) }
+            fn append_batch(&self, _: EntityId, _: &StreamBatch) -> Result<(), StreamSinkError> { Ok(()) }
+            fn append_terminal(&self, _: EntityId, terminal: &TerminationEvidence) -> Result<(), StreamSinkError> {
+                self.terminals.lock().push(terminal.clone());
+                Ok(())
+            }
+            fn close_stream(&self, _: EntityId) -> Result<(), StreamSinkError> { Ok(()) }
+        }
+
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await?;
+                let mut wire = Vec::new();
+                let body = loop {
+                    anyhow::ensure!(socket.read_buf(&mut wire).await? > 0,
+                        "HTTP reader closed before sending its request");
+                    let Some(end) = wire.windows(4).position(|part| part == b"\r\n\r\n") else { continue };
+                    let headers = std::str::from_utf8(&wire[..end])?;
+                    anyhow::ensure!(headers.starts_with("POST /v1/chat/completions HTTP/1.1"));
+                    let length: usize = headers.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length").then_some(value.trim())
+                    }).context("HTTP request has no content length")?.parse()?;
+                    if wire.len() < end + 4 + length { continue }
+                    break serde_json::from_slice::<serde_json::Value>(&wire[end + 4..end + 4 + length])?;
+                };
+                // The endpoint has accepted the exact real HTTP request but
+                // provides no terminal answer before the configured deadline.
+                socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n").await?;
+                // Keep the peer alive past the sealed 500ms observation limit.
+                // Reading EOF immediately can race the client's normal request
+                // half-close and accidentally test an incomplete response
+                // rather than the configured HTTP deadline.
+                tokio::time::sleep(Duration::from_millis(900)).await;
+                let mut tail = Vec::new();
+                socket.read_to_end(&mut tail).await?;
+                anyhow::ensure!(tail.is_empty());
+                Ok::<_, anyhow::Error>((listener, body))
+            });
+
+            let original = crate::local_provider::LocalModelProvider::new(format!("http://{address}"), "timeout-fixture".into());
+            let historical = original.binding();
+            let historical_json = serde_json::to_value(&historical)?;
+            anyhow::ensure!(historical_json.get("request_timeout_ms").is_none());
+            anyhow::ensure!(serde_json::from_value::<ProviderBinding>(historical_json)? == historical);
+            anyhow::ensure!(historical.local_request_timeout_ms() == Some(180_000));
+            anyhow::ensure!(historical.profile_revision() == 3);
+            let provider = original.with_request_timeout_ms(500)?;
+            let binding = provider.binding();
+            anyhow::ensure!(binding.profile_revision() == 4 && provider.profile().revision == 4);
+            anyhow::ensure!(serde_json::to_value(&binding)?["request_timeout_ms"] == 500);
+            let changed = provider.clone().with_request_timeout_ms(900)?.binding();
+            anyhow::ensure!(!binding.same_transport(&changed));
+            let (broker, handle) = Broker::with_local_provider(provider, 1)?;
+            let observations = Arc::new(Observations::default());
+            handle.set_runtime_error_sink(observations.clone());
+            let request_id = EntityId::new();
+            let (request, result_rx) = new_request(request_id, &binding);
+            let agent_id = request.agent_id;
+            let receipt = TestReceipt::new(&request);
+            handle.submit_stream_recorded(request, StreamIdentity::default(),
+                Some(observations.clone()), None, receipt.clone())?;
+            let run = tokio::spawn(broker.run());
+            let result = tokio::time::timeout(Duration::from_secs(5), result_rx).await??;
+            let (listener, body) = tokio::time::timeout(Duration::from_secs(5), server).await???;
+            anyhow::ensure!(body["stream"] == true && body["model"] == "timeout-fixture");
+            anyhow::ensure!(result.request_id == request_id && result.effective.provider_binding == binding);
+            anyhow::ensure!(result.status == InferenceStatus::Failed && result.termination.kind == TerminationKind::Unknown);
+            anyhow::ensure!(receipt.recorded().len() == 1 && receipt.recorded()[0].termination.kind == TerminationKind::Unknown);
+            anyhow::ensure!(observations.terminals.lock().as_slice() == std::slice::from_ref(&result.termination));
+            {
+                let errors = observations.errors.lock();
+                // This candidate reports the typed transport cause once.
+                // The separate stream/E1 Unknown facts above and the retained
+                // slot/no-redispatch checks below remain independent of that
+                // best-effort diagnostic; no cause report proves settlement.
+                let [timeout] = errors.as_slice() else {
+                    anyhow::bail!("expected one typed timeout report, got {errors:?}");
+                };
+                anyhow::ensure!(timeout.code == "INFERENCE_TRANSPORT_TIMEOUT"
+                    && timeout.request_id == request_id && timeout.agent_id == agent_id
+                    && timeout.message.contains("500 ms")
+                    && timeout.message.contains("remote termination is unconfirmed"),
+                    "unexpected timeout report: {timeout:?}");
+            }
+            anyhow::ensure!(handle.active_count() == 1);
+            handle.reconcile_recorded(request_id)?;
+            anyhow::ensure!(handle.active_count() == 1, "no terminal evidence can release this debt");
+            let (rebound, _) = new_request(request_id, &changed);
+            anyhow::ensure!(handle.submit_recorded(rebound, receipt).is_err());
+            let (queued, mut queued_rx) = new_request(EntityId::new(), &binding);
+            handle.submit(queued)?;
+            anyhow::ensure!(tokio::time::timeout(Duration::from_millis(150), &mut queued_rx).await.is_err());
+            anyhow::ensure!(tokio::time::timeout(Duration::from_millis(150), listener.accept()).await.is_err(),
+                "a timeout may not redispatch the original or spend a second slot");
+            anyhow::ensure!(handle.active_count() == 1);
+            run.abort();
+            let _ = run.await;
+            Ok(())
+        })
+    }
+}

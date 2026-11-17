@@ -492,3 +492,18 @@ REF-QUOTA，核验日期 2026-10-22。下列官方服务合同会变化，适配
 | [Usage & Cost Admin API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api) | Authentication、Messages Usage、Cost report、Data freshness/polling：历史组织 API 报告及延迟，不覆盖通用 Pro/Max 余额 |
 
 <!-- /migrated-contract: SPEC:42.8 -->
+
+## Implementation appendix: execution ownership and recovery errors
+
+`ExecutionContext` borrows the admitted worker's original registry, physical
+resource domain, KV allocator, error sink and stop token. Passing it through
+complete and streaming execution must not construct a second provider or pool,
+change the cancellation lifetime, move the dispatch fence, or substitute an E1.
+
+Why: the execution helpers share one physical owner; repeating their parameters
+obscures that ownership without providing additional authority. Recovery still
+reads the original receipt outside the accounting lock and rechecks the pinned
+reader before changing accounting. Failure to resolve an original resource owner
+is an ordinary error with existing debt retained, never a panic or permission
+to release Unknown capacity. No constructor fallback or new recovery source is
+introduced by this grouping.

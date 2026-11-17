@@ -582,3 +582,19 @@ request and attempt. The question's original operation, attempt, E1 and raw
 receipt remain unchanged across reopen and continuation. The scripted loopback
 consumer answers native metadata probes separately from generation requests;
 this mechanism check does not establish real-model efficacy.
+
+## Implementation appendix: frozen construction inputs
+
+`FrozenChildEnvironment` groups only the transport, child-provider bindings and
+software generation already selected by the delegating S0 or stored in the
+frozen contract. It is not serialized, does not resolve live routes, and cannot
+add a grant. Schema 2/3/4 validation rebuilds from those same retained inputs;
+the serialized `FrozenModelChild`, prompts, budgets and equality check remain
+unchanged.
+
+Why: construction and validation need a single explicit set of frozen runtime
+inputs, not an additional source of policy. Continuation accounting uses the
+occupied/vacant map entry itself: a newly observed source reads its durable
+remaining budget once, and subsequent siblings subtract from that same entry.
+A fallible Store read remains an error; an assumed map insertion must not add a
+panic to S1 admission.

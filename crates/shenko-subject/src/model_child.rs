@@ -157,6 +157,14 @@ struct FrozenModelChild {
     toolset_fingerprint: Digest,
 }
 
+/// Inputs already selected by the delegating S0 or retained in the frozen
+/// contract. Grouping them does not consult live routes or alter wire fields.
+struct FrozenChildEnvironment<'a> {
+    transport: &'a ProviderBinding,
+    child_provider_bindings: Option<&'a [ProviderBinding]>,
+    generation: RuntimeGeneration,
+}
+
 impl FrozenModelChild {
     fn new(
         task_id: EntityId,
@@ -171,9 +179,7 @@ impl FrozenModelChild {
             task_id,
             step_id,
             spec,
-            transport,
-            child_provider_bindings,
-            generation,
+            FrozenChildEnvironment { transport, child_provider_bindings, generation },
             continued_from,
             if child_provider_bindings.is_some() { CONTRACT_SCHEMA } else { TRANSPORT_CONTRACT_SCHEMA },
         )
@@ -183,12 +189,11 @@ impl FrozenModelChild {
         task_id: EntityId,
         step_id: EntityId,
         spec: ModelChildSpec,
-        transport: &ProviderBinding,
-        child_provider_bindings: Option<&[ProviderBinding]>,
-        generation: RuntimeGeneration,
+        environment: FrozenChildEnvironment<'_>,
         continued_from: Option<EntityId>,
         schema: u32,
     ) -> Result<Self> {
+        let FrozenChildEnvironment { transport, child_provider_bindings, generation } = environment;
         ensure!(
             !spec.goal.trim().is_empty() && spec.goal.len() <= 64 * 1024,
             "invalid model child goal"
@@ -315,9 +320,11 @@ impl FrozenModelChild {
                 self.task_id,
                 self.created_by_step_id,
                 self.spec.clone(),
-                &self.provider_binding,
-                self.child_provider_bindings.as_deref(),
-                self.software_generation.clone(),
+                FrozenChildEnvironment {
+                    transport: &self.provider_binding,
+                    child_provider_bindings: self.child_provider_bindings.as_deref(),
+                    generation: self.software_generation.clone(),
+                },
                 self.continued_from,
                 self.schema_version,
             )?,
@@ -497,10 +504,12 @@ pub(crate) fn check_continuation_allocations(store: &Store, intents: &[Delegatio
         if definition.kind != MODEL_CHILD_KIND { continue; }
         let contract: FrozenModelChild = serde_json::from_value(definition.input.clone())?;
         let Some(previous) = contract.continued_from else { continue };
-        if let std::collections::btree_map::Entry::Vacant(entry) = remaining.entry(previous) {
-            entry.insert(store.model_child_continuation_remaining_budget(previous)?);
-        }
-        let balance = remaining.get_mut(&previous).expect("the continued source was inserted");
+        let balance = match remaining.entry(previous) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(store.model_child_continuation_remaining_budget(previous)?)
+            }
+        };
         ensure!(contract.budget.max_total_tokens <= balance.max_total_tokens
             && contract.budget.max_tool_calls <= balance.max_tool_calls,
             "continuation {} exceeds source {} durable remaining budget: requested {} tokens / {} tool calls; remaining {} tokens / {} tool calls",
@@ -3072,9 +3081,11 @@ mod grant_account_tests {
             EntityId::new(),
             EntityId::new(),
             spec,
-            &binding(),
-            (schema == CONTRACT_SCHEMA).then_some(&[]),
-            RuntimeGeneration("grant-account-test".into()),
+            FrozenChildEnvironment {
+                transport: &binding(),
+                child_provider_bindings: (schema == CONTRACT_SCHEMA).then_some(&[]),
+                generation: RuntimeGeneration("grant-account-test".into()),
+            },
             None,
             schema,
         )

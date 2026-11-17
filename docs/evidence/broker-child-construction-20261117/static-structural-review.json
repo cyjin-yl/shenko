@@ -1,0 +1,57 @@
+{
+  "observed_at": "2026-11-17T14:58:58.828148+00:00",
+  "base": "c59feb9ee6fba4aa19525d2af38e60b82a1728c8",
+  "files": [
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "sha256_before": "0a38e2e3f8726634ca22e0194be856e99369f885adbacbd7cb6155bd28e1ca3c",
+      "sha256_after": "74e61d10c48b1699da6aee7b9e7b7ed71f36eebcd487c661844526108cfa8621",
+      "inverse_edits_equal_original": true,
+      "syntax_errors": [],
+      "changed_functions": [
+        "execute_admitted",
+        "execute_complete",
+        "execute_request",
+        "execute_stream"
+      ],
+      "assertions_preserved": true,
+      "original_function_count": 51,
+      "current_function_count": 51
+    },
+    {
+      "path": "crates/shenko-broker/src/broker.rs",
+      "sha256_before": "b53ce9ce1d83a67f9703f95104622e138a9d736ef293cf06cdd14e3808901384",
+      "sha256_after": "7859d3626d971477da2120fdd6e624f562d8bbf316cf141a6aa0dda0281fdf43",
+      "inverse_edits_equal_original": true,
+      "syntax_errors": [],
+      "changed_functions": [
+        "reconcile_recorded",
+        "run"
+      ],
+      "assertions_preserved": true,
+      "original_function_count": 97,
+      "current_function_count": 97
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "sha256_before": "ea3ee12143e873b7649c75d08cf0004123f6332fb4b93c1db430b42e9b85c31b",
+      "sha256_after": "afba094f690f96cea05b12a468218f2e0e3638fa06d524ac9279c2808b918998",
+      "inverse_edits_equal_original": true,
+      "syntax_errors": [],
+      "changed_functions": [
+        "build",
+        "check_continuation_allocations",
+        "contract",
+        "new",
+        "validate"
+      ],
+      "assertions_preserved": true,
+      "original_function_count": 78,
+      "current_function_count": 78
+    }
+  ],
+  "frozen_model_child_wire_struct_unchanged": true,
+  "rust_compilation": false,
+  "rust_tests": false,
+  "static_observation_only": true
+}
