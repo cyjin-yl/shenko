@@ -1,6 +1,6 @@
 # 工作区工具默认组合：有限证据设计
 
-当前[工作区工具合同](../specs/workspace-tools.md)按用户允许的推理方式暂选 replace；本页是待执行的比较设计，不是实验报告。真实模型验收继续遵守 [shenko-dev](../../.agents/skills/shenko-dev/SKILL.md) 和[本地模型行为验收](local-model-behavior.md)。
+当前[工作区工具合同](../specs/workspace-tools.md)按用户允许的推理方式暂选 replace。本页保留可运行入口与后续比较设计，并记录首次小模型诊断的明确失败边界；尚未形成编辑器成效排名。真实模型验收继续遵守 [shenko-dev](../../.agents/skills/shenko-dev/SKILL.md) 和[本地模型行为验收](local-model-behavior.md)。
 
 ## 可运行的最小诊断
 
@@ -22,6 +22,23 @@ cargo run -p shenko --example workspace_tools_acceptance -- \
 `subject_step_records` 是已封存 S0 的记录数，包含 retired 重试和 preparing 记录；`committed_subject_steps` 只统计处于 committed、同时保有 S1 decision 与 commit 引用的步骤。它们均不能替代原始 provider 请求数。早期运行器的 `subject_steps` 指前一种记录数，读取旧报告时应按其绑定源码解释，原始报告不回写。
 
 当前入口比较 replace / hashline；禁用专门编辑器的 execution-only 对照、后两个任务模板与 27B 参考验收仍未覆盖。小模型即使完成这个任务也只形成链路诊断，失败则保留失败；该运行器不改变暂定默认。后续实测报告应另行绑定具体运行目录和模型部署证据。
+
+## 2026-11-17 首次真实小模型诊断
+
+[脱敏证据摘要](../evidence/workspace-tools-diagnostic-20261117.json)绑定运行源码、二进制、模型权重、runtime 和原始记录包的摘要。实际模型为 Qwen3-0.6B Q8_0，llama.cpp build 12359，32K context，reasoning off；它不替代仓库约定的 27B 参考验收。两组各运行一次，初始文件一致，每组期限 180 秒、主体每步输出上限 2,048 token，保留实际默认采样。
+
+| 观察 | replace | hashline |
+| --- | ---: | ---: |
+| 原始模型请求数 | 7 | 4 |
+| 输入 token | 26,504 | 15,074 |
+| 输出 token | 642 | 894 |
+| 实际提交的 S1 | 0 | 0 |
+| 有限 child / 工作区操作 | 0 / 0 | 0 / 0 |
+| 含清理的耗时 | 192.832 秒 | 194.512 秒 |
+
+11 次请求均正常返回 `success / stop`，随后被真实主体解析器以 `CONTROL_PROTOCOL_INVALID` 拒绝，原因均为 `reply id is not resolvable on this channel`。两组都在主体控制协议阶段耗尽期限，没有产生 child，也没有修改三个初始文件。因此输入用量和请求数的差异不能用来判断编辑器成本；两种方言都没有得到实际执行。每成功任务成本保持 `null`，缺失的 cache-write 用量也保持 `null`，cache-read 不能再次加到总输入。
+
+原始报告中的 `subject_steps` 分别为 8 / 5，含 7 / 4 条 retired 重试及各一条 preparing 记录；独立回查证实提交数均为零。后续源码已将字段拆为记录数与真实提交数，未回写这次原始输出。原始 Store / CAS、失败全文、实际 profile、服务配置和清理记录保留在私有复查包，仓库摘要记录其 SHA256。当前结论仍是 **replace 为基于推理的暂定默认，真实模型比较未到达编辑器阶段**。
 
 ## 比较对象
 

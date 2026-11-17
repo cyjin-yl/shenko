@@ -62,4 +62,4 @@ shenko tool profile enable
 - [OMP edit 文档](https://github.com/can1357/oh-my-pi/blob/main/docs/tools/edit.md)（核对日期 2026-11-17）提供多种模式及模型相关的 replace fallback；`enforceSeenLines` 默认开启，但没有保留读取快照时有明确退化规则。不能把它概括成所有情形下绝对强制先读，也不能把其 fallback 或寄存器语法算作本产品已实现。
 - [Aider edit formats](https://aider.chat/docs/more/edit-formats.html)（核对日期 2026-11-17）说明不同模型适合不同格式，以及整文件输出与局部编辑的成本区别。这支持将语法保持为可配置选择，不提供本产品的胜率数据。
 
-当前尚未获得本轮工作区工具的真实模型行为比较；安装、编译或确定性检查通过也不改变这一状态。有限的比较设计见[默认组合的证据设计](../development/workspace-tool-defaults.md)。
+2026-11-17 已运行两组 Qwen3-0.6B Q8_0 真实诊断，但均在主体控制协议解析阶段失败，没有产生有限 child 或文件操作，不能据此比较编辑器成效，也不能代替 27B 参考验收。[证据摘要](../evidence/workspace-tools-diagnostic-20261117.json)保留失败、全部请求用量与原始记录包摘要。安装、编译或确定性检查通过也不改变这一行为边界；可运行入口、结果解释及后续比较见[默认组合的证据设计](../development/workspace-tool-defaults.md)。

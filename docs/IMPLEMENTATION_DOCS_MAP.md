@@ -148,7 +148,7 @@
 ## 执行环境
 
 - **工作区文件工具与编辑 profile（shenko-exec-host / CLI）** — 本轮新增读取、搜索、创建及 replace / hashline 互斥装配；持久配置复用 Node Code unit `tools.workspace`，`shenko tool profile inspect/configure/enable/disable` 的改变在下次 runtime start 生效。
-  - [工作区工具合同](specs/workspace-tools.md)与[默认选择证据设计](development/workspace-tool-defaults.md)。默认 replace 为推理选取，尚无本轮真实模型比较。
+  - [工作区工具合同](specs/workspace-tools.md)与[默认选择及可运行诊断](development/workspace-tool-defaults.md)。默认 replace 为推理选取；[首次小模型诊断](evidence/workspace-tools-diagnostic-20261117.json)在主体控制协议阶段失败，尚未到达编辑器成效比较。
   - 工具仍须由 child 作者显式授予；复用既有 WASI、REPL、SSH，不把本轮接线记成新的 code mode tools callback 桥或 patch 实现。
 
 - **WASM 运行时与家园（shenko-wasm：WasmRuntime、MountSpec、BoundedOutputPipe）** — 已接线（`wasi.exec` 处理器在受管 mount 下执行已安装工具；home manifest 由 seed 准备）
