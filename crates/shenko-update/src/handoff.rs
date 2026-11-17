@@ -1101,6 +1101,26 @@ impl UpdateService {
                                 self.data_dir.clone(), source_slot, source,
                                 Arc::clone(&self.participants), Arc::clone(&self.builder));
                             retired.finish_committed_handoff(agent_id)?;
+                            // Completing A is not enough: a mismatched or
+                            // superseded source record can make its scan return
+                            // Ok without finding this selection. Do not admit
+                            // B as the sole writer until A demonstrably
+                            // mirrors B, is fenced, and has the same phase.
+                            let retired_selector = retired.store.activation_selector(agent_id)?
+                                .ok_or(UpdateError::SelectorMissing)?;
+                            ensure!(retired_selector == selected,
+                                "SELECTED_RECOVERY_SELECTOR_CONFLICT: retired ledger has not mirrored selected authority");
+                            let (retired_head, _) = retired.store.load_subject(agent_id)?;
+                            ensure!(retired_head.mode == SubjectMode::Handoff
+                                && retired_head.software_generation == record.from_generation,
+                                "SELECTED_RECOVERY_UNFENCED: retired writer still has an admissible head");
+                            let retired_record = retired.store.activation_record(*activation_id)?
+                                .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
+                            let selected_record = self.store.activation_record(*activation_id)?
+                                .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
+                            ensure!(retired_record == selected_record
+                                && selected_record.phase == ActivationPhase::Observing,
+                                "SELECTED_RECOVERY_RECORD_CONFLICT: selected and retired activation facts did not converge");
                             return Ok(());
                         }
         }
