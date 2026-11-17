@@ -141,6 +141,17 @@ fn config_of(record: &InstalledUnitFact) -> Result<WorkspaceToolsConfig> {
     Ok(config)
 }
 
+fn require_compiled(record: &InstalledUnitFact) -> Result<()> {
+    // Importing an already-retained older artifact need not move Node's
+    // current pointer. An inactive import must not be reported as adoption.
+    let expected = Digest::blake3(&serde_json::to_vec(&manifest())?);
+    ensure!(
+        record.artifact_digest == expected,
+        "WORKSPACE_PROFILE_NOT_CURRENT: the compiled package was retained but is not Node's current version"
+    );
+    Ok(())
+}
+
 fn directory(path: &Path) -> Result<PathBuf> {
     let root = path
         .canonicalize()
@@ -220,6 +231,7 @@ pub(crate) async fn install(
         return Ok(());
     };
     if record.enabled {
+        require_compiled(&record)?;
         let tools = WorkspaceTools::new(Arc::clone(store), config_of(&record)?)?;
         for handler in tools.handlers() {
             supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
@@ -311,6 +323,9 @@ pub(crate) fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()
                 current.as_ref().is_none_or(|record| record.enabled),
                 &package_root,
             )?;
+            require_compiled(
+                &installed(&node)?.context("workspace package missing after configuration")?,
+            )?;
         }
         ToolProfileCommand::Enable | ToolProfileCommand::Disable => {
             let enabled = matches!(command, ToolProfileCommand::Enable);
@@ -333,6 +348,11 @@ pub(crate) fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()
                 None => Value::Null,
             };
             import_record(&mut node, config, enabled, &package_root)?;
+            if enabled {
+                require_compiled(
+                    &installed(&node)?.context("workspace package missing before enable")?,
+                )?;
+            }
             // Re-importing a retained artifact deliberately preserves its
             // local enable state. Only this explicit CLI toggle changes it;
             // configuration and startup reconciliation keep the prior choice.
