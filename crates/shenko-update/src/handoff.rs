@@ -1071,6 +1071,42 @@ impl UpdateService {
     /// success/abandonment from the last error or from the launcher pointer.
     /// The caller holds the runtime's control lane or exclusive offline owner.
     pub fn finish_committed_handoff(&self, agent_id: EntityId) -> UpdateResult<()> {
+        // A cold start can open the *selected* successor B rather than the
+        // retired source A. The historical source->candidate scan below would
+        // skip B because it is already self.live_slot, silently leaving A's
+        // selector, writer fence or Observing projection unfinished.
+        //
+        // Recover through A's real ledger under the same exclusive installation
+        // owner. The ordinary source-side completion still checks B's actual
+        // atomic selector/record before mirroring or publishing anything.
+        if let Some(selected) = self.store.activation_selector(agent_id)? {
+            if let ActivationOrigin::Activation { activation_id } = &selected.origin {
+                if let Some(record) = self.store.activation_record(*activation_id)? {
+                    if selected.generation == record.to_generation
+                        && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
+                    {
+                        ensure!(selected.state_ref == record.to_state_ref,
+                            "SELECTED_RECOVERY_STATE_CONFLICT: selected state differs from committed activation");
+                        let source_slot = self.state_slot(&record.from_state_ref)?;
+                        if !same_slot_path(&source_slot, &self.live_slot) {
+                            let versions = self.data_dir.join("versions");
+                            ensure!(same_slot_path(&source_slot, &self.data_dir)
+                                || source_slot.parent().is_some_and(|parent| same_slot_path(parent, &versions)),
+                                "SELECTED_RECOVERY_SOURCE_CONFLICT: retired slot is outside this installation");
+                            ensure!(source_slot.join(SLOT_DB_FILENAME).is_file(),
+                                "SELECTED_RECOVERY_SOURCE_MISSING: retired ledger is not available");
+                            let source = Arc::new(Store::open(
+                                source_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?);
+                            let retired = UpdateService::new(
+                                self.data_dir.clone(), source_slot, source,
+                                Arc::clone(&self.participants), Arc::clone(&self.builder));
+                            retired.finish_committed_handoff(agent_id)?;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
         for source_record in self.store.activation_records(agent_id)? {
             let target_slot = self.state_slot(&source_record.to_state_ref)?;
             if target_slot == self.live_slot || !target_slot.join(SLOT_DB_FILENAME).is_file() { continue; }

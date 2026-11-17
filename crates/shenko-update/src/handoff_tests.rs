@@ -878,6 +878,129 @@ async fn reconcile_leaves_a_deliberate_pause_alone() {
     fixture.cleanup();
 }
 
+/// Restarting from the published successor B must complete its retired A
+/// ledger, even if B committed Observing before A mirrored the selector.
+/// It must not wake A, overwrite the original activation, or advance twice.
+#[tokio::test]
+async fn selected_successor_restart_finishes_retired_ledger_before_admission() {
+    let fixture = installation();
+    let target = RuntimeGeneration::new("gen-b");
+    let request_id = EntityId::new();
+    fixture
+        .store
+        .request_subject_quiesce(fixture.agent_id, request_id)
+        .unwrap();
+    let (head, _) = fixture.store.load_subject(fixture.agent_id).unwrap();
+    fixture
+        .store
+        .pause_subject_at_boundary(&head)
+        .unwrap()
+        .expect("the clean boundary must pause");
+    let record = activation_record(
+        &fixture,
+        &fixture.generation,
+        &target,
+        &fixture.live_slot,
+        &candidate_slot(&fixture, &target),
+        ActivationPhase::Handoff,
+        FixturePreparation { smoke: None, program: None },
+    );
+    let record = fixture.store.create_activation_record(&record).unwrap();
+
+    // The candidate copy the paused subject was migrated into.
+    let slot = candidate_slot(&fixture, &target);
+    fs::create_dir_all(&slot).unwrap();
+    slots::backup_database(
+        &fixture.live_slot.join(SLOT_DB_FILENAME),
+        &slot.join(SLOT_DB_FILENAME),
+    )
+    .unwrap();
+    let candidate = Store::open(slot.join(SLOT_DB_FILENAME), fixture.data_dir.join("cas")).unwrap();
+    let route = seal(
+        &candidate,
+        &serde_json::to_value(RouteAuthority {
+            schema_version: RouteAuthority::SCHEMA_VERSION,
+            agent_id: fixture.agent_id,
+            generation: target.clone(),
+            active_epoch: 2,
+            selector_revision: 1,
+            data_dir: fixture.data_dir.to_string_lossy().into_owned(),
+            slot_dir: slot.to_string_lossy().into_owned(),
+            artifact_path: fixture.data_dir.join("candidate-b").to_string_lossy().into_owned(),
+            artifact_digest: Digest::blake3(b"candidate-b"),
+            launch_command: Vec::new(),
+            primary_claim: None,
+            activation_id: Some(record.activation_id),
+        })
+        .unwrap(),
+    );
+    let mut copied = candidate
+        .activation_record(record.activation_id)
+        .unwrap()
+        .unwrap();
+    let watermark = CommitRef::new(fixture.store.ledger.ledger_id(), LedgerSeq(7));
+    copied.w1 = Some(watermark);
+    copied.imported_through = Some(watermark);
+    let next = ActivationSelector {
+        agent_id: fixture.agent_id,
+        selector_revision: 1,
+        active_epoch: 2,
+        generation: target.clone(),
+        state_ref: record.to_state_ref.clone(),
+        origin: ActivationOrigin::Activation {
+            activation_id: record.activation_id,
+        },
+        route_authority_ref: route,
+    };
+    // The linearization point commits. A first owner advances only the
+    // candidate's Observing phase, then dies before mirroring the selection
+    // or fencing the retired writer. This is a real partial cross-DB write,
+    // not a fabricated success receipt.
+    let (_, activated, _) = candidate.activate_successor(0, &next, &copied).unwrap();
+    let mut half_observed = activated.clone();
+    half_observed.phase = ActivationPhase::Observing;
+    candidate.update_activation_record(
+        &half_observed, RecordRevision(activated.record_revision),
+    ).unwrap();
+    drop(candidate);
+
+    // Publication can precede a crash. At cold start the installation opens
+    // B, not A; the old implementation's source-side scan skipped B entirely.
+    slots::publish_current_slot(&fixture.data_dir, &slot).unwrap();
+    let selected_store = Arc::new(Store::open(
+        slot.join(SLOT_DB_FILENAME), fixture.data_dir.join("cas")).unwrap());
+    assert_eq!(
+        fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap().selector_revision,
+        0, "the interrupted retired A has not yet mirrored B's revision"
+    );
+    let restarted = UpdateService::new(
+        fixture.data_dir.clone(), slot.clone(), Arc::clone(&selected_store),
+        Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()),
+        Arc::new(crate::build::CargoBuildProvider::default()),
+    );
+    restarted.finish_committed_handoff(fixture.agent_id).unwrap();
+    let old_selector = fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap();
+    let new_selector = selected_store.activation_selector(fixture.agent_id).unwrap().unwrap();
+    assert_eq!(old_selector, new_selector, "retired A must mirror B's committed authority");
+    let (old_head, _) = fixture.store.load_subject(fixture.agent_id).unwrap();
+    assert_eq!(old_head.mode, SubjectMode::Handoff, "retired A must stay fenced");
+    assert_eq!(old_head.software_generation, fixture.generation);
+    let old_record = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
+    let new_record = selected_store.activation_record(record.activation_id).unwrap().unwrap();
+    assert_eq!(old_record, new_record);
+    assert_eq!(new_record.phase, ActivationPhase::Observing);
+    let revision = new_record.record_revision;
+    restarted.finish_committed_handoff(fixture.agent_id).unwrap();
+    assert_eq!(
+        fixture.store.activation_record(record.activation_id).unwrap().unwrap().record_revision,
+        revision, "cold-start reconciliation must not fabricate an extra phase revision"
+    );
+    assert_eq!(slots::resolve_live_slot(&fixture.data_dir).unwrap(), Some(slot));
+    drop(restarted);
+    drop(selected_store);
+    fixture.cleanup();
+}
+
 /// A selection that committed before its mirror/fence/publication completed is
 /// never undone: the retired writer is fenced, the mirrored selector is
 /// published, and the paused old boundary is left closed. Reviving it would
