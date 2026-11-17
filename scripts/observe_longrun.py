@@ -610,6 +610,7 @@ def scan_log(log):
                     "checkpoints": [], "run_end": None, "run_end_count": 0,
                     "records_after_end": 0, "checkpoint_mismatches": [],
                     "duplicate_checkpoint_ids": [],
+                    "checkpoint_time_mismatches": [],
                 }
             kind = record["record"]
             if kind != "run_header" and state["run_end_count"]:
@@ -619,6 +620,11 @@ def scan_log(log):
             elif kind == "segment":
                 state["segments"].append(record)
             elif kind == "checkpoint":
+                # A review point cannot precede the sample it claims to review.
+                if state["samples"] and record["epoch"] < state["samples"][-1]["epoch"]:
+                    state["checkpoint_time_mismatches"].append(
+                        [record["checkpoint_id"], record["epoch"],
+                         state["samples"][-1]["epoch"]])
                 if record["sample_seq"] != state["last_seq"]:
                     state["checkpoint_mismatches"].append(
                         [record["checkpoint_id"], record["sample_seq"],
@@ -671,6 +677,7 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
     # names a later sample, or a different sample count, is not a terminal
     # completion of these bytes even though its stop reason reads completed.
     run_end_mismatches = []
+    run_end_time_mismatches = []
     if state and state["run_end"] is not None:
         end = state["run_end"]
         if (end["sample_seq"] != state["last_seq"]
@@ -680,6 +687,11 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
                 "last_sample_seq": state["last_seq"],
                 "recorded_samples": end["samples"],
                 "sample_records": len(state["samples"]),
+            })
+        if samples and end["epoch"] < samples[-1]["epoch"]:
+            run_end_time_mismatches.append({
+                "stop_epoch": end["epoch"],
+                "last_sample_epoch": samples[-1]["epoch"],
             })
     integrity = {
         "header_valid": header_valid,
@@ -696,7 +708,9 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
         "duplicate_run_ends": bool(state and state["run_end_count"] > 1),
         "records_after_run_end": state["records_after_end"] if state else 0,
         "run_end_mismatches": run_end_mismatches,
+        "run_end_time_mismatches": run_end_time_mismatches,
         "checkpoint_mismatches": state["checkpoint_mismatches"] if state else [],
+        "checkpoint_time_mismatches": (state["checkpoint_time_mismatches"] if state else []),
         "duplicate_checkpoint_ids": (
             state["duplicate_checkpoint_ids"] if state else []),
     }
@@ -705,7 +719,8 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
             "unexpected_run_ids", "unreadable_lines", "unterminated_tail_bytes",
             "invalid_records", "sequence_gaps", "identity_unverified_sample_seqs",
             "duplicate_run_ends", "records_after_run_end", "run_end_mismatches",
-            "checkpoint_mismatches", "duplicate_checkpoint_ids"))
+            "run_end_time_mismatches", "checkpoint_mismatches",
+            "checkpoint_time_mismatches", "duplicate_checkpoint_ids"))
     return integrity
 
 

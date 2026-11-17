@@ -316,6 +316,25 @@ def scenario_checkpoint_binding(tmp):
     code, out = cli(["checkpoint", "--dir", str(tmp), "--id", "review-1"])
     assert code == 2 and "already recorded" in out, out
     assert report(tmp)["integrity"]["intact"] is True
+    # Even with a correct sample sequence, a backdated checkpoint cannot
+    # claim to have reviewed a sample that had not happened yet.
+    backdated = tmp.with_name(tmp.name + "-backdated")
+    earlier = init_run(backdated)
+    take(backdated, earlier, 1000.0)
+    take(backdated, earlier, 1060.0)
+    with patch.object(ol, "utcnow", return_value=1061.0):
+        code, out = cli(["checkpoint", "--dir", str(backdated), "--id", "valid"])
+    assert code == 0, out
+    original = [json.loads(line) for line in ol.log_path(backdated).read_bytes().splitlines()
+                if b'"record":"checkpoint"' in line]
+    assert len(original) == 1
+    forged_time = dict(original[0], checkpoint_id="backdated", epoch=1059.0)
+    ol.append_record(ol.log_path(backdated), forged_time)
+    temporal = report(backdated, "--require-observed", expected_code=3)
+    assert temporal["integrity"]["checkpoint_time_mismatches"] == [
+        ["backdated", 1059.0, 1060.0]]
+    assert not temporal["integrity"]["intact"]
+    assert temporal["declared_windows"][0]["status"] == "unobserved"
     # A checkpoint that names a sample the run had not written cannot be
     # ignored: the retained bytes stay, but the run stops qualifying.
     forged = dict(checkpoints[0], checkpoint_id="forged", sample_seq=7)
@@ -360,6 +379,26 @@ def scenario_seal_binds_written_sample(tmp):
     # A mismatched seal also blocks further appends instead of extending it.
     code, out = cli(["sample", "--dir", str(tmp)])
     assert code == 2 and "invalid evidence" in out, out
+
+    # Sequence/count equality alone does not validate a seal dated before
+    # the final observed sample: a backward clock jump must not be promoted.
+    backdated = tmp.with_name(tmp.name + "-backdated-stop")
+    earlier = init_run(backdated)
+    take(backdated, earlier, 1000.0)
+    take(backdated, earlier, 1060.0)
+    ol.append_record(ol.log_path(backdated), {
+        "record": "run_end", "schema": ol.SCHEMA, "run_id": earlier["run_id"],
+        "stop_reason": "completed", "note": None,
+        "sample_seq": 2, "samples": 2,
+        "epoch": 1059.0, "wall_utc": "1970-01-01T00:17:39.000Z",
+        "manifest_sha256": ol.sha256_file(ol.manifest_path(backdated)),
+    })
+    temporal = report(backdated, "--require-observed", expected_code=3)
+    assert temporal["integrity"]["run_end_mismatches"] == []
+    assert temporal["integrity"]["run_end_time_mismatches"] == [
+        {"stop_epoch": 1059.0, "last_sample_epoch": 1060.0}]
+    assert not temporal["integrity"]["intact"]
+    assert temporal["declared_windows"][0]["status"] == "unobserved"
 
 
 def scenario_equal_stat_different_binary(tmp):
