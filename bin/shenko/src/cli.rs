@@ -371,6 +371,11 @@ pub enum ToolCommand {
     /// List installed tool records and the honest status of every declared
     /// named target (toybox, gcc-wasm, git, gh, tea, ssh).
     List,
+    /// Configure the installed native workspace tool combination.
+    Profile {
+        #[command(subcommand)]
+        command: ToolProfileCommand,
+    },
     /// Install a real WASI artifact under a name. `--abi wasi_preview1`
     /// requires the module to actually import only wasi_snapshot_preview1 and
     /// export `_start`+`memory`; any other declared ABI is catalogued but not
@@ -562,6 +567,28 @@ pub enum ToolCommand {
         #[arg(long)]
         stderr_file: Option<PathBuf>,
     },
+}
+
+/// One workspace editor is selected per process. Configuration and enable
+/// changes are saved in the Node installation and take effect at next start.
+#[derive(Subcommand, Debug)]
+pub enum ToolProfileCommand {
+    /// Inspect the persisted profile and compiled package identity, without
+    /// creating or changing an installation.
+    Inspect,
+    /// Select the editor for the next process start; preserve the root when
+    /// omitted, or derive it from the real WASM /home mount on first install.
+    Configure {
+        #[arg(long, value_parser = ["replace", "hashline"])]
+        editor: String,
+        /// Existing host directory. Relative paths resolve at this command.
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Enable the package at the next process start.
+    Enable,
+    /// Disable the package at the next process start.
+    Disable,
 }
 
 /// Environment-generation subcommands — the Nix-profile surface of the tool
