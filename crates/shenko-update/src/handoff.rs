@@ -994,6 +994,79 @@ impl UpdateService {
         })
     }
 
+    /// Complete the non-authoritative Activated -> Observing projection after
+    /// the selector and launcher pointer have committed. The two independent
+    /// ledgers cannot update this phase in one SQLite transaction. Either
+    /// write may have been interrupted; the selected generation is determined
+    /// by its selector, never by whichever phase happened to be written first.
+    ///
+    /// No new selection or external work is allowed here. An unfamiliar
+    /// revision/record is a conflict, not permission to overwrite history.
+    fn converge_observing_activation(
+        &self,
+        candidate: &Store,
+        selector: &ActivationSelector,
+        activation_id: EntityId,
+    ) -> UpdateResult<ActivationRecord> {
+        let source_selector = self.store.activation_selector(selector.agent_id)?
+            .ok_or(UpdateError::SelectorMissing)?;
+        let selected_selector = candidate.activation_selector(selector.agent_id)?
+            .ok_or(UpdateError::SelectorMissing)?;
+        ensure!(source_selector == *selector && selected_selector == *selector
+            && selector.origin == ActivationOrigin::Activation { activation_id },
+            "OBSERVING_SELECTOR_CONFLICT: both ledgers must agree on the committed activation");
+        let mut source = self.store.activation_record(activation_id)?
+            .ok_or(UpdateError::ActivationNotFound(activation_id))?;
+        let mut selected = candidate.activation_record(activation_id)?
+            .ok_or(UpdateError::ActivationNotFound(activation_id))?;
+        let mut source_facts = source.clone();
+        let mut selected_facts = selected.clone();
+        source_facts.phase = ActivationPhase::Activated;
+        selected_facts.phase = ActivationPhase::Activated;
+        source_facts.record_revision = 0;
+        selected_facts.record_revision = 0;
+        ensure!(source_facts == selected_facts,
+            "OBSERVING_FACT_CONFLICT: the two activation records differ beyond phase/revision");
+
+        let next_source = source.record_revision.checked_add(1)
+            .ok_or_else(|| anyhow!("source activation revision exhausted"))?;
+        let next_selected = selected.record_revision.checked_add(1)
+            .ok_or_else(|| anyhow!("selected activation revision exhausted"))?;
+        match (source.phase, selected.phase) {
+            (ActivationPhase::Activated, ActivationPhase::Activated)
+            | (ActivationPhase::Observing, ActivationPhase::Observing) => {
+                ensure!(source.record_revision == selected.record_revision,
+                    "OBSERVING_REVISION_CONFLICT: equal phases have different revisions");
+            }
+            (ActivationPhase::Activated, ActivationPhase::Observing) => {
+                ensure!(next_source == selected.record_revision,
+                    "OBSERVING_REVISION_CONFLICT: selected phase is not the next revision");
+            }
+            (ActivationPhase::Observing, ActivationPhase::Activated) => {
+                ensure!(source.record_revision == next_selected,
+                    "OBSERVING_REVISION_CONFLICT: retired phase is not the next revision");
+            }
+            _ => bail!("OBSERVING_PHASE_CONFLICT: an unexpected activation phase cannot be reconciled"),
+        }
+
+        // Write the selected authority first. A crash after either individual
+        // update leaves one Observing and one Activated, which this exact
+        // comparison can finish after reopening without incrementing twice.
+        if selected.phase == ActivationPhase::Activated {
+            selected.phase = ActivationPhase::Observing;
+            selected = candidate.update_activation_record(
+                &selected, RecordRevision(selected.record_revision))?;
+        }
+        if source.phase == ActivationPhase::Activated {
+            source.phase = ActivationPhase::Observing;
+            source = self.store.update_activation_record(
+                &source, RecordRevision(source.record_revision))?;
+        }
+        ensure!(source == selected,
+            "OBSERVING_POST_COMMIT_CONFLICT: both ledgers did not converge");
+        Ok(selected)
+    }
+
     /// Complete only an already committed candidate selection. Never infer
     /// success/abandonment from the last error or from the launcher pointer.
     /// The caller holds the runtime's control lane or exclusive offline owner.
@@ -1028,6 +1101,11 @@ impl UpdateService {
                 self.store.fence_head_for_handoff(&head, head.record_revision, &selected.route_authority_ref)?;
             }
             slots::publish_current_slot(&self.data_dir, &target_slot).map_err(anyhow::Error::from)?;
+            // Completion also repairs a crash between the two Observing
+            // projections. A Retired historical record is not reopened here.
+            if matches!(committed.phase, ActivationPhase::Activated | ActivationPhase::Observing) {
+                self.converge_observing_activation(&candidate, &selected, source_record.activation_id)?;
+            }
             return Ok(());
         }
         Ok(())
@@ -1564,16 +1642,12 @@ impl UpdateService {
         slots::publish_current_slot(&self.data_dir, slot.parent().unwrap())
             .map_err(anyhow::Error::from)?;
 
-        let mut observed = activated_record.clone();
-        if observed.phase == ActivationPhase::Activated {
-            observed.phase = ActivationPhase::Observing;
-            observed = self
-                .store
-                .update_activation_record(&observed, RecordRevision(activated_record.record_revision))
-                .map_err(UpdateError::CandidateStore)?;
-            let selected_store = Store::open(slot.clone(), self.cas_dir.clone())?;
-            selected_store.update_activation_record(&observed, RecordRevision(activated_record.record_revision))?;
-        }
+        // A crash between the two non-atomic phase writes is recoverable
+        // from the selected authority and the original activation identity.
+        // Never report Observing if the ledger pair does not agree.
+        let selected_store = Store::open(slot.clone(), self.cas_dir.clone())?;
+        let observed = self.converge_observing_activation(
+            &selected_store, &swapped_selector, activation_id)?;
 
         tracing::info!(
             activation_id = %record.activation_id,
