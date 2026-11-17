@@ -1013,7 +1013,7 @@ impl UpdateService {
         let selected_selector = candidate.activation_selector(selector.agent_id)?
             .ok_or(UpdateError::SelectorMissing)?;
         ensure!(source_selector == *selector && selected_selector == *selector
-            && selector.origin == ActivationOrigin::Activation { activation_id },
+            && selector.origin == (ActivationOrigin::Activation { activation_id }),
             "OBSERVING_SELECTOR_CONFLICT: both ledgers must agree on the committed activation");
         let mut source = self.store.activation_record(activation_id)?
             .ok_or(UpdateError::ActivationNotFound(activation_id))?;
@@ -1595,7 +1595,7 @@ impl UpdateService {
             route_authority_ref: route_ref,
             ..next
         };
-        let (swapped_selector, activated_record, commit) = candidate_store
+        let (swapped_selector, _, commit) = candidate_store
             .activate_successor(expected_selector_revision, &next, &candidate_record)
             .map_err(UpdateError::CandidateStore)?;
         drop(candidate_store);
