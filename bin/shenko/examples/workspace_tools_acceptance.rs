@@ -294,6 +294,15 @@ struct Arm {
     requested_child: Value,
     outcome: Value,
     cleanup_failed: bool,
+    provider_drain_confirmed: bool,
+}
+
+fn provider_drain_confirmed(drain: &Result<Value>) -> bool {
+    // Ok proves local readers drained, not that all original provider debt
+    // settled. An error or a missing requests array is not proof either.
+    drain
+        .as_ref()
+        .is_ok_and(|snapshot| snapshot["requests"].as_array().is_some_and(Vec::is_empty))
 }
 
 async fn run_arm(
@@ -378,7 +387,7 @@ async fn run_arm(
     };
     let outcome = json!({"editor":editor, "trial":trial, "installation":installation,
         "run_completed":result.is_ok(), "elapsed_ms_including_cleanup":elapsed_ms,
-        "cleanup_failed":cleanup_failed, "artifact":artifact,
+        "cleanup_failed":cleanup_failed, "provider_drain_confirmed":false, "artifact":artifact,
         "error":result.err().map(|error| format!("{error:#}")),
         "consumed_model_children":consumed_children});
     write_json(&installation.join("outcome.json"), &outcome)?;
@@ -392,6 +401,7 @@ async fn run_arm(
         requested_child,
         outcome,
         cleanup_failed,
+        provider_drain_confirmed: false,
     })
 }
 
@@ -602,7 +612,8 @@ fn retain_evidence(arm: &Arm) -> Result<Value> {
     let success = arm.outcome["run_completed"] == true
         && arm.outcome["artifact"]["passed"] == true
         && complete_chain
-        && !arm.cleanup_failed;
+        && !arm.cleanup_failed
+        && arm.provider_drain_confirmed;
     let summary = json!({"editor":arm.editor, "trial":arm.trial, "success":success,
         "run_completed":arm.outcome["run_completed"], "artifact_passed":arm.outcome["artifact"]["passed"],
         "complete_subject_child_edit_chain":complete_chain,
@@ -614,7 +625,8 @@ fn retain_evidence(arm: &Arm) -> Result<Value> {
         "requested_child":arm.requested_child, "actual_children":budgets,
         "child_budget_matches_request":budget_matches,
         "elapsed_ms_including_cleanup":arm.outcome["elapsed_ms_including_cleanup"],
-        "cost":cost, "raw_directory":arm.installation, "cleanup_failed":arm.cleanup_failed});
+        "cost":cost, "raw_directory":arm.installation, "cleanup_failed":arm.cleanup_failed,
+        "provider_drain_confirmed":arm.provider_drain_confirmed});
     write_json(&arm.installation.join("summary.json"), &summary)?;
     Ok(summary)
 }
@@ -777,11 +789,8 @@ async fn run(args: Args) -> Result<()> {
                     arm.outcome["elapsed_ms_including_cleanup"] =
                         json!(elapsed.saturating_add(drain_ms));
                     arm.outcome["broker_drain_ms"] = json!(drain_ms);
-                    let unsettled = drained.as_ref().map_or(true, |value| {
-                        value["requests"]
-                            .as_array()
-                            .is_none_or(|requests| !requests.is_empty())
-                    });
+                    arm.provider_drain_confirmed = provider_drain_confirmed(&drained);
+                    arm.outcome["provider_drain_confirmed"] = json!(arm.provider_drain_confirmed);
                     write_json(
                         &arm.installation.join("broker-drain.json"),
                         &match &drained {
@@ -792,7 +801,7 @@ async fn run(args: Args) -> Result<()> {
                         },
                     )?;
                     write_json(&arm.installation.join("outcome.json"), &arm.outcome)?;
-                    let stopped = arm.cleanup_failed || unsettled;
+                    let stopped = arm.cleanup_failed || !arm.provider_drain_confirmed;
                     arms.push(arm);
                     if stopped {
                         stop_reason = Some(
@@ -825,7 +834,8 @@ async fn run(args: Args) -> Result<()> {
     )?;
     broker_task.abort();
     let joined = broker_task.await;
-    let cleanup_ok = shutdown.is_ok()
+    let shutdown_provider_drain_confirmed = provider_drain_confirmed(&shutdown);
+    let cleanup_ok = shutdown_provider_drain_confirmed
         && match joined {
             Ok(_) => true,
             Err(error) => error.is_cancelled(),
@@ -846,7 +856,10 @@ async fn run(args: Args) -> Result<()> {
         }
     }
     let complete = samples.len() == args.trials * 2;
-    let passed = complete && cleanup_ok && samples.iter().all(|sample| sample["success"] == true);
+    let passed = complete
+        && cleanup_ok
+        && stop_reason.is_none()
+        && samples.iter().all(|sample| sample["success"] == true);
     write_json(
         &root.join("report.json"),
         &json!({"schema_version":1,
@@ -855,6 +868,7 @@ async fn run(args: Args) -> Result<()> {
         "model":handle.binding().model(), "binding_digest":binding_digest,
         "fixture_seed":args.fixture_seed, "provider_seed":null,
         "complete":complete, "cleanup_ok":cleanup_ok, "stop_reason":stop_reason,
+        "shutdown_provider_drain_confirmed":shutdown_provider_drain_confirmed,
         "finished_at":chrono::Utc::now(),
         "conditions":{"replace":totals(&samples,"replace",args.trials),
             "hashline":totals(&samples,"hashline",args.trials)},
