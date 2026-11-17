@@ -2,7 +2,7 @@
 //! sandbox: other programs can write between the final check and rename.
 use std::{
     fs::{self, File, OpenOptions, Permissions},
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     path::{Component, Path, PathBuf},
 };
 
@@ -22,8 +22,8 @@ const SEARCH_BYTES: usize = 16 * FILE_BYTES;
 pub(super) struct Failure {
     pub code: String,
     pub message: String,
-    /// Once staging starts, an I/O error is conservatively unresolved. A
-    /// missing receipt must never cause the adapter to repeat a file write.
+    /// Staging I/O remains unresolved unless an open refusal is confirmed to
+    /// leave no staging entry. A missing receipt must never replay a write.
     pub uncertain: bool,
 }
 
@@ -40,6 +40,30 @@ impl Failure {
         Self {
             uncertain: true,
             ..Self::new("write_unresolved", error)
+        }
+    }
+
+    fn staging_open(path: &Path, error: std::io::Error) -> Self {
+        // Even a permission refusal can follow inode creation. Only a known
+        // refusal plus a confirmed absent entry settles this unopened stage;
+        // write/publish have not run. Unclassified I/O and failed observations
+        // remain unresolved, including on remote filesystems.
+        if matches!(
+            error.kind(),
+            ErrorKind::PermissionDenied
+                | ErrorKind::ReadOnlyFilesystem
+                | ErrorKind::NotFound
+                | ErrorKind::AlreadyExists
+        ) && matches!(fs::symlink_metadata(path), Err(missing) if missing.kind() == ErrorKind::NotFound)
+        {
+            Self::new(
+                "stage_open_rejected",
+                format!(
+                    "staging open was refused, no staging entry was found and the target was not published: {error}"
+                ),
+            )
+        } else {
+            Self::after_staging(format!("staging open at {}: {error}", path.display()))
         }
     }
 }
@@ -500,15 +524,26 @@ struct StagedFile {
 }
 
 impl StagedFile {
-    fn write(target: &Path, text: &str, permissions: Option<Permissions>) -> Result<Self> {
+    fn create(target: &Path) -> Result<(Self, File)> {
         let path = target.with_file_name(format!(".shenko-write-{}", EntityId::new()));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            // Restrict access in the creation syscall, before any private
+            // content is written. The process umask may restrict it further.
+            options.mode(0o600);
+        }
+        let file = options
             .open(&path)
-            .map_err(Failure::after_staging)?;
+            .map_err(|error| Failure::staging_open(&path, error))?;
         // The cleanup guard owns only a file this call actually created.
-        let stage = Self { path };
+        Ok((Self { path }, file))
+    }
+
+    fn write(target: &Path, text: &str, permissions: Option<Permissions>) -> Result<Self> {
+        let (stage, mut file) = Self::create(target)?;
         file.write_all(text.as_bytes())
             .map_err(Failure::after_staging)?;
         if let Some(permissions) = permissions {
@@ -553,6 +588,49 @@ pub(super) fn display_result(mut value: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_file_is_private_before_the_first_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        const CHILD_ROOT: &str = "SHENKO_PRIVATE_STAGING_TEST_ROOT";
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            let root = PathBuf::from(root);
+            let (_stage, file) = StagedFile::create(&root.join("target.txt")).unwrap();
+            let metadata = file.metadata().unwrap();
+            assert_eq!(metadata.len(), 0);
+            assert_eq!(metadata.permissions().mode() & 0o077, 0);
+            fs::write(root.join("checked"), b"private before writing").unwrap();
+            return;
+        }
+
+        // umask is process-wide: change it only in the isolated child, so
+        // parallel tests cannot hide the permissive-creation regression.
+        let root = std::env::temp_dir().join(format!("shenko-stage-mode-{}", EntityId::new()));
+        fs::create_dir(&root).unwrap();
+        let test_name = format!(
+            "{}::staging_file_is_private_before_the_first_write",
+            module_path!().split_once("::").unwrap().1
+        );
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("umask 000; exec \"$@\"")
+            .arg("private-staging-test")
+            .arg(std::env::current_exe().unwrap())
+            .args(["--exact", &test_name, "--nocapture"])
+            .env(CHILD_ROOT, &root)
+            .output()
+            .unwrap();
+        let checked = root.join("checked").exists();
+        fs::remove_dir_all(root).unwrap();
+        assert!(
+            output.status.success() && checked,
+            "private staging child failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn stale_write_and_late_invalid_edit_leave_original_bytes_unchanged() {
