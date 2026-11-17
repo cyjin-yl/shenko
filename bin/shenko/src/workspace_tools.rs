@@ -56,6 +56,19 @@ fn manifest() -> Value {
     })
 }
 
+/// Node records its observations under this reserved section. It is not
+/// plugin configuration: decode every other field strictly and let Node
+/// preserve its own metadata when the same artifact is imported again.
+fn authored_config(value: &Value) -> Value {
+    let mut config = value.clone();
+    if let Some(fields) = config.as_object_mut() {
+        if fields.remove("cognition").is_some() && fields.is_empty() {
+            return Value::Null;
+        }
+    }
+    config
+}
+
 fn import_record(node: &mut Node, config: Value, enabled: bool, package_root: &Path) -> Result<()> {
     let artifact = serde_json::to_vec(&manifest())?;
     let digest = Digest::blake3(&artifact);
@@ -80,7 +93,7 @@ fn import_record(node: &mut Node, config: Value, enabled: bool, package_root: &P
                     // only the four definitions selected by this process.
                     provides: vec!["cap.workspace.files/1".into()],
                     dependencies: Vec::new(),
-                    config,
+                    config: authored_config(&config),
                     applicability: None,
                 },
                 artifact_base64: B64_STD.encode(&artifact),
@@ -114,7 +127,12 @@ fn installed(node: &Node) -> Result<Option<InstalledUnitFact>> {
 }
 
 fn config_of(record: &InstalledUnitFact) -> Result<WorkspaceToolsConfig> {
-    let config: WorkspaceToolsConfig = serde_json::from_value(record.descriptor.config.clone())
+    let document = authored_config(&record.descriptor.config);
+    ensure!(
+        !document.is_null(),
+        "WORKSPACE_PROFILE_UNCONFIGURED: configure a workspace root before enabling this package"
+    );
+    let config: WorkspaceToolsConfig = serde_json::from_value(document)
         .context("WORKSPACE_PROFILE_INVALID: invalid workspace tool configuration")?;
     ensure!(
         config.root.is_absolute(),
@@ -154,12 +172,14 @@ fn default_config(mounts: &[MountSpec]) -> Result<WorkspaceToolsConfig> {
 
 /// First use installs one default combination. A compiled package update
 /// preserves the existing configuration and disabled state, including on an
-/// installation created before this package existed.
+/// installation created before this package existed. An absent optional
+/// package without a usable default mount stays absent; its failure cannot
+/// make an otherwise usable subject installation unbootable.
 fn reconcile(
     node: &mut Node,
     mounts: &[MountSpec],
     package_root: &Path,
-) -> Result<InstalledUnitFact> {
+) -> Result<Option<InstalledUnitFact>> {
     let current = installed(node)?;
     let expected = Digest::blake3(&serde_json::to_vec(&manifest())?);
     if current
@@ -168,11 +188,20 @@ fn reconcile(
     {
         let (config, enabled) = match current {
             Some(record) => (record.descriptor.config, record.enabled),
-            None => (serde_json::to_value(default_config(mounts)?)?, true),
+            None => match default_config(mounts) {
+                Ok(config) => (serde_json::to_value(config)?, true),
+                Err(error) => {
+                    tracing::warn!(unit = UNIT_ID, error = %format!("{error:#}"),
+                        "workspace tool package unavailable: no usable default root; configure an explicit host root");
+                    return Ok(None);
+                }
+            },
         };
         import_record(node, config, enabled, package_root)?;
     }
-    installed(node)?.context("workspace tool installation record is absent after import")
+    Ok(Some(installed(node)?.context(
+        "workspace tool installation record is absent after import",
+    )?))
 }
 
 /// The live startup and capability-discovery paths use this same composition.
@@ -187,6 +216,9 @@ pub(crate) async fn install(
         let mut node = crate::node_sync::open_node(data_dir, store)?;
         reconcile(&mut node, mounts, &data_dir.join("workspace-tool-units"))?
     };
+    let Some(record) = record else {
+        return Ok(());
+    };
     if record.enabled {
         let tools = WorkspaceTools::new(Arc::clone(store), config_of(&record)?)?;
         for handler in tools.handlers() {
@@ -200,10 +232,15 @@ fn report(node: Option<&Node>) -> Result<Value> {
     let record = node.map(installed).transpose()?.flatten();
     let compiled = manifest();
     let digest = Digest::blake3(&serde_json::to_vec(&compiled)?);
-    let (configured, config_error) = match record.as_ref().map(config_of).transpose() {
-        Ok(Some(config)) => (json!(definitions(config.editor)), None),
-        Ok(None) => (Value::Null, None),
-        Err(error) => (Value::Null, Some(format!("{error:#}"))),
+    let (configuration_status, configured, config_error) = match &record {
+        None => ("absent", Value::Null, None),
+        Some(record) if authored_config(&record.descriptor.config).is_null() => {
+            ("unconfigured", Value::Null, None)
+        }
+        Some(record) => match config_of(record) {
+            Ok(config) => ("configured", json!(definitions(config.editor)), None),
+            Err(error) => ("invalid", Value::Null, Some(format!("{error:#}"))),
+        },
     };
     Ok(json!({
         "unit_id": UNIT_ID,
@@ -213,6 +250,7 @@ fn report(node: Option<&Node>) -> Result<Value> {
         "compiled_artifact_digest": digest,
         "compiled_identity_matches": record.as_ref().is_some_and(|record| record.artifact_digest == digest),
         "installation": record,
+        "configuration_status": configuration_status,
         "configured_definitions": configured,
         "configuration_error": config_error,
         "runtime_observed": false,
@@ -257,8 +295,10 @@ pub(crate) fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()
             let root = match root {
                 Some(path) => directory(&path)?,
                 None => match &current {
-                    Some(record) => directory(&config_of(record)?.root)?,
-                    None => initial_config(data_dir, &store)?.root,
+                    Some(record) if !authored_config(&record.descriptor.config).is_null() => {
+                        directory(&config_of(record)?.root)?
+                    }
+                    _ => initial_config(data_dir, &store)?.root,
                 },
             };
             let config = WorkspaceToolsConfig {
@@ -276,14 +316,21 @@ pub(crate) fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()
             let enabled = matches!(command, ToolProfileCommand::Enable);
             let config = match current {
                 Some(record) => {
-                    if enabled {
-                        // Refuse an unusable root before enabling; startup
-                        // still revalidates the actual directory later.
-                        directory(&config_of(&record)?.root)?;
+                    if enabled && authored_config(&record.descriptor.config).is_null() {
+                        serde_json::to_value(initial_config(data_dir, &store)?)?
+                    } else {
+                        if enabled {
+                            // Refuse an unusable root before enabling; startup
+                            // still revalidates the actual directory later.
+                            directory(&config_of(&record)?.root)?;
+                        }
+                        record.descriptor.config
                     }
-                    record.descriptor.config
                 }
-                None => serde_json::to_value(initial_config(data_dir, &store)?)?,
+                None if enabled => serde_json::to_value(initial_config(data_dir, &store)?)?,
+                // Explicitly disabling an absent package needs no invented
+                // root. Null records that no configuration was selected yet.
+                None => Value::Null,
             };
             import_record(&mut node, config, enabled, &package_root)?;
         }
@@ -335,6 +382,63 @@ mod tests {
             true,
             false,
         )];
+        let unavailable = runtime(&store).await?;
+        let cow_home = vec![MountSpec::new(
+            dir.join("home"),
+            HOME_GUEST_PATH,
+            MountMode::CopyOnWrite,
+            true,
+            true,
+        )];
+        install(&unavailable, &store, &dir, &cow_home).await?;
+        assert!(kinds(&unavailable)?.is_empty());
+        let node = Node::open_inspect(&dir.join("node"))?.unwrap();
+        assert!(
+            installed(&node)?.is_none(),
+            "an unavailable default must not invent a root"
+        );
+        command(&dir, ToolProfileCommand::Disable)?;
+        {
+            let mut writer = crate::node_sync::open_node(&dir, &store)?;
+            let record = installed(&writer)?.unwrap();
+            writer.handle_unit_request(UnitRequest::RegisterObservation {
+                unit_id: UNIT_ID.into(),
+                revision: record.revision,
+                artifact_digest: record.artifact_digest,
+                kind: "fixture".into(),
+                bytes: b"workspace package has no selected root".to_vec(),
+            })?;
+        }
+        assert_eq!(report(Some(&node))?["configuration_status"], "unconfigured");
+        install(&unavailable, &store, &dir, &mounts).await?;
+        assert!(
+            kinds(&unavailable)?.is_empty(),
+            "a later usable mount must not re-enable the package"
+        );
+        command(
+            &dir,
+            ToolProfileCommand::Configure {
+                editor: "replace".into(),
+                root: Some(dir.join("home")),
+            },
+        )?;
+        assert!(
+            !installed(&node)?.unwrap().enabled,
+            "configuration must preserve explicit disable"
+        );
+        assert!(
+            installed(&node)?
+                .unwrap()
+                .descriptor
+                .config
+                .pointer("/cognition/observations")
+                .is_some(),
+            "Node observations must survive configuration at the same artifact identity"
+        );
+        command(&dir, ToolProfileCommand::Enable)?;
+        unavailable.stop().await?;
+        drop(node);
+
         let first = runtime(&store).await?;
         install(&first, &store, &dir, &mounts).await?;
         let original = kinds(&first)?;
