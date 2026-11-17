@@ -996,6 +996,20 @@ async fn selected_successor_restart_finishes_retired_ledger_before_admission() {
         revision, "cold-start reconciliation must not fabricate an extra phase revision"
     );
     assert_eq!(slots::resolve_live_slot(&fixture.data_dir).unwrap(), Some(slot));
+
+    // An inconsistent late write to the retired ledger can make its
+    // source-side scan skip this selection and return Ok. The selected-first
+    // caller must not interpret that no-op as proof that A was reconciled.
+    let mut divergent = fixture.store.activation_record(record.activation_id)
+        .unwrap().unwrap();
+    divergent.expected_selector_revision += 1;
+    fixture.store.update_activation_record(
+        &divergent, RecordRevision(divergent.record_revision),
+    ).unwrap();
+    let error = restarted.finish_committed_handoff(fixture.agent_id).unwrap_err();
+    assert!(error.to_string().contains("SELECTED_RECOVERY_RECORD_CONFLICT"),
+        "unreconciled retired ledger was admitted: {error:#}");
+
     drop(restarted);
     drop(selected_store);
     fixture.cleanup();
