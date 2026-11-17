@@ -1545,6 +1545,37 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     let received = fixture.store.external_evidence(receipt_id).unwrap();
     assert_eq!(received.received_commit.ledger_id, fixture.store.ledger.ledger_id());
     assert!(received.received_commit.seq.0 > retired_activation.w1.unwrap().seq.0);
+
+    // A real runtime backup is not an unbound data copy, even under a new
+    // layout with no current-slot or versions directory. Preserve its facts
+    // but refuse fresh authority rather than silently dropping the fence.
+    let detached_home = fixture.data_dir.join("detached-copy-home");
+    let detached_db = detached_home.join("data").join(SLOT_DB_FILENAME);
+    fs::create_dir_all(detached_db.parent().unwrap()).unwrap();
+    slots::backup_database(&slot.db_path, &detached_db).unwrap();
+    let detached = Store::open(detached_db, detached_home.join("cas")).unwrap();
+    let copied_selector = detached.activation_selector(fixture.agent_id).unwrap();
+    let detached_request = EntityId::new();
+    let refused = detached.request_subject_quiesce(fixture.agent_id, detached_request).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&refused));
+    assert!(detached.subject_quiesce(detached_request).unwrap().is_none());
+    assert_eq!(detached.activation_selector(fixture.agent_id).unwrap(), copied_selector);
+    drop(detached);
+
+    // Resolving a different parent of the same old database must not turn it
+    // into a writable data copy. No new runtime or dispatch is launched here.
+    let alias_dir = fixture.data_dir.join("retired-database-alias");
+    fs::create_dir_all(&alias_dir).unwrap();
+    let alias_db = alias_dir.join(SLOT_DB_FILENAME);
+    std::os::unix::fs::symlink(fixture.live_slot.join(SLOT_DB_FILENAME), &alias_db).unwrap();
+    let alias = Store::open(alias_db, fixture.data_dir.join("cas")).unwrap();
+    let intent = shenko_store::MemoryIntentRecord::accepted(
+        EntityId::new(), fixture.agent_id, "save", "personal", "retired alias must not write",
+        None, Some(EntityId::new()),
+    );
+    let refused = alias.admit_memory_intent(&intent, None).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&refused));
+    drop(alias);
     selected.request_subject_quiesce(fixture.agent_id, request)
         .expect("current selected slot still admits a fresh control mutation");
     fixture.cleanup();

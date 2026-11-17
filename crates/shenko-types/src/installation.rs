@@ -44,26 +44,17 @@ impl InstallationDomain {
         Ok(domain)
     }
 
-    /// These are the installed public paths. Other standalone databases do
-    /// not have a software-slot handoff domain; they cannot become an installed
-    /// writer by passing a foreign manifest or archive.
+    /// Resolve physical coordination for the standard Store/CAS paths. Sharing
+    /// a CAS retains this permit even for detached data copies. The Ledger
+    /// separately checks whether a mutation has current software-slot authority;
+    /// this physical reservation never supplies that authority by itself.
     pub fn for_store(db: &Path, cas: &Path) -> io::Result<Option<Self>> {
         if db.file_name().is_none_or(|name| name != "shenko.db")
             || cas.file_name().is_none_or(|name| name != "cas")
         {
             return Ok(None);
         }
-        let Some(root) = cas.parent() else { return Ok(None) };
-        // Sharing a CAS does not make arbitrary copied databases installed
-        // software slots. Only the root and its published versions participate
-        // in the selected-writer fence; detached migration snapshots do not.
-        let root = root.canonicalize()?;
-        let Some(parent) = db.parent() else { return Ok(None) };
-        let parent = parent.canonicalize()?;
-        if parent != root && parent.parent() != Some(root.join("versions").as_path()) {
-            return Ok(None);
-        }
-        Self::open(&root).map(Some)
+        cas.parent().map(Self::open).transpose()
     }
 
     pub fn for_node(dir: &Path) -> io::Result<Option<Self>> {
