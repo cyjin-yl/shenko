@@ -1,0 +1,171 @@
+[
+  {
+    "name": "head",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "started_at": "2026-11-17T14:17:26.754558+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "returncode": 0,
+    "finished_at": "2026-11-17T14:17:26.819310+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "head.stdout",
+      "bytes": 41,
+      "sha256": "25b7d3f639d47b391231de0038608bc1150ed3a16de61c320aeee7cf9bba2867"
+    },
+    "stderr": {
+      "file": "head.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "name": "status",
+    "argv": [
+      "git",
+      "status",
+      "--porcelain",
+      "--untracked-files=no"
+    ],
+    "started_at": "2026-11-17T14:17:26.820126+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "returncode": 0,
+    "finished_at": "2026-11-17T14:17:31.143916+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "status.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "file": "status.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "name": "tree",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD^{tree}"
+    ],
+    "started_at": "2026-11-17T14:17:31.144410+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "returncode": 0,
+    "finished_at": "2026-11-17T14:17:31.148433+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "tree.stdout",
+      "bytes": 41,
+      "sha256": "4ab584ab11c5371ba1e906d90c30f7c0af6ac22f03a9c763a38520dade511d64"
+    },
+    "stderr": {
+      "file": "tree.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "name": "diff-check",
+    "argv": [
+      "git",
+      "diff",
+      "--check",
+      "730c17ea6ea1098568e75bf67a81f00bf2f7bd17..HEAD"
+    ],
+    "started_at": "2026-11-17T14:17:31.209179+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "returncode": 0,
+    "finished_at": "2026-11-17T14:17:31.524044+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "diff-check.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "file": "diff-check.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "name": "rustfmt-version",
+    "argv": [
+      "/home/ezra/.cargo/bin/rustfmt",
+      "+1.98.1",
+      "--version"
+    ],
+    "started_at": "2026-11-17T14:17:31.524498+00:00",
+    "deadline_seconds": 30,
+    "timed_out": false,
+    "returncode": 1,
+    "finished_at": "2026-11-17T14:17:31.738994+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "rustfmt-version.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "file": "rustfmt-version.stderr",
+      "bytes": 186,
+      "sha256": "9b81e38a318293d9c5368486890fa9a423a5ad47b92271b4140b56e2d074b224"
+    }
+  },
+  {
+    "name": "docs",
+    "argv": [
+      "python3",
+      "scripts/check_docs.py"
+    ],
+    "started_at": "2026-11-17T14:17:31.739494+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "returncode": 1,
+    "finished_at": "2026-11-17T14:17:52.412603+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "docs.stdout",
+      "bytes": 271606,
+      "sha256": "47b92b37223741b4136018243935ccf96a70b1c39a7255570c29c08e04d40582"
+    },
+    "stderr": {
+      "file": "docs.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "name": "migration",
+    "argv": [
+      "python3",
+      "scripts/check_docs.py",
+      "--verify-migration"
+    ],
+    "started_at": "2026-11-17T14:17:52.413601+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "returncode": 1,
+    "finished_at": "2026-11-17T14:17:59.645980+00:00",
+    "leader_reaped": true,
+    "stdout": {
+      "file": "migration.stdout",
+      "bytes": 271606,
+      "sha256": "47b92b37223741b4136018243935ccf96a70b1c39a7255570c29c08e04d40582"
+    },
+    "stderr": {
+      "file": "migration.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+]

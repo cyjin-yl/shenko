@@ -1,0 +1,22 @@
+agent-heavy: event=admission.waiting wait_seconds=30
+Traceback (most recent call last):
+  File "/tank/shared/projects/shenko/build/continuation-pr327-20261117-1312/run_validation.py", line 82, in <module>
+    status = git('status', '--porcelain', '--untracked-files=no')
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tank/shared/projects/shenko/build/continuation-pr327-20261117-1312/run_validation.py", line 42, in git
+    return subprocess.check_output(['git', '-c', 'safe.directory=' + str(REPO), *args],
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 466, in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1207, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 2060, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+  File "/usr/lib/python3.11/subprocess.py", line 1251, in _check_timeout
+    raise TimeoutExpired(
+subprocess.TimeoutExpired: Command '['git', '-c', 'safe.directory=/tank/shared/projects/shenko/worktrees/continuation-pr327-20261117-1312', 'status', '--porcelain', '--untracked-files=no']' timed out after 90 seconds

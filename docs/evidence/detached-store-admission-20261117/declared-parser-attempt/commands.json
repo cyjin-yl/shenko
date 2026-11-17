@@ -1,0 +1,26 @@
+[
+  {
+    "name": "dependencies",
+    "argv": [
+      "/tank/shared/projects/shenko/build/continuation-pr327-20261117-1312/declared-checker-env-20261117/venv/bin/python",
+      "-m",
+      "pip",
+      "freeze"
+    ],
+    "started_at": "2026-11-17T14:22:53.339262+00:00",
+    "deadline_seconds": 90,
+    "timed_out": false,
+    "exit": 0,
+    "finished_at": "2026-11-17T14:23:03.277407+00:00",
+    "stdout": {
+      "path": "dependencies.stdout",
+      "bytes": 157,
+      "sha256": "fc104f6d17f8508878129878f9f34348e2aca9212cba5fe116e22a5dcd64628c"
+    },
+    "stderr": {
+      "path": "dependencies.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+]
