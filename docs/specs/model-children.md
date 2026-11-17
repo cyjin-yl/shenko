@@ -86,6 +86,10 @@ child 运行永远有界，三条预算同时生效（`ModelChildBudget`）：
 child 的每步预算、工具选择、上下文与语义 prompt 全部**独立于主体**：child 不会
 机械继承主体的 prompt、性格或模型。
 
+[工作区工具 profile](workspace-tools.md)只决定节点装配哪组实际工具，不改写上述作者选择。
+`tools: []` 仍表示纯文本 child；作者需显式授予当前已注册的读取、搜索、创建或编辑定义。
+profile 的持久配置在下次 runtime start 装配，不修改已经冻结的工具集或回放旧调用。
+
 ---
 
 ## 3. 冻结合同与指纹
