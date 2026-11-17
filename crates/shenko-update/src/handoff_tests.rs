@@ -953,9 +953,16 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         },
         route_authority_ref: route,
     };
-    // The linearization point commits, then the old process dies before it
-    // mirrors the selection or fences its own writer.
-    candidate.activate_successor(0, &next, &copied).unwrap();
+    // The linearization point commits. A first owner advances only the
+    // candidate's Observing phase, then dies before mirroring the selection
+    // or fencing the retired writer. This is a real partial cross-DB write,
+    // not a fabricated success receipt.
+    let (_, activated, _) = candidate.activate_successor(0, &next, &copied).unwrap();
+    let mut half_observed = activated.clone();
+    half_observed.phase = ActivationPhase::Observing;
+    candidate.update_activation_record(
+        &half_observed, RecordRevision(activated.record_revision),
+    ).unwrap();
     drop(candidate);
 
     let answer = fixture
@@ -997,6 +1004,20 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         SubjectQuiesceState::Paused,
         "a committed selection must not resume the retired boundary"
     );
+    let reopened = Store::open(slot.join(SLOT_DB_FILENAME), fixture.data_dir.join("cas")).unwrap();
+    let source_record = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
+    let selected_record = reopened.activation_record(record.activation_id).unwrap().unwrap();
+    assert_eq!(selected_record.phase, ActivationPhase::Observing);
+    assert_eq!(source_record, selected_record,
+        "the earlier one-sided Observing write must converge after recovery");
+    let original_revision = source_record.record_revision;
+    fixture.service.finish_committed_handoff(fixture.agent_id).unwrap();
+    assert_eq!(
+        fixture.store.activation_record(record.activation_id).unwrap().unwrap().record_revision,
+        original_revision,
+        "reopening and finishing again must not manufacture an extra revision"
+    );
+    drop(reopened);
     fixture.cleanup();
 }
 
