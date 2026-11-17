@@ -62,9 +62,13 @@ pub async fn establish_runtime(
     let initially_eligible = candidate.is_some();
     tokio::task::spawn_blocking({
         let data_dir = data_dir.to_owned();
+        let store = Arc::clone(store);
         let candidate = candidate.clone();
         move || {
-            Node::open(&data_dir.join("node"))?.advertise_component_runtime(runtime_id, candidate)
+            // Bind the existing installation identity before any resident or
+            // replication worker can open this Node. Recovery-only startup
+            // must not leave first initialization to competing consumers.
+            open_node(&data_dir, &store)?.advertise_component_runtime(runtime_id, candidate)
         }
     })
     .await??;
@@ -590,3 +594,7 @@ pub(super) fn establish_component(
     materialize_component(data_dir, store, node, &certificate)?;
     Ok(None)
 }
+
+#[cfg(test)]
+#[path = "component_start_order_tests.rs"]
+mod start_order_tests;

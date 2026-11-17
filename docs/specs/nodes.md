@@ -805,3 +805,26 @@ A later metadata response or Unknown observation cannot discard a delayed
 callback for an earlier explicit generation refusal. A genuinely newer successful
 generation can supersede an older refusal; stale metadata cannot undo that
 success. All original observations remain in the local evidence chain.
+
+## Implementation appendix: bind identity before resident startup
+
+The installation owner must finish the existing `open_node` identity/verified
+subject-binding path before publishing resident presence or starting the owned
+heartbeat and replication consumers. This also applies when the actual model
+profile has no usable candidate and startup returns `RecoveryOnly`.
+
+Why: presence is not identity initialization. Returning a model-free runtime
+with only a presence row let its first consumers separately propose fresh Node
+identities, and the original immutable identity check correctly rejected one
+when they raced. Initializing on the serial startup path removes that local
+ordering gap without changing `Initialize`, adopting an unverified identity,
+retrying a conflict, or manufacturing model usability/primary authority.
+
+One real Store/Node journey checks the identity before any test-side mutating
+opener, cancels and joins the original heartbeat, then closes and reopens the
+actual files and checks that the same Node and subject binding survive. It is
+not a process-restart, external-writer exclusivity, physical-fault or model
+behavior proof. The existing CLI/SSH/bootstrap journeys remain unchanged and
+need their own candidate-bound results. Membership control-plane eligibility
+and independent first openers outside the installation-owned startup are not
+changed by this sequence.

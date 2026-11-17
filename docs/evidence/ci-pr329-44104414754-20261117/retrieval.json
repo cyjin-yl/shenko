@@ -1,0 +1,82 @@
+[
+  {
+    "argv": [
+      "gh",
+      "api",
+      "repos/cyjin-yl/shenko/actions/runs/44104414754"
+    ],
+    "started_at": "2026-11-17T15:00:12.126186+00:00",
+    "exit": 0,
+    "finished_at": "2026-11-17T15:00:13.197860+00:00",
+    "stdout": {
+      "path": "run.original",
+      "bytes": 12286,
+      "sha256": "073c16e4b31080400eead5641f2750ca36897671ccb5aee222856c8a82e287bc"
+    },
+    "stderr": {
+      "path": "run.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "argv": [
+      "gh",
+      "api",
+      "repos/cyjin-yl/shenko/actions/runs/44104414754/jobs?per_page=100"
+    ],
+    "started_at": "2026-11-17T15:00:13.356929+00:00",
+    "exit": 0,
+    "finished_at": "2026-11-17T15:00:15.024317+00:00",
+    "stdout": {
+      "path": "jobs.original",
+      "bytes": 17921,
+      "sha256": "0cd6492920177a3f7da7265425a901b17cfb4d379dd80bb616eeb5e8c1644163"
+    },
+    "stderr": {
+      "path": "jobs.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "argv": [
+      "gh",
+      "api",
+      "repos/cyjin-yl/shenko/actions/runs/44104414754/artifacts?per_page=100"
+    ],
+    "started_at": "2026-11-17T15:00:15.024772+00:00",
+    "exit": 0,
+    "finished_at": "2026-11-17T15:00:16.622504+00:00",
+    "stdout": {
+      "path": "artifacts.original",
+      "bytes": 2913,
+      "sha256": "c66ffc1106032aa61f2980fcf5cfa79b8b070778dc1e732c99358408450fd36a"
+    },
+    "stderr": {
+      "path": "artifacts.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "argv": [
+      "gh",
+      "api",
+      "repos/cyjin-yl/shenko/actions/jobs/134112764352/logs"
+    ],
+    "started_at": "2026-11-17T15:00:16.622913+00:00",
+    "exit": 0,
+    "finished_at": "2026-11-17T15:00:20.498120+00:00",
+    "stdout": {
+      "path": "rust-job.original",
+      "bytes": 499150,
+      "sha256": "09de65742155af1306d7cb715926a8684785d20507184f140788132f7623ff0c"
+    },
+    "stderr": {
+      "path": "rust-job.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+]

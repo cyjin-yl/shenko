@@ -1,0 +1,146 @@
+[
+  {
+    "start_line": 3826,
+    "end_line": 3832,
+    "original_lines": [
+      "2026-11-17T14:41:17.6943692Z ---- recovery_integration_tests::native_printf_result_survives_real_process_reopen stdout ----",
+      "2026-11-17T14:41:17.6944299Z ",
+      "2026-11-17T14:41:17.6944677Z thread 'recovery_integration_tests::native_printf_result_survives_real_process_reopen' (12334) panicked at bin/shenko/src/recovery_integration_tests.rs:775:5:",
+      "2026-11-17T14:41:17.6945236Z the propagated cause must be receiver loss, not an unrelated store failure",
+      "2026-11-17T14:41:17.6945635Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "2026-11-17T14:41:17.6945853Z ",
+      "2026-11-17T14:41:17.6945856Z "
+    ]
+  },
+  {
+    "start_line": 3852,
+    "end_line": 3856,
+    "original_lines": [
+      "2026-11-17T14:41:54.5963377Z ---- three_real_start_processes_agree_over_a_pinned_ssh_star stdout ----",
+      "2026-11-17T14:41:54.5964061Z component process observations retained in /tmp/shenko-component-process-4c79e695-7c4d-4314-8c04-10a03633fbee/logs",
+      "2026-11-17T14:41:54.5965793Z Error: b [\"sync\", \"members\", \"add\", \"7b5f7c62-79fb-445e-bc53-36515e576c2f\", \"173aa2f8-4db1-4b62-ace4-f047bb151ea5\", \"39966eb1-ab44-480c-9a99-4fc68d5c339c\", \"42f3148c-c31d-4e93-9033-019f8e8d7845\", \"08fd790c-c0b3-4f91-8b08-fdb9ce9fef57\", \"500dfbca-ae7b-4fa6-a02f-99aa1f3a74ce\"] failed with exit status: 1; original stderr is retained in /tmp/shenko-component-process-4c79e695-7c4d-4314-8c04-10a03633fbee/logs",
+      "2026-11-17T14:41:54.5967783Z ",
+      "2026-11-17T14:41:54.5967905Z "
+    ]
+  },
+  {
+    "start_line": 3870,
+    "end_line": 3879,
+    "original_lines": [
+      "2026-11-17T14:41:55.1027863Z ---- original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution stdout ----",
+      "2026-11-17T14:41:55.1028209Z ",
+      "2026-11-17T14:41:55.1028661Z thread 'original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution' (13631) panicked at bin/shenko/tests/native_evidence_delivery.rs:496:9:",
+      "2026-11-17T14:41:55.1029329Z assertion `left == right` failed",
+      "2026-11-17T14:41:55.1029622Z   left: ReconciliationRequired",
+      "2026-11-17T14:41:55.1029896Z  right: RecoveredCanonical",
+      "2026-11-17T14:41:55.1030280Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "2026-11-17T14:41:55.1030957Z native E1 original observations retained in /tmp/shenko-native-e1-4a74d864-5354-414d-a0b6-05da5d9cbf80/logs",
+      "2026-11-17T14:41:55.1031609Z ",
+      "2026-11-17T14:41:55.1031614Z "
+    ]
+  },
+  {
+    "start_line": 3900,
+    "end_line": 3918,
+    "original_lines": [
+      "2026-11-17T14:41:56.4228454Z ---- ssh_wasi_auth_exec_sftp_and_refusal_journey stdout ----",
+      "2026-11-17T14:41:56.4231235Z Error: CLI exited before readiness (exit status: 1): \u001b[2m2026-11-17T14:41:55.726461Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]",
+      "2026-11-17T14:41:56.4237893Z \u001b[2m2026-11-17T14:41:55.726656Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_start\u001b[0m\u001b[2m:\u001b[0m Shenko starting \u001b[3mdata_dir\u001b[0m\u001b[2m=\u001b[0m/tmp/shenko-ssh-client-fd950106-083e-48c2-8b04-5a128493edce/installation \u001b[3mport\u001b[0m\u001b[2m=\u001b[0m39223 \u001b[3mname\u001b[0m\u001b[2m=\u001b[0m\"(unnamed)\"",
+      "2026-11-17T14:41:56.4238963Z \u001b[2m2026-11-17T14:41:55.796948Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0",
+      "2026-11-17T14:41:56.4239786Z \u001b[2m2026-11-17T14:41:55.798569Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_start\u001b[0m\u001b[2m:\u001b[0m store ready \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0 \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue",
+      "2026-11-17T14:41:56.4240910Z \u001b[2m2026-11-17T14:41:55.799799Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_start\u001b[0m\u001b[2m:\u001b[0m owner claim available through the private installation control file \u001b[3mcontrol_file\u001b[0m\u001b[2m=\u001b[0m/tmp/shenko-ssh-client-fd950106-083e-48c2-8b04-5a128493edce/installation/bootstrap/claim-secret.json",
+      "2026-11-17T14:41:56.4242120Z \u001b[2m2026-11-17T14:41:55.803877Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)",
+      "2026-11-17T14:41:56.4242993Z \u001b[2m2026-11-17T14:41:55.804546Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mNone \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2774",
+      "2026-11-17T14:41:56.4243899Z \u001b[2m2026-11-17T14:41:55.804797Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000255697",
+      "2026-11-17T14:41:56.4244902Z \u001b[2m2026-11-17T14:41:55.823043Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m0.018267112 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.018502369",
+      "2026-11-17T14:41:56.4246114Z \u001b[2m2026-11-17T14:41:55.835857Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_seed::bootstrap\u001b[0m\u001b[2m:\u001b[0m published home checkpoint closure \u001b[3mcheckpoint\u001b[0m\u001b[2m=\u001b[0mblake3:6677592a2d0b60ac1aeff1d175aff622b8ae6ca241921f62f63da9e1b8fa6fc1 \u001b[3mobjects\u001b[0m\u001b[2m=\u001b[0m18 \u001b[3mbytes\u001b[0m\u001b[2m=\u001b[0m23954",
+      "2026-11-17T14:41:56.4247749Z \u001b[2m2026-11-17T14:41:55.838290Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_start\u001b[0m\u001b[2m:\u001b[0m WASM home ready \u001b[3mmanifest\u001b[0m\u001b[2m=\u001b[0m/tmp/shenko-ssh-client-fd950106-083e-48c2-8b04-5a128493edce/installation/home-manifest.json",
+      "2026-11-17T14:41:56.4249226Z \u001b[2m2026-11-17T14:41:56.069250Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_bootstrap\u001b[0m\u001b[2m:\u001b[0m genesis created \u001b[3magent_id\u001b[0m\u001b[2m=\u001b[0m5e6f903d-b8fa-4164-9c15-1a2c55b0b94d \u001b[3mname\u001b[0m\u001b[2m=\u001b[0m\"(unnamed)\" \u001b[3mcommit\u001b[0m\u001b[2m=\u001b[0m8828c552-4ce2-47e5-b104-14244080f058/2",
+      "2026-11-17T14:41:56.4250276Z \u001b[2m2026-11-17T14:41:56.071170Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_start\u001b[0m\u001b[2m:\u001b[0m identity ready \u001b[3mrevision\u001b[0m\u001b[2m=\u001b[0m1 \u001b[3mname\u001b[0m\u001b[2m=\u001b[0m\"(unnamed)\" \u001b[3mnaming\u001b[0m\u001b[2m=\u001b[0mUnnamed",
+      "2026-11-17T14:41:56.4251644Z \u001b[2m2026-11-17T14:41:56.072415Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_start\u001b[0m\u001b[2m:\u001b[0m launch bound to control authority \u001b[3mgeneration\u001b[0m\u001b[2m=\u001b[0mseed \u001b[3mselector_revision\u001b[0m\u001b[2m=\u001b[0m0 \u001b[3mselector_epoch\u001b[0m\u001b[2m=\u001b[0m1",
+      "2026-11-17T14:41:56.4252232Z Error: node identity conflict",
+      "2026-11-17T14:41:56.4252361Z ",
+      "2026-11-17T14:41:56.4252382Z ",
+      "2026-11-17T14:41:56.4252385Z "
+    ]
+  },
+  {
+    "start_line": 3932,
+    "end_line": 3935,
+    "original_lines": [
+      "2026-11-17T14:42:13.0669180Z ---- public_start_pause_survives_process_reopen_and_resume_alone_admits_inference stdout ----",
+      "2026-11-17T14:42:13.0669579Z Error: model failure did not reach the isolated blocked state",
+      "2026-11-17T14:42:13.0669772Z ",
+      "2026-11-17T14:42:13.0669774Z "
+    ]
+  },
+  {
+    "start_line": 4244,
+    "end_line": 4246,
+    "original_lines": [
+      "2026-11-17T14:43:11.9182723Z ---- sandbox_execution::failed_mcp_t2_reaches_a_committed_continuation stdout ----",
+      "2026-11-17T14:43:11.9183240Z Error: provider fixture did not join: Ok(Err(provider body exceeds bound))",
+      "2026-11-17T14:43:11.9183508Z "
+    ]
+  },
+  {
+    "start_line": 4247,
+    "end_line": 4249,
+    "original_lines": [
+      "2026-11-17T14:43:11.9183789Z ---- sandbox_execution::deferred_unknown_e1_is_reselected_and_consumed_without_settlement stdout ----",
+      "2026-11-17T14:43:11.9184373Z Error: provider fixture did not join: Ok(Err(provider body exceeds bound))",
+      "2026-11-17T14:43:11.9184671Z "
+    ]
+  },
+  {
+    "start_line": 4250,
+    "end_line": 4253,
+    "original_lines": [
+      "2026-11-17T14:43:11.9184932Z ---- sandbox_execution::unknown_mcp_e1_reaches_a_committed_continuation_without_t2 stdout ----",
+      "2026-11-17T14:43:11.9185451Z Error: provider fixture did not join: Ok(Err(provider body exceeds bound))",
+      "2026-11-17T14:43:11.9185733Z ",
+      "2026-11-17T14:43:11.9185737Z "
+    ]
+  },
+  {
+    "start_line": 5321,
+    "end_line": 5328,
+    "original_lines": [
+      "2026-11-17T14:44:09.5835331Z ---- canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker stdout ----",
+      "2026-11-17T14:44:09.5835675Z ",
+      "2026-11-17T14:44:09.5836146Z thread 'canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker' (15632) panicked at crates/shenko-store/tests/store_roundtrip.rs:2969:5:",
+      "2026-11-17T14:44:09.5836874Z assertion `left == right` failed",
+      "2026-11-17T14:44:09.5837198Z   left: ReconciliationRequired",
+      "2026-11-17T14:44:09.5837526Z  right: RecoveredCanonical",
+      "2026-11-17T14:44:09.5837916Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "2026-11-17T14:44:09.5838669Z "
+    ]
+  },
+  {
+    "start_line": 5329,
+    "end_line": 5335,
+    "original_lines": [
+      "2026-11-17T14:44:09.5838887Z ---- canonical_direct_native_chain_retains_original_e1_and_only_one_effect stdout ----",
+      "2026-11-17T14:44:09.5839212Z ",
+      "2026-11-17T14:44:09.5839649Z thread 'canonical_direct_native_chain_retains_original_e1_and_only_one_effect' (15627) panicked at crates/shenko-store/tests/store_roundtrip.rs:3163:9:",
+      "2026-11-17T14:44:09.5840254Z assertion `left == right` failed",
+      "2026-11-17T14:44:09.5840522Z   left: ReconciliationRequired",
+      "2026-11-17T14:44:09.5840778Z  right: RecoveredCanonical",
+      "2026-11-17T14:44:09.5840935Z "
+    ]
+  },
+  {
+    "start_line": 5336,
+    "end_line": 5343,
+    "original_lines": [
+      "2026-11-17T14:44:09.5841208Z ---- canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch stdout ----",
+      "2026-11-17T14:44:09.5841718Z ",
+      "2026-11-17T14:44:09.5842199Z thread 'canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch' (15661) panicked at crates/shenko-store/tests/store_roundtrip.rs:2639:5:",
+      "2026-11-17T14:44:09.5842793Z assertion `left == right` failed",
+      "2026-11-17T14:44:09.5843085Z   left: ReconciliationRequired",
+      "2026-11-17T14:44:09.5843362Z  right: RecoveredCanonical",
+      "2026-11-17T14:44:09.5843522Z ",
+      "2026-11-17T14:44:09.5843526Z "
+    ]
+  }
+]

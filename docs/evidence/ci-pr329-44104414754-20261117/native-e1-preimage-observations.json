@@ -1,0 +1,80 @@
+{
+  "derived_at": "2026-11-17T15:21:03.794839+00:00",
+  "source_nested_zip_sha256": "a6aacee2bee16d1a53e229464ca2bfb04bef6aed659239665ee1273e0986e086",
+  "not_full_database": true,
+  "range_digests_not_recomputed": true,
+  "tables": [
+    {
+      "table": "content_stream_units",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "content_streams",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "identity_profiles",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "raw_sessions",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "semantic_waits",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "session_events",
+      "available_in_selected_export": true,
+      "changed_key_preimages_match": true,
+      "differences": []
+    },
+    {
+      "table": "subject_branch_forks",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "subject_branch_heads",
+      "available_in_selected_export": true,
+      "changed_key_preimages_match": true,
+      "differences": []
+    },
+    {
+      "table": "subject_event_dispositions",
+      "available_in_selected_export": true,
+      "changed_key_preimages_match": true,
+      "differences": []
+    },
+    {
+      "table": "subject_identity_receipts",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "subject_intent_steps",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "subject_intents",
+      "available_in_selected_export": true,
+      "changed_key_preimages_match": true,
+      "differences": []
+    },
+    {
+      "table": "subject_raw_inputs",
+      "available_in_selected_export": false
+    },
+    {
+      "table": "subject_steps",
+      "available_in_selected_export": true,
+      "changed_key_preimages_match": true,
+      "differences": []
+    },
+    {
+      "table": "tasks",
+      "available_in_selected_export": true,
+      "changed_key_preimages_match": true,
+      "differences": []
+    }
+  ]
+}

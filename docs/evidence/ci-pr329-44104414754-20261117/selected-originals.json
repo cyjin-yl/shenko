@@ -1,0 +1,17 @@
+[
+  {
+    "member": "component-process/0072-b-sync-members-add-7b5f7c62-79fb-445e-bc53-36515e576c2f-173aa2f8-4db1-4b62-ace4-f047bb151ea5-39.stderr",
+    "bytes": 824,
+    "sha256": "efebdeeabe9f68621684587155936a77368db41d0873ba10a4bec4fd506f3577"
+  },
+  {
+    "member": "ssh-wasi/openssh-journey.diagnostics/bootstrap.stderr",
+    "bytes": 3398,
+    "sha256": "d244b7b55eb9e92d260af91c3a1b742efb5f1c0508b306baeff25a29ae1110f5"
+  },
+  {
+    "member": "native-e1/000-native-e1-originals.zip",
+    "bytes": 91439,
+    "sha256": "a6aacee2bee16d1a53e229464ca2bfb04bef6aed659239665ee1273e0986e086"
+  }
+]

@@ -1,0 +1,71 @@
+{
+  "base": "79291b136c41517578111f5293354cecd552b64d",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3133,
+      "sha256": "11b593ff7828a328caeb1c26c014ae6a48ea744bb4310f65253599869f3ab6d8"
+    },
+    {
+      "path": "component-runtime.after.blob",
+      "bytes": 23100,
+      "sha256": "767fca2aca778c775fee465227f27bdd897c6b7bcefff27fc4e4abc1f87d7159"
+    },
+    {
+      "path": "component-runtime.before.blob",
+      "bytes": 22758,
+      "sha256": "8b371eacf8bbfd042b6a9dd20bd19d8360e000f551eee3bf111d5ea53d1d15c1"
+    },
+    {
+      "path": "component-start-order-test.blob",
+      "bytes": 6418,
+      "sha256": "d6ee1fab04f85991d1bc764ffdac272a8856d8e4e6d67a1b9649e3ec71cd7393"
+    },
+    {
+      "path": "diff-check.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "diff-check.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "edit.json",
+      "bytes": 1092,
+      "sha256": "cb8bb3425c82f8977e1bbec6947a6a8df786fe6ae84f317ef299e0bc025c8dc6"
+    },
+    {
+      "path": "product.diff",
+      "bytes": 1168,
+      "sha256": "0019e466a292495d9033fed4ea2f7e719b2cda4d1868a752cb38ae6c988fce6c"
+    },
+    {
+      "path": "structural-review.json",
+      "bytes": 1264,
+      "sha256": "942155e55d48b2118a643d75c13f62b1a4d3cdc90dad7434dd26ee869a516b61"
+    },
+    {
+      "path": "tool-observations.json",
+      "bytes": 938,
+      "sha256": "2a296ed5346658024d296d2d6e38fdb35bcd6de4e3f3a800f812ce3c9224f545"
+    },
+    {
+      "path": "whole-stage-diff-check.json",
+      "bytes": 225,
+      "sha256": "473d9f1580b385f2c5cedb254d4baf86093a19e6a5feac33942b394815be24eb"
+    },
+    {
+      "path": "whole-stage-diff-check.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "whole-stage-diff-check.stdout",
+      "bytes": 189517,
+      "sha256": "25e5d6a330551b27ef8b9c8744dbb705339ebfd28c6ba8ccfa36e356c5569629"
+    }
+  ],
+  "runtime_tested_locally": false
+}

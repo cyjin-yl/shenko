@@ -1,0 +1,27 @@
+{
+  "summaries": 153,
+  "totals": {
+    "passed": 1093,
+    "failed": 11,
+    "ignored": 11,
+    "measured": 0,
+    "filtered_out": 92
+  },
+  "failed_tests": [
+    "recovery_integration_tests::native_printf_result_survives_real_process_reopen",
+    "three_real_start_processes_agree_over_a_pinned_ssh_star",
+    "original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution",
+    "ssh_wasi_auth_exec_sftp_and_refusal_journey",
+    "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+    "sandbox_execution::failed_mcp_t2_reaches_a_committed_continuation",
+    "sandbox_execution::deferred_unknown_e1_is_reselected_and_consumed_without_settlement",
+    "sandbox_execution::unknown_mcp_e1_reaches_a_committed_continuation_without_t2",
+    "canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker",
+    "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+    "canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch"
+  ],
+  "checkout_context": [
+    "2026-11-17T14:34:04.8360069Z HEAD is now at 3fefdcd8 Merge c59feb9ee6fba4aa19525d2af38e60b82a1728c8 into 730c17ea6ea1098568e75bf67a81f00bf2f7bd17",
+    "2026-11-17T14:34:04.8435803Z [command]/usr/bin/git log -1 --format=%H"
+  ]
+}

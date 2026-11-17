@@ -1,0 +1,13 @@
+{
+  "artifact_id": 14337766630,
+  "started_at": "2026-11-17T15:34:19.277053+00:00",
+  "expected_bytes": 2287321,
+  "expected_sha256": "27cbf3c54cbdef0e0180c55d85d34e433c13276c8df90ee51ffb4f62da71b87f",
+  "exit": 0,
+  "actual_bytes": 2287321,
+  "actual_sha256": "27cbf3c54cbdef0e0180c55d85d34e433c13276c8df90ee51ffb4f62da71b87f",
+  "size_sha_match": true,
+  "members": 49,
+  "all_crc_passed": true,
+  "finished_at": "2026-11-17T15:34:24.590283+00:00"
+}
