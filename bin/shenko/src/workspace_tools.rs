@@ -333,6 +333,13 @@ pub(crate) fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()
                 None => Value::Null,
             };
             import_record(&mut node, config, enabled, &package_root)?;
+            // Re-importing a retained artifact deliberately preserves its
+            // local enable state. Only this explicit CLI toggle changes it;
+            // configuration and startup reconciliation keep the prior choice.
+            node.handle_unit_request(UnitRequest::SetEnabled {
+                unit_id: UNIT_ID.into(),
+                enabled,
+            })?;
         }
     }
     println!("{}", serde_json::to_string_pretty(&report(Some(&node))?)?);
