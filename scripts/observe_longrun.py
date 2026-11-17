@@ -1237,7 +1237,12 @@ def cmd_report(args):
     for sample in samples:
         binary = sample["main"].get("binary") or {}
         observed_digest = (binary.get("exe") or {}).get("sha256")
-        if (binary.get("matches_declared_candidate") is False or
+        if binary.get("process_identity_stable") is False:
+            # A different executable may belong to the recycled PID, not to
+            # the original subject. Keep it Unknown, never candidate drift.
+            if sample["main"]["alive"]:
+                binary_unverified.append(sample["seq"])
+        elif (binary.get("matches_declared_candidate") is False or
                 (digest_string(candidate_digest) and digest_string(observed_digest)
                  and candidate_digest != observed_digest)):
             binary_drift.append(sample["seq"])

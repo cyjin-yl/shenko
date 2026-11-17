@@ -463,6 +463,26 @@ def scenario_pid_reused_during_binary_measurement(tmp):
     assert rep["declared_windows"][0]["status"] == "unobserved"
     assert rep["eligible_as_product_evidence"] is False
 
+    # A replacement executable whose digest differs is also Unknown; it is
+    # not evidence that the *original* Shenko candidate drifted on disk.
+    other = tmp.with_name(tmp.name + "-different-executable")
+    other_argv = [str(other) if value == str(tmp) else value for value in argv]
+    with patch.object(ol, "utcnow", return_value=1000.0):
+        code, output = cli(other_argv)
+    assert code == 0, output
+    other_manifest = ol.load_manifest(other)
+    different_sha = ("0" if candidate["sha256"][0] != "0" else "1") + candidate["sha256"][1:]
+    replacement_exe = dict(candidate, sha256=different_sha)
+    with capture_frame(1000.0, process=first):
+        with patch.object(ol, "read_process_or_absent",
+                          side_effect=[first.copy(), replacement]):
+            with patch.object(ol, "read_subject_exe", return_value=replacement_exe):
+                ol._take_sample(other, other_manifest, None, None, epoch=1000.0)
+    other_report = report(other)
+    assert other_report["integrity"]["candidate_binary_unverified_sample_seqs"] == [1]
+    assert other_report["integrity"]["candidate_binary_drift_sample_seqs"] == []
+    assert not other_report["integrity"]["intact"]
+
 
 def _external_observe(tmp, command):
     return subprocess.run(
