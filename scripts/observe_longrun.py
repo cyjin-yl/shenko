@@ -953,6 +953,27 @@ def _take_sample_locked(run_dir, manifest, fixed_pid, pid_file, epoch=None):
         if main["alive"]:
             main["boot_id"] = clock["boot_id"]
         main["binary"] = subject_binary_state(resolved, manifest["candidate"])
+        if main["alive"]:
+            # /proc/<pid>/exe is measured after the first status snapshot.
+            # A recycled PID between these reads must not lend the new
+            # process's executable digest to the old subject observation.
+            # Re-read kernel starttime after hashing; comm can change without
+            # a restart. This is a conservative check, not an atomic pidfd.
+            after = read_process_or_absent(resolved)
+            stable = (after.get("alive") is True
+                      and after.get("pid") == main.get("pid")
+                      and after.get("proc_start_jiffies") is not None
+                      and after.get("proc_start_jiffies") == main.get("proc_start_jiffies"))
+            main["binary"]["process_identity_stable"] = stable
+            if not stable:
+                # Unknown, not a proven candidate mismatch: preserve the
+                # measured executable and both process identities in the log.
+                main["binary"]["matches_declared_candidate"] = None
+                main["binary"]["identity_after_measurement"] = {
+                    "pid": after.get("pid"), "alive": after.get("alive"),
+                    "proc_start_jiffies": after.get("proc_start_jiffies"),
+                    "comm": after.get("comm"),
+                }
 
     # A boundary belongs to the next sample sequence. A failed sample write
     # may leave its complete boundary durable; retry that transition, not a
