@@ -24,7 +24,7 @@ use shenko_wasm::{HOME_GUEST_PATH, MountMode, MountSpec};
 
 use crate::cli::ToolProfileCommand;
 
-const UNIT_ID: &str = "tools.workspace";
+pub const UNIT_ID: &str = "tools.workspace";
 const CONTRACT: &str = "shenko.workspace-tools/1";
 const APPLY_NOTE: &str = "saved installation configuration is adopted at the next process start; an existing process keeps its startup snapshot";
 
@@ -218,7 +218,7 @@ fn reconcile(
 
 /// The live startup and capability-discovery paths use this same composition.
 /// NativeTaskHandlerPlugin owns each handler's registration and teardown.
-pub(crate) async fn install(
+pub async fn install(
     supervisor: &Supervisor,
     store: &Arc<Store>,
     data_dir: &Path,
@@ -283,7 +283,7 @@ fn initial_config(data_dir: &Path, store: &Store) -> Result<WorkspaceToolsConfig
     default_config(&home.mounts)
 }
 
-pub(crate) fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()> {
+pub fn command(data_dir: &Path, command: ToolProfileCommand) -> Result<()> {
     if matches!(command, ToolProfileCommand::Inspect) {
         // This query does not initialize a Node, prepare a home or open a
         // writable Store. Absence stays absence.

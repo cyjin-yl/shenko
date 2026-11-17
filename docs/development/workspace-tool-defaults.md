@@ -2,6 +2,25 @@
 
 当前[工作区工具合同](../specs/workspace-tools.md)按用户允许的推理方式暂选 replace；本页是待执行的比较设计，不是实验报告。真实模型验收继续遵守 [shenko-dev](../../.agents/skills/shenko-dev/SKILL.md) 和[本地模型行为验收](local-model-behavior.md)。
 
+## 可运行的最小诊断
+
+[`workspace_tools_acceptance`](../../bin/shenko/examples/workspace_tools_acceptance.rs) 复用 `PreparedSandbox` / `run_prepared_sandbox`，通过真实 CLI 配置与启动安装入口读取 `tools.workspace`，再由产品主体、有限模型 child 和共享 native runtime 执行。它只展开下面第一个任务模板：同名配送配置中调整在用普通配送门槛，同时保持加急配送行为以及 README、示例文件的原始字节。oracle 读取实际配置，检查五个边界金额的运费；没有向模型提供预期工具调用或输出。快照范围是这三个给定文件，不宣称审核了整个工作区。
+
+```sh
+cargo run -p shenko --example workspace_tools_acceptance -- \
+  --base-url "$SHENKO_LOCAL_MODEL_URL" --model "$SHENKO_LOCAL_MODEL" \
+  --context-tokens "$SHENKO_DEPLOYMENT_CONTEXT_TOKENS" \
+  --output /path/to/new-diagnostic-directory --trials 1 --deadline-secs 180
+```
+
+`--context-tokens` 来自部署事实；`--max-output-tokens` 设置主体每步上限及消息中请求的 child 每步输出预算。child 合同仍由真实主体编写，结果同时记录 requested / actual budget 与可比性；没有产生 child 时不可比。`--fixture-seed` 只固定初始文件数据，provider seed 保留 `null`，采样沿用真实 provider 默认。每次重复切换两组先后顺序。首次默认每组一次，只诊断接线；增加 `--trials` 复用同一模板，不新增独立场景或变更评分。
+
+每组保留独立 `raw/<editor>-<trial>-<id>/shenko.db`、`cas/`、实际 profile、原始 S0 / S1、child 冻结合同、逐步 provider 结果及 native T1 / E1 / T2；`evidence.json` 汇集这些原始记录及引用。`raw/run.json` 绑定真实 endpoint / model、源码与可执行文件摘要，原始失败位于各组 `outcome.json`。根目录 `report.json` 是不含 endpoint、密钥和模型原文的摘要，以 binding digest 关联原始资料。raw 数据不提交仓库。
+
+成本按原始 `request_id` 去重，包含主体和 child 的失败请求；provider 未报告的 token 字段为 `null`，不当成零。工具指标区分产品 parser 识别出的调用与实际 native operation；无法识别的工具语法仍保留原文，不用关键词猜测次数。每组结束后先排空原始 provider reader；若仍有未知债务或 runtime 清理失败，后续组明确标记未开始，不释放未知债务后继续对比。
+
+当前入口比较 replace / hashline；禁用专门编辑器的 execution-only 对照、后两个任务模板与 27B 参考验收仍未覆盖。小模型即使完成这个任务也只形成链路诊断，失败则保留失败；该运行器不改变暂定默认。后续实测报告应另行绑定具体运行目录和模型部署证据。
+
 ## 比较对象
 
 固定同一实际模型、初始源码、任务、其他上下文及总预算，对比 replace、hashline，以及禁用两种专门编辑器的对照。对照只使用当时真实已安装且已授予 child 的执行能力；记录到底用了 `wasi.exec`、REPL 还是 SSH，不假设不存在的 bash 或 tools callback。读取、搜索和其他条件尽可能一致，避免同时改变提示词、模型与编辑方言。

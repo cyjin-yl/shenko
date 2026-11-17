@@ -38,7 +38,7 @@ mod runtime_start;
 mod tool_install;
 mod update_control;
 mod update_runtime;
-mod workspace_tools;
+pub mod workspace_tools;
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
