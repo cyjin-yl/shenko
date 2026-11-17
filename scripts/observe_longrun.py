@@ -462,6 +462,13 @@ def validate_manifest(manifest, allow_legacy=False):
             not isinstance(name, str) or not name or not finite_number(value)
             or value <= 0 for name, value in windows.items()):
         raise ValueError("manifest windows must have names and positive durations")
+    # The standard S5 labels must name real physical durations. Shorter
+    # diagnostic runs remain supported under other names (such as "demo").
+    # Validate both at init and again when reading a retained manifest.
+    for name, seconds in (("7d", 604800), ("30d", 2592000)):
+        if name in windows and windows[name] != seconds:
+            raise ValueError(
+                f"reserved S5 window {name} must declare {seconds} seconds")
     if not finite_number(manifest["interval_seconds"]) or manifest["interval_seconds"] <= 0:
         raise ValueError("manifest interval must be positive and finite")
     for key in ("candidate", "environment", "created_by", "main_pid_source"):

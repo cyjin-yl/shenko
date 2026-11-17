@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Eighteen independent C19 consumer scenarios; no long-run results are asserted.
+"""Nineteen independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
@@ -12,6 +12,7 @@ and unknown executed-file identity in a real-observation-shaped fixture.
 Synthetic clocks/processes exercise the actual manifest/log/report consumer.
 Two additional real-process cases cover concurrent appends and stop barriers.
 A subject-outage case rejects wall-clock-only coverage.
+Reserved S5 duration names cannot be shortened by a caller or retained manifest.
 Real procfs smoke and all execution belong to the integrating parent.
 """
 import contextlib
@@ -110,6 +111,32 @@ def scenario_subject_absence_does_not_qualify_window(tmp):
     assert window["qualifying_span_seconds"] == 0
     assert window["status"] == "unobserved"
     assert observed["eligible_as_product_evidence"] is False
+
+
+def scenario_reserved_s5_window_durations(tmp):
+    """A "7d"/"30d" label cannot disguise a seconds-long real observation."""
+    for name, seconds in (("7d", 60), ("30d", 120)):
+        directory = tmp / name
+        code, output = cli([
+            "init", "--dir", str(directory), "--run-id", "run-a",
+            "--workload", "duration validation", "--interval", "60",
+            "--pid", "7", "--window", f"{name}={seconds}",
+        ])
+        assert code == 2 and f"reserved S5 window {name}" in output, output
+        assert not (directory / "manifest.json").exists()
+
+    directory = tmp / "correct"
+    manifest = init_run(directory, windows=("7d=604800", "30d=2592000"))
+    assert manifest["declared_windows_seconds"] == {
+        "7d": 604800, "30d": 2592000}
+    # Retained manifests are checked on read, not just at initial creation.
+    take(directory, manifest, 1000.0)
+    tampered = dict(manifest)
+    tampered["declared_windows_seconds"] = dict(manifest["declared_windows_seconds"])
+    tampered["declared_windows_seconds"]["7d"] = 60
+    ol.manifest_path(directory).write_text(json.dumps(tampered), encoding="utf-8")
+    code, output = cli(["report", "--dir", str(directory)])
+    assert code == 2 and "reserved S5 window 7d" in output, output
 
 
 def scenario_known_gap(tmp):
@@ -459,6 +486,7 @@ def main():
         ("boundary", scenario_window_boundary),
         ("gap", scenario_known_gap),
         ("subject-absent", scenario_subject_absence_does_not_qualify_window),
+        ("s5-window-durations", scenario_reserved_s5_window_durations),
         ("header", scenario_missing_header),
         ("torn", scenario_torn_append),
         ("boot", scenario_boot_id_path),
