@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nineteen independent C19 consumer scenarios; no long-run results are asserted.
+"""Twenty independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
@@ -427,6 +427,43 @@ def scenario_unknown_executable_stays_unobserved(tmp):
     assert rep["eligible_as_product_evidence"] is False
 
 
+def scenario_pid_reused_during_binary_measurement(tmp):
+    """A digest from a replacement PID cannot verify the earlier subject."""
+    argv = ["init", "--dir", str(tmp), "--run-id", "pid-race",
+            "--workload", "process identity reuse fixture",
+            "--candidate-commit", "0" * 40, "--binary-path", sys.executable,
+            "--profile", "fixture", "--evidence-class", "real_observation",
+            "--interval", "60", "--pid", "7", "--window", "demo=60"]
+    with patch.object(ol, "utcnow", return_value=1000.0):
+        code, output = cli(argv)
+    assert code == 0, output
+    manifest = ol.load_manifest(tmp)
+    candidate = manifest["candidate"]["binary_measured"]
+    first = {"pid": 7, "alive": True, "comm": "subject",
+             "rss_kb": 100, "proc_start_jiffies": 100}
+    replacement = dict(first, proc_start_jiffies=200)
+    with patch.object(ol, "read_subject_exe", return_value=candidate):
+        with capture_frame(1000.0, process=first):
+            ol._take_sample(tmp, manifest, None, None, epoch=1000.0)
+        with capture_frame(1060.0, process=first), \
+                patch.object(ol, "read_process_or_absent",
+                             side_effect=[first.copy(), replacement]):
+            raced = ol._take_sample(tmp, manifest, None, None, epoch=1060.0)
+    binary = raced["main"]["binary"]
+    assert binary["exe"]["sha256"] == candidate["sha256"]
+    assert binary["process_identity_stable"] is False
+    assert binary["matches_declared_candidate"] is None
+    assert binary["identity_after_measurement"]["proc_start_jiffies"] == 200
+    with patch.object(ol, "utcnow", return_value=1061.0):
+        code, output = cli(["stop", "--dir", str(tmp), "--reason", "completed"])
+    assert code == 0, output
+    rep = report(tmp, "--require-observed", expected_code=3)
+    assert rep["integrity"]["candidate_binary_unverified_sample_seqs"] == [2]
+    assert not rep["integrity"]["intact"]
+    assert rep["declared_windows"][0]["status"] == "unobserved"
+    assert rep["eligible_as_product_evidence"] is False
+
+
 def _external_observe(tmp, command):
     return subprocess.run(
         [sys.executable, "-I", str(Path(ol.__file__).resolve()), command,
@@ -500,6 +537,7 @@ def main():
         ("equal-stat-binary", scenario_equal_stat_different_binary),
         ("reported-path", scenario_reported_path_is_not_executed_file),
         ("unknown-executable", scenario_unknown_executable_stays_unobserved),
+        ("pid-race", scenario_pid_reused_during_binary_measurement),
         ("concurrent-writers", scenario_concurrent_writers_share_header_and_sequence),
         ("concurrent-stop", scenario_concurrent_stop_is_terminal_barrier),
     )
