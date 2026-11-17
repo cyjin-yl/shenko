@@ -61,10 +61,11 @@ fn manifest() -> Value {
 /// preserve its own metadata when the same artifact is imported again.
 fn authored_config(value: &Value) -> Value {
     let mut config = value.clone();
-    if let Some(fields) = config.as_object_mut() {
-        if fields.remove("cognition").is_some() && fields.is_empty() {
-            return Value::Null;
-        }
+    if let Some(fields) = config.as_object_mut()
+        && fields.remove("cognition").is_some()
+        && fields.is_empty()
+    {
+        return Value::Null;
     }
     config
 }

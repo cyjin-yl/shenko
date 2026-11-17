@@ -157,12 +157,12 @@ fn replacement_changes(
 ) -> Result<Vec<TextChange>, EditError> {
     let mut changes = Vec::with_capacity(request.edits.len());
     for (index, edit) in request.edits.into_iter().enumerate() {
-        if edit.old_text.is_empty() {
+        let Some(first_char) = edit.old_text.chars().next() else {
             return Err(EditError::new(
                 "empty_old_text",
                 format!("edits[{index}].old_text must not be empty"),
             ));
-        }
+        };
         let start_byte = source.find(&edit.old_text).ok_or_else(|| {
             EditError::new(
                 "no_match",
@@ -171,12 +171,7 @@ fn replacement_changes(
         })?;
         // str::match_indices skips overlapping matches. Searching again after
         // one Unicode scalar also catches ambiguous targets such as aba in ababa.
-        let first_char_len = edit
-            .old_text
-            .chars()
-            .next()
-            .expect("nonempty old_text")
-            .len_utf8();
+        let first_char_len = first_char.len_utf8();
         if source[start_byte + first_char_len..].contains(&edit.old_text) {
             return Err(EditError::new(
                 "multiple_matches",

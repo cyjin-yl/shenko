@@ -242,6 +242,7 @@ impl WorkspaceFs {
             }
         }
         let mut selected = 0;
+        let mut anchors = Vec::new();
         for line in lines.iter().skip(start - 1).take(count) {
             let mut candidate = result.clone();
             match mode {
@@ -255,10 +256,8 @@ impl WorkspaceFs {
                     candidate["text"] = json!(text);
                 }
                 EditorMode::Hashline => {
-                    candidate["anchors"]
-                        .as_array_mut()
-                        .expect("array initialized")
-                        .push(json!(line));
+                    anchors.push(line);
+                    candidate["anchors"] = json!(&anchors);
                 }
             }
             candidate["end_line"] = json!(line.line);
@@ -472,9 +471,14 @@ impl WorkspaceFs {
 
     fn sync_parent(target: &Path) -> Result<()> {
         #[cfg(unix)]
-        File::open(target.parent().expect("resolved file parent"))
-            .and_then(|directory| directory.sync_all())
-            .map_err(Failure::after_staging)?;
+        {
+            let parent = target
+                .parent()
+                .ok_or_else(|| Failure::after_staging("resolved file has no parent"))?;
+            File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(Failure::after_staging)?;
+        }
         #[cfg(not(unix))]
         let _ = target;
         Ok(())
