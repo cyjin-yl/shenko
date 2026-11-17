@@ -1079,12 +1079,12 @@ impl UpdateService {
         // Recover through A's real ledger under the same exclusive installation
         // owner. The ordinary source-side completion still checks B's actual
         // atomic selector/record before mirroring or publishing anything.
-        if let Some(selected) = self.store.activation_selector(agent_id)? {
-            if let ActivationOrigin::Activation { activation_id } = &selected.origin {
-                if let Some(record) = self.store.activation_record(*activation_id)? {
-                    if selected.generation == record.to_generation
-                        && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
-                    {
+        if let Some(selected) = self.store.activation_selector(agent_id)?
+            && let ActivationOrigin::Activation { activation_id } = &selected.origin
+            && let Some(record) = self.store.activation_record(*activation_id)?
+            && selected.generation == record.to_generation
+            && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
+        {
                         ensure!(selected.state_ref == record.to_state_ref,
                             "SELECTED_RECOVERY_STATE_CONFLICT: selected state differs from committed activation");
                         let source_slot = self.state_slot(&record.from_state_ref)?;
@@ -1103,9 +1103,6 @@ impl UpdateService {
                             retired.finish_committed_handoff(agent_id)?;
                             return Ok(());
                         }
-                    }
-                }
-            }
         }
         for source_record in self.store.activation_records(agent_id)? {
             let target_slot = self.state_slot(&source_record.to_state_ref)?;
