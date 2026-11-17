@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seventeen independent C19 consumer scenarios; no long-run results are asserted.
+"""Eighteen independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
@@ -11,6 +11,7 @@ Also covers equal-stat different bytes, a replaced reported executable path,
 and unknown executed-file identity in a real-observation-shaped fixture.
 Synthetic clocks/processes exercise the actual manifest/log/report consumer.
 Two additional real-process cases cover concurrent appends and stop barriers.
+A subject-outage case rejects wall-clock-only coverage.
 Real procfs smoke and all execution belong to the integrating parent.
 """
 import contextlib
@@ -88,6 +89,27 @@ def scenario_window_boundary(tmp):
     assert rep["integrity"]["intact"]
     assert window["qualifying_span_seconds"] == 60
     assert window["status"] == "observed"
+
+
+def scenario_subject_absence_does_not_qualify_window(tmp):
+    """A gap-free clock cannot turn an observed dead subject into service uptime."""
+    manifest = init_run(tmp, windows=("demo=120",))
+    take(tmp, manifest, 1000.0)
+    take(tmp, manifest, 1060.0, process={"pid": 7, "alive": False})
+    take(tmp, manifest, 1120.0)
+    with patch.object(ol, "utcnow", return_value=1121.0):
+        code, output = cli(["stop", "--dir", str(tmp), "--reason", "completed"])
+    assert code == 0, output
+    observed = report(tmp, "--require-observed", expected_code=3)
+    assert observed["integrity"]["intact"]
+    assert observed["lifecycle"]["sealed"]
+    assert observed["subject_absent_samples"] == 1
+    assert any(item["kind"] == "subject_not_running" for item in observed["outages"])
+    window = observed["declared_windows"][0]
+    assert window["observed_span_seconds"] == 120
+    assert window["qualifying_span_seconds"] == 0
+    assert window["status"] == "unobserved"
+    assert observed["eligible_as_product_evidence"] is False
 
 
 def scenario_known_gap(tmp):
@@ -436,6 +458,7 @@ def main():
     scenarios = (
         ("boundary", scenario_window_boundary),
         ("gap", scenario_known_gap),
+        ("subject-absent", scenario_subject_absence_does_not_qualify_window),
         ("header", scenario_missing_header),
         ("torn", scenario_torn_append),
         ("boot", scenario_boot_id_path),
