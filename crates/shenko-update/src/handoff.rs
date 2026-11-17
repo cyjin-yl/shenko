@@ -1551,7 +1551,7 @@ impl UpdateService {
         )?;
         let (_, mirrored_record, _) = self
             .store
-            .swap_activation_selector(expected_selector_revision, &swapped_selector, &record)
+            .swap_activation_selector(expected_selector_revision, &swapped_selector, &candidate_record)
             .map_err(UpdateError::CandidateStore)?;
         let fenced = self
             .store
