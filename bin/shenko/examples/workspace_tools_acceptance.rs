@@ -40,6 +40,7 @@ use shenko_types::{
     ids::EntityId,
     object::{Digest, ObjectRef},
     operation::{EffectStatus, OperationOutcome},
+    subject::SubjectStepState,
     task::{TaskOutcome, TaskOwner},
 };
 use std::{
@@ -436,6 +437,16 @@ fn retain_evidence(arm: &Arm) -> Result<Value> {
     let store = &arm.store;
     let (head, _) = store.load_subject(arm.agent)?;
     let steps = store.sealed_subject_steps(&head.branch_id)?;
+    // S0 records include retired retries and a preparing successor. S1
+    // commits retain both the decision object and the authoritative commit.
+    let committed_subject_steps = steps
+        .iter()
+        .filter(|step| {
+            step.state == SubjectStepState::Committed
+                && step.decision_ref.is_some()
+                && step.commit_ref.is_some()
+        })
+        .count();
     let mut requests = BTreeMap::new();
     let mut subject = Vec::new();
     let mut child_contracts = BTreeMap::new();
@@ -594,7 +605,8 @@ fn retain_evidence(arm: &Arm) -> Result<Value> {
         && !arm.cleanup_failed;
     let summary = json!({"editor":arm.editor, "trial":arm.trial, "success":success,
         "run_completed":arm.outcome["run_completed"], "artifact_passed":arm.outcome["artifact"]["passed"],
-        "complete_subject_child_edit_chain":complete_chain, "subject_steps":steps.len(),
+        "complete_subject_child_edit_chain":complete_chain,
+        "subject_step_records":steps.len(), "committed_subject_steps":committed_subject_steps,
         "native_tool_operations":tool_operations, "unknown_operations":unknown_operations,
         "emitted_tool_calls":{"known_count":emitted_count, "unobserved_child_steps":unobserved_child_steps,
             "total":if unobserved_child_steps == 0 { Some(emitted_count) } else { None },

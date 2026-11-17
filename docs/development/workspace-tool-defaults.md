@@ -19,6 +19,8 @@ cargo run -p shenko --example workspace_tools_acceptance -- \
 
 成本按原始 `request_id` 去重，包含主体和 child 的失败请求；provider 未报告的 token 字段为 `null`，不当成零。工具指标区分产品 parser 识别出的调用与实际 native operation；无法识别的工具语法仍保留原文，不用关键词猜测次数。每组结束后先排空原始 provider reader；若仍有未知债务或 runtime 清理失败，后续组明确标记未开始，不释放未知债务后继续对比。
 
+`subject_step_records` 是已封存 S0 的记录数，包含 retired 重试和 preparing 记录；`committed_subject_steps` 只统计处于 committed、同时保有 S1 decision 与 commit 引用的步骤。它们均不能替代原始 provider 请求数。早期运行器的 `subject_steps` 指前一种记录数，读取旧报告时应按其绑定源码解释，原始报告不回写。
+
 当前入口比较 replace / hashline；禁用专门编辑器的 execution-only 对照、后两个任务模板与 27B 参考验收仍未覆盖。小模型即使完成这个任务也只形成链路诊断，失败则保留失败；该运行器不改变暂定默认。后续实测报告应另行绑定具体运行目录和模型部署证据。
 
 ## 比较对象
