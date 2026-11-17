@@ -82,7 +82,16 @@ enum SourceCoverage {
 /// retains them, and current owners explicitly hand resources over later.
 /// Conflicts are retained by Store, never overwritten as a generic row merge.
 pub fn import_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Result<ImportReport, MigrationError> {
-    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::Observed)
+    let domain = shenko_types::installation::InstallationDomain::for_store(source_db, cas_dir)?;
+    let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::Observed, permit.as_ref())
+}
+
+/// The final forward catch-up shares the original cutover permit and must
+/// cover the complete source, exactly like rollback.
+pub fn import_delta_under(source_db: &Path, target_db: &Path, cas_dir: &Path,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<ImportReport, MigrationError> {
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination, permit)
 }
 
 /// Import a verified Store archive into the generation a rollback is about to
@@ -96,7 +105,14 @@ pub fn import_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Resul
 /// working generation instead of switching to a copy that silently lost those
 /// facts. A retry takes a new snapshot; nothing is replayed or overwritten.
 pub fn import_rollback_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Result<ImportReport, MigrationError> {
-    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination)
+    let domain = shenko_types::installation::InstallationDomain::for_store(source_db, cas_dir)?;
+    let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination, permit.as_ref())
+}
+
+pub fn import_rollback_delta_under(source_db: &Path, target_db: &Path, cas_dir: &Path,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<ImportReport, MigrationError> {
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination, permit)
 }
 
 fn import_delta_inner(
@@ -104,9 +120,10 @@ fn import_delta_inner(
     target_db: &Path,
     cas_dir: &Path,
     coverage: SourceCoverage,
+    permit: Option<&shenko_types::installation::InstallationPermit>,
 ) -> Result<ImportReport, MigrationError> {
-    let source = Store::open(source_db.to_owned(), cas_dir.to_owned()).map_err(anyhow::Error::from)?;
-    let target = Store::open(target_db.to_owned(), cas_dir.to_owned()).map_err(anyhow::Error::from)?;
+    let source = Store::open_under(source_db.to_owned(), cas_dir.to_owned(), permit).map_err(anyhow::Error::from)?;
+    let target = Store::open_under(target_db.to_owned(), cas_dir.to_owned(), permit).map_err(anyhow::Error::from)?;
     // A generation hand-over migrates one subject between two copies of
     // itself. Two provably different local subjects are two installations;
     // importing one into the other would graft a foreign closure onto the
@@ -136,7 +153,7 @@ fn import_delta_inner(
         SourceCoverage::Observed => Ok(watermark_of(db).ok().flatten()),
     };
     let source_before = observe(source_db)?;
-    let export = source.export_cognition(&CognitionSnapshotOptions {
+    let export = source.export_cognition_under(&CognitionSnapshotOptions {
         memory_root: source_memory.is_dir().then_some(source_memory),
         workspace_roots: Vec::new(), include_git_history: true,
         // This is the same-installation handover, not a peer replication:
@@ -145,7 +162,7 @@ fn import_delta_inner(
         // the complete paused boundary at the destination before the
         // archive is applied.
         local_boundary_preserved: true,
-    })?;
+    }, permit)?;
     let archive_name = format!("activation-import-{}.shka", EntityId::new());
     let complete_path = target_root.join(&archive_name);
     // The bytes are written under a staging name and only promoted once the
@@ -179,9 +196,9 @@ fn import_delta_inner(
             uncovered_source_commits: uncovered_before, archive_path: retained, blocked_units });
     }
     if let Some(agent) = source_subject {
-        target.copy_paused_activation_boundary(&source, agent).map_err(anyhow::Error::from)?;
+        target.copy_paused_activation_boundary_under(&source, agent, permit).map_err(anyhow::Error::from)?;
     }
-    let outcome = target.import_cognition_archive(std::fs::File::open(&archive_path)?, &CognitionImportOptions {
+    let outcome = target.import_cognition_archive_under(std::fs::File::open(&archive_path)?, &CognitionImportOptions {
         memory_root: target_memory.is_dir().then_some(target_memory), workspace_root: None,
         // Stable source identity binds Store's baselines and exact repeated
         // imports; retries never create a fresh replication relationship.
@@ -190,7 +207,7 @@ fn import_delta_inner(
         // adopt local control facts (the scope's pending/answered rollover
         // request). A peer import cannot.
         local_control_handover: true,
-    })?;
+    }, permit)?;
     blocked_units.extend(outcome.gaps.iter().filter(|gap| gap.blocking)
         .map(|gap| format!("{}: {}", gap.kind, gap.detail)));
     blocked_units.extend(outcome.conflicts.iter().map(|conflict| format!("typed recovery conflict: {conflict:?}")));

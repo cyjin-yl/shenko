@@ -10,6 +10,7 @@ use crate::{Command, cli_dispatch, runtime_authority};
 pub(crate) struct RuntimeState {
     pub(crate) active_authority: Option<Arc<runtime_authority::RuntimeAuthority>>,
     pub(crate) authority_heartbeat: Option<tokio::task::JoinHandle<Result<()>>>,
+    pub(crate) model_health_monitor: Option<tokio::task::JoinHandle<()>>,
     pub(crate) startup_pause_applied: bool,
 }
 
@@ -48,6 +49,9 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
         command, data_dir, &supervisor, &identity_context, &identity_service, &mut state,
     ).await;
     *startup_pause_applied = state.startup_pause_applied;
+    if let Some(monitor) = state.model_health_monitor.take() {
+        monitor.await?;
+    }
     // Start's cancellation guard has stopped observations on every normal or
     // error exit. Join their last blocking write before runtime/owner teardown.
     let result = match state.authority_heartbeat.take() {
@@ -70,12 +74,10 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
         .is_some_and(|authority| authority.recovery_required().is_some())
         || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);
     let result = if rebuilding {
-        match tokio::time::timeout(std::time::Duration::from_secs(15), supervisor.stop()).await {
-            Ok(Ok(())) => {},
-            Ok(Err(error)) => tracing::warn!(error=%error, "authority teardown incomplete; original facts retained"),
-            Err(_) => tracing::warn!("authority teardown observation timed out; original admitted effects remain unresolved"),
+        match supervisor.stop().await {
+            Ok(()) => result,
+            Err(error) => Err(error.context("authority teardown failed; no replacement runtime may start before real workers join")),
         }
-        result
     } else {
         match supervisor.stop().await {
             Ok(()) => result,

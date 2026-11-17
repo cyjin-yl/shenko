@@ -727,3 +727,33 @@ U62 要求智能能力完全失效时仍保留可操作的确定性基础：只�
 OS 或整机无法启动时，允许由已授权环境提取磁盘镜像/存储副本，在其他节点恢复、读取和合并。恢复材料包括实际存储布局、schema/版本、对象和日志引用、迁移/读取工具及必要的解密凭据引用，不能只留下需要原在线服务解释的 opaque handle。新的、更强智能节点可以据此复活自我或导入经历；先核对事实、水位与效果状态，未知副作用不盲重放。软件可启动、数据可读、模型可用和历史已合并分别证明。缺失密钥、损坏介质、未写入或未复制的数据造成的缺口如实标出，磁盘镜像不承诺恢复物理上已丢失的数据。该能力复用存储、身份、导出与恢复插件，不要求固定不可改救援内核。
 
 <!-- /migrated-contract: SPEC:22.2 -->
+
+
+### Configured binding usability observations
+
+Runtime candidacy receives `ModelEligibility` shared with new-attempt admission.
+`runtime_model_health::initial_probe` reads the actual configured provider/model
+through its broker runtime without starting a generation. Empty configuration
+returns immediately and stays recovery-only. An exact valid `/v1/models` match
+is capability/reachability evidence, explicitly not successful inference. A
+complete model list that omits the configured model, or a typed attributable
+401/403/429/5xx metadata refusal, is unavailable. Incomplete/unsupported metadata,
+invalid conflicting metadata, transport failures and the 15-second probe timeout
+remain unknown; no error-string keyword decides health.
+
+An owned monitor probes every 30 seconds. Retained observations have a 15-minute
+validity window measured from the observation, never from a heartbeat. Ordinary
+broker completion also feeds the shared state after the original receipt is
+recorded and accounting locks are released. Only `Success + ProviderTerminal`
+provides generation-success evidence. Attributed provider rejections and a
+withdrawn runtime can count as unavailable; invalid prompts, local cancellation
+and unknown remote outcomes cannot. The Node's consecutive-failure threshold and
+cooldown still govern eligibility. Unknown does not renew an old proof or shorten
+its original expiry. Long active requests are not cancelled by this observer.
+
+The profile digest remains the exact serialized `ModelProfile` digest used by
+component selection, and every retained observation also binds the full actual
+`ProviderBinding`; a different broker binding cannot inherit another endpoint's
+proof. Probe/results and their classification envelopes are retained in CAS
+before publishing eligibility. Failure to retain evidence leaves eligibility
+unrenewed and does not terminate deterministic recovery or factual ingress.

@@ -1002,7 +1002,7 @@ impl Store {
             position.expected_tasks.clone(),
             position.expected_steps.clone(),
         );
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
@@ -1241,7 +1241,7 @@ impl Store {
             return Err(invalid("transition is not the admitted S1/result identity"));
         }
         transition.validate_result(step, head, next)?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

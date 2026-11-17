@@ -88,6 +88,8 @@ pub use receipt_admission::{ConflictIdentity, EvidenceReceiptConflict};
 
 pub mod child;
 pub use child::{NativeTaskClaim, TaskCancellation};
+mod model_child_budget;
+pub use model_child_budget::{ModelChildBudgetExceeded, ModelChildBudgetUsage};
 
 pub mod intents;
 

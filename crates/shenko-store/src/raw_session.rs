@@ -869,11 +869,59 @@ impl Store {
         Ok(())
     }
 
+    /// The first complete ingress projection, shared by volatile wake delivery
+    /// and durable recovery. Reading it never acknowledges the event.
+    pub fn inbox_event_original(
+        &self, agent_id: EntityId, event_id: EntityId,
+    ) -> Result<Option<shenko_types::inbox::InboxEvent>, ShenkoError> {
+        let data: Option<String> = self.ledger.conn.lock().query_row(
+            "SELECT data FROM inbox_events WHERE agent_id=?1 AND event_id=?2",
+            params![agent_id.to_string(), event_id.to_string()], |row| row.get(0),
+        ).optional().map_err(storage_error)?;
+        data.map(|data| serde_json::from_str(&data).map_err(ShenkoError::from)).transpose()
+    }
+
+    /// Persist a wake's original before it competes for the bounded attention
+    /// window. Native results have a durable result identity but their old
+    /// delivery projection used a fresh timestamp; preserve its FIRST timestamp
+    /// on redelivery while requiring the same source, kind and complete payload.
+    pub fn retain_inbox_event(
+        &self, agent_id: EntityId, event: &shenko_types::inbox::InboxEvent,
+    ) -> Result<shenko_types::inbox::InboxEvent, ShenkoError> {
+        if let Some(original) = self.inbox_event_original(agent_id, event.event_id)? {
+            let native_redelivery = event.kind == shenko_types::inbox::InboxEventKind::TaskResult
+                && original.kind == event.kind && original.source == event.source
+                && original.payload == event.payload;
+            if original != *event && !native_redelivery {
+                return Err(ShenkoError::conflict("inbox projection differs from its durable original"));
+            }
+            return Ok(original);
+        }
+        let value = serde_json::to_value(event)?;
+        let kind = value["kind"].as_str().ok_or_else(|| ShenkoError::conflict("inbox kind missing"))?;
+        if let Err(error) = self.admit_inbox_event(event.event_id, agent_id, kind, &event.source, &value) {
+            // Another ingress reader may have retained the same original
+            // between our read and admission. The durable bytes still win.
+            if let Some(original) = self.inbox_event_original(agent_id, event.event_id)? {
+                if original == *event || (event.kind == shenko_types::inbox::InboxEventKind::TaskResult
+                    && original.kind == event.kind && original.source == event.source
+                    && original.payload == event.payload)
+                {
+                    return Ok(original);
+                }
+            }
+            return Err(match error.downcast::<ShenkoError>() {
+                Ok(error) => error,
+                Err(error) => ShenkoError::storage(format!("retain inbox original: {error:#}")),
+            });
+        }
+        Ok(event.clone())
+    }
+
     /// Bounded recovery of complete subject-input originals, read directly by
     /// the normal Planned loop when a volatile wake was lost or backpressured.
-    /// Web, Playground, media and the subject's own "subject" self-wake
-    /// ingress share this lane and its staging transaction; native-child
-    /// task_result rows retain their existing T2 delivery path.
+    /// Every typed ingress shares this queue; native results retain their
+    /// original T2 identity and independent settlement protocol.
     ///
     /// Each row carries its stable event identity next to the original bytes:
     /// a caller that cannot decode one admitted input must be able to name the
@@ -884,12 +932,10 @@ impl Store {
     /// disposition before LIMIT so acknowledged observations cannot starve
     /// newer input.
     ///
-    /// A deferred disposition is an honest RECORD that the subject did not
-    /// act on an input; it does not keep that input in the queue forever.
-    /// The queue advances so the subject can reach newer input, and the
-    /// disposition index keeps saying which inputs were left undecided
-    /// An input the subject's own attention decision holds
-    /// stays out of the window until the pause ends (AW14).
+    /// Fresh interactive input comes first. Deferred input rotates by its last
+    /// presentation commit, so an undecided old message cannot monopolize S0.
+    /// A source pause and an explicit review time are filtered before LIMIT;
+    /// their originals stay durable and become visible when the pause ends.
     pub fn pending_inbox_events(
         &self,
         agent_id: EntityId,
@@ -899,18 +945,32 @@ impl Store {
             .map_err(|_| ShenkoError::conflict("pending input limit is too large"))?;
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT i.event_id, i.data FROM inbox_events i
+            "WITH attention AS (
+                 SELECT state,sources,review_after FROM subject_attention_policies
+                 WHERE agent_id=?1 ORDER BY created_seq DESC,intent_id DESC LIMIT 1
+             )
+             SELECT i.event_id, i.data FROM inbox_events i
              LEFT JOIN subject_branch_heads h ON h.agent_id=i.agent_id
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
-             WHERE i.agent_id=?1 AND (
-               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR i.source LIKE 'media/%'))
-               OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
-                    OR json_extract(d.disposition,'$.disposition')='deferred')))
-             ORDER BY i.rowid LIMIT ?4",
+             WHERE i.agent_id=?1
+               AND (i.consumed=0 OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')
+               AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')
+               AND (json_extract(d.disposition,'$.review_after') IS NULL
+                    OR julianday(json_extract(d.disposition,'$.review_after'))<=julianday(?3))
+               AND NOT EXISTS (
+                   SELECT 1 FROM attention a WHERE a.state='\"off\"'
+                     AND (a.review_after IS NULL OR julianday(a.review_after)>julianday(?3))
+                     AND (json_array_length(a.sources)=0 OR EXISTS (
+                         SELECT 1 FROM json_each(a.sources) s WHERE s.value=i.source
+                     ))
+               )
+             ORDER BY CASE WHEN i.kind IN ('message','media_priority') AND d.disposition IS NULL THEN 0 ELSE 1 END,
+                      COALESCE(d.commit_seq,0), i.rowid LIMIT ?2",
         ).map_err(storage_error)?;
-        let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE,
-            shenko_types::task::NATIVE_EVIDENCE_OBSERVATION_SOURCE, limit],
+        let rows = stmt.query_map(params![agent_id.to_string(), limit, chrono::Utc::now().to_rfc3339()],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
             .map_err(storage_error)?
             .collect::<rusqlite::Result<Vec<_>>>()

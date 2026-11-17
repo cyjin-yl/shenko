@@ -5,7 +5,7 @@
 //! Changing a local component promise fences its former branch immediately;
 //! other nodes learn that change through authenticated confirmation/recovery.
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{ids::EntityId, object::Digest};
 use std::collections::BTreeSet;
@@ -45,6 +45,117 @@ pub struct ComponentCandidate {
     /// None means no comparative intelligence evidence is available. Equal
     /// or unknown preferences use Node identity only as a coordination tie.
     pub preference: Option<ComponentPreference>,
+    /// Actual binding observation, independent of the resident-process pulse.
+    /// Old retained certificates remain readable; absence is never fresh
+    /// eligibility for a running installation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usability: Option<ModelUsabilityEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ModelUsabilitySource {
+    /// A read-only observation of this exact configured provider/model. This
+    /// is reachability/capability evidence, not a successful generation.
+    CapabilityProbe,
+    Inference { request_id: EntityId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelUsabilityEvidence {
+    pub evidence_digest: Digest,
+    pub source: ModelUsabilitySource,
+    pub observed_at: chrono::DateTime<chrono::Utc>,
+    pub valid_until: chrono::DateTime<chrono::Utc>,
+}
+
+impl ModelUsabilityEvidence {
+    pub fn is_fresh_at(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.observed_at <= now && now < self.valid_until
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelUsabilityOutcome { Available, Unavailable, Unknown }
+
+/// Local, binding-specific eligibility. A heartbeat can project this state
+/// but cannot renew it. Unknown keeps prior evidence until its original expiry;
+/// only two consecutive explicit failures withdraw it early. Recovery keeps a
+/// short cooldown to avoid repeatedly taking and abandoning primary authority.
+#[derive(Debug, Clone, Default)]
+pub struct ModelEligibility {
+    profile_digest: Option<Digest>,
+    evidence: Option<ModelUsabilityEvidence>,
+    last_observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    consecutive_failures: u32,
+    retry_after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl ModelEligibility {
+    pub fn observe(
+        &mut self, profile_digest: Digest, outcome: ModelUsabilityOutcome,
+        evidence: ModelUsabilityEvidence,
+    ) -> Result<()> {
+        ensure!(evidence.valid_until > evidence.observed_at
+            && evidence.valid_until.signed_duration_since(evidence.observed_at)
+                <= chrono::Duration::hours(24), "invalid model usability observation window");
+        if self.profile_digest.as_ref() != Some(&profile_digest) {
+            *self = Self { profile_digest: Some(profile_digest), ..Self::default() };
+        }
+        if self.last_observed_at.is_some_and(|last| evidence.observed_at < last) {
+            return Ok(()); // A late old receipt remains a fact, not current health.
+        }
+        self.last_observed_at = Some(evidence.observed_at);
+        match outcome {
+            ModelUsabilityOutcome::Available => {
+                self.consecutive_failures = 0;
+                self.evidence = Some(evidence);
+            }
+            ModelUsabilityOutcome::Unavailable => {
+                self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+                if self.consecutive_failures >= 2 {
+                    self.retry_after = Some(evidence.observed_at + chrono::Duration::seconds(30));
+                    self.evidence = None;
+                }
+            }
+            ModelUsabilityOutcome::Unknown => {}
+        }
+        Ok(())
+    }
+
+    pub fn candidate(
+        &self, runtime_id: EntityId, profile_digest: &Digest,
+        preference: Option<ComponentPreference>,
+    ) -> Option<ComponentCandidate> {
+        self.candidate_at(runtime_id, profile_digest, preference, chrono::Utc::now())
+    }
+
+    pub fn candidate_at(
+        &self, runtime_id: EntityId, profile_digest: &Digest,
+        preference: Option<ComponentPreference>, now: chrono::DateTime<chrono::Utc>,
+    ) -> Option<ComponentCandidate> {
+        let evidence = self.evidence.as_ref()?;
+        (self.profile_digest.as_ref() == Some(profile_digest)
+            && self.retry_after.is_none_or(|after| now >= after)
+            && evidence.is_fresh_at(now)).then(|| ComponentCandidate {
+                runtime_id, profile_digest: profile_digest.clone(), preference,
+                usability: Some(evidence.clone()),
+            })
+    }
+}
+
+impl ComponentCandidate {
+    pub fn is_usable_at(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.usability.as_ref().is_some_and(|evidence| evidence.is_fresh_at(now))
+    }
+
+    /// Re-observing the same usable binding does not revoke an agreed
+    /// coordinator merely because a newer successful receipt exists.
+    pub fn same_selection_as(&self, previous: &Self) -> bool {
+        self.runtime_id == previous.runtime_id && self.profile_digest == previous.profile_digest
+            && self.preference == previous.preference
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -309,9 +420,7 @@ impl Node {
                 .is_none_or(|candidate| candidate.runtime_id == runtime_id),
             "candidate differs from its resident runtime"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if !register {
             let original: Option<CandidateObservation> = meta(&tx, "component_candidate")?
                 .map(|raw| serde_json::from_str(&raw))
@@ -361,7 +470,8 @@ impl Node {
             configuration_digest: configuration.digest,
             revision: snapshot.component_revision,
             runtime_id: candidate.as_ref().map(|observation| observation.runtime_id),
-            candidate: candidate.and_then(|observation| observation.candidate),
+            candidate: candidate.and_then(|observation| observation.candidate)
+                .filter(|candidate| candidate.is_usable_at(chrono::Utc::now())),
             committed: snapshot.component,
         };
         tx.commit()?;
@@ -420,10 +530,13 @@ impl Node {
         observed: &ComponentObservation,
     ) -> Result<ComponentAcknowledgement> {
         proposal.validate()?;
+        available(proposal.observations.iter().find(|observation|
+            observation.presence.node_id == proposal.coordinator)
+            .and_then(|observation| observation.presence.candidate.as_ref())
+            .is_some_and(|candidate| candidate.is_usable_at(chrono::Utc::now())),
+            "component coordinator has no fresh model usability evidence")?;
         let proposal_digest = digest(proposal)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let mut state = state(&tx)?;
         let snapshot = Self::authority_snapshot_conn(&tx)?;
         let own = proposal
@@ -526,9 +639,7 @@ impl Node {
         certificate: &ComponentCertificate,
     ) -> Result<ComponentCertificate> {
         certificate.validate()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let mut state = state(&tx)?;
         let snapshot = Self::authority_snapshot_conn(&tx)?;
         let acknowledgement = certificate
@@ -605,9 +716,7 @@ impl Node {
             !reason.trim().is_empty(),
             "component retirement needs a reason"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let snapshot = Self::authority_snapshot_conn(&tx)?;
         available(
             snapshot.component.as_ref() == Some(certificate)

@@ -129,14 +129,14 @@ async fn drive(
     let contract_digest = Digest::blake3(CONTRACT);
     let version = VersionRef {
         artifact: ArtifactRef {
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_artifact_digest(),
             locator: format!("builtin:{operation_name}"),
         },
         symbol: format!("{operation_name}.execute"),
         schema: SchemaRef {
             name: "browser-observation-v1".into(),
             major: 1,
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_schema_digest("browser-observation-v1", 1),
         },
     };
     let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -153,7 +153,7 @@ async fn drive(
         input_digest: input_ref.digest.clone(),
         contract_ref: OperationContractRef {
             plugin_id: browser_plugin_id(),
-            artifact_digest: contract_digest.clone(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
             contract_digest,
             receipt_reader_ref: version.clone(),
         },
@@ -281,7 +281,7 @@ fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescri
         definition_version: 1,
         implementation_ref: ImplementationRef {
             plugin_id: browser_plugin_id(),
-            artifact_digest: Digest::blake3(CONTRACT),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
             registry_revision: 0,
         },
         role_revision: "native-browser/1".into(),

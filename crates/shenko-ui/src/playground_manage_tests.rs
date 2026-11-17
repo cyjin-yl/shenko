@@ -297,6 +297,7 @@ fn armed(
         },
         input,
         child_tools: None,
+        cancellation: Default::default(),
     };
     let (mut operation, mut attempt) = handler
         .operation_parts(&invocation, input_ref)

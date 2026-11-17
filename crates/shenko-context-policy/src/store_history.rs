@@ -16,7 +16,8 @@
 //! the real memory receipt or task/operation/T2 records of this branch.
 //! A referenced operation that is missing, unparsable or unreadable as a
 //! record reads as Unknown, never as the event's own claim.
-use std::sync::Arc;
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
+use parking_lot::Mutex;
 
 use serde::Deserialize;
 use shenko_store::{
@@ -34,7 +35,7 @@ use crate::RolloverRequest;
 use crate::policy::{Derivative, WINDOW_BODY_VERSION, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 struct Payload {
     /// Payload schema version; absent means the unversioned v1 shape.
     v: Option<u32>,
@@ -53,15 +54,63 @@ pub const PAYLOAD_VERSION: u32 = 1;
 /// Counter chosen by the caller; an estimate is not a measured tokenizer.
 pub type TokenCounter = Arc<dyn Fn(&str) -> u32 + Send + Sync>;
 
+/// Rebuildable per-subject metadata cache. Raw bodies are never retained;
+/// restart/fork/replaced-store recovery derives it again from original rows.
+#[derive(Default)]
+pub struct HistoryProjectionCache {
+    inner: Mutex<ProjectionIndex>,
+}
+
+#[derive(Default)]
+struct ProjectionIndex {
+    binding: Option<(usize, EntityId)>,
+    leaf: Option<u64>,
+    revision: Option<u64>,
+    calls: BTreeMap<u64, IndexedCall>,
+    by_binding: HashMap<String, Vec<u64>>,
+    #[cfg(test)]
+    scanned_raw: usize,
+}
+
+struct IndexedCall {
+    scope: EntityId,
+    payload: Payload,
+    item: HistoryItem,
+}
+
 pub struct StoreHistory {
     store: Arc<Store>,
     session_id: EntityId,
     count: TokenCounter,
+    cache: Arc<HistoryProjectionCache>,
 }
 
 impl StoreHistory {
     pub fn new(store: Arc<Store>, session_id: EntityId, count: TokenCounter) -> Self {
-        Self { store, session_id, count }
+        Self::with_cache(store, session_id, count, Arc::new(HistoryProjectionCache::default()))
+    }
+
+    pub fn with_cache(store: Arc<Store>, session_id: EntityId, count: TokenCounter,
+        cache: Arc<HistoryProjectionCache>) -> Self {
+        Self { store, session_id, count, cache }
+    }
+
+    fn call_status(&self, scope: EntityId, payload: &Payload) -> Result<CallStatus, StorageError> {
+        Ok(match payload.intent_id.as_deref() {
+            Some(id) => match id.parse::<EntityId>() {
+                Ok(id) => self.store.subject_call_evidence(scope, id).map_err(storage)?
+                    .map_or(CallStatus::Unknown, |facts| subject_status(id, &facts)),
+                Err(_) => CallStatus::Unknown,
+            },
+            None => match payload.operation_id.as_deref() {
+                None => CallStatus::Unknown,
+                Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {
+                    Some(Ok(Some(op))) => CallStatus::from_operation(op.state, op.outcome,
+                        op.outcome_conflict, op.effect_status),
+                    _ => CallStatus::Unknown,
+                },
+            },
+        })
     }
 
     fn item(&self, event: StoredSessionEvent) -> Result<HistoryItem, StorageError> {
@@ -79,25 +128,7 @@ impl StoreHistory {
                 text: event.data,
             });
         }
-        let call_status = match payload.intent_id.as_deref() {
-            Some(id) => match id.parse::<EntityId>() {
-                Ok(id) => self.store.subject_call_evidence(event.session_id, id).map_err(storage)?
-                    .map_or(CallStatus::Unknown, |facts| subject_status(id, &facts)),
-                Err(_) => CallStatus::Unknown,
-            },
-            None => match payload.operation_id.as_deref() {
-            None => CallStatus::Unknown,
-            Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {
-                Some(Ok(Some(op))) => CallStatus::from_operation(
-                    op.state,
-                    op.outcome,
-                    op.outcome_conflict,
-                    op.effect_status,
-                ),
-                _ => CallStatus::Unknown,
-            },
-            },
-        };
+        let call_status = self.call_status(event.session_id, &payload)?;
         let kind = match (event.event_type.as_str(), payload.call_id) {
             ("system", _) => ItemKind::System,
             ("user", _) => ItemKind::User,
@@ -180,6 +211,61 @@ impl HistorySource for StoreHistory {
             .map_err(storage)?
             .map(|event| self.item(event))
             .transpose()
+    }
+
+    fn call_items(&self, through: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        let mut index = self.cache.inner.lock();
+        let binding = (Arc::as_ptr(&self.store) as usize, self.session_id);
+        if index.binding != Some(binding) {
+            *index = ProjectionIndex { binding: Some(binding), ..Default::default() };
+        }
+        // Capture the watermark BEFORE reads. Changes racing these reads are
+        // revisited on the next projection, never hidden by advancing after it.
+        let (revision, changed) = self.store.context_execution_changes(index.revision).map_err(storage)?;
+        if index.revision.is_some_and(|old| old > revision) {
+            *index = ProjectionIndex { binding: Some(binding), ..Default::default() };
+        }
+        for binding in changed {
+            let sequences = index.by_binding.get(&binding).cloned().unwrap_or_default();
+            for seq in sequences {
+                if let Some(call) = index.calls.get_mut(&seq) {
+                    let current = self.call_status(call.scope, &call.payload)?;
+                    match &mut call.item.kind {
+                        ItemKind::ToolCall { status, .. } | ItemKind::ToolResult { status, .. } => *status = current,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let mut from = index.leaf.map_or(0, |leaf| leaf.saturating_add(1));
+        // Warm recovery is paged. Steady state reads only the appended tail;
+        // ordinary historical messages never accumulate in this cache.
+        while from <= through {
+            let to = from.saturating_add(511).min(through);
+            for event in self.store.branch_history_range(self.session_id,
+                i64::try_from(from).map_err(storage)?, i64::try_from(to).map_err(storage)?)
+                .map_err(storage)? {
+                #[cfg(test)]
+                { index.scanned_raw += 1; }
+                if !matches!(event.event_type.as_str(), "tool_call" | "tool_result") { continue; }
+                let mut payload = serde_json::from_str::<Payload>(&event.data).unwrap_or_default();
+                let scope = event.session_id;
+                let mut item = self.item(event)?;
+                if !matches!(item.kind, ItemKind::ToolCall { .. } | ItemKind::ToolResult { .. }) { continue; }
+                payload.text.clear();
+                item.text.clear();
+                item.tokens = 0;
+                if let Some(binding) = payload.intent_id.as_ref().or(payload.operation_id.as_ref()) {
+                    index.by_binding.entry(binding.clone()).or_default().push(item.at.seq);
+                }
+                index.calls.insert(item.at.seq, IndexedCall { scope, payload, item });
+            }
+            index.leaf = Some(to);
+            if to == through { break; }
+            from = to + 1;
+        }
+        index.revision = Some(revision);
+        Ok(index.calls.range(..=through).map(|(_, call)| call.item.clone()).collect())
     }
 
     fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
@@ -950,6 +1036,94 @@ mod meta_page_tests {
         assert_eq!(oldest.window.id, genesis.id);
         assert!(oldest.derivatives.is_empty());
 
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod projection_index_tests {
+    use super::*;
+    use shenko_types::commit::CommitRef;
+    use shenko_types::ids::{LedgerSeq, RecordRevision};
+    use shenko_types::object::{ArtifactRef, VersionRef};
+    use shenko_types::operation::{AuthorityRef, EffectStatus, OperationContractRef,
+        OperationOutcome, OperationRecord, OperationState};
+    use shenko_types::store::{RawSession, RawSessionEvent, WriteBatch};
+
+    #[test]
+    fn execution_index_reads_only_new_raw_and_rebuilds_after_reopen() {
+        let dir = std::env::temp_dir().join(format!("shenko-call-index-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("shenko.db");
+        let cas = dir.join("cas");
+        let store = Arc::new(Store::open(db.clone(), cas.clone()).unwrap());
+        let (scope, agent, operation_id) = (EntityId::new(), EntityId::new(), EntityId::new());
+        // Typed retained-operation fixture through the public ledger writer.
+        // This verifies cache invalidation, not a provider effect/admission.
+        let object = store.cas.seal_object(b"{}", "application/json", "fixtures", "fixture", 1).unwrap().object;
+        let mut operation = OperationRecord {
+            record_schema_version: 1, operation_id, record_revision: RecordRevision(0),
+            task_id: EntityId::new(), logical_key: "index-fixture".into(), operation_name: "fixture".into(),
+            input_schema_version: 1, output_schema_version: 1,
+            final_input_ref: object.clone(), input_digest: object.digest.clone(),
+            contract_ref: OperationContractRef { plugin_id: EntityId::new(),
+                artifact_digest: object.digest.clone(), contract_digest: object.digest.clone(),
+                receipt_reader_ref: VersionRef {
+                    artifact: ArtifactRef { digest: object.digest.clone(), locator: object.locator.clone() },
+                    symbol: "fixture".into(), schema: object.codec.clone(),
+                } },
+            resource_bindings_ref: object.clone(),
+            authority_ref: AuthorityRef { delegation_id: EntityId::new(),
+                delegation_revision: RecordRevision(0), decision_ref: EntityId::new() },
+            acceptance_predicate_ref: object.clone(), retry_contract_ref: object,
+            checkpoint_scope_ref: None, state: OperationState::InFlight, outcome: None,
+            outcome_conflict: false, effect_status: EffectStatus::Unknown,
+            retry_of: None, compensates: None, possible_duplicate_of: vec![],
+            prepared_commit: CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO),
+            evidence_through: None,
+        };
+        let mut batch = WriteBatch::new();
+        batch.operation_upserts.push(operation.clone());
+        batch.raw_session_upserts.push(RawSession { session_id: scope, agent_id: agent,
+            started_at: "2026-11-17T00:00:00Z".into(), data: "{}".into() });
+        batch.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: scope,
+            seq: 0, event_type: "tool_call".into(), role: "assistant".into(),
+            data: serde_json::json!({"v":1,"text":"body must not accumulate in index","call_id":operation_id,
+                "operation_id":operation_id,"tool":"fixture","args_ref":"original"}).to_string() });
+        batch.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: scope,
+            seq: 1, event_type: "user".into(), role: "user".into(), data: "long raw history ".repeat(4096) });
+        store.commit(batch).unwrap();
+        let cache = Arc::new(HistoryProjectionCache::default());
+        let history = StoreHistory::with_cache(store.clone(), scope, Arc::new(crate::estimate_tokens), cache.clone());
+        let first = history.call_items(1).unwrap();
+        assert!(matches!(first[0].kind, ItemKind::ToolCall { status: CallStatus::Pending, .. }));
+        assert!(first[0].text.is_empty());
+        assert_eq!(cache.inner.lock().scanned_raw, 2);
+        history.call_items(1).unwrap();
+        assert_eq!(cache.inner.lock().scanned_raw, 2, "a second projection must not reread old raw bodies");
+        operation.record_revision = RecordRevision(1);
+        operation.state = OperationState::Resolved;
+        operation.outcome = Some(OperationOutcome::Succeeded);
+        operation.effect_status = EffectStatus::Complete;
+        let mut terminal = WriteBatch::new();
+        terminal.operation_upserts.push(operation);
+        store.commit(terminal).unwrap();
+        assert!(matches!(history.call_items(1).unwrap()[0].kind,
+            ItemKind::ToolCall { status: CallStatus::Executed { ok: true }, .. }));
+        assert_eq!(cache.inner.lock().scanned_raw, 2, "changed execution must use the binding index");
+        let mut tail = WriteBatch::new();
+        tail.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: scope,
+            seq: 2, event_type: "user".into(), role: "user".into(), data: "new tail".into() });
+        store.commit(tail).unwrap();
+        history.call_items(2).unwrap();
+        assert_eq!(cache.inner.lock().scanned_raw, 3);
+        drop(history);
+        drop(store);
+        let reopened = Arc::new(Store::open(db, cas).unwrap());
+        let history = StoreHistory::new(reopened, scope, Arc::new(crate::estimate_tokens));
+        assert!(matches!(history.call_items(2).unwrap()[0].kind,
+            ItemKind::ToolCall { status: CallStatus::Executed { ok: true }, .. }));
+        drop(history);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

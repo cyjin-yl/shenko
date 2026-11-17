@@ -1998,6 +1998,7 @@ async fn drive_native_as(
         .unwrap()
         .expect("pending task claimable");
     let invocation = shenko_kernel::task::NativeTaskInvocation {
+        cancellation: tokio_util::sync::CancellationToken::new(),
         child_tools: None,
         context: shenko_types::agent::CallContext {
             caller_instance_id,

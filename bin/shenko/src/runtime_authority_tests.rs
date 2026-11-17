@@ -114,6 +114,13 @@ impl CommitAuthorityProvider for PauseAuthority {
         if !self.before_acquire && grant.is_some() { self.pause()?; }
         Ok(guard)
     }
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: shenko_types::installation::InstallationPermit,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        let guard = self.inner.acquire_installed(grant, permit)?;
+        if !self.before_acquire && grant.is_some() { self.pause()?; }
+        Ok(guard)
+    }
     fn action_unmaterialized(&self, grant: &CommitAuthorityGrant) { self.inner.action_unmaterialized(grant); }
 }
 fn pausing(store: &Store, runtime: Arc<RuntimeAuthority>, before_acquire: bool)
@@ -206,6 +213,11 @@ impl CommitAuthorityProvider for ExitAfterChosen {
     }
     fn acquire(&self, grant: Option<&CommitAuthorityGrant>) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
         self.inner.acquire(grant)
+    }
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: shenko_types::installation::InstallationPermit,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        self.inner.acquire_installed(grant, permit)
     }
 }
 

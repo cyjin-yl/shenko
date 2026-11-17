@@ -345,7 +345,7 @@ impl Node {
         ensure!(!self.failed, "node requires reopen after storage failure");
         selection.validate()?;
         let seal = digest(&(RECEIPT_SCHEMA, &selection))?;
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if let Some((node, subject)) = binding {
             Self::check_selection_subject(&tx, node, subject)?;
         }

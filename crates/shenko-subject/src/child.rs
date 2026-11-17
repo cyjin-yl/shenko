@@ -10,7 +10,7 @@
 //! repeatedly unresolved reconciliations cannot recapture every worker slot
 //! and starve a later ready child. Worker lifetime is bound to the Cordis
 //! teardown registered by `NativeChildPlugin`: shutdown closes admission and
-//! aborts/joins workers before it returns, independent of any retained
+//! signals/joins actual executions before it returns, independent of any retained
 //! `Arc<NativeChildService>`.
 //! Spawning never escapes the store contract: the claim fences task identity
 //! before any handler code runs, a rejected/late completion only leaves a
@@ -37,7 +37,7 @@ use shenko_types::{
 };
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     convert::Infallible,
     sync::Arc,
 };
@@ -63,6 +63,7 @@ enum WorkerJob {
 
 struct Worker {
     task_id: EntityId,
+    cancellation: tokio_util::sync::CancellationToken,
     handle: tokio::task::JoinHandle<()>,
 }
 
@@ -112,6 +113,7 @@ enum Admission {
 use shenko_kernel::task::{
     ChildToolCall, ChildToolOutcome, ChildToolRuntime, NativeTaskDescriptor, NativeTaskHandler,
     NativeTaskInvocation,
+    execute_native_handler,
 };
 
 /// The runtime handle handed to a child. It is the very service that owns
@@ -134,8 +136,9 @@ impl ChildToolRuntime for NativeToolRuntime {
         call: &ChildToolCall,
         parent: &TaskRecord,
         authority: &AuthorityRef,
+        cancellation: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<ChildToolOutcome> {
-        self.service.call_tool(call, parent, authority).await
+        self.service.call_tool_cancellable(call, parent, authority, cancellation).await
     }
 }
 
@@ -149,7 +152,11 @@ struct RegisteredHandler {
 #[derive(Default)]
 struct RegistryState {
     revision: u64,
-    handlers: BTreeMap<(String, u32), RegisteredHandler>,
+    handlers: BTreeMap<(String, u32, Digest), RegisteredHandler>,
+    /// Only the explicitly selected installation accepts new calls. Older
+    /// still-installed artifacts remain available for their frozen tasks.
+    current: BTreeMap<(String, u32), Digest>,
+    retained_artifacts: BTreeSet<Digest>,
 }
 
 /// The one native runtime registry. It is published/withdrawn by Cordis, not by
@@ -208,13 +215,18 @@ impl NativeChildService {
     ) -> Result<TaskCancellation> {
         // This decision is created by the current native service, not by an old
         // owner callback or a model-supplied authority field.
-        self.store.request_native_cancellation(
+        let cancelled = self.store.request_native_cancellation(
             task_id,
             EntityId::new(),
             EntityId::new(),
             reason,
             scope,
-        )
+        )?;
+        let executions = self.executions.lock();
+        for id in &cancelled.cancelled {
+            if let Some(worker) = executions.workers.get(id) { worker.cancellation.cancel(); }
+        }
+        Ok(cancelled)
     }
 
     /// Register a handler for the current Cordis generation. `pub(crate)` so
@@ -223,7 +235,7 @@ impl NativeChildService {
     pub(crate) fn install(
         self: &Arc<Self>,
         handler: Arc<dyn NativeTaskHandler>,
-    ) -> Result<((String, u32), u64)> {
+    ) -> Result<((String, u32, Digest), u64)> {
         let descriptor = handler.descriptor();
         ensure!(
             descriptor.kind != "delegation"
@@ -238,7 +250,19 @@ impl NativeChildService {
                 .is_none_or(|section| { !section.trim().is_empty() && section.len() <= 8192 }),
             "invalid_native_prompt_section"
         );
-        let key = (descriptor.kind.clone(), descriptor.definition_version);
+        let artifact = shenko_kernel::native_artifact::running_native_artifact();
+        if descriptor.implementation_ref.artifact_digest == artifact.digest()
+            && !self.registry.read().retained_artifacts.contains(&artifact.digest())
+        {
+            let retained = artifact.read(|file| Ok(self.store.cas.seal_reader(
+                file, "application/octet-stream", "native-implementation", "native-executable", 1,
+            )?.object))?;
+            ensure!(retained.digest == descriptor.implementation_ref.artifact_digest,
+                "running native artifact changed while freezing its recovery object");
+            self.registry.write().retained_artifacts.insert(retained.digest);
+        }
+        let definition = (descriptor.kind.clone(), descriptor.definition_version);
+        let key = (definition.0.clone(), definition.1, descriptor.implementation_ref.artifact_digest.clone());
         let mut registry = self.registry.write();
         ensure!(
             !registry.handlers.contains_key(&key),
@@ -248,6 +272,7 @@ impl NativeChildService {
         let epoch = registry.revision;
         let mut descriptor = descriptor;
         descriptor.implementation_ref.registry_revision = epoch;
+        registry.current.insert(definition, key.2.clone());
         registry.handlers.insert(
             key.clone(),
             RegisteredHandler {
@@ -259,7 +284,7 @@ impl NativeChildService {
         Ok((key, epoch))
     }
 
-    fn uninstall(&self, key: &(String, u32), epoch: u64) {
+    fn uninstall(&self, key: &(String, u32, Digest), epoch: u64) {
         let mut registry = self.registry.write();
         if registry
             .handlers
@@ -267,22 +292,31 @@ impl NativeChildService {
             .is_some_and(|registered| registered.epoch == epoch)
         {
             registry.handlers.remove(key);
+            let definition = (key.0.clone(), key.1);
+            if registry.current.get(&definition) == Some(&key.2) {
+                registry.current.remove(&definition);
+            }
             registry.revision += 1;
         }
     }
 
     fn handler(&self, kind: &str, version: u32) -> Option<RegisteredHandler> {
-        self.registry
-            .read()
-            .handlers
-            .get(&(kind.to_string(), version))
-            .cloned()
+        let registry = self.registry.read();
+        let digest = registry.current.get(&(kind.to_owned(), version))?;
+        registry.handlers.get(&(kind.to_owned(), version, digest.clone())).cloned()
+    }
+
+    fn frozen_handler(&self, task: &TaskRecord) -> Option<RegisteredHandler> {
+        if !memo_flag(task, NATIVE_CHILD) { return self.handler(&task.kind, task.definition_version); }
+        self.registry.read().handlers.get(&(task.kind.clone(), task.definition_version,
+            task.implementation_ref.artifact_digest.clone())).filter(|registered|
+                registered.descriptor.implementation_ref.plugin_id == task.implementation_ref.plugin_id).cloned()
     }
 
     /// Admission can report an unavailable implementation before creating new
     /// work. Dispatch still rechecks the Cordis generation when claiming it.
     pub fn has_handler(&self, kind: &str, version: u32) -> bool {
-        self.registry.read().handlers.keys()
+        self.registry.read().current.keys()
             .any(|(registered_kind, registered_version)| registered_kind == kind && *registered_version == version)
     }
 
@@ -451,10 +485,15 @@ impl NativeChildService {
             return false;
         }
         let store = self.store.clone();
+        let cancellation = match &job {
+            WorkerJob::Execute { invocation, .. } => invocation.cancellation.clone(),
+            WorkerJob::Settle { .. } => tokio_util::sync::CancellationToken::new(),
+        };
+        let worker_cancellation = cancellation.clone();
         let handle = tokio::spawn(async move {
-            drive_execution(store, registered, job).await;
+            drive_execution(store, registered, job, worker_cancellation).await;
         });
-        executions.workers.insert(task_id, Worker { task_id, handle });
+        executions.workers.insert(task_id, Worker { task_id, cancellation, handle });
         true
     }
 
@@ -482,12 +521,7 @@ impl NativeChildService {
             executions.apply_epoch += 1;
             (reactivating, executions.workers.drain().map(|(_, worker)| worker).collect())
         };
-        for worker in &leftover {
-            worker.handle.abort();
-        }
-        for worker in leftover {
-            let _ = worker.handle.await;
-        }
+        self.join_workers(leftover).await;
         // First publication only installs the catalog. A running composition
         // root explicitly recovers after it owns the dispatcher; discovery
         // must not need or acquire that durable authority.
@@ -499,13 +533,14 @@ impl NativeChildService {
         Ok(executions.apply_epoch)
     }
 
-    /// Cordis teardown: close admission, abort every managed execution and
+    /// Cordis teardown: close admission, request cancellation and
     /// join them. `run_lock` is taken first so a pass already in flight
     /// finishes its synchronous CAS work before admission closes, and no pass
     /// may start once teardown owns it. `epoch` is the apply generation this
     /// effect was registered under — if a same-Fiber restart already bumped
     /// it, this stale teardown no-ops instead of killing the new generation.
-    /// Workers stop at their next yield; anything they armed stays durable
+    /// Executors stop their local wait or cancel and join their real worker;
+    /// anything they armed stays durable
     /// (Running/claim or explicit park) and the next runtime generation
     /// reconciles it — never replays it. Runs under `stop()`, so no worker
     /// effect or T2 commit can land after shutdown reports completion; a
@@ -526,14 +561,14 @@ impl NativeChildService {
         self.join_workers(workers).await;
     }
 
-    /// Abort and join drained managed executions. An aborted worker reports
-    /// cancelled and leaves its task Running: durable truth, reconciled on
-    /// the next pass/generation — never replayed. A panicked worker gets the
+    /// Signal and join drained executions. Never abort an outer future that
+    /// may own a blocking guest. Remote Unknown remains charged and the
+    /// broker's original sink can still record late evidence. A panicked worker gets the
     /// same explicit reconciling park as a reclaimed one so no execution
     /// disappears without a durable record.
     async fn join_workers(&self, workers: Vec<Worker>) {
         for worker in &workers {
-            worker.handle.abort();
+            worker.cancellation.cancel();
         }
         for worker in workers {
             match worker.handle.await {
@@ -643,11 +678,9 @@ impl NativeChildService {
     /// frozen kind/version. The registry supplies the callable address even
     /// when the handler's usage text omits it.
     pub fn installed_prompt_sections(&self) -> Vec<String> {
-        self.registry
-            .read()
-            .handlers
-            .values()
-            .filter_map(|registered| {
+        let registry = self.registry.read();
+        registry.current.iter().filter_map(|((kind, version), digest)| {
+                let registered = registry.handlers.get(&(kind.clone(), *version, digest.clone()))?;
                 let descriptor = &registered.descriptor;
                 descriptor.prompt_section.as_ref().map(|section| {
                     format!(
@@ -665,7 +698,7 @@ impl NativeChildService {
     pub fn installed_definitions(&self) -> Vec<(String, u32)> {
         self.registry
             .read()
-            .handlers
+            .current
             .keys()
             .cloned()
             .collect()
@@ -716,6 +749,17 @@ impl NativeChildService {
         parent: &TaskRecord,
         authority: &AuthorityRef,
     ) -> anyhow::Result<ChildToolOutcome> {
+        self.call_tool_cancellable(call, parent, authority, Default::default()).await
+    }
+
+    async fn call_tool_cancellable(
+        self: &Arc<Self>,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<ChildToolOutcome> {
+        ensure!(!cancellation.is_cancelled(), "child tool execution is stopping");
         let unavailable = |reason: String, result: serde_json::Value| ChildToolOutcome {
             call_id: call.call_id.clone(),
             kind: call.kind.clone(),
@@ -791,14 +835,21 @@ impl NativeChildService {
                 self.store.close_external_writer();
                 error
             })?;
-        let Some(claim) = self.store.claim_child_tool_task(
+        let admitted = self.store.claim_child_tool_task(
             parent,
             call.task_id,
             &call.kind,
             call.definition_version,
             sealed.object,
             registered.descriptor.implementation_ref.clone(),
-        )?
+        );
+        let Some(claim) = (match admitted {
+            Ok(claim) => claim,
+            Err(error) if error.is::<shenko_store::ModelChildBudgetExceeded>() => {
+                return Ok(unavailable("failed".into(), serde_json::json!({"reason": error.to_string()})));
+            }
+            Err(error) => return Err(error),
+        })
         else {
             return Ok(unavailable(
                 "unknown".into(),
@@ -827,8 +878,9 @@ impl NativeChildService {
             authority: authority.clone(),
             input: call.input.clone(),
             child_tools: Some(self.tool_runtime()),
+            cancellation,
         };
-        let operation = match registered.handler.execute(invocation).await {
+        let operation = match execute_native_handler(registered.handler.as_ref(), invocation).await {
             Ok(operation) => operation,
             Err(error) => {
                 park_managed(
@@ -966,14 +1018,32 @@ impl NativeChildService {
                 return Ok(Visit::Skipped);
             }
         }
-        let registered = match self.handler(&task.kind, task.definition_version) {
+        let operation_id = memo_uuid(task, NATIVE_OPERATION_ID);
+        let existing = match operation_id {
+            Some(id) => self.store.get_operation(id)?,
+            None => None,
+        };
+        if memo_flag(task, NATIVE_CHILD) {
+            if let Some(operation) = existing.as_ref().filter(|operation| operation.state == OperationState::Resolved) {
+                // E1 already owns the conclusive result. Generic T2 does not
+                // execute a handler or need to reinterpret its old receipt.
+                // Keep the ORIGINAL implementation identity through settlement.
+                let Some(claim) = self.store.claim_native_task(task.task_id, task.implementation_ref.clone(), true)? else {
+                    return Ok(Visit::Skipped);
+                };
+                return Ok(if self.store.complete_native_task(&claim, operation)?.is_some() {
+                    Visit::Progressed
+                } else { Visit::Skipped });
+            }
+        }
+        let registered = match self.frozen_handler(task) {
             Some(registered) => registered,
             None => {
                 self.store.park_native_task(
                     task.task_id,
                     task.record_revision,
-                    "handler_unavailable",
-                    "no Cordis handler for the frozen kind/version",
+                    if memo_flag(task, NATIVE_CHILD) { "implementation_unavailable" } else { "handler_unavailable" },
+                    "the exact frozen executable is not installed; retain its original operations and recovery artifact",
                     true,
                 )?;
                 return Ok(Visit::Progressed);
@@ -993,11 +1063,6 @@ impl NativeChildService {
             )?;
             return Ok(Visit::Progressed);
         }
-        let operation_id = memo_uuid(task, NATIVE_OPERATION_ID);
-        let existing = match operation_id {
-            Some(id) => self.store.get_operation(id)?,
-            None => None,
-        };
         let recovery = memo_flag(task, NATIVE_RECOVERY) || existing.is_some();
         if recovery && existing.is_some() {
             let operation_id = operation_id.expect("checked above");
@@ -1110,6 +1175,7 @@ impl NativeChildService {
             authority,
             input,
             child_tools: Some(self.tool_runtime()),
+            cancellation: Default::default(),
         };
         let task_id = claim.task.task_id;
         if !self.spawn_execution(
@@ -1234,12 +1300,13 @@ async fn drive_execution(
     store: Arc<Store>,
     registered: RegisteredHandler,
     job: WorkerJob,
+    cancellation: tokio_util::sync::CancellationToken,
 ) {
     match job {
         WorkerJob::Execute { claim, invocation } => {
             let task_id = invocation.task.task_id;
             let agent_id = invocation.task.agent_id;
-            let operation = match registered.handler.execute(invocation).await {
+            let operation = match execute_native_handler(registered.handler.as_ref(), invocation).await {
                 Ok(operation) => operation,
                 Err(error) => {
                     // the handler failure is also a runtime fact
@@ -1319,7 +1386,12 @@ async fn drive_execution(
             operation_id,
             implementation,
         } => {
-            let operation = match registered.handler.reconcile(&task, operation_id).await {
+            let result = tokio::select! {
+                biased;
+                result = registered.handler.reconcile(&task, operation_id) => result,
+                _ = cancellation.cancelled() => return,
+            };
+            let operation = match result {
                 Ok(operation) => operation,
                 Err(error) => {
                     store.journal_runtime_error(
@@ -1442,16 +1514,15 @@ fn fetch_task(store: &Store, task_id: EntityId) -> Option<TaskRecord> {
 }
 
 impl Drop for NativeChildService {
-    /// Dropping the service aborts its managed executions instead of detaching
-    /// them. A dropped JoinHandle in tokio keeps running; the task would then
-    /// hold a claim no one can settle while the process still lives.
-    /// Cordis teardown (`close_and_join`) is the real barrier; this only
-    /// covers a service dropped without one.
+    /// A destructor cannot await a guest. Signal cancellation but retain the
+    /// worker future so it can join the real executor and preserve late E1.
+    /// Only `close_and_join` is a completed shutdown barrier; dropping this
+    /// fallback does not claim that effects have stopped.
     fn drop(&mut self) {
         let executions = self.executions.get_mut();
         executions.closed = true;
         for (_, worker) in executions.workers.drain() {
-            worker.handle.abort();
+            worker.cancellation.cancel();
         }
     }
 }
@@ -1499,7 +1570,7 @@ impl Plugin for NativeChildPlugin {
             .provide(service.clone())
             .map_err(std::io::Error::other)?;
         // Worker lifetime is bound to the runtime, not to the service Arc:
-        // shutdown closes admission and aborts/joins every managed execution
+        // shutdown closes admission and signals/joins every real execution
         // before `stop()` returns, so a retained service handle can never let
         // a worker commit effects after teardown reported complete.
         let teardown = service.clone();

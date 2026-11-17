@@ -664,7 +664,7 @@ impl Store {
         let authority = self.reserve_admission(&head, position, &serde_json::json!({
             "kind":"publication.child_admit", "parent":parent, "intent":intent, "decision_ref":decision_ref,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -758,7 +758,7 @@ impl Store {
     /// dispatch authority; old callbacks can still enter EvidenceIngress.
     pub fn start_subject_dispatcher(&self) -> Result<()> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut c=self.ledger.conn.lock(); let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;
             authority.check(&tx, self.capabilities.incarnation, None)?;
             let old_steps = {
@@ -920,7 +920,7 @@ impl Store {
     /// intents still settle. The count is what this pass really settled.
     pub fn settle_subject_memory(&self) -> Result<usize> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut c = self.ledger.conn.lock();
             let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
             authority.check(&tx, self.capabilities.incarnation, None)?;

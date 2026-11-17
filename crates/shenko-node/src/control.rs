@@ -11,7 +11,7 @@ use super::{Node, Result, digest, text};
 use crate::control_transport::*;
 use crate::election::*;
 use anyhow::{Context as _, ensure};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{ids::EntityId, object::Digest};
 use std::collections::BTreeSet;
@@ -703,9 +703,7 @@ impl Node {
         &mut self,
         request: &ControlReplication,
     ) -> Result<ControlAcknowledgement> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let ack = Self::accept_control_tx(&tx, request)?;
         tx.commit()?;
         Ok(ack)
@@ -827,9 +825,7 @@ impl Node {
                 "persistence response changed the accepted value"
             )
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         Self::save_ack(&tx, ack)?;
         let current_voter = if let Some(current) = Self::committed_config(&tx)? {
             current.is_member(ack.responder_id)
@@ -942,9 +938,7 @@ impl Node {
         &mut self,
         request: &ControlReplication,
     ) -> Result<ControlCommitOutcome> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let outcome = Self::commit_control_tx(&tx, request)?;
         tx.commit()?;
         Ok(outcome)
@@ -1251,9 +1245,7 @@ impl Node {
         admission: &shenko_types::authority::CommitAdmission,
         objects: &[shenko_types::authority::CommitAdmissionObject],
     ) -> Result<ControlAdmissionOutcome> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if let Some(grant) = Self::committed_admission_conn(&tx, admission)? {
             tx.commit()?;
             return Ok(ControlAdmissionOutcome {

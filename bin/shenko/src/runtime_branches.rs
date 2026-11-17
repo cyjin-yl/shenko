@@ -32,7 +32,7 @@ pub fn repair_pending_projection(data_dir: &Path, store: &Store) -> Result<()> {
         return Ok(());
     }
     let guard = node.reserve_authority()?;
-    // Re-read after the Node reservation in Node → Store lock order.
+    // Re-read under installation → Node → Store order.
     let (current, _) = store.load_subject(binding.agent_id)?;
     ensure!(
         current.branch_id == head.branch_id && current.branch_origin == head.branch_origin,
@@ -90,7 +90,8 @@ pub fn fork_availability_branch(
     if identity.branch_id == branch_id {
         return Ok(());
     }
-    let fork = store.fork_subject_branch(&head, BranchId(branch_id.0), reason)?;
+    let fork = store.fork_subject_branch_under(&head, BranchId(branch_id.0), reason,
+        guard.installation_permit())?;
     let (head, _) = store.load_subject(identity.agent_id)?;
     guard.project_subject_branch(&SubjectBranchProjection {
         parent: identity,

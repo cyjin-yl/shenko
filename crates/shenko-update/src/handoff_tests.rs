@@ -36,6 +36,10 @@ impl PrimaryClaimSource for FixtureAuthority {
     fn local_branch_authority(&self) -> Result<Option<serde_json::Value>> {
         Ok(Some(serde_json::json!({ "local_installation": true })))
     }
+
+    fn authority_snapshot_under(&self, _permit: &InstallationPermit) -> Result<serde_json::Value> {
+        Ok(authority_json())
+    }
 }
 
 fn authority_json() -> serde_json::Value {
@@ -1364,6 +1368,9 @@ async fn reconcile_refuses_to_revive_a_fenced_retired_writer() {
 #[cfg(unix)]
 async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     let fixture = installation();
+    let original_observation = seal(&fixture.store, &serde_json::json!({
+        "source": "original-inflight-observer", "event": "observed-before-cutover"
+    }));
     let target = RuntimeGeneration::new("gen-b");
     let live = AbSlot {
         generation: fixture.generation.clone(),
@@ -1478,6 +1485,29 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
             .is_none(),
         "no launch receipt exists before a process actually starts the selection"
     );
+    // A Store opened before the swap is fenced at its actual mutation, not
+    // just at a later CLI open. Factual late arrivals retain their own origin.
+    let request = EntityId::new();
+    let refused = fixture.store.request_subject_quiesce(fixture.agent_id, request).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&refused));
+    assert!(fixture.store.subject_quiesce(request).unwrap().is_none());
+    let receipt_id = EntityId::new();
+    let mut batch = shenko_types::store::WriteBatch::new();
+    batch.evidence_upserts.push(shenko_types::evidence::EvidenceReceipt {
+        record_schema_version: 1, receipt_id, operation_id: None, attempt_id: None,
+        source_id: "original-inflight-observer".into(), source_instance_id: "source-a".into(),
+        source_event_key: Some("event-before-cutover".into()), producer_epoch: Some(1),
+        producer_schema_version: Some("1".into()), raw_ref: original_observation,
+        decoder_ref: None, decode_status: shenko_types::evidence::DecodeStatus::Uninterpreted,
+        observation_level: None, normalized_ref: None, observed_at: None,
+        received_commit: CommitRef::new(fixture.store.ledger.ledger_id(), LedgerSeq(0)),
+    });
+    fixture.store.commit(batch).expect("retired slot must retain original late evidence");
+    let received = fixture.store.external_evidence(receipt_id).unwrap();
+    assert_eq!(received.received_commit.ledger_id, fixture.store.ledger.ledger_id());
+    assert!(received.received_commit.seq.0 > retired_activation.w1.unwrap().seq.0);
+    selected.request_subject_quiesce(fixture.agent_id, request)
+        .expect("current selected slot still admits a fresh control mutation");
     fixture.cleanup();
 }
 

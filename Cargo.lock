@@ -4582,6 +4582,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blake3",
  "chrono",
  "cordis-core",
  "crossbeam",
@@ -4800,12 +4801,14 @@ dependencies = [
  "bytes",
  "chrono",
  "hex",
+ "libc",
  "pulldown-cmark",
  "serde",
  "serde_bytes",
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

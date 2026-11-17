@@ -9,6 +9,8 @@ use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedE
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::store::WriteBatch;
+use shenko_types::installation::{InstallationDomain, InstallationPermit};
+use std::path::PathBuf;
 
 pub struct Ledger {
     pub(crate) conn: Arc<Mutex<Connection>>,
@@ -16,10 +18,12 @@ pub struct Ledger {
     ledger_id: EntityId,
     mutation_open: Mutex<bool>,
     pub(crate) authority: crate::authority::AuthorityRuntime,
+    pub(crate) installation: Option<(InstallationDomain, PathBuf, PathBuf)>,
 }
 
 impl Ledger {
-    pub fn new(conn: Arc<Mutex<Connection>>, incarnation: EntityId) -> Result<Self> {
+    pub(crate) fn new(conn: Arc<Mutex<Connection>>, incarnation: EntityId,
+        installation: Option<(InstallationDomain, PathBuf, PathBuf)>) -> Result<Self> {
         let ledger_id = {
             let mut c = conn.lock();
             let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -51,6 +55,7 @@ impl Ledger {
             ledger_id,
             mutation_open: Mutex::new(true),
             authority: crate::authority::AuthorityRuntime::default(),
+            installation,
         })
     }
 
@@ -94,7 +99,9 @@ impl Ledger {
 
     #[instrument(skip(self, batch))]
     pub fn commit(&self, mut batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
-        self.with_mutation(
+        let factual = batch.task_upserts.is_empty() && batch.operation_upserts.is_empty()
+            && batch.attempt_upserts.is_empty();
+        self.with_installation_mutation(None, !factual,
             || match self.try_commit(&mut batch) {
                 // The batch is refused whole, so nothing it carried is
                 // durable. The receipt it contradicted is preserved on its
@@ -548,6 +555,87 @@ impl Ledger {
         write: impl FnOnce() -> Result<T, E>,
         storage_failure: impl FnOnce(&E) -> bool,
     ) -> Result<T, E> {
+        self.with_mutation_under(None, write, storage_failure)
+    }
+
+    pub(crate) fn acquire_installation(&self, selected: bool) -> Result<Option<InstallationPermit>, ShenkoError> {
+        let Some((domain, _, _)) = &self.installation else { return Ok(None); };
+        let permit = domain.acquire().map_err(crate::store::storage_error)?;
+        if selected { self.check_selected_installation(&permit)?; }
+        Ok(Some(permit))
+    }
+
+    pub(crate) fn check_selected_installation(&self, permit: &InstallationPermit) -> Result<(), ShenkoError> {
+        let Some((domain, db, cas)) = &self.installation else { return Ok(()); };
+        permit.validate(domain).map_err(crate::store::storage_error)?;
+        let validate = || -> anyhow::Result<()> {
+            let slot = db.parent().ok_or_else(|| anyhow::anyhow!("database slot is absent"))?.canonicalize()?;
+            let root = domain.root();
+            let selected = match std::fs::read(root.join("current-slot")) {
+                Ok(bytes) => {
+                    let pointer: serde_json::Value = serde_json::from_slice(&bytes)?;
+                    anyhow::ensure!(pointer["schema_version"] == 1, "unsupported installed route pointer");
+                    let path = pointer["slot_dir"].as_str().ok_or_else(|| anyhow::anyhow!("invalid installed route pointer"))?;
+                    std::path::Path::new(path).canonicalize()?
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => root.to_path_buf(),
+                Err(error) => return Err(error.into()),
+            };
+            anyhow::ensure!(selected == root || selected.parent() == Some(root.join("versions").as_path()),
+                "selected writer is outside this installation");
+            anyhow::ensure!(slot == selected, "writer belongs to a retired or unselected installation slot");
+            let conn = self.conn.lock();
+            let agents = {
+                let mut statement = conn.prepare("SELECT agent_id FROM activation_selectors")?;
+                statement.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for agent in agents {
+                let agent = agent.parse()?;
+                crate::context_windows::verify_selected_context_slot(&conn, agent, db, root, cas)?;
+                let (head, _) = crate::store::read_subject(&conn, agent)?;
+                anyhow::ensure!(head.mode != shenko_types::subject::SubjectMode::Handoff,
+                    "retired handoff writer cannot admit fresh work");
+            }
+            Ok(())
+        };
+        validate().map_err(|error| shenko_types::authority::authority_fenced(format!("installation writer is not current: {error:#}")))
+    }
+
+    /// Borrow the source reservation's original physical permit. Acquiring a
+    /// second descriptor here would deadlock behind our own Node transaction.
+    pub(crate) fn with_mutation_under<T, E: From<ShenkoError>>(
+        &self, permit: Option<&InstallationPermit>, write: impl FnOnce() -> Result<T, E>,
+        storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        self.with_installation_mutation(permit, true, write, storage_failure)
+    }
+
+    /// Historical receipts and same-installation migration still serialize,
+    /// but selection is not a prerequisite for preserving original facts.
+    pub(crate) fn with_factual_mutation<T, E: From<ShenkoError>>(
+        &self, write: impl FnOnce() -> Result<T, E>, storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        self.with_installation_mutation(None, false, write, storage_failure)
+    }
+
+    pub(crate) fn with_maintenance_mutation_under<T, E: From<ShenkoError>>(
+        &self, permit: Option<&InstallationPermit>, write: impl FnOnce() -> Result<T, E>,
+        storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        self.with_installation_mutation(permit, false, write, storage_failure)
+    }
+
+    fn with_installation_mutation<T, E: From<ShenkoError>>(
+        &self, borrowed: Option<&InstallationPermit>, selected: bool,
+        write: impl FnOnce() -> Result<T, E>, storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        let owned = if borrowed.is_none() { self.acquire_installation(selected)? } else { None };
+        let permit = borrowed.or(owned.as_ref());
+        if let Some((domain, _, _)) = &self.installation {
+            let permit = permit.ok_or_else(|| ShenkoError::storage("installed mutation requires its physical permit"))?;
+            permit.validate(domain).map_err(crate::store::storage_error)?;
+            if selected { self.check_selected_installation(permit)?; }
+        }
         let mut open = self.mutation_open.lock();
         if !*open {
             return Err(

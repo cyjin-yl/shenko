@@ -35,7 +35,7 @@ impl Inbox {
                 Err(_) => break,
             }
         }
-        if events.len() >= max {
+        if events.len() >= max || events.iter().any(InboxEvent::is_interactive) {
             return events;
         }
         let deadline = tokio::time::Instant::now()
@@ -53,6 +53,8 @@ impl Inbox {
                             Err(_) => break,
                         }
                     }
+                    // An actual message should not wait out the batching timer.
+                    if events.iter().any(InboxEvent::is_interactive) { break; }
                 }
                 _ => break,
             }

@@ -104,14 +104,14 @@ pub fn operation_parts(
     let retry = seal(store, &retry, "seat-ssh-record-retry")?;
     let version = VersionRef {
         artifact: ArtifactRef {
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_artifact_digest(),
             locator: format!("builtin:{operation_name}"),
         },
         symbol: format!("{operation_name}.execute"),
         schema: SchemaRef {
             name: format!("{operation_name}-observation-v1"),
             major: 1,
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_schema_digest(&format!("{operation_name}-observation-v1"), 1),
         },
     };
     let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -128,7 +128,7 @@ pub fn operation_parts(
         final_input_ref: input_ref,
         contract_ref: OperationContractRef {
             plugin_id,
-            artifact_digest: contract_digest.clone(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
             contract_digest,
             receipt_reader_ref: version.clone(),
         },

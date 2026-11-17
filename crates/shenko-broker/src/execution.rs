@@ -884,6 +884,7 @@ mod tests {
             }
         );
         assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unknown);
 
         // A real HTTP rejection stays transport-rejected.
         let rejection = anyhow::Error::new(ProviderRejection {
@@ -893,6 +894,7 @@ mod tests {
         let result = failure_result(&request, RequestPurpose::Subject, &rejection, None);
         assert_eq!(result.status, InferenceStatus::Rejected { http_status: 429 });
         assert_eq!(result.termination.kind, TerminationKind::TransportRejected);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
         assert_eq!(result.quota_headers, vec![("retry-after".to_string(), "1".to_string())]);
 
         // A post-dispatch transport failure stays unknown.
@@ -900,11 +902,13 @@ mod tests {
         let result = failure_result(&request, RequestPurpose::Subject, &dropped, None);
         assert_eq!(result.status, InferenceStatus::Failed);
         assert_eq!(result.termination.kind, TerminationKind::Unknown);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unknown);
 
         // The local dispatch-boundary failures map to never-dispatched.
         let missing = anyhow::Error::new(LocalDispatchError::NoProviderRuntime);
         let result = failure_result(&request, RequestPurpose::Subject, &missing, None);
         assert_eq!(result.status, InferenceStatus::Unavailable);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
         assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
         let journal = anyhow::Error::new(LocalDispatchError::JournalOpenFailed(
             StreamSinkError::Journal("journal gone".into()),

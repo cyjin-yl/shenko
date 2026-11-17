@@ -64,10 +64,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-const TRIAL_CONTRACT: &[u8] = b"shenko.cognition.unit.trial/v1: finite sandbox comparison of one frozen authored candidate against a candidate-absent baseline; metered inference, no external effects";
+const TRIAL_CONTRACT: &[u8] = b"shenko.cognition.unit.trial/v1: finite sandbox comparison of one frozen authored candidate against a candidate-absent baseline; metered inference, per-slot deadlines, counterbalanced order, conservative coverage-aware verdict, no external effects";
 const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
 /// The default wall-clock budget of one trial.
-pub const DEFAULT_TRIAL_DEADLINE_MS: u64 = 120_000;
+pub const DEFAULT_TRIAL_DEADLINE_MS: u64 = 480_000;
 /// The largest wall-clock budget one trial may take.
 pub const MAX_TRIAL_DEADLINE_MS: u64 = 900_000;
 /// The largest number of trials per condition one trial may run.
@@ -109,7 +109,7 @@ pub struct TrialSpec {
 }
 
 fn default_trials() -> usize {
-    1
+    4
 }
 
 fn default_deadline() -> u64 {
@@ -977,6 +977,9 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
     let mut failures = Vec::new();
     let mut execution_failures = Vec::new();
     subject_stopping.cancel();
+    // Stop new plugin work even when the remaining window is too short to
+    // confirm the hook/fiber teardown barrier. Unknown cleanup is reported.
+    supervisor.lifecycle.shutdown();
     inbox.close().await;
     dispatcher_cancel.cancel();
     join_trial_task("sandbox subject", &mut subject_task, &mut execution_failures, &mut failures, stop).await;
@@ -1392,14 +1395,14 @@ impl CognitionTrialHandler {
         let contract_digest = Digest::blake3(TRIAL_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:cognition-unit-trial-v1".into(),
             },
             symbol: "cognition.unit.trial.execute".into(),
             schema: SchemaRef {
                 name: "cognition-trial-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("cognition-trial-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -1416,7 +1419,7 @@ impl CognitionTrialHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -1663,13 +1666,13 @@ impl NativeTaskHandler for CognitionTrialHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(TRIAL_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-cognition-trial/1".into(),
             authority_refs: vec!["cognition_unit.trial/v1".into()],
             prompt_section: Some(
-                "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":1,\"deadline_ms\":180000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。每个样本都有实际执行的等额 deadline，重复与场景交替先运行的条件。失败、超时、未启动和评审出错保留为未知，按全部计划样本计算保守 Wilson 95% 区间；只有候选下界高于对照上界才 supported，反向分离才 not_supported，其余为 inconclusive。scored-only 比率仅作诊断，单次每组 1 个样本通常不足以得到支持。结论只是本机这一次的测量，不是这个单元永远有效的证明。测完用 cognition.unit.judge:1 引用本次返回的 attempt_id 登记你的判断：认为有帮助就 adopt（需要的话同时 enable），认为没帮助就 reject；不登记时单元保持原状，写过的候选也仍然只是候选。"
+                "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":4,\"deadline_ms\":480000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。每个样本都有实际执行的等额 deadline，重复与场景交替先运行的条件。失败、超时、未启动和评审出错保留为未知，按全部计划样本计算保守 Wilson 95% 区间；只有候选下界高于对照上界才 supported，反向分离才 not_supported，其余为 inconclusive。scored-only 比率仅作诊断，单次每组 1 个样本通常不足以得到支持。结论只是本机这一次的测量，不是这个单元永远有效的证明。测完用 cognition.unit.judge:1 引用本次返回的 attempt_id 登记你的判断：认为有帮助就 adopt（需要的话同时 enable），认为没帮助就 reject；不登记时单元保持原状，写过的候选也仍然只是候选。"
                     .into(),
             ),
         }

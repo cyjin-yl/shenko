@@ -180,10 +180,17 @@ impl Store {
     pub fn fork_subject_branch(&self, expected: &SubjectBranchHead, branch: BranchId, reason: &str)
         -> Result<SubjectBranchFork, ShenkoError>
     {
+        self.fork_subject_branch_under(expected, branch, reason, None)
+    }
+
+    pub fn fork_subject_branch_under(&self, expected: &SubjectBranchHead, branch: BranchId,
+        reason: &str, permit: Option<&shenko_types::installation::InstallationPermit>)
+        -> Result<SubjectBranchFork, ShenkoError>
+    {
         if branch == expected.branch_id || branch.0 == EntityId::nil().0 || reason.trim().is_empty() {
             return Err(ShenkoError::conflict("fork needs a distinct branch and an explicit reason"));
         }
-        self.ledger.with_mutation(|| {
+        self.ledger.with_mutation_under(permit, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(storage_error)?;

@@ -1,8 +1,8 @@
 //! Resident following and explicit minority-component startup.
 use super::*;
 use shenko_node::{
-    ComponentAcknowledgement, ComponentCandidate, ComponentCertificate, ComponentObservation,
-    ComponentPresence, ComponentProposal, ComponentUnavailable,
+    ComponentAcknowledgement, ComponentCertificate, ComponentObservation,
+    ComponentPresence, ComponentProposal, ComponentUnavailable, ModelEligibility,
 };
 
 fn available(condition: bool, reason: &str) -> Result<()> {
@@ -31,6 +31,13 @@ pub enum RuntimeSelection {
         authority: Arc<crate::runtime_authority::RuntimeAuthority>,
         heartbeat: tokio::task::JoinHandle<Result<()>>,
     },
+    /// Deterministic services and factual ingress remain available without
+    /// claiming a thinking primary. The composition root may retry selection
+    /// after new actual capability evidence arrives.
+    RecoveryOnly {
+        heartbeat: tokio::task::JoinHandle<Result<()>>,
+        reason: String,
+    },
     Stopped,
 }
 
@@ -47,15 +54,12 @@ pub async fn establish_runtime(
     cancel: &CancellationToken,
     runtime_id: EntityId,
     profile: &shenko_seed::ModelProfile,
+    eligibility: Arc<parking_lot::RwLock<ModelEligibility>>,
 ) -> Result<RuntimeSelection> {
     let profile_digest = Digest::blake3(&serde_json::to_vec(profile)?);
-    let candidate = profile.configured.then_some(ComponentCandidate {
-        runtime_id,
-        profile_digest,
-        preference: None,
-    });
-    // This is willingness to start the configured binding, not a successful
-    // inference or a claim about comparative model intelligence.
+    let configured = profile.configured;
+    let candidate = configured.then(|| eligibility.read().candidate(runtime_id, &profile_digest, None)).flatten();
+    let initially_eligible = candidate.is_some();
     tokio::task::spawn_blocking({
         let data_dir = data_dir.to_owned();
         let candidate = candidate.clone();
@@ -69,6 +73,8 @@ pub async fn establish_runtime(
     let heartbeat = {
         let data_dir = data_dir.to_owned();
         let heartbeat_cancel = heartbeat_cancel.clone();
+        let eligibility = Arc::clone(&eligibility);
+        let profile_digest = profile_digest.clone();
         // The observation worker is part of this owned runtime. Its durable
         // authority does not expire with presence, so worker failure must
         // cancel the runtime explicitly, including an unexpected task drop.
@@ -77,7 +83,7 @@ pub async fn establish_runtime(
             let _stop_runtime_on_exit = stop_runtime_on_exit;
             while !heartbeat_cancel.is_cancelled() {
                 let path = data_dir.clone();
-                let candidate = candidate.clone();
+                let candidate = configured.then(|| eligibility.read().candidate(runtime_id, &profile_digest, None)).flatten();
                 tokio::task::spawn_blocking(move || {
                     Node::open(&path.join("node"))?.refresh_component_runtime(runtime_id, candidate)
                 })
@@ -92,6 +98,14 @@ pub async fn establish_runtime(
             Ok(())
         })
     };
+    if !initially_eligible {
+        stop_heartbeat.disarm();
+        return Ok(RuntimeSelection::RecoveryOnly {
+            heartbeat,
+            reason: if configured { "the configured model has no fresh usability evidence" }
+                else { "this runtime has no configured model" }.into(),
+        });
+    }
     let selected: Result<Option<SelectedAuthority>> = async {
       let mut last_reason = None;
       loop {
@@ -281,6 +295,9 @@ pub(super) fn primary_is_resident(
     let identity = node.local_identity()?.context("missing local identity")?;
     Ok(presence.node_id == fence.leader_id
         && presence.runtime_id.is_some()
+        && presence.candidate.as_ref().is_some_and(|candidate|
+            presence.runtime_id == Some(candidate.runtime_id)
+                && candidate.is_usable_at(chrono::Utc::now()))
         && presence.term == fence.term
         && presence.configuration_revision == fence.config_revision
         && presence.identity.agent_id == identity.agent_id
@@ -352,7 +369,11 @@ fn confirm(
         )?;
         available(
             presence.runtime_id == agreed.presence.runtime_id
-                && presence.candidate == agreed.presence.candidate,
+                && match (&presence.candidate, &agreed.presence.candidate) {
+                    (Some(current), Some(previous)) => current.same_selection_as(previous),
+                    (None, None) => true,
+                    _ => false,
+                },
             "component runtime candidacy expired or changed",
         )?;
     }

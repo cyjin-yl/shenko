@@ -348,7 +348,7 @@ impl Store {
             },
             None => self.reserve_authority()?,
         };
-        let outcome = self.ledger.with_mutation(
+        let outcome = authority.with_mutation(&self.ledger,
             || self.try_arm_publication(intent_id, plan.as_ref(), &authority),
             |error| {
                 error.is::<rusqlite::Error>()
@@ -777,7 +777,7 @@ impl Store {
         let authority = self.reserve_admission(&head, position, &serde_json::json!({
             "kind":"publication.refuse", "intent_id":intent_id, "revision":revision, "detail_ref":object,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1131,7 +1131,7 @@ impl Store {
         }
         let authority = self.reserve_admission(&subject.context("publication settlement subject missing")?, position,
             &serde_json::json!({"kind":"publication.settle", "original_rows":proposed, "outcomes":outcomes}))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1291,6 +1291,12 @@ fn migrate_intent_payload(payload: &str) -> Result<Option<String>> {
 /// The previous objects stay in the CAS. Nothing is deleted and no reader
 /// keeps an unversioned alias.
 pub fn migrate_publication_targets(store: &Store) -> Result<usize> {
+    let permit = store.acquire_installation_maintenance_permit()?;
+    migrate_publication_targets_under(store, permit.as_ref())
+}
+
+pub(crate) fn migrate_publication_targets_under(store: &Store,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<usize> {
     let mut migrated = 0usize;
     let legacy_intents = {
         let conn = store.ledger.conn.lock();
@@ -1309,7 +1315,7 @@ pub fn migrate_publication_targets(store: &Store) -> Result<usize> {
             continue;
         };
         let id = EntityId::new();
-        store.ledger.with_mutation(
+        store.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = store.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1331,12 +1337,13 @@ pub fn migrate_publication_targets(store: &Store) -> Result<usize> {
         migrated += 1;
         let _ = id;
     }
-    migrated += migrate_decision_objects(store)?;
+    migrated += migrate_decision_objects(store, permit)?;
     Ok(migrated)
 }
 
 /// Rewrite the committed decision objects that still hold a legacy target.
-fn migrate_decision_objects(store: &Store) -> Result<usize> {
+fn migrate_decision_objects(store: &Store,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<usize> {
     let steps: Vec<(String, String)> = {
         let conn = store.ledger.conn.lock();
         let mut statement = conn.prepare(
@@ -1371,7 +1378,7 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
             "StepDecision",
             PUBLICATION_TARGET_DECISION_VERSION,
         )?;
-        store.ledger.with_mutation(
+        store.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = store.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

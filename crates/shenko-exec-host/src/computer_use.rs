@@ -828,14 +828,14 @@ impl ComputerUseBackend {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: format!("builtin:{operation_name}"),
             },
             symbol: format!("{operation_name}.execute"),
             schema: SchemaRef {
                 name: "computer-use-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("computer-use-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -852,7 +852,7 @@ impl ComputerUseBackend {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: computer_use_plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -3121,7 +3121,7 @@ fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescri
         definition_version: 1,
         implementation_ref: ImplementationRef {
             plugin_id: computer_use_plugin_id(),
-            artifact_digest: Digest::blake3(CONTRACT),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
             registry_revision: 0,
         },
         role_revision: "native-computer-use/1".into(),
@@ -3370,6 +3370,8 @@ impl ComputerUseObserveHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ComputerUseCapabilitiesHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         descriptor_for(
             "computer.use.capabilities",
@@ -3393,6 +3395,8 @@ impl NativeTaskHandler for ComputerUseCapabilitiesHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ComputerUseVmHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         descriptor_for(
             "computer.use.vm",
@@ -3484,6 +3488,8 @@ impl ComputerUseLeaseHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ComputerUseSessionHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         descriptor_for(
             "computer.use.session",
@@ -3507,6 +3513,8 @@ impl NativeTaskHandler for ComputerUseSessionHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ComputerUseObserveHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         // Historical authority spelling kept so operations armed before the
         // provider-neutral cutover keep their recorded authority identity; it
@@ -3533,6 +3541,8 @@ impl NativeTaskHandler for ComputerUseObserveHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ComputerUseInputHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         descriptor_for(
             "computer.use.input",
@@ -3556,6 +3566,8 @@ impl NativeTaskHandler for ComputerUseInputHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ComputerUseLeaseHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         descriptor_for(
             "computer.use.lease",

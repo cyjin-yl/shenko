@@ -240,7 +240,7 @@ fn descriptor() -> NativeTaskDescriptor {
     NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "6f1a2b3c-9d4e-4a5b-8c7d-1e2f3a4b5c6d".parse().expect("fixed usage digest identity"),
-            artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.usage/v1".into()],
         prompt_section: Some("Summarize durable compat adapter observations. Input {\"unit\"?:{\"unit_id\"?,\"revision\"?,\"artifact_digest\"?},\"window\"?:{\"max_records\"?:<=200,\"since_rfc3339\"?},\"grouping\":\"method\"|\"method+status\",\"cursor\"?:<previous next_cursor>}. Scans at most 3072 candidates newest first. Continue with next_cursor until null, including empty pages; counts describe this scan. Groups the latest observations by request method and outcome status; each group reports count, first/latest UTC and up to 3 CAS-verified exemplar digests readable via compat.artifact.read. Read-only observations; adoption stays cognition.unit.write.".into()) }
 }

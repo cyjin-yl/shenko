@@ -306,7 +306,7 @@ impl NativeTaskHandler for RetentionApplyHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(RETENTION_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-retention-apply/1".into(),

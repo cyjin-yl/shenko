@@ -230,6 +230,7 @@ async fn real_ssh_exec_reports_remote_exit_and_stdout() -> Result<()> {
         .context("pending ssh.exec task must be claimable")?;
     let invocation = NativeTaskInvocation {
         child_tools: None,
+        cancellation: Default::default(),
         context: CallContext {
             caller_instance_id: store.capabilities.incarnation,
             role_revision: descriptor.role_revision.clone(),

@@ -33,6 +33,7 @@ pub struct RuntimeAuthority {
     cancel: CancellationToken,
     active: AtomicBool,
     recovery: Mutex<Option<String>>,
+    model_health: Mutex<Option<(Arc<crate::runtime_model_health::RuntimeModelHealth>, EntityId)>>,
 }
 
 #[derive(Debug)]
@@ -93,9 +94,25 @@ impl RuntimeAuthority {
             cancel,
             active: AtomicBool::new(false),
             recovery: Mutex::new(None),
+            model_health: Mutex::new(None),
         });
         store.attach_commit_authority(provider.clone())?;
         Ok(provider)
+    }
+
+    pub fn bind_model_health(
+        &self, health: Arc<crate::runtime_model_health::RuntimeModelHealth>, runtime: EntityId,
+    ) {
+        *self.model_health.lock() = Some((health, runtime));
+    }
+
+    fn require_model_eligibility(&self) -> Result<(), ShenkoError> {
+        let binding = self.model_health.lock().clone();
+        if binding.is_some_and(|(health, runtime)| !health.is_eligible(runtime)) {
+            self.request_recovery("the configured binding lost fresh model usability evidence");
+            return Err(authority_fenced("model usability evidence is absent or expired"));
+        }
+        Ok(())
     }
 
     /// Run before constructing any branch-scoped consumer or changing its
@@ -214,7 +231,8 @@ impl RuntimeAuthority {
                 parent.branch_id.0 == snapshot.identity.branch_id.0,
                 "Store branch changed before selected-plan recovery"
             );
-            let fork = store.fork_subject_branch(&parent, BranchId(branch_id.0), &reason)?;
+            let fork = store.fork_subject_branch_under(&parent, BranchId(branch_id.0), &reason,
+                reservation.installation_permit())?;
             let head = store.load_subject(snapshot.identity.agent_id)?.0;
             reservation.project_subject_branch(&shenko_node::SubjectBranchProjection {
                 parent: snapshot.identity.clone(),
@@ -327,6 +345,10 @@ impl CommitAuthorityGuard for ReservedAuthority {
     fn stamp(&self) -> Option<&CommitAuthorityStamp> {
         self.stamp.as_ref()
     }
+
+    fn installation_permit(&self) -> Option<&shenko_types::installation::InstallationPermit> {
+        self._reservation.installation_permit()
+    }
 }
 
 fn is_availability(snapshot: &shenko_node::NodeAuthoritySnapshot) -> bool {
@@ -342,6 +364,7 @@ impl CommitAuthorityProvider for RuntimeAuthority {
         &self,
         admission: &CommitAdmission,
     ) -> Result<Option<CommitAuthorityGrant>, ShenkoError> {
+        self.require_model_eligibility()?;
         if self.active.load(Ordering::Acquire) && self.cancel.is_cancelled() {
             return Err(authority_fenced("runtime admission is canceled"));
         }
@@ -404,8 +427,23 @@ impl CommitAuthorityProvider for RuntimeAuthority {
         &self,
         grant: Option<&CommitAuthorityGrant>,
     ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
-        let reservation = Node::open(&self.data_dir.join("node"))
-            .and_then(Node::reserve_authority)
+        self.acquire_reserved(grant, None)
+    }
+
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: shenko_types::installation::InstallationPermit,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        self.acquire_reserved(grant, Some(permit))
+    }
+}
+
+impl RuntimeAuthority {
+    fn acquire_reserved(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: Option<shenko_types::installation::InstallationPermit>,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        self.require_model_eligibility()?;
+        let reservation = Node::open_under(&self.data_dir.join("node"), permit.as_ref())
+            .and_then(|node| node.reserve_authority_under(permit))
             .map_err(|error| self.failure(error, 0))?;
         let snapshot = reservation.snapshot();
         if let Some(grant) = grant {

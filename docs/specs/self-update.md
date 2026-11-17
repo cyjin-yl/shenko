@@ -31,6 +31,24 @@ or rollback proofs were executed during this source phase.
 
 ## Interfaces and authority
 
+### Background execution and IM priority — 2026-11-17
+
+The author's current [Issue #326](https://github.com/cyjin-yl/shenko/issues/326)
+requirement is that self-modification runs in the background and incoming IM
+receives timely priority. Preparation, coding, builds, tests and candidate
+inspection keep their finite child ownership while the active subject serves
+messages. Only the actual generation handoff uses the existing quiescence and
+activation boundary. The installation mutation permit spans the final
+transactions, not the build, model generation or a whole WASI/SSH execution.
+Inputs accepted during the boundary remain durable for the successor.
+
+Cancellation is a request to the actual worker. A local stop barrier returns
+only after that worker joins; uninterruptible host work remains visible until
+it really ends. Provider-side Unknown remains original evidence and charged
+capacity, irrespective of local task cleanup. See the
+[subject ingress contract](subject-runtime.md#background-self-modification-and-interactive-ingress--2026-11-17)
+for priority, fairness and recovery semantics.
+
 `shenko-update` owns `BuildProvider`, immutable candidate descriptions,
 `UpdateService`, `ActivationRecord`/`ActivationSelector` integration, and the
 `update.control` native handler. The binary owns installation control transport

@@ -27,6 +27,14 @@ pub struct InboxEvent {
     pub source: String,
 }
 
+impl InboxEvent {
+    /// Classification supplied by the ingress owner, never by message text.
+    /// Urgency changes attention only; it conveys no authority.
+    pub fn is_interactive(&self) -> bool {
+        matches!(self.kind, InboxEventKind::Message | InboxEventKind::MediaPriority)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InboxEventKind {

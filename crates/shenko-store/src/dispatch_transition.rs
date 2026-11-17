@@ -370,7 +370,7 @@ impl Store {
         let authority = self
             .reserve_authority()?
             .with_read_conditions(position.expected_tasks.clone(), Vec::new());
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
@@ -511,7 +511,7 @@ impl Store {
                 "dispatch action differs from its admitted envelope",
             ));
         }
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

@@ -64,6 +64,8 @@ struct ClaimPlan {
     root: TaskRecord,
     creator: SubjectStep,
     implementation: ImplementationRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    implementation_artifact: Option<ObjectRef>,
     invocation: TaskInvocation,
     birth: S1Birth,
 }
@@ -166,6 +168,14 @@ impl ClaimPlan {
     fn validate(&self, head: &SubjectBranchHead) -> Result<(), ShenkoError> {
         let task = &self.task;
         let ctx = &self.invocation;
+        if self.implementation_artifact.as_ref().is_some_and(|artifact|
+            artifact.digest != self.implementation.artifact_digest
+                || artifact.codec.name != "native-executable" || artifact.codec.major != 1
+                || artifact.codec.digest != Digest::blake3(b"native-executable")
+                || artifact.store_namespace != "native-implementation")
+        {
+            return Err(invalid("native executable recovery root differs from implementation"));
+        }
         if !first_delegation(task)
             || task.memos.contains_key(COGNITION_IMPORTED)
             || task.agent_id != head.agent_id
@@ -214,6 +224,9 @@ impl ClaimPlan {
         task.updated_commit = commit;
         task.first_run_at = Some(created_at);
         task.implementation_ref = self.implementation.clone();
+        if let Some(artifact) = &self.implementation_artifact {
+            task.memos.insert(crate::child::NATIVE_IMPLEMENTATION_ARTIFACT.into(), serde_json::to_value(artifact)?);
+        }
         task.memos.insert(NATIVE_CHILD.into(), true.into());
         task.memos
             .insert(NATIVE_OPERATION_ID.into(), serde_json::json!(operation_id));
@@ -758,6 +771,8 @@ impl Store {
             task,
             root,
             creator,
+            implementation_artifact: self.retained_native_implementation(&implementation)
+                .map_err(source_error)?,
             implementation,
             invocation,
             birth,
@@ -805,7 +820,7 @@ impl Store {
             position.expected_tasks.clone(),
             position.expected_steps.clone(),
         );
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
@@ -972,7 +987,7 @@ impl Store {
                 "claim reads differ from their original predecessor",
             ));
         }
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

@@ -344,6 +344,7 @@ mod native_ssh_installation {
             delegation_revision: RecordRevision(claim.invocation.task_revision.0),
             decision_ref: claim.task.created_by_step_id.unwrap_or(claim.invocation.invocation_id) };
         shenko_kernel::task::NativeTaskInvocation { context, task_invocation: claim.invocation,
+            cancellation: tokio_util::sync::CancellationToken::new(),
             task: claim.task, operation_id: claim.operation_id, authority,
             input: serde_json::json!({"target_id":"owned-native-target","decision_id":f.decision_id,
                 "action":{"kind":"download","path":"/owned-fixture"},"timeout_secs":5}),

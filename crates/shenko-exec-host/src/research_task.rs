@@ -81,14 +81,14 @@ fn operation_parts(
     let contract_digest = Digest::blake3(contract);
     let version = VersionRef {
         artifact: ArtifactRef {
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_artifact_digest(),
             locator: format!("builtin:{operation_name}"),
         },
         symbol: symbol.into(),
         schema: SchemaRef {
             name: schema_name.into(),
             major: 1,
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_schema_digest(schema_name, 1),
         },
     };
     let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -105,7 +105,7 @@ fn operation_parts(
         final_input_ref: input_ref,
         contract_ref: OperationContractRef {
             plugin_id,
-            artifact_digest: contract_digest.clone(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
             contract_digest,
             receipt_reader_ref: version.clone(),
         },
@@ -478,7 +478,7 @@ impl NativeTaskHandler for ResearchResetHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(RESET_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-research-reset/1".into(),
@@ -652,7 +652,7 @@ impl NativeTaskHandler for ResearchCandidateHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CANDIDATE_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-research-candidate/1".into(),
@@ -947,7 +947,7 @@ impl NativeTaskHandler for ResearchBankHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(BANK_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-research-bank/1".into(),

@@ -127,14 +127,14 @@ impl NodeSelectionHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:node-selection-record-v1".into(),
             },
             symbol: "node.selection.record.execute".into(),
             schema: SchemaRef {
                 name: "node-selection-record-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("node-selection-record-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -151,7 +151,7 @@ impl NodeSelectionHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -345,7 +345,7 @@ impl NativeTaskHandler for NodeSelectionHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-node-selection-recorder/1".into(),
@@ -479,6 +479,7 @@ mod tests {
             },
             input: serde_json::Value::Null,
             child_tools: None,
+            cancellation: Default::default(),
         };
         let (mut operation, mut attempt) = handler.operation_parts(&invocation, &frozen, input_ref).unwrap();
         assert!(store.arm_external_operation(&task_invocation, &mut operation, &mut attempt).unwrap().is_none());

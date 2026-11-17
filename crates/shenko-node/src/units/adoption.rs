@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use crate::Node;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
@@ -428,9 +428,7 @@ impl Node {
             );
         }
         let recorded_at = now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let data: Option<String> = tx
             .query_row(
                 "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
@@ -640,9 +638,7 @@ impl Node {
         );
         let digest = Digest::blake3(bytes);
         let recorded_at = now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let data: Option<String> = tx
             .query_row(
                 "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",

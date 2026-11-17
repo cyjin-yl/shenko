@@ -121,13 +121,12 @@ enum ExecObservation {
 #[async_trait]
 impl NativeTaskHandler for SshExecHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
-        let contract_digest = Digest::blake3(EXEC_CONTRACT);
         NativeTaskDescriptor {
             kind: "ssh.exec".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(EXEC_PLUGIN),
-                artifact_digest: contract_digest,
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-ssh-exec/1".into(),
@@ -454,13 +453,12 @@ struct PtyFrozen {
 #[async_trait]
 impl NativeTaskHandler for SshPtyHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
-        let contract_digest = Digest::blake3(PTY_CONTRACT);
         NativeTaskDescriptor {
             kind: "ssh.pty".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(PTY_PLUGIN),
-                artifact_digest: contract_digest,
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-ssh-pty/1".into(),
@@ -639,13 +637,12 @@ struct ObserveFrozen {
 #[async_trait]
 impl NativeTaskHandler for SeatObserveHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
-        let contract_digest = Digest::blake3(OBSERVE_CONTRACT);
         NativeTaskDescriptor {
             kind: "seat.observe".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(OBSERVE_PLUGIN),
-                artifact_digest: contract_digest,
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-seat-observe/1".into(),
@@ -802,7 +799,7 @@ impl NativeTaskHandler for SeatFleetHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(FLEET_PLUGIN),
-                artifact_digest: Digest::blake3(FLEET_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-seat-fleet/1".into(),
@@ -919,13 +916,12 @@ struct RespondFrozen {
 #[async_trait]
 impl NativeTaskHandler for SeatRespondHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
-        let contract_digest = Digest::blake3(RESPOND_CONTRACT);
         NativeTaskDescriptor {
             kind: "seat.respond".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(RESPOND_PLUGIN),
-                artifact_digest: contract_digest,
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-seat-respond/1".into(),
@@ -1410,13 +1406,12 @@ impl ClaudeSeatHandler {
 #[async_trait]
 impl NativeTaskHandler for OmpSeatHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
-        let contract_digest = Digest::blake3(OMP_SEAT_CONTRACT);
         NativeTaskDescriptor {
             kind: "omp.seat".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(OMP_SEAT_PLUGIN),
-                artifact_digest: contract_digest,
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-omp-seat/1".into(),
@@ -1505,13 +1500,12 @@ impl NativeTaskHandler for OmpSeatHandler {
 #[async_trait]
 impl NativeTaskHandler for ClaudeSeatHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
-        let contract_digest = Digest::blake3(CLAUDE_SEAT_CONTRACT);
         NativeTaskDescriptor {
             kind: "claude.seat".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(CLAUDE_SEAT_PLUGIN),
-                artifact_digest: contract_digest,
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-claude-seat/1".into(),

@@ -527,7 +527,7 @@ impl WasiExecHandler {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -569,17 +569,16 @@ impl WasiExecHandler {
     }
 
     fn version_ref() -> VersionRef {
-        let contract_digest = Digest::blake3(CONTRACT);
         VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:wasi-exec-v2".into(),
             },
             symbol: "wasi.exec.execute".into(),
             schema: SchemaRef {
                 name: "wasi-exec-observation-v2".into(),
                 major: 2,
-                digest: contract_digest,
+                digest: shenko_kernel::native_artifact::native_schema_digest("wasi-exec-observation-v2", 2),
             },
         }
     }
@@ -656,6 +655,15 @@ impl WasiExecHandler {
         // running guest's epoch checkpoints; the worker is still always
         // joined before the io dir is removed.
         let cancel = WasiCancellation::default();
+        // Process/runtime panic or an incorrectly dropped caller still
+        // signals the real guest. Ordinary lifecycle teardown additionally
+        // awaits this handler and therefore joins the guest before returning.
+        struct CancelGuestOnDrop(WasiCancellation);
+        impl Drop for CancelGuestOnDrop {
+            fn drop(&mut self) { self.0.cancel(); }
+        }
+        let _cancel_on_drop = CancelGuestOnDrop(cancel.clone());
+        if invocation.cancellation.is_cancelled() { cancel.cancel(); }
         let worker_cancel = cancel.clone();
         let blocking = tokio::task::spawn_blocking(move || {
             Self::execute_blocking(stream_store, bytes, frozen, stdin, io_dir_run, worker_cancel)
@@ -681,7 +689,13 @@ impl WasiExecHandler {
                         break blocking.await;
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                tokio::select! {
+                    _ = invocation.cancellation.cancelled() => {
+                        cancel.cancel();
+                        break blocking.await;
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                }
             }
         };
         if let Some(error) = cancellation_read_error {
@@ -910,13 +924,15 @@ impl WasiExecHandler {
 
 #[async_trait]
 impl NativeTaskHandler for WasiExecHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         NativeTaskDescriptor {
             kind: "wasi.exec".into(),
             definition_version: 2,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-wasi-exec/2".into(),
@@ -1088,6 +1104,7 @@ mod tests {
         let task_id = EntityId::new();
         NativeTaskInvocation {
             child_tools: None,
+            cancellation: Default::default(),
             context: CallContext {
                 caller_instance_id: EntityId::new(),
                 role_revision: "native-wasi-exec/2".into(),
@@ -1124,7 +1141,7 @@ mod tests {
                 definition_version: 2,
                 implementation_ref: ImplementationRef {
                     plugin_id: EntityId::new(),
-                    artifact_digest: Digest::blake3(CONTRACT),
+                    artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                     registry_revision: 1,
                 },
                 input_ref: ObjectRef {

@@ -59,8 +59,13 @@ mechanism. It does not implement attitudes, justification pointers, or metapacka
 
 ## Disclosure: bounded cards, paged discovery, bodies read on demand
 
-`CognitionCatalog::disclosure()` returns the index text that travels with the
-prompt. It is **strictly bounded by `MAX_INDEX_BYTES` (4 KiB)**, including its
+`CognitionCatalog::disclosure_at(step_no)` returns the index text that travels with the
+subject prompt. The durable step number chooses a cyclic start in canonical
+catalogue order. Retrying the same step preserves the choice; future steps
+expose cards beyond the former fixed prefix, without a keyword relevance gate.
+The footer records the catalogue revision, rotation and canonical start.
+`disclosure()` and `render_index()` remain the initial-page convenience reads;
+finite readers may supply a rotation to `render_index_at` too. It is **strictly bounded by `MAX_INDEX_BYTES` (4 KiB)**, including its
 own trailing metadata line: whole cards that fit, then one line naming the
 total number of installed units, the installation revision, and the exact
 call that continues where the text stopped. There is no overflow list and no
@@ -77,9 +82,10 @@ Every unit stays discoverable because the index is paged, not truncated:
   it and any change to the installation changes it. A page carries the
   revision it was cut from; `cognition.unit.list:1` refuses a page asked for
   against an older revision, so pages of two installations are never mixed.
-- The disclosure's next-page hint names the **index of the first card that did
-  not fit**, not a page number. A disclosure that fits less than a full page
-  therefore never skips a card.
+- The disclosure's next-page hint names the canonical **index after the last
+  displayed card**, wrapping at the catalogue end. It is not a page number.
+  The separate discovery API retains canonical key positions and revision
+  checks; a rotated presentation never changes installation order.
 
 Only short cards of units in state `enabled`, `candidate` or `adopted` are
 offered; the card names the unit, its revision, when it tends to apply, and
@@ -330,6 +336,11 @@ result. Only after draining and attempting to persist that artifact does it
 abort and join the local broker task. A drained local reader does not prove
 remote termination or release unknown debt, and late completions never
 rewrite scenario results.
+
+The native trial defaults to four repetitions per condition and a 480-second
+whole-run budget (one scenario therefore gets 60 seconds per sample).
+Explicit one-repetition exploratory trials remain allowed, with their actual
+uncertainty; more scenarios divide the same whole-run budget.
 
 Every planned slot is reported. Each sample's subject, judge and local cleanup
 share the actual per-sample deadline; that deadline never expands to the whole

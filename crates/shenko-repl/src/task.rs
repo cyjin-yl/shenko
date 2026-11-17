@@ -566,6 +566,14 @@ impl SessionStore {
     }
 
     fn sessions_root(&self) -> PathBuf { self.data_dir.join("sessions") }
+    fn cancel_running(&self, id: EntityId) {
+        // Teardown may only signal an already owned interpreter. It must not
+        // open/recover a session merely to cancel it, or wait for its cell lock.
+        let slot = self.cancellations.lock().get(&id).cloned();
+        if let Some(slot) = slot {
+            if let Some(token) = slot.lock().as_ref() { token.cancel(); }
+        }
+    }
     fn request_cancel(&self, id: EntityId) -> Result<bool> {
         let slot = self.cancellations.lock().get(&id).cloned();
         let slot = match slot {
@@ -751,7 +759,7 @@ impl HandlerCore {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: self.version_ref(),
             },
@@ -793,17 +801,16 @@ impl HandlerCore {
     }
 
     fn version_ref(&self) -> VersionRef {
-        let contract_digest = Digest::blake3(self.contract);
         VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: format!("builtin:{}", self.kind),
             },
             symbol: format!("{}.execute", self.kind),
             schema: SchemaRef {
                 name: format!("{}-observation-v1", self.kind.replace('.', "-")),
                 major: 1,
-                digest: contract_digest,
+                digest: shenko_kernel::native_artifact::native_schema_digest(&format!("{}-observation-v1", self.kind.replace('.', "-")), 1),
             },
         }
     }
@@ -896,7 +903,7 @@ impl HandlerCore {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: Digest::blake3(self.contract),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: self.role_revision.into(),
@@ -1522,6 +1529,8 @@ fn resolve_entry(sessions: &SessionStore, entry: &str)
 
 #[async_trait]
 impl NativeTaskHandler for ReplSessionHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         self.core.descriptor(
             "repl.session/v1 管理真实长生命周期 REPL 会话（WASI 或原生解释器进程，变量在进程存活期间保留）：\
@@ -1668,12 +1677,7 @@ impl ReplCellHandler {
         let store = Arc::clone(&self.core.store);
         let session_id = frozen.session_id;
         let task_label = invocation.task_invocation.task_id;
-        let prepared: Result<(
-            crate::contract::CellResult,
-            crate::contract::CellOutcome,
-            (ObjectRef, Vec<u8>, bool),
-            (ObjectRef, Vec<u8>, bool),
-        )> = tokio::task::spawn_blocking(move || {
+        let mut worker = tokio::task::spawn_blocking(move || {
             frozen.session_binding.verify_manifest(&sessions.session_dir(session_id))
                 .map_err(BeforeReplExecution)?;
             let handle = sessions.open(session_id)?;
@@ -1693,7 +1697,20 @@ impl ReplCellHandler {
             let stdout = seal_stream(&store, &dir, &result.record.stdout_path)?;
             let stderr = seal_stream(&store, &dir, &result.record.stderr_path)?;
             Ok((result, outcome, stdout, stderr))
-        }).await?;
+        });
+        let prepared: Result<(
+            crate::contract::CellResult,
+            crate::contract::CellOutcome,
+            (ObjectRef, Vec<u8>, bool),
+            (ObjectRef, Vec<u8>, bool),
+        )> = loop {
+            tokio::select! {
+                result = &mut worker => break result?,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(25)) => {
+                    if invocation.cancellation.is_cancelled() { self.sessions.cancel_running(session_id); }
+                }
+            }
+        };
 
         let (cell, outcome, stdout_evidence, stderr_evidence) = match prepared {
             Ok(parts) => parts,
@@ -1797,6 +1814,8 @@ impl ReplCellHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ReplCellHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         self.core.descriptor(
             "repl.cell/v1 在一个已创建的 REPL 会话上执行一个 cell（真实解释器进程内，变量跨 cell 保留；WASI 会话经帧协议，原生会话同名协议）：\
@@ -1980,6 +1999,7 @@ mod tests {
             },
             input,
             child_tools: None,
+            cancellation: Default::default(),
         })
     }
 
@@ -1990,6 +2010,7 @@ mod tests {
             task: invocation.task.clone(), operation_id: invocation.operation_id,
             authority: invocation.authority.clone(), input: invocation.input.clone(),
             child_tools: None,
+            cancellation: invocation.cancellation.clone(),
         }
     }
 

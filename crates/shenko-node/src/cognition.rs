@@ -31,7 +31,7 @@
 
 use super::{Node, meta, set};
 use anyhow::{Context, Result, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior};
+use rusqlite::{OptionalExtension};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
@@ -247,9 +247,7 @@ impl Node {
             !observation.provenance.trim().is_empty(),
             "a cognition report states how the installation observed it"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let stored: Option<CognitionSnapshotReport> = meta(&tx, COGNITION_REPORT_KEY)?
             .map(|raw| serde_json::from_str(&raw))

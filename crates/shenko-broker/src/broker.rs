@@ -194,12 +194,32 @@ pub struct BrokerHandle {
     accounting_changed: Arc<Notify>,
     kv: Arc<KvAllocator>,
     error_sink: ErrorSinkCell,
+    health_observer: crate::health::HealthObserverCell,
     handoff_closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl BrokerHandle {
     pub fn binding(&self) -> &ProviderBinding {
         &self.binding
+    }
+
+    pub fn set_health_observer(&self, observer: Arc<dyn crate::health::InferenceHealthObserver>) {
+        *self.health_observer.write() = Some(observer);
+    }
+
+    /// Probe this handle's exact binding, independently of the dispatch loop.
+    /// It issues only provider metadata reads and admits no model generation.
+    pub async fn probe_binding(&self) -> Result<crate::health::BindingProbe> {
+        let Some(runtime) = self.registry.runtime_for(&self.binding) else {
+            return Ok(crate::health::BindingProbe {
+                binding: self.binding.clone(), observed_at: chrono::Utc::now(),
+                usability: crate::health::BindingUsability::Unavailable,
+                reason: "no installed runtime can serve this exact configured binding".into(),
+                capabilities: None, snapshot: None,
+            });
+        };
+        let snapshot = runtime.probe().await?;
+        Ok(crate::health::classify_probe(self.binding.clone(), snapshot))
     }
 
     /// Same physical scheduling domain and configured transport, distinct
@@ -653,6 +673,7 @@ pub struct Broker {
     accounting_changed: Arc<Notify>,
     kv: Arc<KvAllocator>,
     error_sink: ErrorSinkCell,
+    health_observer: crate::health::HealthObserverCell,
 }
 
 impl Broker {
@@ -740,6 +761,7 @@ impl Broker {
             KvCapabilities::default(),
         ));
         let error_sink = new_error_sink_cell();
+        let health_observer: crate::health::HealthObserverCell = Arc::new(parking_lot::RwLock::new(None));
         (
             Self {
                 rx,
@@ -750,6 +772,7 @@ impl Broker {
                 accounting_changed: Arc::clone(&accounting_changed),
                 kv: Arc::clone(&kv),
                 error_sink: Arc::clone(&error_sink),
+                health_observer: Arc::clone(&health_observer),
             },
             BrokerHandle {
                 tx,
@@ -763,6 +786,7 @@ impl Broker {
                 accounting_changed,
                 kv,
                 error_sink,
+                health_observer,
                 handoff_closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
         )
@@ -836,37 +860,7 @@ impl Broker {
         // this backend offers; the metadata read below is only the model ceiling.
         self.adopt_capabilities(&snapshot);
         let binding = runtime.binding();
-        let mut has_more = false;
-        let mut capabilities = None;
-        for document in &snapshot.raw_evidence {
-            // Metrics and diagnostics are separate evidence, not failed model
-            // lists. A document presenting a data member must parse as one.
-            if document.get("data").is_none() {
-                continue;
-            }
-            let list = ModelMetadataList::deserialize(document)
-                .map_err(|error| InvalidModelMetadata(error.to_string()))?;
-            has_more |= list.has_more == Some(true);
-            for metadata in list.data {
-                if metadata.id != binding.model() {
-                    continue;
-                }
-                let observed = ProviderCapabilities::from_metadata(binding.clone(), metadata)
-                    .map_err(|error| InvalidModelMetadata(error.to_string()))?;
-                if capabilities.as_ref().is_some_and(|prior| prior != &observed) {
-                    return Err(InvalidModelMetadata("conflicting observations for the bound model".into()).into());
-                }
-                capabilities = Some(observed);
-            }
-        }
-        if let Some(capabilities) = capabilities {
-            return Ok(capabilities);
-        }
-        Err(ProtocolError::new(
-            if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },
-            ErrorScope::Request,
-            RetryStrategy::NewRevision,
-        ).with_details(serde_json::json!({ "model": binding.model(), "has_more": has_more })).into())
+        capabilities_from_snapshot(&binding, &snapshot)
     }
 
     /// Count the tokens one request would send, when the binding supports it.
@@ -888,6 +882,7 @@ impl Broker {
         domain: &ResourceDomain,
         kv: &KvAllocator,
         error_sink: &ErrorSinkCell,
+        health_observer: &crate::health::HealthObserverCell,
     ) -> Result<()> {
         let CompletedRequest { request, receipt_sink, result, guard, cause_report_attempted } = completed;
         let request_id = request.request_id;
@@ -953,6 +948,7 @@ impl Broker {
                 &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
             );
         }
+        crate::health::notify(health_observer, &request.provider_binding, &result);
         // The caller may have disappeared; the durable receipt above does not
         // depend on it.
         let _ = request.result_tx.send(result);
@@ -973,6 +969,22 @@ impl Broker {
         }
 
         loop {
+            // Move the submissions already waiting at this dispatch boundary
+            // into the priority lanes before spending a newly free slot.
+            // Otherwise a background queue can dispatch ahead of a fresh IM
+            // merely because the completion arm won the previous select.
+            // Snapshot the count: a producer flood cannot starve settlement.
+            let ready = self.rx.len();
+            for _ in 0..ready {
+                match self.rx.try_recv() {
+                    Ok(submission) => queue.push(submission),
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        input_closed = true;
+                        break;
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                }
+            }
             // Fill only currently available slots. A full budget leaves the
             // request in FairQueue instead of losing it or failing it spuriously.
             while !queue.is_empty() {
@@ -989,6 +1001,7 @@ impl Broker {
                 let domain = Arc::clone(&self.domain);
                 let kv = Arc::clone(&self.kv);
                 let error_sink = Arc::clone(&self.error_sink);
+                let health_observer = Arc::clone(&self.health_observer);
                 let accounting = Arc::clone(&self.accounting);
                 let recovery_sources = Arc::clone(&self.recovery_sources);
                 let completed_tx = completed_tx.clone();
@@ -1016,7 +1029,7 @@ impl Broker {
                         // Losing the dispatch loop does not revoke the
                         // original durable receipt owner's completion.
                         let completed = failed.0;
-                        if let Err(error) = Self::finish(completed, &accounting, &recovery_sources, &domain, &kv, &error_sink) {
+                        if let Err(error) = Self::finish(completed, &accounting, &recovery_sources, &domain, &kv, &error_sink, &health_observer) {
                             warn!(error=%format!("{error:#}"), "model completion settlement failed");
                         }
                     }
@@ -1054,7 +1067,7 @@ impl Broker {
                 Event::Completed(completed) => {
                     if let Some(completed) = completed {
                         inflight -= 1;
-                        if let Err(error) = Self::finish(completed, &self.accounting, &self.recovery_sources, &self.domain, &self.kv, &self.error_sink) {
+                        if let Err(error) = Self::finish(completed, &self.accounting, &self.recovery_sources, &self.domain, &self.kv, &self.error_sink, &self.health_observer) {
                             warn!(error=%format!("{error:#}"), "model completion settlement failed");
                         }
                     }
@@ -1072,6 +1085,42 @@ impl Broker {
         }
         info!("inference broker stopped");
     }
+}
+
+pub(crate) fn capabilities_from_snapshot(
+    binding: &ProviderBinding, snapshot: &BackendCapabilitySnapshot,
+) -> Result<ProviderCapabilities> {
+    let mut has_more = false;
+    let mut capabilities = None;
+    for document in &snapshot.raw_evidence {
+        // Metrics and diagnostics are separate evidence, not failed model
+        // lists. A document presenting a data member must parse as one.
+        if document.get("data").is_none() {
+            continue;
+        }
+        let list = ModelMetadataList::deserialize(document)
+            .map_err(|error| InvalidModelMetadata(error.to_string()))?;
+        has_more |= list.has_more == Some(true);
+        for metadata in list.data {
+            if metadata.id != binding.model() {
+                continue;
+            }
+            let observed = ProviderCapabilities::from_metadata(binding.clone(), metadata)
+                .map_err(|error| InvalidModelMetadata(error.to_string()))?;
+            if capabilities.as_ref().is_some_and(|prior| prior != &observed) {
+                return Err(InvalidModelMetadata("conflicting observations for the bound model".into()).into());
+            }
+            capabilities = Some(observed);
+        }
+    }
+    if let Some(capabilities) = capabilities {
+        return Ok(capabilities);
+    }
+    Err(ProtocolError::new(
+        if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },
+        ErrorScope::Request,
+        RetryStrategy::NewRevision,
+    ).with_details(serde_json::json!({ "model": binding.model(), "has_more": has_more })).into())
 }
 
 /// The provider runtime selected from the environment.
@@ -1189,6 +1238,15 @@ mod tests {
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::{Semaphore, mpsc, oneshot};
+
+    #[derive(Default)]
+    struct RecordingHealth(Mutex<Vec<(EntityId, ProviderBinding, crate::health::BindingUsability)>>);
+    impl crate::health::InferenceHealthObserver for RecordingHealth {
+        fn observe(&self, binding: &ProviderBinding, result: &InferenceResult) -> Result<()> {
+            self.0.lock().unwrap().push((result.request_id, binding.clone(), crate::health::inference_usability(result)));
+            Ok(())
+        }
+    }
 
     struct ControlledProvider {
         binding: ProviderBinding,
@@ -1485,6 +1543,28 @@ mod tests {
             .unwrap();
         assert_eq!(observer.active_count(), 0);
 
+        // A fresh IM queued while one background generation runs wins its
+        // next finite boundary, even when ordinary submissions arrived first.
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1))).unwrap();
+        let (running, running_rx) = submit(&handle, InferencePriority::Low);
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, running);
+        let (background, background_rx) = submit(&handle, InferencePriority::Low);
+        tokio::task::yield_now().await;
+        let (interactive, interactive_rx) = submit(&handle, InferencePriority::Urgent);
+        provider.gate.add_permits(1);
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, interactive);
+        provider.gate.add_permits(1);
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, background,
+            "interactive priority preserves background progress");
+        provider.gate.add_permits(1);
+        for rx in [running_rx, interactive_rx, background_rx] {
+            assert_eq!(rx.await.unwrap().status, InferenceStatus::Success);
+        }
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap();
+
         // C=2: two same-tier futures really overlap and start in FIFO order.
         let (provider, mut starts) = ControlledProvider::new();
         let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2))).unwrap();
@@ -1590,6 +1670,8 @@ mod tests {
         let (broker, handle) =
             Broker::with_local_provider(provider, 1).expect("the local provider binds");
         let binding = handle.binding().clone();
+        let health = Arc::new(RecordingHealth::default());
+        handle.set_health_observer(health.clone());
         let payload = InferencePayload {
             system_prompt: "fixture system".into(),
             messages: vec![InferenceMessage::text("user", "fixture input")],
@@ -1637,6 +1719,7 @@ mod tests {
         assert_eq!(result.termination.max_tokens, Some(7));
         assert_eq!(result.termination.output_tokens, Some(7));
         assert!(result.termination.length);
+        assert_eq!(health.0.lock().unwrap()[0], (request_id, binding.clone(), crate::health::BindingUsability::Available));
 
         // A changed model is a different seal, never an in-place provider override.
         let mut mismatched = binding.clone();
@@ -1694,6 +1777,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(unknown.status, InferenceStatus::Failed);
+        assert_eq!(health.0.lock().unwrap().last().unwrap().2, crate::health::BindingUsability::Unknown);
         assert_eq!(unknown.termination.kind, TerminationKind::Unknown);
         assert!(unknown.effective.matches_seal(&binding, &unknown_payload));
         assert_eq!(handle.active_count(), 1);

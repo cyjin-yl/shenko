@@ -307,7 +307,7 @@ impl Store {
             return self.arm_canonical_native_operation(ctx, op, att, false);
         }
         let authority = self.prepare_external_authority(ctx, op, att, None, false)?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_arm_external_operation(ctx, op, att, None, false, &authority),
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
@@ -326,7 +326,7 @@ impl Store {
             return self.arm_canonical_native_operation(ctx, op, att, true);
         }
         let authority = self.prepare_external_authority(ctx, op, att, None, true)?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_arm_external_operation(ctx, op, att, None, true, &authority),
             |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
         )
@@ -340,7 +340,7 @@ impl Store {
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
         let authority = self.prepare_external_authority(ctx, op, att, Some(binding), false)?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_arm_external_operation(ctx, op, att, Some(binding), false, &authority),
             |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
                 || error.downcast_ref::<shenko_types::error::ShenkoError>()
@@ -466,6 +466,16 @@ impl Store {
                     ensure!(step.get("contract_digest").and_then(|value| value.as_str())
                         == Some(sealed_digest_text.as_str()),
                         "model child step does not descend from the sealed delegation");
+                    let budget = self.model_child_budget(&task)?;
+                    let mut usage = self.model_child_budget_usage_tx(&tx, &task)?;
+                    ensure!(usage.steps < budget.max_steps, "model child step budget exhausted");
+                    let tokens = step.get("max_tokens").and_then(|value| value.as_u64())
+                        .ok_or_else(|| anyhow::anyhow!("model child step lacks token reservation"))?;
+                    ensure!(tokens > 0 && sealed.get("max_tokens").and_then(|value| value.as_u64()) == Some(tokens),
+                        "model child step token reservation differs from its frozen contract");
+                    usage.charge(&budget, tokens, 0)?;
+                    usage.steps += 1;
+                    task.memos.insert(crate::model_child_budget::BUDGET_USAGE.into(), serde_json::to_value(&usage)?);
                     ensure!(step.get("request_id") == Some(&serde_json::to_value(binding.request_id)?)
                         && step.get("provider_binding") == sealed.get("provider_binding"),
                         "model child step request/transport differs from the sealed delegation");
@@ -633,7 +643,7 @@ impl Store {
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
     ) -> Result<OperationRecord> {
-        self.ledger.with_mutation(
+        self.ledger.with_factual_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, None)
                 .and_then(|operation| operation.ok_or_else(|| anyhow::anyhow!("unconditional evidence write unexpectedly stale"))),
             evidence_storage_failure,
@@ -655,7 +665,7 @@ impl Store {
         effect: EffectStatus,
         fold: ExternalEvidenceFold,
     ) -> Result<Option<OperationRecord>> {
-        self.ledger.with_mutation(
+        self.ledger.with_factual_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, Some(fold)),
             evidence_storage_failure,
         )
@@ -674,7 +684,7 @@ impl Store {
         attempt_id: EntityId,
         ev: EvidenceReceipt,
     ) -> Result<OperationRecord> {
-        self.ledger.with_mutation(
+        self.ledger.with_factual_mutation(
             || self.try_record_intervention_provider_evidence(operation_id, attempt_id, ev),
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )

@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use crate::Node;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
@@ -535,7 +535,7 @@ pub(super) fn dependent_edges(
 
 impl Node {
     pub(super) fn unit_resolve_version(&mut self, unit_id: &str, revision: &str, artifact_digest: &Digest) -> Result<Value> {
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let available: Vec<(String, String, Digest, Vec<String>)> = resolution_candidates(&tx)?
             .into_iter()
             .map(|c| (c.unit_id, c.revision, c.digest, c.provides))

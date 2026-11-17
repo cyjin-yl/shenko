@@ -571,7 +571,8 @@ impl ProviderRuntime for AnthropicProvider {
                 }
             }
             Ok(response) => {
-                evidence.push(serde_json::json!({ "probe_error": format!("HTTP {}", response.status()) }));
+                evidence.push(serde_json::json!({ "probe_error": format!("HTTP {}", response.status()),
+                    "probe_endpoint": "/v1/models", "probe_http_status": response.status().as_u16() }));
             }
             Err(error) => {
                 evidence.push(serde_json::json!({ "probe_error": error.to_string() }));

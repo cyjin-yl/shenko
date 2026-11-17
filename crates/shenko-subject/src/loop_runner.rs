@@ -279,8 +279,8 @@ fn dispositions_for_events(
                 .remove(&event.event_id)
                 .unwrap_or(EventDisposition {
                     event_id: event.event_id.clone(),
-                    disposition: Disposition::Ignored,
-                    reason: Some("主体未在本轮处置".to_string()),
+                    disposition: Disposition::Deferred,
+                    reason: Some("本轮未明确处置；系统保留待复查，未推定主体决定忽略".to_string()),
                     priority: None,
                     review_after: None,
                 })
@@ -326,23 +326,12 @@ fn hold_paused_sources(
             .is_some_and(|sources| sources.is_empty() || sources.iter().any(|held| held == source))
     };
 
-    // Release what the pause no longer covers.
-    let mut released = Vec::new();
-    let mut still_held = Vec::new();
-    for event in std::mem::take(&mut state.held_inputs) {
-        if is_paused(&event.source) {
-            still_held.push(event);
-        } else {
-            released.push(event);
-        }
-    }
-    state.held_inputs = still_held;
-
-    let mut kept = Vec::with_capacity(events.len() + released.len());
-    kept.extend(released);
+    let mut kept = Vec::with_capacity(events.len());
     for event in events {
         if is_paused(&event.source) {
-            state.held_inputs.push(event);
+            // The durable queue is the only hold. A stopped incarnation or a
+            // long pause must not lose inputs or grow an unbounded side buffer.
+            state.store.retain_inbox_event(state.agent_id, &event)?;
         } else {
             kept.push(event);
         }
@@ -451,6 +440,8 @@ fn retry_continuation(
     Ok(RetryDecision::Continue(Some((pacing, attempts))))
 }
 
+pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4096;
+
 pub struct SubjectLoopState {
     pub agent_id: EntityId,
     pub head: SubjectBranchHead,
@@ -473,6 +464,7 @@ pub struct SubjectLoopState {
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
     pub(super) context_preparer: Option<ContextPreparer>,
+    pub(super) context_history_cache: Arc<shenko_context_policy::HistoryProjectionCache>,
     /// Pinned for one step, after replaying all accepted S0 usage into this
     /// service instance. A hot replacement must replay before collection.
     pub(super) contribution_registry: Option<Arc<shenko_context_policy::ContributionRegistry>>,
@@ -496,9 +488,6 @@ pub struct SubjectLoopState {
     pub(super) stream_journal: Option<Arc<dyn shenko_broker::stream::StreamJournalSink>>,
     /// The reader surface of a provider stream, when one is installed.
     pub(super) stream_public: Option<Arc<dyn shenko_broker::stream::PublicStreamSink>>,
-    /// Inputs the subject's own attention decision holds out of the current
-    /// window. They are released again when the pause ends.
-    pub(super) held_inputs: Vec<InboxEvent>,
     /// The cognition catalogue available to this subject. It is a READ MODEL
     /// over the Node's unit store: the Node stays the sole install, version,
     /// enable, supersession and provenance authority. The catalogue only
@@ -585,13 +574,14 @@ impl SubjectLoopState {
             store,
             broker: None,
             hooks: None,
-            max_tokens: 4096,
+            max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
             previous_input_tokens,
             previous_input_binding,
             previous_estimated_input_tokens,
             model_capabilities: None,
             context_registry,
             context_preparer: None,
+            context_history_cache: Arc::new(shenko_context_policy::HistoryProjectionCache::default()),
             contribution_registry: None,
             native_capability_sections: vec![],
             goals: vec![],
@@ -603,7 +593,6 @@ impl SubjectLoopState {
             identity_service,
             stream_journal: None,
             stream_public: None,
-            held_inputs: Vec::new(),
             awareness: None,
             quota_strategies,
             pending_reminder: None,
@@ -792,8 +781,26 @@ impl SubjectLoopState {
 /// - S1: commit as Committed, record next_step_id
 /// - Semantic wait: max 600s, same model, same thought stream
 pub async fn run_subject_loop(
+    state: SubjectLoopState,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<(), ShenkoError> {
+    run_subject_loop_owned(state, cancel, false).await
+}
+
+/// A resident runtime owns ingress independently of a failed model instance.
+/// Its supervisor keeps receiving durable facts while this serial incarnation
+/// waits for reconciliation; only the runtime closes the shared inbox.
+pub async fn run_subject_loop_retaining_inbox(
+    state: SubjectLoopState,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<(), ShenkoError> {
+    run_subject_loop_owned(state, cancel, true).await
+}
+
+async fn run_subject_loop_owned(
     mut state: SubjectLoopState,
     cancel: tokio_util::sync::CancellationToken,
+    retain_inbox: bool,
 ) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
     // Admitted inputs this process could not decode. They stay durable and
@@ -868,9 +875,15 @@ pub async fn run_subject_loop(
         // Drain durable input without sending into this consumer's own bounded
         // channel. A backlog larger than inbox capacity must not block recovery.
         if state.step.state == SubjectStepState::Planned {
-            // At most 64 events are selected into one step; the durable
-            // drain only fills the remainder after the live batch.
-            let drain_limit = budget.max_events_per_step.saturating_sub(events.len());
+            // A wake is a projection, never the only copy. Persist before
+            // selecting so an IM may displace background progress without
+            // losing that progress. Durable ingress also bypasses a full wake
+            // buffer, so a result burst cannot keep a new message behind it.
+            let retained = events.iter().map(|event| state.store.retain_inbox_event(state.agent_id, event))
+                .collect::<Result<Vec<_>, _>>();
+            events = match retained { Ok(events) => events, Err(error) => break Err(error) };
+            events.clear();
+            let drain_limit = budget.max_events_per_step;
             // Rows this process already proved undecodable keep their position
             // in the bounded page; ask past them so they cannot starve readable
             // inputs. The bound keeps one pathological queue from widening the
@@ -892,9 +905,6 @@ pub async fn run_subject_loop(
                     for (event_id, data) in rows {
                         // The widened read exists to see past undecodable rows;
                         // the selection budget itself is unchanged.
-                        if events.len() >= budget.max_events_per_step {
-                            break;
-                        }
                         // One admitted row this binary cannot decode — a newer
                         // event kind after a downgrade, or a damaged payload —
                         // is an undecodable FACT, not a licence to stop the
@@ -939,6 +949,10 @@ pub async fn run_subject_loop(
                 }
                 Err(error) => break Err(error),
             }
+            // Stable within each class: ingress kind is trusted classification,
+            // not a priority claim inside external message text. The durable
+            // query rotates deferred inputs by their last presentation commit.
+            events.truncate(budget.max_events_per_step);
         }
         // An ingress replay may already be queued when ResultRecorded resumes S1.
         // Recheck L at consumption time so that stable IDs are never executed twice.
@@ -1055,7 +1069,7 @@ pub async fn run_subject_loop(
         journal_subject_loop_error(&state, error, retry_state_error.as_ref());
     }
     // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
-    state.inbox.close().await;
+    if !retain_inbox { state.inbox.close().await; }
     info!("subject loop terminated");
     result
 }
@@ -1709,7 +1723,11 @@ async fn execute_step(
             agent_id: state.agent_id,
             conversation_id: state.agent_id,
             provider_binding: broker.binding().clone(),
-            priority: shenko_broker::request::InferencePriority::Subject,
+            priority: if input.events.iter().any(InboxEvent::is_interactive) {
+                shenko_broker::request::InferencePriority::Urgent
+            } else {
+                shenko_broker::request::InferencePriority::Subject
+            },
             epoch: state.head.controller_epoch,
             payload: input.payload.clone(),
             result_tx: tx,

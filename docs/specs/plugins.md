@@ -59,6 +59,31 @@ provider 或 capability。
 
 ## 原生 handler 的 EffectContract
 
+执行实现、操作合同、schema 是三个不同身份。内置 native handler 的 implementation
+artifact 摘要来自**当前进程实际执行文件的字节**；运行时保持其打开句柄，装机时把
+原字节封存到 CAS，原生 claim 在 `native_implementation_artifact` memo 冻结完整
+ObjectRef，canonical claim 的原件同样携带它。仓库 HEAD、源文件注释、固定描述串
+均不能代替可执行工件。操作合同摘要只描述该操作的显式协议；schema 摘要独立标识
+已发布的 schema 名称及版本，不与代码或操作说明复用。它不是自动推导的 JSON Schema
+验证器，改变 wire 合同时仍须显式修订 schema 合同。
+
+同 kind/version 的不同工件可各自在 Cordis 生命周期内显式装机。新调用只使用当前
+被选中的装机；已冻结任务按 kind/version/artifact/plugin 精确寻找原实现。卸载当前
+工件不隐式回退到旧实现，撤回的工件不能由缓存复活。已有 conclusive E1 可由通用
+T2 使用原 implementation identity 完成，无需执行新版 handler；未知原效果仍需原
+实现/reader 协调。保留工件不等于已加载可执行：缺失原实现时保持明确的
+`implementation_unavailable`，不能把更新后的代码当作原工件重放。
+
+原生执行的本地寿命由 `NativeTaskInvocation.cancellation` 贯穿父 child、嵌套 child
+和工具调用。普通 teardown 关闭准入、发送取消信号，再 join 实际执行者；不得只 abort
+包住 `spawn_blocking` 的 Future 而宣称 guest 已停止。拥有 blocking guest、独立线程、
+resident cell 或嵌套执行者的 handler 必须声明 `joins_execution_on_cancel`，传播取消并在
+实际 worker 退出后才返回。WASI 传递到 guest epoch，REPL cell 传递到原会话取消句柄；
+不可中断的同步调用必须等原调用结束。OS 阻塞仍可能延迟屏障，不能假造已停凭据。
+模型 child 可停止本地等待，已派发 provider 请求仍归 broker 的原 sink 持有；取消本地
+waiter 不释放 Unknown 额度，不撤销原 E1，也不是远端取消确认。析构只请求停止，只有
+完成 `close_and_join` 才构成停止屏障。
+
 `NativeTaskHandler` 增加了两个默认方法（[§36.3](durable-state.md#spec-36-3)）：
 
 ```rust

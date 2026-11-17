@@ -30,7 +30,7 @@ use shenko_types::{
     commit::CommitRef, evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*, object::*, operation::*, task::*,
 };
-use shenko_wasm::{BoundedOutputPipe, MemoryInputPipe, MountMode, MountSpec, WasiCommand, WasmRuntime, WasiRunOutcome, HOME_GUEST_PATH};
+use shenko_wasm::{BoundedOutputPipe, MemoryInputPipe, MountMode, MountSpec, WasiCancellation, WasiCommand, WasmRuntime, WasiRunOutcome, HOME_GUEST_PATH};
 use crate::playground::{ARTIFACT_SCHEMA, ArtifactVersion, PlaygroundState, stable_id, write_immutable};
 
 pub const PLAYGROUND_BACKEND_KIND: &str = "playground.backend";
@@ -638,7 +638,7 @@ fn task_state_label(result: &Option<TaskResult>, operation: &Option<OperationRec
 
 fn implementation() -> ImplementationRef {
     ImplementationRef { plugin_id: PLUGIN.parse().expect("fixed built-in plugin ID"),
-        artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 }
+        artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -720,6 +720,8 @@ struct RunningService {
     child: std::process::Child,
     stdin: std::process::ChildStdin,
     stdout: std::sync::Mutex<BufReader<std::process::ChildStdout>>,
+    /// A partial/unknown exchange cannot lend its next response to a new call.
+    uncertain: bool,
 }
 
 /// The launcher/owner of long-lived artifact backend services.
@@ -774,7 +776,8 @@ impl ArtifactServiceController {
     /// Launch or adopt the service instance for one frozen action, then run
     /// one request/response exchange against it. The descriptor is re-read
     /// from CAS and verified; the frozen input is identity, not parameters.
-    fn invoke(&self, input: &FrozenAction, request_input: &Value) -> Result<Value> {
+    fn invoke(&self, input: &FrozenAction, request_input: &Value, cancellation: &WasiCancellation) -> Result<Value> {
+        ensure!(!cancellation.is_cancelled(), "artifact service execution is stopping");
         let RuntimeBinding::HostProcess { program, argv, env } = &input.binding.runtime else {
             anyhow::bail!("host-process runtime expected");
         };
@@ -797,30 +800,94 @@ impl ArtifactServiceController {
             services.insert(instance_id, launched);
         }
         let service = services.get_mut(&instance_id).expect("service just ensured");
-        let request_line = serde_json::to_vec(&json!({
+        ensure!(!service.uncertain, "original artifact service exchange is unresolved; reconcile before reuse");
+        let identity = process_identity(service.child.id()).context("owned artifact service identity unavailable")?;
+        let mut request_line = serde_json::to_vec(&json!({
             "action": input.request.action, "input": request_input,
             "request_id": input.request.request_id, "artifact_id": input.artifact_id,
         }))?;
         ensure!(request_line.len() <= MAX_INPUT, "service request exceeds 64KiB");
-        service.stdin.write_all(&request_line)?;
-        service.stdin.write_all(b"\n")?;
-        service.stdin.flush()?;
-        let mut line = Vec::new();
-        let read = match service.stdout.lock() {
-            Ok(mut reader) => reader.read_until(b'\n', &mut line),
-            Err(poisoned) => poisoned.into_inner().read_until(b'\n', &mut line),
-        };
-        match read {
-            Ok(0) => anyhow::bail!("artifact service closed its stdout without a response"),
-            Ok(_) => {
-                let line = line.trim_ascii();
-                ensure!(!line.is_empty(), "artifact service returned an empty response");
-                ensure!(line.len() <= MAX_SERVICE_LINE, "artifact service response exceeds 1MiB");
-                Ok(serde_json::from_slice(line)?)
+        request_line.push(b'\n');
+        let result = service_exchange(service, &request_line, cancellation);
+        if let Err(error) = result {
+            service.uncertain = true;
+            // The retained Child owns this group until reaped. Stop it before
+            // releasing the worker; otherwise a late stdout line could become
+            // the next action's invented answer or mutate state after unload.
+            if let Err(stop) = stop_owned_service_group(service, &identity) {
+                return Err(error.context(format!("owned service stop remains unconfirmed: {stop:#}")));
             }
-            Err(error) => anyhow::bail!("artifact service response read failed: {error}"),
+            if let Some(mut record) = self.store.runtime_instance(instance_id)? {
+                record.state = "stopped".into();
+                self.store.put_runtime_instance(&record)?;
+            }
+            services.remove(&instance_id);
+            return Err(error);
+        }
+        result
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn service_exchange(service: &mut RunningService, request: &[u8], cancellation: &WasiCancellation) -> Result<Value> {
+    use std::os::fd::AsRawFd;
+    struct NonBlocking { fd: i32, original: i32 }
+    impl NonBlocking {
+        fn new(fd: i32) -> Result<Self> {
+            let original = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            ensure!(original >= 0, "read owned pipe flags: {}", std::io::Error::last_os_error());
+            ensure!(unsafe { libc::fcntl(fd, libc::F_SETFL, original | libc::O_NONBLOCK) } == 0,
+                "set owned pipe nonblocking: {}", std::io::Error::last_os_error());
+            Ok(Self { fd, original })
         }
     }
+    impl Drop for NonBlocking {
+        fn drop(&mut self) { unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original); } }
+    }
+    let _stdin = NonBlocking::new(service.stdin.as_raw_fd())?;
+    let mut reader = service.stdout.lock().unwrap_or_else(|error| error.into_inner());
+    let _stdout = NonBlocking::new(reader.get_ref().as_raw_fd())?;
+    let mut written = 0;
+    while written < request.len() {
+        ensure!(!cancellation.is_cancelled(), "artifact service exchange cancelled; outcome remains unknown");
+        match service.stdin.write(&request[written..]) {
+            Ok(0) => anyhow::bail!("artifact service closed stdin during request"),
+            Ok(count) => written += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(std::time::Duration::from_millis(5)),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    service.stdin.flush()?;
+    let mut line = Vec::new();
+    loop {
+        ensure!(!cancellation.is_cancelled(), "artifact service exchange cancelled; outcome remains unknown");
+        let available = match reader.fill_buf() {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        ensure!(!available.is_empty(), "artifact service closed stdout without a complete response");
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let count = newline.map(|index| index + 1).unwrap_or(available.len());
+        ensure!(line.len().saturating_add(count) <= MAX_SERVICE_LINE, "artifact service response exceeds 1MiB");
+        line.extend_from_slice(&available[..count]);
+        reader.consume(count);
+        if newline.is_some() {
+            let line = line.trim_ascii();
+            ensure!(!line.is_empty(), "artifact service returned an empty response");
+            return Ok(serde_json::from_slice(line)?);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn service_exchange(_service: &mut RunningService, _request: &[u8], _cancellation: &WasiCancellation) -> Result<Value> {
+    anyhow::bail!("owned service cancellation requires the Linux process-group profile")
 }
 
 fn launch_service(
@@ -879,6 +946,7 @@ fn launch_service(
         manifest_digest: manifest_digest.clone(),
         child, stdin,
         stdout: std::sync::Mutex::new(BufReader::new(stdout)),
+        uncertain: false,
     })
 }
 
@@ -1119,9 +1187,9 @@ impl PlaygroundBackendHandler {
         let before = snapshot(&self.store, &state_dir)?;
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
-            artifact: ArtifactRef { digest: contract_digest.clone(), locator: "builtin:playground-backend/1".into() },
+            artifact: ArtifactRef { digest: shenko_kernel::native_artifact::native_artifact_digest(), locator: "builtin:playground-backend/1".into() },
             symbol: "artifact.action".into(),
-            schema: SchemaRef { name: "artifact-action-observation".into(), major: 1, digest: contract_digest.clone() },
+            schema: SchemaRef { name: "artifact-action-observation".into(), major: 1, digest: shenko_kernel::native_artifact::native_schema_digest("artifact-action-observation", 1) },
         };
         let bindings = ResourceBindings {
             provider: "playground.runtime/1".into(), account_identity: String::new(),
@@ -1143,7 +1211,7 @@ impl PlaygroundBackendHandler {
             task_id: invocation.task.task_id, logical_key: "artifact-action".into(), operation_name: "playground.backend.action/1".into(),
             input_schema_version: 1, output_schema_version: 1,
             final_input_ref: invocation.task.input_ref.clone(), input_digest: invocation.task.input_ref.digest.clone(),
-            contract_ref: OperationContractRef { plugin_id: implementation().plugin_id, artifact_digest: contract_digest.clone(),
+            contract_ref: OperationContractRef { plugin_id: implementation().plugin_id, artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest, receipt_reader_ref: version.clone() },
             resource_bindings_ref: seal_json(&self.store, &bindings, "artifact-runtime-binding")?, authority_ref: invocation.authority,
             acceptance_predicate_ref: seal_json(&self.store, &"guest/service answered with bounded JSON, isolated state was synced and snapshotted", "artifact-acceptance")?,
@@ -1174,7 +1242,13 @@ impl PlaygroundBackendHandler {
         let run_dir = dir.clone();
         let runtime = input.binding.runtime.clone();
         let services = self.services.clone();
-        let run = tokio::task::spawn_blocking(move || {
+        let cancellation = WasiCancellation::default();
+        struct StopOnDrop(WasiCancellation);
+        impl Drop for StopOnDrop { fn drop(&mut self) { self.0.cancel(); } }
+        let _stop_on_drop = StopOnDrop(cancellation.clone());
+        if invocation.cancellation.is_cancelled() { cancellation.cancel(); }
+        let worker_cancellation = cancellation.clone();
+        let mut worker = tokio::task::spawn_blocking(move || {
             match &runtime {
                 RuntimeBinding::WasiCommand => {
                     let stdout = BoundedOutputPipe::new(MAX_OUTPUT);
@@ -1187,6 +1261,7 @@ impl PlaygroundBackendHandler {
                         let mut command = WasiCommand::new(MemoryInputPipe::new(serde_json::to_vec(&request_input)?), stdout.clone(), stderr.clone());
                         command.arguments = vec!["playground-backend".into(), input.request.action.clone()];
                         command.environment = vec![("SHENKO_ARTIFACT_ID".into(), input.artifact_id.to_string()), ("SHENKO_REQUEST_ID".into(), input.request.request_id.clone())];
+                        command.control.cancel = Some(worker_cancellation.clone());
                         match runtime.run_wasi_module(&module, command)? {
                             WasiRunOutcome::Exited(code) => Ok(code),
                             WasiRunOutcome::Cancelled => Err(anyhow!("playground guest run cancelled")),
@@ -1212,7 +1287,7 @@ impl PlaygroundBackendHandler {
                 RuntimeBinding::HostProcess { .. } => {
                     let controller = match services {
                         None => BackendRun::unavailable("host-process services are not attached".into()),
-                        Some(controller) => match controller.invoke(&input, &request_input) {
+                        Some(controller) => match controller.invoke(&input, &request_input, &worker_cancellation) {
                             Ok(response) => BackendRun {
                                 exit_code: None, runtime_error: None,
                                 stdout: bytes::Bytes::from(serde_json::to_vec(&response).unwrap_or_default()),
@@ -1226,7 +1301,11 @@ impl PlaygroundBackendHandler {
                     controller
                 }
             }
-        }).await;
+        });
+        let run = tokio::select! {
+            result = &mut worker => result,
+            _ = invocation.cancellation.cancelled() => { cancellation.cancel(); worker.await }
+        };
         let run = match run {
             Ok(run) => run,
             Err(error) => BackendRun::unavailable(format!("backend worker failed: {error}")),
@@ -1333,6 +1412,8 @@ impl BackendRun {
 
 #[async_trait]
 impl NativeTaskHandler for PlaygroundBackendHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         NativeTaskDescriptor { kind: PLAYGROUND_BACKEND_KIND.into(), definition_version: 1, implementation_ref: implementation(),
             role_revision: "native-child/1".into(), authority_refs: vec!["backend.artifact.isolated-state/1".into()], prompt_section: None }

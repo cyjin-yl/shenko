@@ -103,6 +103,7 @@ async fn fleet_native_claim_is_bounded_read_only_and_replays_original_evidence()
         .context("fleet task must be claimable")?;
     let operation = handler.execute(NativeTaskInvocation {
         child_tools: None,
+        cancellation: Default::default(),
         context: CallContext {
             caller_instance_id: store.capabilities.incarnation, role_revision: descriptor.role_revision,
             task_id: Some(task_id), expected_task_revision: Some(claim.invocation.task_revision.0),

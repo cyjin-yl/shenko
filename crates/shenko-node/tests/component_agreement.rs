@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, ensure};
 use shenko_node::{
     ComponentCandidate, ComponentCertificate, ComponentObservation, ComponentProposal, Identity,
-    MemberChangeRequest, Node, Request,
+    MemberChangeRequest, ModelEligibility, ModelUsabilityEvidence, ModelUsabilityOutcome,
+    ModelUsabilitySource, Node, Request,
 };
 use shenko_types::{ids::EntityId, object::Digest};
 
@@ -109,6 +110,28 @@ fn observed(node: &Node, proposal: &ComponentProposal) -> Result<ComponentObserv
 
 #[test]
 fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() -> Result<()> {
+    let now = chrono::Utc::now();
+    let profile = Digest::blake3(b"binding-specific eligibility fixture");
+    let runtime = EntityId::new();
+    let evidence = ModelUsabilityEvidence {
+        evidence_digest: Digest::blake3(b"retained fixture capability observation"),
+        source: ModelUsabilitySource::CapabilityProbe,
+        observed_at: now,
+        valid_until: now + chrono::Duration::minutes(5),
+    };
+    let mut health = ModelEligibility::default();
+    assert!(health.candidate_at(runtime, &profile, None, now).is_none());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unknown, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_some());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_some());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_none());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_none());
+    assert!(health.candidate_at(runtime, &profile, None, now + chrono::Duration::seconds(31)).is_some());
+    assert!(health.candidate_at(runtime, &profile, None, evidence.valid_until).is_none());
     let root = tempfile::tempdir()?;
     let identity = Identity {
         agent_id: EntityId::new(),
@@ -167,6 +190,7 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
                 runtime_id,
                 profile_digest: Digest::blake3(b"configured fixture model, not inference evidence"),
                 preference: None,
+                usability: Some(evidence.clone()),
             }),
         )?;
     }

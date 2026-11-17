@@ -121,6 +121,19 @@ impl Store {
     }
 
     pub fn open(db_path: PathBuf, cas_dir: PathBuf) -> Result<Self> {
+        let domain = shenko_types::installation::InstallationDomain::for_store(&db_path, &cas_dir)?;
+        let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
+        Self::open_under(db_path, cas_dir, permit.as_ref())
+    }
+
+    /// Schema, ledger identity and migration writes borrow the same physical
+    /// reservation as an enclosing slot copy/cutover.
+    pub fn open_under(db_path: PathBuf, cas_dir: PathBuf,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<Self> {
+        let domain = shenko_types::installation::InstallationDomain::for_store(&db_path, &cas_dir)?;
+        if let Some(domain) = &domain {
+            permit.ok_or_else(|| anyhow::anyhow!("installed Store open requires a physical permit"))?.validate(domain)?;
+        }
         let conn = Connection::open(&db_path)?;
         configure_sqlite(&conn)?;
 
@@ -160,7 +173,8 @@ impl Store {
         );
 
         let conn = Arc::new(Mutex::new(conn));
-        let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation)?);
+        let installation = domain.map(|domain| (domain, db_path.clone(), cas_dir.clone()));
+        let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation, installation)?);
         let cas = Arc::new(ContentStore::new(cas_dir)?);
         let mut import_lock_path = db_path.as_os_str().to_os_string();
         import_lock_path.push(".cognition-import.sqlite");
@@ -180,10 +194,25 @@ impl Store {
         // Explicit migration of the sealed publication targets. It never
         // aborts the open: a record that cannot be converted stays
         // unreadable and the subject keeps running.
-        if let Err(error) = crate::channel::migrate_publication_targets(&store) {
+        if let Err(error) = crate::channel::migrate_publication_targets_under(&store, permit) {
             tracing::warn!(error = %error, "publication target migration did not complete");
         }
         Ok(store)
+    }
+
+    /// Physical exclusion only. The caller must still perform the original
+    /// invocation/T1 checks before moving it into a writer; this value itself
+    /// grants no effect or primary authority.
+    pub fn acquire_installation_permit(&self) -> Result<Option<shenko_types::installation::InstallationPermit>, ShenkoError> {
+        self.ledger.acquire_installation(true)
+    }
+
+    pub fn acquire_installation_maintenance_permit(&self) -> Result<Option<shenko_types::installation::InstallationPermit>, ShenkoError> {
+        self.ledger.acquire_installation(false)
+    }
+
+    pub fn validate_installation_permit(&self, permit: &shenko_types::installation::InstallationPermit) -> Result<(), ShenkoError> {
+        self.ledger.check_selected_installation(permit)
     }
 
     /// Journal writes dropped before commit in this process.
@@ -364,7 +393,14 @@ impl Store {
         expected_revision: RecordRevision,
         reason_ref: &ObjectRef,
     ) -> Result<SubjectBranchHead, ShenkoError> {
-        self.ledger.with_mutation(
+        self.fence_head_for_handoff_under(head, expected_revision, reason_ref, None)
+    }
+
+    pub fn fence_head_for_handoff_under(&self, head: &SubjectBranchHead,
+        expected_revision: RecordRevision, reason_ref: &ObjectRef,
+        permit: Option<&shenko_types::installation::InstallationPermit>)
+        -> Result<SubjectBranchHead, ShenkoError> {
+        self.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
@@ -445,7 +481,7 @@ impl Store {
         expected_revision: RecordRevision,
     ) -> Result<CommitReceipt, ShenkoError> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_upsert_step(step, expected_head, expected_revision, None, None, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
@@ -464,7 +500,7 @@ impl Store {
         claim_send: EntityId,
     ) -> Result<CommitReceipt, ShenkoError> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 self.try_upsert_step(
                     step,
@@ -502,7 +538,7 @@ impl Store {
             &serde_json::json!({"kind": "subject.request_arm", "step": step,
                 "expected_head": expected_head, "expected_revision": expected_revision,
                 "claim_send": claim_send, "attempt": attempt}))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 self.try_upsert_step(
                     step,
@@ -658,7 +694,7 @@ impl Store {
         replacement: &SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_reject_output_and_replace_step(retired, expected_head, replacement, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
@@ -840,7 +876,7 @@ impl Store {
         let authority = self.reserve_admission(expected_head, position,
             &serde_json::json!({"kind": "subject.step_commit", "step": step,
                 "expected_head": expected_head, "next_step_id": next_step_id}))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_commit_step_and_advance_head(step, expected_head, next_step_id, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )

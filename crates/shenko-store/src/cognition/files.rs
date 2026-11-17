@@ -67,6 +67,7 @@ impl Store {
         manifest: &CognitionManifest,
         peer_id: EntityId,
         options: &CognitionImportOptions,
+        permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<Vec<(CognitionFileOrigin, PathBuf)>> {
         let mut retirements = Vec::new();
         for origin in &manifest.file_origins {
@@ -86,7 +87,7 @@ impl Store {
             }.context("file retirement has no destination root")?;
             let retirement = fs::canonicalize(root)?.join(format!(".shenko-retired-{}", EntityId::new()));
             fs::create_dir(&retirement)?;
-            self.ledger.with_mutation(|| {
+            self.ledger.with_maintenance_mutation_under(permit, || {
                 let conn = self.ledger.conn.lock();
                 conn.execute("INSERT INTO cognition_retirements(path) VALUES(?1)",
                     [retirement.to_string_lossy().as_ref()])?;

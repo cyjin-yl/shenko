@@ -52,7 +52,7 @@ fn descriptor() -> NativeTaskDescriptor {
     NativeTaskDescriptor { kind: NAME.into(), definition_version: 2,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "cd54a861-bf5b-4826-88ac-eb7a311af149".parse().expect("fixed Skill plugin identity"),
-            artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.skill/v2".into()],
         prompt_section: Some("Optional Agent Skills compatibility. Input {unit:{unit_id,revision,artifact_digest},query?:{path?,offset?,limit?}}. Without path, offset is a member ordinal; with a root-relative path, offset is a byte position. limit is 1..131072 bytes (default 131072); follow next_offset until null. Reads authenticate only the requested archive chunks, not unread bytes. Original YAML, scripts and dependencies stay source material, not grants or automatic execution. Receipts can support independent, correctable cognition units through learning_source; upstream source is never rewritten by learning.".into()) }
 }

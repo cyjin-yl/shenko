@@ -42,6 +42,7 @@ pub struct SyncPeerState {
 
 impl Node {
     pub fn register_sync_peer(&mut self, peer: &SyncPeer) -> Result<()> {
+        let _permit = self.installation_permit()?;
         self.conn.execute(
             "INSERT INTO node_sync_peers(node_id,config) VALUES(?1,?2) ON CONFLICT(node_id) DO UPDATE SET config=excluded.config,confirmation=NULL",
             params![peer.node_id.to_string(), text(peer)?],
@@ -77,6 +78,7 @@ impl Node {
         confirmation: &SyncConfirmation,
     ) -> Result<()> {
         // Do not confirm a route whose configuration changed during transfer.
+        let _permit = self.installation_permit()?;
         self.conn.execute(
             "UPDATE node_sync_peers SET confirmation=?1,failure=NULL WHERE node_id=?2 AND config=?3",
             params![text(confirmation)?,peer.node_id.to_string(),text(peer)?],
@@ -85,6 +87,7 @@ impl Node {
     }
 
     pub fn fail_sync_peer(&mut self, peer: &SyncPeer, reason: String) -> Result<()> {
+        let _permit = self.installation_permit()?;
         let failure = SyncFailure {
             observed_at: chrono::Utc::now(),
             reason,

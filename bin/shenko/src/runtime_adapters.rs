@@ -205,6 +205,12 @@ async fn admit_channel_event(
     {
         return Ok(());
     }
+    if let Some(original) = store.inbox_event_original(agent_id, event_id)? {
+        anyhow::ensure!(original.source == source && original.kind == shenko_types::inbox::InboxEventKind::Message,
+            "retained channel input owner mismatch");
+        let _ = inbox_tx.try_send(original);
+        return Ok(());
+    }
     let Some(plugin) = registry.channel_for_source(source) else {
         anyhow::bail!("no registered channel plugin owns source {source}");
     };
@@ -213,14 +219,14 @@ async fn admit_channel_event(
         event_id,
         kind: shenko_types::inbox::InboxEventKind::Message,
         payload: serde_json::to_value(&envelope)?,
-        created_at: chrono::Utc::now(),
+        created_at: envelope.received_at,
         source: source.to_string(),
     };
     let _ = raw; // the raw frame stays in the plugin's own ingress ledger
-    inbox_tx
-        .send(inbox_ev)
-        .await
-        .map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?;
+    let inbox_ev = store.retain_inbox_event(agent_id, &inbox_ev)?;
+    // The original is durable; a busy or blocked subject cannot backpressure
+    // the channel's own acquisition/ACK loop through its volatile wake buffer.
+    let _ = inbox_tx.try_send(inbox_ev);
     Ok(())
 }
 

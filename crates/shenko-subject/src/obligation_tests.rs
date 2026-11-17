@@ -113,7 +113,11 @@ async fn obligations_reach_model_and_retire_with_exact_creation_provenance() {
     let input_bytes = store.cas.read_object(&input_ref.digest).unwrap();
     let frozen = runner::frozen_input(&store, &subject.step).unwrap();
     assert_eq!(frozen.obligations, open);
-    assert!(frozen.payload.system_prompt.contains(&serde_json::to_string(&open).unwrap()));
+    for obligation in &open {
+        assert!(frozen.payload.system_prompt.contains(&obligation.obligation_id.to_string()));
+        assert!(frozen.payload.system_prompt.contains(&obligation.description));
+    }
+    assert!(frozen.payload.system_prompt.contains("body_digest"));
     assert_eq!(frozen.context.profile_digest, profile);
     let payload = serde_json::to_vec(&frozen.payload).unwrap();
     drop((subject, store));
@@ -289,8 +293,12 @@ async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_
     let prepared=crate::context_projection::prepare_context(&mut subject,&[]).unwrap().unwrap();
     assert_eq!(prepared.obligations[0].description.len(),65536);
     assert_eq!(prepared.obligations[0].resume_condition,resume);
-    assert!(prepared.payload.system_prompt.contains(&description));
-    assert!(prepared.payload.system_prompt.contains(&resume));
+    assert!(!prepared.payload.system_prompt.contains(&description));
+    assert!(!prepared.payload.system_prompt.contains(&resume));
+    let frontier = prepared.payload.system_prompt.split("持久义务工作前沿").nth(1).unwrap();
+    assert!(frontier.len() <= 8 * 1024);
+    assert!(frontier.contains("body_digest") && frontier.contains("read_obligation"));
+    assert!(frontier.contains(&prepared.obligations[0].obligation_id.to_string()));
     let projected_tokens=prepared.context.estimated_input_tokens.unwrap();
     let (offline,handle)=shenko_broker::broker::Broker::offline();
     let caps=shenko_broker::request::ProviderCapabilities {
@@ -329,7 +337,9 @@ async fn obligation_projection_survives_real_history_compaction() {
     let compacted=crate::context_projection::prepare_context(&mut subject,&[]).unwrap().unwrap();
     assert!(matches!(compacted.context.selection,crate::context_projection::ContextSelection::Compacted { .. }));
     assert_eq!(compacted.obligations,open);
-    assert!(compacted.payload.system_prompt.contains(&serde_json::to_string(&open).unwrap()));
+    assert!(compacted.payload.system_prompt.contains(&open[0].obligation_id.to_string()));
+    assert!(compacted.payload.system_prompt.contains(&open[0].description));
+    assert!(compacted.payload.system_prompt.contains("body_digest"));
     assert_eq!(compacted.context.profile_digest,before.context.profile_digest);
     drop(offline);
 }
@@ -914,4 +924,51 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
 
     drop((subject, store));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+
+#[tokio::test]
+async fn obligation_frontier_is_bounded_rotates_and_preserves_complete_recovery() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let description = "long original\n".repeat(256);
+    let resume = "resume\n".repeat(256);
+    let raw = (0..30).map(|index| format!("[obligation] {}", serde_json::json!({
+        "description":format!("{index}: {description}"), "resume_condition":resume,
+    }))).collect::<Vec<_>>().join("\n");
+    // Creation and terminal retirement cross the real parser and S0/S1 Store
+    // boundary, while the frontier/page checks exercise their public readers.
+    commit_output(&store, &mut subject, 1, &[], &raw).await;
+    let original = store.open_subject_obligations(agent).unwrap();
+    let ids: Vec<_> = original.iter().map(|body| body.obligation_id).collect();
+    let first = store.subject_obligation_frontier(agent, 0, &[], 12).unwrap();
+    assert_eq!(first.total_open, 30);
+    assert_eq!(first.obligations.len(), 12);
+    assert_eq!(first.obligations[0], original[0]);
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
+    let text = prepared.payload.system_prompt.split("持久义务工作前沿").nth(1).unwrap();
+    assert!(text.len() <= 8 * 1024);
+    assert!(text.contains("开放总数 30") && text.contains("read_obligation"));
+    let rotated = store.subject_obligation_frontier(agent, 29, &[ids[20]], 12).unwrap();
+    assert_eq!(rotated.obligations[0].obligation_id, ids[20]);
+    assert!(rotated.obligations.iter().any(|body| body.obligation_id == ids[29]));
+    let page = store.subject_obligations_page(agent, None, 12).unwrap();
+    let cursor = page.next.as_ref().unwrap();
+    // Step 2's real frontier starts at the third canonical open record. A
+    // legitimate terminal judgment cannot reference an unsealed obligation.
+    assert!(prepared.obligations.iter().any(|body| body.obligation_id == ids[2]));
+    commit_output(&store, &mut subject, 2, &[], &terminal(ids[2], "completed")).await;
+    let next = store.subject_obligations_page(agent, Some(cursor), 12).unwrap();
+    assert_eq!(next.obligations[0].obligation_id, ids[12]);
+    assert_eq!(store.subject_obligation(agent, ids[2]).unwrap().unwrap().1, "completed");
+    assert!(store.subject_obligation(EntityId::new(), ids[2]).unwrap().is_none());
+    drop((subject, store));
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let restored = reopened.subject_obligation_frontier(agent, 29, &[ids[20]], 12).unwrap();
+    assert_eq!(restored.total_open, 29);
+    assert_eq!(restored.obligations[0].obligation_id, ids[20]);
+    assert_eq!(reopened.subject_obligation(agent, ids[29]).unwrap().unwrap().0, original[29]);
+    assert_eq!(reopened.subject_obligation(agent, ids[2]).unwrap().unwrap().1, "completed");
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(dir);
 }

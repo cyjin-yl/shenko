@@ -163,12 +163,15 @@ impl Store {
             )?
             .object;
         let data = serde_json::to_string(&artifact)?;
+        self.ledger.with_mutation(|| {
         self.ledger.conn.lock().execute(
             "INSERT INTO recovery_sources(source_id,kind,data) VALUES(?1,?2,?3)
              ON CONFLICT(source_id) DO UPDATE SET kind=excluded.kind,data=excluded.data
              WHERE recovery_sources.kind<>excluded.kind OR recovery_sources.data<>excluded.data",
             params![source_id, kind, data],
         )?;
+        Ok(())
+        }, |error: &anyhow::Error| error.is::<rusqlite::Error>())?;
         Ok(RecoverySource {
             source_id: source_id.to_owned(),
             kind: kind.to_owned(),

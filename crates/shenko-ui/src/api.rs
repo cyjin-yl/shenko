@@ -686,7 +686,8 @@ async fn config_handler(State(state): State<ApiState>) -> Json<Value> {
 async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
     let values = config_values(&state);
     // Recent output is not evidence of current thinking or idleness.
-    let status = if values.model_configured == Some(false) { "blocked" } else { "unknown" };
+    let blocked_reason = state.live.as_ref().and_then(|live| live.subject_blocked());
+    let status = if values.model_configured == Some(false) || blocked_reason.is_some() { "blocked" } else { "unknown" };
     let connected_clients = state.live.as_ref().map(|live| live.connections());
     let step = state.live.as_ref().and_then(|live| live.last_step());
     let last_outbox_observed_at = state
@@ -727,7 +728,8 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         "control_reconciliations": control_reconciliations,
         "control_reconciliations_error": control_reconciliations_error,
         "status": status,
-        "status_source": "no live subject-state binding; recent outbox is not a thinking signal",
+        "status_source": if blocked_reason.is_some() { "subject supervisor" } else { "recent outbox is not a thinking signal" },
+        "blocked_reason": blocked_reason,
         "subject_id": subject_id.map(|id| id.to_string()),
         "outbox_wired": outbox_wired,
         "last_outbox_observed_at": last_outbox_observed_at,

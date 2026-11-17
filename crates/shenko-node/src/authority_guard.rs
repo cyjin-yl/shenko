@@ -64,9 +64,13 @@ impl NodeAuthoritySnapshot {
 pub struct NodeAuthorityGuard {
     node: Node,
     snapshot: NodeAuthoritySnapshot,
+    permit: Option<shenko_types::installation::InstallationPermit>,
 }
 
 impl NodeAuthorityGuard {
+    pub fn installation_permit(&self) -> Option<&shenko_types::installation::InstallationPermit> {
+        self.permit.as_ref()
+    }
     pub fn snapshot(&self) -> &NodeAuthoritySnapshot {
         &self.snapshot
     }
@@ -145,11 +149,21 @@ impl Node {
     /// Consume this connection so a caller cannot open a nested transaction or
     /// accidentally use its stale snapshot after releasing the reservation.
     pub fn reserve_authority(self) -> Result<NodeAuthorityGuard> {
+        let permit = self.installation_permit()?;
+        self.reserve_authority_under(permit)
+    }
+
+    pub fn reserve_authority_under(self,
+        permit: Option<shenko_types::installation::InstallationPermit>) -> Result<NodeAuthorityGuard> {
+        if let Some(domain) = &self.installation {
+            permit.as_ref().context("installed Node reservation requires a physical permit")?.validate(domain)?;
+        }
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let snapshot = Self::authority_snapshot_conn(&self.conn)?;
         Ok(NodeAuthorityGuard {
             node: self,
             snapshot,
+            permit,
         })
     }
 

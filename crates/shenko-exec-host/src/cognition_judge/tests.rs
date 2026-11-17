@@ -124,6 +124,7 @@ impl Fixture {
             authority,
             input,
             child_tools: None,
+            cancellation: Default::default(),
         }
     }
 

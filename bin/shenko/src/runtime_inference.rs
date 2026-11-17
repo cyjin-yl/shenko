@@ -25,6 +25,7 @@ pub(crate) struct InferenceInstall<'a> {
     pub(crate) installed: &'a InstalledDefinitions,
     pub(crate) cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
+    pub(crate) model_health: &'a Arc<crate::runtime_model_health::RuntimeModelHealth>,
 }
 
 /// `None` is an observed user stop during read-only metadata discovery. Runtime
@@ -32,7 +33,7 @@ pub(crate) struct InferenceInstall<'a> {
 pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<InferenceServices>> {
     let InferenceInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
-        cognition, installed, cancel, consumer_cancel,
+        cognition, installed, cancel, consumer_cancel, model_health,
     } = input;
     let handoff_participants = &installed.handoff_participants;
     let self_knowledge = &installed.self_knowledge;
@@ -143,6 +144,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
     ));
     let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
     inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(store));
+    inference_runtime::install_model_health(&broker_handle, model_health)?;
     handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
     // Optional quota policy install: the file holds one
     // serialized QuotaPolicy; a recorded policy makes every inference

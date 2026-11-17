@@ -41,7 +41,7 @@ fn served_llama_context_is_observed_and_invalid_limits_never_become_unknown() ->
         let provider = LocalModelProvider::new(
             format!("http://{}", listener.local_addr()?), "Qwen3-0.6B-Q4_K_M".into(),
         );
-        let (broker, _handle) = Broker::with_local_provider(provider, 1)?;
+        let (broker, handle) = Broker::with_local_provider(provider, 1)?;
         let fixture = tokio::spawn(async move {
             for metadata in [actual, training_only, conflicting, zero] {
                 for path in ["/v1/models", "/metrics"] {
@@ -76,7 +76,11 @@ fn served_llama_context_is_observed_and_invalid_limits_never_become_unknown() ->
             }
             Ok::<_, anyhow::Error>(())
         });
-        let served = broker.discover_capabilities().await?;
+        let probe = handle.probe_binding().await?;
+        anyhow::ensure!(probe.usability == shenko_broker::BindingUsability::Available,
+            "the exact binding must have read-only capability evidence: {probe:?}");
+        anyhow::ensure!(probe.binding == *handle.binding() && probe.snapshot.is_some());
+        let served = probe.capabilities.ok_or_else(|| anyhow::anyhow!("usable metadata lacks capabilities"))?;
         anyhow::ensure!(served.max_context_tokens == Some(16_384),
             "the live serving limit must not be replaced by n_ctx_train: {served:?}");
         anyhow::ensure!(broker.discover_capabilities().await?.max_context_tokens.is_none(),

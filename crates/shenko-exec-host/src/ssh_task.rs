@@ -69,7 +69,7 @@ impl NativeSshTaskHandler {
     fn ensure_task(&self, task: &TaskRecord) -> Result<()> {
         ensure!(task.kind == "ssh.native" && task.definition_version == 1
             && task.implementation_ref.plugin_id == Self::plugin_id()
-            && task.implementation_ref.artifact_digest == Digest::blake3(CONTRACT),
+            && task.implementation_ref.artifact_digest == shenko_kernel::native_artifact::native_artifact_digest(),
             "ssh_task_implementation_mismatch");
         let subject = self.store.installation_binding()?.subject.context("ssh_subject_not_initialized")?;
         let node = self.node.lock().map_err(|_| anyhow::anyhow!("ssh_node_observation_poisoned"))?;
@@ -86,7 +86,7 @@ impl NativeTaskHandler for NativeSshTaskHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
         let names = self.targets.iter().map(|(id, target)| format!("{id} → node {}", target.seal().registered_node_id)).collect::<Vec<_>>().join(", ");
         NativeTaskDescriptor { kind: "ssh.native".into(), definition_version: 1,
-            implementation_ref: ImplementationRef { plugin_id: Self::plugin_id(), artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+            implementation_ref: ImplementationRef { plugin_id: Self::plugin_id(), artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
             role_revision: "native-russh-installer/1".into(),
             // Existing task/delegation evidence, not a synthetic policy grant.
             authority_refs: vec!["ssh.native.installed_capability/v1".into()],

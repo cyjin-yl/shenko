@@ -222,14 +222,14 @@ impl UpdateControlHandler {
         let contract_digest = Digest::blake3(UPDATE_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:update-control-v1".into(),
             },
             symbol: "update.control.execute".into(),
             schema: SchemaRef {
                 name: "update-control-operation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("update-control-operation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -246,7 +246,7 @@ impl UpdateControlHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -437,7 +437,7 @@ impl NativeTaskHandler for UpdateControlHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(UPDATE_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-update-control/1".into(),

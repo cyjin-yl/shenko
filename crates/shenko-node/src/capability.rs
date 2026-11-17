@@ -24,7 +24,7 @@ use super::{Identity, Manifest, Node, digest, meta, number, running_manifest, se
 use crate::peers::SyncPeerState;
 use crate::roles::{RoleAssignment, RuntimeRoleObservation};
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -139,9 +139,7 @@ impl Node {
         // Process identity, not durable state: safe to compute before the
         // generation transaction starts.
         let manifest = running_manifest()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let parts = Self::capability_parts(&tx)?;
         let content = json!({
@@ -252,9 +250,7 @@ impl Node {
         );
         let data = text(profile)?;
         let profile_digest = digest(profile)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let existing: Option<(String, String)> = tx
             .query_row(
                 "SELECT latest_seq,data FROM node_capability_facts WHERE node=?1",

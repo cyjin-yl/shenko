@@ -202,14 +202,14 @@ impl PlaygroundManageHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:playground-manage-v1".into(),
             },
             symbol: "playground.manage.execute".into(),
             schema: SchemaRef {
                 name: "playground-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("playground-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -226,7 +226,7 @@ impl PlaygroundManageHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -623,7 +623,7 @@ impl shenko_kernel::task::NativeTaskHandler for PlaygroundManageHandler {
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-child/1".into(),

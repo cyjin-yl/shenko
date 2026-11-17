@@ -89,13 +89,131 @@ async fn read_wire(listener: &TcpListener) -> (TcpStream, serde_json::Value) {
 }
 
 async fn reply(socket: &mut TcpStream, model: &str) {
+    reply_text(socket, &format!("scripted answer for {model}")).await;
+}
+
+async fn reply_text(socket: &mut TcpStream, text: &str) {
     let raw = serde_json::json!({
         "id":"scripted-loopback-result", "choices":[{"message":{"role":"assistant",
-            "content":format!("scripted answer for {model}")},"finish_reason":"stop"}],
+            "content":text},"finish_reason":"stop"}],
         "usage":{"prompt_tokens":12,"completion_tokens":7},
     }).to_string();
     socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
     socket.shutdown().await.unwrap();
+}
+
+/// A batch cannot allocate the same remainder to siblings. The first nested
+/// run keeps its full allocation after completion, and the parent may still
+/// synthesize a final text with zero tool credits left. Reopening retains
+/// both the allocation and the refused call's original feedback.
+#[tokio::test]
+async fn nested_siblings_share_durable_budget_and_leave_room_for_final_text() -> anyhow::Result<()> {
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher()?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", listener.local_addr()?);
+    let nested = serde_json::json!({
+        "goal":"Read the supplied fact.", "system_prompt":"Return a finite observation.",
+        "model":"nested-child", "max_tokens":64,
+        "budget":{"max_total_tokens":512,"max_steps":1,"max_tool_calls":0},
+    });
+    let batch = format!("[tool:model.child:1] {nested}\n[tool:model.child:1] {nested}");
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(async move {
+        // These are the three stages of one parent/nested/parent execution.
+        let (mut first, wire) = read_wire(&listener).await;
+        wires_tx.send(wire)?;
+        reply_text(&mut first, &batch).await;
+        let (mut child, wire) = read_wire(&listener).await;
+        wires_tx.send(wire)?;
+        reply_text(&mut child, "The supplied fact was read.").await;
+        let (mut final_step, wire) = read_wire(&listener).await;
+        wires_tx.send(wire)?;
+        reply_text(&mut final_step, "One child completed; its sibling could not be allocated.").await;
+        Ok::<(), anyhow::Error>(())
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1)?;
+    let mut subject = state(store.clone(), agent)?.with_broker(handle.clone());
+    commit_output(&store, &mut subject, 1, &[], &format!("[delegate] {}", serde_json::json!({
+        "goal":"Review the supplied fact.","system_prompt":"Use the granted finite child and report.",
+        "model":"parent-child","max_tokens":128,
+        "budget":{"max_total_tokens":768,"max_steps":2,"max_tool_calls":1},
+        "tools":[{"kind":"model.child","definition_version":1}],
+    }))).await;
+    let task = store.native_task_candidates_after(None, 8)?.pop().context("parent task")?.1;
+    let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    drive_until(&native, || store.native_task_result(task.task_id).unwrap().is_some(),
+        || format!("usage={:?}", store.model_child_budget_usage(task.task_id))).await;
+    server.await??;
+    assert_eq!(wires_rx.recv().await.context("parent request")?["model"], "parent-child");
+    assert_eq!(wires_rx.recv().await.context("nested request")?["model"], "nested-child");
+    let summary = wires_rx.recv().await.context("parent summary")?;
+    assert_eq!(summary["model"], "parent-child");
+    assert!(summary["messages"].to_string().contains("model child budget exhausted"));
+    let result = store.native_task_result(task.task_id)?.context("parent result")?.result.context("payload")?;
+    assert_eq!(result["termination"], "completed");
+    assert_eq!(result["reserved_tokens"], 768);
+    assert_eq!(result["reserved_tool_calls"], 1);
+    let call_id = result["transcript"][0]["tool_calls"][1]["call_id"].as_str().context("refused call id")?;
+    let refused_id = crate::model_child::tool_task_id(call_id);
+    assert!(store.get_task(refused_id)?.is_none());
+    assert!(store.model_child_tool_refusal(task.task_id, refused_id)?.is_some());
+    native.close_and_join(0).await;
+    drop(native); drop(subject); drop(handle);
+    run.abort(); let _ = run.await;
+    drop(store);
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas"))?;
+    let usage = reopened.model_child_budget_usage(task.task_id)?;
+    assert_eq!(usage.reserved_tokens, 768);
+    assert_eq!(usage.reserved_tool_calls, 1);
+    assert!(reopened.model_child_tool_refusal(task.task_id, refused_id)?.is_some());
+    Ok(())
+}
+
+/// Terminal transport success with malformed controls permits bounded
+/// repair, including for a zero-tool child; it never becomes Completed.
+#[tokio::test]
+async fn invalid_child_controls_exhaust_the_same_finite_repair_budget() -> anyhow::Result<()> {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher()?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move {
+        let (mut original, _) = read_wire(&listener).await;
+        reply_text(&mut original, "[tool:host.printf:0] {").await;
+        let (mut repair, wire) = read_wire(&listener).await;
+        assert!(wire["messages"].to_string().contains("control_rejected"));
+        reply_text(&mut repair, "[tool:host.printf:0] {").await;
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1)?;
+    let mut subject = state(store.clone(), agent)?.with_broker(handle.clone());
+    commit_output(&store, &mut subject, 1, &[], &format!("[delegate] {}", serde_json::json!({
+        "goal":"Return a finite observation.","system_prompt":"Report the supplied fact.",
+        "model":"invalid-child","max_tokens":64,
+        "budget":{"max_total_tokens":128,"max_steps":2,"max_tool_calls":0},
+    }))).await;
+    let task = store.native_task_candidates_after(None, 8)?.pop().context("child task")?.1;
+    let native = service(&store, handle, subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    drive_until(&native, || store.native_task_result(task.task_id).unwrap().is_some(),
+        || "invalid control repair remains pending".into()).await;
+    server.await?;
+    let settled = store.native_task_result(task.task_id)?.context("failed child result")?;
+    assert!(matches!(settled.outcome, TaskOutcome::Failed { .. }));
+    let result = settled.result.context("result payload")?;
+    assert_eq!(result["termination"], "protocol_invalid");
+    assert_eq!(result["reserved_tokens"], 128);
+    assert_eq!(result["transcript"].as_array().context("transcript")?.len(), 2);
+    for record in result["transcript"].as_array().unwrap() {
+        assert!(record["complete"].as_bool().unwrap());
+        assert!(!record["protocol_errors"].as_array().context("structural diagnostics")?.is_empty());
+        let output: shenko_types::object::ObjectRef = serde_json::from_value(record["output_ref"].clone())?;
+        assert_eq!(store.cas.read_object(&output.digest)?, b"[tool:host.printf:0] {");
+    }
+    native.close_and_join(0).await;
+    run.abort(); let _ = run.await;
+    Ok(())
 }
 
 fn delegation(model: &str, prompt: &str, goal: &str, max_tokens: u64) -> String {
@@ -328,6 +446,7 @@ async fn failed_generation_reopens_after_e1_without_a_second_send() -> anyhow::R
             decision_ref: task.created_by_step_id.unwrap(),
         },
         input, child_tools: Some(native.tool_runtime()),
+        cancellation: Default::default(),
     };
     let broker_run = tokio::spawn(broker.run());
     let mut execution = Box::pin(handler.execute(invocation));
@@ -527,8 +646,16 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
             "scripted answer for {}", wire["model"].as_str().unwrap())));
         let task = store.external_task(result.task_id).unwrap();
         assert_eq!(task.owner, TaskOwner::Task { id: subject.head.subject_root_task_id });
+        let artifact: shenko_types::object::ObjectRef = serde_json::from_value(
+            task.memos[shenko_store::child::NATIVE_IMPLEMENTATION_ARTIFACT].clone()).unwrap();
+        assert_eq!(artifact.digest, task.implementation_ref.artifact_digest);
+        assert_eq!(artifact.digest, shenko_kernel::native_artifact::native_artifact_digest());
+        store.cas.verified_object_path(&artifact).unwrap();
         // The sealed delegation contract binds the authored choice.
         let operation = store.external_operation(result.operation_id).unwrap();
+        assert_eq!(operation.contract_ref.artifact_digest, artifact.digest);
+        assert_ne!(operation.contract_ref.contract_digest, artifact.digest);
+        assert_ne!(operation.contract_ref.receipt_reader_ref.schema.digest, artifact.digest);
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&operation.input_digest).unwrap()).unwrap();
         assert_eq!(frozen["spec"]["system_prompt"], semantic);
         assert_eq!(frozen["provider_binding"]["model"], wire["model"]);
@@ -1439,6 +1566,7 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
         },
         input,
         child_tools: Some(native.tool_runtime()),
+        cancellation: Default::default(),
     };
     let broker_run = tokio::spawn(broker.run());
     let mut execution = Box::pin(handler.execute(invocation));

@@ -192,7 +192,11 @@ impl Observer {
                         closed.send(ending)?;
                         break;
                     }
-                    if headers.starts_with("POST /v1/chat/completions ") {
+                    if headers.starts_with("GET /v1/models ") {
+                        let body = br#"{"data":[{"id":"dispatch-observer","max_model_len":65536}]}"#;
+                        write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len())?;
+                        stream.write_all(body)?;
+                    } else if headers.starts_with("POST /v1/chat/completions ") {
                         sent.send(wire[end + 4..end + 4 + length].to_vec())?;
                         // No generated or terminal model answer is supplied.
                     } else {
@@ -493,6 +497,21 @@ fn journey(root: &Path) -> Result<()> {
         request["model"] == "dispatch-observer" && request["stream"] == true,
         "resume did not admit the actual local-provider HTTP request"
     );
+    // The observer closes the original generation without terminal evidence.
+    // The real UI must remain up, report a blocked subject, and retain its
+    // installation identity; an unknown request must not be resent.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = ready(&mut reopened, port).with_context(|| runtime_log(root, "restarted"))?;
+        if status["status"] == "blocked" {
+            ensure!(status["subject_id"] == first["subject_id"]);
+            ensure!(status["blocked_reason"].is_string());
+            break;
+        }
+        ensure!(Instant::now() < deadline, "model failure did not reach the isolated blocked state");
+        thread::sleep(Duration::from_millis(20));
+    }
+    ensure!(observer.requests.try_recv().is_err(), "unknown generation was replayed");
     reopened
         .kill_and_join()
         .with_context(|| runtime_log(root, "restarted"))?;

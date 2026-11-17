@@ -147,6 +147,14 @@ pub type Result<T, E = SlotError> = std::result::Result<T, E>;
 /// overwritten and a failed publication is left for inspection instead of
 /// being retried blindly.
 pub fn copy_slot(source: &AbSlot, target: &SlotLayout, generation: &RuntimeGeneration) -> Result<AbSlot> {
+    let domain = shenko_types::installation::InstallationDomain::open(&target.data_dir)?;
+    let permit = domain.acquire()?;
+    copy_slot_under(source, target, generation, &permit)
+}
+
+pub fn copy_slot_under(source: &AbSlot, target: &SlotLayout, generation: &RuntimeGeneration,
+    permit: &shenko_types::installation::InstallationPermit) -> Result<AbSlot> {
+    permit.validate(&shenko_types::installation::InstallationDomain::open(&target.data_dir)?)?;
     if !source.slot_dir.is_dir() {
         return Err(SlotError::MissingSlot(source.slot_dir.display().to_string()));
     }
@@ -213,7 +221,7 @@ pub fn copy_slot(source: &AbSlot, target: &SlotLayout, generation: &RuntimeGener
         copied_through_seq,
         created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     };
-    write_slot_manifest(&slot_dir, &manifest)?;
+    write_slot_manifest_under(&slot_dir, &manifest, Some(permit))?;
 
     Ok(AbSlot {
         generation: generation.clone(),
@@ -234,6 +242,18 @@ pub fn read_slot_manifest(slot_dir: &Path) -> Result<SlotManifest> {
 
 /// Write the descriptor of a slot.
 pub fn write_slot_manifest(slot_dir: &Path, manifest: &SlotManifest) -> Result<()> {
+    let domain = shenko_types::installation::InstallationDomain::for_store(
+        &slot_dir.join(SLOT_DB_FILENAME), Path::new(&manifest.cas_dir))?;
+    let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
+    write_slot_manifest_under(slot_dir, manifest, permit.as_ref())
+}
+
+pub fn write_slot_manifest_under(slot_dir: &Path, manifest: &SlotManifest,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<()> {
+    if let Some(domain) = shenko_types::installation::InstallationDomain::for_store(
+        &slot_dir.join(SLOT_DB_FILENAME), Path::new(&manifest.cas_dir))? {
+        permit.ok_or_else(|| std::io::Error::other("slot descriptor requires an installation permit"))?.validate(&domain)?;
+    }
     let bytes = serde_json::to_vec_pretty(manifest)?;
     durable_replace(slot_dir, SLOT_MANIFEST_FILENAME, &bytes)?;
     Ok(())
@@ -286,6 +306,14 @@ fn durable_replace(directory: &Path, name: &str, bytes: &[u8]) -> Result<()> {
 /// Point the launcher at a slot. This is a convenience pointer, published
 /// after the selector CAS; it never carries authority by itself.
 pub fn publish_current_slot(data_dir: &Path, slot_dir: &Path) -> Result<()> {
+    let domain = shenko_types::installation::InstallationDomain::open(data_dir)?;
+    let permit = domain.acquire()?;
+    publish_current_slot_under(data_dir, slot_dir, &permit)
+}
+
+pub fn publish_current_slot_under(data_dir: &Path, slot_dir: &Path,
+    permit: &shenko_types::installation::InstallationPermit) -> Result<()> {
+    permit.validate(&shenko_types::installation::InstallationDomain::open(data_dir)?)?;
     let pointer = SlotPointer { schema_version: 1, slot_dir: validate_slot_path(data_dir, slot_dir)? };
     durable_replace(data_dir, CURRENT_SLOT_FILENAME, &serde_json::to_vec(&pointer)?)?;
     Ok(())
@@ -293,7 +321,8 @@ pub fn publish_current_slot(data_dir: &Path, slot_dir: &Path) -> Result<()> {
 
 /// Copy the source database with the SQLite backup API into a new file.
 pub fn backup_database(src_db: &Path, dst_db: &Path) -> Result<()> {
-    let src = Connection::open(src_db)?;
+    let src = Connection::open_with_flags(src_db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW)?;
     // A source artifact with this name must not be replaced by the backup.
     let new_db = fs::OpenOptions::new().write(true).create_new(true).open(dst_db)?;
     drop(new_db);
@@ -301,12 +330,13 @@ pub fn backup_database(src_db: &Path, dst_db: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Open a slot's database for reading.
+/// Open a slot's database for reading. Mutation goes through the installed
+/// Store/Node boundary; this inspection API cannot expose an unguarded writer.
 pub fn open_slot_db(slot: &AbSlot) -> Result<Connection> {
     Ok(Connection::open_with_flags(
         &slot.db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )?)
 }
 
@@ -316,7 +346,8 @@ fn copy_dir_tree(src: &Path, dst: &Path, skip_db: &Path, installation_root: &Pat
         let entry = entry?;
         let src_path = entry.path();
         if src == installation_root && matches!(entry.file_name().to_str(),
-            Some("versions" | "cas" | "node" | "current-slot" | "update-control.json")) {
+            Some("versions" | "cas" | "node" | "current-slot" | "update-control.json"
+                | shenko_types::installation::MUTATION_LOCK_FILENAME)) {
             continue;
         }
         if is_sqlite_file(&src_path, skip_db) {

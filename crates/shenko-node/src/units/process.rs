@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, ensure};
 use crate::Node;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -531,9 +531,7 @@ impl Node {
         });
         // The attempt is durable before any child can exist.
         {
-            let tx = self
-                .conn
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
             tx.execute(
                 "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
                  VALUES(?1,?2,?3,?4,?5,'prepared',?6,NULL,?7,?8,?9)",
@@ -553,9 +551,7 @@ impl Node {
         }
         // From here a child may exist, so the attempt is already unresolved.
         {
-            let tx = self
-                .conn
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
             tx.execute(
                 "UPDATE unit_attempts SET state='spawning' WHERE attempt_id=?1",
                 params![attempt_id],
@@ -627,9 +623,7 @@ impl Node {
             }
         };
         {
-            let tx = self
-                .conn
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
             tx.execute(
                 "UPDATE unit_attempts SET state='running' WHERE attempt_id=?1",
                 params![attempt_id],
@@ -830,9 +824,7 @@ impl Node {
     pub fn retire_unknown_trials(&mut self) -> Result<u32> {
         let my_runtime = runtime_id(&self.conn)?;
         let my_pid = i64::from(std::process::id());
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let pending: Vec<(String, String, String, String, String, String, String, i64, String)> = tx
             .prepare(
                 "SELECT attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,data,owner_pid,owner_runtime \
@@ -969,9 +961,7 @@ impl Node {
         state: &str,
     ) -> Result<()> {
         let finished = now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         tx.execute(
             "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,artifact_bound,artifact_verified,owner_pid,owner_runtime,data) \
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",

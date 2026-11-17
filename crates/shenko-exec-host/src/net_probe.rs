@@ -367,9 +367,9 @@ impl NetProbeHandler {
         )?;
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
-            artifact: ArtifactRef { digest: contract_digest.clone(), locator: "builtin:net-probe-v1".into() },
+            artifact: ArtifactRef { digest: shenko_kernel::native_artifact::native_artifact_digest(), locator: "builtin:net-probe-v1".into() },
             symbol: "net.probe.execute".into(),
-            schema: SchemaRef { name: "net-probe-observation-v1".into(), major: 1, digest: contract_digest.clone() },
+            schema: SchemaRef { name: "net-probe-observation-v1".into(), major: 1, digest: shenko_kernel::native_artifact::native_schema_digest("net-probe-observation-v1", 1) },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let operation = OperationRecord {
@@ -385,7 +385,7 @@ impl NetProbeHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -491,13 +491,15 @@ impl NetProbeHandler {
 
 #[async_trait]
 impl NativeTaskHandler for NetProbeHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         NativeTaskDescriptor {
             kind: KIND.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-net-probe/1".into(),

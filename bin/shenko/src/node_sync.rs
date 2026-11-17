@@ -904,6 +904,11 @@ pub fn establish_primary(
 ) -> Result<Option<FencingToken>> {
     let mut node = open_node(data_dir, store)?;
     node.ensure_member_configuration()?;
+    if node.component_presence()?.candidate.is_none() {
+        return Err(PrimaryNotSelected(
+            "local runtime has no fresh usable model binding; deterministic recovery remains available".into()
+        ).into());
+    }
     if let Some(selected) = component_runtime::resume_component(data_dir, store, &mut node, cancel)? {
         return Ok(selected);
     }

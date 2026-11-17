@@ -1,13 +1,38 @@
 # Installation write permits: implementation plan
 
-This is a source audit and a proposed implementation boundary, not an installed
-permit or an acceptance result. The audit is bound to
+The original source audit and proposed implementation boundary below is bound to
 `c9db3aa8e315a1ea320d67584fdbff1129312762` (tree
 `39f65e771eb299d2c342d61ceb2dc8528f028276`). The existing seat admission/outcome
 increment has nine distinct scenarios and the [PTY receipt increment](pty-write-flush-receipts.md)
 has five; this plan adds none. It does not reduce the
 [remote-seat contract](../specs/remote-seats.md) or
 [completion scope](../governance/COMPLETION.md).
+
+## Implemented coordination boundary (2026-11-17)
+
+`shenko-types::installation` now owns a stable, non-cloneable physical
+installation permit. Installed Store opens and mutations, Node initialization
+and write transactions, cognition publication and update slot publication use
+that domain. Source authority reservations carry the original permit through
+the explicit `*_under` APIs in installation → Node → Store order. Network
+preparation, async participant drain and candidate smoke happen before the
+final reservation. Forward activation, rollback and committed-cutover recovery
+retain one reservation from the final snapshot through both selectors, the
+retired head, the launcher pointer and both Observing projections.
+
+Fresh Store mutations revalidate the actual selected slot, selector/head and
+sealed route. An old Store handle is refused after cutover; original evidence
+intake and learned historical materialization retain their separate factual
+path. An interrupted preselection abandonment carries the original boundary
+identity so a crash before its resume can finish that same resume. The existing
+successful handoff test also exercises an old handle's refused control mutation,
+a late factual receipt and the successor's permitted control mutation.
+
+This is a short mutation/cutover coordination boundary, not a certificate that
+arbitrary external processes have stopped. It is not held across a whole model,
+WASI, REPL or SSH execution. The adapter-specific physical-write capability and
+crash/flush proofs described below remain separate obligations; an Armed row,
+this mutex or a maintenance permit alone never authorizes a new send.
 
 ## Boundary to implement together
 

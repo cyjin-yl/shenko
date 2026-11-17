@@ -40,7 +40,7 @@ pub struct McpRuntime {
 impl Service for McpRuntime { const NAME: &'static str = "shenko.compat.mcp.runtime"; }
 
 impl McpRuntime {
-    async fn request(&self, input: &Input, task_id: EntityId) -> Result<(Value, Response)> {
+    async fn request(&self, input: &Input, task_id: EntityId, execution_stop: &CancellationToken) -> Result<(Value, Response)> {
         let (fact, bytes) = input.unit.installed(&self.node.lock(), UNIT_ID)?;
         ensure!(fact.descriptor.config["compat"]["format"] == "mcp-connection", "unit is not an MCP connection");
         let profile: McpConnection = serde_json::from_slice(&bytes)?;
@@ -66,7 +66,7 @@ impl McpRuntime {
             // Recheck a durable abort after the handshake: a cancellation
             // committed while Session::connect awaited negotiation must not
             // still dispatch tools/call once the read lease is held.
-            if self.store.external_task(task_id)?.abort_request.is_some() || connection.stop.is_cancelled() {
+            if self.store.external_task(task_id)?.abort_request.is_some() || connection.stop.is_cancelled() || execution_stop.is_cancelled() {
                 return Ok((session.server_info()?, Response::Unknown { reason: "cancelled_before_request_dispatch" }));
             }
             server = session.server_info()?;
@@ -75,6 +75,7 @@ impl McpRuntime {
             loop {
                 tokio::select! {
                     result = &mut request => break result,
+                    _ = execution_stop.cancelled() => { cancellation.cancel(); break (&mut request).await; }
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {
                         match self.store.external_task(task_id) {
                             Ok(task) if task.abort_request.is_some() => cancellation.cancel(),
@@ -111,11 +112,11 @@ impl McpRuntime {
             "observed MCP response or explicit unknown; isError remains failure; no claim of remote business success",
             "an armed MCP request is never automatically repeated, including after controller replacement")?;
         if let Some(existing) = call.arm(&self.store, &invocation)? { return Ok(existing); }
-        if self.workers.stop.is_cancelled() || self.store.external_task(invocation.task.task_id)?.abort_request.is_some() {
+        if self.workers.stop.is_cancelled() || invocation.cancellation.is_cancelled() || self.store.external_task(invocation.task.task_id)?.abort_request.is_some() {
             return call.observe(&self.store, json!({"source":input.unit,"status":"cancelled_before_dispatch"}),
                 Some(OperationOutcome::Cancelled), EffectStatus::None, None);
         }
-        let (value, outcome, level) = match self.request(&input, invocation.task.task_id).await {
+        let (value, outcome, level) = match self.request(&input, invocation.task.task_id, &invocation.cancellation).await {
             Ok((server, Response::Received { result })) => {
                 let outcome = if result.get("isError").and_then(Value::as_bool) == Some(true) { OperationOutcome::Failed } else { OperationOutcome::Succeeded };
                 (json!({"status":"received","result":result,"server":server}), Some(outcome), Some(ObservationLevel::RemoteCompleted))
@@ -183,7 +184,7 @@ fn descriptor() -> NativeTaskDescriptor {
     NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "485e5654-274e-490b-939a-ab1255864246".parse().expect("fixed MCP plugin identity"),
-            artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.mcp/v1".into()],
         prompt_section: Some("Optional MCP adapter, not a bundled external service. Input {unit:{unit_id,revision,artifact_digest},request:{method,params},timeout_secs?}. One request on the exact installed connection; pagination and follow-ups are explicit. Results retain server metadata and unknown completion. A receipt's learning_source can support a separate, correctable cognition unit; it does not authorize adoption or global rules.".into()) }
 }
@@ -191,6 +192,8 @@ fn descriptor() -> NativeTaskDescriptor {
 struct Handler(Arc<McpRuntime>);
 #[async_trait]
 impl NativeTaskHandler for Handler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor { descriptor() }
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
         vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: descriptor().prompt_section.unwrap(),

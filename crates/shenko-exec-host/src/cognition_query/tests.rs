@@ -107,6 +107,7 @@ impl Fixture {
             },
             input,
             child_tools: None,
+            cancellation: Default::default(),
         }
     }
 

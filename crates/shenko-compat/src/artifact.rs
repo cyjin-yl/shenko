@@ -123,7 +123,7 @@ fn descriptor() -> NativeTaskDescriptor {
     NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "2d9f3e7a-8b5c-4c1e-9f6a-0e2b4a1d8c6f".parse().expect("fixed artifact reader identity"),
-            artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.artifact/v1".into()],
         prompt_section: Some("Read a sealed CAS object in bounded ranges. Input {digest,offset?,limit?}; limit<=131072 bytes, default whole object when small. Accepts a plain object <=1 MiB or a compat-indexed-observation manifest (e.g. from learning_source.digest); manifest ranges are authenticated per 1 MiB chunk. Follow next_offset until null. Read-only; no remote effect.".into()) }
 }

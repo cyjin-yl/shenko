@@ -25,7 +25,7 @@ pub(crate) struct ChannelInstall<'a> {
     pub(crate) data_dir: &'a PathBuf,
     pub(crate) agent_id: shenko_types::ids::EntityId,
     pub(crate) subject_inbox: &'a Arc<shenko_subject::inbox::Inbox>,
-    pub(crate) self_knowledge: &'a Arc<shenko_awareness_core::SelfKnowledgeProvider>,
+    pub(crate) self_knowledge: Option<&'a Arc<shenko_awareness_core::SelfKnowledgeProvider>>,
     pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) config: ChannelConfig,
 }
@@ -70,7 +70,9 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
     // surface, so it can read what each installed channel really
     // offers before it promises a reply or an action
     //
-    self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
+    if let Some(self_knowledge) = self_knowledge {
+        self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
+    }
 
     Ok(ChannelServices { registry: channel_registry, _contacts_plugin: contacts_plugin })
 }

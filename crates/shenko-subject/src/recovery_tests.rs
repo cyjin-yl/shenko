@@ -317,6 +317,57 @@ async fn pending_backlog_larger_than_inbox_reaches_bounded_s0() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Real Store/S0/S1 and queue mechanics. This does not claim a live model or
+/// interruptibility of an in-flight provider generation.
+#[tokio::test]
+async fn interactive_input_precedes_background_backlog_and_survives_a_blocked_subject() {
+    let (_dir, store, agent) = fixture();
+    let subject = state(Arc::clone(&store), agent).unwrap();
+    let inbox = Arc::clone(&subject.inbox);
+    let mut background = Vec::new();
+    for index in 0..70 {
+        let event = shenko_types::inbox::InboxEvent {
+            event_id: EntityId::new(),
+            kind: shenko_types::inbox::InboxEventKind::TaskResult,
+            source: "native-child".into(),
+            payload: serde_json::json!({"progress": index}),
+            created_at: chrono::Utc::now(),
+        };
+        store.retain_inbox_event(agent, &event).unwrap();
+        let _ = inbox.sender().try_send(event.clone());
+        background.push(event);
+    }
+    let interactive = shenko_types::inbox::InboxEvent { source: "web_ui".into(),
+        ..message("后台继续修改；先处理这条消息") };
+    store.retain_inbox_event(agent, &interactive).unwrap();
+    assert!(matches!(inbox.sender().try_send(interactive.clone()),
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_))));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5),
+        super::run_subject_loop_retaining_inbox(subject,
+            tokio_util::sync::CancellationToken::new())).await.unwrap();
+    assert!(result.is_err(), "fixture has no broker; its durable S0 remains inspectable");
+    assert!(!inbox.sender().is_closed(), "one failed incarnation must not close ingress");
+    let (_, step) = store.load_subject(agent).unwrap();
+    let input = super::frozen_input(&store, &step).unwrap();
+    assert_eq!(input.events[0].event_id, interactive.event_id);
+    assert_eq!(input.events.len(), 64);
+    let mut reopened = state(Arc::clone(&store), agent).unwrap();
+    record_result(&store, &mut reopened, &format!("[dispose] {}", serde_json::json!({
+        "event_id": interactive.event_id, "disposition": "acknowledged",
+    })));
+    execute_step(1, &[], &mut reopened, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert!(store.event_disposition_commit(agent, interactive.event_id).unwrap().is_some());
+    assert_eq!(store.pending_inbox_events(agent, 100).unwrap().len(), background.len(),
+        "background progress remains durable, including the unmentioned inputs");
+    let next = shenko_types::inbox::InboxEvent { source: "web_ui".into(), ..message("又一条即时消息") };
+    store.retain_inbox_event(agent, &next).unwrap();
+    assert_eq!(store.pending_inbox_events(agent, 1).unwrap()[0].0, next.event_id);
+    // Within the non-interactive class, never-presented work precedes deferred
+    // work and the latter rotates by its last presentation commit.
+    let rotated = store.pending_inbox_events(agent, 100).unwrap();
+    assert_eq!(rotated[1].0, background[63].event_id);
+}
+
 #[tokio::test]
 async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     use shenko_broker::{provider::AnthropicProvider, request::*};
@@ -537,7 +588,8 @@ async fn deferred_channel_restage_preserves_first_projection() -> anyhow::Result
     assert_eq!(super::frozen_input(&store, &subject.step)?.request_id, request_id);
     // A deterministic recorded result exercises real S1; it makes no claim
     // about a model understanding the attribution.
-    record_result(&store, &mut subject, "retain the first conversation original");
+    record_result(&store, &mut subject, &format!("retain the first conversation original\n[dispose] {}",
+        serde_json::json!({"event_id":original.event_id,"disposition":"acknowledged"})));
     let commit = execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await?.context("the recorded result commits the deferred input exactly once")?;
     assert_eq!(store.event_disposition_commit(agent, original.event_id)?, Some(commit));
@@ -3022,6 +3074,8 @@ impl GatedHandler {
 
 #[async_trait::async_trait]
 impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> shenko_kernel::task::NativeTaskDescriptor {
         shenko_kernel::task::NativeTaskDescriptor {
             kind: "fixture.gated".into(),
@@ -3065,8 +3119,29 @@ impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
             return Ok(operation);
         }
         if hold {
+            if let Some(marker) = invocation.input.get("blocking_stop_marker").and_then(serde_json::Value::as_str) {
+                let marker = std::path::PathBuf::from(marker);
+                let started = self.started.clone();
+                let cancellation = invocation.cancellation.clone();
+                tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                    started.notify_one();
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    while !cancellation.is_cancelled() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    anyhow::ensure!(cancellation.is_cancelled(), "real worker never received cancellation");
+                    // An actual worker may need cleanup after its stop signal.
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::fs::write(marker, b"worker joined")?;
+                    Ok(())
+                }).await??;
+                return Ok(operation);
+            }
             self.started.notify_one();
-            self.release.notified().await;
+            tokio::select! {
+                _ = self.release.notified() => {}
+                _ = invocation.cancellation.cancelled() => return Ok(operation),
+            }
         }
         let raw = self.seal(
             &serde_json::json!({"operation_id":invocation.operation_id,"resolved":!hold}),
@@ -3371,12 +3446,13 @@ async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
 
 /// C02 teardown: managed executions belong to the Cordis lifetime, not
 /// to any retained `Arc<NativeChildService>`. Stopping the supervisor while a
-/// worker is gated must abort/join it before `stop()` returns; releasing the
+/// worker is gated must signal/join it before `stop()` returns; releasing the
 /// gate afterwards must not let the worker commit a late T2, and admission
 /// stays closed even through the retained handle.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
-    let (_dir, store, agent) = fixture();
+    let (dir, store, agent) = fixture();
+    let stopped = dir.join("blocking-worker-stopped");
     store.start_subject_dispatcher().unwrap();
     let mut subject = state(store.clone(), agent).unwrap();
     commit_output(
@@ -3384,7 +3460,9 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
         &mut subject,
         1,
         &[],
-        "[delegate:fixture.gated:1] {\"hold\":true}\n委派一个会被门控的 child。",
+        &format!("[delegate:fixture.gated:1] {}\n委派一个会被门控的 child。", serde_json::json!({
+            "hold":true, "blocking_stop_marker":stopped,
+        })),
     )
     .await;
     let gated = store
@@ -3450,20 +3528,21 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
         .expect("gated handler did not start");
     assert!(store.external_task(gated).unwrap().is_running());
 
-    // `stop()` returns only after admission closed and the gated worker was
-    // aborted and joined — it does not wait for the handler's own gate.
+    // `stop()` returns after the real blocking worker acknowledged its stop
+    // and finished cleanup, not merely after its outer future disappeared.
     tokio::time::timeout(std::time::Duration::from_secs(10), supervisor.stop())
         .await
         .expect("stop must not block on a gated worker")
         .unwrap();
+    assert_eq!(std::fs::read(&stopped).unwrap(), b"worker joined");
     release.notify_one();
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // No effect lands after the barrier: the claim stays durable (Running) for
+    // No effect lands after the barrier: the claim stays durable for
     // the next generation to reconcile, and the retained service handle cannot
     // admit or drive anything new.
     assert!(store.native_task_result(gated).unwrap().is_none());
-    assert!(store.external_task(gated).unwrap().is_running());
+    assert!(!store.external_task(gated).unwrap().is_terminal());
     assert_eq!(service.run_once().await.unwrap(), 0);
     drop(service);
     drop(subject);
@@ -4221,7 +4300,7 @@ fn an_unmentioned_input_is_recorded_as_not_acted_on() {
         .expect("the unmentioned event is disposed too");
     assert_eq!(
         undecided.disposition,
-        Disposition::Ignored,
+        Disposition::Deferred,
         "an input the subject did not mention is recorded as not acted on, \
          never as acknowledged by the harness"
     );
@@ -4384,7 +4463,6 @@ async fn a_paused_source_is_held_out_of_the_window() -> anyhow::Result<()> {
     // No policy yet: the event enters the window.
     let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
     assert_eq!(kept.len(), 1, "without a pause the event enters the window");
-    assert!(subject.held_inputs.is_empty());
 
     // A pause over that source: the event does not enter the window, and the
     // fact is held instead of dropped.
@@ -4404,12 +4482,14 @@ async fn a_paused_source_is_held_out_of_the_window() -> anyhow::Result<()> {
     .await;
     let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
     assert!(kept.is_empty(), "a paused source does not enter the window");
-    assert_eq!(
-        subject.held_inputs.len(),
-        1,
-        "the held fact is kept, not dropped"
-    );
-    assert_eq!(subject.held_inputs[0].event_id, event.event_id);
+    assert_eq!(store.inbox_event_original(agent, event.event_id)?.as_ref(), Some(&event));
+    assert!(store.pending_inbox_events(agent, 1)?.is_empty(),
+        "a paused source is excluded before the bounded selection");
+    assert!(crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()])?.is_empty());
+    let live = shenko_types::inbox::InboxEvent { source: "web_ui".into(),
+        event_id: EntityId::new(), ..event.clone() };
+    store.retain_inbox_event(agent, &live)?;
+    assert_eq!(store.pending_inbox_events(agent, 1)?[0].0, live.event_id);
     Ok(())
 }
 
@@ -4448,7 +4528,8 @@ async fn a_pause_that_ended_releases_the_held_fact() -> anyhow::Result<()> {
         "an ended pause does not hold the source any more"
     );
     assert_eq!(kept[0].event_id, event.event_id);
-    assert!(subject.held_inputs.is_empty());
+    store.retain_inbox_event(agent, &event)?;
+    assert_eq!(store.pending_inbox_events(agent, 1)?[0].0, event.event_id);
     Ok(())
 }
 

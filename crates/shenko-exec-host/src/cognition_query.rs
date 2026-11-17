@@ -196,14 +196,14 @@ impl CognitionQueryHandler {
         let contract_digest = Digest::blake3(self.contract);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: format!("builtin:{}-v1", self.kind.replace('.', "-")),
             },
             symbol: format!("{}.execute", self.kind),
             schema: SchemaRef {
                 name: "cognition-query-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("cognition-query-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -220,7 +220,7 @@ impl CognitionQueryHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -405,7 +405,7 @@ impl NativeTaskHandler for CognitionQueryHandler {
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: Digest::blake3(self.contract),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: "native-cognition-query/1".into(),

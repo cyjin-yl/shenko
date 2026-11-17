@@ -389,6 +389,10 @@ struct ModelChildStepRecord {
     tool_calls: Vec<ModelChildToolCall>,
     reply: Option<ModelChildReply>,
     question: Option<String>,
+    /// Structural diagnostics of the original control stream. A terminal
+    /// provider response with invalid controls is not a completed child run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    protocol_errors: Vec<String>,
     /// The owner messages this step read, kept as durable facts so a restart
     /// and a continued discussion rebuild the same transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -415,6 +419,8 @@ enum ModelChildTermination {
     /// A generation failed its existing terminal acceptance predicate.
     /// Preserve its partial text and E1 without authorizing effects.
     GenerationFailed,
+    /// Invalid controls remained when the existing finite repair budget ran out.
+    ProtocolInvalid,
 }
 
 /// Only the subject's admitted structured control reaches this constructor.
@@ -474,7 +480,7 @@ fn derived_id(namespace: &str, parts: &[&str]) -> EntityId {
 /// The durable subtask identity of one tool call. It is derived from the
 /// call identity alone, so a restarted run and a continued discussion read
 /// the very same subtask instead of executing the tool twice.
-fn tool_task_id(call_id: &str) -> EntityId {
+pub(crate) fn tool_task_id(call_id: &str) -> EntityId {
     derived_id("shenko.model-child.tool", &[call_id])
 }
 
@@ -575,8 +581,9 @@ child 每步一次真实 generation，可按 tools 调用**已注册**能力，�
 }
 
 fn contract_digest() -> Digest {
-    // Recovery pins the executing code as well as its role contract.
-    Digest::blake3(include_bytes!("model_child.rs"))
+    // Protocol/role identity changes only with its published contract. The
+    // implementation is pinned independently to the actual executable bytes.
+    Digest::blake3(format!("{ROLE};contract={CONTRACT_SCHEMA};step={STEP_SCHEMA};{ROLE_CONTRACT}").as_bytes())
 }
 
 fn seal<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
@@ -633,6 +640,7 @@ struct ModelChildOutput {
     reply: Option<ModelChildReply>,
     question: Option<String>,
     text: String,
+    protocol_errors: Vec<String>,
 }
 
 /// The child's own control lines: tool calls, one granted reply and one
@@ -642,6 +650,7 @@ fn parse_output(text: &str) -> ModelChildOutput {
     let mut reply: Option<ModelChildReply> = None;
     let mut question: Option<String> = None;
     let mut rest = String::new();
+    let mut protocol_errors = Vec::new();
     let source = shenko_types::output::OutputSource::new(text);
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
@@ -672,25 +681,31 @@ fn parse_output(text: &str) -> ModelChildOutput {
                 }
             }
             rest.push_str(line);
+            protocol_errors.push(format!("byte {start}: expected [tool:<kind>:<positive version>] <complete JSON input>"));
             continue;
         }
         if let Some(body) = trimmed.strip_prefix("[reply]") {
-            if !body.trim().is_empty() {
+            if !body.trim().is_empty() && reply.is_none() {
                 reply = Some(ModelChildReply {
                     body: body.trim_start_matches(' ').to_owned(),
                 });
                 continue;
             }
             rest.push_str(line);
+            protocol_errors.push(format!("byte {start}: [reply] requires one non-empty body and may occur only once"));
             continue;
         }
         if let Some(body) = trimmed.strip_prefix("[ask]") {
-            if !body.trim().is_empty() {
+            if !body.trim().is_empty() && question.is_none() {
                 question = Some(body.trim().to_owned());
                 continue;
             }
             rest.push_str(line);
+            protocol_errors.push(format!("byte {start}: [ask] requires one non-empty question and may occur only once"));
             continue;
+        }
+        if trimmed == "[tool]" {
+            protocol_errors.push(format!("byte {start}: tool control is missing its kind, version and JSON input"));
         }
         rest.push_str(line);
     }
@@ -699,6 +714,7 @@ fn parse_output(text: &str) -> ModelChildOutput {
         reply,
         question,
         text: rest,
+        protocol_errors,
     }
 }
 
@@ -723,6 +739,8 @@ struct ChildHistory {
     spent_tokens: u64,
     /// Tool calls the finished steps made.
     tool_calls: u32,
+    /// All direct calls and full nested tool allocations admitted by Store.
+    reserved_tool_calls: u32,
     /// A step whose outcome is not conclusive yet.
     pending: Option<OperationRecord>,
 }
@@ -991,6 +1009,12 @@ impl ModelChildHandler {
                 ));
             }
             messages.push(InferenceMessage::text("assistant", assistant));
+            if !record.protocol_errors.is_empty() {
+                messages.push(InferenceMessage::text("user", format!(
+                    "[control_rejected] No controls in this response were executed. Correct the syntax within the remaining run budget: {}",
+                    record.protocol_errors.join("; "),
+                )));
+            }
             for (kind, version, body) in tool_results.get(index).map(Vec::as_slice).unwrap_or(&[]) {
                 messages.push(InferenceMessage::text(
                     "user",
@@ -1082,7 +1106,15 @@ impl ModelChildHandler {
             history.operations.insert(step.step_index, operation);
             history.records.push(record);
         }
+        self.refresh_budget_history(contract.task_id, &mut history)?;
         Ok(history)
+    }
+
+    fn refresh_budget_history(&self, task_id: EntityId, history: &mut ChildHistory) -> Result<()> {
+        let usage = self.store.model_child_budget_usage(task_id)?;
+        history.reserved_tokens = usage.reserved_tokens;
+        history.reserved_tool_calls = usage.reserved_tool_calls;
+        Ok(())
     }
 
     /// The transcript a continued run inherits from the run it continues.
@@ -1148,7 +1180,7 @@ impl ModelChildHandler {
             .and_then(|value| value.as_u64())
             .unwrap_or(0);
         let tool_calls = value
-            .get("tool_calls")
+            .get("reserved_tool_calls").or_else(|| value.get("tool_calls"))
             .and_then(|value| value.as_u64())
             .unwrap_or(0) as u32;
         Ok((records, budget, reserved, tool_calls))
@@ -1255,6 +1287,7 @@ impl ModelChildHandler {
     }
 
     async fn run(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        ensure!(!invocation.cancellation.is_cancelled(), "model child local execution is stopping");
         let contract: FrozenModelChild = serde_json::from_value(invocation.input.clone())?;
         contract.validate()?;
         ensure!(
@@ -1342,11 +1375,11 @@ impl ModelChildHandler {
         // by the next step instead.
         let unread = self.pending_dialogue(&contract, &read_dialogue)?;
         let decided = match history.records[history.inherited_count..].last() {
-            Some(last) if last.complete && last.question.is_some() => {
+            Some(last) if last.complete && last.protocol_errors.is_empty() && last.question.is_some() => {
                 Some((ModelChildTermination::NeedsDecision, last.text.clone()))
             }
             Some(last)
-                if last.complete && last.tool_calls.is_empty() && unread.is_empty() =>
+                if last.complete && last.protocol_errors.is_empty() && last.tool_calls.is_empty() && unread.is_empty() =>
             {
                 Some((ModelChildTermination::Completed, last.text.clone()))
             }
@@ -1369,8 +1402,12 @@ impl ModelChildHandler {
         let mut publications: Vec<PublicationIntent> = vec![];
         let mut answer = String::new();
         loop {
+            ensure!(!invocation.cancellation.is_cancelled(), "model child local execution is stopping");
+            self.refresh_budget_history(contract.task_id, &mut history)?;
             if history.own_steps >= contract.budget.max_steps {
-                termination = ModelChildTermination::StepsExhausted;
+                termination = if history.records.last().is_some_and(|record| !record.protocol_errors.is_empty()) {
+                    ModelChildTermination::ProtocolInvalid
+                } else { ModelChildTermination::StepsExhausted };
                 break;
             }
             if history
@@ -1378,11 +1415,9 @@ impl ModelChildHandler {
                 .saturating_add(contract.max_tokens)
                 > contract.budget.max_total_tokens
             {
-                termination = ModelChildTermination::BudgetExhausted;
-                break;
-            }
-            if history.tool_calls >= contract.budget.max_tool_calls {
-                termination = ModelChildTermination::ToolBudgetExhausted;
+                termination = if history.records.last().is_some_and(|record| !record.protocol_errors.is_empty()) {
+                    ModelChildTermination::ProtocolInvalid
+                } else { ModelChildTermination::BudgetExhausted };
                 break;
             }
             let step_index = history.next_index;
@@ -1392,6 +1427,11 @@ impl ModelChildHandler {
             // decides its next step, and the step seals exactly what it read.
             let dialogue = self.pending_dialogue(&contract, &read_dialogue)?;
             let mut messages = Self::transcript(&contract, &history, &tool_results);
+            messages.push(InferenceMessage::text("user", format!(
+                "[remaining_budget] output_tokens={}, tool_calls={}. Zero tool calls still permits a final text response.",
+                contract.budget.max_total_tokens.saturating_sub(history.reserved_tokens),
+                contract.budget.max_tool_calls.saturating_sub(history.reserved_tool_calls),
+            )));
             for turn in &dialogue {
                 messages.push(InferenceMessage::text("user", dialogue_turn_text(turn)));
             }
@@ -1448,6 +1488,12 @@ impl ModelChildHandler {
                 termination = ModelChildTermination::GenerationFailed;
                 break;
             }
+            if history.records.last().is_some_and(|record| !record.protocol_errors.is_empty()) {
+                // Preserve the original generation, but execute none of its
+                // controls. Repair consumes the same finite step/token budget.
+                continue;
+            }
+            ensure!(!invocation.cancellation.is_cancelled(), "model child stopped before executing controls");
             if let Some(reply) = history.records.last().and_then(|record| record.reply.as_ref()) {
                 if let Some(intent) = self.reply_intent(&contract, reply)? {
                     let decision_ref = invocation.task.input_ref.clone();
@@ -1490,6 +1536,7 @@ impl ModelChildHandler {
             break;
         }
         let dialogue = self.dialogue_report(&contract, &history)?;
+        self.refresh_budget_history(contract.task_id, &mut history)?;
         self.refresh_invocation(&mut invocation)?;
         self.finish(&invocation, &contract, &history, termination, answer, publications, &dialogue)
     }
@@ -1547,18 +1594,18 @@ impl ModelChildHandler {
             input_digest: invocation.task.input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: plugin_id(),
-                artifact_digest: digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest: digest.clone(),
                 receipt_reader_ref: VersionRef {
                     artifact: ArtifactRef {
-                        digest: digest.clone(),
+                        digest: shenko_kernel::native_artifact::native_artifact_digest(),
                         locator: "builtin:model-child-v2".into(),
                     },
                     symbol: MODEL_CHILD_RESULT_OPERATION.into(),
                     schema: SchemaRef {
                         name: "model-child-run-result".into(),
                         major: 1,
-                        digest: digest.clone(),
+                        digest: shenko_kernel::native_artifact::native_schema_digest("model-child-run-result", 1),
                     },
                 },
             },
@@ -1653,7 +1700,7 @@ impl ModelChildHandler {
             &self.store,
             &contract.provider_binding,
             request_id,
-            &tokio_util::sync::CancellationToken::new(),
+            &invocation.cancellation,
             &quota_strategies,
             Some(&invocation.task_invocation),
             // A finite child's round is not a committed subject step: the
@@ -1704,14 +1751,14 @@ impl ModelChildHandler {
         let digest = contract_digest();
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:model-child-v2".into(),
             },
             symbol: MODEL_CHILD_STEP_OPERATION.into(),
             schema: SchemaRef {
                 name: "model-child-provider-result".into(),
                 major: 1,
-                digest: digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("model-child-provider-result", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -1728,7 +1775,7 @@ impl ModelChildHandler {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: plugin_id(),
-                artifact_digest: digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest: digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -1830,9 +1877,15 @@ impl ModelChildHandler {
             }
             return Err(error);
         }
-        let result = result_rx
-            .await
-            .context("model child step outcome not durably settled; reconcile original attempt")?;
+        // The broker, not this waiter, owns the original request and sink.
+        // Stopping the local child cannot manufacture provider termination
+        // or release its unknown charge. Parking the invocation fences a
+        // request still queued when it reaches the real dispatch boundary.
+        let result = tokio::select! {
+            biased;
+            result = result_rx => result.context("model child step outcome not durably settled; reconcile original attempt")?,
+            _ = invocation.cancellation.cancelled() => anyhow::bail!("model child local wait stopped; reconcile original request {request_id}"),
+        };
         ensure!(
             result.request_id == request_id,
             "model child step result identity mismatch"
@@ -1928,7 +1981,7 @@ impl ModelChildHandler {
             input: call.input.clone(),
         };
         tools
-            .call_tool(&request, &invocation.task, &invocation.authority)
+            .call_tool(&request, &invocation.task, &invocation.authority, invocation.cancellation.clone())
             .await
     }
 
@@ -2000,23 +2053,6 @@ impl ModelChildHandler {
                 serde_json::json!({"reason": "nested model child budget is not finite"}),
             ));
         }
-        let reserved = self
-            .store
-            .external_task_operations(contract.task_id, MODEL_CHILD_STEP_OPERATION)?
-            .iter()
-            .filter_map(|operation| read_step(&self.store, &operation.final_input_ref).ok())
-            .map(|step| step.max_tokens)
-            .sum::<u64>();
-        if nested_budget.max_total_tokens > contract.remaining_tokens(reserved) {
-            return Ok(unavailable(
-                "failed",
-                serde_json::json!({
-                    "reason": "nested model child exceeds the remaining budget of its parent",
-                    "remaining_tokens": contract.remaining_tokens(reserved),
-                    "requested_tokens": nested_budget.max_total_tokens,
-                }),
-            ));
-        }
         let nested = match FrozenModelChild::new(
             tool_task_id,
             contract.created_by_step_id,
@@ -2039,7 +2075,7 @@ impl ModelChildHandler {
             "model-child-frozen-input",
             1,
         )?;
-        let Some(claim) = self.store.claim_child_tool_task(
+        let admitted = self.store.claim_child_tool_task(
             &invocation.task,
             tool_task_id,
             MODEL_CHILD_KIND,
@@ -2047,10 +2083,17 @@ impl ModelChildHandler {
             input_ref,
             ImplementationRef {
                 plugin_id: plugin_id(),
-                artifact_digest: contract_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
-        )?
+        );
+        let Some(claim) = (match admitted {
+            Ok(claim) => claim,
+            Err(error) if error.is::<shenko_store::ModelChildBudgetExceeded>() => {
+                return Ok(unavailable("failed", serde_json::json!({"reason": error.to_string()})));
+            }
+            Err(error) => return Err(error),
+        })
         else {
             // The nested run already exists durably. Its result is read
             // instead of running the nested child a second time.
@@ -2075,6 +2118,7 @@ impl ModelChildHandler {
             authority: invocation.authority.clone(),
             input: serde_json::to_value(&nested)?,
             child_tools: invocation.child_tools.clone(),
+            cancellation: invocation.cancellation.clone(),
         };
         // A nested child runs the same finite contract, so the recursive
         // call is boxed: the future's own size cannot be computed otherwise.
@@ -2173,10 +2217,14 @@ impl ModelChildHandler {
                         // any execution, so its reason is a durable fact. A
                         // subtask that exists without a result is genuinely
                         // unresolved and stays unknown.
-                        match refused_tool_reason(contract, call) {
+                        if !record.protocol_errors.is_empty() {
+                            "not_executed: the generation contained invalid controls".into()
+                        } else if let Some(refusal) = self.store.model_child_tool_refusal(contract.task_id, subtask)? {
+                            format!("failed: {refusal}")
+                        } else { match refused_tool_reason(contract, call) {
                             Some(reason) if self.store.get_task(subtask)?.is_none() => reason,
                             _ => "unknown: the tool subtask has no durable result yet".to_string(),
-                        }
+                        } }
                     }
                 };
                 let body = if body.len() > MAX_TOOL_RESULT_BYTES {
@@ -2240,7 +2288,7 @@ impl ModelChildHandler {
                 "remaining_tool_calls": contract
                     .budget
                     .max_tool_calls
-                    .saturating_sub(history.tool_calls),
+                    .saturating_sub(history.reserved_tool_calls),
             })
         });
         let result = serde_json::json!({
@@ -2254,6 +2302,7 @@ impl ModelChildHandler {
             "provider_binding": contract.provider_binding,
             "steps": history.records.len(),
             "tool_calls": history.tool_calls,
+            "reserved_tool_calls": history.reserved_tool_calls,
             "budget": {
                 "max_total_tokens": contract.budget.max_total_tokens,
                 "max_steps": contract.budget.max_steps,
@@ -2276,6 +2325,7 @@ impl ModelChildHandler {
                 "text_bytes": record.text.len(),
                 "tool_calls": record.tool_calls.len(),
                 "question": record.question,
+                "protocol_errors": record.protocol_errors,
                 "dialogue": record.dialogue.iter().map(|turn| turn.intent_id).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "transcript": history.records.clone(),
@@ -2285,14 +2335,14 @@ impl ModelChildHandler {
         let digest = contract_digest();
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 locator: "builtin:model-child-v2".into(),
             },
             symbol: MODEL_CHILD_RESULT_OPERATION.into(),
             schema: SchemaRef {
                 name: "model-child-run-result".into(),
                 major: 1,
-                digest: digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("model-child-run-result", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -2309,7 +2359,7 @@ impl ModelChildHandler {
             input_digest: contract_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: plugin_id(),
-                artifact_digest: digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 contract_digest: digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -2535,7 +2585,7 @@ impl InferenceReceiptSink for ChildStepSink {
         // Markdown classification depends on the complete original response:
         // a later reference definition can make an earlier header literal.
         // Retention must never manufacture an EOF before that definition.
-        let (tool_calls, reply, question, mut answer_text) = match &result.response {
+        let (tool_calls, reply, question, mut answer_text, protocol_errors) = match &result.response {
             Some(response) => {
                 let parsed = parse_output(&response.content);
                 let mut calls = parsed.tool_calls;
@@ -2548,9 +2598,9 @@ impl InferenceReceiptSink for ChildStepSink {
                         &input_digest.hex()[..16]
                     );
                 }
-                (calls, parsed.reply, parsed.question, parsed.text)
+                (calls, parsed.reply, parsed.question, parsed.text, parsed.protocol_errors)
             }
-            None => (vec![], None, None, String::new()),
+            None => (vec![], None, None, String::new(), vec![]),
         };
         let mut display_end = MAX_STEP_TEXT_BYTES.min(answer_text.len());
         while !answer_text.is_char_boundary(display_end) {
@@ -2574,6 +2624,7 @@ impl InferenceReceiptSink for ChildStepSink {
             tool_calls,
             reply,
             question,
+            protocol_errors,
             dialogue: self.step.dialogue.clone(),
             usage: result.response.as_ref().and_then(|response| response.usage.clone()),
             output_ref,
@@ -2650,13 +2701,15 @@ impl InferenceRecoverySource for ChildStepSink {
 
 #[async_trait]
 impl NativeTaskHandler for ModelChildHandler {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
     fn descriptor(&self) -> NativeTaskDescriptor {
         NativeTaskDescriptor {
             kind: MODEL_CHILD_KIND.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(),
-                artifact_digest: contract_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
                 registry_revision: 0,
             },
             role_revision: ROLE.into(),
@@ -2704,6 +2757,8 @@ impl NativeTaskHandler for ModelChildHandler {
         // silently answer for the owner.
         let termination = if history.records.iter().any(|record| !record.complete) {
             ModelChildTermination::GenerationFailed
+        } else if history.records.last().is_some_and(|record| !record.protocol_errors.is_empty()) {
+            ModelChildTermination::ProtocolInvalid
         } else if history
             .records
             .last()
@@ -2752,6 +2807,7 @@ impl NativeTaskHandler for ModelChildHandler {
                 authority: operation.authority_ref.clone(),
                 input: serde_json::to_value(&contract)?,
                 child_tools: None,
+                cancellation: Default::default(),
             },
             &contract,
             &history,

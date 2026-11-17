@@ -18,6 +18,7 @@
 - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)：Issue #297 的可选安装、公开身份托管、节点凭据、原生账号/API/UCP 接口与未知结果恢复边界。
 - [可选外部历史研究](specs/external-history.md)：Obelisk 查询、完整原文归档、可追溯引用；[实施 TODO 与验收](development/obelisk-history.md)。
 - [完整交付合同](governance/COMPLETION.md)：正式范围及证据等级。
+- [后台自我修改与即时消息优先](specs/subject-runtime.md#background-self-modification-and-interactive-ingress--2026-11-17)：2026-11-17 作者明确要求，消息持久接入、有限后台任务、真实打断边界与主体故障隔离。
 - [需求索引](requirements/README.md)：165 项需求、63 组行为、59 条来源、236 条具名验收。
 - [用户原话](requirements/user-sources.md)、[裁决记录](decisions/product-rulings.md)、[追踪矩阵](requirements/traceability.md)、[设计来源](requirements/design-provenance.md)。
 - [覆盖账本](state/coverage.json)与[运行证据](evidence/)：候选及验证状态。

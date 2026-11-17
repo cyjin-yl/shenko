@@ -78,6 +78,18 @@ pub trait CommitAuthorityGuard {
     /// None means that this installation currently has no grant. Such a guard
     /// may still be held to serialize a deliberate recovery transition.
     fn stamp(&self) -> Option<&CommitAuthorityStamp>;
+
+    fn installation_permit(&self) -> Option<&crate::installation::InstallationPermit> { None }
+}
+
+struct InstalledAuthorityGuard {
+    // Drop the Node/source reservation before releasing physical exclusion.
+    source: Box<dyn CommitAuthorityGuard>,
+    permit: crate::installation::InstallationPermit,
+}
+impl CommitAuthorityGuard for InstalledAuthorityGuard {
+    fn stamp(&self) -> Option<&CommitAuthorityStamp> { self.source.stamp() }
+    fn installation_permit(&self) -> Option<&crate::installation::InstallationPermit> { Some(&self.permit) }
 }
 
 pub trait CommitAuthorityProvider: Send + Sync {
@@ -102,6 +114,16 @@ pub trait CommitAuthorityProvider: Send + Sync {
     /// Dropping the guard releases it. No external effect runs while held.
     fn acquire(&self, grant: Option<&CommitAuthorityGrant>)
         -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError>;
+
+    /// Transfer the original physical permit into the source guard. An
+    /// installed provider with its own database must override this method and
+    /// borrow the permit for initialization/reservation, never reacquire it.
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: crate::installation::InstallationPermit)
+        -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        let source = self.acquire(grant)?;
+        Ok(Box::new(InstalledAuthorityGuard { source, permit }))
+    }
 }
 
 pub fn authority_fenced(reason: impl Into<String>) -> ShenkoError {

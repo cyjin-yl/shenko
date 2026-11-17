@@ -417,7 +417,7 @@ impl Store {
                 &delivery.item,
             ))?,
         );
-        self.ledger.with_mutation(
+        self.ledger.with_factual_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
@@ -560,7 +560,7 @@ impl Store {
                 "E1 transfer is incomplete or contains objects outside its original closure",
             ));
         }
-        self.ledger.with_mutation(
+        self.ledger.with_factual_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

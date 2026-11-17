@@ -1085,6 +1085,7 @@ mod tests {
             context.invocation_id = Some(self.invocation.invocation_id);
             context.controller_epoch = self.invocation.epoch;
             NativeTaskInvocation {
+                cancellation: tokio_util::sync::CancellationToken::new(),
                 context,
                 task_invocation: self.invocation.clone(),
                 task: self.task.clone(),
