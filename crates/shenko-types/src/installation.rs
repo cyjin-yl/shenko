@@ -53,7 +53,17 @@ impl InstallationDomain {
         {
             return Ok(None);
         }
-        cas.parent().map(Self::open).transpose()
+        let Some(root) = cas.parent() else { return Ok(None) };
+        // Sharing a CAS does not make arbitrary copied databases installed
+        // software slots. Only the root and its published versions participate
+        // in the selected-writer fence; detached migration snapshots do not.
+        let root = root.canonicalize()?;
+        let Some(parent) = db.parent() else { return Ok(None) };
+        let parent = parent.canonicalize()?;
+        if parent != root && parent.parent() != Some(root.join("versions").as_path()) {
+            return Ok(None);
+        }
+        Self::open(&root).map(Some)
     }
 
     pub fn for_node(dir: &Path) -> io::Result<Option<Self>> {
