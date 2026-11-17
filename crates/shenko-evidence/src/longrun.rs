@@ -495,12 +495,12 @@ fn admit(
     {
         return Err("run stopped before its last recorded sample".to_string());
     }
-    // Terminal completion names a sample the report actually recorded. A
-    // sealed run whose end claims a later sample than it wrote is not a
-    // finished observation of these bytes, whatever its stop reason says.
-    if stop_sample_seq > recorded_samples {
+    // The terminal seal must name the exact final sample in this report.
+    // An earlier end is as invalid as one naming a sample never recorded:
+    // neither seals the complete evidence stream being admitted.
+    if stop_sample_seq != recorded_samples {
         return Err(format!(
-            "sealed run stopped at sample {stop_sample_seq}, past its {recorded_samples} recorded samples"
+            "sealed run stopped at sample {stop_sample_seq}, but has {recorded_samples} recorded samples"
         ));
     }
     let checkpoints = lifecycle
