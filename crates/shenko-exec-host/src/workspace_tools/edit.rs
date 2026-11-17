@@ -42,7 +42,10 @@ pub struct EditError {
 
 impl EditError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 
     fn invalid_request(error: serde_json::Error) -> Self {
@@ -148,22 +151,38 @@ pub fn render_anchors(source: &str) -> Vec<AnchoredLine> {
         .collect()
 }
 
-fn replacement_changes(source: &str, request: ReplaceRequest) -> Result<Vec<TextChange>, EditError> {
+fn replacement_changes(
+    source: &str,
+    request: ReplaceRequest,
+) -> Result<Vec<TextChange>, EditError> {
     let mut changes = Vec::with_capacity(request.edits.len());
     for (index, edit) in request.edits.into_iter().enumerate() {
         if edit.old_text.is_empty() {
-            return Err(EditError::new("empty_old_text", format!("edits[{index}].old_text must not be empty")));
+            return Err(EditError::new(
+                "empty_old_text",
+                format!("edits[{index}].old_text must not be empty"),
+            ));
         }
         let start_byte = source.find(&edit.old_text).ok_or_else(|| {
-            EditError::new("no_match", format!("edits[{index}].old_text does not occur in the source"))
+            EditError::new(
+                "no_match",
+                format!("edits[{index}].old_text does not occur in the source"),
+            )
         })?;
         // str::match_indices skips overlapping matches. Searching again after
         // one Unicode scalar also catches ambiguous targets such as aba in ababa.
-        let first_char_len = edit.old_text.chars().next().expect("nonempty old_text").len_utf8();
+        let first_char_len = edit
+            .old_text
+            .chars()
+            .next()
+            .expect("nonempty old_text")
+            .len_utf8();
         if source[start_byte + first_char_len..].contains(&edit.old_text) {
             return Err(EditError::new(
                 "multiple_matches",
-                format!("edits[{index}].old_text occurs more than once; include distinguishing context"),
+                format!(
+                    "edits[{index}].old_text occurs more than once; include distinguishing context"
+                ),
             ));
         }
         changes.push(TextChange {
@@ -183,7 +202,10 @@ fn hashline_changes(source: &str, request: HashlineRequest) -> Result<Vec<TextCh
         let start = resolve_anchor(&edit.start, &lines, index, "start")?;
         let end = resolve_anchor(&edit.end, &lines, index, "end")?;
         if start > end {
-            return Err(EditError::new("reversed_range", format!("edits[{index}].start is after end")));
+            return Err(EditError::new(
+                "reversed_range",
+                format!("edits[{index}].start is after end"),
+            ));
         }
         let start_byte = lines[start].start_byte;
         let end_byte = lines[end].end_byte;
@@ -203,7 +225,11 @@ fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
         .split_inclusive('\n')
         .map(|raw| {
             let end_byte = start_byte + raw.len();
-            let line = SourceLine { start_byte, end_byte, raw };
+            let line = SourceLine {
+                start_byte,
+                end_byte,
+                raw,
+            };
             start_byte = end_byte;
             line
         })
@@ -227,7 +253,9 @@ fn resolve_anchor(
     let invalid = || {
         EditError::new(
             "invalid_anchor",
-            format!("edits[{edit_index}].{field} must be a 1-based line number and {LINE_HASH_HEX_LEN}-hex hash, N:HASH"),
+            format!(
+                "edits[{edit_index}].{field} must be a 1-based line number and {LINE_HASH_HEX_LEN}-hex hash, N:HASH"
+            ),
         )
     };
     let (number, hash) = value.split_once(':').ok_or_else(&invalid)?;
@@ -242,14 +270,20 @@ fn resolve_anchor(
     if number == 0 || number > lines.len() {
         return Err(EditError::new(
             "anchor_out_of_range",
-            format!("edits[{edit_index}].{field} names line {number}; the source has {} lines", lines.len()),
+            format!(
+                "edits[{edit_index}].{field} names line {number}; the source has {} lines",
+                lines.len()
+            ),
         ));
     }
     let line = &lines[number - 1];
     if !hash.eq_ignore_ascii_case(&line_hash(line.raw)) {
         return Err(EditError::new(
             "anchor_mismatch",
-            format!("edits[{edit_index}].{field} does not match the source; current anchor is {}", anchor(number, line.raw)),
+            format!(
+                "edits[{edit_index}].{field} does not match the source; current anchor is {}",
+                anchor(number, line.raw)
+            ),
         ));
     }
     Ok(number - 1)
@@ -257,12 +291,18 @@ fn resolve_anchor(
 
 fn finish_plan(source: &str, mut changes: Vec<TextChange>) -> Result<EditPlan, EditError> {
     if changes.is_empty() {
-        return Err(EditError::new("invalid_request", "edits must contain at least one replacement"));
+        return Err(EditError::new(
+            "invalid_request",
+            "edits must contain at least one replacement",
+        ));
     }
     changes.sort_by_key(|change| change.start_byte);
     for pair in changes.windows(2) {
         if pair[0].end_byte > pair[1].start_byte {
-            return Err(EditError::new("overlapping_edits", "edits target overlapping original-source ranges"));
+            return Err(EditError::new(
+                "overlapping_edits",
+                "edits target overlapping original-source ranges",
+            ));
         }
     }
     let mut updated = String::with_capacity(source.len());
@@ -271,7 +311,10 @@ fn finish_plan(source: &str, mut changes: Vec<TextChange>) -> Result<EditPlan, E
         if change.old_text == change.new_text {
             return Err(EditError::new(
                 "no_change",
-                format!("replacement at bytes {}..{} is unchanged", change.start_byte, change.end_byte),
+                format!(
+                    "replacement at bytes {}..{} is unchanged",
+                    change.start_byte, change.end_byte
+                ),
             ));
         }
         updated.push_str(&source[cursor..change.start_byte]);
@@ -280,7 +323,10 @@ fn finish_plan(source: &str, mut changes: Vec<TextChange>) -> Result<EditPlan, E
     }
     updated.push_str(&source[cursor..]);
     if updated == source {
-        return Err(EditError::new("no_change", "the combined replacements leave the source unchanged"));
+        return Err(EditError::new(
+            "no_change",
+            "the combined replacements leave the source unchanged",
+        ));
     }
     Ok(EditPlan { updated, changes })
 }
@@ -293,22 +339,35 @@ mod tests {
     #[test]
     fn replacement_batch_preserves_original_coordinates_and_untouched_bytes() {
         let source = "const α = 1;\r\nlet beta = 2;\r\n尾部";
-        let plan = apply_edit(EditorMode::Replace, source, json!({"edits": [
-            {"old_text": "let beta = 2", "new_text": "let beta = 70"},
-            {"old_text": "const α = 1", "new_text": "const α = 9"}
-        ]})).unwrap();
+        let plan = apply_edit(
+            EditorMode::Replace,
+            source,
+            json!({"edits": [
+                {"old_text": "let beta = 2", "new_text": "let beta = 70"},
+                {"old_text": "const α = 1", "new_text": "const α = 9"}
+            ]}),
+        )
+        .unwrap();
         assert_eq!(plan.updated, "const α = 9;\r\nlet beta = 70;\r\n尾部");
         assert_eq!(plan.changes[0].start_byte, 0);
         assert_eq!(plan.changes[1].start_byte, source.find("let beta").unwrap());
-        assert_eq!(&source[plan.changes[1].start_byte..plan.changes[1].end_byte], "let beta = 2");
+        assert_eq!(
+            &source[plan.changes[1].start_byte..plan.changes[1].end_byte],
+            "let beta = 2"
+        );
     }
 
     #[test]
     fn ambiguous_overlapping_occurrences_reject_the_entire_replace_batch() {
-        let error = apply_edit(EditorMode::Replace, "header\nababa\n", json!({"edits": [
-            {"old_text": "header", "new_text": "changed"},
-            {"old_text": "aba", "new_text": "resolved"}
-        ]})).unwrap_err();
+        let error = apply_edit(
+            EditorMode::Replace,
+            "header\nababa\n",
+            json!({"edits": [
+                {"old_text": "header", "new_text": "changed"},
+                {"old_text": "aba", "new_text": "resolved"}
+            ]}),
+        )
+        .unwrap_err();
         assert_eq!(error.code, "multiple_matches");
     }
 
@@ -319,16 +378,26 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!((&*lines[0].text, &*lines[0].ending), ("前", "\r\n"));
         assert_eq!((&*lines[2].text, &*lines[2].ending), ("末", ""));
-        let plan = apply_edit(EditorMode::Hashline, source, json!({"edits": [
-            {"start": lines[0].anchor, "end": lines[1].anchor, "new_text": "新\r\n"}
-        ]})).unwrap();
+        let plan = apply_edit(
+            EditorMode::Hashline,
+            source,
+            json!({"edits": [
+                {"start": lines[0].anchor, "end": lines[1].anchor, "new_text": "新\r\n"}
+            ]}),
+        )
+        .unwrap();
         assert_eq!(plan.updated, "新\r\n末");
         assert_eq!(plan.changes[0].old_text, "前\r\n\r\n");
         assert!(render_anchors("").is_empty());
         assert_eq!(render_anchors("\n").len(), 1);
-        let error = apply_edit(EditorMode::Hashline, &plan.updated, json!({"edits": [
-            {"start": lines[2].anchor, "end": lines[2].anchor, "new_text": "end"}
-        ]})).unwrap_err();
+        let error = apply_edit(
+            EditorMode::Hashline,
+            &plan.updated,
+            json!({"edits": [
+                {"start": lines[2].anchor, "end": lines[2].anchor, "new_text": "end"}
+            ]}),
+        )
+        .unwrap_err();
         assert_eq!(error.code, "anchor_out_of_range");
     }
 }

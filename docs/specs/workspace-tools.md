@@ -24,7 +24,7 @@ shenko tool profile disable
 shenko tool profile enable
 ```
 
-首次创建 profile 且未提供 root 时，从已配置 WASM `/home` 的可写 `ReadWrite` host mount 取得真实宿主目录，不把虚拟 `/home` 当作宿主路径，也不猜测当前 shell 目录。COW mount 的 source 只是 base，不能据此推定写入目录；没有合适挂载时需配置实际 root。所选编辑器与 root 由本节点的 `tools.workspace` Code unit 持久保存；之后 `configure` 省略 `--root` 会保留旧值。旧／新 Node 缺少该单元时才补默认 replace，已有单元的 root、editor 和 enabled 状态保留，disabled 不被默认装配重新打开。
+首次创建 profile 且未提供 root 时，从已配置 WASM `/home` 的可写 `ReadWrite` host mount 取得真实宿主目录，不把虚拟 `/home` 当作宿主路径，也不猜测当前 shell 目录。COW mount 的 source 只是 base，不能据此推定写入目录；没有合适挂载时明确报告工具包 unavailable，主体仍可启动，使用该包前需配置实际 root。所选编辑器与 root 由本节点的 `tools.workspace` Code unit 持久保存；之后 `configure` 省略 `--root` 会保留旧值。旧／新 Node 缺少该单元时才尝试补默认 replace，已有单元的 root、editor 和 enabled 状态保留，disabled 不被默认装配重新打开。未配置的包也可以关闭，disabled 且未配置与已有有效配置分别可见。Node 自身保留的 `cognition` 观察元数据独立于严格校验的工具配置，不因登记观察而使工具配置失效。
 
 配置及启停改变下次 runtime start 的装配选择，不能把写入配置报告为已热切换当前运行器。这是本轮 CLI 的实现边界，[共享能力与运行时替换](model-children.md#spec-5-5)的既有目标不因此缩减。
 
@@ -34,7 +34,9 @@ shenko tool profile enable
 
 ## 编辑方言与结果
 
-`workspace.read` 接收 `path` 及可选 `start_line` / `max_lines`，返回范围和完整文件的 BLAKE3 `digest`；replace 模式提供 `text`，hashline 模式提供含文本及行结束信息的 `anchors`，不重复输出同一段源码。`workspace.search` 按字面 query 搜索，提供实际命中的路径、行号、上下文和摘要，明确输出边界及截断。搜索摘要不代表未显示的内容已经进入模型上下文。`workspace.create` 接收 `path` / `text`，只创建不存在的文件，不覆盖已有文件。
+`workspace.read` 接收 `path` 及可选 `start_line` / `max_lines`，返回范围和完整文件的 BLAKE3 `digest`；replace 模式提供 `text`，hashline 模式提供含文本及行结束信息的 `anchors`，不重复输出同一段源码。`workspace.search` 默认按字面 query 搜索内容，提供实际命中的路径、行号、上下文和摘要；`mode: "path"` 搜索真实文件路径，空 query 可以列路径。结果明确标记边界及截断，跳过遍历中的 symlink 与 `.git`。搜索摘要不代表未显示的内容已经进入模型上下文。`workspace.create` 接收 `path` / `text`，只创建不存在的文件，不覆盖已有文件，父目录须已存在。
+
+本参考实现处理最多 1 MiB 的普通 UTF-8 文件；路径相对于显式配置的 root，不接受 `..` 或 root 外的解析结果。两个编辑器均不能给已存在的空文件插入首段文字，空文件、二进制、大文件和超长单行可使用既有执行能力处理。读写采用同步文件 IO；字节上限不承诺慢磁盘或网络文件系统的墙钟期限，执行中的操作也不承诺可被中断。没有用未追踪的后台写入伪造取消完成。
 
 模型 child 的工具回包上限为 16 KiB，本插件把 normalized 投影控制在约 12 KiB 内，并明确标记截断；完整差异保留在原始 receipt／CAS。超长单行明确报错，不依赖外层截断 JSON 或锚来勉强返回。输出范围与实际披露内容分别可见，不能把完整文件摘要误当完整文件展示。
 

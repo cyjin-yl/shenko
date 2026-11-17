@@ -56,12 +56,7 @@ fn manifest() -> Value {
     })
 }
 
-fn import_record(
-    node: &mut Node,
-    config: Value,
-    enabled: bool,
-    package_root: &Path,
-) -> Result<()> {
+fn import_record(node: &mut Node, config: Value, enabled: bool, package_root: &Path) -> Result<()> {
     let artifact = serde_json::to_vec(&manifest())?;
     let digest = Digest::blake3(&artifact);
     // A full hash fits Node's 64-byte revision bound. The source digest is
@@ -129,14 +124,21 @@ fn config_of(record: &InstalledUnitFact) -> Result<WorkspaceToolsConfig> {
 }
 
 fn directory(path: &Path) -> Result<PathBuf> {
-    let root = path.canonicalize()
+    let root = path
+        .canonicalize()
         .with_context(|| format!("resolve workspace root {}", path.display()))?;
-    ensure!(root.is_dir(), "workspace root is not a directory: {}", root.display());
+    ensure!(
+        root.is_dir(),
+        "workspace root is not a directory: {}",
+        root.display()
+    );
     Ok(root)
 }
 
 fn default_config(mounts: &[MountSpec]) -> Result<WorkspaceToolsConfig> {
-    let mut homes = mounts.iter().filter(|mount| mount.guest_path == HOME_GUEST_PATH);
+    let mut homes = mounts
+        .iter()
+        .filter(|mount| mount.guest_path == HOME_GUEST_PATH);
     let home = homes.next().context(
         "WORKSPACE_PROFILE_UNAVAILABLE: no WASM /home mount; configure an explicit workspace root",
     )?;
@@ -160,7 +162,10 @@ fn reconcile(
 ) -> Result<InstalledUnitFact> {
     let current = installed(node)?;
     let expected = Digest::blake3(&serde_json::to_vec(&manifest())?);
-    if current.as_ref().is_none_or(|record| record.artifact_digest != expected) {
+    if current
+        .as_ref()
+        .is_none_or(|record| record.artifact_digest != expected)
+    {
         let (config, enabled) = match current {
             Some(record) => (record.descriptor.config, record.enabled),
             None => (serde_json::to_value(default_config(mounts)?)?, true),
@@ -296,27 +301,39 @@ mod tests {
     async fn runtime(store: &Arc<Store>) -> Result<Supervisor> {
         let supervisor = Supervisor::new(RuntimeGeneration::default());
         supervisor.publish_services().await?;
-        supervisor.spawn(
-            NativeChildPlugin,
-            (Arc::clone(store), RuntimeGeneration::default()),
-        ).await?;
+        supervisor
+            .spawn(
+                NativeChildPlugin,
+                (Arc::clone(store), RuntimeGeneration::default()),
+            )
+            .await?;
         Ok(supervisor)
     }
 
     fn kinds(supervisor: &Supervisor) -> Result<Vec<String>> {
-        Ok(supervisor.context().try_service::<NativeChildService>()?
-            .installed_definitions().into_iter().map(|(kind, _)| kind).collect())
+        Ok(supervisor
+            .context()
+            .try_service::<NativeChildService>()?
+            .installed_definitions()
+            .into_iter()
+            .map(|(kind, _)| kind)
+            .collect())
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn profile_changes_are_persisted_but_only_adopted_by_the_next_runtime() -> Result<()> {
-        let dir = std::env::temp_dir().join(format!("shenko-workspace-profile-{}", EntityId::new()));
+        let dir =
+            std::env::temp_dir().join(format!("shenko-workspace-profile-{}", EntityId::new()));
         command(&dir, ToolProfileCommand::Inspect)?;
         assert!(!dir.exists(), "inspection must not create an installation");
         std::fs::create_dir_all(dir.join("home"))?;
         let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas"))?);
         let mounts = vec![MountSpec::new(
-            dir.join("home"), HOME_GUEST_PATH, MountMode::ReadWrite, true, false,
+            dir.join("home"),
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
         )];
         let first = runtime(&store).await?;
         install(&first, &store, &dir, &mounts).await?;
@@ -324,8 +341,18 @@ mod tests {
         assert_eq!(original.len(), 4);
         assert!(original.contains(&"workspace.edit.replace".into()));
 
-        command(&dir, ToolProfileCommand::Configure { editor: "hashline".into(), root: None })?;
-        assert_eq!(kinds(&first)?, original, "a saved profile must not change a running catalog");
+        command(
+            &dir,
+            ToolProfileCommand::Configure {
+                editor: "hashline".into(),
+                root: None,
+            },
+        )?;
+        assert_eq!(
+            kinds(&first)?,
+            original,
+            "a saved profile must not change a running catalog"
+        );
         first.stop().await?;
         let second = runtime(&store).await?;
         install(&second, &store, &dir, &mounts).await?;
@@ -339,7 +366,10 @@ mod tests {
         second.stop().await?;
         let third = runtime(&store).await?;
         install(&third, &store, &dir, &mounts).await?;
-        assert!(kinds(&third)?.is_empty(), "startup must preserve an explicitly disabled unit");
+        assert!(
+            kinds(&third)?.is_empty(),
+            "startup must preserve an explicitly disabled unit"
+        );
         third.stop().await?;
         drop(store);
         std::fs::remove_dir_all(&dir)?;
