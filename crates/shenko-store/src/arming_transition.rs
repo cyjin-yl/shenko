@@ -604,6 +604,7 @@ impl Store {
             // Local dispatcher/authority checks above do not become canonical
             // facts. The captured transaction contains shared state only.
             let (mut rows, ()) = self.capture_row_transition(&tx, RowTransitionInput { action_id, input_digest: input_digest.clone(), head },
+                canonical_claim.as_ref().map(|_| &plan.task),
                 |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at))?;
             if canonical_claim.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = ArmTransition { rows, plan: plan.clone(), canonical_claim: canonical_claim.clone() };

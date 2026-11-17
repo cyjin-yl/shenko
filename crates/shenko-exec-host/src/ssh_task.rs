@@ -11,11 +11,10 @@ use shenko_exec_ssh::{NativeSshFileTargetConfig, NativeSshInstallation,
 use shenko_node::Node;
 use shenko_store::Store;
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
-use shenko_types::{ids::EntityId, object::Digest, operation::OperationRecord,
+use shenko_types::{ids::EntityId, operation::OperationRecord,
     task::{ImplementationRef, TaskRecord}};
 use std::{collections::BTreeMap, path::Path, sync::{Arc, Mutex}, time::Duration};
 
-const CONTRACT: &[u8] = b"shenko.ssh.native/v1: explicit installed target and signer; selected node is intent, not grant; durable T1 before connection/authentication; generation/owner fencing before exec; recovery queries original sealed operation without replay";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

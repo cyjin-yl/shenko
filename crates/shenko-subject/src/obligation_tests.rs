@@ -863,10 +863,10 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     let due_obligation = obligations.iter().find(|o| o.due_at.is_some()).unwrap();
 
     let inbox = Arc::new(Inbox::new(8));
-    let mut sent = std::collections::HashSet::new();
+    let mut sent = None;
     crate::dispatch::wake_due_obligations(
         &store, agent, &inbox.sender(), &mut sent).await.unwrap();
-    assert_eq!(sent.len(), 1, "only the dated obligation wakes; due_at=None stays unscheduled");
+    assert!(sent.is_none(), "one bounded due page completed; the undated obligation was not selected");
     let delivered = inbox.recv_batch(8, 1_000).await;
     assert_eq!(delivered.len(), 1, "one volatile wake for the durable admission");
     let wake = delivered.into_iter().next().unwrap();
@@ -885,9 +885,9 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     assert!(pending.iter().any(|(event_id, _)| *event_id == wake.event_id),
         "the admitted wake survives a lost volatile delivery: {pending:?}");
 
-    // Inside one process the sent-set bounds repeated scans; across a
-    // "restart" (fresh set) the deterministic identity admits as an exact
-    // replay instead of a second row or a same-id conflict.
+    // A repeated sweep or restarted cursor derives the same durable
+    // identity. Replay does not push another volatile wake, and a changed
+    // original under the same identity remains a conflict.
     let mut replacement = wake.clone();
     replacement.created_at = chrono::Utc::now();
     assert!(store.admit_inbox_event(wake.event_id, agent,
@@ -898,19 +898,22 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
         &store, agent, &inbox.sender(), &mut sent).await.unwrap();
     assert!(inbox.recv_batch(8, 200).await.is_empty(),
         "the same due fact never produces a second wake in one process");
-    let mut fresh = std::collections::HashSet::new();
+    let mut fresh = None;
     crate::dispatch::wake_due_obligations(
         &store, agent, &inbox.sender(), &mut fresh).await.unwrap();
-    assert_eq!(fresh.len(), 1, "a restarted scanner wakes the still-open fact once");
+    assert!(fresh.is_none());
+    assert!(inbox.recv_batch(8, 0).await.is_empty(), "restart does not duplicate an admitted wake");
     assert_eq!(store.admit_inbox_event(wake.event_id, agent,
         shenko_types::inbox::SELF_WAKE_KIND, shenko_types::inbox::SUBJECT_WAKE_SOURCE,
         &serde_json::to_value(&wake).unwrap()).unwrap(), InboxAdmission::Replay);
     drop(inbox.recv_batch(8, 200).await);
 
-    // Staging the wake into a real step consumes it on the same lane as the
-    // other complete originals; the sealed S0 cites the wake it selected.
+    // Staging is a delivery checkpoint; only an explicit S1 disposition
+    // removes the wake from pending. Merely showing it leaves it Deferred.
     let commit_seq = subject.step.step_no;
-    commit_output(&store, &mut subject, commit_seq, &[wake.clone()], "I pick the due promise back up.").await;
+    let acknowledgement = format!("[dispose] {}\nI pick the due promise back up.",
+        serde_json::json!({"event_id":wake.event_id,"disposition":"acknowledged"}));
+    commit_output(&store, &mut subject, commit_seq, &[wake.clone()], &acknowledgement).await;
     let consumed: i64 = rusqlite::Connection::open(dir.join("store.db")).unwrap()
         .query_row("SELECT consumed FROM inbox_events WHERE event_id=?1",
             [wake.event_id.to_string()], |row| row.get(0)).unwrap();
@@ -922,7 +925,51 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     assert!(runner::frozen_input(&store, &committed).unwrap().events.iter()
         .any(|event| event.event_id == wake.event_id));
 
+    crate::dispatch::wake_due_obligations(&store, agent, &inbox.sender(), &mut fresh).await.unwrap();
+    assert!(inbox.recv_batch(8, 0).await.is_empty(), "an explicitly acknowledged wake is never pushed back");
+
+    // Cross a real indexed page boundary. Future and undated obligations
+    // remain absent; a lost volatile page is recovered from durable input.
+    let page_size = crate::dispatch::DUE_OBLIGATION_PAGE_SIZE;
+    let extra = (0..page_size + 1).map(|index| format!("[obligation] {}", serde_json::json!({
+        "description":format!("bounded due-page obligation {index}"),
+        "resume_condition":"read the actual later fact", "due_at":"2019-01-01T00:00:00Z",
+    }))).chain(std::iter::once(format!("[obligation] {}", serde_json::json!({
+        "description":"future promise is not due", "due_at":"2100-01-01T00:00:00Z",
+    })))).collect::<Vec<_>>().join("\n");
+    let next_seq = subject.step.step_no;
+    commit_output(&store, &mut subject, next_seq, &[], &extra).await;
+    let first = store.due_subject_obligations_page(agent, chrono::Utc::now(), None, page_size).unwrap();
+    assert_eq!(first.obligations.len(), page_size);
+    let second = store.due_subject_obligations_page(agent, chrono::Utc::now(), first.next.as_ref(), page_size).unwrap();
+    assert_eq!(second.obligations.len(), 2);
+    assert!(second.next.is_none());
+    let expected: Vec<_> = first.obligations.iter().chain(&second.obligations)
+        .map(crate::dispatch::self_wake_event).map(|event| event.event_id)
+        .filter(|id| *id != wake.event_id).collect();
+    assert_eq!(expected.len(), page_size + 1);
+    let mut cursor = None;
+    crate::dispatch::wake_due_obligations(&store, agent, &inbox.sender(), &mut cursor).await.unwrap();
+    assert!(cursor.is_some(), "one pass reads only one bounded page");
+    drop(inbox.recv_batch(32, 0).await); // The durable originals survive this lost projection.
     drop((subject, store));
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut restarted = None;
+    crate::dispatch::wake_due_obligations(&reopened, agent, &inbox.sender(), &mut restarted).await.unwrap();
+    assert!(inbox.recv_batch(32, 0).await.is_empty(), "replayed first page is not re-emitted");
+    crate::dispatch::wake_due_obligations(&reopened, agent, &inbox.sender(), &mut restarted).await.unwrap();
+    assert!(restarted.is_none());
+    let last_delivery = inbox.recv_batch(32, 0).await;
+    assert_eq!(last_delivery.len(), 1, "only the not-yet-admitted remainder emits a wake");
+    let pending = reopened.pending_inbox_events(agent, 64).unwrap();
+    assert_eq!(pending.len(), expected.len());
+    assert!(expected.iter().all(|id| pending.iter().any(|(event_id, _)| event_id == id)));
+    assert!(!pending.iter().any(|(event_id, _)| *event_id == wake.event_id));
+    let count: usize = rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .query_row("SELECT count(*) FROM inbox_events WHERE agent_id=?1 AND kind='self_wake'",
+            [agent.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(count, page_size + 2, "one durable row per due fact, including the acknowledged original");
+    drop(reopened);
     std::fs::remove_dir_all(dir).unwrap();
 }
 

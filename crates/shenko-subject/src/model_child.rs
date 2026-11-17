@@ -73,10 +73,11 @@ use crate::quota_gate::{
 /// very same kind, so the sealed contract and the ledger agree.
 pub const MODEL_CHILD_KIND: &str = STORE_MODEL_CHILD_KIND;
 const ROLE: &str = "model-child/tool-agent@2";
-/// The frozen child contract version. Schema 2 replaced the single frozen
-/// generation with a frozen RUN contract: the step payloads are derived from
-/// it, one durable operation per step.
-const CONTRACT_SCHEMA: u32 = 3;
+/// Schema 4 freezes explicit provider routes inherited from S0. Schema 2
+/// introduced finite RUN contracts and schema 3 fixed reply-account identity.
+const CONTRACT_SCHEMA: u32 = 4;
+/// Original-transport-only contracts, before explicit frozen profile routing.
+const TRANSPORT_CONTRACT_SCHEMA: u32 = 3;
 /// The contract version that still derived the outbound account from the
 /// target's audience kind. Sealed contracts of that version keep their own
 /// derivation, so a historical run still recovers exactly as it was sealed.
@@ -132,6 +133,10 @@ struct FrozenModelChild {
     created_by_step_id: EntityId,
     spec: ModelChildSpec,
     provider_binding: ProviderBinding,
+    /// Installed routes observed by the delegating S0. Nested children inherit
+    /// these exact facts; recovery never consults a newer route catalogue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    child_provider_bindings: Option<Vec<ProviderBinding>>,
     software_generation: RuntimeGeneration,
     role_revision: String,
     /// The child's own finite budget.
@@ -158,6 +163,7 @@ impl FrozenModelChild {
         step_id: EntityId,
         spec: ModelChildSpec,
         transport: &ProviderBinding,
+        child_provider_bindings: Option<&[ProviderBinding]>,
         generation: RuntimeGeneration,
         continued_from: Option<EntityId>,
     ) -> Result<Self> {
@@ -166,9 +172,10 @@ impl FrozenModelChild {
             step_id,
             spec,
             transport,
+            child_provider_bindings,
             generation,
             continued_from,
-            CONTRACT_SCHEMA,
+            if child_provider_bindings.is_some() { CONTRACT_SCHEMA } else { TRANSPORT_CONTRACT_SCHEMA },
         )
     }
 
@@ -177,6 +184,7 @@ impl FrozenModelChild {
         step_id: EntityId,
         spec: ModelChildSpec,
         transport: &ProviderBinding,
+        child_provider_bindings: Option<&[ProviderBinding]>,
         generation: RuntimeGeneration,
         continued_from: Option<EntityId>,
         schema: u32,
@@ -229,9 +237,29 @@ impl FrozenModelChild {
             budget.max_total_tokens >= spec.max_tokens,
             "child total budget is below its own per-step output budget"
         );
+        ensure!(
+            (schema == CONTRACT_SCHEMA) == child_provider_bindings.is_some(),
+            "frozen profile routing does not match the child contract schema"
+        );
+        if let Some(bindings) = child_provider_bindings {
+            validate_child_provider_bindings(bindings)?;
+        }
+        // Resolve only an explicitly named profile from the original S0. Model
+        // names are opaque provider input, never a heuristic for transport.
+        let selected = match spec.profile_id.as_deref() {
+            Some(profile_id) => {
+                ensure!(!profile_id.trim().is_empty() && profile_id.len() <= 512
+                    && !profile_id.chars().any(char::is_control), "invalid child profile_id");
+                child_provider_bindings
+                    .ok_or_else(|| anyhow::anyhow!("legacy S0 has no explicit child provider routes"))?
+                    .iter().find(|binding| binding.profile_id() == profile_id)
+                    .ok_or_else(|| anyhow::anyhow!("child profile_id was not installed in the delegating S0: {profile_id}"))?
+            }
+            None => transport,
+        };
         // A transport default is not a maximum. Preserve the authored request;
         // the broker and provider admit it against actual resource facts.
-        let provider_binding = transport.with_model(&spec.model)?;
+        let provider_binding = selected.with_model(&spec.model)?;
         if let Some(grant) = spec.reply_grant.as_ref() {
             ensure!(
                 schema == LEGACY_CONTRACT_SCHEMA || !grant.contradicts_target_account(),
@@ -268,6 +296,7 @@ impl FrozenModelChild {
             created_by_step_id: step_id,
             spec,
             provider_binding,
+            child_provider_bindings: child_provider_bindings.map(<[ProviderBinding]>::to_vec),
             software_generation: generation,
             role_revision: ROLE.into(),
             budget,
@@ -282,22 +311,15 @@ impl FrozenModelChild {
 
     fn validate(&self) -> Result<()> {
         let expected = match self.schema_version {
-            CONTRACT_SCHEMA => Self::new(
+            CONTRACT_SCHEMA | TRANSPORT_CONTRACT_SCHEMA | LEGACY_CONTRACT_SCHEMA => Self::build(
                 self.task_id,
                 self.created_by_step_id,
                 self.spec.clone(),
                 &self.provider_binding,
+                self.child_provider_bindings.as_deref(),
                 self.software_generation.clone(),
                 self.continued_from,
-            )?,
-            LEGACY_CONTRACT_SCHEMA => Self::build(
-                self.task_id,
-                self.created_by_step_id,
-                self.spec.clone(),
-                &self.provider_binding,
-                self.software_generation.clone(),
-                self.continued_from,
-                LEGACY_CONTRACT_SCHEMA,
+                self.schema_version,
             )?,
             other => anyhow::bail!("unsupported model child contract version {other}"),
         };
@@ -311,12 +333,17 @@ impl FrozenModelChild {
         &self.spec.tools
     }
 
-    /// The token budget this run has left for further steps.
-    fn remaining_tokens(&self, reserved: u64) -> u64 {
-        self.budget
-            .max_total_tokens
-            .saturating_sub(reserved)
+}
+
+/// A profile id names one exact transport in a frozen catalogue. Duplicates
+/// would make selection depend on list order rather than sealed identity.
+pub(crate) fn validate_child_provider_bindings(bindings: &[ProviderBinding]) -> Result<()> {
+    let mut ids = BTreeSet::new();
+    for binding in bindings {
+        ensure!(ids.insert(binding.profile_id()), "duplicate frozen child provider profile_id");
+        if let ProviderBinding::Profile { profile } = binding { profile.validate()?; }
     }
+    Ok(())
 }
 
 /// The frozen input of ONE model step. It descends from the sealed child
@@ -430,6 +457,7 @@ pub(crate) fn prepare_model_delegation(
     step_id: EntityId,
     spec: &ModelChildSpec,
     transport: &ProviderBinding,
+    child_provider_bindings: Option<&[ProviderBinding]>,
     generation: &RuntimeGeneration,
 ) -> Result<DelegationIntent> {
     let frozen = FrozenModelChild::new(
@@ -437,6 +465,7 @@ pub(crate) fn prepare_model_delegation(
         step_id,
         spec.clone(),
         transport,
+        child_provider_bindings,
         generation.clone(),
         spec.continue_task_id,
     )?;
@@ -457,6 +486,30 @@ pub(crate) fn prepare_model_delegation(
             input: serde_json::to_value(&frozen)?,
         }),
     })
+}
+
+/// Read-only feedback before S1. The Store still consumes the source task's
+/// revision and reserves every transfer atomically at final admission.
+pub(crate) fn check_continuation_allocations(store: &Store, intents: &[DelegationIntent]) -> Result<()> {
+    let mut remaining = BTreeMap::<EntityId, ModelChildBudget>::new();
+    for intent in intents {
+        let Some(definition) = &intent.definition else { continue };
+        if definition.kind != MODEL_CHILD_KIND { continue; }
+        let contract: FrozenModelChild = serde_json::from_value(definition.input.clone())?;
+        let Some(previous) = contract.continued_from else { continue };
+        if let std::collections::btree_map::Entry::Vacant(entry) = remaining.entry(previous) {
+            entry.insert(store.model_child_continuation_remaining_budget(previous)?);
+        }
+        let balance = remaining.get_mut(&previous).expect("the continued source was inserted");
+        ensure!(contract.budget.max_total_tokens <= balance.max_total_tokens
+            && contract.budget.max_tool_calls <= balance.max_tool_calls,
+            "continuation {} exceeds source {} durable remaining budget: requested {} tokens / {} tool calls; remaining {} tokens / {} tool calls",
+            intent.intent_id, previous, contract.budget.max_total_tokens, contract.budget.max_tool_calls,
+            balance.max_total_tokens, balance.max_tool_calls);
+        balance.max_total_tokens -= contract.budget.max_total_tokens;
+        balance.max_tool_calls -= contract.budget.max_tool_calls;
+    }
+    Ok(())
 }
 
 /// A deterministic identity derived from stable facts. The same facts always
@@ -564,7 +617,8 @@ fn plugin_id() -> EntityId {
 /// itself: `schema_version` 2, an opaque string id and the account
 /// namespace. An unversioned target or a numeric id cannot be bound to a
 /// channel at all, and the audience kind is not an account.
-fn delegation_grammar(profile_id: &str) -> String {
+fn delegation_grammar(profile_id: &str, bindings: &[ProviderBinding]) -> String {
+    let routes = child_route_catalog(bindings);
     format!(
         "有限模型 child 已注册（多步有界运行）：[delegate] {{\"goal\":\"…\",\"system_prompt\":\"你为该 child 独立写的完整语义 prompt\",\"model\":\"…\",\"max_tokens\":2048,\
  \"tools\":[{{\"kind\":\"<已注册定义 kind>\",\"definition_version\":1}}],\
@@ -575,9 +629,16 @@ fn delegation_grammar(profile_id: &str) -> String {
 只有 goal/system_prompt/model/max_tokens 必填；tools 为空即纯文本 child；continue_task_id 与 owner_answer 必须同时出现（继续同一讨论）。\
 继续运行只能使用原运行剩下的总 token 与工具调用预算：child 结果里的 continuation.remaining_total_tokens/remaining_tool_calls 给出上限，新 budget 超过它会被拒绝。\
 reply_grant 是可选的外发授权：target 必须是已注册通道的版本化目标——schema_version 固定 2，id 是平台不透明字符串（不要写数字），account 是账号命名空间（未知时留空字符串）；kind 是受众类别，不是账号。\
-child 每步一次真实 generation，可按 tools 调用**已注册**能力，工具结果回灌下一步；它自己的输出预算不受你本步上限限制，但受 transport 配置上限与它自己的 budget 限制。\
-当前 provider 通路为 {profile_id}；model 名称不代表已验证可用。T1/E1/T2 与主体共用 broker/资源域。"
+child 每步一次真实 generation，可按 tools 调用**已注册**能力，工具结果回灌下一步；它自己的输出预算不受你本步上限限制，但受实际资源准入与它自己的 budget 限制。\
+当前 provider 通路为 {profile_id}；省略 profile_id 时保留这一通路。要选另一个已安装通路，显式增加 profile_id，取本步冻结的 profile_id 精确值；model 只选择该通路上的模型，不会推断供应商或账号。\n\
+已安装 provider 绑定（安装不等于当前可达，实际发送仍核对原绑定）：\n{routes}\n\
+model 名称不代表已验证可用。T1/E1/T2 与主体共用 broker，按实际物理资源域记账。"
     )
+}
+
+fn child_route_catalog(bindings: &[ProviderBinding]) -> String {
+    bindings.iter().map(|binding| format!("- profile_id={}；配置模型={}；绑定 revision={}",
+        binding.profile_id(), binding.model(), binding.profile_revision())).collect::<Vec<_>>().join("\n")
 }
 
 fn contract_digest() -> Digest {
@@ -911,6 +972,14 @@ impl ModelChildHandler {
         if let Some(cognition) = cognition.filter(|index| !index.trim().is_empty()) {
             prompt.push_str("\n已安装的认知单元目录（感知／直觉／Skill／代码；与本主体共享同一安装）：\n");
             prompt.push_str(cognition);
+        }
+        if contract.allowed_tools().iter().any(|tool| tool.kind == MODEL_CHILD_KIND) {
+            prompt.push_str("\n嵌套 child 的 provider 选择沿用本运行冻结事实；省略 profile_id 保留当前通路，不按 model 名称猜测。\n");
+            match &contract.child_provider_bindings {
+                Some(bindings) => prompt.push_str(&child_route_catalog(bindings)),
+                None => prompt.push_str("本历史运行只冻结了原通路，没有显式 profile_id 路由表。"),
+            }
+            prompt.push('\n');
         }
         if let Some(grant) = &contract.reply_grant {
             prompt.push_str(&format!(
@@ -1297,7 +1366,7 @@ impl ModelChildHandler {
                 && invocation.context.role_revision == ROLE,
             "model child task/role/generation mismatch"
         );
-        let broker = self.broker.for_model(&contract.spec.model)?;
+        let broker = self.broker.for_binding(&contract.provider_binding)?;
         ensure!(
             broker.binding() == &contract.provider_binding,
             "MODEL_PROVIDER_BINDING_MISMATCH: reconcile frozen child before changing transport"
@@ -1883,7 +1952,7 @@ impl ModelChildHandler {
         // request still queued when it reaches the real dispatch boundary.
         let result = tokio::select! {
             biased;
-            result = result_rx => result.context("model child step outcome not durably settled; reconcile original attempt")?,
+            _result = result_rx => _result.context("model child step outcome not durably settled; reconcile original attempt")?,
             _ = invocation.cancellation.cancelled() => anyhow::bail!("model child local wait stopped; reconcile original request {request_id}"),
         };
         ensure!(
@@ -2058,6 +2127,7 @@ impl ModelChildHandler {
             contract.created_by_step_id,
             nested_spec,
             &contract.provider_binding,
+            contract.child_provider_bindings.as_deref(),
             contract.software_generation.clone(),
             None,
         ) {
@@ -2716,6 +2786,7 @@ impl NativeTaskHandler for ModelChildHandler {
             authority_refs: vec!["model.inference.finite-tool-agent/v2".into()],
             prompt_section: Some(delegation_grammar(
                 self.broker.binding().profile_id(),
+                &self.broker.installed_bindings(),
             )),
         }
     }
@@ -2976,6 +3047,7 @@ mod grant_account_tests {
             goal: "keep the external id".into(),
             system_prompt: "you are the worker".into(),
             model: "scripted".into(),
+            profile_id: None,
             max_tokens: 256,
             tools: vec![],
             context: vec![],
@@ -3001,6 +3073,7 @@ mod grant_account_tests {
             EntityId::new(),
             spec,
             &binding(),
+            (schema == CONTRACT_SCHEMA).then_some(&[]),
             RuntimeGeneration("grant-account-test".into()),
             None,
             schema,
@@ -3049,6 +3122,12 @@ mod grant_account_tests {
             "the legacy derivation named the audience kind"
         );
         legacy.validate().unwrap();
+        let original_transport = contract(spec("qq:9", None), TRANSPORT_CONTRACT_SCHEMA).unwrap();
+        original_transport.validate().unwrap();
+        assert!(original_transport.child_provider_bindings.is_none());
+        let mut invented_route = original_transport.clone();
+        invented_route.spec.profile_id = Some(binding().profile_id().into());
+        assert!(invented_route.validate().is_err(), "legacy contracts cannot gain explicit routing semantics");
         let current = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
         assert_eq!(current.reply_grant.as_ref().unwrap().target_account, "qq:9");
     }

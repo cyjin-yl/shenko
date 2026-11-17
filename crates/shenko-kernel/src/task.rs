@@ -177,7 +177,7 @@ pub async fn execute_native_handler(
     }
     tokio::select! {
         biased;
-        result = handler.execute(invocation) => result,
+        _result = handler.execute(invocation) => _result,
         _ = cancellation.cancelled() => anyhow::bail!("native local wait stopped; reconcile the original operation"),
     }
 }

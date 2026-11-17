@@ -28,6 +28,34 @@ use shenko_types::subject::{
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
 use crate::store::{Store, checked_head, read_step, storage_error, validate_step_binding};
 
+/// One read-only input projection for both durable selection and volatile
+/// native-result wakes. Its time comes from the original T2 task fact, never
+/// from the current dispatcher/restart clock.
+fn inbox_projection(
+    conn: &Connection, agent_id: EntityId, event_id: EntityId,
+    kind: &str, source: &str, data: &str,
+) -> Result<shenko_types::inbox::InboxEvent, ShenkoError> {
+    use shenko_types::{inbox::{InboxEvent, InboxEventKind}, task::TaskResult};
+    if kind != "task_result" || source != "native-child" {
+        return serde_json::from_str(data).map_err(ShenkoError::from);
+    }
+    let result: TaskResult = serde_json::from_str(data)?;
+    if result.schema_version != 1 || result.result_id != event_id {
+        return Err(ShenkoError::conflict("native result original identity differs"));
+    }
+    let task = crate::child::read_task(conn, result.task_id).map_err(storage_error)?
+        .ok_or_else(|| ShenkoError::conflict("native result original task is absent"))?;
+    if task.agent_id != agent_id || task.task_id != result.task_id {
+        return Err(ShenkoError::conflict("native result original owner differs"));
+    }
+    let created_at = task.terminal_at
+        .ok_or_else(|| ShenkoError::conflict("native result has no original terminal time"))?;
+    Ok(InboxEvent {
+        event_id, kind: InboxEventKind::TaskResult, source: source.to_owned(),
+        created_at, payload: serde_json::to_value(result)?,
+    })
+}
+
 /// One structured runtime-error journal entry.
 ///
 /// A runtime error is a fact of the subject's own history, not a diagnostic
@@ -273,9 +301,15 @@ pub struct SubjectContextRef {
 /// The correction request the subject sends and the raw history must carry
 /// the same words, so the store owns the text and the loop reuses it.
 pub fn control_rejection_feedback(rejection: &ControlOutputRejection) -> String {
+    let continuation = if rejection.schema_version == 3 && rejection.correction.as_ref().is_some_and(|disposition|
+        matches!(disposition.replacement, shenko_types::subject::ControlOutputReplacement::ReselectInput { .. })) {
+        "固定输入的纠错已结束，下一步重新选择包括新交互在内的待处理输入；旧输入、原始输出和本反馈仍完整保留。请依据当前事实重新决定，任何动作都须重新明确提出。"
+    } else {
+        "请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。"
+    };
     format!(
-        "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。",
-        rejection.error.code, rejection.error.details
+        "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。{}",
+        rejection.error.code, rejection.error.details, continuation,
     )
 }
 
@@ -874,11 +908,15 @@ impl Store {
     pub fn inbox_event_original(
         &self, agent_id: EntityId, event_id: EntityId,
     ) -> Result<Option<shenko_types::inbox::InboxEvent>, ShenkoError> {
-        let data: Option<String> = self.ledger.conn.lock().query_row(
-            "SELECT data FROM inbox_events WHERE agent_id=?1 AND event_id=?2",
-            params![agent_id.to_string(), event_id.to_string()], |row| row.get(0),
+        let conn = self.ledger.conn.lock();
+        let row: Option<(String, String, String)> = conn.query_row(
+            "SELECT kind,source,data FROM inbox_events WHERE agent_id=?1 AND event_id=?2",
+            params![agent_id.to_string(), event_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).optional().map_err(storage_error)?;
-        data.map(|data| serde_json::from_str(&data).map_err(ShenkoError::from)).transpose()
+        row.map(|(kind, source, data)| {
+            inbox_projection(&conn, agent_id, event_id, &kind, &source, &data)
+        }).transpose()
     }
 
     /// Persist a wake's original before it competes for the bounded attention
@@ -902,13 +940,12 @@ impl Store {
         if let Err(error) = self.admit_inbox_event(event.event_id, agent_id, kind, &event.source, &value) {
             // Another ingress reader may have retained the same original
             // between our read and admission. The durable bytes still win.
-            if let Some(original) = self.inbox_event_original(agent_id, event.event_id)? {
-                if original == *event || (event.kind == shenko_types::inbox::InboxEventKind::TaskResult
+            if let Some(original) = self.inbox_event_original(agent_id, event.event_id)?
+                && (original == *event || (event.kind == shenko_types::inbox::InboxEventKind::TaskResult
                     && original.kind == event.kind && original.source == event.source
-                    && original.payload == event.payload)
-                {
-                    return Ok(original);
-                }
+                    && original.payload == event.payload))
+            {
+                return Ok(original);
             }
             return Err(match error.downcast::<ShenkoError>() {
                 Ok(error) => error,
@@ -949,7 +986,7 @@ impl Store {
                  SELECT state,sources,review_after FROM subject_attention_policies
                  WHERE agent_id=?1 ORDER BY created_seq DESC,intent_id DESC LIMIT 1
              )
-             SELECT i.event_id, i.data FROM inbox_events i
+             SELECT i.event_id, i.kind, i.source, i.data FROM inbox_events i
              LEFT JOIN subject_branch_heads h ON h.agent_id=i.agent_id
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
@@ -971,15 +1008,27 @@ impl Store {
                       COALESCE(d.commit_seq,0), i.rowid LIMIT ?2",
         ).map_err(storage_error)?;
         let rows = stmt.query_map(params![agent_id.to_string(), limit, chrono::Utc::now().to_rfc3339()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, String>(3)?)))
             .map_err(storage_error)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(storage_error)?;
         rows.into_iter()
-            .map(|(event_id, data)| {
+            .map(|(event_id, kind, source, data)| {
                 let event_id = event_id
                     .parse::<EntityId>()
                     .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                // Native T2 owns a bare TaskResult row, not an InboxEvent
+                // envelope. Project it read-only; never replace the evidence
+                // bytes or bypass the internal native admission lane. A row
+                // this reader cannot understand remains identifiable for the
+                // subject's per-row undecodable-fact journal.
+                let data = if kind == "task_result" && source == "native-child" {
+                    match inbox_projection(&conn, agent_id, event_id, &kind, &source, &data) {
+                        Ok(event) => serde_json::to_string(&event)?,
+                        Err(_) => data,
+                    }
+                } else { data };
                 Ok((event_id, data))
             })
             .collect()
@@ -1328,6 +1377,7 @@ impl Store {
             "request_id": rejection.request_id.to_string(),
             "model_result_ref": rejection.model_result_ref,
             "model_outcome_ref": rejection.model_outcome_ref,
+            "correction": rejection.correction,
             "rejection": {
                 "code": rejection.error.code,
                 "scope": rejection.error.scope,

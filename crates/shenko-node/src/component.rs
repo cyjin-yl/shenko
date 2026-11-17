@@ -77,18 +77,39 @@ impl ModelUsabilityEvidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelUsabilityOutcome { Available, Unavailable, Unknown }
+pub enum ModelUsabilityOutcome {
+    Available,
+    Unavailable,
+    /// A real generation explicitly rejected this binding's authorization or
+    /// model route (401/403/404). Metadata access cannot reverse that fact.
+    BindingRejected,
+    Unknown,
+}
 
-/// Local, binding-specific eligibility. A heartbeat can project this state
-/// but cannot renew it. Unknown keeps prior evidence until its original expiry;
-/// only two consecutive explicit failures withdraw it early. Recovery keeps a
-/// short cooldown to avoid repeatedly taking and abandoning primary authority.
-#[derive(Debug, Clone, Default)]
+/// Local, binding-specific eligibility. A heartbeat never renews evidence.
+/// Unknown preserves the original expiry. Metadata and generation failures
+/// have separate histories: seeing a model in /models cannot prove that this
+/// credential may generate, or erase actual generation failures.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelEligibility {
     profile_digest: Option<Digest>,
     evidence: Option<ModelUsabilityEvidence>,
     last_observed_at: Option<chrono::DateTime<chrono::Utc>>,
-    consecutive_failures: u32,
+    #[serde(default)]
+    last_capability_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    last_generation_at: Option<chrono::DateTime<chrono::Utc>>,
+    capability_failures: u32,
+    generation_failures: u32,
+    generation_blocked: bool,
+    /// A metadata-backed recovery window is finite and never renewed by
+    /// repeated probes. It is permission for bounded new work, not a claim
+    /// that generation succeeded or an instruction to replay unknown debt.
+    #[serde(default)]
+    half_open_until: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    next_recovery_probe_after: Option<chrono::DateTime<chrono::Utc>>,
     retry_after: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -100,22 +121,76 @@ impl ModelEligibility {
         ensure!(evidence.valid_until > evidence.observed_at
             && evidence.valid_until.signed_duration_since(evidence.observed_at)
                 <= chrono::Duration::hours(24), "invalid model usability observation window");
+        let generation = matches!(&evidence.source, ModelUsabilitySource::Inference { .. });
+        ensure!(outcome != ModelUsabilityOutcome::BindingRejected || generation,
+            "only an actual inference refusal can reject generation binding");
         if self.profile_digest.as_ref() != Some(&profile_digest) {
             *self = Self { profile_digest: Some(profile_digest), ..Self::default() };
         }
-        if self.last_observed_at.is_some_and(|last| evidence.observed_at < last) {
-            return Ok(()); // A late old receipt remains a fact, not current health.
-        }
-        self.last_observed_at = Some(evidence.observed_at);
+        // A later metadata response does not supersede a generation fact
+        // whose callback was delayed. Unknown does not advance a definitive
+        // watermark either. Within generation, newer conclusive evidence wins;
+        // a newer generation also supersedes an older metadata observation.
+        let last = if generation { self.last_generation_at }
+            else { self.last_capability_at.max(self.last_generation_at) };
+        if last.is_some_and(|last| evidence.observed_at < last) { return Ok(()); }
+        self.last_observed_at = self.last_observed_at.max(Some(evidence.observed_at));
+        if outcome == ModelUsabilityOutcome::Unknown { return Ok(()); }
+        if generation { self.last_generation_at = Some(evidence.observed_at); }
+        else { self.last_capability_at = Some(evidence.observed_at); }
         match outcome {
-            ModelUsabilityOutcome::Available => {
-                self.consecutive_failures = 0;
+            ModelUsabilityOutcome::Available if generation => {
+                self.capability_failures = 0;
+                self.generation_failures = 0;
+                self.generation_blocked = false;
+                self.half_open_until = None;
+                self.next_recovery_probe_after = None;
                 self.evidence = Some(evidence);
             }
+            ModelUsabilityOutcome::Available => {
+                self.capability_failures = 0;
+                if self.generation_failures == 0 && !self.generation_blocked {
+                    self.evidence = Some(evidence);
+                } else if !self.generation_blocked {
+                    let now = evidence.observed_at;
+                    let needs_recovery = self.generation_failures >= 2
+                        || self.evidence.as_ref().is_none_or(|prior| !prior.is_fresh_at(now));
+                    let window_closed = self.half_open_until.is_none_or(|until| now >= until);
+                    if needs_recovery && window_closed
+                        && self.retry_after.is_none_or(|after| now >= after)
+                        && self.next_recovery_probe_after.is_none_or(|after| now >= after) {
+                        // A fresh read-only observation AFTER cooldown may
+                        // admit one finite recovery window. Five minutes lets
+                        // the ordinary 180-second request finish; no heartbeat
+                        // or metadata poll extends this window afterwards.
+                        let mut probe = evidence;
+                        let until = probe.valid_until.min(now + chrono::Duration::minutes(5));
+                        probe.valid_until = until;
+                        self.half_open_until = Some(until);
+                        self.next_recovery_probe_after = Some(until + chrono::Duration::seconds(30));
+                        self.evidence = Some(probe);
+                    }
+                }
+            }
+            ModelUsabilityOutcome::BindingRejected => {
+                self.generation_blocked = true;
+                self.generation_failures = self.generation_failures.saturating_add(1);
+                self.half_open_until = None;
+                self.next_recovery_probe_after = None;
+                self.retry_after = Some(evidence.observed_at + chrono::Duration::seconds(30));
+                self.evidence = None;
+            }
             ModelUsabilityOutcome::Unavailable => {
-                self.consecutive_failures = self.consecutive_failures.saturating_add(1);
-                if self.consecutive_failures >= 2 {
+                let failures = if generation { &mut self.generation_failures }
+                    else { &mut self.capability_failures };
+                *failures = failures.saturating_add(1);
+                let withdraw = *failures >= 2;
+                if generation || withdraw {
+                    self.next_recovery_probe_after = Some(evidence.observed_at + chrono::Duration::seconds(30));
+                }
+                if withdraw {
                     self.retry_after = Some(evidence.observed_at + chrono::Duration::seconds(30));
+                    self.half_open_until = None;
                     self.evidence = None;
                 }
             }
@@ -137,6 +212,8 @@ impl ModelEligibility {
     ) -> Option<ComponentCandidate> {
         let evidence = self.evidence.as_ref()?;
         (self.profile_digest.as_ref() == Some(profile_digest)
+            && !self.generation_blocked
+            && (self.generation_failures < 2 || self.half_open_until.is_some_and(|until| now < until))
             && self.retry_after.is_none_or(|after| now >= after)
             && evidence.is_fresh_at(now)).then(|| ComponentCandidate {
                 runtime_id, profile_digest: profile_digest.clone(), preference,

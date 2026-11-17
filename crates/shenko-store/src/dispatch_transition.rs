@@ -384,7 +384,7 @@ impl Store {
             // shared factual transaction below contributes to the read set.
             let (rows, ()) = self.capture_row_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, |commit, _| self.evaluate_dispatch(&tx, head, &plan, commit))?;
+            }, None, |commit, _| self.evaluate_dispatch(&tx, head, &plan, commit))?;
             let transition = DispatchTransition { rows, plan: plan.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;

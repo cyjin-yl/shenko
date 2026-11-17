@@ -22,7 +22,6 @@ pub const NAME: &str = "compat.artifact.read";
 pub const MAX_RANGE_BYTES: u64 = 128 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const PRODUCER_CHUNK_BYTES: u64 = 1024 * 1024;
-const CONTRACT: &[u8] = b"shenko.compat.artifact/v1: read an installation CAS object in authenticated ranges; accepts a plain object up to 1 MiB or a compat-indexed-observation manifest; returns at most 131072 bytes per call; no remote effect";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

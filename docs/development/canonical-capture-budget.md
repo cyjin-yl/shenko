@@ -1,6 +1,102 @@
 # Canonical capture capacity repair
 
-## Scope and source
+## Current implementation: physical writes and S1 v2 (2026-11-17)
+
+The current increment, tracked with issue #316, supersedes the whole-database
+fingerprint and ordinary-admission fallback described in the historical record
+below. It preserves one evaluation, schema checks, exact source result identity
+and the original admission/materialization protocol.
+
+SQLite's compiled `preupdate_hook` now observes actual base-table writes during
+the savepoint. Capture no longer scans every unrelated table before evaluation
+and again afterward to discover hidden writes. The authorizer still records
+read dependencies and refuses non-row SQL; the independent execution-time hook
+detects writes missing from that observation, including changes whose only
+different bytes are a local sequence. S1 v2 retains the first original image of
+each touched primary key and reads its actual final postimage before rollback.
+This also handles an implicit REPLACE deletion and WITHOUT ROWID tables. A
+blob-write callback has a delete-shaped event, so its postimage comes from the
+actual row rather than from the event name. The relevant primary API is
+[SQLite's preupdate contract](https://www2.sqlite.org/c3ref/preupdate_blobwrite.html).
+
+New S1 objects use `store-s1-transition` major 2 and row schema 2. They keep
+exact write deltas and fixed-size before/after digests of complete logical read
+ranges. The digest streams typed cells in stable key order and normalizes only
+the same local materialization-sequence columns as the original image format.
+Application checks the schema, range digest and exact changed-key preimages
+before writing, then checks both final changed rows and final range digests.
+Empty-range/absence conditions remain binding. A partial witness now reads its
+named primary keys directly instead of scanning a whole table and filtering it.
+Major 1 objects remain readable; schema and codec versions must agree.
+
+`context_execution_clock` and `context_execution_revisions` are local cache
+invalidation projections, not canonical facts. Their known factual-row triggers
+run again when the receiver applies the frozen base rows; freezing the counters
+as additional writes would advance them twice. Capture permits their access
+only from those triggers and independently rejects direct physical writes,
+including after removal of the authorizer. The affected base table's existing
+schema digest also binds both projection tables and their triggers, so adding
+or replacing a secondary projection trigger between capture and application
+refuses application before any write. Exact factual preimages, postimages and
+read ranges remain checked; a local cache index cannot supply a semantic read
+dependency or a fresh execution grant.
+The additional schema dependency applies only to base tables that actually
+contain these new index-maintenance triggers; without them, prior digest bytes
+are unchanged. Earlier experimental captures of the new index schema remain
+decodable, but a digest lacking this dependency is conservatively refused at
+materialization and retained through the existing reconciliation path. Missing
+original schema evidence is not fabricated by rewriting the sealed transition.
+
+Native claim/arm/dispatch/T2 retain their existing typed witness versions:
+their independent validators use full read rows to verify operation absence and
+unfinished-child ranges. Write-only tables now retain actual touched keys from
+the start. Direct first-claim, claim-proven T1 and childless E1-proven T2 already
+have a separately validated single-task witness; capture now constructs that
+same witness before copying any historical task rows. The exact target shape
+is checked again, and the existing ancestry, claim-birth and E1 validators still
+run before admission. No full read range is replaced with an unproven digest.
+The row-engine journey retains a 129 MiB write-only history and a 66 MiB unrelated
+task while capturing and applying the small native-v1 delta.
+
+### Remaining issue #316 boundaries
+
+The native full witnesses remain history-dependent at these concrete paths:
+
+| Path | Still retained complete read dependencies | Consequence |
+| --- | --- | --- |
+| `claim_transition::evaluate_claim` | `subject_steps` (the current successor and creator are point reads) and `operations` (original-operation absence) | Full before/after images still share the 128 MiB capture limit; the sealed native transition is limited to 64 MiB. Historical steps/operations can refuse a small new claim. |
+| `arming_transition::evaluate_arm` | `operations` (ID or task/logical-key absence), `attempts` (ID or operation absence), `subject_intents` (publication absence), and subject reads | The independent `validate_absence` examines these complete witnesses. Ordinary/non-direct ancestry still retains the `tasks` table. |
+| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. Direct E1-proven T2 narrows only `tasks`. |
+
+All canonical actions also call
+`control_predecessor::prepare_control_predecessor_inner`, which takes a full
+typed cognition snapshot, validates its mandatory-fact closure and repaginates
+the immutable control tree. CAS reuse avoids duplicating unchanged objects but
+does not avoid reading, parsing and validating that snapshot. The corresponding
+inspector reads all those rows again to verify ancestry/child absence. This is
+an additional CPU, I/O and transient-memory cost outside the row capture budget.
+
+Removing these remaining dependencies safely requires versioned native typed
+key/predicate witnesses, their independent absence/ancestor/child validators,
+and matching receiver-side materialization checks. Simply marking them partial
+or hashing a complete table would let an incomplete witness claim absence.
+The predecessor snapshot also needs its own incremental authenticated index and
+closure validation design. Those are explicit remaining #316 protocol/storage
+work, not behavior claimed by this increment. S1's complete-range digests still
+hash actually read tables and conservatively conflict with unrelated rows; no
+predicate-level or constant-time read hashing is claimed.
+
+The 128 MiB retained-cell and 64 MiB encoded-delta limits still apply to actual
+retained data. Exceeding either keeps the original decision uncommitted and
+records the capacity diagnostic. It never switches to ordinary admission,
+re-evaluates the semantic callback or claims a successful commit. The existing
+row-engine and public S1 journeys now cover a bounded multi-megabyte read-range
+object, WITHOUT ROWID REPLACE, 65/12 MiB read histories that stay canonical, and
+a genuinely oversized changed cell that refuses without another grant.
+Execution results for this increment belong to the integration validation
+record; the older CI results below describe their original revisions only.
+
+## Historical scope and source
 
 This change repairs the shared row capture used by canonical S1 and native
 transitions. It starts from public source

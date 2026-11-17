@@ -627,23 +627,35 @@ fn receiving_store_reads_the_real_facts_after_import() {
 
     let b_dir = tmp_dir();
     let b_memory = tmp_dir();
-    let b = Store::open(b_dir.join("b.db"), b_dir.join("cas")).unwrap();
-    let outcome = b
-        .import_cognition_archive(
-            &archive[..],
-            &CognitionImportOptions {
-                memory_root: Some(b_memory.clone()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+    let b = Store::open(b_dir.join("shenko.db"), b_dir.join("cas")).unwrap();
+    let import_options = CognitionImportOptions { memory_root: Some(b_memory.clone()), ..Default::default() };
+    let prepared = b.prepare_cognition_import(&archive[..], &import_options).unwrap();
+    assert!(b.latest_identity(a.agent_id).unwrap().is_none(), "verified bytes are not installed facts");
+    assert!(!b_memory.join("note.md").exists());
+    // A prepared archive is bound to the original receiver, not just to its
+    // shared content store. It carries no transferable mutation capability.
+    let other = Store::open(b_dir.join("other.db"), b_dir.join("cas")).unwrap();
+    assert!(other.apply_prepared_cognition_import_under(prepared, None).is_err());
+    assert!(other.latest_identity(a.agent_id).unwrap().is_none());
+    let prepared = b.prepare_cognition_import(&archive[..], &import_options).unwrap();
+    let live_event = EntityId::new();
+    let mut batch = WriteBatch::new();
+    batch.inbox_event_upserts.push(RawInboxEvent {
+        event_id: live_event, agent_id: a.agent_id, kind: "message".into(), source: "live-im".into(),
+        payload_json: "{\"text\":\"accepted while recovery bytes are prepared\"}".into(), received_at_ms: 1,
+    });
+    b.commit(batch).expect("prepared import owns no installed mutation permit");
+    let outcome = b.apply_prepared_cognition_import_under(prepared, None).unwrap();
     assert!(outcome.inserted > 0);
     assert!(outcome.conflicts.is_empty());
     assert_eq!(outcome.verified_objects, receipt.objects);
     drop(b);
 
     // The facts survive a reopen: this is recovery data, not a live session.
-    let b = Store::open(b_dir.join("b.db"), b_dir.join("cas")).unwrap();
+    let b = Store::open(b_dir.join("shenko.db"), b_dir.join("cas")).unwrap();
+    assert_eq!(rusqlite::Connection::open(b_dir.join("shenko.db")).unwrap()
+        .query_row("SELECT count(*) FROM inbox_events WHERE event_id=?1", [live_event.to_string()], |row| row.get::<_, i64>(0)).unwrap(), 1,
+        "publication preserves an IM accepted after archive preparation");
     let identity = b
         .latest_identity(a.agent_id)
         .unwrap()
@@ -667,7 +679,7 @@ fn receiving_store_reads_the_real_facts_after_import() {
     assert!(events[0].data.contains("记得"));
 
     // A pending input is recovery data: it arrives still pending.
-    let inbox: (i64, String) = rusqlite::Connection::open(b_dir.join("b.db"))
+    let inbox: (i64, String) = rusqlite::Connection::open(b_dir.join("shenko.db"))
         .unwrap()
         .query_row(
             "SELECT consumed,data FROM inbox_events WHERE event_id=?1",

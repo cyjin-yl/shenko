@@ -27,7 +27,6 @@ const MAX_EXEMPLARS: usize = 3;
 const MAX_EXEMPLAR_BYTES: u64 = 1024 * 1024;
 const MAX_METHOD_CHARS: usize = 256;
 const OPERATION_KINDS: [&str; 3] = ["compat.mcp.request", "compat.skill.source", crate::artifact::NAME];
-const CONTRACT: &[u8] = b"shenko.compat.usage/v1: deterministic bounded aggregation over durable compat observations; groups by request method and settled outcome; at most 200 records per digest and 3 CAS-verified exemplar digests per group; a digest that fails CAS authentication is omitted, never asserted; observations only, adoption stays an explicit cognition.unit.write candidate; no remote effect";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

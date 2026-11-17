@@ -477,6 +477,11 @@ pub struct ModelChildSpec {
     pub goal: String,
     pub system_prompt: String,
     pub model: String,
+    /// Select an exact installed provider profile from the delegating step's
+    /// frozen routing facts. Absence keeps that step's original transport;
+    /// a model name alone never selects another provider or account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
     pub max_tokens: u64,
     /// The tools this child may call. Empty means a text-only child.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -9,7 +9,7 @@ use crate::request::{InferenceResult, InferenceStatus, TerminationKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BindingUsability { Available, Unavailable, Unknown }
+pub enum BindingUsability { Available, Unavailable, BindingRejected, Unknown }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingProbe {
@@ -54,7 +54,9 @@ pub fn inference_usability(result: &InferenceResult) -> BindingUsability {
     match (&result.status, result.termination.kind) {
         (InferenceStatus::Success, TerminationKind::ProviderTerminal) => BindingUsability::Available,
         (InferenceStatus::Rejected { http_status }, TerminationKind::TransportRejected)
-            if matches!(*http_status, 401 | 403 | 404 | 429 | 500..=599) => BindingUsability::Unavailable,
+            if matches!(*http_status, 401 | 403 | 404) => BindingUsability::BindingRejected,
+        (InferenceStatus::Rejected { http_status }, TerminationKind::TransportRejected)
+            if matches!(*http_status, 429 | 500..=599) => BindingUsability::Unavailable,
         (InferenceStatus::Unavailable, TerminationKind::NeverDispatched) => BindingUsability::Unavailable,
         _ => BindingUsability::Unknown,
     }

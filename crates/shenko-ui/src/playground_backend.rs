@@ -1303,7 +1303,7 @@ impl PlaygroundBackendHandler {
             }
         });
         let run = tokio::select! {
-            result = &mut worker => result,
+            _worker_result = &mut worker => _worker_result,
             _ = invocation.cancellation.cancelled() => { cancellation.cancel(); worker.await }
         };
         let run = match run {

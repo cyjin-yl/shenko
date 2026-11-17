@@ -1135,7 +1135,7 @@ fn sample_window(deadline_ms: u64, planned: usize) -> Duration {
 /// Alternate which condition goes first across repetitions and scenarios.
 /// The order is deterministic and recorded by the ordered sample receipts.
 fn condition_order(scenario: usize, trial: usize) -> [Condition; 2] {
-    if (scenario + trial) % 2 == 0 {
+    if (scenario + trial).is_multiple_of(2) {
         [Condition::Candidate, Condition::Control]
     } else {
         [Condition::Control, Condition::Candidate]

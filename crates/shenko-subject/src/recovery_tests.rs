@@ -328,8 +328,8 @@ async fn interactive_input_precedes_background_backlog_and_survives_a_blocked_su
     for index in 0..70 {
         let event = shenko_types::inbox::InboxEvent {
             event_id: EntityId::new(),
-            kind: shenko_types::inbox::InboxEventKind::TaskResult,
-            source: "native-child".into(),
+            kind: shenko_types::inbox::InboxEventKind::SystemEvent,
+            source: "background-progress".into(),
             payload: serde_json::json!({"progress": index}),
             created_at: chrono::Utc::now(),
         };
@@ -450,6 +450,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let input = super::FrozenStepInput {
         schema_version: 14, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
+        child_provider_bindings: None,
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
         identity: subject.identity.clone(),
@@ -1210,7 +1211,11 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     step.record_revision = RecordRevision(revision.0 + 1);
     store.upsert_step(&step, &subject.head, revision).unwrap();
     step.state = SubjectStepState::ResultRecorded;
-    step.model_result_ref = Some(store.cas.seal_object(b"batch understood", "text/plain", "model_results", "text", 1).unwrap().object);
+    let acknowledged = events.iter().map(|event| format!("[dispose] {}",
+        serde_json::json!({"event_id":event.event_id,"disposition":"acknowledged"})))
+        .collect::<Vec<_>>().join("\n");
+    step.model_result_ref = Some(store.cas.seal_object(format!("batch understood\n{acknowledged}").as_bytes(),
+        "text/plain", "model_results", "text", 1).unwrap().object);
     step.model_outcome_ref = Some(store.cas.seal_object(&serde_json::to_vec(&SubjectModelOutcome {
         schema_version: 2, request_id: step.active_request_id.unwrap(),
         result_ref: step.model_result_ref.clone().unwrap(), stop_reason: "end_turn".into(),
@@ -1993,7 +1998,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         "[delegate]"
     );
     assert!(correction_text(&correction.payload.messages[2]).contains("CONTROL_PROTOCOL_INVALID"));
-    anyhow::ensure!(correction.schema_version == 14);
+    anyhow::ensure!(correction.schema_version == 15);
     let counted = crate::context_projection::estimate_payload_tokens(&correction.payload, 0)
         .context("complete plaintext correction must be countable")?;
     anyhow::ensure!(correction.context.estimated_input_tokens == Some(counted));
@@ -2031,7 +2036,9 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         store
             .cas
             .seal_object(
-                b"persisted complete result",
+                format!("persisted complete result\n[dispose] {}", serde_json::json!({
+                    "event_id":event.event_id,"disposition":"acknowledged",
+                })).as_bytes(),
                 "text/plain",
                 "model_results",
                 "text",
@@ -2075,7 +2082,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
     .unwrap()
     .unwrap();
     assert_eq!(subject.head.committed_step_no, 1);
-    assert_eq!(rx.try_recv().unwrap().text, "persisted complete result");
+    assert_eq!(rx.try_recv().unwrap().text, "persisted complete result\n");
     assert!(
         store
             .event_disposition_commit(agent, event.event_id)
@@ -2621,13 +2628,8 @@ fn record_result(
 #[tokio::test]
 async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     let (dir, store, agent) = fixture();
-    let selected = shenko_types::inbox::InboxEvent {
-        event_id: EntityId::new(),
-        kind: shenko_types::inbox::InboxEventKind::Message,
-        payload: serde_json::json!({"content":"retain this selected input"}),
-        source: "fixture".into(),
-        created_at: chrono::Utc::now(),
-    };
+    let selected = message("retain this selected input");
+    admit_web_event(&store, agent, "correction-original", &selected);
     let mut subject = state(store.clone(), agent).unwrap();
     let cancelled = tokio_util::sync::CancellationToken::new();
     cancelled.cancel();
@@ -2667,13 +2669,46 @@ async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     let correction = super::frozen_input(&reopened, &subject.step).unwrap();
     assert_eq!(correction.events.len(), 1);
     assert_eq!(correction.events[0].event_id, selected.event_id);
-    let repaired = format!("[dispose] {}",
-        serde_json::json!({"event_id":selected.event_id,"disposition":"acknowledged"}));
+    // A new IM interrupts the pinned correction at the next conclusive
+    // invalid result. No controls from either invalid result are admitted.
+    let fresh = message("new interaction must enter the next input selection");
+    admit_web_event(&reopened, agent, "correction-fresh", &fresh);
+    record_result(&reopened, &mut subject, &raw);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert!(subject.step.input_plan_ref.is_none() && subject.step.active_request_id.is_none());
+    assert_eq!(subject.head.committed_step_no, 0);
+    let reselection: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&reopened, subject.step.retry_reason_ref.as_ref().unwrap()).unwrap()).unwrap();
+    assert_eq!(reselection.schema_version, 3);
+    assert!(matches!(reselection.correction.as_ref().unwrap().replacement,
+        ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::FreshInteractive { event_id } }
+            if event_id == fresh.event_id));
+    let pending = reopened.pending_inbox_events(agent, 8).unwrap();
+    assert!(pending.iter().any(|(id, _)| *id == selected.event_id));
+    assert!(pending.iter().any(|(id, _)| *id == fresh.event_id));
+    assert!(reopened.event_disposition_commit(agent, selected.event_id).unwrap().is_none());
+    assert!(reopened.committed_intents(None, None, 8).unwrap().is_empty());
+    drop((subject, reopened));
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    let events: Vec<shenko_types::inbox::InboxEvent> = reopened.pending_inbox_events(agent, 8).unwrap()
+        .into_iter().map(|(_, data)| serde_json::from_str(&data).unwrap()).collect();
+    execute_step(1, &events, &mut subject, &cancelled).await.unwrap();
+    let renewed = super::frozen_input(&reopened, &subject.step).unwrap();
+    assert!(renewed.events.iter().any(|event| event.event_id == fresh.event_id));
+    assert!(renewed.events.iter().any(|event| event.event_id == selected.event_id));
+    assert!(renewed.context.correction_observation.is_none());
+    let repaired = format!("[dispose] {}\n[dispose] {}",
+        serde_json::json!({"event_id":selected.event_id,"disposition":"acknowledged"}),
+        serde_json::json!({"event_id":fresh.event_id,"disposition":"acknowledged"}));
     record_result(&reopened, &mut subject, &repaired);
     execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await.unwrap().expect("corrected S1 commits without another provider request");
     assert_eq!(subject.head.committed_step_no, 1);
     assert!(reopened.event_disposition_commit(agent, selected.event_id).unwrap().is_some());
+    assert!(reopened.event_disposition_commit(agent, fresh.event_id).unwrap().is_some());
     assert!(reopened.event_disposition_commit(agent, unknown).unwrap().is_none());
     assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
 }
@@ -2722,6 +2757,32 @@ async fn unselected_obligation_origin_preserves_evidence_and_reopens_correction(
     let correction = super::frozen_input(&reopened, &subject.step).unwrap();
     assert!(correction.events.is_empty());
     assert!(correction.obligations.is_empty());
+    record_result(&reopened, &mut subject, &raw);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    // The third rejected result has exhausted two actual pinned corrections.
+    // Count follows their immutable input parents, not process-local retries.
+    record_result(&reopened, &mut subject, &raw);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert!(reopened.committed_intents(None, None, 8).unwrap().is_empty());
+    let boundary: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&reopened, subject.step.retry_reason_ref.as_ref().unwrap()).unwrap()).unwrap();
+    let disposition = boundary.correction.as_ref().unwrap();
+    assert_eq!(disposition.prior_pinned_corrections, MAX_PINNED_CONTROL_CORRECTIONS);
+    assert!(matches!(disposition.replacement,
+        ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::CorrectionLimit }));
+    assert_eq!(super::read_sealed(&reopened, rejected.model_result_ref.as_ref().unwrap()).unwrap(), raw.as_bytes());
+    let mut unknown = reopened.recorded_model_outcome(&rejected).unwrap();
+    unknown.stop_reason = "unknown".into();
+    assert!(!unknown.permits_control_correction());
+    drop((subject, reopened));
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    execute_step(1, &[], &mut subject, &cancelled).await.unwrap();
+    assert!(super::frozen_input(&reopened, &subject.step).unwrap().context.correction_observation.is_none());
     record_result(&reopened, &mut subject, "Continue from the original durable receipts.");
     execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await.unwrap().expect("corrected S1 commits without replaying the rejected request");
@@ -2875,7 +2936,9 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Resu
         &mut subject,
         3,
         &[event.clone()],
-        "我记下了新消息，实验仍未完成。",
+        &format!("我记下了新消息，实验仍未完成。\n[dispose] {}", serde_json::json!({
+            "event_id":event.event_id,"disposition":"acknowledged",
+        })),
     )
     .await;
     assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
@@ -3284,6 +3347,24 @@ async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
         .unwrap()
         .iter()
         .any(|result| result.result_id == fast_result.result_id));
+
+    // The exact internal T2 bytes stay bare TaskResult evidence. Both durable
+    // selection and a volatile dispatcher replay derive one stable envelope
+    // from that original; neither re-admits an external task_result envelope.
+    let original = store.ready_native_result_rows(agent, 8).unwrap().into_iter()
+        .find(|(id, _)| *id == fast_result.result_id).unwrap().1;
+    let projected = store.inbox_event_original(agent, fast_result.result_id).unwrap().unwrap();
+    assert_eq!(projected.payload, serde_json::to_value(&fast_result).unwrap());
+    assert_eq!(projected.created_at, store.external_task(fast).unwrap().terminal_at.unwrap());
+    let replay = shenko_types::inbox::InboxEvent {
+        created_at: chrono::Utc::now() + chrono::Duration::seconds(10), ..projected.clone()
+    };
+    assert_eq!(store.retain_inbox_event(agent, &replay).unwrap(), projected);
+    let pending = store.pending_inbox_events(agent, 64).unwrap().into_iter()
+        .find(|(id, _)| *id == fast_result.result_id).unwrap().1;
+    assert_eq!(serde_json::from_str::<shenko_types::inbox::InboxEvent>(&pending).unwrap(), projected);
+    assert_eq!(store.ready_native_result_rows(agent, 8).unwrap().into_iter()
+        .find(|(id, _)| *id == fast_result.result_id).unwrap().1, original);
 
     // Releasing the gate lets the original claim finish; recovery bookkeeping
     // keeps exactly one durable result per task.

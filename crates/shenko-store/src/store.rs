@@ -685,7 +685,8 @@ impl Store {
     }
 
     /// R0 for a conclusive but invalid control result: retain the retired step
-    /// and rejection, register a sealed correction, and CAS only next_step_id.
+    /// and rejection, register a sealed correction or a new Planned input
+    /// selection boundary, and CAS only next_step_id.
     /// No S1, disposition, identity change or external intent is admitted here.
     pub fn reject_output_and_replace_step(
         &self,
@@ -730,7 +731,6 @@ impl Store {
             || retired.decision_ref.is_some()
             || retired.commit_ref.is_some()
             || replacement.step_id == retired.step_id
-            || replacement.state != SubjectStepState::Preparing
             || replacement.record_revision != RecordRevision(0)
             || replacement.active_request_id.is_some()
             || replacement.active_attempt_id.is_some()
@@ -739,13 +739,6 @@ impl Store {
             || replacement.decision_ref.is_some()
             || replacement.commit_ref.is_some()
             || replacement.created_by_step_id != previous.created_by_step_id
-            || replacement.input_plan_ref.is_none()
-            || replacement.input_plan_ref == previous.input_plan_ref
-            || replacement.context_revision.is_none()
-            || replacement.context_revision
-                != previous
-                    .context_revision
-                    .and_then(|revision| revision.checked_add(1))
             || replacement.retry_reason_ref != retired.retry_reason_ref
         {
             return Err(ShenkoError::conflict("invalid rejected-output replacement"));
@@ -758,7 +751,11 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("missing control rejection"))?;
         let rejection: shenko_types::subject::ControlOutputRejection =
             serde_json::from_slice(&self.cas.read_object(&reason.digest)?)?;
-        if rejection.schema_version != 2
+        if !matches!(rejection.schema_version, 2 | 3)
+            || (rejection.schema_version == 2 && rejection.correction.is_some())
+            || (rejection.schema_version == 3 && (rejection.correction.is_none()
+                || reason.codec.major != 3 || reason.codec.name != "ControlOutputRejection"
+                || reason.store_namespace != "control_rejections"))
             || rejection.supersedes_step_id != previous.step_id
             || rejection.replacement_step_id != replacement.step_id
             || Some(rejection.request_id) != previous.active_request_id
@@ -776,7 +773,21 @@ impl Store {
                 "rejection is not bound to recorded result",
             ));
         }
+        let reselect = rejection.correction.as_ref().is_some_and(|disposition|
+            matches!(disposition.replacement, shenko_types::subject::ControlOutputReplacement::ReselectInput { .. }));
+        let valid_shape = if reselect {
+            replacement.state == SubjectStepState::Planned
+                && replacement.input_plan_ref.is_none() && replacement.context_revision.is_none()
+        } else {
+            replacement.state == SubjectStepState::Preparing
+                && replacement.input_plan_ref.is_some()
+                && replacement.input_plan_ref != previous.input_plan_ref
+                && replacement.context_revision.is_some()
+                && replacement.context_revision == previous.context_revision.and_then(|revision| revision.checked_add(1))
+        };
+        if !valid_shape { return Err(ShenkoError::conflict("rejection replacement mode differs from step shape")); }
         self.validate_correction_projection(&tx, &head, &previous, replacement, &rejection)?;
+        if reselect { self.requeue_rejected_inputs(&tx, &head, &previous)?; }
         // The canonical runtime feedback joins the branch raw history in the
         // SAME transaction as the retirement and the correction step, so
         // rejected or incomplete output is never read as accepted work.
@@ -844,6 +855,16 @@ impl Store {
                     tasks.insert(task.task_id, task);
                 }
             }
+            for control in &decision.output.controls {
+                if let shenko_types::output::OutputAction::DelegateModel { spec } = &control.action
+                    && let Some(continued) = spec.continue_task_id
+                    && let Some(task) = crate::child::read_task(&tx, continued).map_err(storage_error)?
+                {
+                    // Continuation allocation consumes the finished source's
+                    // record revision, independently of the main S1 head.
+                    tasks.insert(task.task_id, task);
+                }
+            }
             (previous, tasks.into_values().collect::<Vec<_>>())
         };
         let mut aliases = vec![format!("step/{}/revision/{}", step.step_id, previous.record_revision.0)];
@@ -864,11 +885,11 @@ impl Store {
                         step, expected_head, next_step_id, &authority, false);
                 }
                 Err(error) if crate::control_transition::capture_budget_refusal(&error) => {
-                    // Capture exceeded its ceiling before durable preparation
-                    // or choose. Report that observation, then attempt the
-                    // original-plan admission below. Neither the report nor
-                    // this branch proves that admission/COMMIT will succeed.
+                    // Preserve the original decision and explicit capacity
+                    // debt. Never change consistency semantics or evaluate the
+                    // plan again because its canonical capture was too large.
                     self.journal_capture_budget_refusal(expected_head, step, &error);
+                    return Err(error);
                 }
                 Err(error) => return Err(error),
             }
@@ -885,9 +906,8 @@ impl Store {
     /// Record that the canonical S1 path could not freeze this transition.
     ///
     /// The separate fail-soft journal reports only the observed capacity
-    /// refusal and intended fallback (SPEC 45.14). Admission or the later
-    /// transaction may still fail; its receipt determines whether the step
-    /// actually committed. A journal failure retains the normal dropped count.
+    /// refusal. No ordinary-plan fallback or commit is attempted. A journal
+    /// failure retains the normal dropped count.
     fn journal_capture_budget_refusal(
         &self,
         head: &SubjectBranchHead,
@@ -898,7 +918,7 @@ impl Store {
             kind: "store_capture_budget".into(),
             source_module: module_path!().into(),
             message: format!(
-                "canonical S1 capture refused before durable preparation; an original-plan admission will be attempted, with no commit yet confirmed: {error}"
+                "canonical S1 capture refused before durable preparation; the original decision remains uncommitted and no weaker admission was attempted: {error}"
             ),
             step_no: Some(step.step_no),
             task_id: None,
@@ -1752,6 +1772,7 @@ pub(crate) fn initialize_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(crate::native_evidence::SCHEMA)?;
     conn.execute_batch(crate::native_evidence_delivery::SCHEMA)?;
     conn.execute_batch(crate::local_installation::SCHEMA)?;
+    conn.execute_batch(crate::local_model_health::SCHEMA)?;
     Ok(())
 }
 
@@ -1774,8 +1795,10 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 /// the same sealed request without one, so it can never carry an
 /// acknowledgement; old bytes keep their old meaning instead of
 /// being reinterpreted or rewritten.
+/// 15 adds a frozen child-provider routing table. Older plans have no table
+/// semantics and continue only through their original provider binding.
 pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
-    matches!(version, Some(12..=14))
+    matches!(version, Some(12..=15))
 }
 
 pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {

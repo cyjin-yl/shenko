@@ -1,8 +1,9 @@
 //! One real CLI/SSH star-component journey. No observation or ACK is forged.
 //! Seven durable voters are configured over pinned OpenSSH, then only three
 //! Start processes remain reachable. A and C have no configured model; B's
-//! unavailable binding is paused before consumers. Only metadata GETs are
-//! answered with a real HTTP refusal; no inference request is allowed.
+//! metadata-qualified binding is paused before consumers. The owned HTTP
+//! fixture returns the exact model card, not a generation. No inference
+//! request is allowed, and this journey makes no model-quality claim.
 #![cfg(unix)]
 
 #[path = "support/process_runtime.rs"]
@@ -106,10 +107,15 @@ impl MetadataObserver {
                         matches!(line, "GET /v1/models HTTP/1.1" | "GET /metrics HTTP/1.1"),
                         "paused coordinator sent a non-metadata request: {line}"
                     );
-                    let response = b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
-                    fs::write(logs.join(format!("model-{number:03}.response")), response)?;
+                    let response = if line == "GET /v1/models HTTP/1.1" {
+                        let card = r#"{"data":[{"id":"component-probe-model","max_model_len":65536}]}"#;
+                        format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{card}", card.len())
+                    } else {
+                        "HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+                    };
+                    fs::write(logs.join(format!("model-{number:03}.response")), &response)?;
                     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-                    stream.write_all(response)?;
+                    stream.write_all(response.as_bytes())?;
                 }
                 Ok(())
             })();
@@ -117,7 +123,7 @@ impl MetadataObserver {
                 logs.join("model-observation.json"),
                 serde_json::to_vec_pretty(&json!({
                     "requests":requests,"error":result.as_ref().err().map(|error| format!("{error:#}")),
-                    "response":"HTTP 503; no model card or generation", "request_limit_bytes":65536,
+                    "response":"exact model card; metrics unavailable; no generation", "request_limit_bytes":65536,
                     "read_deadline_seconds":5,"write_deadline_seconds":1,
                 }))?,
             )?;
@@ -551,7 +557,7 @@ impl Fixture {
         if let Some(model_port) = model_port {
             command
                 .env("SHENKO_USE_LOCAL_MODEL", "1")
-                .env("SHENKO_LOCAL_MODEL", "component-unavailable-binding")
+                .env("SHENKO_LOCAL_MODEL", "component-probe-model")
                 .env(
                     "SHENKO_LOCAL_MODEL_URL",
                     format!("http://127.0.0.1:{model_port}"),
@@ -941,8 +947,9 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
     fixture.set_edges(&[("a", "b"), ("b", "a"), ("b", "c"), ("c", "b")])?;
 
     // Startup may read capability metadata while the durable pause forbids
-    // inference. This owned peer refuses those GETs honestly and retains the
-    // actual wire; a POST or any other request still fails the journey.
+    // inference. This owned peer qualifies only the exact configured binding
+    // and retains the actual wire; a POST still fails the journey. An absent
+    // or refused model card no longer qualifies a configured process alone.
     let mut metadata = MetadataObserver::new(&fixture.logs())?;
     let ui_ports = [port()?, port()?, port()?];
     let boundary = EntityId::new();
@@ -1028,7 +1035,7 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
         ensure!(
             observed[index].presence.runtime_id.is_some()
                 && observed[index].presence.candidate.is_some() == (index == 1),
-            "configured candidacy differs from the actual Start environment"
+            "evidence-qualified candidacy differs from the actual Start environment"
         );
         ensure!(
             fixture.residents[index]
@@ -1127,7 +1134,7 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
             .iter()
             .any(|line| line == "GET /v1/models HTTP/1.1")
             && requests.iter().any(|line| line == "GET /metrics HTTP/1.1"),
-        "startup did not observe the actual metadata refusals"
+        "startup did not observe the actual model card and metrics response"
     );
     for index in 0..3 {
         fixture.stop_server(index)?;

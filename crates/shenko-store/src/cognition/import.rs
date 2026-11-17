@@ -14,7 +14,7 @@ use shenko_types::object::Digest;
 use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
 
 use crate::cognition_archive::{
-    CognitionFileDescriptor, CognitionFileOrigin, CognitionGitDescriptor, CognitionManifest,
+    CognitionFileDescriptor, CognitionFileOrigin, CognitionGap, CognitionGitDescriptor, CognitionManifest,
     CognitionRow, read_archive,
 };
 use crate::store::Store;
@@ -40,6 +40,20 @@ use super::{
     db, is_constraint_violation, storage_failure,
 };
 
+/// Verified, uninstalled archive bytes bound to the original receiving Store
+/// and options. This value carries no selection or mutation authority. Its
+/// private fields and consuming publication API prevent an external caller
+/// from substituting a manifest or moving a prepared import to another Store.
+pub struct PreparedCognitionImport {
+    target_incarnation: EntityId,
+    target_ledger: EntityId,
+    options: CognitionImportOptions,
+    manifest: CognitionManifest,
+    files: Vec<(CognitionFileDescriptor, Vec<u8>)>,
+    git_history: Option<(CognitionGitDescriptor, Vec<u8>)>,
+    gaps: Vec<CognitionGap>,
+}
+
 impl Store {
     /// Import a recovery snapshot.
     ///
@@ -57,7 +71,14 @@ impl Store {
     pub fn import_cognition_archive_under<R: Read>(&self, reader: R,
         options: &CognitionImportOptions,
         borrowed: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionImportOutcome> {
-        let peer_id = options.peer_id.unwrap_or(EntityId::nil());
+        let prepared = self.prepare_cognition_import(reader, options)?;
+        self.apply_prepared_cognition_import_under(prepared, borrowed)
+    }
+
+    /// Read, seal and verify the whole archive without taking a live mutation
+    /// permit. Publication still rechecks import order and all live conflicts.
+    pub fn prepare_cognition_import<R: Read>(&self, reader: R,
+        options: &CognitionImportOptions) -> Result<PreparedCognitionImport> {
         let mut files: Vec<(CognitionFileDescriptor, Vec<u8>)> = Vec::new();
         let mut git_history: Option<(CognitionGitDescriptor, Vec<u8>)> = None;
         let mut manifest = {
@@ -78,7 +99,6 @@ impl Store {
                 &mut git_history,
             )?
         };
-        let verified_objects = manifest.objects.len();
         let fingerprint = fingerprint_of_manifest(&manifest);
         ensure!(
             fingerprint == manifest.fingerprint,
@@ -128,6 +148,24 @@ impl Store {
                 blocking.join(", ")
             );
         }
+        Ok(PreparedCognitionImport {
+            target_incarnation: self.capabilities.incarnation,
+            target_ledger: self.ledger.ledger_id(), options: options.clone(),
+            manifest, files, git_history, gaps,
+        })
+    }
+
+    /// Consume verified bytes at their original receiver. An enclosing A/B
+    /// cutover can borrow its reservation without doing archive I/O inside it.
+    pub fn apply_prepared_cognition_import_under(&self, prepared: PreparedCognitionImport,
+        borrowed: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionImportOutcome> {
+        ensure!(prepared.target_incarnation == self.capabilities.incarnation
+            && prepared.target_ledger == self.ledger.ledger_id(),
+            "prepared cognition import belongs to another Store receiver");
+        let PreparedCognitionImport { options, manifest, files, git_history, gaps, .. } = prepared;
+        let peer_id = options.peer_id.unwrap_or(EntityId::nil());
+        let verified_objects = manifest.objects.len();
+        let fingerprint = manifest.fingerprint.clone();
         // Download/verification above holds no installed mutation lock. Only
         // the final live file/Git/row publication enters the shared domain,
         // before taking the existing import gate or either SQLite lock.
@@ -178,7 +216,7 @@ impl Store {
         // All required row conflicts are decided while the IMMEDIATE ledger
         // transaction is still held, before any file or Git publication.
         let (applied, verified_files, restored_git_history) =
-            self.apply_rows(&manifest, peer_id, &files, &git_history, options, permit)?;
+            self.apply_rows(&manifest, peer_id, &files, &git_history, &options, permit)?;
         let conflicts = applied.conflicts;
 
         self.record_receipt(

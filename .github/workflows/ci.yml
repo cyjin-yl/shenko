@@ -58,7 +58,7 @@ jobs:
       - name: Install native build prerequisites
         run: |
           apt-get update
-          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev openssh-server curl ca-certificates
+          apt-get install --yes --no-install-recommends python3 cmake clang libclang-dev pkg-config libssl-dev openssh-server curl ca-certificates
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> .ci/target/rust
@@ -116,7 +116,7 @@ jobs:
       - name: Install the same compiler and native prerequisites for both trees
         run: |
           apt-get update
-          apt-get install --yes --no-install-recommends python3 cmake clang pkg-config libssl-dev
+          apt-get install --yes --no-install-recommends python3 cmake clang libclang-dev pkg-config libssl-dev
           rustup component add clippy --toolchain 1.98.1
       - name: Resolve the independent event baseline
         id: base

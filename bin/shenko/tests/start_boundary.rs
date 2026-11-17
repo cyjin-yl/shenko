@@ -1,6 +1,6 @@
-//! One actual CLI/control journey. The HTTP observer closes the first real
-//! inference connection without generating an answer: this checks admission
-//! order and restart control, not model quality or a completed model task.
+//! One actual CLI/control journey. The HTTP observer holds the real inference
+//! connection until SIGINT closes the client's local transport: admission,
+//! owned shutdown and Unknown recovery, never a model-quality success claim.
 #![cfg(unix)]
 
 use std::{
@@ -71,7 +71,7 @@ impl OwnedRuntime {
         let status = self.wait_for(Duration::from_secs(30))?;
         ensure!(
             status.success(),
-            "paused runtime did not stop cleanly: {status}"
+            "runtime did not stop cleanly: {status}"
         );
         Ok(())
     }
@@ -97,6 +97,7 @@ struct Observer {
     hold_next_metadata: Arc<AtomicBool>,
     held_metadata: mpsc::Receiver<()>,
     closed_metadata: mpsc::Receiver<&'static str>,
+    closed_inference: mpsc::Receiver<&'static str>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<Result<()>>>,
 }
@@ -109,6 +110,7 @@ impl Observer {
         let (sent, requests) = mpsc::channel();
         let (held, held_metadata) = mpsc::channel();
         let (closed, closed_metadata) = mpsc::channel();
+        let (inference_closed, closed_inference) = mpsc::channel();
         let hold_next_metadata = Arc::new(AtomicBool::new(false));
         let holding = Arc::clone(&hold_next_metadata);
         let stop = Arc::new(AtomicBool::new(false));
@@ -198,7 +200,25 @@ impl Observer {
                         stream.write_all(body)?;
                     } else if headers.starts_with("POST /v1/chat/completions ") {
                         sent.send(wire[end + 4..end + 4 + length].to_vec())?;
-                        // No generated or terminal model answer is supplied.
+                        // No response, server timeout or deliberate peer
+                        // disconnect can unblock the runtime. Only its owned
+                        // SIGINT shutdown can close this local HTTP exchange.
+                        stream.set_read_timeout(Some(Duration::from_millis(100)))?;
+                        let deadline = Instant::now() + Duration::from_secs(40);
+                        let ending = loop {
+                            ensure!(!stopping.load(Ordering::Acquire), "inference observer stopped before the client");
+                            ensure!(Instant::now() < deadline, "client did not close held inference HTTP");
+                            match stream.read(&mut buffer) {
+                                Ok(0) => break "client_eof",
+                                Ok(_) => anyhow::bail!("unexpected bytes after the held inference POST"),
+                                Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock
+                                    | std::io::ErrorKind::TimedOut) => {},
+                                Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break "client_reset",
+                                Err(error) => return Err(error.into()),
+                            }
+                        };
+                        fs::write(logs.join("inference-cancelled.txt"), ending)?;
+                        inference_closed.send(ending)?;
                     } else {
                         stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")?;
                     }
@@ -213,6 +233,7 @@ impl Observer {
             hold_next_metadata,
             held_metadata,
             closed_metadata,
+            closed_inference,
             stop,
             worker: Some(worker),
         })
@@ -241,18 +262,16 @@ fn start(
     root: &Path,
     data_dir: &Path,
     port: u16,
-    boundary: EntityId,
+    boundary: Option<EntityId>,
     model: SocketAddr,
     label: &str,
 ) -> Result<OwnedRuntime> {
     let log = fs::File::create(root.join(format!("{label}.log")))?;
+    let mut command = command(data_dir);
+    command.arg("start").arg("--port").arg(port.to_string());
+    if let Some(boundary) = boundary { command.arg("--pause-at-start").arg(boundary.to_string()); }
     Ok(OwnedRuntime(
-        command(data_dir)
-            .arg("start")
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--pause-at-start")
-            .arg(boundary.to_string())
+        command
             .env("SHENKO_USE_LOCAL_MODEL", "1")
             .env("SHENKO_LOCAL_MODEL_URL", format!("http://{model}"))
             .env("SHENKO_LOCAL_MODEL", "dispatch-observer")
@@ -371,6 +390,8 @@ fn retain_observation(root: &Path, outcome: &Result<()>) -> Result<()> {
     } else {
         None
     };
+    let closed = root.join("inference-cancelled.txt");
+    let inference_connection_end = if closed.exists() { Some(fs::read_to_string(&closed)?) } else { None };
     fs::write(
         root.join("result.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
@@ -378,6 +399,8 @@ fn retain_observation(root: &Path, outcome: &Result<()>) -> Result<()> {
             "error":outcome.as_ref().err().map(|error| format!("{error:#}")),
             "source_revision":std::env::var("SHENKO_SOURCE_REVISION").ok(),
             "metadata_connection_end":metadata_connection_end,
+            "inference_connection_end":inference_connection_end,
+            "remote_completion_claimed":false,
             "model_completion_tested":false,
         }))?,
     )?;
@@ -401,7 +424,7 @@ fn journey(root: &Path) -> Result<()> {
     let port = listener.local_addr()?.port();
     drop(listener);
     let boundary = EntityId::new();
-    let mut runtime = start(root, &data_dir, port, boundary, observer.address, "first")?;
+    let mut runtime = start(root, &data_dir, port, Some(boundary), observer.address, "first")?;
     let first = ready(&mut runtime, port).with_context(|| runtime_log(root, "first"))?;
     let paused = control(&data_dir, "status", boundary)?;
     ensure!(paused["state"] == "paused" && paused["boundary_at"].is_object());
@@ -430,7 +453,7 @@ fn journey(root: &Path) -> Result<()> {
         root,
         &data_dir,
         port,
-        boundary,
+        Some(boundary),
         observer.address,
         "metadata-stopped",
     )?;
@@ -472,7 +495,7 @@ fn journey(root: &Path) -> Result<()> {
         root,
         &data_dir,
         port,
-        boundary,
+        Some(boundary),
         observer.address,
         "restarted",
     )?;
@@ -497,12 +520,44 @@ fn journey(root: &Path) -> Result<()> {
         request["model"] == "dispatch-observer" && request["stream"] == true,
         "resume did not admit the actual local-provider HTTP request"
     );
-    // The observer closes the original generation without terminal evidence.
-    // The real UI must remain up, report a blocked subject, and retain its
-    // installation identity; an unknown request must not be resent.
+    ensure!(observer.closed_inference.try_recv().is_err(), "inference peer closed before SIGINT");
+    reopened.stop().with_context(|| runtime_log(root, "restarted"))?;
+    observer.closed_inference.recv_timeout(Duration::from_secs(5))
+        .with_context(|| runtime_log(root, "restarted"))?;
+    drop(reopened);
+
+    let agent: EntityId = first["subject_id"].as_str().context("subject identity")?.parse()?;
+    let (request_id, attempt_id, terminal_ref) = {
+        let store = Arc::new(shenko_store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?);
+        let (_, step) = store.load_subject(agent)?;
+        ensure!(step.state == shenko_types::subject::SubjectStepState::AwaitingModel,
+            "shutdown manufactured a committed decision for the held generation");
+        let request_id = step.active_request_id.context("held request identity")?;
+        let attempt = store.subject_request_attempt(request_id)?.context("held request attempt")?;
+        let terminal = attempt.terminal.context("shutdown did not retain original Unknown evidence")?;
+        ensure!(terminal.outcome["termination"]["kind"] == "unknown");
+        let result_ref = terminal.result_ref.context("original Unknown result seal")?;
+        let result: shenko_broker::request::InferenceResult = serde_json::from_slice(&store.cas.read_object(&result_ref.digest)?)?;
+        ensure!(result.request_id == request_id && result.termination.kind == shenko_broker::request::TerminationKind::Unknown);
+        let provider = shenko_broker::local_provider::LocalModelProvider::new(
+            format!("http://{}", observer.address), "dispatch-observer".into());
+        let (_broker, handle) = shenko_broker::broker::Broker::with_local_provider(provider, 1)?;
+        shenko_subject::loop_runner::restore_inference_accounting(&store, agent, &handle)?;
+        ensure!(handle.active_count() == 1, "original Unknown debt was absent before any new dispatch");
+        fs::write(root.join("inference-shutdown.json"), serde_json::to_vec_pretty(&serde_json::json!({
+            "request_id":request_id,"attempt_id":attempt.attempt_id,"termination":result.termination,
+            "recovered_compute_debt":handle.active_count(),"remote_stopped":false,"result_ref":result_ref,
+        }))?)?;
+        (request_id, attempt.attempt_id, result_ref)
+    };
+
+    // Reopen the exact uncertain request, with its original identity and
+    // physical debt already restored. The UI remains available and blocked;
+    // no replacement generation or S1 is invented by process restart.
+    let mut reopened = start(root, &data_dir, port, None, observer.address, "unknown-reopened")?;
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let status = ready(&mut reopened, port).with_context(|| runtime_log(root, "restarted"))?;
+        let status = ready(&mut reopened, port).with_context(|| runtime_log(root, "unknown-reopened"))?;
         if status["status"] == "blocked" {
             ensure!(status["subject_id"] == first["subject_id"]);
             ensure!(status["blocked_reason"].is_string());
@@ -513,9 +568,14 @@ fn journey(root: &Path) -> Result<()> {
     }
     ensure!(observer.requests.try_recv().is_err(), "unknown generation was replayed");
     reopened
-        .kill_and_join()
-        .with_context(|| runtime_log(root, "restarted"))?;
+        .stop()
+        .with_context(|| runtime_log(root, "unknown-reopened"))?;
     drop(reopened);
+    let store = shenko_store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+    let attempt = store.subject_request_attempt(request_id)?.context("original attempt disappeared")?;
+    ensure!(attempt.attempt_id == attempt_id && attempt.terminal.and_then(|terminal| terminal.result_ref) == Some(terminal_ref));
+    ensure!(observer.requests.try_recv().is_err(), "Unknown shutdown request was resent during reopen");
+    drop(store);
     observer.finish()?;
     drop(observer);
     Ok(())

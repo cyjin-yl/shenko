@@ -114,7 +114,7 @@ async fn nested_siblings_share_durable_budget_and_leave_room_for_final_text() ->
     let endpoint = format!("http://{}", listener.local_addr()?);
     let nested = serde_json::json!({
         "goal":"Read the supplied fact.", "system_prompt":"Return a finite observation.",
-        "model":"nested-child", "max_tokens":64,
+        "model":"nested-child", "profile_id":"local.openai.chat_completions", "max_tokens":64,
         "budget":{"max_total_tokens":512,"max_steps":1,"max_tool_calls":0},
     });
     let batch = format!("[tool:model.child:1] {nested}\n[tool:model.child:1] {nested}");
@@ -586,25 +586,74 @@ async fn drive_until(
 
 #[tokio::test]
 async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results() {
+    use shenko_broker::{
+        admission::CapacityProvenance,
+        provider::AnthropicProvider,
+        registry::ProviderRegistry,
+        request::ProviderBinding,
+        resource::{ExternalClientUsage, ResourceDomain, ResourceDomainIdentity},
+    };
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let other_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let other_endpoint = format!("http://{}", other_listener.local_addr().unwrap());
     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let other_wires = wires_tx.clone();
     let server = tokio::spawn(async move {
-        for _ in 0..2 {
-            let (mut socket, wire) = read_wire(&listener).await;
-            reply(&mut socket, wire["model"].as_str().unwrap()).await;
-            wires_tx.send(wire).unwrap();
-        }
+        let (mut socket, wire) = read_wire(&listener).await;
+        assert_eq!(wire["model"], "child-a", "omitting profile_id keeps the original transport");
+        reply(&mut socket, wire["model"].as_str().unwrap()).await;
+        wires_tx.send(wire).unwrap();
     });
-    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1).unwrap();
+    let other_server = tokio::spawn(async move {
+        let (mut socket, wire) = read_wire(&other_listener).await;
+        assert_eq!(wire["model"], "child-b", "explicit profile reaches its own endpoint and protocol");
+        let raw = serde_json::json!({
+            "id":"scripted-other-provider", "type":"message", "role":"assistant",
+            "content":[{"type":"text","text":"scripted answer for child-b"}],
+            "stop_reason":"end_turn", "usage":{"input_tokens":12,"output_tokens":7},
+        }).to_string();
+        socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+        other_wires.send(wire).unwrap();
+    });
+    let make_domain = |id: &str| ResourceDomain::new(ResourceDomainIdentity {
+        domain_id: id.into(), engine_identity: id.into(), engine_incarnation: None, epoch: 1,
+    }, 1, CapacityProvenance::Configured, None, CapacityProvenance::Unknown);
+    let local_domain = make_domain("fixture.local");
+    let other_domain = make_domain("fixture.other");
+    let registry = Arc::new(ProviderRegistry::new());
+    registry.install(Arc::new(LocalModelProvider::new(endpoint.clone(), "subject-model".into())));
+    let mut profile = AnthropicProvider::with_endpoint("fixture-key".into(), other_endpoint, "configured-other-model").profile().clone();
+    profile.profile_id = "fixture.anthropic.child".into();
+    profile.resource_domain_id = "fixture.other".into();
+    let other_binding = profile.binding();
+    registry.install(Arc::new(AnthropicProvider::with_profile(profile, "fixture-key".into()).unwrap()));
+    let (broker, handle) = Broker::with_registry(registry, Arc::clone(&local_domain));
+    handle.domains().register(Arc::clone(&other_domain)).unwrap();
+    let other_handle = handle.for_binding(&other_binding).unwrap();
+    assert_eq!(other_handle.domain().identity().domain_id, "fixture.other");
+    assert_eq!(other_handle.for_binding(handle.binding()).unwrap().domain().identity().domain_id, "fixture.local");
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
     let first = delegation("child-a", "Independent analyst. Keep literal evidence.", "Explain the supplied alpha evidence.", 96);
     let second = delegation("child-b", "Independent critic. Question assumptions.", "Review the supplied beta assumptions.", 128);
+    let mut second: serde_json::Value = serde_json::from_str(second.strip_prefix("[delegate] ").unwrap()).unwrap();
+    second["profile_id"] = serde_json::json!("fixture.anthropic.child");
+    let second = format!("[delegate] {second}");
     commit_output(&store, &mut subject, 1, &[], &format!("{first}\n{second}\n两项有限研究已委派。")).await;
     let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    local_domain.register_external_client(ExternalClientUsage {
+        client_ref: "busy-local-engine".into(), units: 1, enforceable: true, evidence: Some("fixture reservation".into()),
+    });
     let run = tokio::spawn(broker.run());
+    drive_until(&native, || store.ready_native_results(agent, 8).unwrap().len() == 1,
+        || "other provider must progress while the original physical domain is full".into()).await;
+    assert_eq!(store.ready_native_results(agent, 8).unwrap()[0].result.as_ref().unwrap()["provider_binding"]["profile"]["profile_id"], "fixture.anthropic.child");
+    assert_eq!(handle.active_count(), 0, "another physical domain does not charge the original engine");
+    assert_eq!(other_handle.active_count(), 0, "the other provider settled its own charge");
+    assert!(local_domain.release_external_client("busy-local-engine"));
     drive_until(
         &native,
         || store.ready_native_results(agent, 8).unwrap().len() == 2,
@@ -627,6 +676,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     ).await;
     let wires = [wires_rx.recv().await.unwrap(), wires_rx.recv().await.unwrap()];
     server.await.unwrap();
+    other_server.await.unwrap();
     let results = store.ready_native_results(agent, 8).unwrap();
     for wire in &wires {
         let (semantic, goal, cap) = match wire["model"].as_str().unwrap() {
@@ -636,10 +686,15 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
         };
         // The child's own system prompt is the role contract, the authored
         // semantic prompt and the installed tool catalog.
-        assert!(wire["messages"][0]["content"].as_str().unwrap().contains(semantic));
-        assert_eq!(wire["messages"][1]["content"], goal);
+        let sent_prompt = wire.get("system").unwrap_or(&wire["messages"][0]["content"]);
+        let goal_index = if wire.get("system").is_some() { 0 } else { 1 };
+        assert!(sent_prompt.as_str().unwrap().contains(semantic));
+        assert_eq!(wire["messages"][goal_index]["content"], goal);
         assert_eq!(wire["max_tokens"], cap);
-        let result = results.iter().find(|result| result.result.as_ref().unwrap()["provider_binding"]["model"] == wire["model"]).unwrap();
+        let result = results.iter().find(|result| {
+            let binding: ProviderBinding = serde_json::from_value(result.result.as_ref().unwrap()["provider_binding"].clone()).unwrap();
+            binding.model() == wire["model"].as_str().unwrap()
+        }).unwrap();
         assert!(matches!(result.outcome, TaskOutcome::Succeeded));
         assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
         assert!(result.result.as_ref().unwrap()["answer"].as_str().unwrap().contains(&format!(
@@ -658,11 +713,17 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
         assert_ne!(operation.contract_ref.receipt_reader_ref.schema.digest, artifact.digest);
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&operation.input_digest).unwrap()).unwrap();
         assert_eq!(frozen["spec"]["system_prompt"], semantic);
-        assert_eq!(frozen["provider_binding"]["model"], wire["model"]);
+        let frozen_binding: ProviderBinding = serde_json::from_value(frozen["provider_binding"].clone()).unwrap();
+        assert_eq!(frozen_binding.model(), wire["model"].as_str().unwrap());
+        assert_eq!(frozen["schema_version"], 4);
+        assert_eq!(frozen["child_provider_bindings"].as_array().unwrap().len(), 2);
+        if wire["model"] == "child-b" {
+            assert_eq!(frozen_binding, other_binding.with_model("child-b").unwrap());
+        }
         // The model step is its own durable operation with its own frozen payload.
         let step = child_step(&store, result.task_id);
         let step_input: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&step.final_input_ref.digest).unwrap()).unwrap();
-        assert_eq!(step_input["payload"]["system_prompt"], wire["messages"][0]["content"]);
+        assert_eq!(&step_input["payload"]["system_prompt"], sent_prompt);
         assert_eq!(step_input["max_tokens"], cap);
         assert_eq!(step_input["step_index"], 0);
         assert_eq!(store.external_operation_attempts(result.operation_id).unwrap().len(), 1);
@@ -1361,25 +1422,30 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
         Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
             .unwrap();
     let mut subject = state(reopened.clone(), agent).unwrap().with_broker(handle.clone());
-    commit_output(
-        &reopened,
-        &mut subject,
-        2,
-        &[],
-        &format!(
-            "[delegate] {}",
-            serde_json::json!({
-                "goal": "观察一次实验并交回结论。",
-                "system_prompt": "只报告观察事实。",
-                "model": "question-child",
-                "max_tokens": 64,
-                "budget": {"max_total_tokens": 448, "max_steps": 4, "max_tool_calls": 4},
-                "continue_task_id": task.task_id,
-                "owner_answer": "数据集是 alpha。",
-            })
-        ),
-    )
-    .await;
+    let continuation = format!("[delegate] {}", serde_json::json!({
+        "goal": "观察一次实验并交回结论。", "system_prompt": "只报告观察事实。",
+        "model": "question-child", "max_tokens": 64,
+        "budget": {"max_total_tokens": 448, "max_steps": 4, "max_tool_calls": 4},
+        "continue_task_id": task.task_id, "owner_answer": "数据集是 alpha。",
+    }));
+    let stop_before_generation = tokio_util::sync::CancellationToken::new();
+    stop_before_generation.cancel();
+    execute_step(2, &[], &mut subject, &stop_before_generation).await?;
+    record_result(&reopened, &mut subject, &format!("{continuation}\n{continuation}"));
+    assert!(execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await?.is_none(),
+        "two continuations cannot both receive the same remainder");
+    assert_eq!(reopened.model_child_budget_usage(task.task_id)?.reserved_tokens, 64,
+        "rejected batch creates no partial transfer");
+    assert!(reopened.native_task_candidates_after(None, 8)?.is_empty());
+    record_result(&reopened, &mut subject, &continuation);
+    execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await?
+        .context("one corrected continuation is atomically admitted")?;
+    assert_eq!(reopened.model_child_budget_usage(task.task_id)?.reserved_tokens, 512);
+    assert_eq!(reopened.model_child_budget_usage(task.task_id)?.reserved_tool_calls, 4);
+    let reservation_reader = Store::open(dir.join("store.db"), dir.join("cas"))?;
+    assert_eq!(reservation_reader.model_child_continuation_remaining_budget(task.task_id)?.max_total_tokens, 0,
+        "restart retains the entire transfer before any new generation executes");
+    drop(reservation_reader);
     let continued = reopened
         .native_task_candidates_after(None, 8)
         .unwrap()

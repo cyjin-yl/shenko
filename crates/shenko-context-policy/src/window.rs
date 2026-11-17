@@ -112,8 +112,10 @@ impl CommittedWindow {
         let mut restore_ranges = Vec::new();
         for unit in units(&calls) {
             let slice = &calls[unit];
-            let from = slice.first().expect("nonempty call unit").at.seq;
-            let to = slice.last().expect("nonempty call unit").at.seq;
+            let (Some(first), Some(last)) = (slice.first(), slice.last()) else {
+                return Err(StorageError("call metadata unit is empty".into()));
+            };
+            let (from, to) = (first.at.seq, last.at.seq);
             if lossy.iter().any(|(start, end)| from <= *end && to >= *start)
                 && slice.iter().any(|item| match &item.kind {
                     ItemKind::ToolCall { call_id, .. } | ItemKind::ToolResult { call_id, .. } => changed.contains(call_id),

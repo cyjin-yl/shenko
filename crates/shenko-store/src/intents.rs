@@ -21,8 +21,22 @@ CREATE TABLE IF NOT EXISTS subject_intents(
  state TEXT NOT NULL, owner TEXT, revision INTEGER NOT NULL DEFAULT 0,
  created_seq INTEGER NOT NULL, updated_seq INTEGER NOT NULL, result_ref TEXT);
 CREATE INDEX IF NOT EXISTS subject_intents_ready ON subject_intents(state,kind,created_seq,intent_id);
+CREATE INDEX IF NOT EXISTS subject_intents_continued_child ON subject_intents(kind,json_extract(payload,'$.definition.kind'),json_extract(payload,'$.definition.input.continued_from'));
 CREATE TABLE IF NOT EXISTS subject_dispatch_owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner TEXT NOT NULL);
 "#;
+
+/// Read the selector identity without replacing any of the frozen transport,
+/// credential, revision or physical-resource fields. The broker owns the typed
+/// provider contract; Store compares the complete admitted JSON binding.
+fn child_binding_profile_id(binding: &serde_json::Value) -> Option<&str> {
+    match binding.get("kind")?.as_str()? {
+        "local" => Some("local.openai.chat_completions"),
+        "anthropic" => Some("anthropic.messages"),
+        "stub" => Some("provider.unavailable"),
+        "profile" => binding.pointer("/profile/profile_id")?.as_str(),
+        _ => None,
+    }
+}
 
 /// The operation a subject memory intent names.
 fn memory_intent_operation(kind: MemoryIntentKind) -> &'static str {
@@ -207,7 +221,7 @@ impl Store {
         }
         for intent in &decision.delegated_task_intents {
             if !historical && intent.definition.as_ref().is_some_and(|definition| definition.kind == "model.child") {
-                self.validate_model_child_intent(tx, head, step, decision, intent)?;
+                self.validate_model_child_intent(tx, head, step, decision, intent, commit)?;
             }
             let contract = intent.definition.as_ref().map_or_else(
                 || "shenko.task/delegation-queue/1".to_string(),
@@ -485,7 +499,7 @@ impl Store {
 
     fn validate_model_child_intent(
         &self, tx: &Transaction<'_>, head: &SubjectBranchHead, step: &SubjectStep,
-        decision: &StepDecision, intent: &DelegationIntent,
+        decision: &StepDecision, intent: &DelegationIntent, commit: CommitRef,
     ) -> Result<(), shenko_types::error::ShenkoError> {
         use shenko_types::{error::ShenkoError, output::ModelChildBudget, output::OutputAction};
         let invalid = || ShenkoError::conflict("model child is not bound to its authored control and exact S0 transport/budget");
@@ -494,11 +508,40 @@ impl Store {
             match &control.action { OutputAction::DelegateModel { spec } => Some(spec.as_ref()), _ => None }
         }).ok_or_else(invalid)?;
         let plan: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
-        let mut binding = plan.get("provider_binding").cloned().ok_or_else(invalid)?;
-        if !matches!(binding.get("kind").and_then(|value| value.as_str()), Some("local" | "anthropic")) {
-            return Err(invalid());
+        let plan_schema = plan.get("schema_version").and_then(serde_json::Value::as_u64);
+        let frozen_routes = if plan_schema == Some(15) {
+            let routes = plan.get("child_provider_bindings")
+                .and_then(serde_json::Value::as_array).ok_or_else(invalid)?;
+            let mut profiles = std::collections::BTreeSet::new();
+            for route in routes {
+                if !profiles.insert(child_binding_profile_id(route).ok_or_else(invalid)?) {
+                    return Err(invalid());
+                }
+            }
+            Some(routes)
+        } else {
+            // Older S0 has no explicit routing semantics. Never interpret a
+            // newer live registry or an extra JSON field as an old grant.
+            if plan.get("child_provider_bindings").is_some() { return Err(invalid()); }
+            None
+        };
+        let selected = match spec.profile_id.as_deref() {
+            Some(profile_id) => {
+                if profile_id.trim().is_empty() || profile_id.len() > 512
+                    || profile_id.chars().any(char::is_control) { return Err(invalid()); }
+                frozen_routes.ok_or_else(invalid)?.iter()
+                    .find(|binding| child_binding_profile_id(binding) == Some(profile_id))
+                    .ok_or_else(invalid)?
+            }
+            None => plan.get("provider_binding").ok_or_else(invalid)?,
+        };
+        let mut binding = selected.clone();
+        match binding.get("kind").and_then(serde_json::Value::as_str) {
+            Some("local" | "anthropic") => binding["model"] = serde_json::json!(spec.model),
+            Some("profile") if binding.get("profile").is_some_and(serde_json::Value::is_object) =>
+                binding["profile"]["model_id"] = serde_json::json!(spec.model),
+            _ => return Err(invalid()),
         }
-        binding["model"] = serde_json::json!(spec.model);
         // Defaults do not cap an authored child request. Check its finite
         // budget here; actual provider/resource admission belongs to the broker.
         let budget = ModelChildBudget::resolve(spec);
@@ -528,12 +571,16 @@ impl Store {
             .get("schema_version")
             .and_then(|value| value.as_u64())
             .ok_or_else(invalid)?;
-        if !matches!(contract_schema, 2 | 3) {
+        if !matches!(contract_schema, 2..=4)
+            || (contract_schema == 4) != frozen_routes.is_some()
+            || input.get("child_provider_bindings") != plan.get("child_provider_bindings")
+        {
             return Err(invalid());
         }
         // A continued run may only continue a FINISHED model child of the
         // same subject. Its recorded transcript is reused, so the owner
         // answers a real question instead of starting a second discussion.
+        let mut continuation = None;
         if let Some(continued) = spec.continue_task_id {
             // S1 already holds ledger.conn. Read within its transaction;
             // external_task would re-lock the same non-reentrant mutex.
@@ -550,6 +597,7 @@ impl Store {
             {
                 return Err(invalid());
             }
+            continuation = Some(previous);
         } else if spec.owner_answer.is_some() {
             return Err(invalid());
         }
@@ -612,6 +660,30 @@ impl Store {
             || serde_json::to_value(&intent.reply_grant)? != granted_value
         {
             return Err(invalid());
+        }
+        if let Some(mut previous) = continuation {
+            let original_budget = self.model_child_budget(&previous)
+                .map_err(crate::store::storage_error)?;
+            let mut usage = self.model_child_budget_usage_tx(tx, &previous)
+                .map_err(crate::store::storage_error)?;
+            usage.charge(&original_budget, budget.max_total_tokens, budget.max_tool_calls)
+                .map_err(|error| ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+                    "CONTROL_PROTOCOL_INVALID", shenko_types::error::ErrorScope::Request,
+                    shenko_types::error::RetryStrategy::NewRevision,
+                ).with_details(serde_json::json!({
+                    "intent_id": intent.intent_id, "continue_task_id": previous.task_id,
+                    "reason": error.to_string(),
+                }))))?;
+            let mut reservations = self.model_child_continuation_reservations_tx(tx, &previous)
+                .map_err(crate::store::storage_error)?;
+            if reservations.insert(intent.intent_id, budget).is_some() { return Err(invalid()); }
+            previous.memos.insert(crate::model_child_budget::CONTINUATION_RESERVATIONS.into(),
+                serde_json::to_value(reservations)?);
+            previous.record_revision = previous.record_revision.next();
+            previous.updated_commit = commit;
+            // This old task's revision is a consuming S1 position, so another
+            // admitted continuation cannot transfer the same remainder.
+            crate::child::write_task(tx, &previous).map_err(crate::store::storage_error)?;
         }
         Ok(())
     }

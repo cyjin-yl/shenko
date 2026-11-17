@@ -11,6 +11,9 @@ pub(crate) struct RuntimeState {
     pub(crate) active_authority: Option<Arc<runtime_authority::RuntimeAuthority>>,
     pub(crate) authority_heartbeat: Option<tokio::task::JoinHandle<Result<()>>>,
     pub(crate) model_health_monitor: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) hook_pump: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) inference: Option<crate::runtime_inference::InferenceTask>,
+    pub(crate) native_child: Option<Arc<shenko_subject::NativeChildService>>,
     pub(crate) startup_pause_applied: bool,
 }
 
@@ -49,8 +52,33 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
         command, data_dir, &supervisor, &identity_context, &identity_service, &mut state,
     ).await;
     *startup_pause_applied = state.startup_pause_applied;
-    if let Some(monitor) = state.model_health_monitor.take() {
-        monitor.await?;
+    if let Some(children) = &state.native_child { children.request_stop(); }
+    // The decision loop may leave AwaitingModel on shutdown. Its broker still
+    // owns the actual local provider future and original durable receipt; join
+    // that owner before plugins and the Store can disappear.
+    let result = match state.inference.take() {
+        Some(inference) => match inference.join().await {
+            Ok(()) => result,
+            Err(cleanup) => Err(match result {
+                Ok(()) => cleanup,
+                Err(error) => error.context(format!("inference teardown also failed: {cleanup:#}")),
+            }),
+        },
+        None => result,
+    };
+    let mut result = result;
+    for (name, worker) in [
+        ("model health monitor", state.model_health_monitor.take()),
+        ("runtime hook pump", state.hook_pump.take()),
+    ] {
+        if let Some(worker) = worker
+            && let Err(cleanup) = worker.await
+        {
+            result = Err(match result {
+                Ok(()) => anyhow::Error::from(cleanup).context(format!("{name} teardown failed")),
+                Err(error) => error.context(format!("{name} teardown also failed: {cleanup}")),
+            });
+        }
     }
     // Start's cancellation guard has stopped observations on every normal or
     // error exit. Join their last blocking write before runtime/owner teardown.
@@ -89,10 +117,12 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
     };
     // Classify once, after cleanup can no longer replace a genuine storage
     // failure with an earlier authority-recovery wrapper.
-    match state.active_authority {
+    let result = match state.active_authority {
         Some(authority) => authority.finish_result(result),
         None => result,
-    }
+    };
+    if result.is_ok() { tracing::info!("runtime services stopped; owned local workers joined"); }
+    result
 }
 
 /// Dispatch the runtime's own changes into the live hook graph.
@@ -122,8 +152,8 @@ pub(super) fn spawn_runtime_hook_pump(
             // the pump never blocks teardown.
             tokio::select! {
                 _ = cancel.cancelled() => break,
-                changed = revisions.changed() => {
-                    if changed.is_err() {
+                _changed = revisions.changed() => {
+                    if _changed.is_err() {
                         break;
                     }
                 }

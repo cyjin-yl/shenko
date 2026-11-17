@@ -9,16 +9,20 @@ use shenko_types::inbox::InboxEvent;
 pub struct Inbox {
     tx: mpsc::Sender<InboxEvent>,
     rx: Mutex<mpsc::Receiver<InboxEvent>>,
+    closing: tokio_util::sync::CancellationToken,
 }
 
 impl Inbox {
     pub fn new(capacity: usize) -> Self {
         let (tx, rx) = mpsc::channel(capacity);
-        Self { tx, rx: Mutex::new(rx) }
+        Self { tx, rx: Mutex::new(rx), closing: tokio_util::sync::CancellationToken::new() }
     }
 
     /// Stop new in-memory admissions even while an owning Arc survives in main.
-    pub async fn close(&self) { self.rx.lock().await.close(); }
+    pub async fn close(&self) {
+        self.closing.cancel();
+        self.rx.lock().await.close();
+    }
 
     pub fn sender(&self) -> mpsc::Sender<InboxEvent> { self.tx.clone() }
 
@@ -41,7 +45,12 @@ impl Inbox {
         let deadline = tokio::time::Instant::now()
             + tokio::time::Duration::from_millis(timeout_ms);
         loop {
-            match tokio::time::timeout_at(deadline, rx.recv()).await {
+            let received = tokio::select! {
+                biased;
+                _ = self.closing.cancelled() => break,
+                _received = tokio::time::timeout_at(deadline, rx.recv()) => _received,
+            };
+            match received {
                 Ok(Some(ev)) => {
                     events.push(ev);
                     if events.len() >= max { break; }

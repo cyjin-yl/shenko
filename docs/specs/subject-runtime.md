@@ -25,6 +25,7 @@ explicitly instead of being implied.
 Owner: the subject slice (`shenko-subject` loop/context/dispatch/inbox/output,
 `shenko-types` subject types, `shenko-store` step/head/request/state).
 
+<a id="subject-interactive-ingress-20261117"></a>
 ## Background self-modification and interactive ingress — 2026-11-17
 
 Source: the author's current instruction, retained in [Issue #326](https://github.com/cyjin-yl/shenko/issues/326):
@@ -274,7 +275,7 @@ store at S1.
 
 | Control | Durable effect |
 | --- | --- |
-| `[dispose]` | the per-event disposition, its reason, its priority and its review time. Every selected event is disposed explicitly; an event the model did not mention is acknowledged, never silently dropped. |
+| `[dispose]` | the per-event disposition, its reason, its priority and its review time. Every selected event receives a durable disposition. An omitted event receives system-recorded `Deferred` with an explicit absence-of-decision reason and remains pending, subject to review times and source pauses; explicit `Ignored` remains terminal. See the [current input contract](#subject-interactive-ingress-20261117). |
 | `[obligation]` | a durable commitment retained until a later committed step completes or cancels it; a bounded working frontier is selected for S0, and full bodies remain queryable. Due facts enter through the existing typed self-wake path. |
 | `[dialogue]` | an authored turn to a durable task. |
 | `[dnd]` | the subject's own attention decision. `off` requires the silenced sources and a review time; an unbounded silent switch is refused at S1 admission. |
@@ -282,7 +283,34 @@ store at S1.
 
 ## R0 rejection and correction
 
-A correction is a new request with a newly counted complete payload and the
+New `ControlOutputRejection` body/codec version 3 records its explicit
+`PinnedCorrection` or `ReselectInput` mode. A subject may make at most two
+corrections that pin the same input selection. The bounded count follows the
+actual `correction_observation.parent_input_ref` chain, so provider retry reasons
+and restarts cannot reset it. A fresh, unpaused interactive input outside the
+original S0 opens `ReselectInput` immediately at the next conclusive rejection.
+The Store checks the source/disposition and this decision again inside R0.
+
+`ReselectInput` atomically retires the invalid result and creates a `Planned`
+replacement at the same logical step number, without a request or S0 seal. It
+restores delivery readiness for the original selected events that have no
+terminal disposition; staging's `consumed` flag was never an acknowledgement.
+The ordinary next S0 can then select fresh IM plus the still-pending originals.
+The rejected text, original input seal, terminal outcome and canonical feedback
+remain intact. R0 admits no control, memory write, publication or S1 disposition
+from any rejected attempt, and consumes no contribution for an unsealed plan.
+
+Only an exact recorded provider terminal permits this boundary: a complete
+result or an explicit terminal token-limit/refusal/tool-use stop. Missing or
+unknown termination, a local timeout and storage failures never prove that a
+request ended. Existing version-2 rejection records keep their pinned-correction
+meaning. A newly rejected legacy 12/13 input without an explicit parent boundary
+opens a current-format input selection instead of inventing missing provenance.
+While a correction's owned context worker is pending, the serial loop revisits
+durable interactive ingress at a bounded interval; retirement drops that worker
+so it cannot publish against the replacement selection.
+
+A pinned correction is a new request with a newly counted complete payload and the
 original output reservation. The recorded result and its terminal evidence stay
 `ResultRecorded` while an owned policy preparation is pending. Cancellation drops
 that owner; it does not retire the original step, mint an admitted replacement,
@@ -340,9 +368,9 @@ discovered late and it is not a reason to kill the subject.
 * Rejection retires the step: the original sealed input, the exact model
   text, the sealed outcome and a `StepRejection` record are all durable. The
   rejection names its replacement step; the next attempt gets a NEW request
-  identity. A correction re-seals the same selected events, so a crash
-  between retire and reopen still reconstructs the correction from the
-  durable facts alone.
+  identity. A pinned correction re-seals the same selected events; an explicit
+  input reselection restores their delivery readiness. A crash between retire
+  and reopen reconstructs either mode from durable facts alone.
 * The model's own text is preserved verbatim — including any `[remember]` or
   other controls it wrote alongside the invalid disposition or obligation. They were never
   committed; they are not adopted into the correction either. The subject
@@ -685,3 +713,21 @@ child 进度、结果产物、任务终态、对话投递、渠道发送分别�
 ## 元感知接续与主流连续性
 
 [默认元感知接续合同](../decisions/0006-meta-perception-continuation-2026-11-11.md)中的有限试用是主流可发起的工作，不把主主体变成有限任务。主体可调整观察频率与退避；持续思考、语义等待、真实容量等待和进程暂停仍按本领域各自的合同表达。最小单机闭环要求实际输入、有限 child、真实结果、输出或回执和重启接续彼此连接；可选看门狗不能代替这条原生轨迹，也不能据此关闭完整 S1–S5。
+
+
+### Bounded due-obligation dispatch
+
+Each dispatcher pass reads at most 16 open, due obligations through an indexed
+keyset page. Future and undated obligations are filtered in SQL before `LIMIT`;
+the `(agent_id, due instant, obligation_id)` partial index avoids a whole-open-set
+scan. A sweep retains its initial local row watermark, so continuous new creation
+or imported older facts cannot keep it from wrapping fairly to earlier due facts. The
+only in-memory scan state is its cursor, independent of the number of promises.
+
+The exact obligation/due instant still derives the original deterministic wake
+identity and original body. Only a newly inserted durable inbox row emits a
+best-effort volatile wake. Replay neither re-sends an acknowledged wake nor
+resets any disposition; a missed/full channel recovers through ordinary durable
+pending selection. A failed partial page retains its previous cursor and safely
+retries admission, whose already-written rows return Replay. Restart starts a
+new sweep without duplicating any due fact.

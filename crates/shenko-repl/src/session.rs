@@ -197,7 +197,7 @@ impl WasiReplProvider {
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
         Ok(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
-            oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: preview_len(request.preview_bytes) })
+            oneshot_cancel: None, cancellation: Default::default(), execution: None, disposed: false, quiesced: false, preview_bytes: preview_len(request.preview_bytes) })
     }
 
 }
@@ -435,7 +435,7 @@ pub fn open_session(dir: &Path, preview_bytes: usize) -> Result<WasiReplSession>
         bail!("REPL_JOURNAL_CORRUPT: reset boundary without declared state");
     }
     let mut session = WasiReplSession {
-        dir, busy: None, oneshot_cancel: None, cancellation: Default::default(), disposed: manifest.disposed_unix_ms.is_some(), quiesced: false,
+        dir, busy: None, oneshot_cancel: None, cancellation: Default::default(), execution: None, disposed: manifest.disposed_unix_ms.is_some(), quiesced: false,
         preview_bytes: preview_len(preview_bytes), manifest, engine, state, journal,
     };
     if session.journal.pending_reset.is_some() {
@@ -638,6 +638,53 @@ fn validate_fork_destination(source_session: &Path, destination: &Path) -> Resul
     Ok(())
 }
 
+/// Cancellation belongs to one native invocation, including its wait for a
+/// session. It binds a guest only after that invocation owns the session lock.
+/// Cancelling a queued invocation can never signal another task's interpreter.
+#[derive(Clone, Default)]
+pub(crate) struct ExecutionControl {
+    state: std::sync::Arc<parking_lot::Mutex<ExecutionControlState>>,
+}
+
+#[derive(Default)]
+struct ExecutionControlState {
+    cancelled: bool,
+    guest: Option<WasiCancellation>,
+    owns_resident: bool,
+}
+
+impl ExecutionControl {
+    pub(crate) fn cancel(&self) {
+        let mut state = self.state.lock();
+        state.cancelled = true;
+        if let Some(guest) = &state.guest { guest.cancel(); }
+    }
+
+    fn is_cancelled(&self) -> bool { self.state.lock().cancelled }
+
+    fn owns_resident(&self) -> bool { self.state.lock().owns_resident }
+
+    fn retain_resident(&self) { self.state.lock().owns_resident = true; }
+
+    pub(crate) fn check(&self) -> Result<()> {
+        if self.is_cancelled() { bail!("REPL_EXECUTION_CANCELLED: native invocation was stopped"); }
+        Ok(())
+    }
+
+    fn bind(&self, guest: WasiCancellation) -> ExecutionGuest {
+        let mut state = self.state.lock();
+        if state.cancelled { guest.cancel(); }
+        state.guest = Some(guest);
+        ExecutionGuest(self.clone())
+    }
+}
+
+struct ExecutionGuest(ExecutionControl);
+
+impl Drop for ExecutionGuest {
+    fn drop(&mut self) { self.0.state.lock().guest = None; }
+}
+
 pub struct WasiReplSession {
     dir: PathBuf,
     manifest: SessionManifest,
@@ -650,10 +697,28 @@ pub struct WasiReplSession {
     disposed: bool,
     quiesced: bool,
     cancellation: std::sync::Arc<parking_lot::Mutex<Option<WasiCancellation>>>,
+    execution: Option<ExecutionControl>,
     preview_bytes: usize,
 }
 
 impl WasiReplSession {
+    pub(crate) fn with_execution_control<T>(&mut self, execution: ExecutionControl,
+        operation: impl FnOnce(&mut Self) -> Result<T>) -> Result<T>
+    {
+        execution.check()?;
+        self.execution = Some(execution.clone());
+        let result = operation(self);
+        // Restore may have started a fresh resident interpreter without a cell
+        // exchange. A cancelled operation still owns and joins that process.
+        if execution.is_cancelled() && execution.owns_resident() { self.stop_live_process(); }
+        self.execution = None;
+        result
+    }
+
+    fn check_execution(&self) -> Result<()> {
+        self.execution.as_ref().map_or(Ok(()), ExecutionControl::check)
+    }
+
     pub(crate) fn verify_native_binding(&self, expected: &SessionExecutionBinding) -> Result<()> {
         let mut current = SessionExecutionBinding::from_manifest(&self.manifest);
         current.environment_generation = self.journal.generation().clone();
@@ -710,6 +775,7 @@ impl WasiReplSession {
     }
 
     fn ensure_ready(&self) -> Result<()> {
+        self.check_execution()?;
         if self.quiesced { bail!("REPL_QUIESCED: upgrade owns the session"); }
         if self.disposed { bail!("REPL_SESSION_DISPOSED: session is closed"); }
         if self.journal.pending_reset.is_some() || self.journal.active_restore.is_some() {
@@ -788,6 +854,7 @@ impl WasiReplSession {
     }
 
     fn start_live_process(&mut self) -> Result<()> {
+        self.check_execution()?;
         if let Engine::Live(Some(process)) = &self.engine {
             if !process.is_dead() {
                 return Ok(());
@@ -830,6 +897,7 @@ impl WasiReplSession {
             }
             other => bail!("REPL_KERNEL_INVALID: backend {other:?} cannot host a live session"),
         };
+        if let Some(execution) = &self.execution { execution.retain_resident(); }
         self.engine = Engine::Live(Some(process));
         Ok(())
     }
@@ -849,6 +917,7 @@ impl WasiReplSession {
         recorded: Option<&CellRecord>)
         -> Result<(CellOutcome, Option<DriverReport>, PathBuf, PathBuf, u64)>
     {
+        self.check_execution()?;
         // Recheck before every invocation: the runtime reopens pathnames.
         validate_extra_mounts(&self.dir, &self.manifest.kernel)?;
         if let Some(state) = &self.state { state.verify_root()?; }
@@ -890,6 +959,7 @@ impl WasiReplSession {
         command.arguments = self.manifest.kernel.argv.clone();
         command.environment = self.manifest.kernel.env.clone();
         let cancel = WasiCancellation::default();
+        let _execution = self.execution.as_ref().map(|control| control.bind(cancel.clone()));
         command.control = WasiRunControl {
             deadline: self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis),
             cancel: Some(cancel.clone()),
@@ -950,6 +1020,10 @@ impl WasiReplSession {
         let Engine::Live(Some(process)) = &mut self.engine else {
             bail!("REPL_KERNEL_INVALID: live engine unavailable");
         };
+        let _execution = self.execution.as_ref().map(|control| {
+            control.retain_resident();
+            control.bind(process.cancellation())
+        });
         *self.cancellation.lock() = Some(process.cancellation());
         if let Some(state) = &self.state { state.verify_root()?; }
         self.busy = Some(cell);
@@ -1148,7 +1222,7 @@ impl WasiReplSession {
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
         Ok(Box::new(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
-            oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: self.preview_bytes }))
+            oneshot_cancel: None, cancellation: Default::default(), execution: None, disposed: false, quiesced: false, preview_bytes: self.preview_bytes }))
     }
 
     /// Native handlers allocate this identity before T1; execution only adds
@@ -1261,6 +1335,7 @@ impl ReplSession for WasiReplSession {
     }
 
     fn restore(&mut self) -> Result<RecoverReport> {
+        self.check_execution()?;
         if self.quiesced { bail!("REPL_QUIESCED: upgrade owns the session"); }
         if self.disposed { bail!("REPL_SESSION_DISPOSED: session is closed"); }
         if self.journal.pending_reset.is_some() { self.finish_reset()?; }
@@ -1279,6 +1354,7 @@ impl ReplSession for WasiReplSession {
         }
         let mut entries = Vec::new();
         for record in &cells {
+            self.check_execution()?;
             let source = match self.verified_source(record) {
                 Ok(source) => source,
                 Err(error) => {
@@ -1334,6 +1410,7 @@ impl ReplSession for WasiReplSession {
             }
             self.start_live_process()?;
         }
+        self.check_execution()?;
         jrn::complete_restore(&mut self.journal, attempt)?;
         Ok(RecoverReport { session_id: self.manifest.session_id, entries, torn_tail_at })
     }
@@ -1401,11 +1478,16 @@ impl ReplSession for WasiReplSession {
             .find(|report| !report.compatible_wheel_tags.is_empty())
             .map(|report| report.compatible_wheel_tags.as_slice()).unwrap_or(&[]);
         let cancel = WasiCancellation::default();
+        let _execution = self.execution.as_ref().map(|control| control.bind(cancel.clone()));
         *self.cancellation.lock() = Some(cancel.clone());
         let installed = crate::install::install_into_candidate(
             &self.manifest.kernel, &request, &candidate, &log_dir, compatible_tags,
             &self.manifest.limits, &cancel);
         *self.cancellation.lock() = None;
+        // A stopped installer may have left observed candidate files or remote
+        // I/O. Keep its original attempt uncertain and never publish the new
+        // generation merely because a lower layer returned partial output.
+        self.check_execution()?;
         let attempt = match installed {
             Ok(attempt) => attempt,
             Err(error) => {

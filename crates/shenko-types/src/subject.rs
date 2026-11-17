@@ -302,6 +302,14 @@ impl SubjectModelOutcome {
                 "stop" | "end_turn" | "stop_sequence"
             )
     }
+
+    /// A provider terminal may be unusable as a decision while still proving
+    /// that this request ended. Unknown/missing termination never permits R0.
+    pub fn permits_control_correction(&self) -> bool {
+        self.schema_version == 2 && !self.raw_response.is_empty()
+            && matches!(self.stop_reason.as_str(), "stop" | "end_turn" | "stop_sequence"
+                | "length" | "max_tokens" | "content_filter" | "refusal" | "tool_use")
+    }
 }
 
 /// A complete result rejected before any S1 action admission. R0 retains its
@@ -316,6 +324,37 @@ pub struct ControlOutputRejection {
     pub model_result_ref: ObjectRef,
     pub model_outcome_ref: ObjectRef,
     pub error: crate::error::ProtocolError,
+    /// Version 3 explicitly distinguishes another pinned correction from a
+    /// new input-selection boundary. Version 2 must leave this absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction: Option<ControlCorrectionDisposition>,
+}
+
+pub const MAX_PINNED_CONTROL_CORRECTIONS: u32 = 2;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ControlCorrectionDisposition {
+    /// Saturated at the budget: a bounded traversal of actual parent seals,
+    /// independent of transient provider retry reasons or a process restart.
+    pub prior_pinned_corrections: u32,
+    pub replacement: ControlOutputReplacement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ControlOutputReplacement {
+    PinnedCorrection,
+    ReselectInput { cause: ControlInputReselection },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum ControlInputReselection {
+    CorrectionLimit,
+    FreshInteractive { event_id: EntityId },
+    /// Legacy seals have no trustworthy correction-parent boundary. Keep
+    /// their actual bytes and select a new current-format S0 after rejection.
+    LegacyProjection,
 }
 
 /// Positive evidence that the original request cannot still produce a result.

@@ -43,6 +43,24 @@ pub trait ProviderRuntime: Send + Sync + 'static {
         request: &InferenceRequest,
         publisher: &BoundedStreamPublisher,
     ) -> Result<StreamOutcome>;
+    /// End only the local observation when supported by this implementation.
+    /// The default retains and awaits the real worker. An implementation may
+    /// drop an HTTP exchange here only when that owns all its local work; it
+    /// must not detach a blocking guest or claim that the remote effect ended.
+    async fn complete_cancellable(&self, request: &InferenceRequest,
+        stop: &tokio_util::sync::CancellationToken) -> Result<InferenceResponse>
+    {
+        if stop.is_cancelled() { return Err(crate::execution::LocalObservationStopped.into()); }
+        self.complete(request).await
+    }
+
+    async fn stream_cancellable(&self, request: &InferenceRequest,
+        publisher: &BoundedStreamPublisher, stop: &tokio_util::sync::CancellationToken)
+        -> Result<StreamOutcome>
+    {
+        if stop.is_cancelled() { return Err(crate::execution::LocalObservationStopped.into()); }
+        self.stream(request, publisher).await
+    }
     /// Count the tokens one request would send, when the binding supports it.
     async fn count_tokens(&self, request: &InferenceRequest) -> Result<TokenCount>;
     /// Observe what this backend actually offers.

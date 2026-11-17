@@ -1,8 +1,10 @@
 //! A chosen S1/native T2 is a frozen state transition, not a recipe to run again.
 //!
 //! Evaluate the ordinary transaction once in a rollback savepoint. SQLite's
-//! authorizer records every table read or written by that evaluation; their
-//! complete preimages are the read conditions. Seal the generated write bytes
+//! authorizer records every table read by that evaluation and preupdate hooks
+//! record actual writes. S1 v2 freezes whole-range digests and exact changed
+//! rows; native v1 retains its complete witnesses for independent validation.
+//! Seal the generated write bytes
 //! (including random IDs and clock-dependent outcomes) before quorum admission.
 //! Applying those bytes performs only SQLite writes, never a provider call.
 use std::{
@@ -27,6 +29,7 @@ use shenko_types::{
     ids::{EntityId, LedgerSeq},
     object::{Digest, ObjectRef},
     subject::{SubjectBranchHead, SubjectStep},
+    task::TaskRecord,
 };
 
 use crate::{
@@ -36,10 +39,12 @@ use crate::{
 };
 
 const CODEC: &str = "store-s1-transition";
+#[path = "control_transition_capture.rs"]
+mod physical;
 pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 // Account all retained before/after rows and duplicated change cells together,
-// before the eventual sealed JSON size is known. Unrelated tables are scanned
-// through borrowed SQLite values; their history is never copied into this budget.
+// before the eventual sealed JSON size is known. Untouched tables are not
+// scanned. S1 complete-read ranges stream borrowed values into fixed digests.
 pub(crate) const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
 const ROW_CAPTURE_REFUSAL: &str = "canonical Store transition: capture budget exceeded: row capture exceeds 128 MiB memory budget";
 const IMAGE_CAPTURE_REFUSAL: &str = "canonical Store transition: read/write image exceeds 64 MiB admission budget";
@@ -117,8 +122,20 @@ pub(crate) struct TableTransition {
     /// Table reads bind a complete range, including absence. Insert-only writes
     /// bind just their target keys, so unrelated parked replica tasks survive.
     pub complete_read: bool,
+    /// S1 v2 retains a streaming digest of a complete read range. It has the
+    /// same conservative absence/range semantics as v1, without serializing
+    /// unrelated historical rows. Native v1 witnesses are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_range: Option<RangeImage>,
     pub before: Image,
     pub changes: Vec<Change>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RangeImage {
+    pub before: Digest,
+    pub after: Digest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,12 +167,22 @@ pub(crate) struct PreparedTransition {
 }
 
 impl RowTransition {
+    fn validate_capture_shape(&self) -> Result<(), ShenkoError> {
+        match self.schema_version {
+            1 if self.tables.iter().all(|table| table.read_range.is_none()) => Ok(()),
+            2 if self.tables.iter().all(|table| table.complete_read == table.read_range.is_some()
+                && table.before.rows.keys().all(|key| table.changes.iter().any(|change| &change.key == key))) => Ok(()),
+            _ => Err(invalid("unsupported row capture schema or read witness")),
+        }
+    }
+
     /// Check the complete frozen predecessor and apply its exact writes atomically.
     pub(crate) fn apply_rows(
         &self,
         tx: &Transaction<'_>,
         sequence: LedgerSeq,
     ) -> Result<(), ShenkoError> {
+        self.validate_capture_shape()?;
         let actual_layouts = layouts(tx)?;
         let mut seen = BTreeSet::new();
         for table in &self.tables {
@@ -172,6 +199,15 @@ impl RowTransition {
                 )));
             }
         }
+        // Preserve an actual read/hash error, rather than treating it as a
+        // matching predecessor or silently weakening the range condition.
+        for table in &self.tables {
+            if let Some(range) = &table.read_range {
+                if range_digest(tx, &table.before.table)? != range.before {
+                    return Err(conflict(format!("read range differs for {}", table.before.table.name)));
+                }
+            }
+        }
         tx.execute_batch("PRAGMA defer_foreign_keys=ON")
             .map_err(storage_error)?;
         for table in &self.tables {
@@ -186,8 +222,9 @@ impl RowTransition {
                     expected.rows.remove(&change.key);
                 }
             }
-            if current_image(tx, table)? != expected {
-                return Err(invalid("applied writes differ from frozen result"));
+            if current_image(tx, table)? != expected
+                || match &table.read_range { Some(range) => range_digest(tx, &expected.table)? != range.after, None => false } {
+                return Err(invalid(format!("applied writes differ from frozen result for {}", expected.table.name)));
             }
         }
         Ok(())
@@ -357,12 +394,28 @@ pub(crate) fn local_table(name: &str) -> bool {
             | "native_evidence_seal_debts"
             | "native_evidence_deliveries"
             | "local_installation_provisioning"
+            | "local_model_health"
     )
+}
+
+/// These two tables invalidate a local context cache. They are rebuilt by
+/// factual row triggers and their counters have no cross-ledger meaning.
+fn execution_projection(name: &str) -> bool {
+    matches!(name, "context_execution_clock" | "context_execution_revisions")
+}
+
+fn execution_projection_trigger(accessor: Option<&str>) -> bool {
+    accessor.and_then(|name| name.strip_prefix("context_revision_"))
+        .and_then(|name| name.rsplit_once('_'))
+        .is_some_and(|(table, operation)| matches!(table,
+            "subject_intents" | "tasks" | "memory_intents" | "task_results" | "operations")
+            && matches!(operation, "insert" | "update" | "delete"))
 }
 
 fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
     // table_list distinguishes virtual/shadow FTS projections from base facts.
-    // Triggers rebuild those projections from the exact admitted base writes.
+    // Triggers rebuild those and the local execution invalidation index from
+    // the exact admitted base writes; freezing the index would apply it twice.
     let mut stmt = conn.prepare("SELECT name FROM pragma_table_list WHERE schema='main' AND type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .map_err(storage_error)?;
     let names = stmt
@@ -372,7 +425,7 @@ fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
         .map_err(storage_error)?;
     let mut tables = BTreeMap::new();
     for name in names {
-        if local_table(&name) {
+        if local_table(&name) || execution_projection(&name) {
             continue;
         }
         let mut columns = conn
@@ -394,7 +447,7 @@ fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
         key.sort_unstable();
         let mut schema = conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE tbl_name=?1 AND sql IS NOT NULL ORDER BY type,name")
             .map_err(storage_error)?;
-        let schema = schema
+        let mut schema = schema
             .query_map([&name], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -405,6 +458,20 @@ fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
             .map_err(storage_error)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(storage_error)?;
+        if schema.iter().any(|(kind, name, _)| kind == "trigger"
+            && execution_projection_trigger(Some(name)))
+        {
+            // The receiver regenerates this local index through these row
+            // triggers. Bind its schema too: a new secondary trigger on the
+            // projection must not introduce writes outside the frozen result.
+            let mut projection_schema = conn.prepare("SELECT type,name,sql FROM sqlite_master
+                WHERE tbl_name IN ('context_execution_clock','context_execution_revisions')
+                AND sql IS NOT NULL ORDER BY type,name").map_err(storage_error)?;
+            schema.extend(projection_schema.query_map([], |row| Ok((row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?, row.get::<_, String>(2)?))).map_err(storage_error)?
+                .collect::<rusqlite::Result<Vec<_>>>().map_err(storage_error)?);
+            schema.sort();
+        }
         let local_sequence = crate::cognition::control_local_sequence(&name)
             .and_then(|local| columns.iter().position(|(column, _)| column == local));
         tables.insert(
@@ -540,13 +607,8 @@ fn sealed_image_bytes<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Shenk
     json_bytes(value, size)
 }
 
-/// Only these two pre-preparation capacity refusals permit the existing S1
-/// original-plan path. A similarly worded conflict, bad seal or storage error
-/// must retain its own failure instead of being reclassified as capacity.
-///
-/// This is a capacity fact about this installation, not damage and not a
-/// disagreement about the decision. The caller keeps the decision and uses
-/// the original-plan path; that admission and its COMMIT can still fail.
+/// These two pre-preparation capacity refusals preserve a precise diagnostic.
+/// They never authorize a weaker admission or a second semantic evaluation.
 pub(crate) fn capture_budget_refusal(error: &ShenkoError) -> bool {
     matches!(error, ShenkoError::Conflict(message)
         if message == ROW_CAPTURE_REFUSAL || message == IMAGE_CAPTURE_REFUSAL)
@@ -643,6 +705,10 @@ fn observe(
                     accesses.refusal = Some("transition accessed a non-main database");
                     return Authorization::Deny;
                 }
+                if execution_projection(table_name) && !execution_projection_trigger(context.accessor) {
+                    accesses.refusal = Some("transition directly accessed a local execution projection");
+                    return Authorization::Deny;
+                }
                 accesses.reads.insert(table_name.to_owned());
             }
             AuthAction::Insert { table_name }
@@ -650,6 +716,10 @@ fn observe(
             | AuthAction::Update { table_name, .. } => {
                 if context.database_name != Some("main") {
                     accesses.refusal = Some("transition accessed a non-main database");
+                    return Authorization::Deny;
+                }
+                if execution_projection(table_name) && !execution_projection_trigger(context.accessor) {
+                    accesses.refusal = Some("transition directly accessed a local execution projection");
                     return Authorization::Deny;
                 }
                 accesses.writes.insert(table_name.to_owned());
@@ -675,9 +745,9 @@ fn observe(
     Authorizer(conn)
 }
 
-/// Unambiguous physical-cell framing, without allocating an owned SQL value.
-/// In particular, local receipt sequence columns are not normalized here: an
-/// otherwise hidden sequence-only write is still a real unobserved write.
+/// Unambiguous cell framing, without allocating an owned SQL value. The caller
+/// explicitly substitutes the local-sequence marker for logical read ranges;
+/// actual sequence-only writes are still seen by the physical preupdate hook.
 fn hash_cell(hasher: &mut blake3::Hasher, value: ValueRef<'_>) {
     match value {
         ValueRef::Null => { hasher.update(&[0]); }
@@ -716,20 +786,31 @@ fn hash_query(
     Ok(())
 }
 
-fn table_fingerprint(conn: &Connection, table: &Table) -> Result<blake3::Hash, ShenkoError> {
+/// Stream the complete logical range without retaining its historical cells.
+/// Local materialization sequence numbers use the same projection as Image.
+/// This remains a whole-table dependency, including empty ranges and absence.
+fn range_digest(conn: &Connection, table: &Table) -> Result<Digest, ShenkoError> {
     let columns = table.columns.iter().map(|column| quoted(column)).collect::<Vec<_>>();
-    // The PK orders ordinary tables. Remaining columns break any ties in an
-    // unkeyed/nullable-key table, whose writes must not escape this guard either.
-    // Explicit BINARY collation avoids a custom collation hiding distinct keys.
     let order = table.key.iter().copied()
         .chain((0..columns.len()).filter(|index| !table.key.contains(index)))
         .map(|index| format!("{} COLLATE BINARY", columns[index]))
         .collect::<Vec<_>>().join(",");
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"shenko-canonical-physical-table-v1\0");
-    hash_query(conn, &format!("SELECT {} FROM main.{} ORDER BY {order}",
-        columns.join(","), quoted(&table.name)), &mut hasher)?;
-    Ok(hasher.finalize())
+    hasher.update(b"shenko-canonical-read-range-v2\0");
+    hasher.update(table.schema_digest.0.as_bytes());
+    hasher.update(&(columns.len() as u64).to_le_bytes());
+    let mut statement = conn.prepare(&format!("SELECT {} FROM main.{} ORDER BY {order}",
+        columns.join(","), quoted(&table.name))).map_err(storage_error)?;
+    let mut rows = statement.query([]).map_err(storage_error)?;
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        hasher.update(&[1]);
+        for index in 0..columns.len() {
+            if table.local_sequence == Some(index) { hasher.update(&[5]); }
+            else { hash_cell(&mut hasher, row.get_ref(index).map_err(storage_error)?); }
+        }
+    }
+    hasher.update(&[0]);
+    Ok(Digest(format!("blake3:{}", hasher.finalize().to_hex())))
 }
 
 /// Source-local structural guard, not a replicated physical-layout identity.
@@ -755,7 +836,8 @@ fn schema_fingerprint(conn: &Connection) -> Result<blake3::Hash, ShenkoError> {
 }
 
 fn projection_tables(conn: &Connection) -> Result<BTreeSet<String>, ShenkoError> {
-    let mut stmt = conn.prepare("SELECT name FROM pragma_table_list WHERE schema='main' AND (type!='table' OR name LIKE 'sqlite_%')")
+    let mut stmt = conn.prepare("SELECT name FROM pragma_table_list WHERE schema='main' AND
+        (type!='table' OR name LIKE 'sqlite_%' OR name IN ('context_execution_clock','context_execution_revisions'))")
         .map_err(storage_error)?;
     let names = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
         .collect::<rusqlite::Result<BTreeSet<_>>>().map_err(storage_error)?;
@@ -845,133 +927,140 @@ fn input_digest(
 }
 
 impl Store {
-    /// Capture one already-authorized factual transaction without retaining its writes.
-    /// Local execution guards run before this observation; the evaluated body may
-    /// touch only shared facts. No provider calls belong in this callback.
+    /// Native v1 retains full read witnesses used by its typed validators.
+    /// A direct action may supply the same independently proven target that
+    /// its native validator already permits it to narrow after capture. The
+    /// physical observer still retains every changed row, and the exact target
+    /// shape is checked before this capture can become an admission.
     pub(crate) fn capture_row_transition<T>(
-        &self,
-        tx: &Transaction<'_>,
-        input: RowTransitionInput<'_>,
-        evaluate: impl FnOnce(
-            CommitRef,
-            chrono::DateTime<chrono::Utc>,
-        ) -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
+        &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>,
+        direct_task: Option<&TaskRecord>,
+        evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
+            -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        // Installing the authorizer expires not-yet-stepped SQLite statements;
-        // it cannot retroactively observe an already active cursor. Reject that
-        // boundary explicitly, and keep the independent physical-write guard.
-        if tx.is_busy() {
-            return Err(conflict("capture began with an active SQLite statement"));
-        }
+        self.capture_row_transition_inner(tx, input, false, direct_task, evaluate)
+    }
+
+    /// S1 v2 freezes the same conservative complete read ranges as streamed
+    /// digests. Only physically touched rows become retained write witnesses.
+    fn capture_row_transition_with_ranges<T>(
+        &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>,
+        evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
+            -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
+    ) -> Result<(RowTransition, T), ShenkoError> {
+        self.capture_row_transition_inner(tx, input, true, None, evaluate)
+    }
+
+    /// Evaluate exactly once in a rollback savepoint. No provider call belongs
+    /// in this callback; generated IDs/time and the real write bytes are frozen.
+    fn capture_row_transition_inner<T>(
+        &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>, summarize_reads: bool,
+        direct_task: Option<&TaskRecord>,
+        evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
+            -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
+    ) -> Result<(RowTransition, T), ShenkoError> {
+        // Authorizer installation cannot observe an already active cursor.
+        if tx.is_busy() { return Err(conflict("capture began with an active SQLite statement")); }
         require_main_factual_schema(tx)?;
         let tables = layouts(tx)?;
         let projections = projection_tables(tx)?;
         let main_objects = tables.keys().chain(projections.iter()).cloned().collect();
         let schema = schema_fingerprint(tx)?;
-        let before_fingerprints = tables.iter().map(|(name, table)| {
-            Ok((name.clone(), table_fingerprint(tx, table)?))
-        }).collect::<Result<BTreeMap<_, _>, ShenkoError>>()?;
         let result_commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(tx)?);
         let created_at = chrono::Utc::now();
-        tx.execute_batch("SAVEPOINT canonical_row_evaluation")
-            .map_err(storage_error)?;
+        tx.execute_batch("SAVEPOINT canonical_row_evaluation").map_err(storage_error)?;
         let accesses = Arc::new(Mutex::new(Accesses::default()));
+        let physical = physical::Observer::start(tx, tables.clone(), projections.clone(), true);
         let observation = observe(tx, Arc::clone(&accesses), main_objects);
         let evaluated = evaluate(result_commit, created_at);
         drop(observation);
+        let mut physical = physical.finish();
         let accesses = std::mem::take(&mut *accesses.lock());
         let captured = (|| -> Result<_, ShenkoError> {
-            if let Some(refusal) = accesses.refusal {
-                return Err(conflict(refusal));
-            }
+            if let Some(refusal) = accesses.refusal { return Err(conflict(refusal)); }
             let (updated, result) = evaluated?;
             if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
                 return Err(conflict("transition changed a schema or table layout"));
             }
-            let mut remaining = MAX_CAPTURE_BYTES;
-            let mut after = BTreeMap::new();
-            for name in accesses.reads.union(&accesses.writes) {
-                if local_table(name) {
-                    return Err(conflict(format!("transition depended on node-local table {name}")));
-                }
-                let Some(table) = tables.get(name) else {
-                    // Only objects already identified as SQLite metadata or
-                    // derived projections may be omitted. A new/unknown table
-                    // is never inferred to be a shadow table from its absence.
-                    if projections.contains(name) { continue; }
-                    return Err(conflict(format!("transition touched unknown table {name}")));
-                };
-                if table.key.is_empty() {
-                    return Err(conflict(format!("transition touched unkeyed table {name}")));
-                }
-                after.insert(name.clone(), image_with_budget(tx, table, &mut remaining)?);
-            }
-            // Authorizer hooks are prepare-time observations. Keep a separate
-            // scan for any actual write omitted by a cached/future helper. Raw
-            // cell types and local sequence bytes participate in this check.
-            for (name, original) in &before_fingerprints {
-                if !after.contains_key(name)
-                    && table_fingerprint(tx, &tables[name])? != *original
-                {
+            if let Some(error) = physical.refusal.take() { return Err(error); }
+            // Actual writes are independently observed at execution time,
+            // including a cached statement or an observer removed by a helper.
+            // Unrelated retained tables are never scanned to discover writes.
+            for name in &physical.tables {
+                if (!projections.contains(name) || execution_projection(name)) && !accesses.writes.contains(name) {
                     return Err(conflict(format!("unobserved transition write to {name}")));
                 }
             }
-            Ok((updated, result, after, accesses, remaining))
+            let mut remaining = physical.remaining;
+            let mut after = BTreeMap::new();
+            let mut range_after = BTreeMap::new();
+            for name in accesses.reads.union(&accesses.writes) {
+                if local_table(name) { return Err(conflict(format!("transition depended on node-local table {name}"))); }
+                let Some(table) = tables.get(name) else {
+                    if projections.contains(name) { continue; }
+                    return Err(conflict(format!("transition touched unknown table {name}")));
+                };
+                if table.key.is_empty() { return Err(conflict(format!("transition touched unkeyed table {name}"))); }
+                let full_witness = !summarize_reads && accesses.reads.contains(name)
+                    && !(name == "tasks" && direct_task.is_some());
+                let postimage = if !full_witness {
+                    if summarize_reads && accesses.reads.contains(name) {
+                        range_after.insert(name.clone(), range_digest(tx, table)?);
+                    }
+                    image_for_keys_with_budget(tx, table,
+                        physical.rows.get(name).into_iter().flat_map(|rows| rows.values())
+                            .map(|row| row.key_values.as_slice()), &mut remaining)?
+                } else { image_with_budget(tx, table, &mut remaining)? };
+                after.insert(name.clone(), postimage);
+            }
+            Ok((updated, result, after, range_after, accesses, remaining))
         })();
         // Even a refused/failed evaluation is rolled back before returning.
-        // Retain a rollback failure as storage failure, never as capacity.
         tx.execute_batch("ROLLBACK TO canonical_row_evaluation; RELEASE canonical_row_evaluation")
             .map_err(storage_error)?;
-        let (updated, result, after, accesses, mut capture_remaining) = captured?;
-        // FTS5 may retain its own incremental-blob VDBE after a completed
-        // statement. Its xRollbackTo closes that reader. Check only after
-        // rolling back; do not exempt NULL-SQL statements, which may also be
-        // application-owned incremental blobs. Escaped application cursors
-        // still cannot outlive this captured evaluation.
-        if tx.is_busy() {
-            return Err(conflict("capture ended with an active SQLite statement"));
-        }
+        let (updated, result, after, range_after, accesses, mut remaining) = captured?;
+        // FTS rollback closes its own incremental reader. An application-owned
+        // cursor must not escape the one captured evaluation either.
+        if tx.is_busy() { return Err(conflict("capture ended with an active SQLite statement")); }
         if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
             return Err(invalid("rollback did not restore the captured schema"));
         }
         let mut transitions = Vec::new();
         for (name, after) in after {
-            // This is the real preimage under the same IMMEDIATE transaction,
-            // after the one evaluation was undone. No callback, ID allocation
-            // or semantic clock observation is repeated to reconstruct it.
-            let mut original = image_with_budget(tx, &tables[&name], &mut capture_remaining)?;
-            let changes = row_changes(&original, after, &mut capture_remaining)?;
-            let complete_read = accesses.reads.contains(&name);
-            if !complete_read {
-                original
-                    .rows
-                    .retain(|key, _| changes.iter().any(|change| &change.key == key));
+            let complete_read = accesses.reads.contains(&name)
+                && !(name == "tasks" && direct_task.is_some());
+            let full_witness = !summarize_reads && complete_read;
+            let mut original = if !full_witness {
+                Image { table: tables[&name].clone(), rows: physical.rows.remove(&name)
+                    .unwrap_or_default().into_iter().filter_map(|(key, row)| row.before.map(|row| (key, row))).collect() }
+            } else { image_with_budget(tx, &tables[&name], &mut remaining)? };
+            let changes = row_changes(&original, after, &mut remaining)?;
+            if summarize_reads || !complete_read {
+                original.rows.retain(|key, _| changes.iter().any(|change| &change.key == key));
             }
-            transitions.push(TableTransition {
-                complete_read,
-                before: original,
-                changes,
-            });
+            let read_range = if summarize_reads && complete_read {
+                Some(RangeImage { before: range_digest(tx, &tables[&name])?,
+                    after: range_after.get(&name).cloned().ok_or_else(|| invalid("missing captured post-range"))? })
+            } else { None };
+            transitions.push(TableTransition { complete_read, read_range, before: original, changes });
+        }
+        if let Some(task) = direct_task {
+            let table = transitions.iter().find(|table| table.before.table.name == "tasks")
+                .ok_or_else(|| invalid("direct capture omitted its target task"))?;
+            crate::native_facts::validate_task_read(table, task)?;
         }
         let object_roots = self.transition_object_roots(&transitions);
         let (_, missing) = self.collect_closure(&object_roots).map_err(storage_error)?;
         if !missing.is_empty() {
-            return Err(ShenkoError::ObjectClosureIncomplete {
-                missing_count: missing.len(),
-            });
+            return Err(ShenkoError::ObjectClosureIncomplete { missing_count: missing.len() });
         }
         let transition = RowTransition {
-            schema_version: 1,
-            action_id: input.action_id,
-            input_digest: input.input_digest,
-            source_ledger_id: self.ledger.ledger_id(),
-            original_head: input.head.clone(),
-            result_commit,
-            created_at,
-            updated,
-            object_roots,
-            tables: transitions,
+            schema_version: if summarize_reads { 2 } else { 1 },
+            action_id: input.action_id, input_digest: input.input_digest,
+            source_ledger_id: self.ledger.ledger_id(), original_head: input.head.clone(),
+            result_commit, created_at, updated, object_roots, tables: transitions,
         };
+        transition.validate_capture_shape()?;
         Ok((transition, result))
     }
 
@@ -1007,7 +1096,7 @@ impl Store {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             if let Some(prepared) = prepared_transition_at(&tx, action_id, &input_digest)? { return Ok(prepared); }
-            let (transition, ()) = self.capture_row_transition(&tx, RowTransitionInput {
+            let (transition, ()) = self.capture_row_transition_with_ranges(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
             }, |commit, _| {
                 let receipt = self.apply_step_commit_tx(&tx, step, head, next, commit)?;
@@ -1015,7 +1104,7 @@ impl Store {
             })?;
             let result_commit = transition.result_commit;
             let bytes = sealed_image_bytes(&transition)?;
-            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 1)?.object;
+            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, transition.schema_version)?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -1196,7 +1285,7 @@ impl Store {
         reference: &ObjectRef,
     ) -> Result<RowTransition, ShenkoError> {
         if reference.codec.name != CODEC
-            || reference.codec.major != 1
+            || !matches!(reference.codec.major, 1 | 2)
             || reference.media_type != "application/json"
             || reference.bytes > MAX_IMAGE_BYTES as u64
         {
@@ -1207,6 +1296,10 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: RowTransition = serde_json::from_slice(&bytes)?;
+        if transition.schema_version != reference.codec.major {
+            return Err(invalid("row capture schema differs from its typed codec"));
+        }
+        transition.validate_capture_shape()?;
         self.verify_transition_objects(&transition)?;
         Ok(transition)
     }
@@ -1224,7 +1317,7 @@ impl Store {
             .admission()
             .ok_or_else(|| invalid("materialization has no reserved admission"))?;
         let transition = self.read_step_transition(reference)?;
-        if transition.schema_version != 1
+        if !matches!(transition.schema_version, 1 | 2)
             || transition.action_id != admission.action_id
             || transition.input_digest != input_digest(step, head, next)?
             || serde_json::to_value(&transition.original_head)? != serde_json::to_value(head)?
@@ -1315,13 +1408,52 @@ pub(crate) fn prepared_transition_at(
 }
 
 fn current_image(conn: &Connection, transition: &TableTransition) -> Result<Image, ShenkoError> {
-    let mut image = image(conn, &transition.before.table)?;
-    if !transition.complete_read {
-        image
-            .rows
-            .retain(|key, _| transition.changes.iter().any(|change| &change.key == key));
+    if transition.complete_read && transition.read_range.is_none() {
+        return image(conn, &transition.before.table);
     }
-    Ok(image)
+    let mut remaining = MAX_CAPTURE_BYTES;
+    image_for_keys_with_budget(conn, &transition.before.table,
+        transition.changes.iter().filter_map(|change|
+            change.before.as_deref().or(change.after.as_deref())), &mut remaining)
+}
+
+/// Read only named primary keys for partial witnesses. Unlike selecting the
+/// whole table and filtering afterward, this work grows with the actual delta.
+fn image_for_keys_with_budget<'a>(
+    conn: &Connection, table: &Table, keys: impl IntoIterator<Item = &'a [Cell]>,
+    remaining: &mut usize,
+) -> Result<Image, ShenkoError> {
+    let table_bytes = json_size(table, *remaining, ROW_CAPTURE_REFUSAL)?;
+    charge_image(remaining, table_bytes)?;
+    let condition = table.key.iter().enumerate().map(|(position, index)|
+        format!("{} IS ?{}", quoted(&table.columns[*index]), position + 1)).collect::<Vec<_>>().join(" AND ");
+    let columns = table.columns.iter().map(|column| quoted(column)).collect::<Vec<_>>().join(",");
+    let mut statement = conn.prepare(&format!("SELECT {columns} FROM main.{} WHERE {condition}", quoted(&table.name)))
+        .map_err(storage_error)?;
+    let mut rows = BTreeMap::new();
+    for key_cells in keys {
+        let parameters = table.key.iter().map(|index| key_cells.get(*index)
+            .ok_or_else(|| invalid("partial witness has an incomplete primary key"))?.sql(LedgerSeq(0)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut query = statement.query(params_from_iter(parameters)).map_err(storage_error)?;
+        let Some(row) = query.next().map_err(storage_error)? else { continue; };
+        charge_image(remaining, 128)?;
+        charge_image(remaining, table.columns.len().saturating_mul(std::mem::size_of::<Cell>()))?;
+        let mut values = Vec::with_capacity(table.columns.len());
+        for index in 0..table.columns.len() {
+            if table.local_sequence == Some(index) { values.push(Cell::LocalSequence); }
+            else {
+                let value = row.get_ref(index).map_err(storage_error)?;
+                charge_image(remaining, match value { ValueRef::Text(bytes) | ValueRef::Blob(bytes) => bytes.len(), _ => 0 })?;
+                values.push(Cell::read(value)?);
+            }
+        }
+        let key = key_with_budget(table, &values, remaining)?;
+        if rows.insert(key, values).is_some() || query.next().map_err(storage_error)?.is_some() {
+            return Err(invalid("partial witness does not name a unique primary key"));
+        }
+    }
+    Ok(Image { table: table.clone(), rows })
 }
 
 fn apply_table(
@@ -1431,9 +1563,8 @@ mod tests {
     use super::*;
     use anyhow::Context;
 
-    /// The capture-budget refusal is a capacity fact, not damage and not a
-    /// disagreement about the decision. The caller recognizes it and keeps the
-    /// decision through the original-plan path instead of losing it.
+    /// Capacity retains an exact diagnostic and never authorizes a second
+    /// semantic evaluation or weaker noncanonical admission.
     #[test]
     fn the_capture_budget_refusal_is_recognizable_and_typed() {
         let mut remaining = 0usize;
@@ -1478,6 +1609,9 @@ mod tests {
         let mut conn = store.ledger.conn.lock();
         conn.execute_batch("CREATE TABLE capture_rows(id INTEGER PRIMARY KEY,body TEXT,payload BLOB);
             CREATE TABLE capture_absent(id INTEGER PRIMARY KEY);
+            CREATE TABLE capture_range(id INTEGER PRIMARY KEY,payload BLOB);
+            WITH RECURSIVE sequence(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM sequence WHERE n<4096)
+                INSERT INTO capture_range SELECT n,zeroblob(1024) FROM sequence;
             CREATE VIRTUAL TABLE capture_search USING fts5(body,content='capture_rows',content_rowid='id');
             CREATE TRIGGER capture_insert AFTER INSERT ON capture_rows BEGIN
                 INSERT INTO capture_search(rowid,body) VALUES(new.id,new.body); END;
@@ -1493,12 +1627,15 @@ mod tests {
             let mut update = tx.prepare_cached("UPDATE capture_rows SET body=?1,payload=?2 WHERE id=1")?;
             let mut absence = tx.prepare_cached("SELECT count(*) FROM capture_absent")?;
             let mut evaluations = 0;
-            let (transition, (generated, original_commit, original_time)) = store.capture_row_transition(
+            let (transition, (generated, original_commit, original_time)) = store.capture_row_transition_with_ranges(
                 &tx, input(), |commit, at| {
                     evaluations += 1;
                     let id = EntityId::new();
                     let absent: i64 = absence.query_row([], |row| row.get(0)).map_err(storage_error)?;
                     assert_eq!(absent, 0);
+                    let historical: i64 = tx.query_row("SELECT count(*) FROM capture_range", [], |row| row.get(0))
+                        .map_err(storage_error)?;
+                    assert_eq!(historical, 4096);
                     update.execute(params![format!("captured {id} {at}"), [1u8, 2, 255].as_slice()])
                         .map_err(storage_error)?;
                     Ok((Vec::new(), (id, commit, at)))
@@ -1506,6 +1643,12 @@ mod tests {
             drop(absence);
             drop(update);
             assert_eq!(evaluations, 1);
+            assert_eq!(transition.schema_version, 2);
+            let range = transition.tables.iter().find(|table| table.before.table.name == "capture_range")
+                .context("the actual large read remains a range dependency")?;
+            assert!(range.before.rows.is_empty() && range.read_range.is_some());
+            assert!(serde_json::to_vec(&transition)?.len() < 64 * 1024,
+                "historical read content is hashed, not copied into the chosen S1");
             assert_eq!(transition.result_commit, original_commit);
             assert_eq!(transition.created_at, original_time);
             let untouched: (String, Vec<u8>) = tx.query_row(
@@ -1534,7 +1677,7 @@ mod tests {
             let mut cursor = statement.query([])?;
             assert!(cursor.next()?.is_some());
             let mut evaluations = 0;
-            let result = store.capture_row_transition(&tx, input(), |_, _| {
+            let result = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
                 evaluations += 1;
                 Ok((Vec::new(), ()))
             });
@@ -1543,7 +1686,7 @@ mod tests {
         }
         {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let result = store.capture_row_transition(&tx, input(), |_, _| {
+            let result = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
                 tx.execute("UPDATE capture_rows SET body='must roll back' WHERE id=1", []).map_err(storage_error)?;
                 // Deliberately remove the observer to test the independent
                 // physical guard, including a column that image() normalizes.
@@ -1558,7 +1701,7 @@ mod tests {
         }
         {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let result = store.capture_row_transition(&tx, input(), |_, _| {
+            let result = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
                 tx.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
                 tx.execute_batch("CREATE TABLE capture_surprise(id INTEGER PRIMARY KEY); INSERT INTO capture_surprise VALUES(1);")
                     .map_err(storage_error)?;
@@ -1567,11 +1710,118 @@ mod tests {
             assert!(matches!(result, Err(ShenkoError::Conflict(message)) if message.contains("changed a schema or table layout")));
             assert_eq!(tx.query_row("SELECT count(*) FROM sqlite_schema WHERE name='capture_surprise'", [], |row| row.get::<_, i64>(0))?, 0);
         }
+        // Unlike update_hook, preupdate observes both an implicit REPLACE
+        // deletion and a WITHOUT ROWID table. The frozen change keeps the
+        // original row even though the SQL statement itself was an INSERT.
+        conn.execute_batch("CREATE TABLE capture_replace(id TEXT PRIMARY KEY,body TEXT) WITHOUT ROWID;
+            INSERT INTO capture_replace VALUES('original','before');")?;
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let (transition, ()) = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
+                tx.execute("INSERT OR REPLACE INTO capture_replace VALUES('original','after')", [])
+                    .map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            })?;
+            let table = transition.tables.iter().find(|table| table.before.table.name == "capture_replace")
+                .context("physical replacement witness")?;
+            assert_eq!(table.changes.len(), 1);
+            assert!(table.changes[0].before.is_some() && table.changes[0].after.is_some());
+            assert_eq!(tx.query_row("SELECT body FROM capture_replace", [], |row| row.get::<_, String>(0))?, "before");
+            transition.apply_rows(&tx, LedgerSeq(1))?;
+            assert_eq!(tx.query_row("SELECT body FROM capture_replace", [], |row| row.get::<_, String>(0))?, "after");
+        }
+        // Native v1 keeps its original wire/validator contract. A write-only
+        // table and an already-proven direct task must not first copy unrelated
+        // history into the capture budget and only discard it afterward.
+        conn.execute_batch("CREATE TABLE capture_write_only(id INTEGER PRIMARY KEY,payload BLOB);
+            INSERT INTO capture_write_only VALUES(1,zeroblob(129*1024*1024));")?;
+        let seed = store.cas.seal_object(b"capture-only task fixture", "text/plain", "test", "raw", 1)?.object;
+        let target_task = TaskRecord::subject_root(EntityId::new(), head.agent_id, seed.clone(), head.committed_at);
+        let history_task = TaskRecord::subject_root(EntityId::new(), head.agent_id, seed, head.committed_at);
+        conn.execute("INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,0)",
+            params![target_task.task_id.to_string(), serde_json::to_string(&target_task)?])?;
+        conn.execute("INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq)
+            VALUES(?1,0,json_set(?2,'$.memos.retained_history',printf('%0*d',66*1024*1024,0)),0)",
+            params![history_task.task_id.to_string(), serde_json::to_string(&history_task)?])?;
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let projection_before: u64 = tx.query_row(
+                "SELECT revision FROM context_execution_clock WHERE singleton=1", [], |row| row.get(0))?;
+            let (transition, ()) = store.capture_row_transition(&tx, input(), Some(&target_task), |commit, _| {
+                let current = crate::child::read_task(&tx, target_task.task_id)
+                    .map_err(|error| invalid(error.to_string()))?.ok_or_else(|| invalid("target absent"))?;
+                let mut updated = current;
+                updated.record_revision = RecordRevision(1);
+                updated.updated_commit = commit;
+                crate::child::write_task(&tx, &updated).map_err(|error| invalid(error.to_string()))?;
+                tx.execute("INSERT INTO capture_write_only VALUES(2,X'01')", []).map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            })?;
+            assert_eq!(transition.schema_version, 1);
+            assert!(serde_json::to_vec(&transition)?.len() < 64 * 1024);
+            let tasks = transition.tables.iter().find(|table| table.before.table.name == "tasks")
+                .context("bounded native task witness")?;
+            crate::native_facts::validate_task_read(tasks, &target_task)?;
+            let writes = transition.tables.iter().find(|table| table.before.table.name == "capture_write_only")
+                .context("write-only key witness")?;
+            assert!(!writes.complete_read && writes.before.rows.is_empty() && writes.changes.len() == 1);
+            assert!(transition.tables.iter().all(|table| !execution_projection(&table.before.table.name)),
+                "local invalidation counters must not become canonical facts");
+            assert_eq!(tx.query_row("SELECT revision FROM context_execution_clock WHERE singleton=1", [],
+                |row| row.get::<_, u64>(0))?, projection_before, "evaluation rolls back trigger projections");
+            tx.execute_batch("CREATE TRIGGER capture_projection_changed AFTER UPDATE ON context_execution_clock BEGIN
+                UPDATE capture_rows SET body='outside frozen writes' WHERE id=1; END;")?;
+            assert!(matches!(transition.apply_rows(&tx, transition.result_commit.seq),
+                Err(ShenkoError::Conflict(message)) if message.contains("predecessor/schema differs for tasks")),
+                "the receiver must reject changed projection triggers before any factual writes");
+            assert_eq!(tx.query_row("SELECT revision FROM context_execution_clock WHERE singleton=1", [],
+                |row| row.get::<_, u64>(0))?, projection_before);
+            assert_eq!(tx.query_row("SELECT count(*) FROM capture_write_only WHERE id=2", [],
+                |row| row.get::<_, u64>(0))?, 0);
+            tx.execute_batch("DROP TRIGGER capture_projection_changed")?;
+            transition.apply_rows(&tx, transition.result_commit.seq)?;
+            assert_eq!(tx.query_row("SELECT revision FROM context_execution_clock WHERE singleton=1", [],
+                |row| row.get::<_, u64>(0))?, projection_before + 1, "one factual task update invalidates once");
+            assert_eq!(tx.query_row("SELECT revision FROM context_execution_revisions WHERE binding_id=?1",
+                [target_task.task_id.to_string()], |row| row.get::<_, u64>(0))?, projection_before + 1);
+            assert_eq!(tx.query_row("SELECT length(payload) FROM capture_write_only WHERE id=1", [], |row| row.get::<_, i64>(0))?, 129*1024*1024);
+            assert_eq!(tx.query_row("SELECT length(json_extract(data,'$.memos.retained_history')) FROM tasks WHERE task_id=?1",
+                [history_task.task_id.to_string()], |row| row.get::<_, i64>(0))?, 66*1024*1024);
+        }
+        // A local rebuildable index cannot silently become a semantic read
+        // or a new source write. Only the known factual-row triggers maintain
+        // it, and the physical observer independently rejects a hidden write.
+        for sql in ["SELECT revision FROM context_execution_clock",
+            "UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1"]
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
+                tx.execute_batch(sql).map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            });
+            assert!(matches!(result, Err(ShenkoError::Conflict(message))
+                if message.contains("directly accessed a local execution projection")));
+        }
+        {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let before: u64 = tx.query_row("SELECT revision FROM context_execution_clock WHERE singleton=1", [],
+                |row| row.get(0))?;
+            let result = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
+                tx.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+                tx.execute("UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1", [])
+                    .map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            });
+            assert!(matches!(result, Err(ShenkoError::Conflict(message))
+                if message.contains("direct physical write to a local execution projection")));
+            assert_eq!(tx.query_row("SELECT revision FROM context_execution_clock WHERE singleton=1", [],
+                |row| row.get::<_, u64>(0))?, before);
+        }
         conn.execute_batch("CREATE TABLE capture_keys(id BLOB PRIMARY KEY,value INTEGER);
             INSERT INTO capture_keys VALUES(zeroblob(48*1024*1024),1);")?;
         {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let result = store.capture_row_transition(&tx, input(), |_, _| {
+            let result = store.capture_row_transition_with_ranges(&tx, input(), |_, _| {
                 tx.execute("UPDATE capture_keys SET value=2", []).map_err(storage_error)?;
                 Ok((Vec::new(), ()))
             });

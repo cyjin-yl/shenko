@@ -613,7 +613,7 @@ impl Store {
             || envelope["action"]["transition_ref"] != serde_json::to_value(&birth.transition_ref)?
             || envelope["action"]["expected_head"] != serde_json::to_value(&head)?
             || envelope["source_ledger_id"] != serde_json::to_value(rows.source_ledger_id)?
-            || rows.schema_version != 1
+            || !matches!(rows.schema_version, 1 | 2)
             || rows.action_id != admission.action_id
             || admission.action_id
                 != EntityId::derived(
@@ -831,7 +831,7 @@ impl Store {
             }
             let (mut rows, ()) = self.capture_row_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, |commit, created_at| self.evaluate_claim(&tx, head, &plan, commit, created_at))?;
+            }, Some(&plan.task), |commit, created_at| self.evaluate_claim(&tx, head, &plan, commit, created_at))?;
             // Only this independently validated direct-root action may reduce
             // its task read range. Generic RowTransition behavior is unchanged.
             let table = rows.tables.iter_mut().find(|table| table.before.table.name == "tasks")

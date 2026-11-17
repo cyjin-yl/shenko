@@ -11,14 +11,13 @@ use shenko_node::Node;
 use shenko_store::Store;
 use shenko_subject::{NativeChildService, NativeTaskHandlerPlugin};
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
-use shenko_types::{effect::*, evidence::ObservationLevel, ids::EntityId, object::Digest, operation::*,
+use shenko_types::{effect::*, evidence::ObservationLevel, ids::EntityId, operation::*,
     plugin_runtime::NativeCapabilityDeclaration, task::TaskRecord};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use crate::{McpConnection, UNIT_ID, protocol::{Response, Session}};
 
 const NAME: &str = "compat.mcp.request";
-const CONTRACT: &[u8] = b"shenko.compat.mcp/v1: exact installed profile; T1 before connection/request; effect scope is one protocol exchange, completed only by its observed response; remote business effects and pending server tasks are not settled here; missing response remains unknown; no replay; close and join owned sessions on retirement";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

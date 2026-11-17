@@ -218,6 +218,16 @@ impl LiveProcess {
     pub fn cancel(&self) { self.cancel.cancel(); }
     pub fn cancellation(&self) -> WasiCancellation { self.cancel.clone() }
 
+    fn cancel_and_join(&mut self) {
+        self.cancel.cancel();
+        drop(self.stdin.take());
+        if let Some(join) = self.join.take() {
+            // A deadline is a stop request, not proof that an interpreter
+            // blocked in a host call has ended. Retain ownership until join.
+            let _ = join.join();
+        }
+    }
+
     /// Wait (briefly) for process death after an interrupt.
     pub fn await_death(&self, timeout: Duration) {
         let start = Instant::now();
@@ -304,12 +314,11 @@ impl LiveProcess {
             // unexplained broken pipe means the interpreter closed its own
             // stdin (it ended), so retain whatever status it left behind.
             if deadline.is_some_and(|limit| started.elapsed() >= limit) {
-                self.cancel.cancel();
-                self.await_death(DEATH_TIMEOUT);
+                self.cancel_and_join();
                 return Err(CellFailure::DeadlineExceeded);
             }
             if self.cancel.is_cancelled() {
-                self.await_death(DEATH_TIMEOUT);
+                self.cancel_and_join();
                 return Err(CellFailure::CancelRequested);
             }
             self.await_death(DEATH_TIMEOUT);
@@ -320,8 +329,7 @@ impl LiveProcess {
             // partially delivered cell. Kill the owned process and report the
             // undelivered frame; completion is unknown, and this is not a
             // caller cancel.
-            self.cancel.cancel();
-            self.await_death(DEATH_TIMEOUT);
+            self.cancel_and_join();
             return Err(CellFailure::DeliveryFailed {
                 detail: "the cell frame was not delivered completely; the interpreter was killed \
                          and the cell's completion is unknown"
@@ -334,12 +342,11 @@ impl LiveProcess {
                 return Ok(());
             }
             if deadline.is_some_and(|limit| started.elapsed() > limit) {
-                self.cancel.cancel();
-                self.await_death(DEATH_TIMEOUT);
+                self.cancel_and_join();
                 return Err(CellFailure::DeadlineExceeded);
             }
             if self.cancel.is_cancelled() {
-                self.await_death(DEATH_TIMEOUT);
+                self.cancel_and_join();
                 return Err(CellFailure::CancelRequested);
             }
             if self.is_dead() {

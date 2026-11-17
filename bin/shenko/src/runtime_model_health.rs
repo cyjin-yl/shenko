@@ -9,7 +9,7 @@ use shenko_broker::broker::{Broker, BrokerHandle};
 use shenko_broker::request::{InferenceResult, ProviderBinding};
 use shenko_node::{ModelEligibility, ModelUsabilityEvidence, ModelUsabilityOutcome, ModelUsabilitySource};
 use shenko_store::Store;
-use shenko_types::{ids::EntityId, object::Digest};
+use shenko_types::{ids::EntityId, object::{Digest, ObjectRef}};
 use tokio_util::sync::CancellationToken;
 
 const PROBE_DEADLINE: Duration = Duration::from_secs(15);
@@ -19,6 +19,8 @@ const EVIDENCE_LIFETIME_MINUTES: i64 = 15;
 pub(crate) struct RuntimeModelHealth {
     store: Arc<Store>,
     profile_digest: Digest,
+    binding_digest: Digest,
+    observation_head: parking_lot::Mutex<Option<ObjectRef>>,
     binding: Option<ProviderBinding>,
     /// This handle owns a provider registry, but no dispatch loop is started
     /// for probing. It cannot accidentally consume an inference reservation.
@@ -52,6 +54,9 @@ impl RuntimeModelHealth {
 
     fn retain<T: serde::Serialize>(&self, outcome: BindingUsability, source: ModelUsabilitySource,
         observed_at: chrono::DateTime<chrono::Utc>, observation: &T) -> Result<()> {
+        // One local observer serializes the evidence chain. The eligibility
+        // lock is cloned/released before CAS/SQLite and never crosses Node.
+        let mut head = self.observation_head.lock();
         let bytes = serde_json::to_vec(observation)?;
         let original = self.store.cas.seal_object(&bytes, "application/json", "model-health", "model-health-observation", 1)?.object;
         let valid_until = observed_at + chrono::Duration::minutes(EVIDENCE_LIFETIME_MINUTES);
@@ -66,11 +71,29 @@ impl RuntimeModelHealth {
         let outcome = match outcome {
             BindingUsability::Available => ModelUsabilityOutcome::Available,
             BindingUsability::Unavailable => ModelUsabilityOutcome::Unavailable,
+            BindingUsability::BindingRejected => ModelUsabilityOutcome::BindingRejected,
             BindingUsability::Unknown => ModelUsabilityOutcome::Unknown,
         };
-        self.eligibility.write().observe(self.profile_digest.clone(), outcome, ModelUsabilityEvidence {
-            evidence_digest: evidence.digest, source, observed_at, valid_until,
+        let mut next = self.eligibility.read().clone();
+        next.observe(self.profile_digest.clone(), outcome, ModelUsabilityEvidence {
+            evidence_digest: evidence.digest.clone(), source, observed_at, valid_until,
         })?;
+        let snapshot = self.store.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
+            "schema_version":1,"binding_digest":self.binding_digest,
+            "previous_ref":head.as_ref(),"observation_ref":evidence,"eligibility":next,
+        }))?, "application/json", "model-health", "model-health-state", 1)?.object;
+        if let Err(error) = self.store.record_local_model_health(&self.binding_digest, head.as_ref(), &snapshot) {
+            // A failed local journal cannot authorize a fresh success. An
+            // observed refusal still withdraws in-memory eligibility promptly.
+            if matches!(outcome, ModelUsabilityOutcome::Unavailable | ModelUsabilityOutcome::BindingRejected) {
+                *self.eligibility.write() = next;
+                self.changed.notify_waiters();
+                self.changed.notify_one();
+            }
+            return Err(error.into());
+        }
+        *head = Some(snapshot);
+        *self.eligibility.write() = next;
         self.changed.notify_waiters();
         self.changed.notify_one(); // Retain one notification across check/wait races.
         Ok(())
@@ -81,7 +104,7 @@ impl RuntimeModelHealth {
         let result = tokio::select! {
             biased;
             _ = cancel.cancelled() => return,
-            result = tokio::time::timeout(PROBE_DEADLINE, handle.probe_binding()) => result,
+            _completed_probe = tokio::time::timeout(PROBE_DEADLINE, handle.probe_binding()) => _completed_probe,
         };
         let observed = match result {
             Ok(Ok(probe)) => self.retain(probe.usability, ModelUsabilitySource::CapabilityProbe,
@@ -144,9 +167,30 @@ pub(crate) async fn initial_probe(profile: &shenko_seed::ModelProfile, store: Ar
             Err(error) => { construction_error = Some(format!("{error:#}")); None }
         }
     } else { None };
+    let binding = probe.as_ref().map(|handle| handle.binding().clone());
+    // The binding contains endpoint/model and a non-secret credential
+    // fingerprint. A restart under the same binding must recover its failures.
+    let binding_digest = Digest::blake3(&serde_json::to_vec(&(profile_digest.clone(), &binding))?);
+    let restored = store.local_model_health(&binding_digest).and_then(|head| {
+        let state = head.as_ref().map(|reference| -> Result<ModelEligibility, shenko_types::error::ShenkoError> {
+            let body: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
+            Ok(serde_json::from_value(body["eligibility"].clone())?)
+        }).transpose()?.unwrap_or_default();
+        Ok((head, state))
+    });
+    let (observation_head, eligibility, probe) = match restored {
+        Ok((head, state)) => (head, state, probe),
+        Err(error) => {
+            // Unreadable prior health is a recovery debt, never permission to
+            // erase a refusal by probing a separately authorized metadata API.
+            construction_error = Some(format!("retained model health unreadable: {error}"));
+            (None, ModelEligibility::default(), None)
+        }
+    };
     let health = Arc::new(RuntimeModelHealth {
-        store, profile_digest, binding: probe.as_ref().map(|handle| handle.binding().clone()), probe,
-        eligibility: Arc::new(parking_lot::RwLock::new(ModelEligibility::default())),
+        store, profile_digest, binding, binding_digest,
+        observation_head: parking_lot::Mutex::new(observation_head), probe,
+        eligibility: Arc::new(parking_lot::RwLock::new(eligibility)),
         changed: tokio::sync::Notify::new(),
     });
     if let Some(error) = construction_error {

@@ -20,6 +20,7 @@ pub use control_recovery::{ControlRecoveryOutcome, PreparedStepDebt, PreparedSte
 mod control_predecessor;
 pub use control_predecessor::ControlPredecessorEvidence;
 pub mod activation;
+pub mod local_model_health;
 mod local_installation;
 pub use local_installation::{
     HomeInstallationBinding, LocalInstallationProvisioning, LOCAL_HOME_CODEC, LOCAL_HOME_NAMESPACE,

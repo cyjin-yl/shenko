@@ -5,8 +5,9 @@
 //! from what the provider actually reported. A fenced request provably never
 //! left; an unknown outcome keeps its capacity and stays recoverable.
 
-use std::sync::Arc;
+use std::{panic::AssertUnwindSafe, sync::Arc};
 
+use futures::FutureExt as _;
 use tracing::warn;
 
 use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ResidencyIdentity};
@@ -45,6 +46,7 @@ pub(crate) async fn execute_request(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
+    stop: &tokio_util::sync::CancellationToken,
 ) -> ExecutedRequest {
     // A running request is a real reader of its context's residency. While it
     // runs the context is not an eviction candidate, and a release requested in
@@ -64,6 +66,7 @@ pub(crate) async fn execute_request(
         domain,
         kv,
         error_sink,
+        stop,
     )
     .await;
     if reading {
@@ -100,7 +103,11 @@ async fn execute_admitted(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
+    stop: &tokio_util::sync::CancellationToken,
 ) -> (InferenceResult, bool) {
+    if stop.is_cancelled() {
+        return (stopped_before_dispatch(request, purpose), false);
+    }
     let admitted = receipt_sink.map_or(Ok(DispatchFence::Send), |sink| sink.may_dispatch());
     match admitted {
         Ok(DispatchFence::Send) => {
@@ -140,8 +147,8 @@ async fn execute_admitted(
                 );
             }
             match stream {
-                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink).await,
-                None => execute_complete(request, purpose, runtime, domain, kv, error_sink).await,
+                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink, stop).await,
+                None => execute_complete(request, purpose, runtime, domain, kv, error_sink, stop).await,
             }
         }
         otherwise => {
@@ -201,8 +208,9 @@ async fn execute_complete(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
+    stop: &tokio_util::sync::CancellationToken,
 ) -> (InferenceResult, bool) {
-    match runtime.complete(request).await {
+    match provider_outcome(async { runtime.complete_cancellable(request, stop).await }).await {
         Ok(response) => {
             let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
             let termination = termination_evidence(&response, terminal,
@@ -251,6 +259,7 @@ async fn execute_stream(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
     error_sink: &crate::error_sink::ErrorSinkCell,
+    stop: &tokio_util::sync::CancellationToken,
 ) -> (InferenceResult, bool) {
     let publisher = BoundedStreamPublisher::new(
         request.request_id,
@@ -270,7 +279,9 @@ async fn execute_stream(
             false,
         );
     }
-    let outcome = runtime.stream(request, &publisher).await;
+    let outcome = provider_outcome(async {
+        runtime.stream_cancellable(request, &publisher, stop).await
+    }).await;
     let (response, termination, status, events, batches, quota_headers, cause_report_attempted) = match outcome {
         Ok(outcome) => {
             let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
@@ -333,7 +344,11 @@ fn journal_provider_error(
     error: &anyhow::Error,
     error_sink: &crate::error_sink::ErrorSinkCell,
 ) -> bool {
-    let (code, message) = if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
+    let (code, message) = if error.is::<ProviderPanicked>() {
+        ("INFERENCE_PROVIDER_PANICKED", "the owned provider future unwound before a conclusive result; the original request remains Unknown and its capacity stays charged".into())
+    } else if error.is::<LocalObservationStopped>() {
+        ("INFERENCE_OBSERVATION_STOPPED", "runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown".into())
+    } else if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
         let limit = request.provider_binding.local_request_timeout_ms()
             .map(|milliseconds| format!(" after the sealed {milliseconds} ms observation limit"))
             .unwrap_or_default();
@@ -353,6 +368,43 @@ fn journal_provider_error(
         &crate::error_sink::report_for(request, purpose, code, &message),
     );
     true
+}
+
+/// The owned HTTP future ended locally. This is deliberately not a
+/// LocalDispatchError: a dispatched remote generation remains Unknown.
+#[derive(Debug, thiserror::Error)]
+#[error("local inference observation stopped; remote completion is unknown")]
+pub(crate) struct LocalObservationStopped;
+
+/// Catch only the plugin's execution future. Dispatch fences, durable sink
+/// writes and the broker's settlement machinery keep their own error paths;
+/// a panic there must not be reclassified as an ordinary provider failure.
+/// The plugin's future has actually unwound before this returns. Its contract
+/// still forbids leaking independently spawned workers behind that future.
+async fn provider_outcome<T>(future: impl std::future::Future<Output = anyhow::Result<T>>)
+    -> anyhow::Result<T>
+{
+    match AssertUnwindSafe(future).catch_unwind().await {
+        Ok(outcome) => outcome,
+        // A plugin panic payload can contain request text or credentials.
+        // Retain a typed cause, never copy its arbitrary payload into E1.
+        Err(_) => Err(ProviderPanicked.into()),
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("owned provider future panicked; original request outcome remains unknown")]
+struct ProviderPanicked;
+
+pub(crate) fn stopped_before_dispatch(request: &InferenceRequest, purpose: RequestPurpose)
+    -> InferenceResult
+{
+    InferenceResult {
+        request_id: request.request_id, status: InferenceStatus::Cancelled,
+        response: None, effective: EffectiveInference::for_request(request),
+        termination: TerminationEvidence::never_dispatched(), purpose,
+        stream: None, quota_headers: Vec::new(),
+    }
 }
 
 /// Whether the provider's stop reason is a real terminal outcome.
@@ -896,6 +948,12 @@ mod tests {
         assert_eq!(result.termination.kind, TerminationKind::TransportRejected);
         assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
         assert_eq!(result.quota_headers, vec![("retry-after".to_string(), "1".to_string())]);
+
+        let forbidden = anyhow::Error::new(ProviderRejection {
+            http_status: 403, ratelimit_headers: vec![],
+        });
+        let result = failure_result(&request, RequestPurpose::Subject, &forbidden, None);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::BindingRejected);
 
         // A post-dispatch transport failure stays unknown.
         let dropped = anyhow::anyhow!("connection closed mid-response");

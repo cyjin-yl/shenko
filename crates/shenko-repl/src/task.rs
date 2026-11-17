@@ -428,6 +428,28 @@ impl std::fmt::Display for BeforeReplExecution {
 
 impl std::error::Error for BeforeReplExecution {}
 
+struct CancelExecutionOnDrop(crate::session::ExecutionControl);
+
+impl Drop for CancelExecutionOnDrop {
+    fn drop(&mut self) { self.0.cancel(); }
+}
+
+fn lock_session<'a>(session: &'a std::sync::Mutex<crate::session::WasiReplSession>,
+    execution: &crate::session::ExecutionControl)
+    -> Result<std::sync::MutexGuard<'a, crate::session::WasiReplSession>>
+{
+    loop {
+        execution.check()?;
+        match session.try_lock() {
+            Ok(session) => return Ok(session),
+            Err(std::sync::TryLockError::Poisoned(_)) =>
+                anyhow::bail!("REPL_SESSION_INVALID: session lock poisoned"),
+            Err(std::sync::TryLockError::WouldBlock) =>
+                std::thread::sleep(std::time::Duration::from_millis(10)),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct SessionResult {
     session_id: Option<EntityId>,
@@ -566,14 +588,6 @@ impl SessionStore {
     }
 
     fn sessions_root(&self) -> PathBuf { self.data_dir.join("sessions") }
-    fn cancel_running(&self, id: EntityId) {
-        // Teardown may only signal an already owned interpreter. It must not
-        // open/recover a session merely to cancel it, or wait for its cell lock.
-        let slot = self.cancellations.lock().get(&id).cloned();
-        if let Some(slot) = slot {
-            if let Some(token) = slot.lock().as_ref() { token.cancel(); }
-        }
-    }
     fn request_cancel(&self, id: EntityId) -> Result<bool> {
         let slot = self.cancellations.lock().get(&id).cloned();
         let slot = match slot {
@@ -1066,10 +1080,22 @@ impl ReplSessionHandler {
         let sessions = Arc::clone(&self.sessions);
         let task_id = invocation.task_invocation.task_id;
         let worker_id = invocation.task_invocation.worker_id;
-        let observed = tokio::task::spawn_blocking(move || {
+        let execution = crate::session::ExecutionControl::default();
+        let _cancel_on_drop = CancelExecutionOnDrop(execution.clone());
+        if invocation.cancellation.is_cancelled() { execution.cancel(); }
+        let worker_execution = execution.clone();
+        let mut worker = tokio::task::spawn_blocking(move || {
+            worker_execution.check().map_err(BeforeReplExecution)?;
             prepared.verify(&sessions).map_err(BeforeReplExecution)?;
-            run_session_op(&sessions, &prepared, task_id, worker_id)
-        }).await?;
+            run_session_op(&sessions, &prepared, task_id, worker_id, &worker_execution)
+        });
+        let observed = tokio::select! {
+            _result = &mut worker => _result?,
+            _ = invocation.cancellation.cancelled() => {
+                execution.cancel();
+                worker.await?
+            }
+        };
         let (binding, value, decoded, outcome, effect, event_key) = match observed {
             Ok(observed) => observed,
             Err(error) if error.is::<BeforeReplExecution>() => {
@@ -1143,7 +1169,9 @@ fn run_session_op(
     prepared: &SessionPreparation,
     task_id: EntityId,
     worker_id: EntityId,
+    execution: &crate::session::ExecutionControl,
 ) -> Result<SessionOpOutcome> {
+    execution.check().map_err(BeforeReplExecution)?;
     let payload = &prepared.payload;
     let input = &prepared.input;
     match input.op {
@@ -1314,11 +1342,10 @@ fn run_session_op(
             let frozen = SessionObservedBinding { op: input.op.wire_name().into(),
                 kernel_id: None, entry: None, module: None, module_digest: None,
                 session_id: Some(session_id), limits: None };
-            let mut session = handle.lock()
-                .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
+            let mut session = lock_session(&handle, execution)?;
             session.verify_native_binding(prepared.session_binding.as_ref()
                 .context("REPL_SESSION_INVALID: no frozen session binding")?)?;
-            match input.op {
+            let observed = session.with_execution_control(execution.clone(), |session| match input.op {
                 SessionOp::Inspect => {
                     let info = session.inspect()?;
                     let value = serde_json::to_value(SessionResult {
@@ -1419,8 +1446,6 @@ fn run_session_op(
                 }
                 SessionOp::Dispose => {
                     session.dispose()?;
-                    drop(session);
-                    sessions.remove(session_id);
                     let value = serde_json::to_value(SessionResult {
                         session_id: Some(session_id),
                         outcome: Some("disposed".into()),
@@ -1466,7 +1491,12 @@ fn run_session_op(
                 }
                 SessionOp::ListKernels | SessionOp::ListSessions | SessionOp::Create
                 | SessionOp::InstallKernel | SessionOp::Cancel => unreachable!("routed above"),
+            })?;
+            if input.op == SessionOp::Dispose {
+                drop(session);
+                sessions.remove(session_id);
             }
+            Ok(observed)
         }
     }
 }
@@ -1677,21 +1707,27 @@ impl ReplCellHandler {
         let store = Arc::clone(&self.core.store);
         let session_id = frozen.session_id;
         let task_label = invocation.task_invocation.task_id;
+        let execution = crate::session::ExecutionControl::default();
+        let _cancel_on_drop = CancelExecutionOnDrop(execution.clone());
+        if invocation.cancellation.is_cancelled() { execution.cancel(); }
+        let worker_execution = execution.clone();
         let mut worker = tokio::task::spawn_blocking(move || {
+            worker_execution.check().map_err(BeforeReplExecution)?;
             frozen.session_binding.verify_manifest(&sessions.session_dir(session_id))
                 .map_err(BeforeReplExecution)?;
             let handle = sessions.open(session_id)?;
-            let mut session = handle.lock()
-                .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
+            let mut session = lock_session(&handle, &worker_execution)?;
             // Opening can already heal a manifest or finish a reset. Any
             // later refusal therefore keeps this original attempt unknown;
             // it cannot prove that no session mutation happened.
-            session.check_native_cell(&frozen.session_binding)?;
-            let result = session.execute_identified(crate::contract::CellRequest {
-                source,
-                cell_kind: cell_kind_contract,
-                labels: BTreeMap::from([("task".into(), task_label.to_string())]),
-            }, frozen.cell)?;
+            let result = session.with_execution_control(worker_execution, |session| {
+                session.check_native_cell(&frozen.session_binding)?;
+                session.execute_identified(crate::contract::CellRequest {
+                    source,
+                    cell_kind: cell_kind_contract,
+                    labels: BTreeMap::from([("task".into(), task_label.to_string())]),
+                }, frozen.cell)
+            })?;
             let dir = session.session_dir().to_path_buf();
             let outcome = result.record.outcome.clone();
             let stdout = seal_stream(&store, &dir, &result.record.stdout_path)?;
@@ -1703,12 +1739,11 @@ impl ReplCellHandler {
             crate::contract::CellOutcome,
             (ObjectRef, Vec<u8>, bool),
             (ObjectRef, Vec<u8>, bool),
-        )> = loop {
-            tokio::select! {
-                result = &mut worker => break result?,
-                _ = tokio::time::sleep(std::time::Duration::from_millis(25)) => {
-                    if invocation.cancellation.is_cancelled() { self.sessions.cancel_running(session_id); }
-                }
+        )> = tokio::select! {
+            _result = &mut worker => _result?,
+            _ = invocation.cancellation.cancelled() => {
+                execution.cancel();
+                worker.await?
             }
         };
 
@@ -2314,6 +2349,60 @@ mod tests {
         assert_eq!(op.state, OperationState::Resolved);
         assert_eq!(op.outcome, Some(OperationOutcome::Failed));
         assert_eq!(harness.normalized(&op)?["outcome"], "refused");
+
+        // The same resident session now owns a real cell that never writes a
+        // report. Cancelling a restore queued behind it must retire only that
+        // invocation, and cancelling the cell must close/join its blocked
+        // stdin interpreter before reporting a stopped cell.
+        let cells = Arc::new(ReplCellHandler::new(harness.store.clone(), harness.handler.sessions()));
+        let running = registered_invocation(&harness.store, &cells.core, cells.as_ref(),
+            "repl.cell", "repl-cell-request", serde_json::json!({
+                "op": "execute", "session_id": session_id,
+                "source_b64": B64.encode(b"resident fixture waits for cancellation"),
+                "cell_kind": "unknown",
+            }))?;
+        let running_stop = running.cancellation.clone();
+        let running = tokio::spawn(async move { cells.execute(running).await });
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let slot = harness.handler.sessions.cancellations.lock().get(&session_id).cloned();
+                if slot.is_some_and(|slot| slot.lock().is_some()) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        }).await.context("resident cell did not acquire its guest")?;
+        let waiting = registered_invocation(&harness.store, &harness.handler.core, &harness.handler,
+            "repl.session", "repl-session-request", serde_json::json!({
+                "op": "restore", "session_id": session_id,
+            }))?;
+        let waiting_id = waiting.operation_id;
+        let waiting_stop = waiting.cancellation.clone();
+        let (waiting_result, running_was_owned, guest_was_cancelled) = {
+            let waiting = harness.handler.execute(waiting);
+            tokio::pin!(waiting);
+            tokio::select! {
+                _result = &mut waiting => panic!("restore bypassed the executing cell: {_result:?}"),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(40)) => {},
+            }
+            waiting_stop.cancel();
+            let waiting_result = tokio::time::timeout(std::time::Duration::from_secs(2), &mut waiting).await;
+            let running_was_owned = !running.is_finished();
+            let guest_was_cancelled = harness.handler.sessions.cancellations.lock().get(&session_id)
+                .is_some_and(|slot| slot.lock().as_ref().is_some_and(shenko_wasm::WasiCancellation::is_cancelled));
+            (waiting_result, running_was_owned, guest_was_cancelled)
+        };
+        running_stop.cancel();
+        let cancelled = tokio::time::timeout(std::time::Duration::from_secs(3), running).await
+            .context("cancelled resident interpreter was not joined")???;
+        let waiting_error = waiting_result.context("queued restore did not observe cancellation")?
+            .expect_err("queued restore must retain its already armed uncertain attempt");
+        assert!(waiting_error.to_string().contains("REPL_EXECUTION_CANCELLED"), "{waiting_error:#}");
+        assert!(running_was_owned && !guest_was_cancelled,
+            "cancelling a queued operation must not cancel the current interpreter");
+        assert_eq!(harness.store.external_operation(waiting_id)?.effect_status, EffectStatus::Unknown);
+        assert_eq!(cancelled.outcome, Some(OperationOutcome::Cancelled));
+        let session = harness.handler.sessions.open(session_id)?;
+        let info = session.lock().map_err(|_| anyhow::anyhow!("test session poisoned"))?.inspect()?;
+        assert!(!info.live_process_running, "Cancelled is published only after the actual interpreter join");
 
         drop(harness);
         fs::remove_dir_all(root).ok();

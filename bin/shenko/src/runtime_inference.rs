@@ -1,7 +1,7 @@
 //! Context and inference composition after model-independent recovery is installed.
 use std::{path::Path, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use tracing::info;
 
 use crate::{context_policy, inference_runtime, node_sync, update_runtime};
@@ -11,6 +11,26 @@ pub(crate) struct InferenceServices {
     pub(crate) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
     pub(crate) broker_handle: shenko_broker::broker::BrokerHandle,
     pub(crate) capabilities: Option<shenko_broker::request::ProviderCapabilities>,
+    pub(crate) task: InferenceTask,
+}
+
+pub(crate) struct InferenceTask {
+    handle: shenko_broker::broker::BrokerHandle,
+    worker: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl InferenceTask {
+    pub(crate) fn request_stop(&self) { self.handle.request_stop(); }
+
+    pub(crate) async fn join(mut self) -> Result<()> {
+        self.request_stop();
+        self.worker.take().context("inference runner ownership is absent")?.await
+            .context("inference runner lost; original remote outcomes remain recoverable")
+    }
+}
+
+impl Drop for InferenceTask {
+    fn drop(&mut self) { self.request_stop(); }
 }
 
 /// The composed inference installation inputs, grouped so the installer
@@ -143,6 +163,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
         )?,
     ));
     let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+    shenko_subject::loop_runner::restore_inference_accounting(store, agent_id, &broker_handle)?;
     inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(store));
     inference_runtime::install_model_health(&broker_handle, model_health)?;
     handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
@@ -252,10 +273,12 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
         .await?;
     // ModelChildHandler reconstructed all outstanding original charges
     // before any subject/child inference can enter this broker.
-    tokio::spawn(broker.run());
+    let task = InferenceTask {
+        handle: broker_handle.clone(), worker: Some(tokio::spawn(broker.run())),
+    };
     // The broker and model-child registrations above joined the live
     // catalog; the self-knowledge snapshot is a registry view and the
     // re-render is idempotent, so refresh it once more here.
     self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
-    Ok(Some(InferenceServices { context_registry, broker_handle, capabilities }))
+    Ok(Some(InferenceServices { context_registry, broker_handle, capabilities, task }))
 }

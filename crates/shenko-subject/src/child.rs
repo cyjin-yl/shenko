@@ -533,6 +533,16 @@ impl NativeChildService {
         Ok(executions.apply_epoch)
     }
 
+    /// Begin runtime retirement before the hook-quiescence barrier. A model
+    /// child can own a hook lease while awaiting a nested guest; signalling
+    /// only from the later Cordis teardown would deadlock those two owners.
+    /// This is not a completed stop: Cordis still drains and joins the workers.
+    pub fn request_stop(&self) {
+        let mut executions = self.executions.lock();
+        executions.closed = true;
+        for worker in executions.workers.values() { worker.cancellation.cancel(); }
+    }
+
     /// Cordis teardown: close admission, request cancellation and
     /// join them. `run_lock` is taken first so a pass already in flight
     /// finishes its synchronous CAS work before admission closes, and no pass
@@ -1023,8 +1033,9 @@ impl NativeChildService {
             Some(id) => self.store.get_operation(id)?,
             None => None,
         };
-        if memo_flag(task, NATIVE_CHILD) {
-            if let Some(operation) = existing.as_ref().filter(|operation| operation.state == OperationState::Resolved) {
+        if memo_flag(task, NATIVE_CHILD)
+            && let Some(operation) = existing.as_ref().filter(|operation| operation.state == OperationState::Resolved)
+        {
                 // E1 already owns the conclusive result. Generic T2 does not
                 // execute a handler or need to reinterpret its old receipt.
                 // Keep the ORIGINAL implementation identity through settlement.
@@ -1034,7 +1045,6 @@ impl NativeChildService {
                 return Ok(if self.store.complete_native_task(&claim, operation)?.is_some() {
                     Visit::Progressed
                 } else { Visit::Skipped });
-            }
         }
         let registered = match self.frozen_handler(task) {
             Some(registered) => registered,
@@ -1388,7 +1398,7 @@ async fn drive_execution(
         } => {
             let result = tokio::select! {
                 biased;
-                result = registered.handler.reconcile(&task, operation_id) => result,
+                _result = registered.handler.reconcile(&task, operation_id) => _result,
                 _ = cancellation.cancelled() => return,
             };
             let operation = match result {

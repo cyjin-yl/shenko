@@ -20,14 +20,16 @@ pub async fn run_committed_dispatcher(
     // Durable results this process could not read. They stay durable and
     // undisposed; this only keeps one bad row from failing every pass.
     let mut unreadable = HashSet::new();
-    // Obligation wakes this process already produced, keyed on the exact due
-    // fact: the same obligation redated to a new due_at is a new wake. The
-    // durable admission and the S1 disposition are the cross-process truth;
-    // this only bounds how often one running dispatcher scans its own sends.
-    let mut wake_sent: HashSet<(EntityId, chrono::DateTime<chrono::Utc>)> = HashSet::new();
+    // One bounded due-page coordinate; durable inbox identity/disposition
+    // replaces an ever-growing in-memory set of every wake ever produced.
+    let mut wake_cursor = None;
     loop {
         tokio::select! { biased;
             _=cancel.cancelled()=>return Ok(()),
+            // Retirement revoked new control admissions. Native workers and
+            // their factual receipts keep their separate owned join path;
+            // do not begin another control/publication settlement pass here.
+            _=subject_stopping.cancelled()=>return Ok(()),
             _=tick.tick()=>{
                 // One dispatcher pass: every failure is a durable runtime
                 // fact the subject can read, then propagates.
@@ -123,7 +125,7 @@ pub async fn run_committed_dispatcher(
                         // external event to poke it. The admitted row is the
                         // fact; this channel send is only a volatile wake.
                         wake_due_obligations(
-                            &store, agent_id, task_result_tx, &mut wake_sent,
+                            &store, agent_id, task_result_tx, &mut wake_cursor,
                         ).await?;
                     }
                     Ok(())
@@ -181,57 +183,47 @@ async fn deliver_native_result(
     }
 }
 
-/// Scan the durable obligation ledger once per dispatcher pass and admit a
-/// self-wake for every open obligation whose `due_at` has passed (
+pub(crate) const DUE_OBLIGATION_PAGE_SIZE: usize = 16;
+
+/// Read one bounded due-obligation page per dispatcher pass and admit its
+/// self-wakes for open obligations whose `due_at` has passed (
 /// R071/R072). An obligation row is not a scheduler: this scanner is the
 /// mechanism that turns the subject's own recorded promise into its own next
 /// input, through the same durable inbox admission + sealed-step path every
 /// other input takes.
 ///
-/// `sent` bounds repeated emissions inside this process: a `(obligation_id,
-/// due_at)` key already produced is not admitted again. After a restart the
-/// deterministic event id makes the re-admission an `InboxAdmission::Replay`,
-/// so a still-open obligation wakes exactly once per due fact across process
-/// boundaries, never a duplicate row.
+/// Each pass advances at most one indexed page. A finite local row watermark
+/// bounds a sweep even when new obligations keep arriving; the next sweep
+/// starts from the beginning. Replay never re-sends an already admitted wake,
+/// including an acknowledged one. Durable pending input owns lost delivery.
 pub(crate) async fn wake_due_obligations(
     store: &Arc<Store>,
     agent_id: EntityId,
     inbox: &tokio::sync::mpsc::Sender<InboxEvent>,
-    sent: &mut HashSet<(EntityId, chrono::DateTime<chrono::Utc>)>,
+    cursor: &mut Option<shenko_store::subject_state::DueObligationCursor>,
 ) -> anyhow::Result<()> {
     let now = chrono::Utc::now();
-    // The obligation's own projection already parses due_at back into an
-    // instant; a row this build cannot read fails the whole pass rather
-    // than silently skipping one of the subject's promises.
-    let due: Vec<PendingObligation> = store
-        .open_subject_obligations(agent_id)?
-        .into_iter()
-        .filter(|obligation| obligation.due_at.is_some_and(|due| due <= now))
-        .collect();
-    sent.retain(|(obligation_id, due_at)| {
-        due.iter().any(|o| o.obligation_id == *obligation_id && o.due_at == Some(*due_at))
-    });
-    for obligation in due {
-        let key = (obligation.obligation_id, obligation.due_at.expect("filtered above"));
-        if sent.contains(&key) {
-            continue;
-        }
+    let page = store.due_subject_obligations_page(agent_id, now,
+        cursor.as_ref(), DUE_OBLIGATION_PAGE_SIZE)?;
+    for obligation in page.obligations {
+        // SQLite's indexed timestamp has coarser precision than chrono. If
+        // an instant rounded onto this tick, leave it for the next sweep.
+        if obligation.due_at.is_none_or(|due| due > now) { continue; }
         let event = self_wake_event(&obligation);
-        // Admission is the durable fact: an identical fact under the same
-        // deterministic identity is a replay, and a divergent one is a
-        // conflict — never a second wake row.
-        store.admit_inbox_event(
-            event.event_id,
-            agent_id,
-            SELF_WAKE_KIND,
-            SUBJECT_WAKE_SOURCE,
+        let admission = store.admit_inbox_event(
+            event.event_id, agent_id, SELF_WAKE_KIND, SUBJECT_WAKE_SOURCE,
             &serde_json::to_value(&event)?,
         )?;
-        sent.insert(key);
-        // A full or lost channel does not drop the wake: pending_inbox_events
-        // drains the durable row by source on the next step.
-        let _ = inbox.try_send(event);
+        if admission == shenko_store::InboxAdmission::Inserted {
+            // A full/lost channel cannot lose the admitted original: ordinary
+            // pending selection reads it. Replaying an existing row must never
+            // manufacture another wake or undo its explicit S1 disposition.
+            let _ = inbox.try_send(event);
+        }
     }
+    // Advance only after every admission succeeded. A partial pass can retry
+    // its page safely because already-admitted identities return Replay.
+    *cursor = page.next;
     Ok(())
 }
 

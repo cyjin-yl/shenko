@@ -747,8 +747,9 @@ broker completion also feeds the shared state after the original receipt is
 recorded and accounting locks are released. Only `Success + ProviderTerminal`
 provides generation-success evidence. Attributed provider rejections and a
 withdrawn runtime can count as unavailable; invalid prompts, local cancellation
-and unknown remote outcomes cannot. The Node's consecutive-failure threshold and
-cooldown still govern eligibility. Unknown does not renew an old proof or shorten
+and unknown remote outcomes cannot. Temporary unavailability uses the Node's
+failure threshold and cooldown; generation authorization/route refusals withdraw
+eligibility immediately as described below. Unknown does not renew an old proof or shorten
 its original expiry. Long active requests are not cancelled by this observer.
 
 The profile digest remains the exact serialized `ModelProfile` digest used by
@@ -757,3 +758,50 @@ component selection, and every retained observation also binds the full actual
 proof. Probe/results and their classification envelopes are retained in CAS
 before publishing eligibility. Failure to retain evidence leaves eligibility
 unrenewed and does not terminate deterministic recovery or factual ingress.
+
+
+### Metadata and generation health are distinct evidence
+
+A successful read-only model listing establishes only the configured model's
+metadata reachability. It cannot erase an actual generation refusal. An exact
+inference `401`, `403`, or `404` immediately withdraws that binding's eligibility;
+`429` and `5xx` use the existing two-failure hysteresis. Metadata success neither
+clears generation failure counts nor extends the earlier generation proof after
+a failure. Unknown observations remain unknown and keep the prior original expiry.
+Only a new successful generation or a genuinely changed configured binding can
+clear a generation refusal; no synthetic second failure is recorded.
+
+The installation retains its exact profile/provider/credential-fingerprint
+binding, observation references, eligibility projection and predecessor in a
+local CAS chain with an atomic SQLite head. Startup restores it before probing,
+so a restart plus a healthy `/models` response cannot erase a generation failure.
+These local credentials/capabilities are not replicated as another device's
+usable model. The reference graph retains the full original evidence and labels
+metadata success separately from generation success. No eligibility lock spans
+Store or Node writes; observer failures cannot turn a failed journal into fresh
+success proof.
+
+
+Temporary generation failures have a finite half-open path. Once the 30-second
+cooldown ends, a **new** successful metadata observation can admit at most a
+five-minute window for new work. This gives a request started near the beginning
+room for the ordinary 180-second deadline, without extending eligibility for a
+request started near the end. Its evidence remains `CapabilityProbe`, never generation
+success, and its generation-failure count remains intact. Additional metadata
+polls and Unknown observations cannot renew the window. A new explicit generation failure
+closes it immediately; a real successful generation restores normal eligibility.
+If no conclusive generation arrives, the window expires and a fresh observation
+after another 30-second cooldown is required for the next finite window. The
+hard authorization/model-route refusal barrier never takes this path.
+
+This is admission for new work under the existing broker reservations, quotas
+and authority checks. It creates no diagnostic generation and never replays an
+original request with Unknown outcome. Existing attempt owners still reconcile
+those exact requests independently. Recovery-window deadlines and counts are
+retained in the local health chain and survive reopening.
+
+Definitive capability and generation observations keep separate time watermarks.
+A later metadata response or Unknown observation cannot discard a delayed
+callback for an earlier explicit generation refusal. A genuinely newer successful
+generation can supersede an older refusal; stale metadata cannot undo that
+success. All original observations remain in the local evidence chain.

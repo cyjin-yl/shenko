@@ -694,10 +694,10 @@ impl Store {
         implementation: ImplementationRef,
     ) -> Result<Option<NativeTaskClaim>> {
         if self.get_task(tool_task_id)?.is_some() { return Ok(None); }
-        if parent.kind == crate::external::MODEL_CHILD_KIND {
-            if let Some(refusal) = self.model_child_tool_refusal(parent.task_id, tool_task_id)? {
-                return Err(refusal.into());
-            }
+        if parent.kind == crate::external::MODEL_CHILD_KIND
+            && let Some(refusal) = self.model_child_tool_refusal(parent.task_id, tool_task_id)?
+        {
+            return Err(refusal.into());
         }
         let (head, mut position) = self.task_admission_position(parent.task_id,
             format!("task/{tool_task_id}/create"))?;

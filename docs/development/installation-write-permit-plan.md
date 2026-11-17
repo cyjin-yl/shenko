@@ -20,6 +20,26 @@ final reservation. Forward activation, rollback and committed-cutover recovery
 retain one reservation from the final snapshot through both selectors, the
 retired head, the launcher pointer and both Observing projections.
 
+Initial A/B copying reserves only path/source admission and final directory
+publication. Tree copying, SQLite's consistent backup, the private ledger ID
+and descriptor are prepared outside the permit, so the live installation keeps
+accepting facts. Publication rechecks the original source ledger and selector
+and uses a no-replace rename of the complete directory. A competing or stale
+preparation retains its private copy and cannot replace the selected generation.
+The final typed catch-up and selector/head/pointer cutover still share one permit.
+
+Initial forward and rollback catch-up now parse and verify archive bytes before
+acquiring their publication reservation. A consuming `PreparedCognitionImport`
+binds the original receiving Store incarnation/ledger and immutable options.
+Publication rechecks the source ledger, selector and any paused boundary before
+promoting the complete archive and applying the boundary/files/Git/rows under one
+permit. Ordinary live facts can advance during preparation; the original
+coverage report still exposes them, and strict selection still refuses uncovered
+facts. The final `*_under` catch-up retains the caller's existing cutover permit.
+Full SQL snapshot reads and atomic import transactions still scale with the
+typed closure; this removes the outer archive-I/O reservation, not those separate
+costs documented in [issue #316's capture boundary](canonical-capture-budget.md).
+
 Fresh Store mutations revalidate the actual selected slot, selector/head and
 sealed route. An old Store handle is refused after cutover; original evidence
 intake and learned historical materialization retain their separate factual
@@ -98,7 +118,7 @@ reverse the required order.
 | `seat.rs` | Include registration, relocation, retirement, incarnation, lease acquire/end, questions and decisions. Covering only `arm_seat_answer_decision` leaves invalidators outside exclusion. |
 | `cognition/import.rs` | Coordinate the existing import gate and live file/Git/row publication, including task/seat semantic units. Downloaded archive content does not grant a physical permit. |
 | `recovery_sources.rs` | Include the actual live metadata INSERT currently outside `with_mutation`; private staging databases are not installed writers. |
-| `slots.rs` | Cover consistent backup, copied ledger identity change, manifest publication and final pointer publication. Do not copy the physical lock into a slot. The currently unused public READ_WRITE `open_slot_db` is an API bypass to remove or constrain. |
+| `slots.rs` | Prepare the consistent backup, copied ledger identity and descriptor in a private directory outside the permit; revalidate source identity/selection and atomically publish the completed directory under a short permit. Final pointer publication borrows the cutover permit. Do not copy the physical lock into a slot. `open_slot_db` is read-only. |
 | `handoff.rs` | Apply one final-cutover protocol to `activate_inner`, `rollback_inner` and `finish_committed_handoff`, including candidate CAS, source mirror, head fence and pointer. |
 | CLI/runtime openers | Start/bootstrap, branch, tools, context, update and other live Store openers must carry the same installed domain. A legacy constructor cannot silently bypass it for the same installed database. |
 | `SeatRuntime` and adapters | Move the original physical permit to the actual writer. A plain `SeatWriteFence` data value is not an ownership capability. |

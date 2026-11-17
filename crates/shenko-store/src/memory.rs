@@ -1479,7 +1479,7 @@ mod tests {
             }
             let original = MemoryEntry::new(agent, "quick brown fox");
             store.insert_memory_entry(&original).unwrap();
-            assert_eq!(store.search_memory_fts("quick", 5, false).unwrap().len(), 1);
+            assert_eq!(store.query_memory_entries(Some("quick"), &MemoryQueryFilter::default(), 5, true).unwrap().len(), 1);
 
             // Re-saving the same entry_id must reindex: the old text becomes
             // unsearchable and the FTS index stays consistent (upsert fires
@@ -1488,8 +1488,8 @@ mod tests {
             revised.entry_id = original.entry_id;
             revised.record_revision = 1;
             store.insert_memory_entry(&revised).unwrap();
-            assert!(store.search_memory_fts("quick", 5, false).unwrap().is_empty());
-            assert_eq!(store.search_memory_fts("lazy", 5, false).unwrap().len(), 1);
+            assert!(store.query_memory_entries(Some("quick"), &MemoryQueryFilter::default(), 5, true).unwrap().is_empty());
+            assert_eq!(store.query_memory_entries(Some("lazy"), &MemoryQueryFilter::default(), 5, true).unwrap().len(), 1);
             {
                 let conn = store.ledger.conn.lock();
                 conn.execute_batch(

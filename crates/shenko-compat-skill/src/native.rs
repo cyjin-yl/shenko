@@ -12,12 +12,11 @@ use shenko_node::Node;
 use shenko_store::Store;
 use shenko_subject::{NativeChildService, NativeTaskHandlerPlugin};
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
-use shenko_types::{evidence::ObservationLevel, ids::EntityId, object::Digest, operation::*,
+use shenko_types::{evidence::ObservationLevel, ids::EntityId, operation::*,
     plugin_runtime::NativeCapabilityDeclaration, task::TaskRecord};
 use crate::{UNIT_ID, SourceQuery, source_view, validate_member_path};
 
 const NAME: &str = "compat.skill.source";
-const CONTRACT: &[u8] = b"shenko.compat.skill/v2: exact installed index and external CAS source; authenticated bounded member byte ranges and membership pages; original entry digest and executable mode; no automatic execution, dependency installation or permission grants; retained receipts and independent learned units";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

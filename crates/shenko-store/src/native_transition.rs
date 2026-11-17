@@ -637,7 +637,7 @@ impl Store {
             // the shared read set. A follower never copies dispatcher ownership.
             let (mut rows, result) = self.capture_row_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at))?;
+            }, evidence_fact.as_ref().map(|_| &plan.task), |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at))?;
             if evidence_fact.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = NativeT2Transition { rows, plan: plan.clone(), result, evidence_fact: evidence_fact.clone() };
             let result_commit = transition.rows.result_commit;

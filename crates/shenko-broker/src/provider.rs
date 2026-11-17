@@ -548,6 +548,29 @@ impl ProviderRuntime for AnthropicProvider {
         AnthropicProvider::stream(self, request, publisher).await
     }
 
+    async fn complete_cancellable(&self, request: &InferenceRequest,
+        stop: &tokio_util::sync::CancellationToken) -> Result<InferenceResponse>
+    {
+        if stop.is_cancelled() { return Err(crate::execution::LocalObservationStopped.into()); }
+        tokio::select! {
+            biased;
+            _result = Self::complete(self, request) => _result,
+            _ = stop.cancelled() => Err(crate::execution::LocalObservationStopped.into()),
+        }
+    }
+
+    async fn stream_cancellable(&self, request: &InferenceRequest,
+        publisher: &BoundedStreamPublisher, stop: &tokio_util::sync::CancellationToken)
+        -> Result<StreamOutcome>
+    {
+        if stop.is_cancelled() { return Err(crate::execution::LocalObservationStopped.into()); }
+        tokio::select! {
+            biased;
+            _result = Self::stream(self, request, publisher) => _result,
+            _ = stop.cancelled() => Err(crate::execution::LocalObservationStopped.into()),
+        }
+    }
+
     async fn count_tokens(&self, request: &InferenceRequest) -> Result<TokenCount> {
         AnthropicProvider::count_tokens(self, request).await
     }

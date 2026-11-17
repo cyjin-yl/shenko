@@ -140,11 +140,11 @@ pub(crate) async fn start(
     let cancel = tokio_util::sync::CancellationToken::new();
     let _runtime_cancel_on_exit = cancel.clone().drop_guard();
     let model_health = tokio::select! {
-        result = crate::runtime_model_health::initial_probe(
+        _result = crate::runtime_model_health::initial_probe(
             &model_profile, Arc::clone(&store), &cancel,
-        ) => result?,
-        result = tokio::signal::ctrl_c() => {
-            result?;
+        ) => _result?,
+        _result = tokio::signal::ctrl_c() => {
+            _result?;
             cancel.cancel();
             return Ok(());
         },
@@ -162,9 +162,10 @@ pub(crate) async fn start(
         node_sync::RuntimeSelection::Stopped => return Ok(()),
         node_sync::RuntimeSelection::RecoveryOnly { heartbeat, reason } => {
             state.authority_heartbeat = Some(heartbeat);
-            return run_deterministic_ui(supervisor, port, store, data_dir, agent_id,
-                runtime_instance, model_profile, model_health, cancel, owner_state,
-                channels, reason).await;
+            return run_deterministic_ui(supervisor, DeterministicUi {
+                port, store, data_dir, agent_id, runtime_instance, model_profile,
+                model_health, cancel, owner: owner_state, channels, reason,
+            }).await;
         },
     };
     state.active_authority = Some(authority_runtime.clone());
@@ -219,8 +220,9 @@ pub(crate) async fn start(
     // The runtime's own changes become hook events from now on: the
     // installation above and every later registration are observed
     // through the live graph, not through a startup snapshot.
-    let _runtime_hook_pump = spawn_runtime_hook_pump(supervisor, &cancel);
+    state.hook_pump = Some(spawn_runtime_hook_pump(supervisor, &cancel));
     let native_child = installed.native_child.clone();
+    state.native_child = Some(Arc::clone(&native_child));
     let self_knowledge = installed.self_knowledge.clone();
     let handoff_participants = Arc::clone(&installed.handoff_participants);
     // Recovery belongs to the live runtime, never to capability discovery.
@@ -278,6 +280,7 @@ pub(crate) async fn start(
         context_registry,
         broker_handle,
         capabilities,
+        task: inference_task,
     } =
         match inference {
             Ok(Some(services)) => services,
@@ -297,6 +300,7 @@ pub(crate) async fn start(
     // The hook graph is the runtime's own service: the subject and
     // every plugin resolve the same live registry, so a handler a
     // plugin registered is visible to the subject's next step.
+    state.inference = Some(inference_task);
     let hook_registry = Arc::clone(&supervisor.hooks);
     // Outbound path: subject model output → UI timeline.
     let (outbox_tx, _outbox_rx) =
@@ -403,19 +407,23 @@ pub(crate) async fn start(
     });
     let mut subject_finished = false;
     let runtime_result: Result<()> = tokio::select! {
-        result = &mut subject_task => {
+        _result = &mut subject_task => {
             subject_finished = true;
-            match result {
+            match _result {
                 Ok(Err(error)) => Err(error.into()),
                 Err(error) => Err(error.into()),
                 Ok(Ok(())) => Err(anyhow::anyhow!("subject stopped unexpectedly")),
             }
         }
-        result = ui.run() => result,
-        result = tokio::signal::ctrl_c() => {
-            result?;
-            info!("shutdown signal; settling subject at a recoverable boundary");
-            Ok(())
+        _result = ui.run() => _result,
+        _result = tokio::signal::ctrl_c() => {
+            match _result {
+                Ok(()) => {
+                    info!("shutdown signal; settling subject at a recoverable boundary");
+                    Ok(())
+                }
+                Err(error) => Err(error.into()),
+            }
         }
         _ = cancel.cancelled() => Err(anyhow::anyhow!("runtime stopped after connector failure; reopen for recovery")),
     };
@@ -423,10 +431,12 @@ pub(crate) async fn start(
     // Signal expected delivery shutdown before closing the receiver.
     // Durable consumers retain their separate settlement lifetime.
     cancel.cancel();
+    native_child.request_stop();
+    if let Some(inference) = &state.inference { inference.request_stop(); }
     subject_inbox.close().await;
     if !subject_finished {
-        // Do not drop an admitted request merely because Ctrl-C arrived.
-        // A timeout is an observation limit, never proof the provider stopped.
+        // The loop leaves its wait without abandoning the broker's receipt.
+        // A slow local hook/worker remains owned: timeout is only diagnostic.
         match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task)
             .await
         {
@@ -438,13 +448,13 @@ pub(crate) async fn start(
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => {
                 consumer_cancel.cancel();
-                let (_, step) = store.load_subject(agent_id)?;
-                return Err(anyhow::anyhow!(
-                    "shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
-                    step.step_id,
-                    step.state,
-                    step.active_request_id
-                ));
+                match store.load_subject(agent_id) {
+                    Ok((_, step)) => tracing::warn!(step_id=%step.step_id, state=?step.state, request_id=?step.active_request_id,
+                        "subject shutdown still pending after 15s; retaining actual worker ownership; remote outcome is not proven stopped"),
+                    Err(error) => tracing::warn!(%error,
+                        "subject shutdown still pending after 15s and durable state could not be read; retaining actual worker ownership"),
+                }
+                subject_task.await??;
             }
         }
     }
@@ -452,14 +462,13 @@ pub(crate) async fn start(
     // consumers first. Their unfinished work remains queryable on reopen.
     consumers.stop(&authority_runtime).await?;
     runtime_result?;
-    info!("Shenko stopped");
+    info!("subject and durable consumers settled; joining runtime services");
     Ok(())
 }
 
 /// Keep durable ingress, configuration and diagnostics available without
 /// claiming a thinking primary. No dispatcher or model request is started.
-async fn run_deterministic_ui(
-    supervisor: &shenko_kernel::Supervisor,
+struct DeterministicUi {
     port: u16,
     store: Arc<shenko_store::Store>,
     data_dir: PathBuf,
@@ -471,7 +480,13 @@ async fn run_deterministic_ui(
     owner: shenko_ui::owner::OwnerState,
     channels: runtime_channels::ChannelConfig,
     reason: String,
+}
+
+async fn run_deterministic_ui(
+    supervisor: &shenko_kernel::Supervisor, input: DeterministicUi,
 ) -> Result<()> {
+    let DeterministicUi { port, store, data_dir, agent_id, runtime_instance,
+        model_profile, model_health, cancel, owner, channels, reason } = input;
     let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
     // Channel-owned native definitions use the ordinary lifecycle registry;
     // absence of a dispatch consumer prevents new effect execution here.
@@ -504,11 +519,11 @@ async fn run_deterministic_ui(
         }
     };
     let result = tokio::select! {
-        result = ui.run() => result,
+        _result = ui.run() => _result,
         _ = cancel.cancelled() => Err(anyhow::anyhow!("deterministic recovery stopped; retained inputs require recovery")),
         _ = restored => Err(crate::runtime_authority::AuthorityRecoveryRequired(
             "new actual model evidence permits primary selection".into()).into()),
-        result = tokio::signal::ctrl_c() => { result?; Ok(()) },
+        _result = tokio::signal::ctrl_c() => _result.map_err(anyhow::Error::from),
     };
     cancel.cancel();
     live.set_wired(false);

@@ -33,6 +33,24 @@ fn store_opens_with_wal_and_fts5_detection() {
     assert_eq!(store.capabilities.synchronous, "2", "synchronous=FULL");
     // FTS5 may or may not be available depending on build; just check it's detected
     let _ = store.capabilities.fts5_available;
+    // Local model health is a CAS-bound observation chain, independent of
+    // authority selection. The fixture checks storage, not model usability.
+    let binding = shenko_types::object::Digest::blake3(b"local health storage fixture");
+    let body = serde_json::json!({"schema_version":1,"binding_digest":binding,
+        "previous_ref":null,"eligibility":{"fixture":"no capability claim"}});
+    let snapshot = store.cas.seal_object(&serde_json::to_vec(&body).unwrap(),
+        "application/json", "model-health", "model-health-state", 1).unwrap().object;
+    store.record_local_model_health(&binding, None, &snapshot).unwrap();
+    store.record_local_model_health(&binding, None, &snapshot).unwrap();
+    let next_body = serde_json::json!({"schema_version":1,"binding_digest":binding,
+        "previous_ref":snapshot,"eligibility":{"fixture":"later retained observation"}});
+    let next = store.cas.seal_object(&serde_json::to_vec(&next_body).unwrap(),
+        "application/json", "model-health", "model-health-state", 1).unwrap().object;
+    assert!(store.record_local_model_health(&binding, None, &next).is_err());
+    store.record_local_model_health(&binding, Some(&snapshot), &next).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("test.db"), dir.join("cas")).unwrap();
+    assert_eq!(reopened.local_model_health(&binding).unwrap(), Some(next));
 }
 
 #[test]
@@ -2683,7 +2701,7 @@ fn canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receip
     let tables = transition["tables"].as_array_mut().context("transition tables")?;
     let last = tables.iter_mut().rev().find(|table| table["changes"].as_array().is_some_and(|rows| !rows.is_empty())).context("changed table")?;
     last["changes"][0]["key"] = serde_json::json!("not the frozen row key");
-    let changed = source.cas.seal_object(&serde_json::to_vec(&transition)?,"application/json","commit-authority","store-s1-transition",1)?.object;
+    let changed = source.cas.seal_object(&serde_json::to_vec(&transition)?,"application/json","commit-authority","store-s1-transition",transition_ref.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(changed)?;
     let mut fault = grant.clone();
     fault.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?,"application/json","commit-authority","commit-admission",1)?.object;
@@ -2701,8 +2719,8 @@ fn canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receip
 }
 
 /// One real S1 sequence with the installed authority fixture: unrelated large
-/// history still permits a canonical result; the two actual capture ceilings
-/// retain the original decision through the existing ordinary admission path.
+/// history and large complete read ranges permit a bounded canonical result;
+/// an oversized actual delta retains the decision without weaker admission.
 /// The row-engine journey separately verifies rollback and observer failures.
 #[test]
 fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() -> Result<()> {
@@ -2712,8 +2730,8 @@ fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() ->
     let agent = initialize_subject_in_with_route(&source, b"capacity journey", None)?;
     let chosen = canonical_source(&source, agent, false)?;
     let conn = rusqlite::Connection::open(dir.path().join("head.db"))?;
-    // This real table participates in the independent physical scan, but is
-    // never read or written by S1. Its bytes must not consume the row-copy cap.
+    // This real table is never read or written by S1. Neither canonical
+    // payload capture nor physical-write discovery scans its retained bytes.
     conn.execute_batch("CREATE TABLE capacity_history(id INTEGER PRIMARY KEY,payload BLOB);
         INSERT INTO capacity_history VALUES(1,zeroblob(129*1024*1024));")?;
     let (head, first) = source.load_subject(agent)?;
@@ -2740,17 +2758,12 @@ fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() ->
     assert!(source.control_admission_applied_here(&grant.admission)?);
     assert_eq!(conn.query_row("SELECT length(payload) FROM capacity_history", [], |row| row.get::<_, i64>(0))?, 129*1024*1024);
 
-    // A real trigger gives S1 a read dependency on this extension without
-    // changing its decision or adding an effect. NUL text has a sixfold JSON
-    // representation; the retained-row limit and sealed-image limit are thus
-    // reached independently using the production constants, not reduced caps.
+    // A real trigger gives S1 a complete read dependency. Even histories
+    // larger than the old retained-image or JSON bounds remain canonical.
     conn.execute_batch("CREATE TABLE capacity_extension(id INTEGER PRIMARY KEY,payload TEXT);
         CREATE TRIGGER capacity_read AFTER UPDATE ON subject_branch_heads BEGIN
             SELECT length(payload) FROM capacity_extension WHERE id=1; END;")?;
-    for (index, bytes, refusal) in [
-        (1usize, 65*1024*1024i64, "row capture exceeds 128 MiB memory budget"),
-        (2usize, 12*1024*1024i64, "read/write image exceeds 64 MiB admission budget"),
-    ] {
+    for bytes in [65*1024*1024i64, 12*1024*1024i64] {
         conn.execute("INSERT OR REPLACE INTO capacity_extension VALUES(1,CAST(zeroblob(?1) AS TEXT))", [bytes])?;
         let (head, planned) = source.load_subject(agent)?;
         let result = recorded_result(&source, &head, planned)?;
@@ -2759,51 +2772,68 @@ fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() ->
         let decision = step.decision_ref.as_ref().context("original decision")?;
         let original_decision = source.cas.read_object(&decision.digest)?;
         let receipt = source.commit_step_and_advance_head(&step, &head, next)?;
-        let grant = chosen.lock().clone().context("actual ordinary admission after capacity refusal")?;
+        let grant = chosen.lock().clone().context("actual bounded canonical admission")?;
         let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&grant.admission.payload_ref.digest)?)?;
-        assert!(envelope["action"].get("transition_ref").is_none(), "refusal does not fabricate a sealed canonical result");
-        assert_eq!(envelope["action"]["step"], serde_json::to_value(&step)?);
-        assert_eq!(envelope["action"]["expected_head"], serde_json::to_value(&head)?);
-        assert_eq!(envelope["action"]["next_step_id"], serde_json::to_value(next)?);
+        let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+        assert_eq!(reference.codec.major, 2);
+        assert!(reference.bytes < 1024 * 1024, "unchanged read history must not fill the admission");
+        let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
+        let range = transition["tables"].as_array().context("tables")?.iter()
+            .find(|table| table["before"]["table"]["name"] == "capacity_extension").context("complete read range")?;
+        assert_eq!(range["complete_read"], true);
+        assert!(range["before"]["rows"].as_object().context("range rows")?.is_empty());
+        assert!(range["read_range"]["before"].is_string());
+        let logical: shenko_types::commit::CommitRef = serde_json::from_value(transition["result_commit"].clone())?;
         assert_eq!(source.cas.read_object(&decision.digest)?, original_decision);
         let stored = source.get_step(&head.branch_id, step.step_id)?.context("committed original step")?;
         let mut expected = step.clone();
-        expected.commit_ref = Some(receipt.commit_ref);
+        expected.commit_ref = Some(logical);
         assert_eq!(serde_json::to_value(&stored)?, serde_json::to_value(&expected)?);
         let (advanced, successor) = source.load_subject(agent)?;
-        assert_eq!(advanced.committed_at, receipt.commit_ref);
+        assert_eq!(advanced.committed_at, logical);
         assert_eq!(advanced.committed_step_id, Some(step.step_id));
-        assert_eq!(advanced.next_step_id, next);
         assert_eq!(successor.step_id, next);
         assert_eq!(successor.created_by_step_id, Some(step.step_id));
         assert_eq!(successor.state, SubjectStepState::Planned);
         assert_eq!(conn.query_row("SELECT count(*) FROM subject_steps WHERE json_extract(data,'$.created_by_step_id')=?1",
-            [step.step_id.to_string()], |row| row.get::<_, i64>(0))?, 1, "rolled-back evaluation leaves no extra successor");
-        assert_eq!(conn.query_row("SELECT count(*) FROM subject_identity_receipts WHERE step_id=?1",
-            [step.step_id.to_string()], |row| row.get::<_, i64>(0))?, 1, "only the ordinary COMMIT publishes the result");
-        assert_eq!(conn.query_row("SELECT count(*) FROM control_prepared_transitions WHERE action_id=?1",
-            [grant.admission.action_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+            [step.step_id.to_string()], |row| row.get::<_, i64>(0))?, 1);
         let applied: serde_json::Value = serde_json::from_str(&conn.query_row(
             "SELECT data FROM control_materializations WHERE action_id=?1", [grant.admission.action_id.to_string()],
             |row| row.get::<_, String>(0))?)?;
         assert_eq!(applied["committed_at"], serde_json::to_value(receipt.commit_ref)?);
-        assert!(applied.get("transition_ref").is_none());
+        assert_eq!(applied["transition_ref"], serde_json::to_value(reference)?);
         assert!(source.control_admission_applied_here(&grant.admission)?);
-        let reports = source.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?
-            .into_iter().filter(|event| event.event_type == "runtime_error")
-            .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
-            .collect::<serde_json::Result<Vec<_>>>()?.into_iter()
-            .filter(|event| event["kind"] == "store_capture_budget").collect::<Vec<_>>();
-        assert_eq!(reports.len(), index);
-        let report = reports.last().context("capacity refusal journal")?;
-        assert_eq!(report["step_no"], step.step_no);
-        let message = report["message"].as_str().context("original refusal message")?;
-        assert!(message.contains(refusal), "{message}");
-        assert!(message.contains("no commit yet confirmed"), "the report does not claim the later receipt");
-        assert_eq!(report["journal_dropped_total"], 0);
-        assert_eq!(conn.query_row("SELECT count(*) FROM operations", [], |row| row.get::<_, i64>(0))?, 0);
-        assert_eq!(conn.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 0);
     }
+    // A changed 12 MiB NUL text cell really does exceed the serialized-delta
+    // cap. It stays an unchosen original decision, not a generic admission.
+    conn.execute_batch("CREATE TRIGGER capacity_write AFTER UPDATE ON subject_branch_heads BEGIN
+        UPDATE capacity_extension SET payload=payload||char(0) WHERE id=1; END;")?;
+    let (head, planned) = source.load_subject(agent)?;
+    let result = recorded_result(&source, &head, planned)?;
+    let next = EntityId::new();
+    let step = committed_candidate(&source, result, next);
+    let decision = step.decision_ref.as_ref().context("original capacity-refused decision")?;
+    let original_decision = source.cas.read_object(&decision.digest)?;
+    let prior_grant = chosen.lock().clone().context("prior committed grant")?;
+    let before_length: i64 = conn.query_row("SELECT length(CAST(payload AS BLOB)) FROM capacity_extension", [], |row| row.get(0))?;
+    let error = source.commit_step_and_advance_head(&step, &head, next).unwrap_err();
+    assert!(error.to_string().contains("64 MiB admission budget"), "{error}");
+    assert_eq!(chosen.lock().as_ref().map(|grant| &grant.grant_id), Some(&prior_grant.grant_id),
+        "capacity cannot create an alternate ordinary grant");
+    assert_eq!(source.cas.read_object(&decision.digest)?, original_decision);
+    assert_eq!(source.load_subject(agent)?.0.committed_at, head.committed_at);
+    assert!(source.get_step(&head.branch_id, next)?.is_none());
+    assert_eq!(conn.query_row("SELECT length(CAST(payload AS BLOB)) FROM capacity_extension", [], |row| row.get::<_, i64>(0))?, before_length);
+    let reports = source.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?
+        .into_iter().filter(|event| event.event_type == "runtime_error")
+        .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
+        .collect::<serde_json::Result<Vec<_>>>()?.into_iter()
+        .filter(|event| event["kind"] == "store_capture_budget").collect::<Vec<_>>();
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0]["message"].as_str().context("capacity fact")?.contains("no weaker admission was attempted"));
+    assert_eq!(conn.query_row("SELECT count(*) FROM operations", [], |row| row.get::<_, i64>(0))?, 0);
+    assert_eq!(conn.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 0);
+
     Ok(())
 }
 

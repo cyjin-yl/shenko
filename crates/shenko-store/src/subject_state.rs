@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS subject_obligations(
  decision_ref TEXT NOT NULL, created_seq INTEGER NOT NULL, updated_seq INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS subject_obligations_open
  ON subject_obligations(agent_id,state,created_seq,obligation_id);
+CREATE INDEX IF NOT EXISTS subject_obligations_due
+ ON subject_obligations(agent_id,julianday(due_at),obligation_id)
+ WHERE state='open' AND due_at IS NOT NULL;
 CREATE TABLE IF NOT EXISTS subject_attention_policies(
  intent_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, step_id TEXT NOT NULL,
  state TEXT NOT NULL, sources TEXT NOT NULL, reason TEXT NOT NULL,
@@ -169,6 +172,22 @@ pub struct ObligationPage {
     pub next: Option<ObligationCursor>,
 }
 
+/// A bounded local due scan keeps its initial row watermark, so newly
+/// created/imported promises cannot prevent this sweep from reaching its end.
+/// It is transient scan state, never a replicated fact or acknowledgement.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DueObligationCursor {
+    pub due_at: chrono::DateTime<chrono::Utc>,
+    pub obligation_id: EntityId,
+    pub through_rowid: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DueObligationPage {
+    pub obligations: Vec<PendingObligation>,
+    pub next: Option<DueObligationCursor>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ObligationFrontier {
     pub total_open: u64,
@@ -288,6 +307,59 @@ impl Store {
         let next = (rows.len() > limit).then(|| rows[limit - 1].0.clone());
         rows.truncate(limit);
         Ok(ObligationPage { total_open, obligations: rows.into_iter().map(|(_, item)| item).collect(), next })
+    }
+
+    /// Only due, open obligations reach the bounded page. The partial date
+    /// index avoids loading every undated/future promise on dispatcher ticks;
+    /// a keyset range avoids rescanning the earlier pages of a long sweep.
+    pub fn due_subject_obligations_page(&self, agent_id: EntityId,
+        now: chrono::DateTime<chrono::Utc>, after: Option<&DueObligationCursor>, limit: usize)
+        -> Result<DueObligationPage, ShenkoError> {
+        let limit = limit.clamp(1, 50);
+        let conn = self.ledger.conn.lock();
+        let through = match after {
+            Some(cursor) => cursor.through_rowid,
+            None => conn.query_row("SELECT COALESCE(MAX(rowid),0) FROM subject_obligations", [],
+                |row| row.get::<_, i64>(0)).map_err(storage)?,
+        };
+        let rows = match after {
+            Some(cursor) => {
+                // SQLite does not turn an expression tuple comparison into
+                // the full index lower bound. Split the equal-instant suffix
+                // and later-instant range so even many identical due times
+                // seek past earlier pages instead of scanning them again.
+                let mut rows = obligation_rows(&conn,
+                    "WHERE agent_id=?1 AND state='open' AND due_at IS NOT NULL
+                       AND julianday(due_at)<=julianday(?2) AND rowid<=?3
+                       AND julianday(due_at)=julianday(?4) AND obligation_id>?5
+                     ORDER BY obligation_id LIMIT ?6",
+                    params![agent_id.to_string(), now.to_rfc3339(), through,
+                        cursor.due_at.to_rfc3339(), cursor.obligation_id.to_string(), limit as i64])?;
+                let remaining = limit - rows.len();
+                if remaining > 0 {
+                    rows.extend(obligation_rows(&conn,
+                        "WHERE agent_id=?1 AND state='open' AND due_at IS NOT NULL
+                           AND julianday(due_at)<=julianday(?2) AND rowid<=?3
+                           AND julianday(due_at)>julianday(?4)
+                         ORDER BY julianday(due_at),obligation_id LIMIT ?5",
+                        params![agent_id.to_string(), now.to_rfc3339(), through,
+                            cursor.due_at.to_rfc3339(), remaining as i64])?);
+                }
+                rows
+            },
+            None => obligation_rows(&conn,
+                "WHERE agent_id=?1 AND state='open' AND due_at IS NOT NULL
+                   AND julianday(due_at)<=julianday(?2) AND rowid<=?3
+                 ORDER BY julianday(due_at),obligation_id LIMIT ?4",
+                params![agent_id.to_string(), now.to_rfc3339(), through, limit as i64])?,
+        };
+        let next = if rows.len() == limit {
+            let body = &rows[limit - 1].1;
+            Some(DueObligationCursor { due_at: body.due_at
+                .ok_or_else(|| ShenkoError::conflict("due query returned an undated obligation"))?,
+                obligation_id: body.obligation_id, through_rowid: through })
+        } else { None };
+        Ok(DueObligationPage { obligations: rows.into_iter().map(|(_, body)| body).collect(), next })
     }
 
     /// Full retained body and state, including completed/cancelled records.

@@ -1383,7 +1383,37 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     };
     // Exactly what `prepare` does: an independent slot whose copied state has
     // its own ledger writer identity, then the candidate program.
-    let slot = slots::copy_slot(&live, &SlotLayout::new(fixture.data_dir.clone()), &target).unwrap();
+    let layout = SlotLayout::new(fixture.data_dir.clone());
+    let prepared = slots::prepare_slot_copy(&live, &layout, &target).unwrap();
+    let competing = slots::prepare_slot_copy(&live, &layout, &target).unwrap();
+    let stale = slots::prepare_slot_copy(&live, &layout, &RuntimeGeneration::new("gen-stale")).unwrap();
+    assert!(!layout.slot_dir(&target).exists(), "an incomplete candidate is not published");
+    // Prepared private copies hold no live mutation permit. An original IM
+    // delivery is accepted while they exist, and the final catch-up must keep
+    // that delivery even though none of these backup snapshots contains it.
+    let incoming = EntityId::new();
+    let mut input = shenko_types::store::WriteBatch::new();
+    input.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
+        event_id: incoming, agent_id: fixture.agent_id, source: "fixture-im".into(),
+        kind: "message".into(), payload_json: serde_json::json!({ "text": "new input during preparation" }).to_string(),
+        received_at_ms: 1,
+    });
+    fixture.store.commit(input).expect("live ingress continues while a private candidate is prepared");
+    let slot = prepared.publish().unwrap();
+    assert!(slots::read_slot_manifest(&slot.slot_dir).unwrap().copied_through_seq.is_some());
+    let publication = competing.publish().unwrap_err();
+    match publication {
+        slots::SlotError::Publication { staged, published, .. } => {
+            assert!(staged.is_dir(), "a losing complete copy is retained for inspection");
+            assert_eq!(published, slot.slot_dir);
+        }
+        error => panic!("competing slot publication must retain both paths: {error}"),
+    }
+    let copied = slots::open_slot_db(&slot).unwrap();
+    let copied_incoming: i64 = copied.query_row("SELECT count(*) FROM inbox_events WHERE event_id=?1",
+        [incoming.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(copied_incoming, 0, "the snapshot precedes the new IM");
+    drop(copied);
     let program = write_executable(&fixture.data_dir, "candidate-b", &smoke_script(&target.0));
     let artifact_digest = Digest::blake3(&fs::read(&program).unwrap());
     slots::write_slot_manifest(
@@ -1448,6 +1478,15 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         fixture.data_dir.join("cas"),
     )
     .unwrap();
+    let selected_db = slots::open_slot_db(&slot).unwrap();
+    let retained_incoming: i64 = selected_db.query_row("SELECT count(*) FROM inbox_events WHERE event_id=?1",
+        [incoming.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(retained_incoming, 1, "final typed catch-up retains input accepted after the private backup");
+    drop(selected_db);
+    match stale.publish().unwrap_err() {
+        slots::SlotError::SourceChanged(staged) => assert!(staged.is_dir()),
+        error => panic!("source selection must be rechecked before publishing an earlier preparation: {error}"),
+    }
     // The final watermark is materialized by the successor's selector CAS.
     // The retired ledger must mirror that exact durable activation identity:
     // a local selector match alone does not prove the two records agree.

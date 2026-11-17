@@ -70,6 +70,13 @@ pub fn native_artifact_digest() -> Digest { running_native_artifact().digest() }
 /// Stable versioned schema identity. It identifies the published schema
 /// contract; it is not a digest of executable bytes or an operation's prose.
 pub fn native_schema_digest(name: &str, major: u32) -> Digest {
-    Digest::blake3(&serde_json::to_vec(&("shenko.native-schema", name, major))
-        .expect("schema identity is serializable"))
+    // This array is the same JSON as the original string/string/u32 tuple.
+    // Construct its primitive values directly so no fallible user serializer
+    // or panic is required for the published schema identity.
+    let encoded = serde_json::Value::Array(vec![
+        serde_json::Value::String("shenko.native-schema".into()),
+        serde_json::Value::String(name.into()),
+        serde_json::Value::Number(major.into()),
+    ]).to_string();
+    Digest::blake3(encoded.as_bytes())
 }

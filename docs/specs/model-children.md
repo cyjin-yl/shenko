@@ -34,7 +34,7 @@ CLI、Store、broker 的验证不等于真实模型行为验收，也不覆盖�
 
 | 事实 | 归属 | 持久位置 |
 | --- | --- | --- |
-| 冻结的 child 合同（契约 schema 3；历史 schema 2 的读取见 [§6](subject-runtime.md#spec-6)） | 委派者写、运行器绑定 | `subject_intents` 的 delegation 行 + CAS 对象 |
+| 冻结的 child 合同（契约 schema 4；历史 schema 2/3 保留原通路语义） | 委派者写、运行器绑定 | `subject_intents` 的 delegation 行 + CAS 对象 |
 | 每个模型步（一次真实 generation） | child 自己的 operation/attempt/evidence | `operations` / `attempts` / `evidence_receipts`，operation 名 `model.child.generate.v1` |
 | 每次工具调用 | 一个**真实的** native 子任务 | `tasks`（kind = 工具 kind，owner = child 任务） |
 | 运行结果（transcript、答案、预算、终止原因） | child 的 run operation | operation 名 `model.child.result.v1` + 其 normalized 记录 |
@@ -71,6 +71,7 @@ child 运行永远有界，三条预算同时生效（`ModelChildBudget`）：
 | `goal` | 任务目标 | 非空，≤64 KiB |
 | `system_prompt` | **委派者独立撰写的完整语义 prompt** | 非空，≤64 KiB |
 | `model` | 本次运行选择的模型 | 非空，≤512，无控制字符 |
+| `profile_id` | 显式选择本步 S0 已冻结的 provider 通路 | 可空；缺省保留原通路，精确匹配已安装 profile，不按模型名猜测供应商、端点或账号 |
 | `max_tokens` | **本 child 每步的输出预算** | >0，不超过本 child 的总预算；实际发送仍须通过资源准入 |
 | `tools` | 本 child 被授予的工具（`{kind, definition_version}`） | 可空；空 = 纯文本 child |
 | `context` | 交给 child 的上下文块（`{label, text}`） | 可空 |
@@ -90,10 +91,11 @@ child 的每步预算、工具选择、上下文与语义 prompt 全部**独立�
 
 ## 3. 冻结合同与指纹
 
-`FrozenModelChild`（当前契约 schema 3）是 child 的冻结身份，内容包括：
+`FrozenModelChild`（当前契约 schema 4）是 child 的冻结身份，内容包括：
 
 * `task_id`、`created_by_step_id`、`software_generation`、`role_revision`；
 * `spec`（作者写的全部选择）、`provider_binding`（transport + 选定 model 的确切绑定）；
+* `child_provider_bindings`（委派 S0 观察到的完整已安装 binding；嵌套 child 继承同一份事实）；
 * `budget`、`max_tokens`；
 * `reply_grant`（已绑定到本 child 的 `task_id`）；
 * `continued_from`（继续链上的前一个 child 任务）；
@@ -103,9 +105,17 @@ child 的每步预算、工具选择、上下文与语义 prompt 全部**独立�
 provider 绑定、决定内容、预算提示一致；不一致即拒绝该委派（`ShenkoError::conflict`）。
 运行器在执行前再次用 `FrozenModelChild::validate` 重建并全等比较。
 
-该准入同时读取主体的 **FrozenStepInput plan schema**（当前 = 12，与 Subject 的统一切换
-一起移动）。child 合同必须绑定到同一个 plan schema；用旧 plan 封存的 child
-委派会被拒绝，不会被"宽容读取"。
+该准入同时读取主体的 **FrozenStepInput plan schema**（当前 = 15）。新 S0 在模型
+生成前封存完整 routing 表；`profile_id` 只选择表内原 binding，模型字段只替换该
+通路的模型。端点、鉴权指纹、API/schema revision 与物理资源身份都保留。handler
+执行时仍须有匹配原 binding 的已安装 provider，配置变更不能重解释在途合同。
+历史 S0 12–14 与 child schema 2/3 仍按原通路恢复，不接受新 `profile_id` 或新表；
+纠错请求继承原表，不从 live registry 补充路由。
+
+不同 provider 仍使用同一个 broker 队列；每个提交随身携带解析后的物理 domain 与
+该域的 KV 账。满域的请求留在原 lane，其他可用域继续运行。Unknown 保留原域的
+charge，之后由任意 handle 读取原证据时，也只释放原域。安装事实不等于当前可达，
+运行时仍可返回真实的 unavailable/refused/unknown；此选择不会安装新 provider。
 
 每个模型步另有自己的冻结输入 `FrozenModelChildStep`（当前 step schema 2；历史读取见 [§7.1](plugins.md#spec-7)），它携带
 `contract_digest`（= 冻结合同的 digest）、`request_id`、该步的 `provider_binding`、
@@ -124,7 +134,8 @@ operation 的 `final_input_ref` 指向它，`input_digest == final_input_ref.dig
 ```
 
 一次输出可以有多行工具调用，按出现顺序执行。解析失败（版本不是正整数、JSON 不合法、
-kind 为空）的行**不**被当作工具调用，而是留在答案正文里。
+kind 为空）保留原文与结构诊断；当次不执行任何控制，并在原有限预算内请求修复。
+修复预算耗尽为 `protocol_invalid`，不能把控制错误当作纯文本任务成功。
 
 * 只有 `spec.tools` 里列出的 `(kind, definition_version)` 才被允许；
 * 只有 **registry 里真实注册**的 handler 才会出现在给 child 的工具目录里
@@ -177,7 +188,12 @@ attempt、evidence 与 T2，走的是主体委派时完全相同的 handler、au
   （继承的记录里带着原调用身份，工具结果按原身份读取）。
 * 继续链的预算约束：继续运行的 `budget.max_total_tokens` 不得超过被继续运行
   **剩余**的额度；`budget.max_tool_calls` 不得超过其剩余的工具调用额度。
-  超出即在 S1 准入阶段被拒绝。
+  同一原任务的多个 continuation 共用这份余额，不能各自复制同一个结果里曾显示的
+  remaining。S1 在创建新任务的同一事务中，把完整转授额度记到原 task 的 continuation
+  reservation memo，并消费原 task record revision；取消、Unknown 和重启不退款。
+  原 T1、原问题与结果回执保持不变。旧安装缺少 memo 时，从已准入 continuation 的
+  原任务与冻结合同重建转授；坏对象或缺少原任务不能按零消费处理。
+  解析批次先只读检查累计需求，把明显越额作为有界纠错反馈；S1 原子复核仍是最终准入。
 
 ---
 
