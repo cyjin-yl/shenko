@@ -1,12 +1,12 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
-  "migrated_from": "41282cb0ddc39283826e52e9932be123fc83eb47",
-  "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
+  "commit": "3a537056b14bc8fd143d67ff63a55b2334981690",
+  "migrated_from": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+  "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
   "packages": [
-    "@proto.ui/adapter-react@0.3.0-alpha.1",
-    "@proto.ui/prototypes-shadcn@0.3.0-alpha.1",
-    "@proto.ui/cli@0.3.0-alpha.1"
+    "@proto.ui/adapter-react@0.3.0-alpha.2",
+    "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
+    "@proto.ui/cli@0.3.0-alpha.2"
   ],
   "adopted_families": [
     "button",

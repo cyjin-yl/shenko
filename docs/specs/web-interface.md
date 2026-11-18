@@ -1049,3 +1049,29 @@ inline-script source references; no Rust build/tests ran), and
 `pr293-conversation-app-r1/runtime.json` (failed before HTTP readiness).
 The later successful receipts do not rewrite those outcomes or the historical
 acceptance ledger.
+
+## Proto-UI mainline pin 2026-11-18
+
+The build pin advances from `7521cd501f454b4e013ec6e9656fb4b6e4951514` to the
+Proto-UI mainline head `3a537056b14bc8fd143d67ff63a55b2334981690` (247 commits
+later). Changes at this pin:
+
+- **Packages.** The three public entries move from `0.3.0-alpha.1` to
+  `0.3.0-alpha.2`.
+- **Lock.** The upstream `pnpm-lock.yaml` digest is now
+  `e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8`.
+- **Closure.** The 42-package public closure was rebuilt at this commit.
+- **Anatomy ordering.** The upstream mainline now carries its own fix for
+  anatomy ordering cost during notifications (#1487). Within one notification
+  pass it reuses logical domain reads and host comparisons, and it notifies
+  only the current family's subscribers. The local Proto-UI patch `5db86b49`
+  recorded in §6 is therefore not proposed upstream.
+
+Checked on this pin:
+
+- The Shenko bundle was regenerated through `web/build.mjs`, with both Shenko
+  Prototypes compiled by the pinned compiler.
+- `tsc` passes, and the web tests pass (36).
+- The demo IM and its team thread load in Chromium with no page errors.
+- Not yet measured at this pin: the adapter cost figures in §6 and the
+  toggle-group mount numbers.
