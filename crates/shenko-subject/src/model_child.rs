@@ -698,24 +698,24 @@ fn parse_output(text: &str, in_team: bool) -> ModelChildOutput {
             rest.push_str(line);
             continue;
         }
-        if in_team {
-            if let Some(body) = trimmed.strip_prefix("[tell:") {
-                if let Some((to, message)) = body.split_once(']') {
-                    if ModelChildSpec::valid_label(to) && !message.trim().is_empty() {
-                        tells.push(ModelChildTell {
-                            to: to.to_owned(),
-                            message: message.trim().to_owned(),
-                        });
-                        continue;
-                    }
-                }
-            }
-            if let Some(body) = trimmed.strip_prefix("[wait]") {
-                if wait.is_none() {
-                    wait = Some(body.trim().to_owned());
-                    continue;
-                }
-            }
+        if in_team
+            && let Some(body) = trimmed.strip_prefix("[tell:")
+            && let Some((to, message)) = body.split_once(']')
+            && ModelChildSpec::valid_label(to)
+            && !message.trim().is_empty()
+        {
+            tells.push(ModelChildTell {
+                to: to.to_owned(),
+                message: message.trim().to_owned(),
+            });
+            continue;
+        }
+        if in_team
+            && wait.is_none()
+            && let Some(body) = trimmed.strip_prefix("[wait]")
+        {
+            wait = Some(body.trim().to_owned());
+            continue;
         }
         if let Some(body) = trimmed.strip_prefix("[tool:") {
             if let Some((header, body)) = body.split_once(']') {
@@ -1720,16 +1720,15 @@ impl ModelChildHandler {
                 }
             }
         }
-        if let Some(last) = history.records[history.inherited_count..].last() {
-            if last.complete
-                && last.wait.is_some()
-                && last.tool_calls.is_empty()
-                && unread.is_empty()
-            {
-                let deadline = last.wait_from.unwrap_or_else(chrono::Utc::now) + PEER_WAIT_LIMIT;
-                self.wait_for_peers(&contract, team.as_ref(), &read_dialogue, deadline)
-                    .await?;
-            }
+        if let Some(last) = history.records[history.inherited_count..].last()
+            && last.complete
+            && last.wait.is_some()
+            && last.tool_calls.is_empty()
+            && unread.is_empty()
+        {
+            let deadline = last.wait_from.unwrap_or_else(chrono::Utc::now) + PEER_WAIT_LIMIT;
+            self.wait_for_peers(&contract, team.as_ref(), &read_dialogue, deadline)
+                .await?;
         }
         let mut termination = ModelChildTermination::Completed;
         let mut publications: Vec<PublicationIntent> = vec![];
