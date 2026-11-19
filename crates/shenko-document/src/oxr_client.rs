@@ -14,7 +14,7 @@
 //!   `data.result.outputs.json.pages[]`: each page has `page_num`,
 //!   `blocks[]` and `page_size { w, h }`; each block has `idx`, `type`,
 //!   `bbox` (`[x1, y1, x2, y2]`, integers), `content`, `format` and
-//!   `captions`.
+//!   `captions` and the transient image resource `img_url`.
 //!
 //! Upstream has no per-page endpoint: one upload always returns the whole
 //! document, and the hosted product is limited to QPS 4 per account (free
@@ -24,12 +24,14 @@
 //! The client never invents a field: an absent `bbox`, `type`, `format` or
 //! `page_size` stays `None`, so a reader can tell "the engine did not say"
 //! apart from "the engine said zero". A failure is classified as either
-//! terminal (`outcome_is_unknown() == false`: upstream understood and refused) or
+//! terminal (`outcome_is_unknown() == false`: a conclusive fresh-submit refusal or
+//! original-task failure) or
 //! unknown (`true`: the request may still have been processed), because those
 //! are different facts for the caller.
 
-use crate::types::{PageBlock, PageSize};
+use crate::types::{PageBlock, PageImageResource, PageSize};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Upstream's own guidance for the async poll interval ("every 3~5 seconds").
@@ -41,14 +43,13 @@ pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_secs(600);
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 /// Deadline for the availability probe: reachability only, no parsing.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-/// Upper bound on an accepted response body. Upstream caps a document at
-/// 200MB / 300 pages, so its JSON output is far below this; a larger body
-/// means something other than the documented answer came back.
+/// This client's response-body admission bound, enforced while streaming.
+/// Self-hosted OXR has no documented fixed output cap; input size/page limits
+/// do not establish an upper bound for its JSON response.
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Upstream rate-limit codes (docs.somark.ai/en/api-reference/errors). The
-/// request was rejected before parsing. This provider still never re-arms
-/// the original attempt; any deliberate retry is a new host operation.
+/// Upstream rate-limit codes (docs.somark.ai/en/api-reference/errors). Their
+/// outcome stays Unknown; these codes alone never authorize another upload.
 const RATE_LIMIT_CODES: [i64; 2] = [1101, 1124];
 /// Upstream task-timeout / task-record codes. The task may still have run
 /// (or died with the service), so the outcome is unknown, not a failure.
@@ -69,8 +70,8 @@ impl CredentialHandle {
         }
     }
 
-    /// The secret, for the request form and response redaction/echo checks.
-    /// Crate-visible on purpose: hosts retain receipts, not credentials.
+    /// The secret, for the request builder only. Crate-visible on purpose:
+    /// nothing outside this crate has any business reading the credential.
     pub(crate) fn expose(&self) -> &str {
         &self.secret
     }
@@ -91,7 +92,8 @@ impl std::fmt::Display for CredentialHandle {
 /// Which upstream transport the provider uses. Both are real upstream
 /// endpoints that OXR implements; the difference is only how the result
 /// comes back.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OxrTransport {
     /// `POST /parse/async`, then `POST /parse/async_check` until the task
     /// finishes. Upstream recommends this for backend pipelines.
@@ -130,8 +132,51 @@ impl OxrClientConfig {
     }
 }
 
-/// A failure to obtain a page result from upstream.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+/// Which original observation produced retained response bytes. This contains
+/// no configured URL, credential or provider-controlled diagnostic text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OxrResponseSource {
+    Sync,
+    AsyncSubmit,
+    AsyncCheck,
+    SavedResponse,
+}
+
+/// Bounded original response evidence, separate from its interpretation.
+/// `None` means no body bytes were captured; a complete empty body is
+/// `Some(Vec::new())`. Partial capture never claims the remote task stopped.
+#[derive(Clone)]
+pub struct OxrResponseObservation {
+    pub body: Option<Vec<u8>>,
+    /// Exact declared header bytes, when present; not a trusted JSON MIME.
+    pub declared_content_type: Option<Vec<u8>>,
+    pub capture_complete: bool,
+    pub source: OxrResponseSource,
+    pub http_status: Option<u16>,
+}
+
+impl std::fmt::Debug for OxrResponseObservation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("OxrResponseObservation")
+            .field("captured_bytes", &self.body.as_ref().map(Vec::len))
+            .field("capture_complete", &self.capture_complete)
+            .field("source", &self.source)
+            .field("http_status", &self.http_status)
+            .finish_non_exhaustive()
+    }
+}
+
+impl OxrResponseObservation {
+    fn saved(body: Vec<u8>, capture_complete: bool) -> Self {
+        Self { body: Some(body), declared_content_type: None, capture_complete,
+            source: OxrResponseSource::SavedResponse, http_status: None }
+    }
+}
+
+/// A failure to obtain a page result from upstream. Raw observations are
+/// deliberately excluded from Display and Debug.
+#[derive(Clone, thiserror::Error)]
 pub enum OxrError {
     /// The configured endpoint is not a usable http(s) URL.
     #[error("OXR endpoint is not a usable http(s) URL: {0}")]
@@ -144,10 +189,10 @@ pub enum OxrError {
     #[error("OXR endpoint returned HTTP {status}")]
     HttpStatus { status: u16 },
     /// Upstream answered with a non-zero envelope `code`.
-    #[error("OXR upstream error {code}: {message}")]
+    #[error("OXR upstream error {code} (provider message retained in response evidence)")]
     Upstream { code: i64, message: String },
     /// The async task reached `failed`.
-    #[error("OXR task failed: {0}")]
+    #[error("OXR task failed (provider reason retained in response evidence)")]
     TaskFailed(String),
     /// The answer did not have the documented shape.
     #[error("OXR response is missing {0}")]
@@ -155,30 +200,66 @@ pub enum OxrError {
     /// The async task did not reach a terminal status inside the budget.
     #[error("OXR task did not finish within {0:?}")]
     PollTimeout(Duration),
-    /// An armed upload has no durable terminal receipt. It must not be sent again.
-    #[error("OXR attempt outcome unknown: {0}")]
-    OutcomeUnknown(String),
-    /// The host could not durably record the attempt or its receipt.
-    #[error("OXR attempt receipt unavailable: {0}")]
-    Receipt(String),
+    /// A known upstream task remains unresolved. Query this same handle;
+    /// uploading the document again would create a different effect.
+    #[error("OXR accepted task outcome unknown: {reason}")]
+    TaskUnknown { task_id: String, reason: String, observation: Option<Arc<OxrResponseObservation>> },
+    /// The original response or captured prefix accompanies its typed cause.
+    #[error("{cause}")]
+    Observed { cause: Box<OxrError>, observation: Arc<OxrResponseObservation> },
+    /// The original response contained a recognizable credential echo.
+    /// Its bytes are withheld explicitly; the typed cause keeps its outcome.
+    #[error("{cause}; credential echo response bytes withheld")]
+    CredentialEchoWithheld { cause: Box<OxrError> },
     /// The upload could not be built.
     #[error("OXR request could not be built: {0}")]
     Request(String),
 }
 
+impl std::fmt::Debug for OxrError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Provider text, task handles, header values and raw bytes remain
+        // structured evidence, never Debug output.
+        std::fmt::Display::fmt(self, formatter)
+    }
+}
+
 impl OxrError {
+    fn observed(self, observation: OxrResponseObservation) -> Self {
+        Self::Observed { cause: Box::new(self), observation: Arc::new(observation) }
+    }
+
+    /// Borrow actual captured bytes without rendering or copying them.
+    pub fn response_observation(&self) -> Option<&OxrResponseObservation> {
+        match self {
+            Self::Observed { observation, .. } => Some(observation.as_ref()),
+            Self::TaskUnknown { observation, .. } => observation.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// A typed terminal task fact from the original check path, after its
+    /// returned identity is checked. An HTTP/envelope refusal of that check
+    /// cannot establish that the accepted computation ended.
+    pub fn is_terminal_task_failure(&self) -> bool {
+        match self {
+            Self::TaskFailed(_) => true,
+            Self::Observed { cause, .. } | Self::CredentialEchoWithheld { cause } => cause.is_terminal_task_failure(),
+            _ => false,
+        }
+    }
+
     /// `true` when the request may still have been processed upstream: the
     /// caller must record an unknown outcome instead of a page failure.
-    /// This classification never authorizes another upload.
+    /// Accepted-handle checks use `poll_document`'s phase-aware normalization;
+    /// a fresh-submit refusal alone says nothing about an accepted task.
     pub fn outcome_is_unknown(&self) -> bool {
         match self {
+            Self::Observed { cause, .. } | Self::CredentialEchoWithheld { cause } => cause.outcome_is_unknown(),
             // A transport failure or a polling timeout means we never learned
             // what upstream did with the document.
-            Self::Transport(_)
-            | Self::PollTimeout(_)
-            | Self::MalformedResponse(_)
-            | Self::OutcomeUnknown(_)
-            | Self::Receipt(_) => true,
+            Self::Transport(_) | Self::PollTimeout(_) | Self::TaskUnknown { .. }
+                | Self::MalformedResponse(_) => true,
             Self::HttpStatus { status } => {
                 // 408/425/429 and 5xx leave the outcome unknown; any other
                 // 4xx is a refusal this identical request will always get.
@@ -187,8 +268,11 @@ impl OxrError {
             Self::Upstream { code, .. } => {
                 RATE_LIMIT_CODES.contains(code) || UNKNOWN_OUTCOME_CODES.contains(code)
             }
-            // Definite refusal or failure; no automatic replay is authorized.
-            Self::InvalidEndpoint(_) | Self::TaskFailed(_) | Self::Request(_) => false,
+            // Refused, failed or unreadable: resending the identical page
+            // request changes nothing.
+            Self::InvalidEndpoint(_)
+            | Self::TaskFailed(_)
+            | Self::Request(_) => false,
         }
     }
 }
@@ -211,92 +295,46 @@ pub struct OxrDocument {
     pub file_name: Option<String>,
     /// `data.metadata.page_num`: the document's page count as upstream saw it.
     pub page_count: Option<u32>,
-    /// OXR reports which requested parameters it ignored. Always empty for
-    /// this client, which sends no optional parameter — kept so a caller can
-    /// see a deployment disagreeing with the request.
+    /// Upstream warnings, preserved verbatim even though this client sends
+    /// no optional parameters. Their absence proves no recognition property.
     pub warnings: Vec<String>,
     pub pages: Vec<OxrParsedPage>,
+    /// Exact bounded upstream result bytes, retained by the durable consumer
+    /// in CAS before it publishes page checkpoints.
+    pub raw_response: Vec<u8>,
 }
 
-/// The original asynchronous acceptance, retained by the host before polling.
-/// A waiting deadline does not terminate the remote task or authorize another upload.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OxrTaskHandle {
-    pub task_id: String,
-    pub accepted_at: chrono::DateTime<chrono::Utc>,
-    pub poll_deadline: chrono::DateTime<chrono::Utc>,
-}
-
-/// One upload's response. The provider durably records an accepted task before
-/// continuing with read-only polling.
-#[derive(Debug, Clone)]
-pub enum OxrSubmission {
-    Completed(OxrDocument),
-    Accepted(OxrTaskHandle),
-}
-
-/// Whether the retained bytes cover the complete HTTP entity body. These are
-/// response bytes only: request forms and authorization headers are not retained.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OxrBodyState {
-    Complete,
-    Incomplete,
-    /// A recognizable credential echo is deliberately not archived. This is
-    /// an explicit evidence gap, never a claim that redacted bytes are original.
-    CredentialEchoWithheld,
-}
-
-/// One bounded received HTTP response, before its JSON fields are interpreted.
-/// Debug output intentionally omits the body, which can contain document data.
-pub struct OxrHttpResponse {
-    pub path: String,
-    pub status: u16,
-    pub declared_length: Option<u64>,
-    pub body_state: OxrBodyState,
-    body: Vec<u8>,
-}
-
-impl OxrHttpResponse {
-    pub fn body(&self) -> &[u8] {
-        &self.body
+impl OxrDocument {
+    /// Decode saved bytes with this build's current mapper without contacting
+    /// a service. The caller authenticates the CAS bytes and original binding.
+    /// This is not an old-mapper/provenance migration: a historical checkpoint
+    /// remains an immutable observation under its original code and closure.
+    pub fn from_response(mut bytes: Vec<u8>) -> Result<Self, OxrError> {
+        if bytes.len() as u64 > MAX_RESPONSE_BYTES {
+            bytes.truncate(MAX_RESPONSE_BYTES as usize);
+            return Err(OxrError::MalformedResponse("a bounded saved response".into())
+                .observed(OxrResponseObservation::saved(bytes, false)));
+        }
+        let mut envelope: OxrEnvelope = match serde_json::from_slice(&bytes) {
+            Ok(envelope) => envelope,
+            Err(_) => return Err(OxrError::MalformedResponse("a saved JSON envelope".into())
+                .observed(OxrResponseObservation::saved(bytes, true))),
+        };
+        if envelope.code != Some(0) {
+            return Err(OxrError::MalformedResponse("a successful saved envelope".into())
+                .observed(OxrResponseObservation::saved(bytes, true)));
+        }
+        envelope.observation = Some(OxrResponseObservation::saved(bytes, true));
+        map_document(envelope)
     }
 }
 
-impl std::fmt::Debug for OxrHttpResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OxrHttpResponse")
-            .field("path", &self.path)
-            .field("status", &self.status)
-            .field("declared_length", &self.declared_length)
-            .field("body_state", &self.body_state)
-            .field("received_bytes", &self.body.len())
-            .finish()
-    }
-}
-
-/// The mapped fact and the original bounded response that produced it. A
-/// transport interruption before a complete read may have no response receipt.
+/// Submission and observation are separate so an accepted task can be
+/// recorded before the first poll, and reopened without another upload.
 #[derive(Debug)]
-pub struct OxrObservation<T> {
-    pub outcome: Result<T, OxrError>,
-    pub response: Option<OxrHttpResponse>,
-}
-
-impl<T> OxrObservation<T> {
-    fn without_response(outcome: Result<T, OxrError>) -> Self {
-        Self {
-            outcome,
-            response: None,
-        }
-    }
-
-    fn and_then<U>(self, f: impl FnOnce(T) -> Result<U, OxrError>) -> OxrObservation<U> {
-        OxrObservation {
-            outcome: self.outcome.and_then(f),
-            response: self.response,
-        }
-    }
+pub enum OxrSubmission {
+    Complete(OxrDocument),
+    Accepted { task_id: String, response: OxrResponseObservation },
 }
 
 /// The real HTTP client for one OXR deployment.
@@ -331,9 +369,7 @@ impl OxrClient {
             ));
         }
         if url.query().is_some() || url.fragment().is_some() {
-            return Err(OxrError::InvalidEndpoint(
-                "the endpoint must not contain a query or fragment".into(),
-            ));
+            return Err(OxrError::InvalidEndpoint("the endpoint must not contain a query or fragment".into()));
         }
         if url.path().trim_end_matches('/').is_empty() {
             url.set_path("/v1");
@@ -367,6 +403,18 @@ impl OxrClient {
         self.transport
     }
 
+    /// Reuse only the currently admitted endpoint and credential source for
+    /// the original read-only mapper. The host authenticates legacy bindings.
+    pub fn legacy_main_reader(&self, request_timeout: Duration, poll_timeout: Duration,
+        poll_interval: Duration) -> Result<crate::legacy_main::OxrClient, crate::legacy_main::OxrError>
+    {
+        let mut config = crate::legacy_main::OxrClientConfig::new(self.base.clone(), self.credential.clone());
+        config.request_timeout = request_timeout;
+        config.poll_timeout = poll_timeout;
+        config.poll_interval = poll_interval;
+        crate::legacy_main::OxrClient::new(config)
+    }
+
     /// Reachability only: did an HTTP answer come back from the deployment?
     /// Any status counts — a 404 still proves the endpoint is there. The
     /// credential is not sent, so a probe neither spends quota nor proves the
@@ -378,7 +426,7 @@ impl OxrClient {
             .timeout(PROBE_TIMEOUT)
             .send()
             .await
-            .map_err(|error| OxrError::Transport(error.to_string()))?;
+            .map_err(|error| OxrError::Transport(error.without_url().to_string()))?;
         let _ = response.status();
         Ok(())
     }
@@ -392,61 +440,128 @@ impl OxrClient {
         bytes: &[u8],
     ) -> Result<OxrDocument, OxrError> {
         match self.submit_document(file_name, bytes).await? {
-            OxrSubmission::Completed(document) => Ok(document),
-            OxrSubmission::Accepted(task) => self.poll_document(&task).await,
+            OxrSubmission::Complete(document) => Ok(document),
+            OxrSubmission::Accepted { task_id, .. } => {
+                let deadline = chrono::Duration::from_std(self.poll_timeout).ok()
+                    .and_then(|budget| chrono::Utc::now().checked_add_signed(budget))
+                    .ok_or_else(|| OxrError::TaskUnknown { task_id: task_id.clone(),
+                        reason: "original polling deadline overflow".into(), observation: None })?;
+                self.poll_document(&task_id, deadline).await
+            },
         }
     }
 
-    /// Send exactly one upload. Durable callers must first claim their original
-    /// operation/attempt in the host ledger, and retain this response there.
+    /// Issue exactly one upload. The caller must durably arm its original
+    /// attempt before calling and save an accepted handle before polling.
     pub async fn submit_document(
         &self,
         file_name: &str,
         bytes: &[u8],
     ) -> Result<OxrSubmission, OxrError> {
-        self.submit_document_observed(file_name, bytes)
-            .await
-            .outcome
+        self.submit_document_owned(file_name, bytes.to_vec()).await
     }
 
-    /// The durable provider uses this path to retain the original response
-    /// alongside the mapped acceptance/result before doing further work.
-    pub async fn submit_document_observed(
+    /// The CAS consumer already owns its bounded source buffer; move it into
+    /// the multipart body instead of retaining a second document-sized copy.
+    pub async fn submit_document_owned(
         &self,
         file_name: &str,
-        bytes: &[u8],
-    ) -> OxrObservation<OxrSubmission> {
-        let form = match self.upload_form(file_name, bytes) {
-            Ok(form) => form,
-            Err(error) => return OxrObservation::without_response(Err(error)),
-        };
-        if self.transport == OxrTransport::Sync {
-            return self
-                .post("/parse/sync", form)
-                .await
-                .and_then(|envelope| map_document(envelope).map(OxrSubmission::Completed));
+        bytes: Vec<u8>,
+    ) -> Result<OxrSubmission, OxrError> {
+        let form = self.upload_form(file_name, bytes)?;
+        match self.transport {
+            OxrTransport::Sync => map_document(self.post("/parse/sync", form).await?)
+                .map(OxrSubmission::Complete),
+            OxrTransport::Async => {
+                let mut submitted = self.post("/parse/async", form).await?;
+                let Some(task_id) = submitted.data.as_mut().and_then(|data| data.task_id.take())
+                    .filter(|id| !id.trim().is_empty() && id.len() <= 4096) else {
+                    return Err(observed_envelope_error(submitted, OxrError::MalformedResponse("`data.task_id`".into())));
+                };
+                let Some(response) = submitted.observation.take() else {
+                    return Err(OxrError::TaskUnknown { task_id,
+                        reason: "original async acceptance response evidence is missing".into(), observation: None });
+                };
+                Ok(OxrSubmission::Accepted { task_id, response })
+            }
         }
-        self.post("/parse/async", form).await.and_then(|envelope| {
-            let data = envelope.data.ok_or_else(|| {
-                OxrError::MalformedResponse("`data` from the async submit".into())
-            })?;
-            let task_id = data
-                .task_id
-                .filter(|id| !id.is_empty())
-                .ok_or_else(|| OxrError::MalformedResponse("a nonempty `data.task_id`".into()))?;
-            let accepted_at = chrono::Utc::now();
-            let budget = chrono::Duration::from_std(self.poll_timeout).map_err(|_| {
-                OxrError::OutcomeUnknown("poll deadline overflow after acceptance".into())
-            })?;
-            let poll_deadline = accepted_at.checked_add_signed(budget).ok_or_else(|| {
-                OxrError::OutcomeUnknown("poll deadline overflow after acceptance".into())
-            })?;
-            Ok(OxrSubmission::Accepted(OxrTaskHandle {
-                task_id,
-                accepted_at,
-                poll_deadline,
-            }))
-        })
+    }
+
+    /// Query only an already accepted task. No upload or new attempt occurs.
+    /// A timeout ends local observation, not the remote computation.
+    pub async fn poll_document(
+        &self, task_id: &str, original_deadline: chrono::DateTime<chrono::Utc>,
+    ) -> Result<OxrDocument, OxrError> {
+        let result = self.poll(task_id, original_deadline).await.and_then(map_document);
+        Self::original_task_outcome(task_id, result)
+    }
+
+    /// One bounded read of the original handle, including after its waiting
+    /// budget expired. It creates neither another upload nor another budget.
+    pub async fn check_document(&self, task_id: &str) -> Result<Option<OxrDocument>, OxrError> {
+        let result = self.check(task_id).await.and_then(|envelope| envelope.map(map_document).transpose());
+        Self::original_task_outcome(task_id, result)
+    }
+
+    /// The durable owner commits each completed pending response before the
+    /// next check. Ledger failures propagate independently of provider errors.
+    pub async fn check_document_with_observer(&self, task_id: &str,
+        observe: &mut impl FnMut(&OxrResponseObservation) -> anyhow::Result<()>,
+    ) -> anyhow::Result<Result<Option<OxrDocument>, OxrError>> {
+        let envelope = match self.check_envelope(task_id).await {
+            Ok(envelope) => envelope,
+            Err(error) => return Ok(Self::original_task_outcome(task_id, Err(error))),
+        };
+        if envelope.data.as_ref().and_then(|data| data.status.as_deref()) != Some("success") {
+            let Some(observation) = envelope.observation.as_ref() else {
+                return Ok(Self::original_task_outcome(task_id, Err(observed_envelope_error(envelope,
+                    OxrError::MalformedResponse("original async check response evidence".into())))));
+            };
+            observe(observation)?;
+            return Ok(Ok(None));
+        }
+        Ok(Self::original_task_outcome(task_id, map_document(envelope).map(Some)))
+    }
+
+    pub async fn poll_document_with_observer(&self, task_id: &str, original_deadline: chrono::DateTime<chrono::Utc>,
+        mut observe: impl FnMut(&OxrResponseObservation) -> anyhow::Result<()>,
+    ) -> anyhow::Result<Result<OxrDocument, OxrError>> {
+        let remaining = (original_deadline - chrono::Utc::now()).to_std().unwrap_or_default();
+        let Some(deadline) = tokio::time::Instant::now().checked_add(remaining.min(self.poll_timeout)) else {
+            return Ok(Self::original_task_outcome(task_id, Err(OxrError::PollTimeout(self.poll_timeout))));
+        };
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Ok(Self::original_task_outcome(task_id, Err(OxrError::PollTimeout(self.poll_timeout))));
+            }
+            let checked = match tokio::time::timeout_at(deadline,
+                self.check_document_with_observer(task_id, &mut observe)).await {
+                Ok(checked) => checked?,
+                Err(_) => return Ok(Self::original_task_outcome(task_id, Err(OxrError::PollTimeout(self.poll_timeout)))),
+            };
+            match checked {
+                Ok(Some(document)) => return Ok(Ok(document)),
+                Err(error) => return Ok(Err(error)),
+                Ok(None) => {},
+            }
+            let next = tokio::time::Instant::now().checked_add(self.poll_interval).unwrap_or(deadline).min(deadline);
+            tokio::time::sleep_until(next).await;
+        }
+    }
+
+    fn original_task_outcome<T>(task_id: &str, result: Result<T, OxrError>) -> Result<T, OxrError> {
+        match result {
+            Err(error) if !error.is_terminal_task_failure() => {
+                let reason = error.to_string();
+                let observation = match error {
+                    OxrError::Observed { observation, .. } => Some(observation),
+                    OxrError::TaskUnknown { observation, .. } => observation,
+                    _ => None,
+                };
+                Err(OxrError::TaskUnknown { task_id: task_id.to_owned(), reason, observation })
+            }
+            result => result,
+        }
     }
 
     /// Build the multipart upload. Only the structured `json` output is
@@ -458,11 +573,9 @@ impl OxrClient {
     fn upload_form(
         &self,
         file_name: &str,
-        bytes: &[u8],
+        bytes: Vec<u8>,
     ) -> Result<reqwest::multipart::Form, OxrError> {
-        // reqwest needs an owned body, so the document is copied once per
-        // upstream request (upstream caps a file at 200MB).
-        let part = reqwest::multipart::Part::bytes(bytes.to_vec())
+        let part = reqwest::multipart::Part::bytes(bytes)
             .file_name(file_name.to_owned())
             .mime_str("application/octet-stream")
             .map_err(|error| OxrError::Request(error.to_string()))?;
@@ -476,255 +589,180 @@ impl OxrClient {
         &self,
         path: &str,
         form: reqwest::multipart::Form,
-    ) -> OxrObservation<OxrEnvelope> {
-        let mut response = match self
-            .http
-            .post(format!("{}{path}", self.base))
-            .multipart(form)
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                return OxrObservation::without_response(Err(OxrError::Transport(
-                    error.to_string(),
-                )));
-            }
-        };
+    ) -> Result<OxrEnvelope, OxrError> {
+        let mut response = self.http.post(format!("{}{path}", self.base))
+            .multipart(form).send().await
+            .map_err(|error| OxrError::Transport(error.without_url().to_string()))?;
         let status = response.status();
-        let mut raw = OxrHttpResponse {
-            path: path.to_owned(),
-            status: status.as_u16(),
-            declared_length: response.content_length(),
-            body_state: OxrBodyState::Incomplete,
-            body: Vec::new(),
+        let content_type = response.headers().get(reqwest::header::CONTENT_TYPE)
+            .map(reqwest::header::HeaderValue::as_bytes);
+        let withheld_content_type = content_type.is_some_and(|value| self.response_has_credential(value));
+        let mut observation = OxrResponseObservation {
+            body: None,
+            declared_content_type: content_type.filter(|_| !withheld_content_type)
+                .map(<[u8]>::to_vec),
+            capture_complete: false,
+            source: match path {
+                "/parse/sync" => OxrResponseSource::Sync,
+                "/parse/async" => OxrResponseSource::AsyncSubmit,
+                "/parse/async_check" => OxrResponseSource::AsyncCheck,
+                _ => unreachable!("only documented parse endpoints are used"),
+            },
+            http_status: Some(status.as_u16()),
         };
-        if raw
-            .declared_length
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES)
-        {
-            let error = OxrError::MalformedResponse(format!(
-                "an answer below {MAX_RESPONSE_BYTES} bytes (Content-Length was {:?})",
-                raw.declared_length
-            ));
-            return self.observed(raw, Err(error));
+        let observed_error = |error, observation| self.observed_error(error, observation, withheld_content_type);
+        if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES) {
+            return Err(observed_error(OxrError::MalformedResponse(format!(
+                "an answer below {MAX_RESPONSE_BYTES} bytes (Content-Length was {:?})", response.content_length()
+            )), observation));
         }
-        // Content-Length is only an early rejection. Chunked or dishonest
-        // responses must be bounded while reading, before allocation of a full body.
+        let mut body = Vec::new();
         loop {
             let chunk = match response.chunk().await {
                 Ok(Some(chunk)) => chunk,
                 Ok(None) => break,
                 Err(error) => {
-                    return self.observed(raw, Err(OxrError::Transport(error.to_string())));
+                    observation.body = (!body.is_empty()).then_some(body);
+                    return Err(observed_error(OxrError::Transport(error.without_url().to_string()), observation));
                 }
             };
-            let remaining = MAX_RESPONSE_BYTES as usize - raw.body.len();
+            let remaining = MAX_RESPONSE_BYTES as usize - body.len();
             if chunk.len() > remaining {
-                raw.body.extend_from_slice(&chunk[..remaining]);
-                return self.observed(
-                    raw,
-                    Err(OxrError::MalformedResponse(format!(
-                        "an answer no larger than {MAX_RESPONSE_BYTES} bytes"
-                    ))),
-                );
+                body.extend_from_slice(&chunk[..remaining]);
+                observation.body = Some(body);
+                return Err(observed_error(OxrError::MalformedResponse(format!(
+                    "an answer below {MAX_RESPONSE_BYTES} bytes (body exceeded the limit)"
+                )), observation));
             }
-            raw.body.extend_from_slice(&chunk);
+            body.extend_from_slice(&chunk);
         }
-        raw.body_state = OxrBodyState::Complete;
-        let outcome = self.decode(status, &raw.body);
-        self.observed(raw, outcome)
-    }
-
-    fn observed<T>(
-        &self,
-        mut raw: OxrHttpResponse,
-        mut outcome: Result<T, OxrError>,
-    ) -> OxrObservation<T> {
-        let secret = self.credential.expose();
-        let encoded = serde_json::to_string(secret).ok();
-        let contains = |needle: &[u8]| {
-            !needle.is_empty() && raw.body.windows(needle.len()).any(|part| part == needle)
+        observation.capture_complete = true;
+        observation.body = Some(body);
+        let Some(body) = observation.body.as_deref() else {
+            return Err(observed_error(OxrError::MalformedResponse("original HTTP response body".into()), observation));
         };
-        if !secret.is_empty()
-            && (contains(secret.as_bytes())
-                || encoded
-                    .as_ref()
-                    .and_then(|text| text.strip_prefix('"'))
-                    .and_then(|text| text.strip_suffix('"'))
-                    .is_some_and(|text| contains(text.as_bytes())))
-        {
-            raw.body.clear();
-            raw.body_state = OxrBodyState::CredentialEchoWithheld;
-            // A recognized document field can echo the same credential as
-            // the wire body. Do not archive that decoded success through the
-            // normalized receipt or page result after withholding its bytes.
-            // Decoded refusals already pass through `redact` in `decode`.
-            if outcome.is_ok() {
-                outcome = Err(OxrError::OutcomeUnknown(
-                    "response contained a credential echo; original and decoded content withheld"
-                        .into(),
-                ));
-            }
-        }
-        OxrObservation {
-            outcome,
-            response: Some(raw),
-        }
-    }
-
-    fn decode(&self, status: reqwest::StatusCode, body: &[u8]) -> Result<OxrEnvelope, OxrError> {
-        // The body is never echoed into an error: an upstream error page can
-        // quote the request, and with it the credential. `code`/`message` are
-        // read out of it when they are there.
         if !status.is_success() {
-            if let Ok(envelope) = serde_json::from_slice::<OxrEnvelope>(body)
+            let error = if let Ok(envelope) = serde_json::from_slice::<OxrEnvelope>(body)
                 && let Some(code) = envelope.code.filter(|code| *code != 0)
             {
-                return Err(OxrError::Upstream {
-                    code,
-                    message: self.redact(envelope.message.unwrap_or_default()),
-                });
-            }
-            return Err(OxrError::HttpStatus {
-                status: status.as_u16(),
-            });
+                OxrError::Upstream { code, message: self.redact(envelope.message.unwrap_or_default()) }
+            } else { OxrError::HttpStatus { status: status.as_u16() } };
+            return Err(observed_error(error, observation));
         }
-        let envelope: OxrEnvelope = serde_json::from_slice(body)
-            .map_err(|_| OxrError::MalformedResponse("a JSON envelope".into()))?;
-        let code = envelope
-            .code
-            .ok_or_else(|| OxrError::MalformedResponse("the envelope `code`".into()))?;
+        let mut envelope: OxrEnvelope = match serde_json::from_slice(body) {
+            Ok(envelope) => envelope,
+            Err(_) => return Err(observed_error(OxrError::MalformedResponse("a JSON envelope".into()), observation)),
+        };
+        let Some(code) = envelope.code else {
+            return Err(observed_error(OxrError::MalformedResponse("the envelope `code`".into()), observation));
+        };
         if code != 0 {
-            return Err(OxrError::Upstream {
-                code,
-                message: self.redact(envelope.message.unwrap_or_default()),
-            });
+            return Err(observed_error(OxrError::Upstream {
+                code, message: self.redact(envelope.message.unwrap_or_default()),
+            }, observation));
         }
+        // A success with withheld response bytes needs reconciliation. A
+        // refusal keeps its original typed cause and any safe body bytes.
+        if withheld_content_type || self.response_has_credential(body) {
+            return Err(observed_error(OxrError::MalformedResponse(
+                "credential-bearing response evidence withheld".into()), observation));
+        }
+        envelope.observation = Some(observation);
         Ok(envelope)
     }
 
-    fn redact(&self, text: String) -> String {
+    fn response_has_credential(&self, body: &[u8]) -> bool {
         let secret = self.credential.expose();
-        if secret.is_empty() {
-            text
-        } else {
-            text.replace(secret, "***")
+        let contains = |needle: &[u8]| !needle.is_empty()
+            && body.windows(needle.len()).any(|part| part == needle);
+        if secret.is_empty() { return false; }
+        if contains(secret.as_bytes()) { return true; }
+        if !secret.bytes().any(|byte| byte < 0x20 || matches!(byte, b'"' | b'\\')) {
+            return false;
         }
+        serde_json::to_string(secret).ok().as_deref()
+            .and_then(|encoded| encoded.strip_prefix('"'))
+            .and_then(|encoded| encoded.strip_suffix('"'))
+            .is_some_and(|encoded| contains(encoded.as_bytes()))
     }
 
-    /// Reconcile only the original accepted task. Every HTTP request, body read
-    /// and sleep shares one deadline; neither a slow response nor a restart
-    /// resets the budget. Expiry remains unknown, never remote cancellation.
-    pub async fn poll_document(&self, task: &OxrTaskHandle) -> Result<OxrDocument, OxrError> {
-        self.poll_document_with_observer(task, |_| Ok(())).await
+    fn observed_error(&self, error: OxrError, mut observation: OxrResponseObservation,
+        withheld_content_type: bool) -> OxrError {
+        let withheld_body = observation.body.as_deref().is_some_and(|body| self.response_has_credential(body));
+        if withheld_body {
+            observation.body = None;
+            observation.capture_complete = false;
+        }
+        let error = if withheld_content_type || withheld_body {
+            OxrError::CredentialEchoWithheld { cause: Box::new(error) }
+        } else { error };
+        error.observed(observation)
     }
 
-    /// Persist every received poll observation synchronously before another
-    /// network request or sleep. The same absolute waiting deadline still
-    /// covers all requests; recording evidence never grants upload authority.
-    pub async fn poll_document_with_observer(
-        &self,
-        task: &OxrTaskHandle,
-        mut observe: impl FnMut(&OxrObservation<Option<OxrDocument>>) -> Result<(), OxrError>,
-    ) -> Result<OxrDocument, OxrError> {
-        let now = chrono::Utc::now();
-        if now < task.accepted_at || task.poll_deadline < task.accepted_at {
-            return Err(OxrError::OutcomeUnknown(
-                "the original polling clock cannot be established".into(),
-            ));
-        }
-        let remaining = (task.poll_deadline - now)
-            .to_std()
+    fn redact(&self, message: String) -> String {
+        let credential = self.credential.expose();
+        if credential.is_empty() { message } else { message.replace(credential, "***") }
+    }
+
+    /// Every check and sleep shares the original durable deadline. Reopen
+    /// cannot create a fresh waiting interval for an accepted computation.
+    async fn poll(&self, task_id: &str, original_deadline: chrono::DateTime<chrono::Utc>) -> Result<OxrEnvelope, OxrError> {
+        let remaining = (original_deadline - chrono::Utc::now()).to_std()
             .map_err(|_| OxrError::PollTimeout(self.poll_timeout))?;
-        let deadline = tokio::time::Instant::now()
-            .checked_add(remaining.min(self.poll_timeout))
-            .ok_or_else(|| OxrError::Request("poll deadline overflow".into()))?;
+        let deadline = tokio::time::Instant::now().checked_add(remaining.min(self.poll_timeout))
+            .ok_or(OxrError::PollTimeout(self.poll_timeout))?;
         loop {
             if tokio::time::Instant::now() >= deadline {
                 return Err(OxrError::PollTimeout(self.poll_timeout));
             }
-            let observed = tokio::time::timeout_at(deadline, self.check_document_observed(task))
-                .await
-                .map_err(|_| OxrError::PollTimeout(self.poll_timeout))?;
-            observe(&observed)?;
-            let document = observed.outcome?;
+            let envelope = tokio::time::timeout_at(deadline, self.check(task_id)).await
+                .map_err(|_| OxrError::PollTimeout(self.poll_timeout))??;
             if tokio::time::Instant::now() >= deadline {
-                return Err(OxrError::PollTimeout(self.poll_timeout));
+                return Err(match envelope {
+                    Some(envelope) => observed_envelope_error(envelope, OxrError::PollTimeout(self.poll_timeout)),
+                    None => OxrError::PollTimeout(self.poll_timeout),
+                });
             }
-            if let Some(document) = document {
-                return Ok(document);
-            }
-            let next = tokio::time::Instant::now()
-                .checked_add(self.poll_interval)
-                .unwrap_or(deadline)
-                .min(deadline);
+            if let Some(envelope) = envelope { return Ok(envelope); }
+            let next = tokio::time::Instant::now().checked_add(self.poll_interval).unwrap_or(deadline).min(deadline);
             tokio::time::sleep_until(next).await;
         }
     }
 
-    /// One read-only observation of the original task. This remains available
-    /// after the original wait expired: a waiting deadline is not evidence of
-    /// remote termination. The client's request timeout still bounds this call.
-    pub async fn check_document(
-        &self,
-        task: &OxrTaskHandle,
-    ) -> Result<Option<OxrDocument>, OxrError> {
-        self.check_document_observed(task).await.outcome
+    async fn check(&self, task_id: &str) -> Result<Option<OxrEnvelope>, OxrError> {
+        let envelope = self.check_envelope(task_id).await?;
+        Ok((envelope.data.as_ref().and_then(|data| data.status.as_deref()) == Some("success")).then_some(envelope))
     }
 
-    /// The read-only original-task observation with its bounded response.
-    pub async fn check_document_observed(
-        &self,
-        task: &OxrTaskHandle,
-    ) -> OxrObservation<Option<OxrDocument>> {
-        if task.task_id.is_empty() || task.poll_deadline < task.accepted_at {
-            return OxrObservation::without_response(Err(OxrError::OutcomeUnknown(
-                "invalid original async task receipt".into(),
-            )));
+    async fn check_envelope(&self, task_id: &str) -> Result<OxrEnvelope, OxrError> {
+        if task_id.trim().is_empty() || task_id.len() > 4096 {
+            return Err(OxrError::MalformedResponse("the original async task identity".into()));
         }
         let form = reqwest::multipart::Form::new()
-            .text("task_id", task.task_id.clone())
+            .text("task_id", task_id.to_owned())
             .text("api_key", self.credential.expose().to_owned());
-        let mut observed = self.post("/parse/async_check", form).await;
-        observed.outcome = observed.outcome.map_err(|error| {
-            if error.outcome_is_unknown() {
-                error
-            } else {
-                OxrError::OutcomeUnknown(format!("task observation was refused: {error}"))
+        let envelope = self.post("/parse/async_check", form).await?;
+        let Some(data) = envelope.data.as_ref() else {
+            return Err(observed_envelope_error(envelope,
+                OxrError::MalformedResponse("`data` from the async check".into())));
+        };
+        if data.task_id.as_deref() != Some(task_id) {
+            return Err(observed_envelope_error(envelope,
+                OxrError::MalformedResponse("the original async task identity".into())));
+        }
+        match data.status.as_deref() {
+            Some("success") => Ok(envelope),
+            Some("failed") => {
+                let reason = data.error.as_deref().filter(|reason| !reason.is_empty())
+                    .unwrap_or("upstream reported the task as failed").to_owned();
+                Err(observed_envelope_error(envelope, OxrError::TaskFailed(self.redact(reason))))
             }
-        });
-        observed.and_then(|envelope| {
-            let data = envelope
-                .data
-                .as_ref()
-                .ok_or_else(|| OxrError::MalformedResponse("`data` from the async check".into()))?;
-            if data.task_id.as_deref() != Some(task.task_id.as_str()) {
-                return Err(OxrError::MalformedResponse(
-                    "the original `data.task_id`".into(),
-                ));
-            }
-            match data.status.as_deref() {
-                Some("success") => map_document(envelope).map(Some),
-                Some("failed") => {
-                    let reason = data
-                        .error
-                        .as_deref()
-                        .filter(|reason| !reason.is_empty())
-                        .unwrap_or("upstream reported the task as failed")
-                        .to_owned();
-                    Err(OxrError::TaskFailed(self.redact(reason)))
-                }
-                Some("queuing") | Some("processing") => Ok(None),
-                Some(other) => Err(OxrError::MalformedResponse(format!(
-                    "a known async task status (got `{}`)",
-                    self.redact(other.to_owned())
-                ))),
-                None => Err(OxrError::MalformedResponse(
-                    "`data.status` from the async check".into(),
-                )),
-            }
-        })
+            Some("queuing") | Some("processing") => Ok(envelope),
+            Some(_) => Err(observed_envelope_error(envelope,
+                OxrError::MalformedResponse("a known async task status".into()))),
+            None => Err(observed_envelope_error(envelope,
+                OxrError::MalformedResponse("`data.status` from the async check".into()))),
+        }
     }
 }
 
@@ -738,6 +776,8 @@ struct OxrEnvelope {
     warnings: Vec<String>,
     #[serde(default)]
     data: Option<OxrData>,
+    #[serde(skip)]
+    observation: Option<OxrResponseObservation>,
 }
 
 /// Upstream `data`. The sync answer carries `metadata` + `result`, the async
@@ -759,6 +799,8 @@ struct OxrData {
 
 #[derive(Debug, Deserialize)]
 struct OxrMetadata {
+    // An omitted or null optional count is unreported. Non-null counts must
+    // be u32 and match the full validated array; page-index null stays invalid.
     #[serde(default)]
     page_num: Option<u32>,
 }
@@ -793,6 +835,14 @@ struct OxrPageDto {
     page_size: Option<OxrPageSizeDto>,
 }
 
+#[derive(Debug, Deserialize)]
+struct OxrPageSizeDto {
+    #[serde(default)]
+    w: Option<f64>,
+    #[serde(default)]
+    h: Option<f64>,
+}
+
 #[derive(Debug, Default)]
 enum OxrPageIndex {
     #[default]
@@ -813,14 +863,6 @@ fn explicit_page_index<'de, D: serde::Deserializer<'de>>(
 }
 
 #[derive(Debug, Deserialize)]
-struct OxrPageSizeDto {
-    #[serde(default)]
-    w: Option<f32>,
-    #[serde(default)]
-    h: Option<f32>,
-}
-
-#[derive(Debug, Deserialize)]
 struct OxrBlockDto {
     #[serde(default)]
     idx: Option<u32>,
@@ -836,9 +878,38 @@ struct OxrBlockDto {
     format: Option<String>,
     #[serde(default)]
     captions: Vec<i64>,
+    #[serde(default)]
+    img_url: Option<String>,
 }
 
-fn map_document(envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
+fn observed_envelope_error(mut envelope: OxrEnvelope, error: OxrError) -> OxrError {
+    match envelope.observation.take() {
+        Some(observation) => error.observed(observation),
+        None => error,
+    }
+}
+
+fn map_document(mut envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
+    let observation = envelope.observation.take();
+    match map_document_output(envelope) {
+        Ok(mut document) => {
+            let Some(mut observation) = observation else {
+                return Err(OxrError::MalformedResponse("original parse response evidence".into()));
+            };
+            let Some(body) = observation.body.take() else {
+                return Err(OxrError::MalformedResponse("original parse response body".into()).observed(observation));
+            };
+            document.raw_response = body;
+            Ok(document)
+        }
+        Err(error) => Err(match observation {
+            Some(observation) => error.observed(observation),
+            None => error,
+        }),
+    }
+}
+
+fn map_document_output(envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
     let data = envelope
         .data
         .ok_or_else(|| OxrError::MalformedResponse("`data` from the parse answer".into()))?;
@@ -849,94 +920,98 @@ fn map_document(envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
         .outputs
         .and_then(|outputs| outputs.json)
         .ok_or_else(|| OxrError::MalformedResponse("`data.result.outputs.json`".into()))?;
-    let raw_pages = json
-        .pages
+    let reported_pages = json.pages
         .ok_or_else(|| OxrError::MalformedResponse("`data.result.outputs.json.pages`".into()))?;
+    let observed_count = u32::try_from(reported_pages.len())
+        .map_err(|_| OxrError::MalformedResponse("a representable original page inventory".into()))?;
     let page_count = data.metadata.and_then(|metadata| metadata.page_num);
-    if page_count.is_some_and(|count| count as usize != raw_pages.len()) {
-        return Err(OxrError::MalformedResponse(
-            "a complete pages array matching metadata.page_num".into(),
-        ));
+    if page_count.is_some_and(|count| count != observed_count) {
+        return Err(OxrError::MalformedResponse("a full original page inventory matching `metadata.page_num`".into()));
     }
-    let pages = raw_pages
-        .iter()
+    // Upstream returns a whole document, never a requested-page subset. A
+    // missing optional page_num uses its zero-based array position. An
+    // explicitly malformed index refuses the successful document result.
+    // With no metadata count, the full array still defines the zero-based
+    // domain. Unique in-range identities cover that domain exactly.
+    let mut seen = vec![false; reported_pages.len()];
+    let pages = reported_pages
+        .into_iter()
         .enumerate()
-        .map(|(position, page)| map_page(page, position))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut indices: Vec<_> = pages.iter().map(|page| page.page_num).collect();
-    indices.sort_unstable();
-    if indices
-        .iter()
-        .enumerate()
-        .any(|(index, value)| u32::try_from(index).ok() != Some(*value))
-    {
-        return Err(OxrError::MalformedResponse(
-            "unique contiguous zero-based page indices".into(),
-        ));
-    }
+        .map(|(position, page)| {
+            let page_num = match page.page_num {
+                OxrPageIndex::Omitted => position as u32,
+                OxrPageIndex::Explicit(number) => number,
+                OxrPageIndex::Malformed => {
+                    return Err(OxrError::MalformedResponse("an unsigned integer `pages[].page_num`".into()));
+                }
+            };
+            let slot = seen.get_mut(page_num as usize)
+                .ok_or_else(|| OxrError::MalformedResponse("original page indices within the full zero-based inventory".into()))?;
+            if *slot {
+                return Err(OxrError::MalformedResponse("unique original page indices".into()));
+            }
+            *slot = true;
+            Ok(map_page(page, page_num))
+        })
+        .collect::<Result<Vec<_>, OxrError>>()?;
     Ok(OxrDocument {
         file_name: result.file_name,
         page_count,
         warnings: envelope.warnings,
         pages,
+        raw_response: Vec::new(),
     })
 }
 
-fn map_page(page: &OxrPageDto, position: usize) -> Result<OxrParsedPage, OxrError> {
-    let page_num = match page.page_num {
-        OxrPageIndex::Omitted => position as u32,
-        OxrPageIndex::Explicit(number) => number,
-        OxrPageIndex::Malformed => {
-            return Err(OxrError::MalformedResponse("an unsigned integer `pages[].page_num`".into()));
-        }
-    };
+fn map_page(page: OxrPageDto, page_num: u32) -> OxrParsedPage {
     let page_size = page
         .page_size
-        .as_ref()
         .and_then(|size| match (size.w, size.h) {
             // A half-reported or degenerate size is no size at all: without both
-            // dimensions the bboxes have no coordinate space.
-            (Some(width), Some(height))
-                if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 =>
-            {
-                Some(PageSize { width, height })
+            // dimensions the output page rectangle is not declared. A valid
+            // rectangle still does not establish any source transform.
+            (Some(width), Some(height)) => {
+                let (width, height) = (width as f32, height as f32);
+                (width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0)
+                    .then_some(PageSize { width, height })
             }
             _ => None,
         });
     let blocks = page
         .blocks
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(index, block)| map_block(block, index as u32))
         .collect();
-    Ok(OxrParsedPage {
+    OxrParsedPage {
         page_num,
         blocks,
         page_size,
-    })
+    }
 }
 
-fn map_block(block: &OxrBlockDto, position: u32) -> PageBlock {
+fn map_block(block: OxrBlockDto, position: u32) -> PageBlock {
+    let structure_ref = structure_ref_of(&block);
     PageBlock {
         // Upstream numbers blocks in reading order itself; when it omits the
         // index, the array position is the reading order it documents.
         order: block.idx.unwrap_or(position),
-        text: block.content.clone().unwrap_or_default(),
+        text: block.content.unwrap_or_default(),
         bbox: block.bbox.as_deref().and_then(bbox_of),
-        structure_ref: structure_ref_of(block),
+        structure_ref,
         element_type: non_empty(block.element_type.as_deref()),
         content_format: non_empty(block.format.as_deref()),
+        image_resource: block.img_url.filter(|url| !url.trim().is_empty())
+            .map(|provider_url| PageImageResource::TransientUnretained { provider_url }),
     }
 }
 
-/// `[x1, y1, x2, y2]` and nothing else: a wrong-length or non-finite box is
-/// unknown, never a repaired guess.
+/// `[x1, y1, x2, y2]` and nothing else: a wrong-length box or coordinates
+/// unrepresentable as finite f32 values are unknown, never a repaired guess.
 fn bbox_of(values: &[f64]) -> Option<[f32; 4]> {
     let [x1, y1, x2, y2]: [f64; 4] = values.try_into().ok()?;
-    if ![x1, y1, x2, y2].iter().all(|value| value.is_finite()) {
-        return None;
-    }
-    Some([x1 as f32, y1 as f32, x2 as f32, y2 as f32])
+    let narrowed = [x1 as f32, y1 as f32, x2 as f32, y2 as f32];
+    narrowed.iter().all(|value| value.is_finite()).then_some(narrowed)
 }
 
 /// Upstream links a figure/table block to its caption blocks by block index.

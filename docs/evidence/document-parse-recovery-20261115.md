@@ -168,3 +168,137 @@ Raw upstream-output archival beyond the typed mapping is not implemented.
 The newly visible native usage text has no served-model efficacy evidence.
 None of these local checks proves the complete #89 acceptance journey,
 S1–S5 completion, or long-run product stability.
+
+## Node installation continuation — 2026-11-20 (source only)
+
+The sections and verification results above remain evidence of their original
+source. This continuation ports the composed Node-owned handler to main's
+current native lifecycle; it has not run builds, tests, providers or models.
+The former runtime adapter's original bytes are retained outside compiled source
+at `build/composition-oxr-20261119-r1/original-main-document-runtime.rs`.
+Its historical codecs and receipts are consumed by the installed handler's
+explicit legacy-main decoder, rather than by another environment-owned parser.
+
+`document::install` now observes the ordinary enabled Node code unit
+`document.oxr`. It reads its authenticated artifact locally, without contacting
+OXR. The same handler generation publishes `document.parse` and
+`document.page.read`; replacement or disablement withdraws both definitions,
+closes admission, cancels local observers and joins their workers before a new
+generation is published. The handler restores unresolved operation capacity
+debt from Store. Retirement does not claim remote cancellation or erase that
+debt. The page reader uses the handler's bounded CAS/checkpoint validation and
+subject partition; parsed document content acquires no instruction authority.
+
+### Effective configuration contract
+
+Node installation remains the authority. Environment variables cannot create,
+import, enable, replace or attest the unit. An environment-only deployment with
+no enabled unit therefore has no document definitions. Provisioning must use
+the existing Node installation/adoption mechanism and its real authority. This
+is a deliberate migration limit: the old environment alone cannot establish
+ownership of a Node artifact or grant live recovery of an old account. Startup
+does not invent either fact.
+
+The enabled code artifact is JSON `OxrInstallation` with these fields:
+
+| Field | Contract |
+| --- | --- |
+| `schema_version` | Exactly `1` for the installation profile; this is independent of request/history schemas. |
+| `endpoint`, `model_identity` | Actual nonempty deployment binding. Endpoint must satisfy the document client's HTTP(S) URL rules, including no embedded credentials, query or fragment. |
+| `scope` | Explicit nonempty deployment permission. It is separate from a request's subject cache partition and from a historical account identity. |
+| `credential_env` | Local environment variable name, 1–256 ASCII letters, digits or underscores. Only the name enters the artifact; its secret stays in process memory. |
+| `engine` | `{"kind":"remote"}` by default, or `{"kind":"local","attestation":...}` with the operator's actual attestation. No attestation is synthesized. Missing local attestation remains provider unavailability. |
+| `transport` | `"async"` by default, or `"sync"`. |
+| `max_documents` | Integer `1..=16`; unresolved old operations continue consuming capacity after reopen. |
+| `max_source_bytes` | Integer `1..=209715200`. |
+| `request_timeout_secs`, `poll_timeout_secs` | Integer `1..=3600` each. These are installation bounds, not renewed recovery budgets. |
+| `poll_interval_millis` | Integer `1..=60000`. |
+| `legacy_main` | Optional explicit original account/config/mapper admission described below. Omission grants no network recovery of original-main history. |
+
+When `SHENKO_OXR_ENDPOINT` is unset or blank, the installed artifact alone
+selects the binding and its named credential environment variable. Other old
+`SHENKO_OXR_*` variables do not override that artifact. Thus an installed unit
+can remain active with the old endpoint variable unset; Node enablement now
+controls installation.
+
+When `SHENKO_OXR_ENDPOINT` is nonblank, the existing variables are checked
+locally against the authenticated enabled artifact before publishing its
+generation. They are assertions of the same deployment, never an alternate
+handler or a request to mutate the Node:
+
+| Environment setting | Required match |
+| --- | --- |
+| `SHENKO_OXR_ENDPOINT` | Same normalized endpoint as the artifact. |
+| `SHENKO_OXR_MODEL` | Required, exact `model_identity`. |
+| `SHENKO_OXR_API_KEY` | Required nonblank secret; the artifact must name `SHENKO_OXR_API_KEY` as its `credential_env`. Secret bytes are never serialized by setup or rendered in its errors. |
+| `SHENKO_OXR_ACCOUNT` | Required nonblank original nonsecret identity. If `legacy_main` exists, it must match that admission's `account_identity`. Without admission, this variable confers no historical recovery authority and creates no account attestation. |
+| `SHENKO_OXR_SCOPE` | Required exact nonempty artifact `scope`. Old unscoped configuration cannot silently become a new deployment permission. |
+| `SHENKO_OXR_TRANSPORT` | Default `async`, or `sync`; must match the artifact. |
+| `SHENKO_OXR_ENGINE`, `SHENKO_OXR_ENGINE_ATTESTATION` | Default remote, or explicit local with the same supplied attestation as the artifact. |
+| `SHENKO_OXR_REQUEST_TIMEOUT_MS` | Default `300000`; must equal `request_timeout_secs * 1000`. |
+| `SHENKO_OXR_POLL_TIMEOUT_MS` | Default `600000`; must equal `poll_timeout_secs * 1000`. |
+| `SHENKO_OXR_POLL_INTERVAL_MS` | Default `3000`; must equal `poll_interval_millis`. |
+
+The original explicit millisecond parser still accepts `1..=86400000`, but
+the effective values must also fit and exactly match the installed bounds.
+No rounding of subsecond request/poll timeouts or clamping of larger budgets
+occurs. Incompatible configuration leaves that optional generation unavailable
+with a runtime error; the subject's unrelated capabilities continue. Environment
+changes take effect on restart or acquisition of another Node generation;
+credentials are not refreshed by polling environment values every 250 ms.
+
+### Original-main read and recovery boundary
+
+Old schema-1 requests retain their original input, checkpoint-scope binding,
+operation/attempt identity, source reference, page keys, response receipts and
+mapper semantics. They are never rewritten as current schema-2 requests or
+given today's deployment permission. Saved terminal results and pages remain
+locally readable under the same subject through the installed handler's exact
+historical interfaces, without a new upload or retroactive recognition claim.
+
+Live read-only observation of an original-main handle additionally requires
+the artifact's explicit `legacy_main` object: `account_identity` (the original
+independent nonsecret account), `scope` (the original string or JSON null),
+`provider_binding_digest` (BLAKE3 of the serialized original frozen provider)
+and `mapper_digest` (the retained `legacy_main::mapper_digest()`). These are
+deployment facts to supply through ordinary Node installation authority;
+environment setup cannot calculate them from today's endpoint or invent them.
+The original scope may remain null here even though the new installation's
+deployment permission is nonempty. The handler authenticates the complete
+original binding and the currently admitted endpoint/model/request bound,
+uses only the installed credential source and queries only the original
+known handle. Missing or mismatched admission issues no query, grants no
+reupload and retains Unknown capacity debt. Historical acceptance time and
+deadline remain immutable; saved terminal conflicts stay sticky.
+An already sealed terminal transport receipt can be authenticated and
+projected under the current installation without a live credential or a
+`legacy_main` polling grant. Its original mapper output and raw-response
+digest remain the provenance of the recovered pages.
+
+The installed generation carries a recovery-only reader keyed to the original
+native descriptor and `document.parse.v1` operation. It can reconcile only an
+already armed operation. The dispatcher settles that operation under the
+original implementation reference. An original arm with no accepted handle
+keeps one capacity charge and records Unknown without contacting OXR. The page
+reader uses the original checkpoint format and page keys for those operations.
+
+Native cancellation stops and joins the local document worker. The original
+HTTP receipts and remote capacity accounting survive that boundary. Fresh
+tasks that cannot acquire document capacity or a same-source worker park
+before T1. The dispatcher can use the released worker for original-operation
+settlement and other native tasks while the deferred children await retry. The
+evidence transaction checks the inspected cache source revision alongside the
+consumer revision, so a conflicting source cannot settle its consumer with a
+stale success. If OXR echoes a credential in response body or content-type
+bytes, the observation records the withholding and retains safe body bytes.
+
+No old successful or failed receipt has been replaced by this continuation.
+The original-response continuation and composed source packet retain their
+own raw-body/provenance evidence. Parent verification should run the composed
+native recovery selectors under
+`recovery_integration_tests::document_recovery::` in the existing development
+container against this persistent source after integration, including the
+installed capacity, cancellation/reopen, original-main admission and late
+terminal-conflict journeys. Those commands and the earlier passed commands
+are verification instructions and historical evidence respectively, not new
+execution results for this port.

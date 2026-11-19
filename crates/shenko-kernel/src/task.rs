@@ -122,6 +122,21 @@ pub trait ChildToolRuntime: Send + Sync + 'static {
     ) -> anyhow::Result<ChildToolOutcome>;
 }
 
+/// A transient local admission refusal before any external operation was armed.
+/// The runtime must confirm that the invocation's stable operation ID has no
+/// record before parking it for retry. This is neither an operation outcome
+/// nor permission to replay an existing T1/attempt.
+#[derive(Debug)]
+pub struct NativeTaskDeferred(pub &'static str);
+
+impl std::fmt::Display for NativeTaskDeferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for NativeTaskDeferred {}
+
 #[async_trait]
 pub trait NativeTaskHandler: Send + Sync + 'static {
     fn descriptor(&self) -> Result<NativeTaskDescriptor>;
@@ -162,6 +177,25 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     /// new CallContext and must never arm another attempt.
     async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId)
     -> Result<OperationRecord>;
+
+    /// Own the complete local reconciliation lifetime. The default may drop
+    /// its query future on cancellation. A handler owning blocking work,
+    /// nested executors or receipt writers must override this method,
+    /// propagate cancellation and join that work before returning. A final
+    /// original receipt remains eligible for settlement after cancellation;
+    /// stopping a local wait never proves that a remote effect stopped.
+    async fn reconcile_with_cancellation(
+        &self,
+        task: &TaskRecord,
+        operation_id: EntityId,
+        cancellation: CancellationToken,
+    ) -> Result<Option<OperationRecord>> {
+        tokio::select! {
+            biased;
+            _result = self.reconcile(task, operation_id) => _result.map(Some),
+            _ = cancellation.cancelled() => Ok(None),
+        }
+    }
 }
 
 /// One runtime-owned lifetime for both delegated tasks and inline child tools.

@@ -1,7 +1,11 @@
 //! `shenko-document` — the optional, replaceable `document.parse` definition
 //! v1 (issue #89). A subject delegates document parsing on demand; the
-//! boundary processes documents in the background with per-page CAS
-//! checkpoints, so cancellation and restart resume rather than redo. The
+//! native document task owner processes documents in the background, sealing
+//! the original attempt, accepted handle, raw response and per-page CAS
+//! checkpoints in the Store. Its cancellation/reopen path observes that
+//! original attempt without another upload. The generic `run_parse` helper
+//! only returns observations for its caller to persist; it has no durable
+//! acceptance, cancellation or restart boundary of its own. The
 //! boundary never embeds OCR engine choice, Python, model weights or
 //! "when to parse" business judgement into the kernel, and never substitutes
 //! one provider's output for another's.
@@ -13,8 +17,9 @@
 //! attestation), the boundary reports an honest `ProviderUnavailable` — the
 //! SPEC's rule that an absent capability is reported, not faked.
 
-mod attempt;
 mod oxr_client;
+/// Original main's read-only mapper and receipt encoding for attested v1 attempts.
+pub mod legacy_main;
 mod provider;
 mod types;
 
@@ -23,21 +28,19 @@ mod oxr_client_tests;
 #[cfg(test)]
 mod tests;
 
-pub use attempt::{
-    OxrAttemptBinding, OxrAttemptClaim, OxrAttemptContext, OxrAttemptReceipt, OxrAttemptStore,
-};
 pub use oxr_client::{
     CredentialHandle, DEFAULT_POLL_INTERVAL, DEFAULT_POLL_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    OxrBodyState, OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrHttpResponse,
-    OxrObservation, OxrParsedPage, OxrSubmission, OxrTaskHandle, OxrTransport,
+    OxrClient, OxrClientConfig, OxrDocument, OxrError, OxrParsedPage,
+    OxrResponseObservation, OxrResponseSource, OxrSubmission, OxrTransport,
 };
 pub use provider::{
-    DocumentProvider, OxrEngineBinding, OxrProvider, OxrProviderConfig, PageCountOutcome,
-    PageOutcome, ProviderAvailability, page_provenance, select_provider,
+    DocumentProvider, OxrEngineBinding, OxrProvider, OxrProviderBinding, OxrProviderConfig, PageOutcome,
+    ProviderAvailability, page_provenance, select_provider,
 };
 pub use types::{
-    DOCUMENT_PARSE_DEFINITION_VERSION, PageBlock, PageCheckpoint, PageProvenance, PageRef,
-    PageResult, PageSize, ParseRequest, ParseState, page_cache_key, parse_request_id,
+    DOCUMENT_PARSE_DEFINITION_VERSION, DOCUMENT_PARSE_REQUEST_SCHEMA_VERSION,
+    PageBlock, PageCheckpoint, PageImageResource, PageProvenance, PageRef,
+    PageResult, PageSize, ParseRequest, ParseState, RequestCheckpoint, page_cache_key, parse_request_id,
 };
 
 use anyhow::Result;
@@ -46,12 +49,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// The page-level concurrency the boundary defaults to when the provider
-/// declares none: the hosted OXR API is limited to QPS 4 per account.
+/// Default bound on local page futures. This is not a per-account rate limiter.
 pub const DEFAULT_PARSE_CONCURRENCY: usize = 4;
-/// A hard ceiling on page-level concurrency regardless of configuration: a
-/// larger bound has no meaning against a QPS-4 upstream and only multiplies
-/// the load.
+/// Hard bound on local page futures regardless of configuration.
 pub const MAX_PARSE_CONCURRENCY: usize = 16;
 
 /// The outcome of running a parse request through a provider.
@@ -63,45 +63,33 @@ pub const MAX_PARSE_CONCURRENCY: usize = 16;
 /// must reconcile before re-sending — it is not a licence to retry blindly.
 /// The run is `Complete` only when every page is finished or terminally
 /// failed; any `unknown_outcome` leaves it `Running`.
+/// An accepted-task check refusal remains Unknown. The native owner keeps
+/// its original handle and capacity debt until original-task terminal evidence.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParseRun {
     /// Per-page terminal facts, in page order.
     pub checkpoints: Vec<PageCheckpoint>,
     /// The request's resulting state.
     pub state: ParseState,
-    /// A terminal whole-document refusal before any page count was available.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document_failure: Option<String>,
-    /// An external parse may have run, but no page count/result is established.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document_unknown_outcome: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unavailable_reason: Option<String>,
-}
-
-impl ParseRun {
-    fn empty(state: ParseState) -> Self {
-        Self {
-            checkpoints: vec![],
-            state,
-            document_failure: None,
-            document_unknown_outcome: None,
-            unavailable_reason: None,
-        }
-    }
+    /// Discovery/unavailability facts which have no honest page identity.
+    pub request_checkpoint: Option<RequestCheckpoint>,
 }
 
 /// The bound on how many pages are parsed concurrently.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ParseOptions {
-    /// `None` = the provider's own declared ceiling (`concurrency_limit()`,
-    /// OXR: QPS 4/account). An explicit value is clamped into
+    /// `None` = the provider's own local page-future ceiling
+    /// (`concurrency_limit()`). An explicit value is clamped into
     /// `1..=MAX_PARSE_CONCURRENCY`; zero becomes one page at a time.
     pub max_concurrency: Option<usize>,
 }
 
 /// Drive a parse request against a selected provider with bounded page
-/// concurrency, producing one durable checkpoint per page. A page that
+/// concurrency, returning checkpoint values for the caller to seal. It does
+/// not accept saved checkpoints or implement cancellation/restart recovery.
+/// With the generic OXR adapter, accepted handles and errors live only in
+/// that adapter's memory; use the native task owner for durable operations.
+/// A page that
 /// succeeds records a `result`; a page that definitively fails records its
 /// `failure`; a page whose outcome is genuinely unknown records
 /// `unknown_outcome` (retryable, never terminal). The run never fabricates
@@ -113,12 +101,15 @@ pub async fn run_parse(
     source_bytes: &[u8],
     options: ParseOptions,
 ) -> Result<ParseRun> {
-    if let ProviderAvailability::Unavailable { reason } =
-        provider.availability_for(source_bytes, req).await
-    {
+    anyhow::ensure!(req.schema_version == DOCUMENT_PARSE_REQUEST_SCHEMA_VERSION, "unsupported document.parse request schema");
+    anyhow::ensure!(req.closure_id == provider.closure_id(), "document provider closure mismatch");
+    anyhow::ensure!(req.deployment_scope.as_deref() == provider.scope(), "document provider scope mismatch");
+    if let ProviderAvailability::Unavailable { reason } = provider.availability().await {
+        // Honest report: no page claims, no partial result.
         return Ok(ParseRun {
-            unavailable_reason: Some(reason),
-            ..ParseRun::empty(ParseState::ProviderUnavailable)
+            checkpoints: vec![],
+            state: ParseState::ProviderUnavailable,
+            request_checkpoint: Some(request_checkpoint(req, ParseState::ProviderUnavailable, reason)),
         });
     }
 
@@ -126,24 +117,26 @@ pub async fn run_parse(
         // Whole-document parse: the page count is provider-discovered; this
         // boundary does not guess it. A provider that cannot state the count
         // yields an honest PageCountUnknown with no claimed pages.
-        match provider.page_count(source_bytes, req).await? {
-            PageCountOutcome::Known(count) => (0..count)
+        match provider.page_count(source_bytes, req).await {
+            Ok(Some(count)) => (0..count)
                 .map(|page_index| PageRef { page_index })
                 .collect(),
-            PageCountOutcome::Undetermined => {
-                return Ok(ParseRun::empty(ParseState::PageCountUnknown));
-            }
-            PageCountOutcome::Failed(reason) => {
+            Ok(None) => {
                 return Ok(ParseRun {
-                    document_failure: Some(reason),
-                    ..ParseRun::empty(ParseState::Complete)
+                    checkpoints: vec![],
+                    state: ParseState::PageCountUnknown,
+                    request_checkpoint: Some(request_checkpoint(req, ParseState::PageCountUnknown,
+                        "provider could not determine the original page count".into())),
                 });
             }
-            PageCountOutcome::Unknown(reason) => {
-                return Ok(ParseRun {
-                    document_unknown_outcome: Some(reason),
-                    ..ParseRun::empty(ParseState::Running)
-                });
+            Err(error) => {
+                let state = if error.downcast_ref::<OxrError>().is_some_and(|error| !error.outcome_is_unknown()) {
+                    ParseState::Failed
+                } else {
+                    ParseState::Running
+                };
+                return Ok(ParseRun { checkpoints: vec![], state,
+                    request_checkpoint: Some(request_checkpoint(req, state, error.to_string())) });
             }
         }
     } else {
@@ -156,10 +149,13 @@ pub async fn run_parse(
         .clamp(1, MAX_PARSE_CONCURRENCY);
 
     let mut outcomes: Vec<(PageRef, String, Result<PageOutcome>)> =
-        futures::stream::iter(pages.into_iter().map(|page| async move {
-            let cache_key = page_cache_key(req, page);
-            let outcome = provider.parse_page(source_bytes, page, req).await;
-            (page, cache_key, outcome)
+        futures::stream::iter(pages.iter().map(|page| {
+            let page = *page;
+            async move {
+                let cache_key = page_cache_key(req, page);
+                let outcome = provider.parse_page(source_bytes, page, req).await;
+                (page, cache_key, outcome)
+            }
         }))
         .buffer_unordered(limit)
         .collect()
@@ -169,6 +165,7 @@ pub async fn run_parse(
     // the checkpoint order.
     outcomes.sort_by_key(|(page, _, _)| page.page_index);
     let mut checkpoints = Vec::new();
+    let mut request_failure = None;
     let mut has_unknown = false;
     for (_page, cache_key, outcome) in outcomes {
         match outcome {
@@ -196,24 +193,32 @@ pub async fn run_parse(
                     committed_at: chrono::Utc::now(),
                 });
             }
-            // A provider-level error aborts the run rather than being
-            // labelled as a page fact.
-            Err(error) => return Err(error),
+            // Preserve completed pages and the request-level uncertainty;
+            // an error without a page observation is not a fabricated page.
+            Err(error) => {
+                request_failure = Some(request_checkpoint(req, ParseState::Running, error.to_string()));
+                has_unknown = true;
+            }
         }
     }
     Ok(ParseRun {
         checkpoints,
-        ..ParseRun::empty(if has_unknown {
+        state: if has_unknown {
             ParseState::Running
         } else {
             ParseState::Complete
-        })
+        },
+        request_checkpoint: request_failure,
     })
 }
 
-/// Index a completed run's checkpoints by their cache key for dedupe/resume.
-/// A repeated request under the same closure re-uses checkpoint keys; an
-/// unknown execution is reconciled, never re-sent blindly.
+fn request_checkpoint(req: &ParseRequest, state: ParseState, reason: String) -> RequestCheckpoint {
+    RequestCheckpoint { request_id: parse_request_id(req), state, reason, observed_at: chrono::Utc::now() }
+}
+
+/// Index returned checkpoints by cache key. This does not persist them or
+/// resume a provider; the owning consumer must reconcile an original Unknown
+/// before considering another send.
 pub fn index_checkpoints(run: &ParseRun) -> BTreeMap<String, &PageCheckpoint> {
     run.checkpoints
         .iter()

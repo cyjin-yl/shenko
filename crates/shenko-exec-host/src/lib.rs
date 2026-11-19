@@ -24,6 +24,9 @@ pub mod external_history;
 pub mod net_probe;
 pub use net_probe::*;
 
+pub mod document_task;
+pub use document_task::{DocumentParseHandler, DOCUMENT_OXR_UNIT};
+
 pub mod net_fixture;
 pub use net_fixture::*;
 

@@ -32,6 +32,9 @@ pub enum InboxAdmission {
 pub struct ExternalEvidenceFold {
     pub expected_revision: RecordRevision,
     pub terminal_content_conflict: bool,
+    /// A reused operation's evidence is valid only at the revision inspected
+    /// by the decoder. Test both heads in the same evidence transaction.
+    pub source_operation_revision: Option<(EntityId, RecordRevision)>,
 }
 
 fn evidence_storage_failure(error: &anyhow::Error) -> bool {
@@ -135,6 +138,33 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(serde_json::from_str(&data)?)
+    }
+
+    /// The first immutable observation of this original attempt. A resumed
+    /// observer uses its recorded time to retain the original waiting budget;
+    /// a missing timestamp supplies no permission to restart that budget.
+    pub fn external_attempt_first_evidence(
+        &self, operation_id: EntityId, attempt_id: EntityId,
+    ) -> Result<Option<EvidenceReceipt>> {
+        let conn = self.ledger.conn.lock();
+        // Attempt identity lives in the canonical receipt, not a table column.
+        // Retain append order, including an original observation with no time;
+        // a later timestamp cannot grant this attempt a fresh waiting budget.
+        let mut query = conn.prepare(
+            "SELECT receipt_id, data FROM evidence_receipts WHERE operation_id=?1 ORDER BY rowid",
+        )?;
+        let mut rows = query.query([operation_id.to_string()])?;
+        while let Some(row) = rows.next()? {
+            let receipt_id: EntityId = row.get::<_, String>(0)?.parse()?;
+            let raw: String = row.get(1)?;
+            let receipt: EvidenceReceipt = serde_json::from_str(&raw)?;
+            ensure!(receipt.receipt_id == receipt_id && receipt.operation_id == Some(operation_id),
+                "receipt_identity_mismatch");
+            if receipt.attempt_id == Some(attempt_id) {
+                return Ok(Some(receipt));
+            }
+        }
+        Ok(None)
     }
 
     /// Startup resource reconstruction uses the original operation identities,
@@ -742,6 +772,16 @@ impl Store {
         let original = (op.clone(), att.clone());
         if fold.is_some_and(|fold| fold.expected_revision != op.record_revision) {
             return Ok(None);
+        }
+        if let Some((source, revision)) = fold.and_then(|fold| fold.source_operation_revision) {
+            ensure!(source != operation_id, "external evidence cannot reuse its own operation");
+            let source_revision: Option<u64> = tx.query_row(
+                "SELECT record_revision FROM operations WHERE operation_id=?1",
+                [source.to_string()], |row| row.get(0),
+            ).optional()?;
+            if source_revision != Some(revision.0) {
+                return Ok(None);
+            }
         }
         match crate::receipt_admission::decide(&tx, &ev)? {
             crate::receipt_admission::Admission::New => {}

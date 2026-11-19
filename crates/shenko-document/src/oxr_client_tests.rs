@@ -3,9 +3,9 @@
 //! These exercise the client against a local mock speaking the upstream
 //! SoMark/OXR response shape, and the boundary against in-process providers.
 //! They prove the provider shape and the honest failure paths — they do NOT
-//! prove real OXR recognition quality: no real engine is contacted. The
-//! historical deployment limits are recorded in
-//! docs/evidence/document-parse-provider-20261111.md.
+//! prove real OXR recognition quality or establish current engine/model or
+//! hardware availability. Those require separate deployment observations
+//! (see docs/evidence/document-parse-provider-20261111.md).
 
 use super::*;
 use serde_json::json;
@@ -17,13 +17,21 @@ use tokio::net::TcpListener;
 
 fn request(pages: &[u32]) -> ParseRequest {
     ParseRequest {
-        schema_version: DOCUMENT_PARSE_DEFINITION_VERSION,
+        schema_version: DOCUMENT_PARSE_REQUEST_SCHEMA_VERSION,
         source_digest: "blake3:deadbeef".into(),
         source_name: Some("doc.pdf".into()),
         pages: pages.iter().map(|i| PageRef { page_index: *i }).collect(),
         closure_id: "oxr/1.0".into(),
-        scope: Some("scope-a".into()),
+        cache_scope: Some("subject-a:scope-a".into()),
+        deployment_scope: Some("scope-a".into()),
     }
+}
+
+fn bound_request(provider: &dyn DocumentProvider, pages: &[u32]) -> ParseRequest {
+    let mut req = request(pages);
+    req.closure_id = provider.closure_id().to_owned();
+    req.deployment_scope = provider.scope().map(str::to_owned);
+    req
 }
 
 // ----- a local mock speaking the upstream response shape ------------------
@@ -32,6 +40,10 @@ fn request(pages: &[u32]) -> ParseRequest {
 struct MockState {
     /// Recorded `(request-target, raw body)` pairs.
     requests: Vec<(String, Vec<u8>)>,
+    response_content_type: Option<String>,
+    chunked: bool,
+    response_bytes: usize,
+    response_finished: bool,
 }
 
 /// Shared route table: request-target suffix → queued answers.
@@ -131,8 +143,28 @@ async fn serve(
         404 => "Not Found",
         _ => "Status",
     };
+    let (chunked, content_type) = {
+        let state = state.lock().unwrap();
+        (state.chunked, state.response_content_type.clone())
+    };
+    let content_type = content_type.as_deref().unwrap_or("application/json");
+    if chunked {
+        let header = format!("HTTP/1.1 {} {}\r\nContent-Type: {content_type}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n", answer.0, reason);
+        let mut connected = writer.write_all(header.as_bytes()).await.is_ok();
+        for chunk in answer.1.as_bytes().chunks(64 * 1024) {
+            if !connected { break; }
+            connected = writer.write_all(format!("{:x}\r\n", chunk.len()).as_bytes()).await.is_ok()
+                && writer.write_all(chunk).await.is_ok() && writer.write_all(b"\r\n").await.is_ok();
+            if connected { state.lock().unwrap().response_bytes += chunk.len(); }
+            tokio::task::yield_now().await;
+        }
+        if connected { let _ = writer.write_all(b"0\r\n\r\n").await; }
+        let _ = writer.shutdown().await;
+        state.lock().unwrap().response_finished = true;
+        return;
+    }
     let response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         answer.0,
         reason,
         answer.1.len(),
@@ -140,6 +172,167 @@ async fn serve(
     );
     let _ = writer.write_all(response.as_bytes()).await;
     let _ = writer.shutdown().await;
+}
+
+async fn assert_original_inventory_unknown(mut response: serde_json::Value) {
+    response["data"]["task_id"] = json!("original-inventory");
+    response["data"]["status"] = json!("success");
+    let raw = response.to_string();
+    let saved_error = OxrDocument::from_response(raw.as_bytes().to_vec()).unwrap_err();
+    assert!(saved_error.outcome_is_unknown());
+    let saved = saved_error.response_observation().unwrap();
+    assert!(saved.capture_complete);
+    assert_eq!(saved.body.as_deref(), Some(raw.as_bytes()));
+
+    let (base, state, server) = spawn_mock(HashMap::from([
+        ("/parse/async", VecDeque::from([(200, json!({"code":0,"data":{"task_id":"original-inventory"}}).to_string())])),
+        ("/async_check", VecDeque::from([(200, raw)])),
+    ]));
+    let provider = provider_with(&base, OxrTransport::Async);
+    let requested = bound_request(provider.as_ref(), &[0]);
+    let run = run_parse(&requested, &provider, b"owned inventory fixture", ParseOptions::default()).await.unwrap();
+    assert_eq!(run.state, ParseState::Running);
+    assert_eq!(run.checkpoints.len(), 1);
+    assert!(run.checkpoints[0].result.is_none());
+    assert!(run.checkpoints[0].failure.is_none(), "an incomplete original observation is no absent-page proof");
+    assert!(run.checkpoints[0].unknown_outcome.is_some());
+    let whole = bound_request(provider.as_ref(), &[]);
+    let run = run_parse(&whole, &provider, b"owned inventory fixture", ParseOptions::default()).await.unwrap();
+    assert_eq!(run.state, ParseState::Running);
+    assert!(run.checkpoints.is_empty(), "no page may publish from a rejected original inventory");
+    assert!(run.request_checkpoint.is_some());
+    let requests = state.lock().unwrap().requests.clone();
+    assert_eq!(requests.iter().filter(|(path, _)| path.ends_with("/parse/async")).count(), 1);
+    let checks: Vec<_> = requests.iter().filter(|(path, _)| path.ends_with("/async_check")).collect();
+    assert_eq!(checks.len(), 1, "cached uncertainty never resets the original attempt");
+    assert!(String::from_utf8_lossy(&checks[0].1).contains("original-inventory"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn invalid_explicit_page_identity_never_becomes_array_position() {
+    for invalid in [json!(-1), json!(4_294_967_296u64), json!(1), json!(0.5), serde_json::Value::Null] {
+        assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":1},
+            "result":{"outputs":{"json":{"pages":[{"page_num":invalid}]}}}}})).await;
+    }
+    for (count, pages) in [(json!(0), json!([{"page_num":0}])),
+        (json!(2), json!([{"page_num":0}])), (json!(2), json!([{"page_num":0},{"page_num":0}])),
+        (json!(-1), json!([{"page_num":0}])), (json!(4_294_967_296u64), json!([{"page_num":0}])),
+        (json!(1.5), json!([{"page_num":0}]))] {
+        assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":count},
+            "result":{"outputs":{"json":{"pages":pages}}}}})).await;
+    }
+    assert_original_inventory_unknown(json!({"code":0,"data":{"result":{"outputs":{"json":{}}}}})).await;
+    let empty = json!({"code":0,"data":{"metadata":{"page_num":0},"result":{"outputs":{"json":{"pages":[]}}}}});
+    let empty = OxrDocument::from_response(serde_json::to_vec(&empty).unwrap()).unwrap();
+    assert_eq!(empty.page_count, Some(0));
+    assert!(empty.pages.is_empty());
+    let positional = json!({"code":0,"data":{"metadata":{"page_num":2},
+        "result":{"outputs":{"json":{"pages":[{"blocks":[{"content":"zero"}]},{"blocks":[{"content":"one"}]}]}}}}});
+    let parsed = OxrDocument::from_response(serde_json::to_vec(&positional).unwrap()).unwrap();
+    assert_eq!(parsed.pages.iter().map(|page| page.page_num).collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(parsed.pages[1].blocks[0].text, "one");
+}
+
+#[tokio::test]
+async fn conclusive_remote_failure_retains_body_without_becoming_unknown() {
+    let raw = json!({"code":0,"data":{"task_id":"original-failed","status":"failed",
+        "error":"private provider reason https://private.invalid/resource?key=owned-secret",
+        "result":{"outputs":{"json":{"pages":[{"page_num":null},{"page_num":-1}]}}}}}).to_string();
+    let refusal = json!({"code":1133,"message":"private refusal https://private.invalid/check?key=owned-secret"}).to_string();
+    let (base, state, server) = spawn_mock(HashMap::from([
+        ("/parse/async", VecDeque::from([
+            (401, "{}".into()), (200, refusal.clone()),
+            (200, json!({"code":0,"data":{"task_id":"original-failed"}}).to_string()),
+        ])),
+        ("/async_check", VecDeque::from([
+            (401, "{}".into()), (403, "{}".into()), (404, "{}".into()),
+            (200, refusal),
+            // A terminal-looking check that does not positively name the
+            // queried handle is malformed, never a settlement of it.
+            (200, json!({"code":0,"data":{"status":"failed","error":"upstream failed"}}).to_string()),
+            (200, json!({"code":0,"data":{"task_id":"unrelated-task","status":"failed"}}).to_string()),
+            (200, json!({"code":0,"data":{"status":"success","result":{"outputs":{"json":{"pages":[]}}}}}).to_string()),
+            (200, json!({"code":0,"data":{"task_id":"unrelated-task","status":"success","result":{"outputs":{"json":{"pages":[]}}}}}).to_string()),
+            (200, raw.clone()),
+        ])),
+    ]));
+    // The provider's private diagnostic token is not this connection's API
+    // credential. Actual credential echoes are covered by the withholding
+    // consumer; this case must retain a noncredential original body.
+    let client = OxrClient::new(OxrClientConfig::new(base, CredentialHandle::new("owned-submit-credential"))).unwrap();
+    let refused = client.submit_document("fresh-http-refusal.pdf", b"owned fresh refusal fixture").await.unwrap_err();
+    assert!(!refused.outcome_is_unknown(), "a conclusive fresh-submit refusal remains terminal");
+    let refused = client.submit_document("fresh-envelope-refusal.pdf", b"independent owned fresh refusal fixture").await.unwrap_err();
+    assert!(!refused.outcome_is_unknown());
+    let OxrSubmission::Accepted { task_id, response } = client.submit_document("accepted.pdf", b"owned accepted fixture").await.unwrap() else {
+        panic!("the original task must actually be accepted before its checks");
+    };
+    assert!(response.capture_complete);
+    assert_eq!(response.source, crate::OxrResponseSource::AsyncSubmit);
+    assert_eq!(response.http_status, Some(200));
+    let accepted: serde_json::Value = serde_json::from_slice(response.body.as_deref().unwrap()).unwrap();
+    assert_eq!(accepted["data"]["task_id"], task_id);
+    assert_eq!(task_id, "original-failed");
+    for status in [401, 403, 404, 200, 200, 200, 200, 200] {
+        let error = client.check_document(&task_id).await.unwrap_err();
+        assert!(matches!(&error, OxrError::TaskUnknown { task_id: original, .. } if original == &task_id));
+        assert!(error.outcome_is_unknown(), "a refused accepted-handle check cannot settle the computation");
+        assert!(!error.is_terminal_task_failure());
+        let observation = error.response_observation().unwrap();
+        assert_eq!(observation.http_status, Some(status));
+        assert!(observation.capture_complete);
+        assert!(observation.body.is_some());
+        for rendered in [error.to_string(), format!("{error:?}")] {
+            assert!(!rendered.contains("private.invalid"));
+            assert!(!rendered.contains("owned-secret"));
+            assert!(!rendered.contains("owned-submit-credential"));
+        }
+    }
+    let error = client.check_document(&task_id).await.unwrap_err();
+    assert!(!error.outcome_is_unknown(), "an explicit failed status is conclusive");
+    assert!(error.is_terminal_task_failure());
+    let observation = error.response_observation().unwrap();
+    assert!(observation.capture_complete);
+    assert_eq!(observation.source, OxrResponseSource::AsyncCheck);
+    assert_eq!(observation.body.as_deref(), Some(raw.as_bytes()));
+    for rendered in [error.to_string(), format!("{error:?}")] {
+        assert!(!rendered.contains("private.invalid"));
+        assert!(!rendered.contains("owned-secret"));
+        assert!(!rendered.contains("owned-submit-credential"));
+        assert!(!rendered.contains("private provider reason"));
+    }
+    let requests = state.lock().unwrap().requests.clone();
+    assert_eq!(requests.iter().filter(|(target, _)| target.ends_with("/parse/async")).count(), 3);
+    let checks: Vec<_> = requests.iter().filter(|(target, _)| target.ends_with("/async_check")).collect();
+    assert_eq!(checks.len(), 9);
+    assert!(checks.iter().all(|(_, body)| String::from_utf8_lossy(body).contains("original-failed")));
+    server.abort();
+}
+
+#[tokio::test]
+async fn chunked_response_is_rejected_before_the_entire_oversized_body_arrives() {
+    let routes = HashMap::from([("/parse/sync", VecDeque::from([
+        (200, upstream_document_json()), (200, " ".repeat(80 * 1024 * 1024)),
+    ]))]);
+    let (base, state, server) = spawn_mock(routes);
+    state.lock().unwrap().chunked = true;
+    let mut config = OxrClientConfig::new(base, CredentialHandle::new("owned-protocol-fixture"));
+    config.transport = OxrTransport::Sync;
+    let client = OxrClient::new(config).unwrap();
+    assert_eq!(client.parse_document("small.pdf", b"small owned fixture").await.unwrap().pages.len(), 2);
+    { let mut state = state.lock().unwrap(); state.response_bytes = 0; state.response_finished = false; }
+    let error = client.parse_document("large.pdf", b"separate owned fixture").await.unwrap_err();
+    assert!(error.outcome_is_unknown());
+    assert!(error.to_string().contains("body exceeded the limit"));
+    let observation = error.response_observation().unwrap();
+    assert!(!observation.capture_complete);
+    assert_eq!(observation.body.as_ref().unwrap().len(), 64 * 1024 * 1024);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !state.lock().unwrap().response_finished { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert!(state.lock().unwrap().response_bytes < 80 * 1024 * 1024);
+    server.abort();
 }
 
 /// Two upstream-shaped pages covering several element types and formats
@@ -210,57 +403,6 @@ fn upstream_check_success_json() -> String {
     value.to_string()
 }
 
-// Only a test double. Restart durability is exercised by the native Store
-// adapter's tests, not by this process-local map.
-#[derive(Debug, Default)]
-struct MemoryReceipts(
-    Mutex<HashMap<shenko_types::ids::EntityId, (OxrAttemptBinding, Option<OxrAttemptReceipt>)>>,
-);
-
-impl OxrAttemptStore for MemoryReceipts {
-    fn receipt(&self, binding: &OxrAttemptBinding) -> anyhow::Result<Option<OxrAttemptReceipt>> {
-        let records = self
-            .0
-            .lock()
-            .map_err(|_| anyhow::anyhow!("test receipt mutex poisoned"))?;
-        if let Some((original, receipt)) = records.get(&binding.operation_id) {
-            anyhow::ensure!(original == binding, "attempt binding changed");
-            return Ok(receipt.clone());
-        }
-        Ok(None)
-    }
-
-    fn claim(&self, binding: &OxrAttemptBinding) -> anyhow::Result<OxrAttemptClaim> {
-        let mut records = self
-            .0
-            .lock()
-            .map_err(|_| anyhow::anyhow!("test receipt mutex poisoned"))?;
-        if let Some((original, receipt)) = records.get(&binding.operation_id) {
-            anyhow::ensure!(original == binding, "attempt binding changed");
-            return Ok(OxrAttemptClaim::Replay(receipt.clone()));
-        }
-        records.insert(binding.operation_id, (binding.clone(), None));
-        Ok(OxrAttemptClaim::Dispatch)
-    }
-    fn append(
-        &self,
-        binding: &OxrAttemptBinding,
-        receipt: &OxrAttemptReceipt,
-        _response: Option<&OxrHttpResponse>,
-    ) -> anyhow::Result<OxrAttemptReceipt> {
-        let mut records = self
-            .0
-            .lock()
-            .map_err(|_| anyhow::anyhow!("test receipt mutex poisoned"))?;
-        let (original, saved) = records
-            .get_mut(&binding.operation_id)
-            .ok_or_else(|| anyhow::anyhow!("test attempt was not armed"))?;
-        anyhow::ensure!(original == binding, "attempt binding changed");
-        *saved = Some(receipt.clone());
-        Ok(receipt.clone())
-    }
-}
-
 fn provider_with(endpoint: &str, transport: OxrTransport) -> std::sync::Arc<dyn DocumentProvider> {
     std::sync::Arc::new(OxrProvider::new(OxrProviderConfig {
         endpoint: Some(endpoint.to_owned()),
@@ -268,21 +410,16 @@ fn provider_with(endpoint: &str, transport: OxrTransport) -> std::sync::Arc<dyn 
         scope: Some("scope-a".into()),
         credential: Some(CredentialHandle::new("sk-test-secret")),
         transport,
-        attempt: Some(OxrAttemptContext {
-            operation_id: shenko_types::ids::EntityId::new(),
-            attempt_id: shenko_types::ids::EntityId::new(),
-            account_identity: "mock-account".into(),
-            store: std::sync::Arc::new(MemoryReceipts::default()),
-        }),
         poll_interval: Some(std::time::Duration::from_millis(1)),
         ..OxrProviderConfig::default()
-    }))
+    }).unwrap())
 }
 
 #[test]
 fn checkpoint_from_old_payload_still_deserializes() {
     // A checkpoint serialized before element_type/content_format/page_size/
-    // unknown_outcome existed must still deserialize (additive fields only).
+    // unknown_outcome/image_resource existed must still deserialize. This is
+    // a historical observation, not new mapper evidence or a re-keyed result.
     let payload = r#"{
         "cache_key": "doc-parse:abc",
         "result": {
@@ -302,6 +439,8 @@ fn checkpoint_from_old_payload_still_deserializes() {
     let block = &result.blocks[0];
     assert!(block.element_type.is_none());
     assert!(block.content_format.is_none());
+    assert!(block.image_resource.is_none());
+    assert!(result.coordinates_restored, "preserve the historical claim verbatim");
     assert_eq!(block.bbox, Some([1.0, 2.0, 3.0, 4.0]));
 }
 
@@ -314,18 +453,22 @@ async fn sync_transport_maps_upstream_page_exactly() {
     );
     let (base, state, _server) = spawn_mock(routes);
     let provider = provider_with(&base, OxrTransport::Sync);
+    let mut refused = bound_request(provider.as_ref(), &[0]);
+    refused.deployment_scope = Some("other-scope".into());
+    assert!(provider.parse_page(b"%PDF-1.7 fake", PageRef { page_index: 0 }, &refused).await.is_err());
+    assert!(state.lock().unwrap().requests.is_empty());
 
     assert_eq!(provider.availability().await, ProviderAvailability::Ready);
 
     let outcome = provider
-        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 0 }, &request(&[0]))
+        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 0 }, &bound_request(provider.as_ref(), &[0]))
         .await
         .unwrap();
     let PageOutcome::Parsed(result) = outcome else {
         panic!("a real upstream-shaped answer must produce a page")
     };
     assert_eq!(result.page.page_index, 0);
-    assert!(result.coordinates_restored);
+    assert!(!result.coordinates_restored, "provider dimensions do not prove a source transform");
     assert_eq!(
         result.page_size,
         Some(PageSize {
@@ -348,6 +491,7 @@ async fn sync_transport_maps_upstream_page_exactly() {
     assert_eq!(blocks[0].content_format.as_deref(), Some("text"));
     assert_eq!(blocks[0].bbox, Some([72.0, 50.0, 540.0, 80.0]));
     assert_eq!(blocks[0].order, 0);
+    assert!(blocks[0].image_resource.is_none(), "an empty img_url is no retained resource");
     assert_eq!(blocks[1].element_type.as_deref(), Some("Text"));
     assert_eq!(blocks[2].element_type.as_deref(), Some("Formula"));
     assert_eq!(blocks[2].content_format.as_deref(), Some("latex"));
@@ -359,7 +503,7 @@ async fn sync_transport_maps_upstream_page_exactly() {
 
     // Second page: a caption link becomes the structure reference.
     let outcome = provider
-        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 1 }, &request(&[1]))
+        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 1 }, &bound_request(provider.as_ref(), &[1]))
         .await
         .unwrap();
     let PageOutcome::Parsed(result) = outcome else {
@@ -370,6 +514,17 @@ async fn sync_transport_maps_upstream_page_exactly() {
         Some("oxr:captions=1")
     );
     assert_eq!(result.blocks[0].content_format.as_deref(), Some("image"));
+    assert_eq!(result.blocks[0].text, "");
+    assert_eq!(result.blocks[0].image_resource, Some(PageImageResource::TransientUnretained {
+        provider_url: "https://example.invalid/img/1.png".into(),
+    }));
+    assert!(result.blocks[2].image_resource.is_none(), "image format does not invent a resource");
+    let saved = serde_json::to_vec(&*result).unwrap();
+    let restored: PageResult = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(restored.blocks[0].image_resource, result.blocks[0].image_resource);
+    let saved: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(saved["blocks"][0]["image_resource"]["retention"], "transient_unretained");
+    assert!(saved["blocks"][0]["image_resource"].get("cas_ref").is_none());
     assert_eq!(
         result.blocks[2].element_type.as_deref(),
         Some("Chemical Structure")
@@ -378,7 +533,7 @@ async fn sync_transport_maps_upstream_page_exactly() {
     // A page the document does not contain is a terminal failure, not a
     // fabricated block.
     let outcome = provider
-        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 5 }, &request(&[5]))
+        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 5 }, &bound_request(provider.as_ref(), &[5]))
         .await
         .unwrap();
     let PageOutcome::PageFailed(reason) = outcome else {
@@ -448,7 +603,7 @@ async fn async_transport_polls_by_task_id_until_success() {
     let provider = provider_with(&base, OxrTransport::Async);
 
     let outcome = provider
-        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 1 }, &request(&[1]))
+        .parse_page(b"%PDF-1.7 fake", PageRef { page_index: 1 }, &bound_request(provider.as_ref(), &[1]))
         .await
         .unwrap();
     let PageOutcome::Parsed(result) = outcome else {
@@ -488,17 +643,26 @@ async fn async_transport_polls_by_task_id_until_success() {
 
 #[tokio::test]
 async fn run_parse_produces_page_ordered_checkpoints() {
+    // The retained primary schema has an optional integer count. The client
+    // also treats null as unreported; both forms still validate the full array.
+    for null_count in [false, true] {
+    let mut response: serde_json::Value = serde_json::from_str(&upstream_document_json()).unwrap();
+    if null_count {
+        response["data"]["metadata"]["page_num"] = serde_json::Value::Null;
+    } else {
+        response["data"]["metadata"].as_object_mut().unwrap().remove("page_num");
+    }
     let mut routes = HashMap::new();
     routes.insert(
         "/parse/sync",
-        VecDeque::from(vec![(200u16, upstream_document_json())]),
+        VecDeque::from(vec![(200u16, response.to_string())]),
     );
-    let (base, state, _server) = spawn_mock(routes);
+    let (base, state, server) = spawn_mock(routes);
     let provider = provider_with(&base, OxrTransport::Sync);
 
     // Whole-document request: the page count is provider-discovered, never
     // guessed, and each discovered page gets its own checkpoint.
-    let whole = request(&[]);
+    let whole = bound_request(provider.as_ref(), &[]);
     let run = run_parse(&whole, &provider, b"%PDF-1.7 fake", ParseOptions::default())
         .await
         .unwrap();
@@ -528,6 +692,8 @@ async fn run_parse_produces_page_ordered_checkpoints() {
         .filter(|(target, _)| target.ends_with("/parse/sync"))
         .count();
     assert_eq!(uploads, 1);
+    server.abort();
+    }
 }
 
 #[tokio::test]
@@ -544,7 +710,7 @@ async fn rate_limited_upstream_is_an_unknown_outcome_not_a_failure() {
     let provider = provider_with(&base, OxrTransport::Sync);
 
     let run = run_parse(
-        &request(&[0]),
+        &bound_request(provider.as_ref(), &[0]),
         &provider,
         b"%PDF-1.7 fake",
         ParseOptions::default(),
@@ -569,12 +735,26 @@ async fn rate_limited_upstream_is_an_unknown_outcome_not_a_failure() {
 #[tokio::test]
 async fn unreachable_endpoint_is_unavailable_naming_the_reason() {
     // Nothing listens on this port: an honest Unavailable, never a parse.
-    let provider = provider_with("http://127.0.0.1:1/v1", OxrTransport::Sync);
-    match provider.availability().await {
+    let endpoint = "http://127.0.0.1:1/private-tenant-r70/v1";
+    let bound = std::sync::Arc::new(OxrProvider::new(OxrProviderConfig {
+        endpoint: Some(endpoint.into()), model_identity: Some("owned-availability-fixture".into()),
+        scope: Some("scope-a".into()), credential: Some(CredentialHandle::new("owned-availability-fixture")),
+        transport: OxrTransport::Sync, ..OxrProviderConfig::default()
+    }).unwrap());
+    assert_eq!(bound.binding().endpoint.as_deref(), Some(endpoint), "structured deployment binding remains exact");
+    let provider: std::sync::Arc<dyn DocumentProvider> = bound;
+    let reason = match provider.availability().await {
         ProviderAvailability::Unavailable { reason } => {
             assert!(reason.contains("unreachable"), "{reason}");
+            reason
         }
         ProviderAvailability::Ready => panic!("an unreachable endpoint is never ready"),
+    };
+    let run = run_parse(&bound_request(provider.as_ref(), &[]), &provider, b"owned availability fixture", ParseOptions::default()).await.unwrap();
+    assert_eq!(run.state, ParseState::ProviderUnavailable);
+    for reason in [reason, run.request_checkpoint.unwrap().reason] {
+        assert!(!reason.contains(endpoint));
+        assert!(!reason.contains("private-tenant-r70"));
     }
 }
 
@@ -586,7 +766,7 @@ async fn local_engine_without_attestation_is_unavailable() {
         credential: Some(CredentialHandle::new("dummy")),
         engine: OxrEngineBinding::Local { attestation: None },
         ..OxrProviderConfig::default()
-    });
+    }).unwrap();
     match provider.availability().await {
         ProviderAvailability::Unavailable { reason } => {
             assert!(reason.contains("attestation"), "{reason}");
@@ -598,17 +778,23 @@ async fn local_engine_without_attestation_is_unavailable() {
 
 #[tokio::test]
 async fn invalid_endpoint_shape_is_unavailable() {
-    let provider = OxrProvider::new(OxrProviderConfig {
-        endpoint: Some("not a url".into()),
-        model_identity: Some("OXR-1.0".into()),
-        credential: Some(CredentialHandle::new("dummy")),
-        ..OxrProviderConfig::default()
-    });
-    match provider.availability().await {
-        ProviderAvailability::Unavailable { reason } => {
-            assert!(reason.contains("endpoint"), "{reason}");
+    let private_query = "http://127.0.0.1:1/private-tenant-r70/v1?capability=private-query-r70";
+    for endpoint in ["not a url", private_query] {
+        let provider = OxrProvider::new(OxrProviderConfig {
+            endpoint: Some(endpoint.into()),
+            model_identity: Some("OXR-1.0".into()),
+            credential: Some(CredentialHandle::new("dummy")),
+            ..OxrProviderConfig::default()
+        }).unwrap();
+        match provider.availability().await {
+            ProviderAvailability::Unavailable { reason } => {
+                assert!(reason.contains("endpoint"), "{reason}");
+                assert!(!reason.contains(endpoint));
+                assert!(!reason.contains("private-query-r70"));
+                assert!(!reason.contains("capability="));
+            }
+            ProviderAvailability::Ready => panic!("an invalid endpoint is never ready"),
         }
-        ProviderAvailability::Ready => panic!("an invalid endpoint is never ready"),
     }
 }
 
@@ -624,7 +810,7 @@ fn credential_is_redacted_in_every_rendering() {
         model_identity: Some("OXR-1.0".into()),
         credential: Some(credential),
         ..OxrProviderConfig::default()
-    });
+    }).unwrap();
     let reason = futures::executor::block_on(async {
         match provider.availability().await {
             ProviderAvailability::Unavailable { reason } => reason,
@@ -634,429 +820,69 @@ fn credential_is_redacted_in_every_rendering() {
     assert!(!reason.contains("sk-super-secret"), "{reason}");
 }
 
-/// A credential-echo journey across refusal and nominal document success:
-/// neither the original body nor recognized success fields may retain it.
+/// Credential echoes are explicit evidence gaps across both a conclusive
+/// refusal and otherwise valid success. Neither body nor typed output escapes.
 #[test]
 fn credential_echo_is_withheld_from_original_response_archive() -> anyhow::Result<()> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let secret = "fixture\"\ncredential";
-            let mut leaked_document: serde_json::Value =
-                serde_json::from_str(&upstream_document_json())?;
-            leaked_document["warnings"] = json!([secret]);
-            leaked_document["data"]["result"]["file_name"] = json!(secret);
-            leaked_document["data"]["result"]["outputs"]["json"]["pages"][0]["blocks"][0]
-                ["content"] = json!(secret);
-            let mut routes = HashMap::new();
-            routes.insert(
-                "/parse/sync",
-                VecDeque::from(vec![
-                    (
-                        403,
-                        json!({"code":1104,"message":format!("rejected {secret}"),"unmapped":secret})
-                            .to_string(),
-                    ),
-                    (200, leaked_document.to_string()),
-                ]),
-            );
-            let (base, state, _server) = spawn_mock(routes);
-            let mut config = OxrClientConfig::new(base, CredentialHandle::new(secret));
-            config.transport = OxrTransport::Sync;
-            let client = OxrClient::new(config)?;
-            let observed = client
-                .submit_document_observed("fixture.pdf", b"%PDF fixture")
-                .await;
-            let error = observed
-                .outcome
-                .as_ref()
-                .err()
-                .ok_or_else(|| anyhow::anyhow!("refusal was lost"))?;
-            assert!(!error.outcome_is_unknown());
-            assert!(!error.to_string().contains(secret));
-            assert!(!format!("{observed:?}").contains(secret));
-            let response = observed
-                .response
-                .ok_or_else(|| anyhow::anyhow!("response metadata missing"))?;
-            assert_eq!(response.status, 403);
-            assert_eq!(response.body_state, OxrBodyState::CredentialEchoWithheld);
-            assert!(response.body().is_empty());
-            // An explicit separate request receives an otherwise valid body.
-            // It must not leave secret-bearing typed success for a host to seal.
-            let observed = client
-                .submit_document_observed("fixture.pdf", b"%PDF fixture")
-                .await;
-            let error = observed
-                .outcome
-                .as_ref()
-                .err()
-                .ok_or_else(|| anyhow::anyhow!("credential-bearing typed success escaped"))?;
-            assert!(error.outcome_is_unknown());
-            assert!(!error.to_string().contains(secret));
-            assert!(!format!("{observed:?}").contains("fixture"));
-            let response = observed
-                .response
-                .ok_or_else(|| anyhow::anyhow!("success capture metadata missing"))?;
-            assert_eq!(response.status, 200);
-            assert_eq!(response.body_state, OxrBodyState::CredentialEchoWithheld);
-            assert!(response.body().is_empty());
-            assert_eq!(
-                state
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("fixture mutex poisoned"))?
-                    .requests
-                    .len(),
-                2
-            );
-            Ok(())
-        })
-}
-
-#[tokio::test]
-async fn invalid_explicit_page_identity_never_becomes_array_position() {
-    for invalid in [
-        json!(-1),
-        json!(4_294_967_296u64),
-        json!(1),
-        json!(0.5),
-        serde_json::Value::Null,
-    ] {
-        let raw = json!({"code":0,"data":{"metadata":{"page_num":1},
-            "result":{"outputs":{"json":{"pages":[{"page_num":invalid}]}}}}})
-            .to_string();
-        let (base, state, server) = spawn_mock(HashMap::from([(
-            "/parse/sync",
-            VecDeque::from([(200, raw.clone())]),
-        )]));
-        let mut config = OxrClientConfig::new(&base, CredentialHandle::new("fixture-key"));
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let secret = "fixture\"\ncredential";
+        let mut leaked_document: serde_json::Value = serde_json::from_str(&upstream_document_json())?;
+        leaked_document["warnings"] = json!([secret]);
+        leaked_document["data"]["result"]["file_name"] = json!(secret);
+        leaked_document["data"]["result"]["outputs"]["json"]["pages"][0]["blocks"][0]["content"] = json!(secret);
+        let mut routes = HashMap::new();
+        routes.insert("/parse/sync", VecDeque::from(vec![
+            (403, json!({"code":1104,"message":format!("rejected {secret}"),"unmapped":secret}).to_string()),
+            (200, leaked_document.to_string()),
+        ]));
+        let (base, state, _server) = spawn_mock(routes);
+        let mut config = OxrClientConfig::new(base, CredentialHandle::new(secret));
         config.transport = OxrTransport::Sync;
-        let client = OxrClient::new(config).unwrap();
-        let observed = client.submit_document_observed("doc.pdf", b"fixture").await;
-        let error = observed.outcome.unwrap_err();
-        assert!(matches!(error, OxrError::MalformedResponse(_)));
-        assert!(error.outcome_is_unknown());
-        let response = observed.response.unwrap();
-        assert_eq!(response.path, "/parse/sync");
-        assert_eq!(response.status, 200);
-        assert_eq!(response.body_state, OxrBodyState::Complete);
-        assert_eq!(response.body(), raw.as_bytes());
-
-        // This is an independent operation, using the provider boundary to
-        // prove that malformed inventory publishes neither pages nor failure.
-        let provider = provider_with(&base, OxrTransport::Sync);
-        let run = run_parse(
-            &request(&[0]),
-            &provider,
-            b"fixture",
-            ParseOptions::default(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(run.state, ParseState::Running);
-        assert_eq!(run.checkpoints.len(), 1);
-        assert!(run.checkpoints[0].result.is_none());
-        assert!(run.checkpoints[0].failure.is_none());
-        assert!(run.checkpoints[0].unknown_outcome.is_some());
-        let whole = run_parse(
-            &request(&[]),
-            &provider,
-            b"fixture",
-            ParseOptions::default(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(whole.state, ParseState::Running);
-        assert!(whole.checkpoints.is_empty());
-        assert!(whole.document_failure.is_none());
-        assert!(whole.document_unknown_outcome.is_some());
-        assert_eq!(
-            state
-                .lock()
-                .unwrap()
-                .requests
-                .iter()
-                .filter(|(path, _)| path.ends_with("/parse/sync"))
-                .count(),
-            2,
-            "one direct observation and one provider upload; cached uncertainty never reuploads"
-        );
-        server.abort();
-    }
-
-    let positional = json!({"code":0,"data":{"metadata":{"page_num":2},
-        "result":{"outputs":{"json":{"pages":[
-            {"blocks":[{"content":"zero"}]},{"blocks":[{"content":"one"}]}
-        ]}}}}})
-    .to_string();
-    let (base, _state, server) = spawn_mock(HashMap::from([(
-        "/parse/sync",
-        VecDeque::from([(200, positional.clone())]),
-    )]));
-    let mut config = OxrClientConfig::new(base, CredentialHandle::new("fixture-key"));
-    config.transport = OxrTransport::Sync;
-    let observed = OxrClient::new(config)
-        .unwrap()
-        .submit_document_observed("doc.pdf", b"fixture")
-        .await;
-    let OxrSubmission::Completed(document) = observed.outcome.unwrap() else {
-        panic!("omitted indices must still map by position")
-    };
-    assert_eq!(
-        document.pages.iter().map(|page| page.page_num).collect::<Vec<_>>(),
-        vec![0, 1]
-    );
-    assert_eq!(document.pages[1].blocks[0].text, "one");
-    assert_eq!(observed.response.unwrap().body(), positional.as_bytes());
-    server.abort();
-}
-
-#[tokio::test]
-async fn conclusive_remote_failure_retains_body_without_becoming_unknown() {
-    let raw = json!({"code":0,"data":{"task_id":"original-failed","status":"failed",
-        "error":"upstream failed","result":{"outputs":{"json":{"pages":[
-            {"page_num":null},{"page_num":-1}
-        ]}}}}})
-    .to_string();
-    let refusal = json!({"code":1133,"message":"upstream refused"}).to_string();
-    let mut missing_success: serde_json::Value =
-        serde_json::from_str(&upstream_check_success_json()).unwrap();
-    missing_success["data"]
-        .as_object_mut()
-        .unwrap()
-        .remove("task_id");
-    let mut unrelated_success = missing_success.clone();
-    unrelated_success["data"]["task_id"] = json!("unrelated-task");
-    let unknowns = vec![
-        (401, "{}".to_owned()),
-        (403, "{}".to_owned()),
-        (404, "{}".to_owned()),
-        (200, refusal.clone()),
-        (
-            200,
-            json!({"code":0,"data":{"status":"failed"}}).to_string(),
-        ),
-        (
-            200,
-            json!({"code":0,"data":{"task_id":"unrelated-task","status":"failed"}})
-                .to_string(),
-        ),
-        (200, missing_success.to_string()),
-        (200, unrelated_success.to_string()),
-    ];
-    let mut checks = VecDeque::from(unknowns.clone());
-    checks.push_back((200, raw.clone()));
-    let (base, state, server) = spawn_mock(HashMap::from([
-        (
-            "/parse/async",
-            VecDeque::from([
-                (401, "{}".into()),
-                (200, refusal),
-                (
-                    200,
-                    json!({"code":0,"data":{"task_id":"original-failed"}}).to_string(),
-                ),
-            ]),
-        ),
-        ("/async_check", checks),
-    ]));
-    let client = OxrClient::new(OxrClientConfig::new(
-        base,
-        CredentialHandle::new("fixture-key"),
-    ))
-    .unwrap();
-    for _ in 0..2 {
-        let observed = client.submit_document_observed("fresh.pdf", b"fixture").await;
-        assert!(!observed.outcome.unwrap_err().outcome_is_unknown());
-        assert_eq!(observed.response.unwrap().body_state, OxrBodyState::Complete);
-    }
-    let OxrSubmission::Accepted(task) = client
-        .submit_document("accepted.pdf", b"fixture")
-        .await
-        .unwrap()
-    else {
-        panic!("original task must be accepted before reconciliation")
-    };
-    assert_eq!(task.task_id, "original-failed");
-    for (status, body) in &unknowns {
-        let observed = client.check_document_observed(&task).await;
-        let error = observed.outcome.unwrap_err();
-        assert!(
-            error.outcome_is_unknown(),
-            "unbound observations cannot settle the original task"
-        );
-        assert!(!matches!(error, OxrError::TaskFailed(_)));
-        let response = observed.response.unwrap();
-        assert_eq!(response.path, "/parse/async_check");
-        assert_eq!(response.status, *status);
-        assert_eq!(response.body_state, OxrBodyState::Complete);
-        assert_eq!(response.body(), body.as_bytes());
-    }
-    let observed = client.check_document_observed(&task).await;
-    let error = observed.outcome.unwrap_err();
-    assert!(matches!(error, OxrError::TaskFailed(_)));
-    assert!(
-        !error.outcome_is_unknown(),
-        "the original task's authenticated failure is conclusive"
-    );
-    assert_eq!(observed.response.unwrap().body(), raw.as_bytes());
-    let requests = state.lock().unwrap().requests.clone();
-    assert_eq!(
-        requests.iter().filter(|(path, _)| path.ends_with("/parse/async")).count(),
-        3
-    );
-    let checks: Vec<_> = requests
-        .iter()
-        .filter(|(path, _)| path.ends_with("/async_check"))
-        .collect();
-    assert_eq!(checks.len(), unknowns.len() + 1);
-    assert!(
-        checks.iter().all(|(_, body)| String::from_utf8_lossy(body).contains("original-failed"))
-    );
-    server.abort();
-}
-
-/// Main's receipt/cache path must keep uncertainty separate from settlement.
-/// This process-local adapter proves provider reconstruction, not Store reopen.
-#[tokio::test]
-async fn unbound_terminal_observations_do_not_quarantine_original_settlement() {
-    let mut missing_success: serde_json::Value =
-        serde_json::from_str(&upstream_check_success_json()).unwrap();
-    missing_success["data"]
-        .as_object_mut()
-        .unwrap()
-        .remove("task_id");
-    let mut unrelated_success = missing_success.clone();
-    unrelated_success["data"]["task_id"] = json!("unrelated-task");
-    let (base, state, server) = spawn_mock(HashMap::from([
-        (
-            "/parse/async",
-            VecDeque::from([(
-                200,
-                json!({"code":0,"data":{"task_id":"t1"}}).to_string(),
-            )]),
-        ),
-        (
-            "/async_check",
-            VecDeque::from([
-                (
-                    200,
-                    json!({"code":0,"data":{"status":"failed"}}).to_string(),
-                ),
-                (
-                    200,
-                    json!({"code":0,"data":{"task_id":"unrelated-task","status":"failed"}})
-                        .to_string(),
-                ),
-                (200, missing_success.to_string()),
-                (200, unrelated_success.to_string()),
-                (200, upstream_check_success_json()),
-            ]),
-        ),
-    ]));
-    let receipts = std::sync::Arc::new(MemoryReceipts::default());
-    let attempt = OxrAttemptContext {
-        operation_id: shenko_types::ids::EntityId::new(),
-        attempt_id: shenko_types::ids::EntityId::new(),
-        account_identity: "mock-account".into(),
-        store: receipts.clone(),
-    };
-    let make_provider = || OxrProvider::new(OxrProviderConfig {
-        endpoint: Some(base.clone()),
-        model_identity: Some("OXR-1.0".into()),
-        scope: Some("scope-a".into()),
-        credential: Some(CredentialHandle::new("fixture-key")),
-        attempt: Some(attempt.clone()),
-        ..OxrProviderConfig::default()
-    });
-    let requested = request(&[0]);
-    let binding = make_provider()
-        .attempt_binding(b"fixture", &requested)
-        .unwrap();
-    let mut original_task = None;
-    for _ in 0..4 {
-        let provider = make_provider();
-        assert_eq!(
-            provider.attempt_binding(b"fixture", &requested).unwrap(),
-            binding
-        );
-        assert!(matches!(
-            provider
-                .parse_page(b"fixture", PageRef { page_index: 0 }, &requested)
-                .await
-                .unwrap(),
-            PageOutcome::Unknown(_)
-        ));
-        let receipt = receipts.receipt(&binding).unwrap().unwrap();
-        assert!(receipt.outcome.unwrap().unwrap_err().outcome_is_unknown());
-        let task = receipt.task.unwrap();
-        assert_eq!(task.task_id, "t1");
-        if let Some(original) = &original_task {
-            assert_eq!(
-                &task, original,
-                "the original acceptance clock and handle stay fixed"
-            );
-        } else {
-            original_task = Some(task);
+        let client = OxrClient::new(config)?;
+        for (status, unknown) in [(403, false), (200, true)] {
+            let error = client.submit_document("fixture.pdf", b"%PDF fixture").await
+                .expect_err("credential-bearing response cannot become typed success");
+            assert_eq!(error.outcome_is_unknown(), unknown);
+            assert!(!error.to_string().contains(secret));
+            assert!(!format!("{error:?}").contains(secret));
+            assert!(error.to_string().contains("credential echo response bytes withheld"));
+            let response = error.response_observation().ok_or_else(|| anyhow::anyhow!("response metadata missing"))?;
+            assert_eq!(response.http_status, Some(status));
+            assert!(response.body.is_none());
+            assert!(!response.capture_complete);
         }
-        let before = state.lock().unwrap().requests.len();
-        assert!(matches!(
-            provider.page_count(b"fixture", &requested).await.unwrap(),
-            PageCountOutcome::Unknown(_)
-        ));
-        assert_eq!(
-            state.lock().unwrap().requests.len(),
-            before,
-            "local cached uncertainty does not poll again"
-        );
+        assert_eq!(state.lock().map_err(|_| anyhow::anyhow!("fixture mutex poisoned"))?.requests.len(), 2);
+        Ok(())
+    })
+}
+
+#[tokio::test]
+async fn credential_in_content_type_is_withheld_with_explicit_evidence_loss() {
+    let credential = "owned-header-fixture-value";
+    let refusal = json!({"code":1104,"message":"request denied"}).to_string();
+    let document = upstream_document_json();
+    let (base, state, server) = spawn_mock(HashMap::from([("/parse/sync", VecDeque::from([
+        (403, refusal.clone()),
+        (200, document.clone()),
+    ]))]));
+    state.lock().unwrap().response_content_type = Some(format!("application/json; diagnostic={credential}"));
+    let mut config = OxrClientConfig::new(base, CredentialHandle::new(credential));
+    config.transport = OxrTransport::Sync;
+    let client = OxrClient::new(config).unwrap();
+    for (status, unknown, expected_body) in [(403, false, refusal.as_bytes()),
+        (200, true, document.as_bytes())] {
+        let error = client.submit_document("fixture.pdf", b"%PDF fixture").await.unwrap_err();
+        assert_eq!(error.outcome_is_unknown(), unknown);
+        assert!(error.to_string().contains("credential echo response bytes withheld"));
+        assert!(!format!("{error:?}").contains(credential));
+        let observation = error.response_observation().unwrap();
+        assert_eq!(observation.http_status, Some(status));
+        assert_eq!(observation.declared_content_type, None);
+        assert_eq!(observation.body.as_deref(), Some(expected_body));
+        assert!(observation.capture_complete);
     }
-    let provider = make_provider();
-    assert!(matches!(
-        provider
-            .parse_page(b"fixture", PageRef { page_index: 0 }, &requested)
-            .await
-            .unwrap(),
-        PageOutcome::Parsed(_)
-    ));
-    let receipt = receipts.receipt(&binding).unwrap().unwrap();
-    assert_eq!(receipt.task, original_task);
-    assert!(receipt.outcome.unwrap().is_ok());
-    let before = state.lock().unwrap().requests.len();
     server.abort();
-    let recovered = make_provider();
-    assert_eq!(
-        recovered.availability_for(b"fixture", &requested).await,
-        ProviderAvailability::Ready
-    );
-    assert!(matches!(
-        recovered
-            .parse_page(b"fixture", PageRef { page_index: 1 }, &request(&[1]))
-            .await
-            .unwrap(),
-        PageOutcome::Parsed(_)
-    ));
-    assert_eq!(
-        recovered.page_count(b"fixture", &requested).await.unwrap(),
-        PageCountOutcome::Known(2)
-    );
-    let requests = state.lock().unwrap().requests.clone();
-    assert_eq!(
-        requests.len(), before,
-        "committed settlement needs neither probe nor poll"
-    );
-    assert_eq!(
-        requests.iter().filter(|(path, _)| path.ends_with("/parse/async")).count(),
-        1
-    );
-    assert_eq!(
-        requests.iter().filter(|(path, _)| path.ends_with("/async_check")).count(),
-        5
-    );
-    assert_eq!(
-        receipts.0.lock().unwrap().len(),
-        1,
-        "no replacement attempt was created"
-    );
+    assert!(server.await.unwrap_err().is_cancelled());
 }
 
 // ----- bounded concurrency ------------------------------------------------
@@ -1074,6 +900,7 @@ impl DocumentProvider for CountingProvider {
     fn closure_id(&self) -> &str {
         "counting/1.0"
     }
+    fn scope(&self) -> Option<&str> { Some("scope-a") }
     async fn availability(&self) -> ProviderAvailability {
         ProviderAvailability::Ready
     }
@@ -1112,7 +939,7 @@ async fn run_parse_respects_the_configured_concurrency_bound() {
     });
     let provider: std::sync::Arc<dyn DocumentProvider> = counting.clone();
     let run = run_parse(
-        &request(&(0..8).collect::<Vec<_>>()),
+        &bound_request(provider.as_ref(), &(0..8).collect::<Vec<_>>()),
         &provider,
         b"%PDF-1.7 fake",
         ParseOptions {
@@ -1142,6 +969,7 @@ async fn terminal_failure_is_a_terminal_checkpoint() {
         fn closure_id(&self) -> &str {
             "failing/1.0"
         }
+        fn scope(&self) -> Option<&str> { Some("scope-a") }
         async fn availability(&self) -> ProviderAvailability {
             ProviderAvailability::Ready
         }
@@ -1155,7 +983,7 @@ async fn terminal_failure_is_a_terminal_checkpoint() {
         }
     }
     let provider: std::sync::Arc<dyn DocumentProvider> = std::sync::Arc::new(Failing);
-    let run = run_parse(&request(&[0]), &provider, b"x", ParseOptions::default())
+    let run = run_parse(&bound_request(provider.as_ref(), &[0]), &provider, b"x", ParseOptions::default())
         .await
         .unwrap();
     assert_eq!(
@@ -1180,6 +1008,7 @@ async fn unknown_outcome_keeps_the_run_running() {
         fn closure_id(&self) -> &str {
             "unknown/1.0"
         }
+        fn scope(&self) -> Option<&str> { Some("scope-a") }
         async fn availability(&self) -> ProviderAvailability {
             ProviderAvailability::Ready
         }
@@ -1193,7 +1022,7 @@ async fn unknown_outcome_keeps_the_run_running() {
         }
     }
     let provider: std::sync::Arc<dyn DocumentProvider> = std::sync::Arc::new(Unknown);
-    let run = run_parse(&request(&[0]), &provider, b"x", ParseOptions::default())
+    let run = run_parse(&bound_request(provider.as_ref(), &[0]), &provider, b"x", ParseOptions::default())
         .await
         .unwrap();
     assert_eq!(run.state, ParseState::Running);

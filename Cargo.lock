@@ -4618,6 +4618,7 @@ dependencies = [
  "shenko-broker",
  "shenko-channel-napcat",
  "shenko-context-policy",
+ "shenko-document",
  "shenko-exec-ssh",
  "shenko-identity",
  "shenko-kernel",
