@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use crate::{document_runtime, node_sync, runtime_sessions, update_control, update_runtime};
+use crate::{document, node_sync, runtime_sessions, update_control, update_runtime};
 
 /// The native definitions this runtime installs, and the self-knowledge
 /// provider they feed.
@@ -120,11 +120,7 @@ pub(crate) async fn install_native_definitions(
     let _native_history_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
         .await?;
-    if let Some(handler) = document_runtime::configured_handler(Arc::clone(store))? {
-        supervisor
-            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
-            .await?;
-    }
+    document::install(supervisor, Arc::clone(store), node_sync::open_node(data_dir, store)?).await?;
     // Reachability is observed, not assumed: one bounded probe of a declared
     // endpoint with per-stage measured timings and no persistent state.
     let net_probe_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =

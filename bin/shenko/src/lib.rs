@@ -18,6 +18,7 @@ mod compat;
 mod poppy;
 mod context_policy;
 mod policy_config;
+mod document;
 mod document_runtime;
 mod inference_runtime;
 mod runtime_adapters;

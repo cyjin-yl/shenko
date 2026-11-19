@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 shenko-types = { path = "../shenko-types" }
 shenko-quota = { path = "../shenko-quota" }

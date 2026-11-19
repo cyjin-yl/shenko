@@ -23,7 +23,7 @@ use parking_lot::RwLock;
 use shenko_store::{
     Store, TaskCancellation,
     child::{
-        COGNITION_IMPORTED, NATIVE_CHILD, NATIVE_INPUT, NATIVE_OPERATION_ID, NATIVE_RECOVERY,
+        COGNITION_IMPORTED, NATIVE_ASSIGNMENT, NATIVE_CHILD, NATIVE_INPUT, NATIVE_OPERATION_ID, NATIVE_RECOVERY,
         NativeTaskClaim, memo_flag, memo_uuid, park_reason,
     },
 };
@@ -144,6 +144,8 @@ impl ChildToolRuntime for NativeToolRuntime {
 #[derive(Clone)]
 struct RegisteredHandler {
     epoch: u64,
+    /// Historical receipt reader only: never discoverable or executable.
+    recovery_only: bool,
     descriptor: NativeTaskDescriptor,
     handler: Arc<dyn NativeTaskHandler>,
 }
@@ -235,6 +237,14 @@ impl NativeChildService {
         self: &Arc<Self>,
         handler: Arc<dyn NativeTaskHandler>,
     ) -> Result<((String, u32, Digest), u64)> {
+        self.install_handler(handler, false)
+    }
+
+    fn install_handler(
+        self: &Arc<Self>,
+        handler: Arc<dyn NativeTaskHandler>,
+        recovery_only: bool,
+    ) -> Result<((String, u32, Digest), u64)> {
         let descriptor = handler.descriptor()?;
         ensure!(
             descriptor.kind != "delegation"
@@ -249,16 +259,18 @@ impl NativeChildService {
                 .is_none_or(|section| { !section.trim().is_empty() && section.len() <= 8192 }),
             "invalid_native_prompt_section"
         );
-        let artifact = shenko_kernel::native_artifact::running_native_artifact()?;
-        if descriptor.implementation_ref.artifact_digest == artifact.digest()
-            && !self.registry.read().retained_artifacts.contains(&artifact.digest())
-        {
-            let retained = artifact.read(|file| Ok(self.store.cas.seal_reader(
-                file, "application/octet-stream", "native-implementation", "native-executable", 1,
-            )?.object))?;
-            ensure!(retained.digest == descriptor.implementation_ref.artifact_digest,
-                "running native artifact changed while freezing its recovery object");
-            self.registry.write().retained_artifacts.insert(retained.digest);
+        if !recovery_only {
+            let artifact = shenko_kernel::native_artifact::running_native_artifact()?;
+            if descriptor.implementation_ref.artifact_digest == artifact.digest()
+                && !self.registry.read().retained_artifacts.contains(&artifact.digest())
+            {
+                let retained = artifact.read(|file| Ok(self.store.cas.seal_reader(
+                    file, "application/octet-stream", "native-implementation", "native-executable", 1,
+                )?.object))?;
+                ensure!(retained.digest == descriptor.implementation_ref.artifact_digest,
+                    "running native artifact changed while freezing its recovery object");
+                self.registry.write().retained_artifacts.insert(retained.digest);
+            }
         }
         let definition = (descriptor.kind.clone(), descriptor.definition_version);
         let key = (definition.0.clone(), definition.1, descriptor.implementation_ref.artifact_digest.clone());
@@ -270,12 +282,15 @@ impl NativeChildService {
         registry.revision += 1;
         let epoch = registry.revision;
         let mut descriptor = descriptor;
-        descriptor.implementation_ref.registry_revision = epoch;
-        registry.current.insert(definition, key.2.clone());
+        if !recovery_only {
+            descriptor.implementation_ref.registry_revision = epoch;
+            registry.current.insert(definition, key.2.clone());
+        }
         registry.handlers.insert(
             key.clone(),
             RegisteredHandler {
                 epoch,
+                recovery_only,
                 descriptor,
                 handler,
             },
@@ -309,7 +324,56 @@ impl NativeChildService {
         if !memo_flag(task, NATIVE_CHILD) { return self.handler(&task.kind, task.definition_version); }
         self.registry.read().handlers.get(&(task.kind.clone(), task.definition_version,
             task.implementation_ref.artifact_digest.clone())).filter(|registered|
-                registered.descriptor.implementation_ref.plugin_id == task.implementation_ref.plugin_id).cloned()
+                !registered.recovery_only
+                && registered.descriptor.implementation_ref.plugin_id == task.implementation_ref.plugin_id).cloned()
+    }
+
+    /// A historical reader can only query a genuine durable original attempt.
+    /// Its descriptor names the old origin, not this installation's epoch.
+    /// Plugin-specific contract digests and frozen payloads remain the reader's
+    /// responsibility; the runtime binds the task, operation and attempt here.
+    fn recovery_handler(
+        &self,
+        task: &TaskRecord,
+        operation: &OperationRecord,
+    ) -> Result<Option<RegisteredHandler>> {
+        if !memo_flag(task, NATIVE_CHILD)
+            || memo_uuid(task, NATIVE_OPERATION_ID) != Some(operation.operation_id)
+            || operation.task_id != task.task_id
+            || operation.state == OperationState::Resolved
+        {
+            return Ok(None);
+        }
+        let registered = self.registry.read().handlers.get(&(
+            task.kind.clone(), task.definition_version,
+            task.implementation_ref.artifact_digest.clone(),
+        )).filter(|registered| registered.recovery_only).cloned();
+        let Some(registered) = registered else { return Ok(None); };
+        let descriptor = &registered.descriptor;
+        let original = descriptor.implementation();
+        if descriptor.implementation_ref.plugin_id != task.implementation_ref.plugin_id
+            || operation.contract_ref.plugin_id != task.implementation_ref.plugin_id
+            || operation.contract_ref.artifact_digest != task.implementation_ref.artifact_digest
+            || operation.contract_ref.receipt_reader_ref != original
+        {
+            return Ok(None);
+        }
+        let Some(assignment) = task.memos.get(NATIVE_ASSIGNMENT) else { return Ok(None); };
+        let assignment: ExecutionAssignment = serde_json::from_value(assignment.clone())?;
+        let attempt = self.store.external_operation_attempt(operation.operation_id)?;
+        // Registry revision is local to the original installation. Compare the
+        // two persisted identities, never a newly installed reader's revision.
+        if assignment.implementation_ref != task.implementation_ref
+            || attempt.operation_id != operation.operation_id
+            || attempt.implementation_ref != original
+            || attempt.invocation_id != assignment.invocation_id
+            || attempt.worker_id != assignment.worker_id
+            || attempt.node_id != assignment.node_id
+            || attempt.epoch != assignment.epoch
+        {
+            return Ok(None);
+        }
+        Ok(Some(registered))
     }
 
     /// Admission can report an unavailable implementation before creating new
@@ -1052,6 +1116,13 @@ impl NativeChildService {
                 } else { Visit::Skipped });
         }
         let registered = match self.frozen_handler(task) {
+            Some(registered) => Some(registered),
+            None => match existing.as_ref() {
+                Some(operation) => self.recovery_handler(task, operation)?,
+                None => None,
+            },
+        };
+        let registered = match registered {
             Some(registered) => registered,
             None => {
                 self.store.park_native_task(
@@ -1092,7 +1163,11 @@ impl NativeChildService {
                     Admission::Full | Admission::Closed => return Ok(Visit::NoCapacity),
                     Admission::Open => {}
                 }
-                let implementation = registered.descriptor.implementation_ref.clone();
+                let implementation = if memo_flag(task, NATIVE_CHILD) {
+                    task.implementation_ref.clone()
+                } else {
+                    registered.descriptor.implementation_ref.clone()
+                };
                 if !self.spawn_execution(
                     task.task_id,
                     registered,
@@ -1369,13 +1444,14 @@ async fn drive_execution(
             operation_id,
             implementation,
         } => {
-            let result = tokio::select! {
-                biased;
-                _result = registered.handler.reconcile(&task, operation_id) => _result,
-                _ = cancellation.cancelled() => return,
-            };
+            // The handler owns propagation and joining. An outer select would
+            // drop a reader that still owns a guest or an E1 writer.
+            let result = registered.handler.reconcile_with_cancellation(
+                &task, operation_id, cancellation,
+            ).await;
             let operation = match result {
-                Ok(operation) => operation,
+                Ok(Some(operation)) => operation,
+                Ok(None) => return,
                 Err(error) => {
                     store.journal_runtime_error(
                         task.agent_id,
@@ -1398,6 +1474,13 @@ async fn drive_execution(
                     return;
                 }
             };
+            if operation.task_id != task.task_id || operation.operation_id != operation_id {
+                park_managed(
+                    &store, &task, "handler_contract_violation",
+                    "reconciliation returned a different task/operation identity", false,
+                );
+                return;
+            }
             if operation.state != OperationState::Resolved {
                 park_managed(
                     &store,
@@ -1556,6 +1639,27 @@ impl Plugin for NativeChildPlugin {
 /// Each handler has a real Cordis generation lifetime. Removal prevents new
 /// claims while the original operation/reader remains durable for reconciliation.
 pub struct NativeTaskHandlerPlugin;
+impl NativeTaskHandlerPlugin {
+    /// Install only the historical origin's receipt reader in this Cordis
+    /// generation. It grants no fresh definition, capability, help or tool.
+    /// The handler must reject execute and validate its original contract and
+    /// frozen payload before querying; only Settle can select this entry.
+    pub fn install_recovery(
+        ctx: Context,
+        handler: Arc<dyn NativeTaskHandler>,
+    ) -> Result<(), std::io::Error> {
+        let service = ctx
+            .try_service::<NativeChildService>()
+            .map_err(std::io::Error::other)?;
+        let (key, epoch) = service
+            .install_handler(handler, true)
+            .map_err(std::io::Error::other)?;
+        ctx.effect_sync(move || service.uninstall(&key, epoch))
+            .map_err(std::io::Error::other)?;
+        Ok(())
+    }
+}
+
 impl Plugin for NativeTaskHandlerPlugin {
     type Config = Arc<dyn NativeTaskHandler>;
     type Input = Arc<dyn NativeTaskHandler>;

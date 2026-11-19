@@ -162,6 +162,25 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     /// new CallContext and must never arm another attempt.
     async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId)
     -> Result<OperationRecord>;
+
+    /// Own the complete local reconciliation lifetime. The default may drop
+    /// its query future on cancellation. A handler owning blocking work,
+    /// nested executors or receipt writers must override this method,
+    /// propagate cancellation and join that work before returning. A final
+    /// original receipt remains eligible for settlement after cancellation;
+    /// stopping a local wait never proves that a remote effect stopped.
+    async fn reconcile_with_cancellation(
+        &self,
+        task: &TaskRecord,
+        operation_id: EntityId,
+        cancellation: CancellationToken,
+    ) -> Result<Option<OperationRecord>> {
+        tokio::select! {
+            biased;
+            result = self.reconcile(task, operation_id) => result.map(Some),
+            _ = cancellation.cancelled() => Ok(None),
+        }
+    }
 }
 
 /// One runtime-owned lifetime for both delegated tasks and inline child tools.

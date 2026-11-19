@@ -1,3 +1,4 @@
+include!("document_recovery_tests.rs");
 include!("native_ssh_installation_tests.rs");
 include!("ssh_public_identity_tests.rs");
 include!("native_ssh_memory_helper_tests.rs");

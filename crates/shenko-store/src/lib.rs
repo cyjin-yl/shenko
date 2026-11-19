@@ -3,6 +3,8 @@
 //! Configures: journal_mode=WAL, synchronous=FULL, foreign_keys=ON
 pub mod migrations;
 pub mod store;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 pub mod authority;
 mod control_recovery;
 mod control_transition;
